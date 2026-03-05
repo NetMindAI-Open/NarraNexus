@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     # LLM call currently always returns the same 4 modules.
     skip_module_decision_llm: bool = False
 
+    # ===== Telegram Bot =====
+    # TelegramTrigger DB 轮询间隔（秒）
+    telegram_trigger_poll_interval: int = 30
+
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":
         """Expand ~ in path settings so callers don't need to handle it."""

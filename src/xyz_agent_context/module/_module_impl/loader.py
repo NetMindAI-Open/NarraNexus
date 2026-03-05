@@ -311,6 +311,9 @@ class ModuleLoader:
         # ===== Fallback: ensure JobModule MCP tools are always accessible =====
         all_active_instances = self._ensure_job_module_available(all_active_instances)
 
+        # ===== IM users: force-load the matching IM Module based on user_id prefix =====
+        all_active_instances = self._ensure_im_module_available(all_active_instances)
+
         # ===== Add always-loaded modules (no Instance record needed) =====
         all_active_instances = self._add_always_load_modules(all_active_instances)
 
@@ -632,6 +635,7 @@ class ModuleLoader:
             "AwarenessModule": "aware",
             "BasicInfoModule": "info",
             "SkillModule": "skill",
+            "TelegramModule": "telegram",
         }
         prefix = prefix_map.get(module_class, module_class.lower().replace("module", ""))
         return f"{prefix}_{short_uuid}"
@@ -677,6 +681,54 @@ class ModuleLoader:
         logger.info(
             "ModuleLoader: No JobModule instance selected by decision, "
             "adding virtual instance to ensure MCP tools are available"
+        )
+        return list(instances) + [virtual_instance]
+
+    # user_id prefix → IM Module mapping
+    IM_PREFIX_MODULE_MAP = {
+        "tg:": "TelegramModule",
+        # "wa:": "WhatsAppModule",  # future extension
+    }
+
+    def _ensure_im_module_available(
+        self,
+        instances: List[ModuleInstance],
+    ) -> List[ModuleInstance]:
+        """
+        Force-load the corresponding IM Module when user_id carries an IM channel prefix.
+
+        Applies to all working_source values (CHAT / IM / JOB). Whenever the current
+        user is an IM user (user_id starts with "tg:" etc.), ensure the matching module's
+        MCP tools are available so the Agent can send Telegram messages, inject chat_id, etc.
+        """
+        target_module = None
+        for prefix, module_name in self.IM_PREFIX_MODULE_MAP.items():
+            if self.user_id.startswith(prefix):
+                target_module = module_name
+                break
+
+        if not target_module or target_module not in self.module_map:
+            return instances
+
+        already_loaded = any(inst.module_class == target_module for inst in instances)
+        if already_loaded:
+            return instances
+
+        virtual_instance = ModuleInstance(
+            instance_id="",
+            module_class=target_module,
+            description="",
+            status=InstanceStatus.ACTIVE,
+            agent_id=self.agent_id,
+            dependencies=[],
+            config={},
+            state={},
+            created_at=datetime.now(),
+            last_used_at=datetime.now(),
+        )
+        logger.info(
+            f"ModuleLoader: user_id={self.user_id!r} matched IM prefix, "
+            f"force-loading virtual {target_module} instance"
         )
         return list(instances) + [virtual_instance]
 

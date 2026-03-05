@@ -37,6 +37,8 @@ from .agent_repository import AgentRepository
 from .rag_store_repository import RAGStoreRepository
 from .agent_message_repository import AgentMessageRepository
 
+from .telegram_repository import TelegramBindingRepository, TelegramSessionRepository, TelegramBotBinding, TelegramChatSession
+
 # Instance-related Repositories (ModuleInstance decoupled)
 from .instance_repository import InstanceRepository
 from .instance_link_repository import InstanceNarrativeLinkRepository
@@ -87,4 +89,9 @@ __all__ = [
     # Instance Awareness
     "InstanceAwarenessRepository",
     "InstanceAwareness",
+    # Telegram
+    "TelegramBindingRepository",
+    "TelegramSessionRepository",
+    "TelegramBotBinding",
+    "TelegramChatSession",
 ]

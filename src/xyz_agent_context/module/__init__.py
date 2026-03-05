@@ -41,7 +41,7 @@ from xyz_agent_context.module.gemini_rag_module.gemini_rag_module import GeminiR
 from xyz_agent_context.module.skill_module.skill_module import SkillModule
 from xyz_agent_context.module.memory_module.memory_module import MemoryModule
 from xyz_agent_context.module.matrix_module.matrix_module import MatrixModule
-
+from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
 # Module mapping table
 MODULE_MAP = {
     "MemoryModule": MemoryModule,  # Highest priority, ensures execution before other modules
@@ -53,7 +53,7 @@ MODULE_MAP = {
     "GeminiRAGModule": GeminiRAGModule,
     "SkillModule": SkillModule,
     "MatrixModule": MatrixModule,
-}
+    "TelegramModule": TelegramModule,}
 
 # =============================================================================
 # Rebuild ModuleInstance model to resolve forward references
@@ -101,7 +101,7 @@ __all__ = [
     "GeminiRAGModule",
     "SkillModule",
     "MatrixModule",
-
+    "TelegramModule",
     # ===== Module mapping =====
     "MODULE_MAP",
 

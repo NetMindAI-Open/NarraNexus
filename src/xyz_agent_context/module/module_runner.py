@@ -103,7 +103,7 @@ DEFAULT_MCP_MODULES = [
     "JobModule",            # port: 7803
     "GeminiRAGModule",      # port: 7805
     "MatrixModule",         # port: 7810
-]
+    "TelegramModule",       # port: 7806]
 
 # Port reference (for documentation only - actual ports are set in each module)
 MODULE_PORTS = {
@@ -113,7 +113,7 @@ MODULE_PORTS = {
     "JobModule": 7803,
     "GeminiRAGModule": 7805,
     "MatrixModule": 7810,
-}
+    "TelegramModule": 7806,}
 
 
 class ModuleRunner:
