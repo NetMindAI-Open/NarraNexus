@@ -951,6 +951,9 @@ Examples:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
 
+    from xyz_agent_context.utils.service_logger import setup_service_logger
+    setup_service_logger("job_trigger")
+
     logger.info("=" * 60)
     logger.info("JobTrigger - Background Task Executor (Worker Pool)")
     logger.info("=" * 60)

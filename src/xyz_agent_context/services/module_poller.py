@@ -594,8 +594,11 @@ Examples:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
 
+    from xyz_agent_context.utils.service_logger import setup_service_logger
+    setup_service_logger("module_poller")
+
     logger.info("=" * 60)
-    logger.info("🔄 ModulePoller - Module Callback Detection Service")
+    logger.info("ModulePoller - Module Callback Detection Service")
     logger.info("=" * 60)
     logger.info(f"   Poll interval: {args.interval}s")
     logger.info(f"   Max workers: {args.workers}")

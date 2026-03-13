@@ -89,7 +89,7 @@ export const EVERMEMOS_GIT_URL = 'https://github.com/NetMindAI-Open/EverMemOS.gi
 export const NEXUS_MATRIX_DIR = join(PROJECT_ROOT, 'related_project', 'NetMind-AI-RS-NexusMatrix')
 
 /** NexusMatrix Git repository URL */
-export const NEXUS_MATRIX_GIT_URL = 'git@github.com:protagolabs/NetMind-AI-RS-NexusMatrix.git'
+export const NEXUS_MATRIX_GIT_URL = 'https://github.com/protagolabs/NetMind-AI-RS-NexusMatrix.git'
 
 /** Synapse template directory (committed config templates) */
 export const SYNAPSE_TEMPLATE_DIR = join(PROJECT_ROOT, 'deploy', 'synapse')
@@ -191,7 +191,7 @@ export const SERVICES: ServiceDef[] = [
     port: PORTS.NEXUS_MATRIX,
     healthUrl: 'http://localhost:8953/health',
     order: 5,
-    gitRepo: 'git@github.com:protagolabs/NetMind-AI-RS-NexusMatrix.git'
+    gitRepo: 'https://github.com/protagolabs/NetMind-AI-RS-NexusMatrix.git'
   },
   {
     id: 'matrix-trigger',

@@ -53,6 +53,7 @@ try:
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
     from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
     from xyz_agent_context.utils.database_table_management.create_cost_records_table import create_cost_records_table
+    from xyz_agent_context.utils.database_table_management.create_matrix_processed_events_table import create_matrix_processed_events_table
     from xyz_agent_context.utils.database_table_management.create_table_base import (
         create_table,
         check_table_exists,
@@ -78,6 +79,7 @@ except ImportError:
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
     from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
     from xyz_agent_context.utils.database_table_management.create_cost_records_table import create_cost_records_table
+    from xyz_agent_context.utils.database_table_management.create_matrix_processed_events_table import create_matrix_processed_events_table
     from xyz_agent_context.utils.database_table_management.create_table_base import (
         create_table,
         check_table_exists,
@@ -295,18 +297,24 @@ async def create_all_tables(
         results.append(result)
 
     # Raw-SQL tables (not managed by BaseTableManager)
-    if tables is None or "cost_records" in (tables or []):
+    raw_sql_tables = {
+        "cost_records": create_cost_records_table,
+        "matrix_processed_events": create_matrix_processed_events_table,
+    }
+    for raw_table_name, create_fn in raw_sql_tables.items():
+        if tables is not None and raw_table_name not in tables:
+            continue
         idx = len(results) + 1
-        print(f"\n[{idx}/{len(tables_to_create) + 1}] Processing table: cost_records (raw SQL)")
+        print(f"\n[{idx}/{len(tables_to_create) + len(raw_sql_tables)}] Processing table: {raw_table_name} (raw SQL)")
         try:
-            exists = await check_table_exists("cost_records")
+            exists = await check_table_exists(raw_table_name)
             if exists and not force:
-                results.append(("cost_records", True, "already exists (skipped)"))
+                results.append((raw_table_name, True, "already exists (skipped)"))
             else:
-                await create_cost_records_table(force=force)
-                results.append(("cost_records", True, "created successfully"))
+                await create_fn(force=force)
+                results.append((raw_table_name, True, "created successfully"))
         except Exception as e:
-            results.append(("cost_records", False, f"failed: {str(e)[:50]}"))
+            results.append((raw_table_name, False, f"failed: {str(e)[:50]}"))
 
     # Display summary
     print("\n\n" + "="*80)

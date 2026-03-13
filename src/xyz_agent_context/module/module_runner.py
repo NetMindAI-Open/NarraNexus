@@ -566,6 +566,8 @@ class ModuleRunner:
 
 if __name__ == "__main__":
     import sys
+    from xyz_agent_context.utils.service_logger import setup_service_logger
+    setup_service_logger("mcp")
 
     runner = ModuleRunner()
 

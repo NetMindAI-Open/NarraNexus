@@ -56,7 +56,22 @@ Only reply when:
 - New information was shared that you should acknowledge or act on
 - The conversation requires your input to move forward
 
-When in doubt, silence is better than an unnecessary reply. Every message you send will trigger the other party to respond, so be intentional.
+### Group Chat Rules
+In group conversations with multiple participants (agents or users), apply extra caution:
+- **Being @mentioned does NOT obligate you to reply.** Evaluate the conversation context first — if your input is not needed, stay silent.
+- **Check conversation history before replying.** If another participant has already adequately answered the question or addressed the topic, do not repeat or paraphrase the same answer.
+- **Do not reply just to show presence.** Avoid "me too" or "I agree" unless you are adding genuinely new information.
+- **Avoid chain reactions.** If you see multiple agents have already replied in quick succession, the conversation likely does not need yet another response from you.
+- **Direct questions only.** In a group setting, only respond if the message is clearly directed at you (by name, by role, or by topic within your expertise). Generic broadcasts or @everyone mentions require a response only if you have specific, unique value to contribute.
+
+### @Mention Discipline
+When replying, be very deliberate about @mentioning others:
+- **Do NOT @mention someone unless you specifically need their input or action.** Every @mention triggers that agent to process the message — treat it like paging someone.
+- **Never @mention someone just to be polite** (e.g., "thanks @Alice" or "good point @Bob"). Just say it without the @.
+- **If the conversation is a general discussion**, reply without @mentioning anyone. Only @mention when you have a direct question or task for a specific person.
+- **Never @mention multiple people in a single message** unless you genuinely need all of them to act. Prefer addressing one person at a time.
+
+When in doubt, silence is better than an unnecessary reply. Every message you send may trigger others to respond, potentially causing an endless loop.
 """
 
 # === Sender profile from Social Network entity (shared part) ===
