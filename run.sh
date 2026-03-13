@@ -22,6 +22,9 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 EVERMEMOS_DIR="${PROJECT_ROOT}/.evermemos"
 EVERMEMOS_REPO="https://github.com/NetMindAI-Open/EverMemOS.git"
 EVERMEMOS_BRANCH="main"
+NEXUSMATRIX_DIR="${PROJECT_ROOT}/related_project/NetMind-AI-RS-NexusMatrix"
+NEXUSMATRIX_REPO="https://github.com/protagolabs/NetMind-AI-RS-NexusMatrix.git"
+NEXUSMATRIX_BRANCH="main"
 TMUX_SESSION="xyz-dev"
 
 # OS Detection
@@ -842,7 +845,7 @@ do_install() {
             ;;
     esac
 
-    local total_steps=11
+    local total_steps=12
     local current=0
 
     # --- Step 1: uv ---
@@ -1184,12 +1187,33 @@ do_install() {
         warn "Frontend directory not found or npm not available, skipping"
     fi
 
-    # --- Step 9: MySQL Docker ---
+    # --- Step 9: NexusMatrix (related project) ---
+    current=$((current + 1))
+    step "${current}/${total_steps}" "Setting up NexusMatrix Server"
+    if command -v uv &>/dev/null; then
+        if [ ! -d "${NEXUSMATRIX_DIR}" ]; then
+            info "Cloning NexusMatrix..."
+            mkdir -p "${PROJECT_ROOT}/related_project"
+            git clone "${NEXUSMATRIX_REPO}" -b "${NEXUSMATRIX_BRANCH}" "${NEXUSMATRIX_DIR}"
+            success "NexusMatrix cloned"
+        else
+            success "NexusMatrix directory already exists"
+        fi
+        info "Installing NexusMatrix dependencies..."
+        cd "${NEXUSMATRIX_DIR}"
+        uv sync
+        success "NexusMatrix dependencies installed"
+        cd "$PROJECT_ROOT"
+    else
+        fail "uv is not available, cannot set up NexusMatrix"
+    fi
+
+    # --- Step 10: MySQL Docker ---
     current=$((current + 1))
     step "${current}/${total_steps}" "Starting MySQL database (Docker)"
     ensure_mysql
 
-    # --- Step 10: .env configuration ---
+    # --- Step 11: .env configuration ---
     current=$((current + 1))
     step "${current}/${total_steps}" "Configuring environment variables (.env)"
     if [ -f "${PROJECT_ROOT}/.env" ]; then
@@ -1660,6 +1684,10 @@ do_run() {
     if [ ! -f "${PROJECT_ROOT}/.env" ]; then
         fail ".env does not exist (please run Install first)"
         has_error=true
+    fi
+    if [ ! -d "${NEXUSMATRIX_DIR}" ]; then
+        warn "NexusMatrix not found at ${NEXUSMATRIX_DIR} (NexusMatrix Server will not start)"
+        info "  Run Install to clone and set up NexusMatrix automatically"
     fi
 
     # Docker health check
@@ -2133,7 +2161,7 @@ do_update() {
     echo -e "    ${DIM}Database, .env, and Docker volumes will NOT be touched.${RESET}"
     echo ""
 
-    local total_steps=5
+    local total_steps=6
     local current=0
 
     # --- Step 1: Stop running services ---
@@ -2257,6 +2285,24 @@ do_update() {
         cd "$PROJECT_ROOT"
     else
         info "EverMemOS not initialized, skipping"
+    fi
+
+    # --- Step 6: Update NexusMatrix (if initialized) ---
+    current=$((current + 1))
+    step "${current}/${total_steps}" "Updating NexusMatrix"
+    if [ -d "${NEXUSMATRIX_DIR}" ]; then
+        cd "${NEXUSMATRIX_DIR}"
+        if git pull 2>/dev/null; then
+            success "NexusMatrix code updated"
+        else
+            warn "NexusMatrix git pull failed (may not be a git repo or has conflicts)"
+        fi
+        if command -v uv &>/dev/null && [ -f "${NEXUSMATRIX_DIR}/pyproject.toml" ]; then
+            uv sync 2>/dev/null && success "NexusMatrix dependencies updated" || warn "NexusMatrix uv sync failed"
+        fi
+        cd "$PROJECT_ROOT"
+    else
+        info "NexusMatrix not initialized, skipping (run Install to set up)"
     fi
 
     # --- Done ---
