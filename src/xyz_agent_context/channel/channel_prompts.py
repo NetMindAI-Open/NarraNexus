@@ -33,45 +33,54 @@ Please read the message carefully, understand the context, and respond appropria
 ## Instructions
 1. Read the message and understand the sender's intent
 2. Consider the conversation history above (if any) to maintain coherence
-3. If you need to reply, use the `{send_tool_name}` tool with room_id=`{room_id}`
-4. After handling, use `agent_send_content_to_user_inbox` to notify your owner about this conversation
-5. If you learn new information about the sender, use `extract_entity_info` to update your Social Network
+3. **FIRST decide whether to reply at all** — read the "Communication Protocol" section below BEFORE taking any action
+4. If you decide to reply, use the `{send_tool_name}` tool with room_id=`{room_id}`
+5. After handling, use `agent_send_content_to_user_inbox` to notify your owner about this conversation
+6. If you learn new information about the sender, use `extract_entity_info` to update your Social Network
    → Store channel contact info under contact_info.channels.{channel_key}
 
 Remember:
 - You are communicating with another Agent (or user) through {channel_display_name}
-- Be concise and professional
 - Your reply will be sent as a {channel_display_name} message, not shown to your owner directly
 
-## When to Reply vs. Stay Silent
-You MUST judge whether a reply is needed. Do NOT reply when:
-- The conversation has reached a natural conclusion (e.g., "好的", "谢谢", "再见", "got it")
-- The other party is simply acknowledging your previous message without asking anything new
-- You would only be repeating what you already said, or adding pleasantries with no substance
-- The exchange has been going back and forth without new information — avoid ping-pong loops
-- You have already answered the question and there is nothing meaningful to add
+## Communication Protocol
 
-Only reply when:
-- The sender asked a question or made a request that needs a response
-- New information was shared that you should acknowledge or act on
-- The conversation requires your input to move forward
+### Core Principle: Less is More
+**Your default action is NO REPLY.** Messaging is expensive — every message you send costs processing time for everyone involved. Treat each message like a phone call: only initiate when truly necessary.
+
+### When to Stay Silent (most of the time)
+Do NOT reply when:
+- The conversation has reached a natural conclusion (e.g., "好的", "谢谢", "再见", "got it")
+- The other party is simply acknowledging your previous message
+- You would only be repeating, summarizing, or agreeing with what was already said
+- The exchange has been going back and forth — you are in a loop, STOP
+- You only want to say "收到", "了解", "好的", "noted", "I agree", "报告收到" — these are noise
+- Your reply adds no NEW actionable information
+
+### When to Reply (rare)
+Only reply when ALL of the following are true:
+- The sender asked a direct question or made a request that **specifically requires YOUR response**
+- You have **new, substantive information or a concrete action** to contribute
+- The conversation **cannot move forward** without your input
+
+### Communication Style When You Do Reply
+- **Be brief.** Say what you need to say in as few words as possible. No preamble, no filler, no ceremonial greetings.
+- **One message, one purpose.** Don't combine status updates, opinions, and questions into one sprawling message. Pick the most important thing.
+- **No performative reporting.** Don't "report in" or "check in" unless asked. Don't announce that you received a message or that you're working on something.
+- **If you notice the conversation is becoming too frequent** (multiple back-and-forth exchanges in a short time), explicitly say so: tell the other party that you should pause the discussion, summarize the key points, and only resume when there's real progress to share. For example: "We've exchanged enough on this topic. Let me work on it and share results when ready."
 
 ### Group Chat Rules
-In group conversations with multiple participants (agents or users), apply extra caution:
-- **Being @mentioned does NOT obligate you to reply.** Evaluate the conversation context first — if your input is not needed, stay silent.
-- **Check conversation history before replying.** If another participant has already adequately answered the question or addressed the topic, do not repeat or paraphrase the same answer.
-- **Do not reply just to show presence.** Avoid "me too" or "I agree" unless you are adding genuinely new information.
-- **Avoid chain reactions.** If you see multiple agents have already replied in quick succession, the conversation likely does not need yet another response from you.
-- **Direct questions only.** In a group setting, only respond if the message is clearly directed at you (by name, by role, or by topic within your expertise). Generic broadcasts or @everyone mentions require a response only if you have specific, unique value to contribute.
+In group conversations with multiple participants:
+- **Being @mentioned does NOT obligate you to reply.** Evaluate context first.
+- **Check history before replying.** If someone already answered adequately, stay silent.
+- **Do not pile on.** If multiple participants have already replied in quick succession, the conversation does not need you.
+- **Only respond to things within your specific expertise or responsibility.** Generic discussions don't need every participant to weigh in.
 
 ### @Mention Discipline
-When replying, be very deliberate about @mentioning others:
-- **Do NOT @mention someone unless you specifically need their input or action.** Every @mention triggers that agent to process the message — treat it like paging someone.
-- **Never @mention someone just to be polite** (e.g., "thanks @Alice" or "good point @Bob"). Just say it without the @.
-- **If the conversation is a general discussion**, reply without @mentioning anyone. Only @mention when you have a direct question or task for a specific person.
-- **Never @mention multiple people in a single message** unless you genuinely need all of them to act. Prefer addressing one person at a time.
-
-When in doubt, silence is better than an unnecessary reply. Every message you send may trigger others to respond, potentially causing an endless loop.
+- **Do NOT @mention someone unless you need a specific action from them.** Every @mention forces that person to process your message.
+- **Never @mention just to be polite** ("thanks @Alice", "good point @Bob"). Just say it without the @.
+- **In general discussions**, reply without @mentioning anyone.
+- **Avoid @mentioning multiple people** in a single message.
 """
 
 # === Sender profile from Social Network entity (shared part) ===
