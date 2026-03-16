@@ -4,6 +4,7 @@
  *
  * Changelog:
  * - 2026-01-19: Added chat history loading, displays the last 10 conversation rounds on page open
+ * - 2026-03-16: Multi-agent concurrent chat support
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -42,9 +43,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
 
-  const { messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls, isStreaming, processMessage, addUserMessage, startStreaming, stopStreaming, getUserVisibleResponse } =
-    useChatStore();
+  const {
+    messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
+    isStreaming, addUserMessage, startStreaming,
+    getUserVisibleResponse, setActiveAgent,
+  } = useChatStore();
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+
+  // Sync activeAgentId in chatStore when configStore's agentId changes
+  useEffect(() => {
+    if (agentId) {
+      setActiveAgent(agentId);
+    }
+  }, [agentId, setActiveAgent]);
 
   // Determine if the current agent is in bootstrap mode
   const currentAgent = useMemo(
@@ -54,17 +65,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const isBootstrap = !!currentAgent?.bootstrap_active;
 
   const { run, isLoading } = useAgentWebSocket({
-    onMessage: processMessage,
-    onComplete: () => {
+    onComplete: (completedAgentId: string) => {
       refreshAgents(); // Pick up any name changes from bootstrap
-      if (agentId) {
-        checkAwarenessUpdate(agentId); // Check if awareness was updated (red dot)
+      if (completedAgentId) {
+        checkAwarenessUpdate(completedAgentId); // Check if awareness was updated (red dot)
       }
       onAgentComplete?.(); // Trigger full data refresh
-    },
-    onClose: () => {
-      // When WebSocket connection closes, ensure streaming state is stopped
-      stopStreaming();
     },
   });
 
@@ -114,23 +120,33 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     // so it persists visually after the user sends their first message
     if (showBootstrapGreeting) {
       useChatStore.setState((state) => ({
-        messages: [
-          {
-            id: 'bootstrap-greeting',
-            role: 'assistant' as const,
-            content: BOOTSTRAP_GREETING,
-            timestamp: Date.now() - 1,
+        agentSessions: {
+          ...state.agentSessions,
+          [agentId]: {
+            ...(state.agentSessions[agentId] ?? {
+              messages: [], currentSteps: [], currentThinking: '', currentToolCalls: [],
+              currentErrors: [], currentAssistantMessage: '', isStreaming: false, history: [], totalSteps: 6,
+            }),
+            messages: [
+              {
+                id: 'bootstrap-greeting',
+                role: 'assistant' as const,
+                content: BOOTSTRAP_GREETING,
+                timestamp: Date.now() - 1,
+              },
+              ...(state.agentSessions[agentId]?.messages ?? []),
+            ],
           },
-          ...state.messages,
-        ],
+        },
       }));
     }
 
-    addUserMessage(content);
-    startStreaming();
+    addUserMessage(agentId, content);
+    startStreaming(agentId);
 
     try {
-      await run(agentId, userId, content);
+      const agentName = currentAgent?.name || agentId;
+      run(agentId, userId, content, agentName);
     } catch (error) {
       console.error('Failed to run agent:', error);
     }
@@ -395,7 +411,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
+      {/* Input area — only locked when the CURRENT agent is streaming */}
       <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/20">
         <div className="flex gap-3 items-end">
           <div className="flex-1 relative">

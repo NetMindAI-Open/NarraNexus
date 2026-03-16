@@ -1,6 +1,6 @@
 /**
  * AgentList - Agent selection, creation, editing, and management
- * Extracted from Sidebar to separate agent CRUD logic from layout
+ * Shows running indicators and completion badges for multi-agent concurrent chat.
  */
 
 import { useState, useEffect } from 'react';
@@ -15,6 +15,7 @@ import {
   Globe,
   Lock,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { useConfigStore, useChatStore } from '@/stores';
@@ -34,7 +35,7 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
 
   const { userId, agentId, agents, setAgentId, setAgents, refreshAgents } = useConfigStore();
-  const { clearCurrent } = useChatStore();
+  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
 
   // Fetch agents on mount
   useEffect(() => {
@@ -59,7 +60,7 @@ export function AgentList({ collapsed }: AgentListProps) {
   const handleSelectAgent = (id: string) => {
     if (id !== agentId) {
       setAgentId(id);
-      clearCurrent();
+      setActiveAgent(id); // Also clears completion badge for this agent
     }
   };
 
@@ -79,7 +80,7 @@ export function AgentList({ collapsed }: AgentListProps) {
         };
         setAgents([newAgent, ...agents]);
         setAgentId(res.agent.agent_id);
-        clearCurrent();
+        setActiveAgent(res.agent.agent_id);
       } else {
         console.error('Failed to create agent:', res.error);
       }
@@ -156,10 +157,11 @@ export function AgentList({ collapsed }: AgentListProps) {
       if (res.success) {
         const remaining = agents.filter(a => a.agent_id !== agent.agent_id);
         setAgents(remaining);
+        clearAgent(agent.agent_id);
         if (agentId === agent.agent_id) {
-          clearCurrent();
           if (remaining.length > 0) {
             setAgentId(remaining[0].agent_id);
+            setActiveAgent(remaining[0].agent_id);
           } else {
             setAgentId('');
           }
@@ -174,6 +176,29 @@ export function AgentList({ collapsed }: AgentListProps) {
     } finally {
       setDeletingAgentId(null);
     }
+  };
+
+  /** Render agent status icon (running spinner, completed badge, or default) */
+  const renderAgentStatusIcon = (id: string, isSelected: boolean) => {
+    const streaming = isAgentStreaming(id);
+    const completed = completedAgentIds.includes(id);
+
+    if (streaming) {
+      return (
+        <Loader2 className="w-5 h-5 animate-spin text-[var(--accent-primary)]" />
+      );
+    }
+
+    return (
+      <Bot className={cn(
+        'w-5 h-5 transition-colors',
+        isSelected
+          ? 'text-[var(--accent-primary)]'
+          : completed
+            ? 'text-[var(--accent-primary)]'
+            : 'text-[var(--text-secondary)] group-hover:text-[var(--accent-primary)]'
+      )} />
+    );
   };
 
   // Collapsed mode: show compact agent icons
@@ -194,26 +219,32 @@ export function AgentList({ collapsed }: AgentListProps) {
         >
           <Plus className={cn('w-5 h-5', creatingAgent && 'animate-pulse')} />
         </button>
-        {agents.slice(0, 4).map((agent, index) => (
-          <button
-            key={agent.agent_id}
-            onClick={() => handleSelectAgent(agent.agent_id)}
-            className={cn(
-              'w-full aspect-square rounded-xl flex items-center justify-center transition-all duration-300',
-              'animate-fade-in',
-              agentId === agent.agent_id
-                ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
-                : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/50 hover:shadow-[0_0_15px_var(--accent-glow)]'
-            )}
-            style={{ animationDelay: `${index * 50}ms` }}
-            title={agent.agent_id}
-          >
-            <Bot className={cn(
-              'w-5 h-5',
-              agentId === agent.agent_id ? 'text-[var(--accent-primary)]' : ''
-            )} />
-          </button>
-        ))}
+        {agents.slice(0, 4).map((agent, index) => {
+          const isSelected = agentId === agent.agent_id;
+          const completed = completedAgentIds.includes(agent.agent_id);
+          return (
+            <div key={agent.agent_id} className="relative">
+              <button
+                onClick={() => handleSelectAgent(agent.agent_id)}
+                className={cn(
+                  'w-full aspect-square rounded-xl flex items-center justify-center transition-all duration-300',
+                  'animate-fade-in',
+                  isSelected
+                    ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
+                    : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--accent-primary)]/50 hover:shadow-[0_0_15px_var(--accent-glow)]'
+                )}
+                style={{ animationDelay: `${index * 50}ms` }}
+                title={agent.agent_id}
+              >
+                {renderAgentStatusIcon(agent.agent_id, isSelected)}
+              </button>
+              {/* Completion badge dot */}
+              {completed && !isSelected && (
+                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[var(--accent-primary)] border-2 border-[var(--bg-deep)] shadow-[0_0_6px_var(--accent-primary)]" />
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -268,151 +299,163 @@ export function AgentList({ collapsed }: AgentListProps) {
         </div>
       ) : (
         <div className="space-y-1.5">
-          {agents.map((agent, index) => (
-            <div
-              key={agent.agent_id}
-              onClick={() => handleSelectAgent(agent.agent_id)}
-              className={cn(
-                'w-full text-left p-3 rounded-xl transition-all duration-300 cursor-pointer',
-                'hover:bg-[var(--bg-tertiary)] group relative',
-                'animate-slide-up',
-                agentId === agent.agent_id && [
-                  'bg-[var(--accent-primary)]/10',
-                  'border border-[var(--accent-primary)]/30',
-                  'shadow-[0_0_30px_var(--accent-glow),inset_0_0_20px_var(--accent-glow)]',
-                ],
-                agentId !== agent.agent_id && 'border border-transparent'
-              )}
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
-              {/* Active indicator bar */}
-              {agentId === agent.agent_id && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 bg-[var(--accent-primary)] rounded-r-full shadow-[0_0_10px_var(--accent-primary)]" />
-              )}
+          {agents.map((agent, index) => {
+            const isSelected = agentId === agent.agent_id;
+            const streaming = isAgentStreaming(agent.agent_id);
+            const completed = completedAgentIds.includes(agent.agent_id);
 
-              <div className="flex items-start gap-3">
-                <div
-                  className={cn(
-                    'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300',
-                    agentId === agent.agent_id
-                      ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
-                      : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] group-hover:border-[var(--accent-primary)]/50 group-hover:shadow-[0_0_15px_var(--accent-glow)]'
-                  )}
-                >
-                  <Bot className={cn(
-                    'w-5 h-5 transition-colors',
-                    agentId === agent.agent_id
-                      ? 'text-[var(--accent-primary)]'
-                      : 'text-[var(--text-secondary)] group-hover:text-[var(--accent-primary)]'
-                  )} />
-                </div>
-                <div className="flex-1 min-w-0 pt-0.5">
-                  {editingAgentId === agent.agent_id ? (
-                    /* Editing Mode */
-                    <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={e => setEditingName(e.target.value)}
-                        className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--accent-primary)]/50 rounded focus:outline-none focus:border-[var(--accent-primary)]"
-                        autoFocus
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') handleSaveEdit(agent.agent_id, e as any);
-                          if (e.key === 'Escape') handleCancelEdit(e as any);
-                        }}
-                      />
-                      <button
-                        onClick={(e) => handleSaveEdit(agent.agent_id, e)}
-                        disabled={savingName}
-                        className="p-1 shrink-0 hover:bg-[var(--color-success)]/20 rounded transition-colors"
-                        title="Save (Enter)"
-                      >
-                        <Check className={cn('w-3.5 h-3.5 text-[var(--color-success)]', savingName && 'animate-pulse')} />
-                      </button>
-                      <button
-                        onClick={handleCancelEdit}
-                        className="p-1 shrink-0 hover:bg-[var(--color-error)]/20 rounded transition-colors"
-                        title="Cancel (Esc)"
-                      >
-                        <X className="w-3.5 h-3.5 text-[var(--color-error)]" />
-                      </button>
-                    </div>
-                  ) : (
-                    /* Display Mode */
-                    <>
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className={cn(
-                            'font-mono text-sm truncate transition-colors',
-                            agentId === agent.agent_id
-                              ? 'text-[var(--accent-primary)] font-semibold'
-                              : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
-                          )}
+            return (
+              <div
+                key={agent.agent_id}
+                onClick={() => handleSelectAgent(agent.agent_id)}
+                className={cn(
+                  'w-full text-left p-3 rounded-xl transition-all duration-300 cursor-pointer',
+                  'hover:bg-[var(--bg-tertiary)] group relative',
+                  'animate-slide-up',
+                  isSelected && [
+                    'bg-[var(--accent-primary)]/10',
+                    'border border-[var(--accent-primary)]/30',
+                    'shadow-[0_0_30px_var(--accent-glow),inset_0_0_20px_var(--accent-glow)]',
+                  ],
+                  !isSelected && 'border border-transparent'
+                )}
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                {/* Active indicator bar */}
+                {isSelected && (
+                  <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-8 bg-[var(--accent-primary)] rounded-r-full shadow-[0_0_10px_var(--accent-primary)]" />
+                )}
+
+                <div className="flex items-start gap-3">
+                  <div
+                    className={cn(
+                      'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300 relative',
+                      isSelected
+                        ? 'bg-[var(--accent-primary)]/20 shadow-[0_0_20px_var(--accent-glow)]'
+                        : 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] group-hover:border-[var(--accent-primary)]/50 group-hover:shadow-[0_0_15px_var(--accent-glow)]'
+                    )}
+                  >
+                    {renderAgentStatusIcon(agent.agent_id, isSelected)}
+                    {/* Completion badge dot */}
+                    {completed && !isSelected && (
+                      <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[var(--accent-primary)] border-2 border-[var(--bg-deep)] shadow-[0_0_6px_var(--accent-primary)]" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    {editingAgentId === agent.agent_id ? (
+                      /* Editing Mode */
+                      <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                        <input
+                          type="text"
+                          value={editingName}
+                          onChange={e => setEditingName(e.target.value)}
+                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--accent-primary)]/50 rounded focus:outline-none focus:border-[var(--accent-primary)]"
+                          autoFocus
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') handleSaveEdit(agent.agent_id, e as any);
+                            if (e.key === 'Escape') handleCancelEdit(e as any);
+                          }}
+                        />
+                        <button
+                          onClick={(e) => handleSaveEdit(agent.agent_id, e)}
+                          disabled={savingName}
+                          className="p-1 shrink-0 hover:bg-[var(--color-success)]/20 rounded transition-colors"
+                          title="Save (Enter)"
                         >
-                          {agent.name || agent.agent_id}
-                        </span>
-                        {agent.is_public && agent.created_by !== userId && (
-                          <span title={`Public · by ${agent.created_by}`}>
-                            <Globe className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
-                          </span>
-                        )}
-                        {agentId === agent.agent_id && (
-                          <Circle className="w-2 h-2 shrink-0 fill-[var(--color-success)] text-[var(--color-success)] animate-pulse" />
-                        )}
+                          <Check className={cn('w-3.5 h-3.5 text-[var(--color-success)]', savingName && 'animate-pulse')} />
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="p-1 shrink-0 hover:bg-[var(--color-error)]/20 rounded transition-colors"
+                          title="Cancel (Esc)"
+                        >
+                          <X className="w-3.5 h-3.5 text-[var(--color-error)]" />
+                        </button>
                       </div>
-                      {agentId === agent.agent_id && (
-                        <div className="flex items-center gap-0.5 mt-1">
-                          {agent.created_by === userId && (
-                            <button
-                              onClick={(e) => handleTogglePublic(agent, e)}
-                              className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-all"
-                              title={agent.is_public ? 'Set to Private' : 'Set to Public'}
-                            >
-                              {agent.is_public ? (
-                                <Globe className="w-3 h-3 text-[var(--accent-primary)]" />
-                              ) : (
-                                <Lock className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]" />
-                              )}
-                            </button>
-                          )}
-                          <button
-                            onClick={(e) => handleStartEdit(agent, e)}
-                            className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-all"
-                            title="Edit name"
+                    ) : (
+                      /* Display Mode */
+                      <>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={cn(
+                              'font-mono text-sm truncate transition-colors',
+                              isSelected
+                                ? 'text-[var(--accent-primary)] font-semibold'
+                                : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
+                            )}
                           >
-                            <Pencil className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]" />
-                          </button>
-                          {agent.created_by === userId && (
-                            <button
-                              onClick={(e) => handleDeleteAgent(agent, e)}
-                              disabled={deletingAgentId === agent.agent_id}
-                              className="p-1 hover:bg-[var(--color-error)]/10 rounded transition-all"
-                              title="Delete agent"
-                            >
-                              <Trash2 className={cn(
-                                'w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--color-error)]',
-                                deletingAgentId === agent.agent_id && 'animate-pulse'
-                              )} />
-                            </button>
+                            {agent.name || agent.agent_id}
+                          </span>
+                          {agent.is_public && agent.created_by !== userId && (
+                            <span title={`Public · by ${agent.created_by}`}>
+                              <Globe className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
+                            </span>
+                          )}
+                          {/* Running indicator */}
+                          {streaming && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] font-medium uppercase tracking-wider">
+                              Running
+                            </span>
+                          )}
+                          {/* Selected indicator (only when not streaming) */}
+                          {isSelected && !streaming && (
+                            <Circle className="w-2 h-2 shrink-0 fill-[var(--color-success)] text-[var(--color-success)] animate-pulse" />
                           )}
                         </div>
-                      )}
-                    </>
-                  )}
-                  {agent.description && editingAgentId !== agent.agent_id && (
-                    <p className="text-xs text-[var(--text-tertiary)] mt-1 line-clamp-2 leading-relaxed">
-                      {agent.description}
-                    </p>
-                  )}
-                  {agent.name && agent.name !== agent.agent_id && editingAgentId !== agent.agent_id && (
-                    <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 font-mono opacity-60">
-                      {agent.agent_id}
-                    </p>
-                  )}
+                        {isSelected && (
+                          <div className="flex items-center gap-0.5 mt-1">
+                            {agent.created_by === userId && (
+                              <button
+                                onClick={(e) => handleTogglePublic(agent, e)}
+                                className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-all"
+                                title={agent.is_public ? 'Set to Private' : 'Set to Public'}
+                              >
+                                {agent.is_public ? (
+                                  <Globe className="w-3 h-3 text-[var(--accent-primary)]" />
+                                ) : (
+                                  <Lock className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]" />
+                                )}
+                              </button>
+                            )}
+                            <button
+                              onClick={(e) => handleStartEdit(agent, e)}
+                              className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-all"
+                              title="Edit name"
+                            >
+                              <Pencil className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]" />
+                            </button>
+                            {agent.created_by === userId && (
+                              <button
+                                onClick={(e) => handleDeleteAgent(agent, e)}
+                                disabled={deletingAgentId === agent.agent_id}
+                                className="p-1 hover:bg-[var(--color-error)]/10 rounded transition-all"
+                                title="Delete agent"
+                              >
+                                <Trash2 className={cn(
+                                  'w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--color-error)]',
+                                  deletingAgentId === agent.agent_id && 'animate-pulse'
+                                )} />
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {agent.description && editingAgentId !== agent.agent_id && (
+                      <p className="text-xs text-[var(--text-tertiary)] mt-1 line-clamp-2 leading-relaxed">
+                        {agent.description}
+                      </p>
+                    )}
+                    {agent.name && agent.name !== agent.agent_id && editingAgentId !== agent.agent_id && (
+                      <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 font-mono opacity-60">
+                        {agent.agent_id}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -22,6 +22,7 @@ import { Sidebar } from './Sidebar';
 import { ContextPanelHeader, type ContextTab } from './ContextPanelHeader';
 import { ContextPanelContent } from './ContextPanelContent';
 import { ChatPanel } from '@/components/chat';
+import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { useAutoRefresh } from '@/hooks';
 
@@ -46,6 +47,9 @@ export function MainLayout() {
     <div className="h-screen flex bg-[var(--bg-deep)] relative overflow-hidden">
       {/* Sidebar - Agent List */}
       <Sidebar />
+
+      {/* Background agent completion toasts */}
+      <AgentCompletionToast />
 
       {/* Main content - 2 columns */}
       <main className="flex-1 flex min-w-0 p-4 gap-4 overflow-hidden relative z-10">

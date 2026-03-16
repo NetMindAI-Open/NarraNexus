@@ -38,8 +38,8 @@ export function UserInboxPopover() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { userId, agentId: currentAgentId, setAgentId, agents } = useConfigStore();
-  const { clearCurrent } = useChatStore();
+  const { userId, setAgentId, agents } = useConfigStore();
+  const { setActiveAgent } = useChatStore();
   const {
     inbox: messages,
     inboxUnreadCount: unreadCount,
@@ -97,10 +97,8 @@ export function UserInboxPopover() {
 
   // Navigate to Agent
   const handleGoToAgent = (targetAgentId: string) => {
-    if (targetAgentId !== currentAgentId) {
-      clearCurrent();
-    }
     setAgentId(targetAgentId);
+    setActiveAgent(targetAgentId);
     setOpen(false);
     setSelectedId(null);
   };
