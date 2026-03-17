@@ -13,13 +13,16 @@
 import { create } from 'zustand';
 import { api } from '@/lib/api';
 import type {
+  ApiResponse,
   InboxMessage,
-  AgentInboxMessage,
+  MatrixRoom,
+  RoomMessage,
   Job,
   SocialNetworkEntity,
   ChatHistoryEvent,
   ChatHistoryNarrative,
-  RAGFileInfo
+  RAGFileInfo,
+  CostSummary,
 } from '@/types';
 
 // ────────────────────────────────────────────
@@ -30,8 +33,10 @@ interface PreloadState {
   // Data
   inbox: InboxMessage[];
   inboxUnreadCount: number;
-  agentInbox: AgentInboxMessage[];
-  agentInboxUnrespondedCount: number;
+  inboxTotalCount: number;
+  inboxPage: number;
+  agentInboxRooms: MatrixRoom[];
+  agentInboxUnreadCount: number;
   jobs: Job[];
   awareness: string | null;
   awarenessCreateTime: string | null;
@@ -42,6 +47,7 @@ interface PreloadState {
   ragFiles: RAGFileInfo[];
   ragCompletedCount: number;
   ragPendingCount: number;
+  costSummary: CostSummary | null;
 
   // Loading states
   inboxLoading: boolean;
@@ -51,6 +57,7 @@ interface PreloadState {
   socialNetworkLoading: boolean;
   chatHistoryLoading: boolean;
   ragFilesLoading: boolean;
+  costLoading: boolean;
 
   // Error states
   inboxError: string | null;
@@ -60,6 +67,7 @@ interface PreloadState {
   socialNetworkError: string | null;
   chatHistoryError: string | null;
   ragFilesError: string | null;
+  costError: string | null;
 
   // Last loaded params (to detect changes)
   lastUserId: string | null;
@@ -68,15 +76,17 @@ interface PreloadState {
   // Actions (silent=true skips loading state toggle & deduplicates unchanged data)
   preloadAll: (agentId: string, userId: string) => Promise<void>;
   refreshInbox: (userId: string, silent?: boolean) => Promise<void>;
+  loadInboxPage: (userId: string, page: number) => Promise<void>;
   refreshAgentInbox: (agentId: string, silent?: boolean) => Promise<void>;
   refreshJobs: (agentId: string, userId?: string, status?: string, silent?: boolean) => Promise<void>;
   refreshAwareness: (agentId: string, silent?: boolean) => Promise<void>;
   refreshSocialNetwork: (agentId: string, silent?: boolean) => Promise<void>;
   refreshChatHistory: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
   refreshRAGFiles: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
+  refreshCost: (agentId: string, days?: number, silent?: boolean) => Promise<void>;
   addChatHistoryEvent: (event: ChatHistoryEvent) => void;
   updateInboxMessage: (messageId: string, updates: Partial<InboxMessage>) => void;
-  updateAgentInboxMessage: (messageId: string, updates: Partial<AgentInboxMessage>) => void;
+  updateAgentInboxMessage: (messageId: string, updates: Partial<RoomMessage>) => void;
   markAllInboxRead: () => void;
   clearAll: () => void;
 }
@@ -96,7 +106,7 @@ type GetFn = () => PreloadState;
  * - Data is compared with current state; set() is skipped if unchanged (no wasted re-renders)
  * - Errors are silently swallowed (transient network blips shouldn't disrupt UI)
  */
-async function loadDomain<T>(
+async function loadDomain<T extends ApiResponse>(
   set: SetFn,
   get: GetFn,
   loadingKey: keyof PreloadState,
@@ -111,8 +121,7 @@ async function loadDomain<T>(
   }
   try {
     const result = await fetcher();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((result as any).success) {
+    if (result.success) {
       const updates = onSuccess(result);
       if (silent) {
         // Skip set() entirely if data hasn't changed
@@ -126,36 +135,13 @@ async function loadDomain<T>(
         set({ ...updates, [loadingKey]: false } as Partial<PreloadState>);
       }
     } else if (!silent) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      set({ [loadingKey]: false, [errorKey]: (result as any).error || fallbackError } as Partial<PreloadState>);
+      set({ [loadingKey]: false, [errorKey]: result.error || fallbackError } as Partial<PreloadState>);
     }
   } catch (error) {
     if (!silent) {
       set({ [loadingKey]: false, [errorKey]: String(error) } as Partial<PreloadState>);
     }
   }
-}
-
-/** Extract success data or error info from a single Promise.allSettled result */
-function extractSettled<T>(
-  result: PromiseSettledResult<T>,
-  onFulfilled: (val: T) => Partial<PreloadState>,
-  loadingKey: keyof PreloadState,
-  errorKey: keyof PreloadState,
-  fallbackError: string,
-): Partial<PreloadState> {
-  if (result.status === 'fulfilled') {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((result.value as any).success) {
-      return { ...onFulfilled(result.value), [loadingKey]: false };
-    }
-    return {
-      [loadingKey]: false,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      [errorKey]: (result.value as any).error || fallbackError,
-    };
-  }
-  return { [loadingKey]: false, [errorKey]: String(result.reason) };
 }
 
 // ────────────────────────────────────────────
@@ -166,8 +152,10 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   // Initial data
   inbox: [],
   inboxUnreadCount: 0,
-  agentInbox: [],
-  agentInboxUnrespondedCount: 0,
+  inboxTotalCount: 0,
+  inboxPage: 1,
+  agentInboxRooms: [],
+  agentInboxUnreadCount: 0,
   jobs: [],
   awareness: null,
   awarenessCreateTime: null,
@@ -178,6 +166,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   ragFiles: [],
   ragCompletedCount: 0,
   ragPendingCount: 0,
+  costSummary: null,
 
   // Initial loading / error
   inboxLoading: false,
@@ -187,6 +176,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   socialNetworkLoading: false,
   chatHistoryLoading: false,
   ragFilesLoading: false,
+  costLoading: false,
   inboxError: null,
   agentInboxError: null,
   jobsError: null,
@@ -194,6 +184,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   socialNetworkError: null,
   chatHistoryError: null,
   ragFilesError: null,
+  costError: null,
 
   lastUserId: null,
   lastAgentId: null,
@@ -209,59 +200,84 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       lastAgentId: agentId,
       inboxLoading: true, agentInboxLoading: true, jobsLoading: true,
       awarenessLoading: true, socialNetworkLoading: true,
-      chatHistoryLoading: true, ragFilesLoading: true,
+      chatHistoryLoading: true, ragFilesLoading: true, costLoading: true,
       inboxError: null, agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
-      chatHistoryError: null, ragFilesError: null,
+      chatHistoryError: null, ragFilesError: null, costError: null,
     });
 
-    const [inbox, agentInbox, jobs, awareness, social, history, rag] = await Promise.allSettled([
-      api.getInbox(userId),
-      api.getAgentInbox(agentId),
-      api.getJobs(agentId),
-      api.getAwareness(agentId),
-      api.getSocialNetworkList(agentId),
-      api.getChatHistory(agentId, userId),
-      api.listRAGFiles(agentId, userId),
-    ]);
-
-    set({
-      ...extractSettled(inbox,
-        (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count }),
-        'inboxLoading', 'inboxError', 'Failed to load inbox'),
-      ...extractSettled(agentInbox,
-        (r) => ({ agentInbox: r.messages, agentInboxUnrespondedCount: r.unresponded_count }),
-        'agentInboxLoading', 'agentInboxError', 'Failed to load agent inbox'),
-      ...extractSettled(jobs,
+    // Fire all domains independently — each updates UI as soon as it resolves,
+    // so fast APIs (awareness ~2ms) don't wait for slow ones (chat-history ~7MB).
+    const tasks = [
+      loadDomain(set, get, 'inboxLoading', 'inboxError',
+        () => api.getInbox(userId),
+        (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count, inboxTotalCount: r.total_count, inboxPage: 1 }),
+        'Failed to load inbox'),
+      loadDomain(set, get, 'agentInboxLoading', 'agentInboxError',
+        () => api.getAgentInbox(agentId),
+        (r) => ({ agentInboxRooms: r.rooms, agentInboxUnreadCount: r.total_unread }),
+        'Failed to load agent inbox'),
+      loadDomain(set, get, 'jobsLoading', 'jobsError',
+        () => api.getJobs(agentId),
         (r) => ({ jobs: r.jobs }),
-        'jobsLoading', 'jobsError', 'Failed to load jobs'),
-      ...extractSettled(awareness,
+        'Failed to load jobs'),
+      loadDomain(set, get, 'awarenessLoading', 'awarenessError',
+        () => api.getAwareness(agentId),
         (r) => ({ awareness: r.awareness || null, awarenessCreateTime: r.create_time || null, awarenessUpdateTime: r.update_time || null }),
-        'awarenessLoading', 'awarenessError', 'Failed to load awareness'),
-      ...extractSettled(social,
+        'Failed to load awareness'),
+      loadDomain(set, get, 'socialNetworkLoading', 'socialNetworkError',
+        () => api.getSocialNetworkList(agentId),
         (r) => ({ socialNetworkList: r.entities || [] }),
-        'socialNetworkLoading', 'socialNetworkError', 'No social network data'),
-      ...extractSettled(history,
+        'No social network data'),
+      loadDomain(set, get, 'chatHistoryLoading', 'chatHistoryError',
+        () => api.getChatHistory(agentId, userId),
         (r) => ({ chatHistoryEvents: r.events || [], chatHistoryNarratives: r.narratives || [] }),
-        'chatHistoryLoading', 'chatHistoryError', 'No chat history'),
-      ...extractSettled(rag,
+        'No chat history'),
+      loadDomain(set, get, 'ragFilesLoading', 'ragFilesError',
+        () => api.listRAGFiles(agentId, userId),
         (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
-        'ragFilesLoading', 'ragFilesError', 'Failed to load RAG files'),
-    } as Partial<PreloadState>);
+        'Failed to load RAG files'),
+      loadDomain(set, get, 'costLoading', 'costError',
+        () => api.getCosts(agentId),
+        (r) => ({ costSummary: r.summary || null }),
+        'Failed to load cost data'),
+    ];
+
+    await Promise.allSettled(tasks);
   },
 
   // ── Individual refresh methods ────────────────────
 
   refreshInbox: (userId, silent?) => loadDomain(set, get,
     'inboxLoading', 'inboxError',
-    () => api.getInbox(userId),
-    (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count }),
+    () => api.getInbox(userId, undefined, 50, (get().inboxPage - 1) * 50),
+    (r) => ({ inbox: r.messages, inboxUnreadCount: r.unread_count, inboxTotalCount: r.total_count }),
     'Failed to load inbox', silent),
+
+  loadInboxPage: async (userId, page) => {
+    set({ inboxLoading: true, inboxError: null });
+    try {
+      const result = await api.getInbox(userId, undefined, 50, (page - 1) * 50);
+      if (result.success) {
+        set({
+          inbox: result.messages,
+          inboxUnreadCount: result.unread_count,
+          inboxTotalCount: result.total_count,
+          inboxPage: page,
+          inboxLoading: false,
+        });
+      } else {
+        set({ inboxLoading: false, inboxError: result.error || 'Failed to load inbox' });
+      }
+    } catch (error) {
+      set({ inboxLoading: false, inboxError: String(error) });
+    }
+  },
 
   refreshAgentInbox: (agentId, silent?) => loadDomain(set, get,
     'agentInboxLoading', 'agentInboxError',
     () => api.getAgentInbox(agentId),
-    (r) => ({ agentInbox: r.messages, agentInboxUnrespondedCount: r.unresponded_count }),
+    (r) => ({ agentInboxRooms: r.rooms, agentInboxUnreadCount: r.total_unread }),
     'Failed to load agent inbox', silent),
 
   refreshJobs: (agentId, _userId?, status?, silent?) => loadDomain(set, get,
@@ -294,6 +310,12 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
     'Failed to load RAG files', silent),
 
+  refreshCost: (agentId, days = 7, silent?) => loadDomain(set, get,
+    'costLoading', 'costError',
+    () => api.getCosts(agentId, days),
+    (r) => ({ costSummary: r.summary || null }),
+    'Failed to load cost data', silent),
+
   // ── Mutation helpers ──────────────────────────────
 
   addChatHistoryEvent: (event) => {
@@ -315,10 +337,18 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
 
   updateAgentInboxMessage: (messageId, updates) => {
     set((state) => ({
-      agentInbox: state.agentInbox.map((m) => m.message_id === messageId ? { ...m, ...updates } : m),
-      agentInboxUnrespondedCount: updates.if_response === true
-        ? Math.max(0, state.agentInboxUnrespondedCount - 1)
-        : state.agentInboxUnrespondedCount,
+      agentInboxRooms: state.agentInboxRooms.map((room) => ({
+        ...room,
+        messages: room.messages.map((m) =>
+          m.message_id === messageId ? { ...m, ...updates } : m
+        ),
+        unread_count: updates.is_read === true
+          ? Math.max(0, room.unread_count - (room.messages.some((m) => m.message_id === messageId && !m.is_read) ? 1 : 0))
+          : room.unread_count,
+      })),
+      agentInboxUnreadCount: updates.is_read === true
+        ? Math.max(0, state.agentInboxUnreadCount - 1)
+        : state.agentInboxUnreadCount,
     }));
   },
 
@@ -331,17 +361,18 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
 
   clearAll: () => {
     set({
-      inbox: [], inboxUnreadCount: 0,
-      agentInbox: [], agentInboxUnrespondedCount: 0,
+      inbox: [], inboxUnreadCount: 0, inboxTotalCount: 0, inboxPage: 1,
+      agentInboxRooms: [], agentInboxUnreadCount: 0,
       jobs: [],
       awareness: null, awarenessCreateTime: null, awarenessUpdateTime: null,
       socialNetworkList: [],
       chatHistoryEvents: [], chatHistoryNarratives: [],
       ragFiles: [], ragCompletedCount: 0, ragPendingCount: 0,
+      costSummary: null,
       lastUserId: null, lastAgentId: null,
       inboxError: null, agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
-      chatHistoryError: null, ragFilesError: null,
+      chatHistoryError: null, ragFilesError: null, costError: null,
     });
   },
 }));

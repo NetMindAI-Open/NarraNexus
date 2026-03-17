@@ -51,6 +51,7 @@ try:
     from xyz_agent_context.utils.database_table_management.create_instance_narrative_links_table import InstanceNarrativeLinksTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_awareness_table import InstanceAwarenessTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
+    from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
     from xyz_agent_context.utils.db_factory import get_db_client
 except ImportError:
     project_root = Path(__file__).resolve().parents[4]
@@ -70,6 +71,7 @@ except ImportError:
     from xyz_agent_context.utils.database_table_management.create_instance_narrative_links_table import InstanceNarrativeLinksTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_awareness_table import InstanceAwarenessTableManager
     from xyz_agent_context.utils.database_table_management.create_instance_event_memory_table import InstanceModuleReportMemoryTableManager, InstanceJsonFormatMemoryTableManager
+    from xyz_agent_context.utils.database_table_management.create_matrix_table import MatrixCredentialsTableManager
     from xyz_agent_context.utils.db_factory import get_db_client
 
 
@@ -93,6 +95,8 @@ TABLE_MANAGERS = {
     "instance_awareness": InstanceAwarenessTableManager,
     "instance_module_report_memory": InstanceModuleReportMemoryTableManager,
     "instance_json_format_memory": InstanceJsonFormatMemoryTableManager,
+    # Matrix tables
+    "matrix_credentials": MatrixCredentialsTableManager,
 }
 
 
@@ -103,6 +107,7 @@ async def sync_single_table(
     manager_class,
     dry_run: bool = False,
     interactive: bool = False,
+    auto_safe: bool = False,
 ) -> bool:
     """
     Sync a single table
@@ -112,6 +117,7 @@ async def sync_single_table(
         manager_class: Table manager class
         dry_run: Whether in dry-run mode
         interactive: Whether to interactively confirm
+        auto_safe: Auto-apply safe changes, skip dangerous ones
 
     Returns:
         Whether successful
@@ -121,7 +127,7 @@ async def sync_single_table(
     print("="*80)
 
     try:
-        if interactive and not dry_run:
+        if interactive and not dry_run and not auto_safe:
             print(f"\nChecking changes for {table_name} table...")
             await manager_class.sync_table(dry_run=True)
 
@@ -130,7 +136,7 @@ async def sync_single_table(
                 print(f"Skipped {table_name} table")
                 return True
 
-        await manager_class.sync_table(dry_run=dry_run)
+        await manager_class.sync_table(dry_run=dry_run, auto_safe=auto_safe)
         print(f"\n{table_name} table sync {'check ' if dry_run else ''}completed")
         return True
 
@@ -144,6 +150,7 @@ async def sync_all_tables(
     tables: List[str] = None,
     dry_run: bool = False,
     interactive: bool = False,
+    auto_safe: bool = False,
 ) -> None:
     """
     Sync all tables or specified tables
@@ -152,6 +159,8 @@ async def sync_all_tables(
         tables: List of tables to sync (None means sync all tables)
         dry_run: Whether in dry-run mode
         interactive: Whether to interactively confirm each table
+        auto_safe: Auto-apply safe changes (ENUM expansion, VARCHAR growth),
+                   skip dangerous changes silently. No user prompts.
     """
     # Determine which tables to sync
     if tables is None:
@@ -174,7 +183,7 @@ async def sync_all_tables(
     print(f"Tables to sync: {', '.join(tables_to_sync)}")
     print(f"Total: {len(tables_to_sync)} tables")
 
-    if not dry_run and not interactive:
+    if not dry_run and not interactive and not auto_safe:
         print("\n" + "WARNING "*5)
         print("WARNING: About to actually modify database table structure!")
         print("WARNING "*5)
@@ -188,7 +197,7 @@ async def sync_all_tables(
     for i, table_name in enumerate(tables_to_sync, 1):
         print(f"\n\n[{i}/{len(tables_to_sync)}] Processing table: {table_name}")
         manager_class = TABLE_MANAGERS[table_name]
-        success = await sync_single_table(table_name, manager_class, dry_run, interactive)
+        success = await sync_single_table(table_name, manager_class, dry_run, interactive, auto_safe)
         results[table_name] = success
 
     # Display summary
@@ -221,10 +230,12 @@ async def sync_all_tables(
 
 async def check_schema_changes() -> bool:
     """
-    检测是否存在表结构差异
+    Detect schema differences between Pydantic models and database tables.
+
+    Checks for: new columns, dropped columns, and type changes (e.g., ENUM expansion).
 
     Returns:
-        True = 有变化需要同步, False = 无变化
+        True = changes detected, False = no changes
     """
     has_changes = False
 
@@ -235,7 +246,7 @@ async def check_schema_changes() -> bool:
             try:
                 db_columns = await manager_class.get_existing_columns(db_client)
             except Exception:
-                # 表不存在，跳过（由 create_all_tables 处理）
+                # Table does not exist yet — handled by create_all_tables
                 continue
 
             pydantic_to_db = {
@@ -243,26 +254,39 @@ async def check_schema_changes() -> bool:
                 for name in pydantic_fields.keys()
             }
 
-            # 检测新增列
+            # Detect new columns
             columns_to_add = [
                 db_name for _, db_name in pydantic_to_db.items()
                 if db_name not in db_columns
             ]
 
-            # 检测删除列
+            # Detect dropped columns
             db_to_pydantic = {v: k for k, v in pydantic_to_db.items()}
             columns_to_drop = [
                 col for col in db_columns.keys()
                 if col not in db_to_pydantic and col not in manager_class.protected_columns
             ]
 
-            if columns_to_add or columns_to_drop:
+            # Detect type changes (e.g., ENUM values added/removed, VARCHAR resized)
+            columns_to_modify = []
+            for pydantic_name, db_name in pydantic_to_db.items():
+                if db_name not in db_columns or db_name in manager_class.protected_columns:
+                    continue
+                field_type, field_info = pydantic_fields[pydantic_name]
+                expected_type = manager_class.get_mysql_type(pydantic_name, field_type, field_info)
+                actual_type = db_columns[db_name]
+                if manager_class._type_needs_modify(actual_type, expected_type):
+                    columns_to_modify.append((db_name, actual_type, expected_type))
+
+            if columns_to_add or columns_to_drop or columns_to_modify:
                 has_changes = True
                 print(f"  {table_name}:")
                 for col in columns_to_add:
                     print(f"    + {col}")
                 for col in columns_to_drop:
                     print(f"    - {col}")
+                for col_name, old_type, new_type in columns_to_modify:
+                    print(f"    ~ {col_name}: {old_type} → {new_type}")
 
         except Exception:
             continue
@@ -280,7 +304,7 @@ async def test_database_connection() -> bool:
         is_connected = await db.ping()
 
         if is_connected:
-            print(f"Database connection successful")
+            print("Database connection successful")
             return True
         else:
             print("Database connection failed")
@@ -352,6 +376,12 @@ Supported tables:
     )
 
     parser.add_argument(
+        "--auto-safe",
+        action="store_true",
+        help="Auto-apply safe changes (ENUM expansion, VARCHAR growth), skip dangerous ones. No prompts."
+    )
+
+    parser.add_argument(
         "--check",
         action="store_true",
         help="Check if schema changes exist (exit code 0=has changes, 1=no changes)"
@@ -384,7 +414,8 @@ Supported tables:
     await sync_all_tables(
         tables=args.tables,
         dry_run=args.dry_run,
-        interactive=args.interactive
+        interactive=args.interactive,
+        auto_safe=args.auto_safe,
     )
 
 

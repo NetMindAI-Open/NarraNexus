@@ -244,7 +244,7 @@ class A2AServer:
             protocolVersion="0.3",
             provider=ProviderInfo(
                 organization="XYZ Agent Context",
-                url="https://github.com/NetMindAI-Open/NexusAgent"
+                url="https://github.com/NetMindAI-Open/NarraNexus"
             ),
             capabilities=AgentCapabilities(
                 streaming=True,           # Support SSE streaming responses
@@ -281,7 +281,7 @@ class A2AServer:
             ],
             defaultInputModes=["text/plain"],
             defaultOutputModes=["text/plain"],
-            documentationUrl="https://github.com/NetMindAI-Open/NexusAgent"
+            documentationUrl="https://github.com/NetMindAI-Open/NarraNexus"
         )
 
     # =========================================================================
@@ -1024,10 +1024,10 @@ class A2AServer:
         logger.info(f"   Port: {self.port}")
         logger.info("")
         logger.info("📡 Endpoints:")
-        logger.info(f"   GET  /.well-known/agent.json  Agent Card")
-        logger.info(f"   POST /                        JSON-RPC 2.0")
-        logger.info(f"   GET  /health                  Health Check")
-        logger.info(f"   GET  /docs                    Swagger UI")
+        logger.info("   GET  /.well-known/agent.json  Agent Card")
+        logger.info("   POST /                        JSON-RPC 2.0")
+        logger.info("   GET  /health                  Health Check")
+        logger.info("   GET  /docs                    Swagger UI")
         logger.info("")
         logger.info("🔧 Supported Methods:")
         logger.info("   - agentCard/get")

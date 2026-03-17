@@ -20,6 +20,8 @@ from loguru import logger
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 from xyz_agent_context.narrative import EventLogEntry
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
+from xyz_agent_context.utils.cost_tracker import record_cost
+from xyz_agent_context.utils.db_factory import get_db_client
 
 if TYPE_CHECKING:
     from .context import RunContext
@@ -279,6 +281,31 @@ async def step_4_persist_results(
         await session_service.save_session(ctx.session)
         ctx.substeps_4.append("[4.5] ✓ Session persisted (including last_response)")
         logger.success(f"✅ Session persisted: {ctx.session.session_id}")
+
+    # =========================================================================
+    # 4.6 Record LLM cost (fire-and-forget, never blocks the pipeline)
+    # =========================================================================
+    if execution_result.input_tokens > 0 or execution_result.output_tokens > 0:
+        try:
+            db = await get_db_client()
+            await record_cost(
+                db=db,
+                agent_id=ctx.agent_id,
+                event_id=ctx.event.id if ctx.event else None,
+                call_type="agent_loop",
+                model=execution_result.model or "unknown",
+                input_tokens=execution_result.input_tokens,
+                output_tokens=execution_result.output_tokens,
+                sdk_cost_usd=execution_result.total_cost_usd or None,
+            )
+            cost_display = (
+                f"${execution_result.total_cost_usd:.6f}"
+                if execution_result.total_cost_usd
+                else f"{execution_result.input_tokens}+{execution_result.output_tokens} tokens"
+            )
+            ctx.substeps_4.append(f"[4.6] ✓ Cost recorded: {cost_display}")
+        except Exception as e:
+            logger.warning(f"Cost recording failed (non-blocking): {e}")
 
     # =========================================================================
     # Complete

@@ -11,8 +11,6 @@ Usage:
     uvicorn backend.main:app --reload --port 8000
 """
 
-from pathlib import Path
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -21,6 +19,7 @@ from contextlib import asynccontextmanager
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
+from backend.config import settings
 
 
 @asynccontextmanager
@@ -54,17 +53,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Alternative dev port
-        "http://localhost:8000",  # Backend serves frontend
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -98,29 +89,22 @@ async def health():
     }
 
 
-# ─── 前端静态文件 & SPA fallback ──────────────────────────
-# 在所有 API 路由之后挂载，确保 /api/* 和 /ws/* 优先匹配
+# ─── Frontend static files & SPA fallback ────────────────
+# Mounted after all API routes so /api/* and /ws/* take priority.
 
-# 前端构建产物目录（支持本地开发和打包后两种路径）
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+_FRONTEND_DIST = settings.frontend_dist
 
 if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
     logger.info(f"Serving frontend from {_FRONTEND_DIST}")
 
-    # 挂载静态资源（JS/CSS/图片等）
     app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="frontend-assets")
 
     @app.get("/{full_path:path}")
     async def spa_fallback(request: Request, full_path: str):
-        """
-        SPA fallback：非 API/WS 请求一律返回 index.html，
-        由前端路由处理页面导航。
-        """
-        # 尝试返回静态文件（favicon.ico 等根目录文件）
+        """SPA fallback: return index.html for non-API/WS requests."""
         file_path = _FRONTEND_DIST / full_path
         if full_path and file_path.is_file():
             return FileResponse(file_path)
-        # 其余全部返回 index.html
         return FileResponse(_FRONTEND_DIST / "index.html")
 else:
     logger.info("Frontend dist not found, API-only mode")

@@ -14,6 +14,7 @@ import { useState } from 'react';
 import {
   Bell, Mail, MailOpen, RefreshCw, CheckCheck,
   MessageSquare, ExternalLink, Inbox, Clock,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui';
 import { Button, Badge, Markdown } from '@/components/ui';
@@ -22,20 +23,37 @@ import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { InboxMessage } from '@/types/api';
 
+/** Build display title with source agent name prefix */
+function buildDisplayTitle(message: InboxMessage, agents: { agent_id: string; name?: string }[]): string {
+  const raw = message.title || 'No title';
+  if (message.source?.type === 'agent' && message.source.id) {
+    const agent = agents.find((a) => a.agent_id === message.source!.id);
+    if (agent?.name) return `[${agent.name}] ${raw}`;
+  }
+  return raw;
+}
+
 export function UserInboxPopover() {
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { userId, agentId: currentAgentId, setAgentId } = useConfigStore();
-  const { clearCurrent } = useChatStore();
+  const { userId, setAgentId, agents } = useConfigStore();
+  const { setActiveAgent } = useChatStore();
   const {
     inbox: messages,
     inboxUnreadCount: unreadCount,
+    inboxTotalCount: totalCount,
+    inboxPage: currentPage,
+    inboxLoading,
     refreshInbox,
+    loadInboxPage,
     updateInboxMessage,
     markAllInboxRead,
   } = usePreloadStore();
+
+  const PAGE_SIZE = 50;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   const selectedMessage = messages.find((m) => m.message_id === selectedId) ?? null;
 
@@ -79,10 +97,8 @@ export function UserInboxPopover() {
 
   // Navigate to Agent
   const handleGoToAgent = (targetAgentId: string) => {
-    if (targetAgentId !== currentAgentId) {
-      clearCurrent();
-    }
     setAgentId(targetAgentId);
+    setActiveAgent(targetAgentId);
     setOpen(false);
     setSelectedId(null);
   };
@@ -111,7 +127,7 @@ export function UserInboxPopover() {
           <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-subtle)]">
             <div className="flex items-center gap-3">
               <span className="text-sm text-[var(--text-secondary)]">
-                {messages.length} message{messages.length !== 1 ? 's' : ''}
+                {totalCount} message{totalCount !== 1 ? 's' : ''}
               </span>
               {unreadCount > 0 && (
                 <Badge variant="accent" size="sm" glow>
@@ -136,10 +152,10 @@ export function UserInboxPopover() {
           <div className="flex h-[600px]">
             {/* Left side - Message list */}
             <div className={cn(
-              'border-r border-[var(--border-subtle)] overflow-y-auto',
+              'border-r border-[var(--border-subtle)] flex flex-col',
               selectedMessage ? 'w-[320px] shrink-0' : 'w-full',
             )}>
-              {messages.length === 0 ? (
+              {messages.length === 0 && !inboxLoading ? (
                 <div className="h-full flex flex-col items-center justify-center text-[var(--text-tertiary)]">
                   <div className="w-16 h-16 rounded-2xl bg-[var(--bg-secondary)] flex items-center justify-center mb-4">
                     <Inbox className="w-8 h-8 opacity-40" />
@@ -148,53 +164,84 @@ export function UserInboxPopover() {
                   <p className="text-xs mt-1 opacity-60">Messages from agents will appear here</p>
                 </div>
               ) : (
-                <div className="p-2 space-y-0.5">
-                  {messages.map((message) => (
-                    <button
-                      key={message.message_id}
-                      onClick={() => handleMessageClick(message)}
-                      className={cn(
-                        'w-full text-left p-3 rounded-xl transition-all',
-                        'hover:bg-[var(--bg-secondary)]',
-                        selectedId === message.message_id && 'bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20',
-                        !message.is_read && selectedId !== message.message_id && 'bg-[var(--accent-primary)]/5',
-                      )}
-                    >
-                      <div className="flex items-start gap-2.5">
-                        {message.is_read ? (
-                          <MailOpen className="w-4 h-4 text-[var(--text-tertiary)] mt-0.5 shrink-0" />
-                        ) : (
-                          <Mail className="w-4 h-4 text-[var(--accent-primary)] mt-0.5 shrink-0" />
+                <>
+                  <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+                    {messages.map((message) => (
+                      <button
+                        key={message.message_id}
+                        onClick={() => handleMessageClick(message)}
+                        className={cn(
+                          'w-full text-left p-3 rounded-xl transition-all',
+                          'hover:bg-[var(--bg-secondary)]',
+                          selectedId === message.message_id && 'bg-[var(--accent-primary)]/10 border border-[var(--accent-primary)]/20',
+                          !message.is_read && selectedId !== message.message_id && 'bg-[var(--accent-primary)]/5',
                         )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className={cn(
-                              'text-sm truncate',
-                              !message.is_read ? 'font-semibold text-[var(--text-primary)]' : 'font-medium text-[var(--text-secondary)]',
-                            )}>
-                              {message.title || 'No title'}
-                            </span>
-                          </div>
-                          {/* In detail mode show only title, in list mode show preview */}
-                          {!selectedMessage && (
-                            <p className="text-xs text-[var(--text-tertiary)] mt-1 line-clamp-2">
-                              {message.content}
-                            </p>
+                      >
+                        <div className="flex items-start gap-2.5">
+                          {message.is_read ? (
+                            <MailOpen className="w-4 h-4 text-[var(--text-tertiary)] mt-0.5 shrink-0" />
+                          ) : (
+                            <Mail className="w-4 h-4 text-[var(--accent-primary)] mt-0.5 shrink-0" />
                           )}
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <span className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {message.created_at && formatRelativeTime(message.created_at)}
-                            </span>
-                            {message.message_type && (
-                              <Badge size="sm" variant="default">{message.message_type}</Badge>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={cn(
+                                'text-sm truncate',
+                                !message.is_read ? 'font-semibold text-[var(--text-primary)]' : 'font-medium text-[var(--text-secondary)]',
+                              )}>
+                                {buildDisplayTitle(message, agents)}
+                              </span>
+                            </div>
+                            {/* In detail mode show only title, in list mode show preview */}
+                            {!selectedMessage && (
+                              <p className="text-xs text-[var(--text-tertiary)] mt-1 line-clamp-2">
+                                {message.content}
+                              </p>
                             )}
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {message.created_at && formatRelativeTime(message.created_at)}
+                              </span>
+                              {message.message_type && (
+                                <Badge size="sm" variant="default">{message.message_type}</Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between px-4 py-2.5 border-t border-[var(--border-subtle)] shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={currentPage <= 1 || inboxLoading}
+                        onClick={() => { loadInboxPage(userId, currentPage - 1); setSelectedId(null); }}
+                        className="gap-1 text-xs"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        Prev
+                      </Button>
+                      <span className="text-xs text-[var(--text-tertiary)]">
+                        {currentPage} / {totalPages}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={currentPage >= totalPages || inboxLoading}
+                        onClick={() => { loadInboxPage(userId, currentPage + 1); setSelectedId(null); }}
+                        className="gap-1 text-xs"
+                      >
+                        Next
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -205,7 +252,7 @@ export function UserInboxPopover() {
                   {/* Title area */}
                   <div>
                     <h3 className="text-lg font-bold text-[var(--text-primary)]">
-                      {selectedMessage.title || 'No title'}
+                      {buildDisplayTitle(selectedMessage, agents)}
                     </h3>
                     <div className="flex items-center gap-3 mt-2">
                       {selectedMessage.message_type && (

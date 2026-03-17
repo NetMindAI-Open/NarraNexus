@@ -49,7 +49,7 @@ def test_should_update_persona_logic():
         interaction_count=0
     )
     result = module._should_update_persona(entity1, "")
-    print(f"  persona=None, interaction_count=0")
+    print("  persona=None, interaction_count=0")
     print(f"  Expected: True, Got: {result}")
     assert result is True, "Should return True for first interaction"
     print("  ✅ PASSED")
@@ -65,7 +65,7 @@ def test_should_update_persona_logic():
         interaction_count=5
     )
     result = module._should_update_persona(entity2, "Hello, how are you?")
-    print(f"  persona='Technical communication style', interaction_count=5")
+    print("  persona='Technical communication style', interaction_count=5")
     print(f"  Expected: False, Got: {result}")
     assert result is False, "Should return False for non-multiple-of-10 turns"
     print("  ✅ PASSED")
@@ -81,7 +81,7 @@ def test_should_update_persona_logic():
         interaction_count=10
     )
     result = module._should_update_persona(entity3, "Normal conversation")
-    print(f"  persona='Technical communication style', interaction_count=10")
+    print("  persona='Technical communication style', interaction_count=10")
     print(f"  Expected: True, Got: {result}")
     assert result is True, "Should return True for every 10 turns"
     print("  ✅ PASSED")
@@ -97,7 +97,7 @@ def test_should_update_persona_logic():
         interaction_count=20
     )
     result = module._should_update_persona(entity4, "Normal conversation")
-    print(f"  persona='Technical communication style', interaction_count=20")
+    print("  persona='Technical communication style', interaction_count=20")
     print(f"  Expected: True, Got: {result}")
     assert result is True, "Should return True for every 10 turns"
     print("  ✅ PASSED")
@@ -113,8 +113,8 @@ def test_should_update_persona_logic():
         interaction_count=3
     )
     result = module._should_update_persona(entity5, "Actually I care more about the pricing now")
-    print(f"  persona='Technical communication style', interaction_count=3")
-    print(f"  response_content='Actually I care more about the pricing now'")
+    print("  persona='Technical communication style', interaction_count=3")
+    print("  response_content='Actually I care more about the pricing now'")
     print(f"  Expected: True, Got: {result}")
     assert result is True, "Should return True when change signal detected"
     print("  ✅ PASSED")
@@ -130,8 +130,8 @@ def test_should_update_persona_logic():
         interaction_count=7
     )
     result = module._should_update_persona(entity6, "我改变主意了，还是想看看价格方案")
-    print(f"  persona='Technical communication style', interaction_count=7")
-    print(f"  response_content='我改变主意了，还是想看看价格方案'")
+    print("  persona='Technical communication style', interaction_count=7")
+    print("  response_content='我改变主意了，还是想看看价格方案'")
     print(f"  Expected: True, Got: {result}")
     assert result is True, "Should return True when Chinese change signal detected"
     print("  ✅ PASSED")
@@ -147,8 +147,8 @@ def test_should_update_persona_logic():
         interaction_count=15
     )
     result = module._should_update_persona(entity7, "Just a regular conversation about the weather")
-    print(f"  persona='Technical communication style', interaction_count=15")
-    print(f"  response_content='Just a regular conversation about the weather'")
+    print("  persona='Technical communication style', interaction_count=15")
+    print("  response_content='Just a regular conversation about the weather'")
     print(f"  Expected: False, Got: {result}")
     assert result is False, "Should return False when no conditions met"
     print("  ✅ PASSED")

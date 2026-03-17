@@ -48,6 +48,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
+from xyz_agent_context.utils.file_safety import ensure_within_directory, sanitize_filename
+
 
 def convert_document_to_markdown(file_path: str) -> str:
     """
@@ -98,8 +100,8 @@ class RAGFileService:
     Provides static methods for managing RAG file temporary storage and upload status.
     """
 
-    # Base path configuration
-    BASE_PATH = Path("./data/gemini_rag_temp")
+    # Base path configuration — under ~/.nexusagent so it's independent of cwd
+    BASE_PATH = Path.home() / ".nexusagent" / "data" / "gemini_rag_temp"
 
     # =========================================================================
     # Path Management
@@ -115,7 +117,7 @@ class RAGFileService:
             user_id: User ID
 
         Returns:
-            Path: Format is ./data/gemini_rag_temp/agent_{agent_id}_user_{user_id}
+            Path: Format is ~/.nexusagent/data/gemini_rag_temp/agent_{agent_id}_user_{user_id}
         """
         return RAGFileService.BASE_PATH / f"agent_{agent_id}_user_{user_id}"
 
@@ -296,7 +298,8 @@ class RAGFileService:
         rag_path = RAGFileService.get_temp_path(agent_id, user_id)
         rag_path.mkdir(parents=True, exist_ok=True)
 
-        filepath = rag_path / filename
+        safe_filename = sanitize_filename(filename, label="filename")
+        filepath = ensure_within_directory(rag_path, safe_filename, label="filename")
         with open(filepath, "wb") as f:
             f.write(content)
 
@@ -317,13 +320,14 @@ class RAGFileService:
             Whether deletion was successful
         """
         rag_path = RAGFileService.get_temp_path(agent_id, user_id)
-        filepath = rag_path / filename
+        safe_filename = sanitize_filename(filename, label="filename")
+        filepath = ensure_within_directory(rag_path, safe_filename, label="filename")
 
         if not filepath.exists():
             return False
 
         filepath.unlink()
-        RAGFileService.remove_file_status(agent_id, user_id, filename)
+        RAGFileService.remove_file_status(agent_id, user_id, safe_filename)
         logger.info(f"RAG file deleted: {filepath}")
         return True
 

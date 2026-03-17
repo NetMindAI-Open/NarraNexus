@@ -56,6 +56,12 @@ export const IPC = {
   LAUNCH_EVERMEMOS: 'launch-evermemos',
   IS_EVERMEMOS_INSTALLED: 'is-evermemos-installed',
 
+  // Auto-updater
+  CHECK_FOR_UPDATES: 'check-for-updates',
+  DOWNLOAD_UPDATE: 'download-update',
+  INSTALL_UPDATE: 'install-update',
+  ON_UPDATE_STATUS: 'on-update-status',
+
   // Miscellaneous
   OPEN_EXTERNAL: 'open-external',
   GET_SETUP_STATE: 'get-setup-state',

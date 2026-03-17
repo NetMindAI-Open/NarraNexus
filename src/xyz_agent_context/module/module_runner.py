@@ -102,6 +102,7 @@ DEFAULT_MCP_MODULES = [
     "SocialNetworkModule",  # port: 7802
     "JobModule",            # port: 7803
     "GeminiRAGModule",      # port: 7805
+    "MatrixModule",         # port: 7810
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -111,6 +112,7 @@ MODULE_PORTS = {
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
     "GeminiRAGModule": 7805,
+    "MatrixModule": 7810,
 }
 
 
@@ -278,22 +280,22 @@ class ModuleRunner:
         module_classes = self._resolve_modules(modules)
 
         if not module_classes:
-            print("❌ No modules to run")
+            logger.warning("No modules to run")
             return
 
         user = user_id or agent_id
         processes = []
 
-        print("=" * 80)
-        print("🚀 Starting MCP Servers")
-        print(f"   Agent ID: {agent_id}")
-        print(f"   User ID: {user}")
-        print("=" * 80)
+        logger.info("=" * 80)
+        logger.info("Starting MCP Servers")
+        logger.info(f"   Agent ID: {agent_id}")
+        logger.info(f"   User ID: {user}")
+        logger.info("=" * 80)
 
         for i, module_class in enumerate(module_classes):
             module_name = module_class.__name__
             port = MODULE_PORTS.get(module_name, 7800 + i)
-            print(f"  ⏳ Starting {module_name} (port: {port})...")
+            logger.info(f"  Starting {module_name} (port: {port})...")
 
             # Create independent process
             process = multiprocessing.Process(
@@ -302,26 +304,25 @@ class ModuleRunner:
             )
             process.start()
             processes.append((module_name, process, port))
-            print(f"  ✅ {module_name} started (PID: {process.pid})")
+            logger.info(f"  {module_name} started (PID: {process.pid})")
 
-        print("=" * 80)
-        print(f"✅ {len(module_classes)} MCP servers started")
-        print("")
-        print("📡 MCP Server Endpoints:")
+        logger.info("=" * 80)
+        logger.info(f"{len(module_classes)} MCP servers started")
+        logger.info("MCP Server Endpoints:")
         for name, _, port in processes:
-            print(f"   - {name}: http://localhost:{port}/sse")
-        print("=" * 80)
-        print("\n💡 Press Ctrl+C to stop all servers\n")
+            logger.info(f"   - {name}: http://localhost:{port}/sse")
+        logger.info("=" * 80)
+        logger.info("Press Ctrl+C to stop all servers")
 
         try:
             for name, process, _ in processes:
                 process.join()
         except KeyboardInterrupt:
-            print("\n\n⚠️  Stopping all MCP servers...")
+            logger.warning("Stopping all MCP servers...")
             for name, process, _ in processes:
                 process.terminate()
-                print(f"  ✓ Stopped {name}")
-            print("\n✅ All MCP servers stopped\n")
+                logger.info(f"  Stopped {name}")
+            logger.info("All MCP servers stopped")
 
     # =========================================================================
     # Multiple MCP Servers (Asyncio - Single Process)
@@ -428,13 +429,13 @@ class ModuleRunner:
         """
         from xyz_agent_context.module.chat_module.chat_trigger import A2AServer
 
-        print("="*80)
-        print("🚀 Starting A2A Protocol API Server...")
-        print(f"   Agent: {agent_name}")
-        print(f"   Host: {host}")
-        print(f"   Port: {port}")
-        print(f"   Protocol: A2A/0.3 (Google Agent-to-Agent)")
-        print("="*80)
+        logger.info("=" * 80)
+        logger.info("Starting A2A Protocol API Server...")
+        logger.info(f"   Agent: {agent_name}")
+        logger.info(f"   Host: {host}")
+        logger.info(f"   Port: {port}")
+        logger.info("   Protocol: A2A/0.3 (Google Agent-to-Agent)")
+        logger.info("=" * 80)
 
         server = A2AServer(
             host=host,
@@ -483,30 +484,30 @@ class ModuleRunner:
 
         processes = []
 
-        print("=" * 80)
-        print("🚀 Starting XYZ Agent Context - Full Deployment")
-        print("   Protocol: A2A/0.3 (Google Agent-to-Agent)")
-        print(f"   Agent ID: {agent_id}")
-        print(f"   User ID: {user}")
-        print("=" * 80)
+        logger.info("=" * 80)
+        logger.info("Starting XYZ Agent Context - Full Deployment")
+        logger.info("   Protocol: A2A/0.3 (Google Agent-to-Agent)")
+        logger.info(f"   Agent ID: {agent_id}")
+        logger.info(f"   User ID: {user}")
+        logger.info("=" * 80)
 
-        # Start A2A API Server
-        print(f"\n📡 Starting A2A Protocol API Server...")
-        print(f"   Endpoint: http://{api_host}:{api_port}")
+        # 启动 A2A API Server
+        logger.info("Starting A2A Protocol API Server...")
+        logger.info(f"   Endpoint: http://{api_host}:{api_port}")
         api_process = multiprocessing.Process(
             target=self._run_api_server,
             args=(api_host, api_port)
         )
         api_process.start()
         processes.append(("A2A-API-Server", api_process, api_port))
-        print(f"   ✅ A2A API Server started (PID: {api_process.pid})")
+        logger.info(f"   A2A API Server started (PID: {api_process.pid})")
 
-        # Start all MCP Servers
-        print(f"\n🔧 Starting {len(module_classes)} MCP Servers...")
+        # 启动所有 MCP Servers
+        logger.info(f"Starting {len(module_classes)} MCP Servers...")
         for i, module_class in enumerate(module_classes):
             module_name = module_class.__name__
             port = MODULE_PORTS.get(module_name, 7800 + i)
-            print(f"   ⏳ Starting {module_name} (port: {port})...")
+            logger.info(f"   Starting {module_name} (port: {port})...")
 
             process = multiprocessing.Process(
                 target=self._run_single_mcp,
@@ -514,33 +515,31 @@ class ModuleRunner:
             )
             process.start()
             processes.append((module_name, process, port))
-            print(f"   ✅ {module_name} started (PID: {process.pid})")
+            logger.info(f"   {module_name} started (PID: {process.pid})")
 
-        print("\n" + "=" * 80)
-        print("✅ Deployment Complete!")
-        print("")
-        print("📡 A2A API Endpoints:")
-        print(f"   GET  http://{api_host}:{api_port}/.well-known/agent.json")
-        print(f"   POST http://{api_host}:{api_port}/")
-        print(f"   GET  http://{api_host}:{api_port}/docs")
-        print("")
-        print(f"🔧 MCP Servers ({len(module_classes)} running):")
+        logger.info("=" * 80)
+        logger.info("Deployment Complete!")
+        logger.info("A2A API Endpoints:")
+        logger.info(f"   GET  http://{api_host}:{api_port}/.well-known/agent.json")
+        logger.info(f"   POST http://{api_host}:{api_port}/")
+        logger.info(f"   GET  http://{api_host}:{api_port}/docs")
+        logger.info(f"MCP Servers ({len(module_classes)} running):")
         for i, module_class in enumerate(module_classes):
             module_name = module_class.__name__
             port = MODULE_PORTS.get(module_name, 7800 + i)
-            print(f"   - {module_name}: http://localhost:{port}/sse")
-        print("=" * 80)
-        print("\n💡 Press Ctrl+C to stop all services\n")
+            logger.info(f"   - {module_name}: http://localhost:{port}/sse")
+        logger.info("=" * 80)
+        logger.info("Press Ctrl+C to stop all services")
 
         try:
             for name, process, _ in processes:
                 process.join()
         except KeyboardInterrupt:
-            print("\n\n⚠️  Stopping all services...")
+            logger.warning("Stopping all services...")
             for name, process, _ in processes:
                 process.terminate()
-                print(f"   ✓ Stopped {name}")
-            print("\n✅ All services stopped\n")
+                logger.info(f"   Stopped {name}")
+            logger.info("All services stopped")
 
     # =========================================================================
     # Utility Methods
@@ -567,6 +566,8 @@ class ModuleRunner:
 
 if __name__ == "__main__":
     import sys
+    from xyz_agent_context.utils.service_logger import setup_service_logger
+    setup_service_logger("mcp")
 
     runner = ModuleRunner()
 
@@ -648,7 +649,7 @@ Supported JSON-RPC Methods:
             for name in runner.list_available_modules():
                 is_default = "✓" if name in DEFAULT_MCP_MODULES else " "
                 print(f"   [{is_default}] {name}")
-            print(f"\n   ✓ = Included in default MCP deployment\n")
+            print("\n   ✓ = Included in default MCP deployment\n")
         elif command == "help" or command == "-h" or command == "--help":
             print_usage()
         else:

@@ -212,3 +212,24 @@ class AgentToolCall(BaseRuntimeMessage):
     tool_name: str
     tool_input: Dict[str, Any]
     tool_output: Optional[str] = None
+
+
+# ============================================================================
+# Error Messages
+# ============================================================================
+
+class ErrorMessage(BaseRuntimeMessage):
+    """
+    Runtime error message
+
+    Sent to the frontend when the agent encounters an error during execution
+    (e.g., rate limit, API authentication failure, quota exhaustion).
+    Frontend should display these prominently so the user understands what happened.
+
+    Attributes:
+        error_message: Human-readable error description
+        error_type: Error category (e.g., "rate_limit", "api_error", "execution_error")
+    """
+    message_type: Literal[MessageType.ERROR] = MessageType.ERROR
+    error_message: str
+    error_type: str = "api_error"

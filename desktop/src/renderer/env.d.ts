@@ -102,6 +102,12 @@ interface NexusAPI {
   saveSetupToken: (token: string) => Promise<{ valid: boolean; message: string }>
   onClaudeLoginStatus: (callback: (status: LoginProcessStatus) => void) => () => void
 
+  // Auto-updater
+  checkForUpdates: () => Promise<void>
+  downloadUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
+
   // Miscellaneous
   openExternal: (url: string) => Promise<void>
   getSetupState: () => Promise<{ setupComplete: boolean }>
@@ -191,6 +197,15 @@ interface ClaudeAuthInfo {
 interface LoginProcessStatus {
   state: 'idle' | 'running' | 'success' | 'failed' | 'timeout'
   message?: string
+}
+
+interface UpdateStatus {
+  state: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error'
+  version?: string
+  releaseNotes?: string
+  progress?: number
+  bytesPerSecond?: number
+  error?: string
 }
 
 interface Window {

@@ -22,6 +22,10 @@ export interface SkillInfo {
   author?: string;
   source_url?: string;     // Installation source URL (saved during GitHub installation)
   installed_at?: string;   // Installation time (ISO format)
+  // Environment requirements
+  requires_env?: string[];       // Required env var names
+  requires_bins?: string[];      // Required binary deps
+  env_configured?: boolean;      // Whether all required env vars have values
   // Study status
   study_status?: 'idle' | 'studying' | 'completed' | 'failed';
   study_result?: string;   // Agent study summary
@@ -54,6 +58,15 @@ export interface SkillStudyResponse {
   message?: string;
   study_status: string;
   study_result?: string;
+}
+
+/**
+ * Skill env config response
+ */
+export interface SkillEnvConfigResponse {
+  success: boolean;
+  requires_env: string[];
+  env_configured: Record<string, boolean>;  // var_name -> is_set
 }
 
 /**

@@ -25,14 +25,18 @@
 
 ## 核心特性
 
+- **Agent 间通信** -- Agent 通过 Matrix 协议相互交流：创建房间、发送消息、@指定 Agent、群聊协作——全部通过自然语言完成
 - **叙事结构** -- 对话被路由到语义故事线中，按话题相似度跨会话检索，而非按时间顺序
-- **热插拔模块** -- 每项能力（聊天、社交图谱、RAG、任务、技能、记忆）都是独立模块，拥有自己的数据库表、MCP 工具和生命周期钩子
+- **热插拔模块** -- 每项能力（聊天、社交图谱、RAG、任务、技能、Matrix、记忆）都是独立模块，拥有自己的数据库表、MCP 工具和生命周期钩子
+- **技能市场** -- 通过聊天从 ClawHub 浏览安装技能：描述你的需求，获得推荐，一键安装
 - **社交网络** -- 实体图谱追踪人物、关系、专业领域和互动历史，支持语义搜索
 - **任务调度** -- 一次性、定时、周期、持续任务，支持依赖链（DAG）
 - **RAG 知识库** -- 基于 Gemini File Search 的文档索引与语义检索
 - **语义记忆** -- 基于 EverMemOS（MongoDB + Elasticsearch + Milvus）的长期情景记忆
+- **成本追踪** -- 实时计量每次 LLM 和 Embedding 调用，按模型分类展示费用明细
 - **执行透明度** -- 每个流水线步骤实时可见：Agent 做了什么决策、为什么、改变了什么
 - **多 LLM 支持** -- Claude、OpenAI、Gemini 统一适配层
+- **桌面应用** -- 基于 Electron 的桌面端，支持自动更新和一键启动所有服务
 
 ## 快速开始
 
@@ -61,8 +65,8 @@
 ### 安装与启动
 
 ```bash
-git clone https://github.com/NetMindAI-Open/NexusAgent.git
-cd NexusAgent
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
 bash run.sh
 ```
 
@@ -130,6 +134,7 @@ RERANK_BASE_URL=https://api.deepinfra.com/v1/inference
 │          │                     │  · Agent Inbox        │
 │          │                     │  · Jobs               │
 │          │                     │  · Skills             │
+│          │                     │  💰 Cost（顶栏）      │
 └──────────┴─────────────────────┴──────────────────────┘
 ```
 
@@ -167,21 +172,46 @@ RERANK_BASE_URL=https://api.deepinfra.com/v1/inference
 5. **刷新 Jobs 面板** → 点击 🔄 查看已创建的任务列表
 6. **持续交互** → Agent 执行任务后，刷新各面板查看社交网络更新、Narrative 积累等
 
+## 数据目录 (`~/.narranexus/`)
+
+NarraNexus 在用户目录下的 `~/.narranexus/` 存储运行时日志。该目录在首次运行时自动创建，不包含任何用户数据或密钥，仅存放服务日志。
+
+```
+~/.narranexus/
+└── logs/
+    ├── agents/              # Agent 执行日志（每次运行一个文件）
+    │   ├── agent_<id>_<timestamp>.log.zip
+    │   └── ...
+    ├── job_trigger/         # 任务调度器日志（每日轮转）
+    │   └── job_trigger_YYYYMMDD.log
+    ├── matrix_trigger/      # Matrix 通信触发器日志
+    │   └── matrix_trigger_YYYYMMDD.log
+    ├── mcp/                 # MCP 服务器日志
+    │   └── mcp_YYYYMMDD.log
+    └── module_poller/       # Module Poller 日志
+        └── module_poller_YYYYMMDD.log
+```
+
+- **日志轮转**：每天午夜轮转，旧日志压缩为 `.zip` 并保留 7 天
+- **可安全删除**：整个 `~/.narranexus/` 目录可以随时删除，下次运行时会自动重建
+- **桌面版**：使用相同的 `~/.narranexus/` 路径（macOS 下为 `~/.narranexus/`，不在 `~/Library/Application Support/` 内）
+
 ## 文档
 
 | 文档 | 说明 |
 |------|------|
+| [更新日志](./docs/CHANGELOG.md) | 每个版本的更新内容 |
 | [使用示例](./docs/EXAMPLES_zh.md) | 用法模式：销售 Agent、定时监控、RAG、任务调度 |
 | [架构说明](./docs/ARCHITECTURE.md) | 系统架构、模块系统、技术栈、项目结构 |
 | [开发指南](./docs/DEVELOPMENT.md) | 手动安装、配置、表管理、新增模块 |
 
 ## Star History
 
-<a href="https://star-history.com/#NetMindAI-Open/NexusAgent&Date">
+<a href="https://star-history.com/#NetMindAI-Open/NarraNexus&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NexusAgent&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NexusAgent&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NetMindAI-Open/NexusAgent&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date" />
  </picture>
 </a>
 
@@ -200,7 +230,7 @@ NarraNexus 的长期记忆系统基于 [EverMemOS](https://github.com/EverMind-A
   title        = {NarraNexus: A Framework for Building Nexuses of Agents},
   author       = {NetMind.AI},
   year         = {2026},
-  url          = {https://github.com/NetMindAI-Open/NexusAgent},
+  url          = {https://github.com/NetMindAI-Open/NarraNexus},
   license      = {CC-BY-NC-4.0}
 }
 ```

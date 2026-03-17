@@ -208,7 +208,7 @@ class MemoryModule(XYZBaseModule):
 
         # todo - In the future, the chatmodel memory injection may be moved here to maintain single responsibility: chatmodel focuses on conversation management, memory module focuses on memory management
         """
-        logger.debug(f"          → MemoryModule.hook_data_gathering() - no-op (semantic memory section removed)")
+        logger.debug("          → MemoryModule.hook_data_gathering() - no-op (semantic memory section removed)")
         return ctx_data
 
     async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
@@ -231,8 +231,8 @@ class MemoryModule(XYZBaseModule):
         # Check if EverMemOS is enabled
         if not narrative_config.EVERMEMOS_ENABLED:
             logger.debug(
-                f"          → MemoryModule.hook_after_event_execution() - "
-                f"EverMemOS not enabled, skipping write"
+                "          → MemoryModule.hook_after_event_execution() - "
+                "EverMemOS not enabled, skipping write"
             )
             return None
 

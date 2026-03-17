@@ -4,6 +4,12 @@ directories:
   buildResources: resources
   output: dist
 
+# Auto-updater: check GitHub Releases for new versions
+publish:
+  provider: github
+  owner: NetMindAI-Open
+  repo: NarraNexus
+
 mac:
   category: public.app-category.developer-tools
   target:
@@ -43,4 +49,9 @@ extraResources:
       - "!**/desktop/**"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+      - "!**/.env"
+      - "!**/logs/**"
+      - "!**/.claude/**"
       # Note: frontend/dist/ is NOT excluded — pre-built frontend is included in the package
+      # Note: .env files are excluded — users configure via Setup Wizard on first launch
+      # Note: .env.example files ARE included as templates

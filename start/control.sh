@@ -65,19 +65,19 @@ is_port_up() {
 show_dashboard() {
     clear
     echo ""
-    echo -e "${G1}    ███╗   ██╗${G2}███████╗${G3}██╗  ██╗${G4}██╗   ██╗${G5}███████╗${RESET}"
-    echo -e "${G1}    ████╗  ██║${G2}██╔════╝${G3}╚██╗██╔╝${G4}██║   ██║${G5}██╔════╝${RESET}"
-    echo -e "${G1}    ██╔██╗ ██║${G2}█████╗  ${G3} ╚███╔╝ ${G4}██║   ██║${G5}███████╗${RESET}"
-    echo -e "${G1}    ██║╚██╗██║${G2}██╔══╝  ${G3} ██╔██╗ ${G4}██║   ██║${G5}╚════██║${RESET}"
-    echo -e "${G1}    ██║ ╚████║${G2}███████╗${G3}██╔╝ ██╗${G4}╚██████╔╝${G5}███████║${RESET}"
-    echo -e "${G1}    ╚═╝  ╚═══╝${G2}╚══════╝${G3}╚═╝  ╚═╝${G4} ╚═════╝ ${G5}╚══════╝${RESET}"
+    echo -e "${G1}    ███╗   ██╗${G2} █████╗ ${G3}██████╗ ${G4}██████╗  ${G5} █████╗ ${RESET}"
+    echo -e "${G1}    ████╗  ██║${G2}██╔══██╗${G3}██╔══██╗${G4}██╔══██╗${G5}██╔══██╗${RESET}"
+    echo -e "${G1}    ██╔██╗ ██║${G2}███████║${G3}██████╔╝${G4}██████╔╝${G5}███████║${RESET}"
+    echo -e "${G1}    ██║╚██╗██║${G2}██╔══██║${G3}██╔══██╗${G4}██╔══██╗${G5}██╔══██║${RESET}"
+    echo -e "${G1}    ██║ ╚████║${G2}██║  ██║${G3}██║  ██║${G4}██║  ██║${G5}██║  ██║${RESET}"
+    echo -e "${G1}    ╚═╝  ╚═══╝${G2}╚═╝  ╚═╝${G3}╚═╝  ╚═╝${G4}╚═╝  ╚═╝${G5}╚═╝  ╚═╝${RESET}"
     echo ""
-    echo -e "${G3}    ███╗   ███╗${G4}██╗${G5}███╗   ██╗${G6}██████╗ ${RESET}"
-    echo -e "${G3}    ████╗ ████║${G4}██║${G5}████╗  ██║${G6}██╔══██╗${RESET}"
-    echo -e "${G3}    ██╔████╔██║${G4}██║${G5}██╔██╗ ██║${G6}██║  ██║${RESET}"
-    echo -e "${G3}    ██║╚██╔╝██║${G4}██║${G5}██║╚██╗██║${G6}██║  ██║${RESET}"
-    echo -e "${G3}    ██║ ╚═╝ ██║${G4}██║${G5}██║ ╚████║${G6}██████╔╝${RESET}"
-    echo -e "${G3}    ╚═╝     ╚═╝${G4}╚═╝${G5}╚═╝  ╚═══╝${G6}╚═════╝ ${RESET}"
+    echo -e "${G3}    ███╗   ██╗${G4}███████╗${G5}██╗  ██╗${G6}██╗   ██╗███████╗${RESET}"
+    echo -e "${G3}    ████╗  ██║${G4}██╔════╝${G5}╚██╗██╔╝${G6}██║   ██║██╔════╝${RESET}"
+    echo -e "${G3}    ██╔██╗ ██║${G4}█████╗  ${G5} ╚███╔╝ ${G6}██║   ██║███████╗${RESET}"
+    echo -e "${G3}    ██║╚██╗██║${G4}██╔══╝  ${G5} ██╔██╗ ${G6}██║   ██║╚════██║${RESET}"
+    echo -e "${G3}    ██║ ╚████║${G4}███████╗${G5}██╔╝ ██╗${G6}╚██████╔╝███████║${RESET}"
+    echo -e "${G3}    ╚═╝  ╚═══╝${G4}╚══════╝${G5}╚═╝  ╚═╝${G6} ╚═════╝ ╚══════╝${RESET}"
     echo ""
 
     # ── Access URLs (prominent display) ──
@@ -113,7 +113,7 @@ show_dashboard() {
 
     # ── Application services status ──
     echo -e "  ${BOLD}  Application Services${RESET}"
-    local app_items=("Frontend:5173" "FastAPI:8000" "MCP:7801" "JobTrigger:-" "Poller:-")
+    local app_items=("Frontend:5173" "FastAPI:8000" "MCP:7801" "NexusMatrix:8953" "JobTrigger:-" "MatrixTrig:-" "Poller:-")
     printf "    "
     for item in "${app_items[@]}"; do
         local name="${item%%:*}"
@@ -144,7 +144,7 @@ do_stop_all() {
     echo -e "  ${YELLOW}Stopping all services...${RESET}"
     echo ""
 
-    # Stop application processes (kill process trees, not just parents)
+    # Stop application processes: SIGTERM first, then SIGKILL for survivors
     local patterns=(
         "uvicorn.*backend.main"      # FastAPI backend (port 8000)
         "uvicorn.*1995"              # EverMemOS Web
@@ -154,10 +154,18 @@ do_stop_all() {
         "npm.*dev.*5173"             # Frontend dev server
         "vite.*5173"                 # Vite (frontend actual process)
         "node.*vite"                 # Vite node process
+        "nexus_matrix.main"          # NexusMatrix Server (port 8953)
+        "matrix_trigger"             # MatrixTrigger (message polling)
     )
     for pat in "${patterns[@]}"; do
+        pkill -f "$pat" 2>/dev/null
+    done
+
+    # Wait briefly for graceful shutdown, then SIGKILL any survivors
+    sleep 2
+    for pat in "${patterns[@]}"; do
         if pgrep -f "$pat" &>/dev/null; then
-            pkill -f "$pat" 2>/dev/null
+            pkill -9 -f "$pat" 2>/dev/null
         fi
     done
     echo -e "  ${GREEN}✓${RESET} Application processes stopped"
@@ -188,6 +196,9 @@ do_stop_all() {
     tmux kill-session -t "$TMUX_SESSION" 2>/dev/null
 }
 
+# If tmux is killed directly (not via 'q'), SIGHUP is sent — run cleanup
+trap 'do_stop_all; exit 0' SIGHUP SIGTERM SIGINT
+
 # === Initial startup: wait for services to be ready ===
 # control.sh starts as the first window; other services are still initializing.
 # Auto-refresh until ready.
@@ -199,7 +210,7 @@ while true; do
 
     if [ "$AUTO_REFRESH" = true ]; then
         # Auto-refresh mode: refresh every 3 seconds until all core services are ready
-        if is_port_up 5173 && is_port_up 8000 && is_port_up 7801; then
+        if is_port_up 5173 && is_port_up 8000 && is_port_up 7801 && is_port_up 8953; then
             AUTO_REFRESH=false
             continue  # Refresh one last time to show all-green status
         fi

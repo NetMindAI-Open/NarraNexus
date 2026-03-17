@@ -2,23 +2,23 @@
  * @file service-launcher.ts
  * @description Phase 3: Service startup with Docker 500 retry logic
  *
- * Launch steps: wait-docker → compose-up → wait-mysql → init-tables → wait-evermemos → start-services
+ * Launch steps: wait-docker → compose-up → wait-mysql → wait-synapse → init-tables → wait-evermemos → start-services
  * Extracted from process-manager.ts runQuickStart + runAutoSetup Step 6-12.
  *
  * Core fix: waits for Docker daemon to become healthy before running compose,
  * preventing the 500 error → privileges escalation misdiagnosis.
  */
 
-import { spawn, execFile } from 'child_process'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { promisify } from 'util'
 import { EventEmitter } from 'events'
-import * as net from 'net'
 import {
   PROJECT_ROOT,
   TABLE_MGMT_DIR,
-  EVERMEMOS_DIR
+  EVERMEMOS_DIR,
+  SYNAPSE_TEMPLATE_DIR,
+  SYNAPSE_DATA_DIR,
+  NEXUS_MATRIX_DIR
 } from './constants'
 import {
   detectDockerState,
@@ -27,142 +27,14 @@ import {
   isEverMemOSAvailable,
   startEverMemOS,
   getDockerConfigOverride,
-  getCachedDockerConfigDir
 } from './docker-manager'
-import { getShellEnv } from './shell-env'
-import { readEnv } from './env-manager'
-import type { ProcessManager } from './process-manager'
-import type { LaunchStep, LaunchStepId } from '../shared/setup-types'
+import { getExecEnv, execInProject, execWithPrivileges, spawnWithOutput, isPortReachable, delay } from './exec-utils'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
-
-// ─── Utilities ───────────────────────────────────────
-
-function getExecEnv(): Record<string, string> {
-  const shellEnv = getShellEnv()
-  const dotEnv = readEnv()
-  const nonEmptyDotEnv: Record<string, string> = {}
-  for (const [key, value] of Object.entries(dotEnv)) {
-    if (value.trim()) nonEmptyDotEnv[key] = value
-  }
-  const noProxyHosts = 'localhost,127.0.0.1'
-  const merged = { ...shellEnv, ...nonEmptyDotEnv, NO_PROXY: noProxyHosts, no_proxy: noProxyHosts }
-
-  // On macOS, ensure Docker Desktop bin is first in PATH — on Intel Mac, Homebrew's
-  // /usr/local/bin/docker is a CLI-only binary without compose plugin.
-  if (process.platform === 'darwin') {
-    const ddBin = '/Applications/Docker.app/Contents/Resources/bin'
-    const currentPath = merged.PATH || ''
-    if (!currentPath.startsWith(ddBin)) {
-      // Remove existing entry (if any) and prepend
-      const parts = currentPath.split(':').filter(p => p !== ddBin)
-      merged.PATH = [ddBin, ...parts].join(':')
-    }
-  }
-
-  // 如果凭证助手不可用，使用临时配置目录
-  const dockerConfigDir = getCachedDockerConfigDir()
-  if (dockerConfigDir) {
-    merged.DOCKER_CONFIG = dockerConfigDir
-  }
-
-  return merged
-}
-
-async function execInProject(
-  cmd: string,
-  args: string[],
-  options?: { cwd?: string; timeout?: number }
-): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(cmd, args, {
-    cwd: options?.cwd ?? PROJECT_ROOT,
-    timeout: options?.timeout ?? 120000,
-    env: getExecEnv()
-  })
-}
-
-async function execWithPrivileges(
-  script: string,
-  options?: { timeout?: number }
-): Promise<{ stdout: string; stderr: string }> {
-  if (process.platform === 'darwin') {
-    // Docker Desktop bin MUST come first — on Intel Mac, Homebrew's /usr/local/bin/docker
-    // is a CLI-only binary without compose plugin; Docker Desktop's docker has compose built in.
-    const extraPaths = [
-      '/Applications/Docker.app/Contents/Resources/bin',
-      '/usr/local/bin',
-      '/opt/homebrew/bin',
-    ].join(':')
-    // Set HOME so root shell can find user's ~/.docker/cli-plugins/
-    const home = process.env.HOME || ''
-    // 如果凭证助手不可用，在特权脚本中也设置 DOCKER_CONFIG
-    const env = getShellEnv()
-    const configOverride = await getDockerConfigOverride(env)
-    const dockerConfigExport = configOverride ? `export DOCKER_CONFIG="${configOverride}" && ` : ''
-    const fullScript = `export PATH="${extraPaths}:$PATH" && export HOME="${home}" && ${dockerConfigExport}${script}`
-    const escaped = fullScript.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-    const osascriptCmd = `do shell script "${escaped}" with administrator privileges`
-    console.log(`[launcher] execWithPrivileges: PATH order = ${extraPaths}`)
-    console.log(`[launcher] execWithPrivileges: HOME = ${home}`)
-    console.log(`[launcher] execWithPrivileges: script = ${script}`)
-    return execInProject('osascript', ['-e', osascriptCmd], options)
-  } else {
-    console.log(`[launcher] execWithPrivileges (Linux): script = ${script}`)
-    return execInProject('pkexec', ['sh', '-c', script], options)
-  }
-}
-
-function spawnWithOutput(
-  cmd: string,
-  args: string[],
-  options: { cwd?: string; timeout?: number; onOutput: (line: string) => void }
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, {
-      cwd: options.cwd ?? PROJECT_ROOT,
-      env: getExecEnv(),
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-    const processData = (data: Buffer) => {
-      const lines = data.toString().split('\n').filter(l => l.trim())
-      for (const line of lines) {
-        console.log(`[launcher] ${line}`)
-      }
-      if (lines.length > 0) {
-        options.onOutput(lines[lines.length - 1].trim().substring(0, 200))
-      }
-    }
-    proc.stdout?.on('data', processData)
-    proc.stderr?.on('data', processData)
-
-    const timer = setTimeout(() => {
-      proc.kill('SIGTERM')
-      reject(new Error(`Command timed out after ${(options.timeout ?? 120000) / 1000}s`))
-    }, options.timeout ?? 120000)
-
-    proc.on('close', (code) => {
-      clearTimeout(timer)
-      if (code === 0) resolve()
-      else reject(new Error(`Process exited with code ${code}`))
-    })
-    proc.on('error', (err) => { clearTimeout(timer); reject(err) })
-  })
-}
-
-function isPortReachable(port: number, host = '127.0.0.1', timeout = 2000): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket()
-    socket.setTimeout(timeout)
-    socket.on('connect', () => { socket.destroy(); resolve(true) })
-    socket.on('error', () => resolve(false))
-    socket.on('timeout', () => { socket.destroy(); resolve(false) })
-    socket.connect(port, host)
-  })
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
+import type { ProcessManager } from './process-manager'
+import type { LaunchStep, LaunchStepId } from '../shared/setup-types'
 
 // ─── EverMemOS Infrastructure Ports ───────────────────
 
@@ -194,6 +66,7 @@ export class ServiceLauncher extends EventEmitter {
       { id: 'wait-docker', label: 'Wait for Docker', status: 'pending' },
       { id: 'compose-up', label: 'Start containers', status: 'pending' },
       { id: 'wait-mysql', label: 'Wait for MySQL', status: 'pending' },
+      { id: 'wait-synapse', label: 'Wait for Synapse', status: 'pending' },
       { id: 'init-tables', label: 'Initialize database', status: 'pending' },
       { id: 'wait-evermemos', label: 'Wait for EverMemOS infra', status: 'pending' },
       { id: 'start-services', label: 'Start services', status: 'pending' }
@@ -247,15 +120,37 @@ export class ServiceLauncher extends EventEmitter {
       console.log('[launcher] Step 1: DONE — Docker is ready')
       updateStep('wait-docker', { status: 'done', message: 'Docker is ready' })
 
+      // ─── Step 1.5: Ensure Synapse config exists ───────
+      // Copy template files to data directory if homeserver.yaml is missing.
+      // Templates live at deploy/synapse/ (committed); runtime data at deploy/synapse/data/ (gitignored).
+      const synapseConfig = join(SYNAPSE_DATA_DIR, 'homeserver.yaml')
+      if (!existsSync(synapseConfig)) {
+        console.log('[launcher] Synapse config not found, copying templates...')
+        updateStep('compose-up', { status: 'running', message: 'Initializing Synapse config (first run)...' })
+        try {
+          const { mkdirSync, copyFileSync } = require('fs')
+          mkdirSync(SYNAPSE_DATA_DIR, { recursive: true })
+          copyFileSync(join(SYNAPSE_TEMPLATE_DIR, 'homeserver.yaml'), synapseConfig)
+          copyFileSync(
+            join(SYNAPSE_TEMPLATE_DIR, 'localhost.log.config'),
+            join(SYNAPSE_DATA_DIR, 'localhost.log.config')
+          )
+          console.log('[launcher] Synapse config templates copied successfully')
+        } catch (err) {
+          console.warn(`[launcher] Synapse config setup failed: ${err instanceof Error ? err.message : err}`)
+        }
+      }
+
       // ─── Step 2: docker compose up ─────
       console.log('[launcher] Step 2: compose-up')
       const COMPOSE_TIMEOUT = 600000 // 10 minutes for image pull
-      updateStep('compose-up', { status: 'running', message: 'Starting MySQL container...' })
+      updateStep('compose-up', { status: 'running', message: 'Starting containers (MySQL + Synapse)...' })
 
-      // 端口已通 = MySQL 已经在跑（之前启动的容器或本地 MySQL），直接跳过 compose
-      if (await isPortReachable(3306)) {
-        console.log('[launcher] Step 2: Port 3306 already reachable, skipping compose-up')
-        updateStep('compose-up', { status: 'done', message: 'MySQL already running (port 3306)' })
+      // Both ports reachable = containers already running, skip compose
+      const [mysqlUp, synapseUp] = await Promise.all([isPortReachable(3306), isPortReachable(8008)])
+      if (mysqlUp && synapseUp) {
+        console.log('[launcher] Step 2: Ports 3306+8008 already reachable, skipping compose-up')
+        updateStep('compose-up', { status: 'done', message: 'Containers already running' })
       } else {
         // Ensure Docker is truly healthy before compose
         const preComposeState = await detectDockerState()
@@ -400,6 +295,55 @@ export class ServiceLauncher extends EventEmitter {
       console.log('[launcher] Step 3: DONE — MySQL is ready')
       updateStep('wait-mysql', { status: 'done', message: 'MySQL is ready' })
 
+      // ─── Step 3.5: Wait for Synapse ────────────────────
+      console.log('[launcher] Step 3.5: wait-synapse')
+      updateStep('wait-synapse', { status: 'running', message: 'Waiting for Synapse port...' })
+      let synapseReady = false
+      for (let i = 0; i < 90; i++) {
+        if (await isPortReachable(8008)) {
+          synapseReady = true
+          console.log(`[launcher] Step 3.5: Synapse port reachable after ${i + 1}s`)
+          break
+        }
+        if (i % 5 === 4) {
+          console.log(`[launcher] Step 3.5: Synapse port not reachable yet (${i + 1}s)`)
+          updateStep('wait-synapse', {
+            status: 'running',
+            message: `Waiting for Synapse port... (${i + 1}s)`
+          })
+        }
+        await delay(1000)
+      }
+      if (!synapseReady) {
+        // Synapse failure is non-fatal — Matrix features won't work but the app is usable
+        console.warn('[launcher] Step 3.5: Synapse port timeout (90s) — Matrix features will be unavailable')
+        updateStep('wait-synapse', { status: 'error', message: 'Synapse timeout — Matrix features unavailable' })
+      } else {
+        console.log('[launcher] Step 3.5: DONE — Synapse is ready')
+        // Create admin user if NexusMatrix scripts are available
+        const createAdminScript = join(NEXUS_MATRIX_DIR, 'scripts', 'create_admin.py')
+        if (existsSync(createAdminScript)) {
+          try {
+            console.log('[launcher] Step 3.5: Creating Synapse admin user...')
+            updateStep('wait-synapse', { status: 'running', message: 'Creating admin user...' })
+            await execInProject('python', [
+              createAdminScript,
+              '--homeserver', 'http://localhost:8008',
+              '--shared-secret', '9_HimzS2a&CBS^DPyP&mLBT2Nry-e-tR=39.w&jkwf9IGkOCGH',
+              '--username', 'nexus_admin',
+              '--password', 'nexus_admin_password',
+              '--admin',
+              '--display-name', 'NexusAdmin'
+            ], { timeout: 15000 })
+            console.log('[launcher] Step 3.5: Admin user ready')
+          } catch (err) {
+            // Non-fatal: admin user may already exist
+            console.warn(`[launcher] Step 3.5: Admin user creation: ${err instanceof Error ? err.message : err}`)
+          }
+        }
+        updateStep('wait-synapse', { status: 'done', message: 'Synapse is ready' })
+      }
+
       // ─── Step 4: Initialize database tables ─────────────
       console.log('[launcher] Step 4: init-tables')
       updateStep('init-tables', { status: 'running', message: 'Creating database tables...' })
@@ -429,13 +373,14 @@ export class ServiceLauncher extends EventEmitter {
         return { success: false, error: 'Table creation failed' }
       }
 
-      // Sync table schema (non-blocking)
-      console.log('[launcher] Step 4: Syncing table schema...')
+      // Auto-apply safe schema changes (ENUM expansion, VARCHAR growth, new columns)
+      // Dangerous changes are skipped silently — no user prompts needed.
+      console.log('[launcher] Step 4: Syncing table schema (auto-safe)...')
       updateStep('init-tables', { status: 'running', message: 'Syncing table schema...' })
       try {
         const syncScript = join(TABLE_MGMT_DIR, 'sync_all_tables.py')
-        await execInProject('uv', ['run', 'python', syncScript], { timeout: 60000 })
-        console.log('[launcher] Step 4: sync_all_tables succeeded')
+        await execInProject('uv', ['run', 'python', syncScript, '--auto-safe'], { timeout: 60000 })
+        console.log('[launcher] Step 4: sync_all_tables --auto-safe succeeded')
       } catch (syncErr) {
         console.log(`[launcher] Step 4: sync_all_tables failed (non-blocking): ${syncErr}`)
       }

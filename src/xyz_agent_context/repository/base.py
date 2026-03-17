@@ -224,6 +224,7 @@ class BaseRepository(ABC, Generic[T]):
         self,
         filters: Dict[str, Any],
         limit: Optional[int] = None,
+        offset: Optional[int] = None,
         order_by: Optional[str] = None
     ) -> List[T]:
         """
@@ -232,6 +233,7 @@ class BaseRepository(ABC, Generic[T]):
         Args:
             filters: Filter conditions
             limit: Maximum number of results
+            offset: Number of results to skip
             order_by: Sort order (e.g., "created_at DESC")
 
         Returns:
@@ -242,6 +244,7 @@ class BaseRepository(ABC, Generic[T]):
             self.table_name,
             filters=filters,
             limit=limit,
+            offset=offset,
             order_by=order_by
         )
         return [self._row_to_entity(row) for row in rows if row]

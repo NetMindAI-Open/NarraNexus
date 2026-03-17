@@ -148,7 +148,52 @@ class EmbeddingClient:
         # In-memory cache: hash(text) -> embedding
         self._cache: Dict[str, List[float]] = {}
 
+        # Cost tracking context (set via set_cost_context before calls)
+        self._cost_agent_id: Optional[str] = None
+        self._cost_db = None
+
         logger.debug(f"EmbeddingClient initialized with model: {self.model}")
+
+    def set_cost_context(self, agent_id: str, db) -> None:
+        """
+        Set cost tracking context for subsequent embedding calls.
+
+        Args:
+            agent_id: Agent that incurs the cost
+            db: AsyncDatabaseClient instance
+        """
+        self._cost_agent_id = agent_id
+        self._cost_db = db
+
+    async def _try_record_cost(self, usage) -> None:
+        """Record embedding cost if tracking context is available."""
+        if not usage:
+            return
+        # Resolve cost context: instance vars > global ContextVar
+        agent_id = self._cost_agent_id
+        db = self._cost_db
+        if not agent_id or not db:
+            from xyz_agent_context.utils.cost_tracker import get_cost_context
+            ctx = get_cost_context()
+            if ctx:
+                agent_id, db = ctx
+        if not agent_id or not db:
+            return
+        try:
+            from xyz_agent_context.utils.cost_tracker import record_cost
+            input_tokens = getattr(usage, "total_tokens", 0) or getattr(usage, "prompt_tokens", 0) or 0
+            if input_tokens > 0:
+                await record_cost(
+                    db=db,
+                    agent_id=agent_id,
+                    event_id=None,
+                    call_type="embedding",
+                    model=self.model,
+                    input_tokens=input_tokens,
+                    output_tokens=0,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to record embedding cost: {e}")
 
     def _get_cache_key(self, text: str) -> str:
         """Generate cache key from text."""
@@ -171,6 +216,8 @@ class EmbeddingClient:
             model=self.model,
             input=text,
         )
+        # Record embedding cost if tracking context is set
+        await self._try_record_cost(getattr(response, "usage", None))
         return response.data[0].embedding
 
     async def embed(self, text: str) -> List[float]:
@@ -301,10 +348,12 @@ class EmbeddingClient:
         This is an internal method that handles the actual API call
         with automatic retry for transient failures.
         """
-        return await self._client.embeddings.create(
+        response = await self._client.embeddings.create(
             model=self.model,
             input=texts,
         )
+        await self._try_record_cost(getattr(response, "usage", None))
+        return response
 
     def clear_cache(self) -> None:
         """Clear the embedding cache."""

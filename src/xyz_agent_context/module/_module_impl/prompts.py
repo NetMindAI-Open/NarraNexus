@@ -97,6 +97,7 @@ These are automatically loaded by the system based on rules. You do NOT need to 
 - **GeminiRAGModule**: Knowledge base retrieval capability
 - **SocialNetworkModule**: Social network management capability
 - **BasicInfoModule**: Basic information
+- **MatrixModule**: Inter-agent communication and messaging via Matrix protocol
 
 ## Task Modules (Your decision)
 You need to decide whether to create/keep these modules:

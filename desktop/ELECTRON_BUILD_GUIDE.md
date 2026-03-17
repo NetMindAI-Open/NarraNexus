@@ -1062,7 +1062,7 @@ This is the most critical and often most confusing part.
 
 ```
 Repository structure before packaging:     Internal structure of packaged .app:
-NexusAgent/                                NarraNexus.app/Contents/
+NarraNexus/                                NarraNexus.app/Contents/
 ├── src/            -->                    ├── Resources/
 ├── backend/        -->                    │   ├── project/        <-- extraResources copies here!
 ├── frontend/       -->                    │   │   ├── src/

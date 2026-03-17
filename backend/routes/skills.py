@@ -16,6 +16,7 @@ Provides endpoints for:
 """
 
 import asyncio
+import re
 import shutil
 import tempfile
 import traceback
@@ -25,6 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException
 from loguru import logger
 
+from backend.config import settings as backend_settings
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
 from xyz_agent_context.schema.skill_schema import (
@@ -32,10 +34,91 @@ from xyz_agent_context.schema.skill_schema import (
     SkillListResponse,
     SkillOperationResponse,
     SkillStudyResponse,
+    SkillEnvConfigResponse,
 )
+from xyz_agent_context.utils.file_safety import enforce_max_bytes, sanitize_filename
+from xyz_agent_context.schema.runtime_message import ProgressMessage
 
 
 router = APIRouter()
+
+
+async def _extract_requirements_via_llm(
+    skill_module: "SkillModule",
+    skill_name: str,
+    skill_path: str,
+) -> None:
+    """Use a lightweight LLM call to extract env var / binary requirements from SKILL.md.
+
+    This is more reliable than regex patterns or expecting the study agent to follow
+    a specific output format. A small model reads the SKILL.md and returns structured JSON.
+    """
+    from openai import AsyncOpenAI
+    from xyz_agent_context.settings import settings
+
+    skill_md_path = Path(skill_path) / "SKILL.md"
+    if not skill_md_path.exists():
+        return
+
+    try:
+        skill_content = skill_md_path.read_text(encoding='utf-8')
+    except Exception:
+        return
+
+    api_key = settings.openai_api_key
+    if not api_key:
+        logger.warning("No OPENAI_API_KEY configured, skipping LLM requirements extraction")
+        return
+
+    prompt = (
+        "Analyze the following SKILL.md file and extract ALL environment variables and "
+        "binary/CLI tool dependencies that this skill requires to function.\n\n"
+        "Look for:\n"
+        "- YAML frontmatter metadata (e.g., requires.env, requires.bins)\n"
+        "- Env var mentions in text (e.g., 'Set GOG_ACCOUNT=...', 'export API_KEY=...', "
+        "'Needs TAVILY_API_KEY')\n"
+        "- Binary tool requirements (e.g., 'requires gog binary', 'needs node installed')\n\n"
+        "Respond with ONLY a JSON object in this exact format, nothing else:\n"
+        '{"env": ["VAR_NAME_1", "VAR_NAME_2"], "bins": ["binary1", "binary2"]}\n\n'
+        "If none found, use empty arrays: {\"env\": [], \"bins\": []}\n\n"
+        f"--- SKILL.md ---\n{skill_content}\n--- END ---"
+    )
+
+    try:
+        client = AsyncOpenAI(api_key=api_key)
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        # Parse response
+        result_text = response.choices[0].message.content.strip()
+        # Extract JSON from response (handle markdown code blocks)
+        json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+        if not json_match:
+            logger.warning(f"LLM requirements extraction returned non-JSON: {result_text[:100]}")
+            return
+
+        import json
+        parsed = json.loads(json_match.group())
+        extracted_env = parsed.get('env', [])
+        extracted_bins = parsed.get('bins', [])
+
+        # Validate: must be lists of strings
+        extracted_env = [v for v in extracted_env if isinstance(v, str) and v]
+        extracted_bins = [v for v in extracted_bins if isinstance(v, str) and v]
+
+        if extracted_env or extracted_bins:
+            skill_module.update_requirements(skill_name, extracted_env, extracted_bins)
+            logger.info(
+                f"LLM extracted requirements for '{skill_name}': env={extracted_env}, bins={extracted_bins}"
+            )
+        else:
+            logger.info(f"LLM found no requirements for '{skill_name}'")
+
+    except Exception as e:
+        logger.warning(f"LLM requirements extraction failed for '{skill_name}': {e}")
 
 
 def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
@@ -122,14 +205,24 @@ async def _run_skill_study(
                 working_source=WorkingSource.SKILL_STUDY,
                 pass_mcp_urls=mcp_urls,
             ):
-                # Extract content from AgentToolCall's send_message_to_user_directly
-                if isinstance(message, AgentToolCall):
+                # Capture final_output from ProgressMessage step 3.5
+                # (PathExecutionResult is consumed internally by step_3_execute_path)
+                if isinstance(message, ProgressMessage):
+                    if message.step == "3.5" and message.details:
+                        final_output = message.details.get("final_output", "")
+                        if final_output:
+                            study_result = final_output
+                # Also capture from send_message_to_user_directly as fallback
+                elif isinstance(message, AgentToolCall):
                     if message.tool_name.endswith('send_message_to_user_directly'):
                         study_result = message.tool_input.get('content', '')
 
         # Fallback handling
         if not study_result:
             study_result = "Study completed. No explicit summary was provided by the agent."
+
+        # Extract env/bin requirements via lightweight LLM call (reads SKILL.md directly)
+        await _extract_requirements_via_llm(skill_module, skill_name, skill_path)
 
         skill_module.set_study_status(skill_name, "completed", result=study_result)
         logger.info(f"Skill study completed for '{skill_name}'")
@@ -203,9 +296,19 @@ async def install_skill(
             # Save uploaded file to temporary directory
             temp_dir = Path(tempfile.mkdtemp())
             try:
-                zip_path = temp_dir / file.filename
+                safe_filename = sanitize_filename(
+                    file.filename or "",
+                    label="zip filename",
+                    allowed_extensions={".zip"},
+                )
+                content = await file.read()
+                enforce_max_bytes(
+                    len(content),
+                    backend_settings.max_upload_bytes,
+                    label="Skill package",
+                )
+                zip_path = temp_dir / safe_filename
                 with open(zip_path, "wb") as f:
-                    content = await file.read()
                     f.write(content)
 
                 skill_info = skill_module.install_skill(zip_file_path=zip_path)
@@ -397,6 +500,80 @@ async def get_study_status(
 
     except Exception as e:
         logger.error(f"Failed to get study status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =========================================================================
+# Environment Configuration Endpoints
+# =========================================================================
+
+@router.get("/{skill_name}/env", response_model=SkillEnvConfigResponse)
+async def get_skill_env(
+    skill_name: str,
+    agent_id: str = Query(..., description="Agent ID"),
+    user_id: str = Query(..., description="User ID"),
+):
+    """Get skill's required env vars and their configuration status"""
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skill = skill_module.get_skill(skill_name)
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        # Use requires_env from SkillInfo (merged from frontmatter + .skill_meta.json)
+        requires_env = skill.requires_env or []
+        env_config = skill_module.get_skill_env_config(skill_name)
+        env_configured = {v: bool(env_config.get(v)) for v in requires_env}
+
+        return SkillEnvConfigResponse(
+            success=True,
+            requires_env=requires_env,
+            env_configured=env_configured,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get skill env config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/{skill_name}/env", response_model=SkillEnvConfigResponse)
+async def set_skill_env(
+    skill_name: str,
+    agent_id: str = Query(..., description="Agent ID"),
+    user_id: str = Query(..., description="User ID"),
+    body: dict = None,
+):
+    """Set env var values for a skill"""
+    try:
+        skill_module = _get_skill_module(agent_id, user_id)
+        skill = skill_module.get_skill(skill_name)
+        if not skill:
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
+
+        env_config = body.get('env_config', {}) if body else {}
+        if not env_config:
+            raise HTTPException(status_code=400, detail="env_config is required")
+
+        skill_module.set_skill_env_config(skill_name, env_config)
+
+        # Return updated status — re-read skill to get merged requires_env
+        skill = skill_module.get_skill(skill_name)
+        updated_config = skill_module.get_skill_env_config(skill_name)
+        requires_env = skill.requires_env or [] if skill else []
+        env_configured = {v: bool(updated_config.get(v)) for v in requires_env}
+
+        return SkillEnvConfigResponse(
+            success=True,
+            requires_env=requires_env,
+            env_configured=env_configured,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to set skill env config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

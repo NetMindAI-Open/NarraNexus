@@ -105,7 +105,7 @@ class InstanceJobsTableManager(BaseTableManager):
         if field_name == "job_type":
             return "ENUM('one_off', 'scheduled', 'ongoing') NOT NULL"
         if field_name == "status":
-            return "ENUM('pending', 'active', 'running', 'completed', 'failed') NOT NULL DEFAULT 'pending'"
+            return "ENUM('pending', 'active', 'running', 'paused', 'completed', 'failed', 'cancelled') NOT NULL DEFAULT 'pending'"
         if field_name == "notification_method":
             return "VARCHAR(32) DEFAULT 'inbox'"
         if field_name == "embedding":

@@ -72,6 +72,7 @@ class RunContext:
     pass_mcp_urls: Dict[str, str] = field(default_factory=dict)
     job_instance_id: Optional[str] = None  # Instance ID when executing a Job
     forced_narrative_id: Optional[str] = None  # Forced Narrative ID (used for Job triggers)
+    trigger_extra_data: Dict[str, Any] = field(default_factory=dict)  # Trigger 层传入的附加数据（如 channel_tag）
 
     # ===== Core Data Objects =====
     agent_data: Optional[Dict[str, Any]] = None

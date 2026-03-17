@@ -48,6 +48,7 @@ from .runtime_message import (
     AgentTextDelta,
     AgentThinking,
     AgentToolCall,
+    ErrorMessage,
 )
 
 # ===== Job Schema =====
@@ -73,6 +74,9 @@ from .hook_schema import (
     HookExecutionTrace,
     HookAfterExecutionParams,
 )
+
+# ===== Channel Tag Schema =====
+from .channel_tag import ChannelTag
 
 # ===== RAG Store Schema =====
 from .rag_store_schema import (
@@ -158,6 +162,12 @@ from .api_schema import (
     RAGFileListResponse,
     RAGFileUploadResponse,
     RAGFileDeleteResponse,
+    # Cost
+    CostModelBreakdown,
+    CostDailyEntry,
+    CostSummary,
+    CostRecord,
+    CostResponse,
 )
 
 # ===== Skill Schema =====
@@ -273,6 +283,9 @@ __all__ = [
     "HookIOData",
     "HookExecutionTrace",
     "HookAfterExecutionParams",
+
+    # Channel Tag Schema
+    "ChannelTag",
 
     # RAG Store Schema
     "RAGStoreModel",

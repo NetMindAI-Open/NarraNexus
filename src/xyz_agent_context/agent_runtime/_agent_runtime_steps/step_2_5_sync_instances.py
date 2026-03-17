@@ -280,7 +280,7 @@ async def step_2_5_sync_instances(
         from xyz_agent_context.services import InstanceSyncService
 
         # Debug logs (using INFO level to ensure visibility)
-        logger.info(f"📋 Step 2.5.3: Checking Job creation conditions")
+        logger.info("📋 Step 2.5.3: Checking Job creation conditions")
         logger.info(f"  - added_ids = {added_ids}")
         logger.info(f"  - key_to_id = {load_result.key_to_id}")
         logger.info(f"  - raw_instances count = {len(load_result.raw_instances)}")

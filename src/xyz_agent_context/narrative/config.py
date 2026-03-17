@@ -35,6 +35,11 @@ class NarrativeConfig:
     # Alternative: gpt-4o (higher accuracy but more expensive)
     CONTINUITY_LLM_MODEL = "gpt-4o-mini"
 
+    # Narrative judge model
+    # Description: LLM model used for narrative matching/judge decisions
+    # Recommended: gpt-4o-mini (best cost-effectiveness)
+    NARRATIVE_JUDGE_LLM_MODEL = "gpt-4o-mini"
+
     # LLM call maximum retry count
     # Description: Number of retries when LLM API call fails
     # Recommended: 3

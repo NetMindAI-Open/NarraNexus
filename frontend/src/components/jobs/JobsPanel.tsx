@@ -25,8 +25,10 @@ import {
   Zap,
   TrendingUp,
   AlertCircle,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, KPICard } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -34,193 +36,11 @@ import { JobDependencyGraph } from './JobDependencyGraph';
 import { JobExecutionTimeline } from './JobExecutionTimeline';
 import { JobDetailPanel } from './JobDetailPanel';
 import { JobExpandedDetail } from './JobExpandedDetail';
+import { StatusDistributionBar } from './StatusDistributionBar';
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
 import type { Job } from '@/types/api';
 
 type ViewMode = 'list' | 'graph' | 'timeline';
-
-// KPI Card Component
-function KPICard({
-  label,
-  value,
-  icon: Icon,
-  color = 'accent',
-  subtext,
-  pulse,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ElementType;
-  color?: 'accent' | 'success' | 'warning' | 'error' | 'secondary';
-  subtext?: string;
-  pulse?: boolean;
-}) {
-  const colorMap = {
-    accent: {
-      bg: 'bg-[var(--accent-glow)]',
-      icon: 'text-[var(--accent-primary)]',
-      value: 'text-[var(--accent-primary)]',
-      glow: 'shadow-[0_0_15px_var(--accent-glow)]',
-    },
-    success: {
-      bg: 'bg-[var(--color-success)]/10',
-      icon: 'text-[var(--color-success)]',
-      value: 'text-[var(--color-success)]',
-      glow: 'shadow-[0_0_15px_rgba(34,197,94,0.2)]',
-    },
-    warning: {
-      bg: 'bg-[var(--color-warning)]/10',
-      icon: 'text-[var(--color-warning)]',
-      value: 'text-[var(--color-warning)]',
-      glow: 'shadow-[0_0_15px_rgba(234,179,8,0.2)]',
-    },
-    error: {
-      bg: 'bg-[var(--color-error)]/10',
-      icon: 'text-[var(--color-error)]',
-      value: 'text-[var(--color-error)]',
-      glow: 'shadow-[0_0_15px_rgba(239,68,68,0.2)]',
-    },
-    secondary: {
-      bg: 'bg-[var(--accent-secondary)]/10',
-      icon: 'text-[var(--accent-secondary)]',
-      value: 'text-[var(--accent-secondary)]',
-      glow: 'shadow-[0_0_15px_rgba(192,132,252,0.2)]',
-    },
-  };
-
-  const colors = colorMap[color];
-
-  return (
-    <div
-      className={cn(
-        'p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]',
-        'transition-all duration-300 hover:border-[var(--accent-primary)]/30',
-        pulse && colors.glow
-      )}
-    >
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className={cn('w-6 h-6 rounded-lg flex items-center justify-center', colors.bg)}>
-          <Icon className={cn('w-3 h-3', colors.icon, pulse && 'animate-pulse')} />
-        </div>
-        <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider font-medium">{label}</span>
-      </div>
-      <div className={cn('text-lg font-bold font-mono', colors.value)}>{value}</div>
-      {subtext && <div className="text-[8px] text-[var(--text-tertiary)] mt-0.5 font-mono truncate">{subtext}</div>}
-    </div>
-  );
-}
-
-// Status Distribution Bar
-function StatusDistributionBar({ jobs }: { jobs: Job[] }) {
-  const stats = useMemo(() => {
-    const counts = {
-      completed: jobs.filter((j) => j.status === 'completed').length,
-      running: jobs.filter((j) => j.status === 'running').length,
-      active: jobs.filter((j) => j.status === 'active').length,
-      paused: jobs.filter((j) => j.status === 'paused').length,
-      pending: jobs.filter((j) => j.status === 'pending').length,
-      failed: jobs.filter((j) => j.status === 'failed').length,
-      cancelled: jobs.filter((j) => j.status === 'cancelled').length,
-    };
-    return counts;
-  }, [jobs]);
-
-  const total = jobs.length || 1;
-
-  if (jobs.length === 0) return null;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex justify-between text-[9px] font-mono text-[var(--text-tertiary)]">
-        <span>Status Distribution</span>
-        <span>{jobs.length} total</span>
-      </div>
-      <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden flex">
-        {stats.completed > 0 && (
-          <div
-            className="bg-[var(--color-success)] transition-all duration-500"
-            style={{ width: `${(stats.completed / total) * 100}%` }}
-            title={`Completed: ${stats.completed}`}
-          />
-        )}
-        {stats.running > 0 && (
-          <div
-            className="bg-[var(--color-warning)] transition-all duration-500"
-            style={{ width: `${(stats.running / total) * 100}%` }}
-            title={`Running: ${stats.running}`}
-          />
-        )}
-        {stats.active > 0 && (
-          <div
-            className="bg-[var(--accent-primary)] transition-all duration-500"
-            style={{ width: `${(stats.active / total) * 100}%` }}
-            title={`Active: ${stats.active}`}
-          />
-        )}
-        {stats.paused > 0 && (
-          <div
-            className="bg-[var(--accent-secondary)] transition-all duration-500"
-            style={{ width: `${(stats.paused / total) * 100}%` }}
-            title={`Paused: ${stats.paused}`}
-          />
-        )}
-        {stats.pending > 0 && (
-          <div
-            className="bg-[var(--text-tertiary)] transition-all duration-500"
-            style={{ width: `${(stats.pending / total) * 100}%` }}
-            title={`Pending: ${stats.pending}`}
-          />
-        )}
-        {stats.failed > 0 && (
-          <div
-            className="bg-[var(--color-error)] transition-all duration-500"
-            style={{ width: `${(stats.failed / total) * 100}%` }}
-            title={`Failed: ${stats.failed}`}
-          />
-        )}
-        {stats.cancelled > 0 && (
-          <div
-            className="bg-[var(--bg-tertiary)] transition-all duration-500"
-            style={{ width: `${(stats.cancelled / total) * 100}%` }}
-            title={`Cancelled: ${stats.cancelled}`}
-          />
-        )}
-      </div>
-      <div className="flex flex-wrap gap-2 text-[8px] font-mono">
-        {stats.completed > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.completed} completed</span>
-          </span>
-        )}
-        {stats.running > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[var(--color-warning)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.running} running</span>
-          </span>
-        )}
-        {stats.active > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.active} active</span>
-          </span>
-        )}
-        {stats.paused > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[var(--accent-secondary)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.paused} paused</span>
-          </span>
-        )}
-        {stats.failed > 0 && (
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-[var(--color-error)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.failed} failed</span>
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor: string; label: string }> = {
   pending: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Pending' },
@@ -268,6 +88,7 @@ export function JobsPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+  const [failedExpanded, setFailedExpanded] = useState(false);
 
   const { agentId, userId } = useConfigStore();
   const {
@@ -461,84 +282,125 @@ export function JobsPanel() {
                 </div>
               </div>
             ) : (
-              jobs.map((job) => {
-                const config = statusConfig[job.status] || statusConfig.pending;
-                const StatusIcon = config.icon;
-                const isExpanded = expandedId === job.job_id;
-                const isCancelling = cancellingJobId === job.job_id;
+              (() => {
+                // In "all" mode, separate failed jobs into a collapsible group at the bottom
+                const isAllMode = statusFilter === 'all';
+                const mainJobs = isAllMode ? jobs.filter((j) => j.status !== 'failed') : jobs;
+                const failedJobs = isAllMode ? jobs.filter((j) => j.status === 'failed') : [];
 
-                return (
-                  <button
-                    key={job.job_id}
-                    onClick={() => setExpandedId(isExpanded ? null : job.job_id)}
-                    className={cn(
-                      'w-full text-left p-4 rounded-xl transition-all duration-300 group',
-                      'border bg-[var(--bg-elevated)]',
-                      isExpanded
-                        ? 'border-[var(--accent-primary)]/30 shadow-[0_0_20px_var(--accent-glow)]'
-                        : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg',
-                      job.status === 'running' && 'bg-[var(--color-warning)]/5 border-[var(--color-warning)]/30',
-                      job.status === 'cancelled' && 'opacity-60'
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={cn(
-                        'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300',
-                        config.bgColor,
-                        job.status === 'running' && 'animate-pulse'
-                      )}>
-                        <StatusIcon className={cn('w-4 h-4', config.color)} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={cn(
-                            'text-sm font-semibold truncate transition-colors',
-                            job.status === 'cancelled'
-                              ? 'text-[var(--text-tertiary)] line-through'
-                              : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
-                          )}>
-                            {job.title}
-                          </span>
-                          <Badge
-                            variant={
-                              job.status === 'running'
-                                ? 'warning'
-                                : job.status === 'completed'
-                                ? 'success'
-                                : job.status === 'failed'
-                                ? 'error'
-                                : job.status === 'active'
-                                ? 'accent'
-                                : job.status === 'paused'
-                                ? 'outline'
-                                : 'default'
-                            }
-                            size="sm"
-                            glow={job.status === 'running' || job.status === 'active'}
-                          >
-                            {config.label}
-                          </Badge>
+                const renderJobCard = (job: Job) => {
+                  const config = statusConfig[job.status] || statusConfig.pending;
+                  const StatusIcon = config.icon;
+                  const isExpanded = expandedId === job.job_id;
+                  const isCancelling = cancellingJobId === job.job_id;
+
+                  return (
+                    <div
+                      key={job.job_id}
+                      onClick={() => setExpandedId(isExpanded ? null : job.job_id)}
+                      className={cn(
+                        'w-full text-left p-4 rounded-xl transition-all duration-300 group cursor-pointer',
+                        'border bg-[var(--bg-elevated)]',
+                        isExpanded
+                          ? 'border-[var(--accent-primary)]/30 shadow-[0_0_20px_var(--accent-glow)]'
+                          : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg',
+                        job.status === 'running' && 'bg-[var(--color-warning)]/5 border-[var(--color-warning)]/30',
+                        job.status === 'cancelled' && 'opacity-60'
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={cn(
+                          'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all duration-300',
+                          config.bgColor,
+                          job.status === 'running' && 'animate-pulse'
+                        )}>
+                          <StatusIcon className={cn('w-4 h-4', config.color)} />
                         </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={cn(
+                              'text-sm font-semibold truncate transition-colors',
+                              job.status === 'cancelled'
+                                ? 'text-[var(--text-tertiary)] line-through'
+                                : 'text-[var(--text-primary)] group-hover:text-[var(--accent-primary)]'
+                            )}>
+                              {job.title}
+                            </span>
+                            <Badge
+                              variant={
+                                job.status === 'running'
+                                  ? 'warning'
+                                  : job.status === 'completed'
+                                  ? 'success'
+                                  : job.status === 'failed'
+                                  ? 'error'
+                                  : job.status === 'active'
+                                  ? 'accent'
+                                  : job.status === 'paused'
+                                  ? 'outline'
+                                  : 'default'
+                              }
+                              size="sm"
+                              glow={job.status === 'running' || job.status === 'active'}
+                            >
+                              {config.label}
+                            </Badge>
+                          </div>
 
-                        {job.description && (
-                          <p className="text-xs text-[var(--text-tertiary)] mt-1.5 line-clamp-1">
-                            {job.description}
-                          </p>
-                        )}
+                          {job.description && (
+                            <p className="text-xs text-[var(--text-tertiary)] mt-1.5 line-clamp-1">
+                              {job.description}
+                            </p>
+                          )}
 
-                        {isExpanded && (
-                          <JobExpandedDetail
-                            job={job}
-                            isCancelling={isCancelling}
-                            canCancel={canCancel(job.status)}
-                            onCancel={handleCancelJob}
-                          />
-                        )}
+                          {isExpanded && (
+                            <JobExpandedDetail
+                              job={job}
+                              isCancelling={isCancelling}
+                              canCancel={canCancel(job.status)}
+                              onCancel={handleCancelJob}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </button>
+                  );
+                };
+
+                return (
+                  <>
+                    {mainJobs.map(renderJobCard)}
+
+                    {/* Failed jobs collapsible group */}
+                    {failedJobs.length > 0 && (
+                      <div className="mt-1">
+                        <button
+                          onClick={() => setFailedExpanded(!failedExpanded)}
+                          className={cn(
+                            'w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-all',
+                            'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]',
+                          )}
+                        >
+                          {failedExpanded ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                          <XCircle className="w-3.5 h-3.5 text-[var(--color-error)]" />
+                          <span className="text-xs font-medium">
+                            {failedJobs.length} failed job{failedJobs.length !== 1 ? 's' : ''}
+                          </span>
+                        </button>
+                        {failedExpanded && (
+                          <div className="space-y-3 mt-2">
+                            {failedJobs.map(renderJobCard)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 );
-              })
+              })()
             )}
           </div>
         )}

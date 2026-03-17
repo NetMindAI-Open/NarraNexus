@@ -51,6 +51,7 @@ class ClaudeAgentSDK:
         messages: list[dict[str, Any]],
         mcp_server_urls: dict[str, str],  # Corrected type annotation: should be a dict, not a list
         streaming: bool = True,  # Whether to use streaming output
+        extra_env: dict[str, str] | None = None,  # Additional env vars (e.g., skill-configured API keys)
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
 
@@ -131,11 +132,20 @@ class ClaudeAgentSDK:
         cli_env["NO_PROXY"] = no_proxy_hosts
         cli_env["no_proxy"] = no_proxy_hosts
 
+        # 清除 CLAUDECODE 环境变量，避免嵌套会话检测导致子进程拒绝启动。
+        # 当后端从 Claude Code 终端内启动时，子进程会继承此变量。
+        cli_env["CLAUDECODE"] = ""
+
+        # Inject skill-configured env vars (e.g., TAVILY_API_KEY, GOG_ACCOUNT)
+        if extra_env:
+            cli_env.update(extra_env)
+
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
             cwd=self.working_path,
             mcp_servers=claude_agent_mcp_dict,
             permission_mode="bypassPermissions",
+            max_turns=100,  # Safety limit to prevent infinite agent loops
             max_buffer_size=50 * 1024 * 1024,  # 50MB buffer size for large MCP responses (PDF parsing etc.)
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
@@ -189,13 +199,13 @@ class ClaudeAgentSDK:
                     "  3. API 认证失败或额度耗尽"
                 )
                 if cli_stderr_lines:
-                    logger.error(f"[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                    logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
         except GeneratorExit:
             logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
         except Exception as e:
             logger.error(f"Error in agent_loop: {e}")
             if cli_stderr_lines:
-                logger.error(f"[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
             raise
         finally:
             if client is not None:

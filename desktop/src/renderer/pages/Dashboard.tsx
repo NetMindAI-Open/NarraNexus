@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import ServiceCard from '../components/ServiceCard'
 import LogViewer from '../components/LogViewer'
 import AsciiBanner from '../components/AsciiBanner'
+import UpdateBanner from '../components/UpdateBanner'
 
 interface DashboardProps {
   onOpenSettings: () => void
@@ -129,6 +130,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
       <div className="titlebar-drag shrink-0 flex items-center justify-center pt-8 pb-2 bg-white border-b border-gray-100">
         <AsciiBanner size="small" />
       </div>
+
+      {/* Update notification */}
+      <UpdateBanner />
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">

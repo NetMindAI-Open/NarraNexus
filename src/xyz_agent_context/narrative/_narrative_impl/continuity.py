@@ -18,6 +18,7 @@ from loguru import logger
 
 from ..models import ConversationSession, ContinuityResult
 from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from ..config import config as narrative_config
 from .prompts import CONTINUITY_DETECTION_INSTRUCTIONS
 
 if TYPE_CHECKING:
@@ -185,6 +186,7 @@ Please determine whether the current query belongs to the current Narrative (not
                 instructions=instructions,
                 user_input=user_input,
                 output_type=ContinuityOutput,
+                model=narrative_config.CONTINUITY_LLM_MODEL,
             )
 
             # result is RunResult, get the parsed Pydantic object via .final_output

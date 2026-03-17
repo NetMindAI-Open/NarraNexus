@@ -105,3 +105,67 @@ Remember:
 2. Using end_message_to_user_directly means you send the message directly to the conversation between you and the user.
 3. The two are slightly different, please choose the appropriate one. 1. is better for one-time message notifications; 2. is better for scenarios requiring multi-turn conversations.
 """
+
+
+# ============================================================================
+# ONGOING Job chat analysis prompt
+# Used by _job_lifecycle.update_ongoing_jobs_from_chat() to check if a chat
+# interaction satisfies an ONGOING job's end_condition.
+#
+# Placeholder description:
+# - {job_id}: Job ID
+# - {title}: Job title
+# - {description}: Job description
+# - {payload_preview}: First 500 chars of payload
+# - {end_condition}: The end condition text
+# - {iteration_count}: Current iteration count
+# - {max_iterations}: Maximum iterations or "No limit"
+# - {user_query}: The user's query text
+# - {chat_content_preview}: First 1000 chars of agent response
+# ============================================================================
+ONGOING_CHAT_ANALYSIS_PROMPT = """Analyze if the current chat interaction satisfies the end condition of an ONGOING job.
+
+## Job Information
+
+**Job ID**: {job_id}
+**Title**: {title}
+**Description**: {description}
+**Payload**: {payload_preview}...
+
+**End Condition**: {end_condition}
+
+**Current Iteration**: {iteration_count}
+**Max Iterations**: {max_iterations}
+
+## Current Chat Interaction
+
+**User Query**: {user_query}
+
+**Agent Response**: {chat_content_preview}...
+
+## Your Task
+
+Determine if this chat interaction indicates that the job's end condition has been met.
+
+For example, if the end condition is "customer shows purchase intent or explicit rejection":
+- Customer says "I'll buy it" -> end condition MET
+- Customer says "No thanks, I don't need it" -> end condition MET
+- Customer asks "What's the price?" -> end condition NOT MET (still interested, continuing conversation)
+
+## Return Fields
+
+1. **job_id**: "{job_id}"
+
+2. **is_end_condition_met**: true/false - Does this interaction satisfy the end condition?
+
+3. **end_condition_reason**: Detailed explanation of why the condition is/isn't met
+
+4. **should_continue**: true/false - Should the job continue?
+   - false if end_condition is met
+   - false if max_iterations reached (current: {iteration_count}, max: {max_iterations})
+   - true otherwise
+
+5. **progress_summary**: 1-2 sentence summary of what happened in this interaction
+
+6. **process**: 2-3 concise descriptions of actions taken
+"""

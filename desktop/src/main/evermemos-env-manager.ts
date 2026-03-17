@@ -113,6 +113,20 @@ export function readEnv(): EnvConfig {
   return parseEnvContent(content)
 }
 
+function normalizeEnvValue(value: string): string {
+  return value.replace(/\0/g, '').replace(/\r?\n/g, ' ')
+}
+
+export function sanitizeEnvUpdates(updates: EnvConfig): EnvConfig {
+  const allowedKeys = new Set(FIELDS.map((field) => field.key))
+  const sanitized: EnvConfig = {}
+  for (const [key, value] of Object.entries(updates)) {
+    if (!allowedKeys.has(key) || typeof value !== 'string') continue
+    sanitized[key] = normalizeEnvValue(value)
+  }
+  return sanitized
+}
+
 /** Write key-value pairs; write to in-memory staging when directory doesn't exist */
 export function writeEnv(updates: EnvConfig): void {
   if (!isCloned()) {

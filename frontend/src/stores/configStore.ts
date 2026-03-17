@@ -6,17 +6,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api } from '@/lib/api';
+import type { AgentInfo } from '@/types';
 
-export interface AgentInfo {
-  agent_id: string;
-  name?: string;
-  description?: string;
-  status?: string;
-  created_at?: string;
-  is_public?: boolean;
-  created_by?: string;
-  bootstrap_active?: boolean;
-}
+export type { AgentInfo };
 
 interface ConfigState {
   // Auth state

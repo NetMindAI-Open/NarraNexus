@@ -58,6 +58,7 @@ export type LaunchStepId =
   | 'wait-docker'
   | 'compose-up'
   | 'wait-mysql'
+  | 'wait-synapse'
   | 'init-tables'
   | 'wait-evermemos'
   | 'start-services'

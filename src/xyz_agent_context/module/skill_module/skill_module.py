@@ -23,6 +23,7 @@ import json
 from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
+from urllib.parse import urlparse
 
 import yaml
 from loguru import logger
@@ -35,6 +36,11 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.schema.skill_schema import SkillInfo
 from xyz_agent_context.utils import DatabaseClient
+from xyz_agent_context.utils.file_safety import (
+    ensure_within_directory,
+    sanitize_filename,
+    validate_zip_member_path,
+)
 
 
 class SkillModule(XYZBaseModule):
@@ -88,6 +94,14 @@ When asked to install or configure a new skill, **always** place it under your s
 - Place the SKILL.md and any related files inside that subdirectory
 - Do NOT install skills to `~/`, `~/.arena/`, or any path outside your skills directory
 - External skill docs may suggest their own install paths — ignore those and use `skills/` instead
+
+### Installing Skills from ClawHub URLs
+When a user shares a ClawHub URL (e.g. `https://clawhub.ai/author/skill-name` or `https://clawhub.ai/skill-name`):
+1. Extract the slug (last path segment only, e.g. `skill-name` — do NOT use `author/skill-name`)
+2. Run: `clawhub install <slug> --dir skills/ --force --no-input`
+3. If it fails with "Rate limit exceeded", wait 5 seconds and retry. Do NOT try alternative approaches (no WebFetch, no different slug formats).
+4. Verify installation: check that `skills/<slug>/SKILL.md` exists
+5. Confirm success and tell the user to visit the Skills panel to "Study" the skill
 """
 
     def get_config(self) -> ModuleConfig:
@@ -110,14 +124,20 @@ When asked to install or configure a new skill, **always** place it under your s
 
         skills = self._scan_skills()
 
-        # Build Skills table
+        # Build Skills table with status column
         # Use skills/xxx format relative to Agent cwd to avoid duplication from absolute paths
         if skills:
-            table = "| Skill | Description | Path |\n"
-            table += "|-------|-------------|------|\n"
+            table = "| Skill | Description | Path | Status |\n"
+            table += "|-------|-------------|------|--------|\n"
             for skill in skills:
                 relative_path = f"skills/{skill.name}"
-                table += f"| {skill.name} | {skill.description} | `{relative_path}/SKILL.md` |\n"
+                # Determine config status
+                if skill.requires_env and skill.env_configured is False:
+                    missing = ", ".join(skill.requires_env)
+                    status = f"⚠ needs: {missing}"
+                else:
+                    status = "✓ ready"
+                table += f"| {skill.name} | {skill.description} | `{relative_path}/SKILL.md` | {status} |\n"
         else:
             table = "*No skills installed.*"
 
@@ -126,6 +146,12 @@ When asked to install or configure a new skill, **always** place it under your s
         ctx_data.extra_data["skills_table"] = table
         ctx_data.extra_data["skills_count"] = len(skills)
         ctx_data.extra_data["available_skills"] = [s.model_dump() for s in skills]
+
+        # Collect all configured env vars from enabled skills for runtime injection
+        skill_env_vars = self.get_all_skill_env_vars()
+        if skill_env_vars:
+            ctx_data.extra_data["skill_env_vars"] = skill_env_vars
+            logger.debug(f"Collected {len(skill_env_vars)} skill env vars for injection")
 
         logger.debug(f"SkillModule.hook_data_gathering() completed, found {len(skills)} skills")
         return ctx_data
@@ -150,7 +176,14 @@ When asked to install or configure a new skill, **always** place it under your s
                 "- Create a subdirectory: `skills/<skill-name>/`\n"
                 "- Place the SKILL.md and any related files inside that subdirectory\n"
                 "- Do NOT install skills to `~/`, `~/.arena/`, or any path outside your skills directory\n"
-                "- External skill docs may suggest their own install paths — ignore those and use `skills/` instead\n"
+                "- External skill docs may suggest their own install paths — ignore those and use `skills/` instead\n\n"
+                "### Installing Skills from ClawHub URLs\n"
+                "When a user shares a ClawHub URL (e.g. `https://clawhub.ai/author/skill-name` or `https://clawhub.ai/skill-name`):\n"
+                "1. Extract the slug (last path segment only, e.g. `skill-name` — do NOT use `author/skill-name`)\n"
+                "2. Run: `clawhub install <slug> --dir skills/ --force --no-input`\n"
+                "3. If it fails with \"Rate limit exceeded\", wait 5 seconds and retry. Do NOT try alternative approaches (no WebFetch, no different slug formats).\n"
+                "4. Verify installation: check that `skills/<slug>/SKILL.md` exists\n"
+                "5. Confirm success and tell the user to visit the Skills panel to \"Study\" the skill\n"
             )
 
         return self.instructions.format(skills_table=skills_table)
@@ -201,6 +234,31 @@ When asked to install or configure a new skill, **always** place it under your s
 
         return skills
 
+    @staticmethod
+    def _extract_env_vars_from_text(text: str) -> list[str]:
+        """Extract environment variable names from markdown body text.
+
+        Looks for patterns like:
+        - Set GOG_ACCOUNT=...
+        - export TAVILY_API_KEY=...
+        - Needs OPENAI_API_KEY
+        - `MY_VAR` in backticks
+        """
+        import re
+        env_pattern = re.compile(r'\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b')
+        candidates = set(env_pattern.findall(text))
+        env_suffixes = ('_KEY', '_TOKEN', '_SECRET', '_ACCOUNT', '_URL',
+                        '_PASSWORD', '_PASS', '_API', '_AUTH', '_CREDENTIAL')
+        env_prefixes = ('API_', 'AWS_', 'GOOGLE_', 'OPENAI_', 'ANTHROPIC_',
+                        'TAVILY_', 'GOG_', 'GITHUB_', 'SLACK_', 'DISCORD_')
+        result = []
+        for c in candidates:
+            if any(c.endswith(s) for s in env_suffixes):
+                result.append(c)
+            elif any(c.startswith(s) for s in env_prefixes):
+                result.append(c)
+        return sorted(set(result))
+
     def _parse_skill_md(self, skill_md: Path) -> SkillInfo:
         """Parse SKILL.md frontmatter"""
         skill_dir = skill_md.parent
@@ -226,6 +284,14 @@ When asked to install or configure a new skill, **always** place it under your s
             "studied_at": meta_data.get('studied_at'),
         }
 
+        # Extract requirements from .skill_meta.json (may have been set by study)
+        meta_requires = meta_data.get('requires', {})
+        meta_requires_env = meta_requires.get('env', []) if isinstance(meta_requires, dict) else []
+        meta_requires_bins = meta_requires.get('bins', []) if isinstance(meta_requires, dict) else []
+
+        # Read env_config to determine if all required vars are configured
+        env_config = meta_data.get('env_config', {})
+
         try:
             content = skill_md.read_text(encoding='utf-8')
             if content.startswith('---'):
@@ -234,6 +300,36 @@ When asked to install or configure a new skill, **always** place it under your s
                     fm = parts[1]
                     meta = yaml.safe_load(fm)
                     if meta:
+                        # Parse structured metadata (e.g., clawdbot format)
+                        fm_requires_env = []
+                        fm_requires_bins = []
+                        metadata_field = meta.get('metadata', {})
+                        if isinstance(metadata_field, str):
+                            try:
+                                metadata_field = json.loads(metadata_field)
+                            except (json.JSONDecodeError, TypeError):
+                                metadata_field = {}
+                        if isinstance(metadata_field, dict):
+                            clawdbot = metadata_field.get('clawdbot', {})
+                            if isinstance(clawdbot, dict):
+                                requires = clawdbot.get('requires', {})
+                                if isinstance(requires, dict):
+                                    fm_requires_env = requires.get('env', [])
+                                    fm_requires_bins = requires.get('bins', [])
+
+                        # Scan markdown body for env var patterns
+                        body_text = parts[2] if len(parts) >= 3 else ''
+                        body_env = self._extract_env_vars_from_text(body_text)
+
+                        # Merge frontmatter + body scan + meta.json requirements (union)
+                        requires_env = sorted(set(fm_requires_env + body_env + meta_requires_env)) or None
+                        requires_bins = sorted(set(fm_requires_bins + meta_requires_bins)) or None
+
+                        # Check if all required env vars are configured
+                        env_configured = None
+                        if requires_env:
+                            env_configured = all(env_config.get(v) for v in requires_env)
+
                         return SkillInfo(
                             name=meta.get('name', skill_dir.name),
                             description=meta.get('description', ''),
@@ -242,18 +338,30 @@ When asked to install or configure a new skill, **always** place it under your s
                             author=meta.get('author'),
                             source_url=source_url,
                             installed_at=installed_at,
+                            requires_env=requires_env,
+                            requires_bins=requires_bins,
+                            env_configured=env_configured,
                             **study_fields,
                         )
         except Exception as e:
             logger.warning(f"Failed to parse SKILL.md at {skill_md}: {e}")
 
         # Fallback: use directory name as the name
+        requires_env = sorted(set(meta_requires_env)) or None
+        requires_bins = sorted(set(meta_requires_bins)) or None
+        env_configured = None
+        if requires_env:
+            env_configured = all(env_config.get(v) for v in requires_env)
+
         return SkillInfo(
             name=skill_dir.name,
             description='',
             path=str(skill_dir),
             source_url=source_url,
             installed_at=installed_at,
+            requires_env=requires_env,
+            requires_bins=requires_bins,
+            env_configured=env_configured,
             **study_fields,
         )
 
@@ -285,7 +393,9 @@ When asked to install or configure a new skill, **always** place it under your s
         if not self.skills_dir:
             return {"study_status": "idle"}
 
-        skill_dir = self.skills_dir / skill_name
+        skill_dir = self._resolve_skill_dir(skill_name)
+        if not skill_dir:
+            return {"study_status": "idle"}
         meta_file = skill_dir / ".skill_meta.json"
         if meta_file.exists():
             try:
@@ -312,7 +422,10 @@ When asked to install or configure a new skill, **always** place it under your s
         if not self.skills_dir:
             return
 
-        skill_dir = self.skills_dir / skill_name
+        skill_dir = self._resolve_skill_dir(skill_name)
+        if not skill_dir:
+            logger.warning(f"Cannot set study status: skill directory not found for '{skill_name}'")
+            return
         meta_file = skill_dir / ".skill_meta.json"
 
         # Read existing metadata
@@ -340,6 +453,138 @@ When asked to install or configure a new skill, **always** place it under your s
             logger.debug(f"Updated study status for '{skill_name}': {status}")
         except Exception as e:
             logger.warning(f"Failed to update study status: {e}")
+
+    # =========================================================================
+    # Environment Configuration Management
+    # =========================================================================
+
+    def _resolve_skill_dir(self, skill_name: str) -> Optional[Path]:
+        """Resolve the actual directory for a skill by name.
+
+        The skill name (from SKILL.md frontmatter) may differ from the directory name
+        (e.g., frontmatter has 'tavily-search' but directory is 'openclaw-tavily-search').
+        This method finds the correct directory by checking:
+        1. Direct match: skills/{skill_name}/
+        2. Scan all skills and match by parsed name
+        """
+        if not self.skills_dir:
+            return None
+        # Direct match
+        direct = self.skills_dir / skill_name
+        if direct.exists() and direct.is_dir():
+            return direct
+        # Scan and match by parsed name from SKILL.md
+        for skill_path in self.skills_dir.iterdir():
+            if skill_path.is_dir() and not skill_path.name.startswith('.'):
+                skill_md = skill_path / "SKILL.md"
+                if skill_md.exists():
+                    try:
+                        content = skill_md.read_text(encoding='utf-8')
+                        if content.startswith('---'):
+                            parts = content.split('---', 2)
+                            if len(parts) >= 3:
+                                meta = yaml.safe_load(parts[1])
+                                if meta and meta.get('name') == skill_name:
+                                    return skill_path
+                    except Exception:
+                        pass
+        return None
+
+    def _read_skill_meta(self, skill_name: str) -> dict:
+        """Read .skill_meta.json for a skill, returns empty dict if not found"""
+        skill_dir = self._resolve_skill_dir(skill_name)
+        if not skill_dir:
+            return {}
+        meta_file = skill_dir / ".skill_meta.json"
+        if meta_file.exists():
+            try:
+                return json.loads(meta_file.read_text(encoding='utf-8'))
+            except Exception as e:
+                logger.warning(f"Failed to read .skill_meta.json for '{skill_name}': {e}")
+        return {}
+
+    def _write_skill_meta(self, skill_name: str, meta_data: dict) -> None:
+        """Write .skill_meta.json for a skill"""
+        skill_dir = self._resolve_skill_dir(skill_name)
+        if not skill_dir:
+            logger.warning(f"Cannot write .skill_meta.json: skill dir not found for '{skill_name}'")
+            return
+        meta_file = skill_dir / ".skill_meta.json"
+        try:
+            meta_file.write_text(
+                json.dumps(meta_data, indent=2, ensure_ascii=False),
+                encoding='utf-8'
+            )
+        except Exception as e:
+            logger.warning(f"Failed to write .skill_meta.json for '{skill_name}': {e}")
+
+    def get_skill_requirements(self, skill_name: str) -> dict:
+        """Get the requirements dict from .skill_meta.json"""
+        meta_data = self._read_skill_meta(skill_name)
+        return meta_data.get('requires', {})
+
+    def get_skill_env_config(self, skill_name: str) -> dict:
+        """Get env_config from .skill_meta.json (var_name -> base64-encoded value)"""
+        meta_data = self._read_skill_meta(skill_name)
+        return meta_data.get('env_config', {})
+
+    def set_skill_env_config(self, skill_name: str, env_config: dict) -> None:
+        """Save env var values to .skill_meta.json (base64 encoded)"""
+        import base64
+        meta_data = self._read_skill_meta(skill_name)
+
+        encoded_config = {}
+        for key, value in env_config.items():
+            if value:  # Only store non-empty values
+                encoded_config[key] = base64.b64encode(value.encode('utf-8')).decode('utf-8')
+
+        # Merge with existing (allow partial updates)
+        existing = meta_data.get('env_config', {})
+        existing.update(encoded_config)
+        meta_data['env_config'] = existing
+
+        self._write_skill_meta(skill_name, meta_data)
+        logger.info(f"Saved env config for skill '{skill_name}': {list(env_config.keys())}")
+
+    def update_requirements(self, skill_name: str, env_list: list, bins_list: list) -> None:
+        """Merge new requirements into .skill_meta.json (union with existing)"""
+        meta_data = self._read_skill_meta(skill_name)
+        existing = meta_data.get('requires', {})
+        existing_env = existing.get('env', []) if isinstance(existing, dict) else []
+        existing_bins = existing.get('bins', []) if isinstance(existing, dict) else []
+
+        merged_env = sorted(set(existing_env + env_list))
+        merged_bins = sorted(set(existing_bins + bins_list))
+
+        meta_data['requires'] = {
+            'env': merged_env,
+            'bins': merged_bins,
+        }
+        self._write_skill_meta(skill_name, meta_data)
+        logger.info(f"Updated requirements for skill '{skill_name}': env={merged_env}, bins={merged_bins}")
+
+    def get_all_skill_env_vars(self) -> dict:
+        """
+        Collect all configured env vars from all enabled skills.
+        Returns a merged dict of plaintext env var name -> value.
+        """
+        import base64
+        all_env = {}
+        skills = self._scan_skills()
+        for skill in skills:
+            meta_data = self._read_skill_meta(skill.name)
+            env_config = meta_data.get('env_config', {})
+            for key, encoded_value in env_config.items():
+                try:
+                    value = base64.b64decode(encoded_value).decode('utf-8')
+                    if key in all_env and all_env[key] != value:
+                        logger.warning(
+                            f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value"
+                        )
+                    all_env[key] = value
+                except Exception:
+                    logger.warning(f"Failed to decode env var '{key}' for skill '{skill.name}'")
+        return all_env
 
     # =========================================================================
     # Skill Management Methods (called by API layer)
@@ -372,8 +617,7 @@ When asked to install or configure a new skill, **always** place it under your s
         # Extract to temp directory for validation first
         temp_dir = Path(tempfile.mkdtemp())
         try:
-            with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
+            self._extract_zip_safely(zip_file_path, temp_dir)
 
             # Find the directory containing SKILL.md
             skill_root = self._find_skill_root(temp_dir)
@@ -385,7 +629,8 @@ When asked to install or configure a new skill, **always** place it under your s
             info = self._parse_skill_md(skill_md)
 
             # Move to target directory
-            target_dir = self.skills_dir / info.name
+            safe_skill_name = sanitize_filename(info.name, label="skill name")
+            target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
             if target_dir.exists():
                 shutil.rmtree(target_dir)
 
@@ -395,6 +640,7 @@ When asked to install or configure a new skill, **always** place it under your s
             self._save_skill_meta(target_dir, source_url=None, source_type="zip")
 
             # Update path and metadata
+            info.name = safe_skill_name
             info.path = str(target_dir)
             info.installed_at = datetime.now().isoformat()
             logger.info(f"Installed skill '{info.name}' to {target_dir}")
@@ -415,6 +661,36 @@ When asked to install or configure a new skill, **always** place it under your s
 
         return None
 
+    def _extract_zip_safely(self, zip_file_path: Path, target_dir: Path) -> None:
+        """Extract a skill archive while rejecting zip-slip style paths."""
+        max_entries = 500
+        max_uncompressed_bytes = 100 * 1024 * 1024
+
+        with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
+            members = zip_ref.infolist()
+            if len(members) > max_entries:
+                raise ValueError("Invalid skill package: too many files")
+
+            total_uncompressed = 0
+            target_root = target_dir.resolve(strict=False)
+            for member in members:
+                member_path = validate_zip_member_path(member.filename)
+                total_uncompressed += member.file_size
+                if total_uncompressed > max_uncompressed_bytes:
+                    raise ValueError("Invalid skill package: uncompressed size is too large")
+
+                destination = (target_dir / member_path).resolve(strict=False)
+                if target_root not in destination.parents and destination != target_root:
+                    raise ValueError("Invalid skill package: path traversal not allowed")
+
+                if member.is_dir():
+                    destination.mkdir(parents=True, exist_ok=True)
+                    continue
+
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with zip_ref.open(member) as src, open(destination, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+
     def install_from_github(self, url: str, branch: str = "main") -> SkillInfo:
         """
         Install Skill from GitHub
@@ -434,6 +710,14 @@ When asked to install or configure a new skill, **always** place it under your s
         # Parse URL (supports shorthand format)
         if url.startswith("github:"):
             url = f"https://github.com/{url[7:]}"
+
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or parsed.hostname not in {"github.com", "www.github.com"}:
+            raise ValueError("Only https://github.com repositories are supported")
+        if parsed.username or parsed.password:
+            raise ValueError("GitHub URLs with embedded credentials are not allowed")
+        if not parsed.path or parsed.path == "/":
+            raise ValueError("Invalid GitHub repository URL")
 
         # Clone to temp directory
         temp_dir = Path(tempfile.mkdtemp())
@@ -456,7 +740,8 @@ When asked to install or configure a new skill, **always** place it under your s
 
             # Move to target directory
             self.skills_dir.mkdir(parents=True, exist_ok=True)
-            target_dir = self.skills_dir / info.name
+            safe_skill_name = sanitize_filename(info.name, label="skill name")
+            target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
 
             if target_dir.exists():
                 shutil.rmtree(target_dir)
@@ -472,6 +757,7 @@ When asked to install or configure a new skill, **always** place it under your s
             self._save_skill_meta(target_dir, source_url=url, source_type="github")
 
             # Update path info and metadata
+            info.name = safe_skill_name
             info.path = str(target_dir)
             info.source_url = url
             info.installed_at = datetime.now().isoformat()

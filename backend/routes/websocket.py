@@ -28,8 +28,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 from loguru import logger
 
-# 心跳间隔（秒），防止代理/SSH 转发因空闲超时断开连接
-WS_HEARTBEAT_INTERVAL = 15
+from backend.config import settings
 
 from xyz_agent_context.agent_runtime import AgentRuntime
 from xyz_agent_context.schema import WorkingSource
@@ -102,20 +101,20 @@ async def websocket_agent_run(websocket: WebSocket):
         except Exception as e:
             logger.warning(f"Failed to load MCP URLs: {e}")
 
-        # 心跳任务：定期发送 heartbeat 防止空闲超时
+        # Heartbeat task: periodically send heartbeat to prevent idle timeout
         heartbeat_stop = asyncio.Event()
 
         async def heartbeat_loop():
-            """定期发送心跳消息，保持 WebSocket 连接活跃"""
+            """Periodically send heartbeat messages to keep WebSocket connection alive"""
             while not heartbeat_stop.is_set():
                 try:
-                    await asyncio.wait_for(heartbeat_stop.wait(), timeout=WS_HEARTBEAT_INTERVAL)
-                    break  # stop event 被设置，退出
+                    await asyncio.wait_for(heartbeat_stop.wait(), timeout=settings.ws_heartbeat_interval)
+                    break  # stop event was set, exit
                 except asyncio.TimeoutError:
                     try:
                         await websocket.send_json({"type": "heartbeat"})
                     except Exception:
-                        break  # 连接已断开
+                        break  # connection already closed
 
         heartbeat_task = asyncio.create_task(heartbeat_loop())
 
@@ -137,7 +136,12 @@ async def websocket_agent_run(websocket: WebSocket):
                         message_dict = message
                     else:
                         message_dict = {"type": "unknown", "data": str(message)}
-                    await websocket.send_json(message_dict)
+                    try:
+                        await websocket.send_json(message_dict)
+                    except RuntimeError:
+                        # WebSocket already closed (client disconnected mid-stream)
+                        logger.info("WebSocket closed during streaming, stopping send loop")
+                        break
                     # Verbose logging: show type + content preview for monitoring
                     msg_type = message_dict.get('type', '?')
                     if msg_type == 'agent_response':
@@ -159,11 +163,14 @@ async def websocket_agent_run(websocket: WebSocket):
 
         logger.info("Agent execution completed")
 
-        # Send completion signal
-        await websocket.send_json({
-            "type": "complete",
-            "message": "Agent execution completed successfully",
-        })
+        # Send completion signal (skip if WebSocket already closed)
+        try:
+            await websocket.send_json({
+                "type": "complete",
+                "message": "Agent execution completed successfully",
+            })
+        except RuntimeError:
+            logger.info("Skipped completion signal — WebSocket already closed")
 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")

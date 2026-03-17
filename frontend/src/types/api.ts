@@ -2,6 +2,12 @@
  * API response type definitions
  */
 
+/** Base interface for all API responses */
+export interface ApiResponse {
+  success: boolean;
+  error?: string;
+}
+
 // Job types
 export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'completed' | 'failed' | 'blocked' | 'cancelled';
 export type JobType = 'one_off' | 'scheduled' | 'ongoing';
@@ -18,10 +24,10 @@ export interface Job {
   job_id: string;
   agent_id: string;
   user_id: string;
-  job_type: string;
+  job_type: JobType;
   title: string;
   description?: string;
-  status: string;
+  status: JobStatus;
   payload?: string;
   trigger_config?: TriggerConfig;
   process?: string[];
@@ -39,24 +45,18 @@ export interface Job {
   narrative_id?: string;           // Associated Narrative ID (conversation context)
 }
 
-export interface JobListResponse {
-  success: boolean;
+export interface JobListResponse extends ApiResponse {
   jobs: Job[];
   count: number;
-  error?: string;
 }
 
-export interface JobDetailResponse {
-  success: boolean;
+export interface JobDetailResponse extends ApiResponse {
   job?: Job;
-  error?: string;
 }
 
-export interface CancelJobResponse {
-  success: boolean;
+export interface CancelJobResponse extends ApiResponse {
   job_id?: string;
   previous_status?: string;
-  error?: string;
 }
 
 // Inbox types (User Inbox)
@@ -77,65 +77,61 @@ export interface InboxMessage {
   created_at?: string;
 }
 
-export interface InboxListResponse {
-  success: boolean;
+export interface InboxListResponse extends ApiResponse {
   messages: InboxMessage[];
   count: number;
+  total_count: number;
   unread_count: number;
-  error?: string;
 }
 
-export interface MarkReadResponse {
-  success: boolean;
+export interface MarkReadResponse extends ApiResponse {
   marked_count: number;
-  error?: string;
 }
 
-// Agent Inbox types
-export type AgentMessageSourceType = 'user' | 'agent' | 'system';
-
-export interface AgentInboxMessage {
-  message_id: string;
+// Agent Inbox types (Matrix channel messages, room-grouped)
+export interface RoomMember {
   agent_id: string;
-  source_type: AgentMessageSourceType;
-  source_id: string;
+  agent_name: string;
+  matrix_user_id: string;
+}
+
+export interface RoomMessage {
+  message_id: string;
+  sender_id: string;
+  sender_name: string;
   content: string;
-  if_response: boolean;
-  narrative_id?: string;
-  event_id?: string;
+  is_read: boolean;
   created_at?: string;
 }
 
-export interface AgentInboxListResponse {
-  success: boolean;
-  messages: AgentInboxMessage[];
-  count: number;
-  unresponded_count: number;
-  error?: string;
+export interface MatrixRoom {
+  room_id: string;
+  room_name: string;
+  members: RoomMember[];
+  unread_count: number;
+  messages: RoomMessage[];
+  latest_at?: string;
 }
 
-export interface MarkRespondedResponse {
-  success: boolean;
-  marked_count: number;
-  error?: string;
+export interface AgentInboxListResponse extends ApiResponse {
+  rooms: MatrixRoom[];
+  total_unread: number;
 }
+
+// MarkReadResponse is reused for both user inbox and agent inbox (defined above)
 
 // Awareness types
-export interface AwarenessResponse {
-  success: boolean;
+export interface AwarenessResponse extends ApiResponse {
   awareness?: string;
   create_time?: string;
   update_time?: string;
-  error?: string;
 }
 
 // Clear history types
-export interface ClearHistoryResponse {
-  success: boolean;
+export interface ClearHistoryResponse extends ApiResponse {
   narrative_ids_deleted: string[];
   narratives_count: number;
   events_count: number;
-  error?: string;
 }
 
 // Social Network types
@@ -156,26 +152,20 @@ export interface SocialNetworkEntity {
   expertise_domains?: string[];    // Expertise domains
 }
 
-export interface SocialNetworkResponse {
-  success: boolean;
+export interface SocialNetworkResponse extends ApiResponse {
   entity?: SocialNetworkEntity;
-  error?: string;
 }
 
-export interface SocialNetworkListResponse {
-  success: boolean;
+export interface SocialNetworkListResponse extends ApiResponse {
   entities: SocialNetworkEntity[];
   count: number;
-  error?: string;
 }
 
 // Semantic search response
-export interface SocialNetworkSearchResponse {
-  success: boolean;
+export interface SocialNetworkSearchResponse extends ApiResponse {
   entities: Array<SocialNetworkEntity & { similarity_score?: number }>;
   count: number;
   search_type: 'keyword' | 'semantic';
-  error?: string;
 }
 
 // Chat History types
@@ -193,11 +183,9 @@ export interface SimpleChatMessage {
   narrative_id?: string;
 }
 
-export interface SimpleChatHistoryResponse {
-  success: boolean;
+export interface SimpleChatHistoryResponse extends ApiResponse {
   messages: SimpleChatMessage[];
   total_count: number;
-  error?: string;
 }
 
 export interface ChatHistoryEvent {
@@ -235,13 +223,11 @@ export interface ChatHistoryNarrative {
   instances: InstanceInfo[];  // Associated Module Instances
 }
 
-export interface ChatHistoryResponse {
-  success: boolean;
+export interface ChatHistoryResponse extends ApiResponse {
   narratives: ChatHistoryNarrative[];
   events: ChatHistoryEvent[];
   narrative_count: number;
   event_count: number;
-  error?: string;
 }
 
 // Create Agent types
@@ -257,12 +243,31 @@ export interface AgentInfo {
   description?: string;
   status?: string;
   created_at?: string;
+  is_public?: boolean;
+  created_by?: string;
+  bootstrap_active?: boolean;
 }
 
-export interface CreateAgentResponse {
-  success: boolean;
+// Auth types
+export interface LoginResponse extends ApiResponse {
+  user_id?: string;
+}
+
+export interface CreateUserResponse extends ApiResponse {
+  user_id?: string;
+}
+
+export interface AgentListResponse extends ApiResponse {
+  agents: AgentInfo[];
+  count: number;
+}
+
+export interface UpdateTimezoneResponse extends ApiResponse {
+  timezone?: string;
+}
+
+export interface CreateAgentResponse extends ApiResponse {
   agent?: AgentInfo;
-  error?: string;
 }
 
 export interface UpdateAgentRequest {
@@ -270,17 +275,13 @@ export interface UpdateAgentRequest {
   agent_description?: string;
 }
 
-export interface UpdateAgentResponse {
-  success: boolean;
+export interface UpdateAgentResponse extends ApiResponse {
   agent?: AgentInfo;
-  error?: string;
 }
 
-export interface DeleteAgentResponse {
-  success: boolean;
+export interface DeleteAgentResponse extends ApiResponse {
   agent_id?: string;
   deleted_counts?: Record<string, number>;
-  error?: string;
 }
 
 // File Management types
@@ -290,25 +291,19 @@ export interface FileInfo {
   modified_at: string;
 }
 
-export interface FileListResponse {
-  success: boolean;
+export interface FileListResponse extends ApiResponse {
   files: FileInfo[];
   workspace_path: string;
-  error?: string;
 }
 
-export interface FileUploadResponse {
-  success: boolean;
+export interface FileUploadResponse extends ApiResponse {
   filename?: string;
   size?: number;
   workspace_path?: string;
-  error?: string;
 }
 
-export interface FileDeleteResponse {
-  success: boolean;
+export interface FileDeleteResponse extends ApiResponse {
   filename?: string;
-  error?: string;
 }
 
 // MCP Management types
@@ -327,11 +322,9 @@ export interface MCPInfo {
   updated_at?: string;
 }
 
-export interface MCPListResponse {
-  success: boolean;
+export interface MCPListResponse extends ApiResponse {
   mcps: MCPInfo[];
   count: number;
-  error?: string;
 }
 
 export interface MCPCreateRequest {
@@ -348,26 +341,20 @@ export interface MCPUpdateRequest {
   is_enabled?: boolean;
 }
 
-export interface MCPResponse {
-  success: boolean;
+export interface MCPResponse extends ApiResponse {
   mcp?: MCPInfo;
-  error?: string;
 }
 
-export interface MCPValidateResponse {
-  success: boolean;
+export interface MCPValidateResponse extends ApiResponse {
   mcp_id: string;
   connected: boolean;
-  error?: string;
 }
 
-export interface MCPValidateAllResponse {
-  success: boolean;
+export interface MCPValidateAllResponse extends ApiResponse {
   results: MCPValidateResponse[];
   total: number;
   connected: number;
   failed: number;
-  error?: string;
 }
 
 // RAG File Management types
@@ -381,25 +368,58 @@ export interface RAGFileInfo {
   error_message?: string;
 }
 
-export interface RAGFileListResponse {
-  success: boolean;
+export interface RAGFileListResponse extends ApiResponse {
   files: RAGFileInfo[];
   total_count: number;
   completed_count: number;
   pending_count: number;
-  error?: string;
 }
 
-export interface RAGFileUploadResponse {
-  success: boolean;
+export interface RAGFileUploadResponse extends ApiResponse {
   filename?: string;
   size?: number;
   upload_status?: string;
-  error?: string;
 }
 
-export interface RAGFileDeleteResponse {
-  success: boolean;
+export interface RAGFileDeleteResponse extends ApiResponse {
   filename?: string;
-  error?: string;
+}
+
+// Cost types
+export interface CostModelBreakdown {
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+  call_count: number;
+}
+
+export interface CostDailyEntry {
+  date: string;
+  cost: number;
+}
+
+export interface CostSummary {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  by_model: Record<string, CostModelBreakdown>;
+  daily: CostDailyEntry[];
+}
+
+export interface CostRecord {
+  id: number;
+  agent_id: string;
+  event_id?: string;
+  call_type: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost_usd: number;
+  created_at?: string;
+}
+
+export interface CostResponse extends ApiResponse {
+  summary?: CostSummary;
+  records: CostRecord[];
+  total_count: number;
 }

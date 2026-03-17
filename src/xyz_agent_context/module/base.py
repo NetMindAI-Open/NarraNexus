@@ -164,7 +164,7 @@ MCPs: {mcp_tools}
     # Instructions
     # =========================================================================
 
-    async def get_instructions(self, ctx_data: ContextData) -> ModuleInstructions:
+    async def get_instructions(self, ctx_data: ContextData) -> str:
         """
         Return instructions to add to the system prompt
 
@@ -178,7 +178,7 @@ MCPs: {mcp_tools}
             ctx_data: Context data (Module may need to dynamically generate instructions based on data)
 
         Returns:
-            ModuleInstructions
+            Instruction string to include in system prompt
         """
         local_ctx_data = ctx_data.model_copy()
         local_ctx_data = local_ctx_data.model_dump()

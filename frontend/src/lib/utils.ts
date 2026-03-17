@@ -20,10 +20,22 @@ export function generateId(): string {
 }
 
 /**
+ * Parse timestamp to Date, treating timezone-naive strings as UTC.
+ * Backend stores UTC timestamps without 'Z' suffix (e.g. "2026-03-11 09:50:09"),
+ * which JS would otherwise parse as local time, causing wrong display in other timezones.
+ */
+function parseUTCTimestamp(timestamp: number | string): Date {
+  if (typeof timestamp === 'number') return new Date(timestamp);
+  const s = timestamp.trim();
+  if (/[Z+-]\d{0,4}$/.test(s)) return new Date(s);
+  return new Date(s.replace(' ', 'T') + 'Z');
+}
+
+/**
  * Format timestamp to readable string
  */
 export function formatTime(timestamp: number | string): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
+  const date = parseUTCTimestamp(timestamp);
   return date.toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
@@ -35,7 +47,7 @@ export function formatTime(timestamp: number | string): string {
  * Format date to readable string
  */
 export function formatDate(timestamp: number | string): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
+  const date = parseUTCTimestamp(timestamp);
   return date.toLocaleDateString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
@@ -48,7 +60,7 @@ export function formatDate(timestamp: number | string): string {
  * Handles both past and future dates
  */
 export function formatRelativeTime(timestamp: number | string): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
+  const date = parseUTCTimestamp(timestamp);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const isFuture = diffMs < 0;

@@ -182,7 +182,7 @@ async def create_table(
     # Generate and execute CREATE TABLE SQL
     create_sql = generate_create_table_sql(manager_class, indexes)
 
-    print(f"\nExecuting SQL:")
+    print("\nExecuting SQL:")
     print("-" * 60)
     print(create_sql)
     print("-" * 60)
@@ -218,10 +218,10 @@ async def create_table_interactive(
 
     if exists:
         print(f"\nTable `{table_name}` already exists.")
-        print(f"\nAvailable operations:")
-        print(f"  1. Sync table structure (sync)")
-        print(f"  2. Drop and rebuild table (force create)")
-        print(f"  3. Exit")
+        print("\nAvailable operations:")
+        print("  1. Sync table structure (sync)")
+        print("  2. Drop and rebuild table (force create)")
+        print("  3. Exit")
 
         choice = input("\nPlease choose (1/2/3): ")
 

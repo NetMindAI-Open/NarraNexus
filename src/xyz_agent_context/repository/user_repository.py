@@ -160,7 +160,7 @@ class UserRepository(BaseRepository[User]):
         limit: int = 100
     ) -> List[User]:
         """List users"""
-        logger.debug(f"    → UserRepository.list_users()")
+        logger.debug("    → UserRepository.list_users()")
 
         filters = {}
         if user_type:

@@ -9,11 +9,11 @@ Select and load relevant modules based on input content, while deciding the exec
 
 from __future__ import annotations
 
-from typing import AsyncGenerator, TYPE_CHECKING
+from typing import AsyncGenerator, Union, TYPE_CHECKING
 
 from loguru import logger
 
-from xyz_agent_context.schema import ProgressMessage, ProgressStatus
+from xyz_agent_context.schema import ProgressMessage, ProgressStatus, ErrorMessage
 from xyz_agent_context.module.memory_module import get_memory_module
 from .step_display import (
     format_instances_for_display,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 async def step_2_load_modules(
     ctx: "RunContext"
-) -> AsyncGenerator[ProgressMessage, None]:
+) -> AsyncGenerator[Union[ProgressMessage, ErrorMessage], None]:
     """
     Step 2: Load Modules and decide execution path
 
@@ -70,6 +70,13 @@ async def step_2_load_modules(
     )
     ctx.load_result = load_result
 
+    # Surface LLM decision error to frontend (fallback was used, execution continues)
+    if load_result.llm_error:
+        yield ErrorMessage(
+            error_message=load_result.llm_error,
+            error_type="module_decision_error",
+        )
+
     # Extract data from ModuleLoadResult
     active_instances = load_result.active_instances
     execution_type = load_result.execution_type
@@ -81,7 +88,7 @@ async def step_2_load_modules(
     # MemoryModule: responsible for EverMemOS writing and other memory management tasks
     memory_module = get_memory_module(ctx.agent_id, ctx.user_id)
     ctx.module_list.append(memory_module)
-    logger.debug(f"  📝 Added MemoryModule to module_list")
+    logger.debug("  📝 Added MemoryModule to module_list")
 
     logger.success(
         f"✅ Instances loaded: count={len(active_instances)}, "

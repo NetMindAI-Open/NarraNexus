@@ -27,7 +27,7 @@ export const BUNDLED_PROJECT_ROOT = app.isPackaged
  */
 export const PROJECT_ROOT = app.isPackaged
   ? join(app.getPath('userData'), 'project')
-  : join(__dirname, '..', '..', '..')  // out/main/ -> desktop/ -> NexusAgent/
+  : join(__dirname, '..', '..', '..')  // out/main/ -> desktop/ -> NarraNexus/
 
 /**
  * Ensure the writable project directory stays in sync with bundled resources
@@ -74,7 +74,8 @@ export const PORTS = {
   MYSQL: 3306,
   BACKEND: 8000,
   MCP_START: 7801,
-  MCP_END: 7805,
+  MCP_END: 7810,
+  NEXUS_MATRIX: 8953,
   EVERMEMOS: 1995
 } as const
 
@@ -83,6 +84,18 @@ export const EVERMEMOS_DIR = join(PROJECT_ROOT, '.evermemos')
 
 /** EverMemOS Git repository URL */
 export const EVERMEMOS_GIT_URL = 'https://github.com/NetMindAI-Open/EverMemOS.git'
+
+/** NexusMatrix project directory */
+export const NEXUS_MATRIX_DIR = join(PROJECT_ROOT, 'related_project', 'NetMind-AI-RS-NexusMatrix')
+
+/** NexusMatrix Git repository URL */
+export const NEXUS_MATRIX_GIT_URL = 'https://github.com/protagolabs/NetMind-AI-RS-NexusMatrix.git'
+
+/** Synapse template directory (committed config templates) */
+export const SYNAPSE_TEMPLATE_DIR = join(PROJECT_ROOT, 'deploy', 'synapse')
+
+/** Synapse data directory (runtime, gitignored) */
+export const SYNAPSE_DATA_DIR = join(PROJECT_ROOT, 'deploy', 'synapse', 'data')
 
 /** All MCP module ports (7801-7805) */
 export const MCP_PORTS = Array.from(
@@ -95,6 +108,7 @@ export const MCP_PORTS = Array.from(
 /** Infrastructure service definitions (Docker containers, HealthMonitor checks port health) */
 export const INFRA_SERVICES = [
   { id: 'mysql',         label: 'MySQL',         port: 3306,  required: true },
+  { id: 'synapse',       label: 'Synapse',       port: 8008,  required: false },
   { id: 'mongodb',       label: 'MongoDB',       port: 27017, required: false },
   { id: 'elasticsearch', label: 'Elasticsearch', port: 19200, required: false },
   { id: 'milvus',        label: 'Milvus',        port: 19530, required: false },
@@ -122,6 +136,8 @@ export interface ServiceDef {
   order: number
   /** Optional service: silently skip when cwd doesn't exist (non-blocking) */
   optional?: boolean
+  /** Git repository URL: auto-clone when cwd doesn't exist */
+  gitRepo?: string
 }
 
 /** All backend service definitions */
@@ -167,6 +183,26 @@ export const SERVICES: ServiceDef[] = [
     order: 4
   },
   {
+    id: 'nexus-matrix',
+    label: 'NexusMatrix Server',
+    command: 'uv',
+    args: ['run', 'python', '-m', 'nexus_matrix.main'],
+    cwd: 'related_project/NetMind-AI-RS-NexusMatrix',
+    port: PORTS.NEXUS_MATRIX,
+    healthUrl: 'http://localhost:8953/health',
+    order: 5,
+    gitRepo: 'https://github.com/protagolabs/NetMind-AI-RS-NexusMatrix.git'
+  },
+  {
+    id: 'matrix-trigger',
+    label: 'Matrix Trigger',
+    command: 'uv',
+    args: ['run', 'python', '-m', 'xyz_agent_context.module.matrix_module.matrix_trigger'],
+    port: null,
+    healthUrl: null,
+    order: 6
+  },
+  {
     id: 'evermemos',
     label: 'EverMemOS',
     command: 'uv',
@@ -174,7 +210,7 @@ export const SERVICES: ServiceDef[] = [
     cwd: '.evermemos',
     port: PORTS.EVERMEMOS,
     healthUrl: null,
-    order: 5,
+    order: 7,
     optional: true
   }
 ]

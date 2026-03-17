@@ -29,7 +29,7 @@ Architecture:
     ├─────────────────────────────────────────────────────────────┤
     │  Store Management:                                           │
     │    - Each agent_id maps to an independent store (shared)     │
-    │    - Mapping saved in ./data/gemini_file_search_map.json     │
+    │    - Mapping saved in ~/.nexusagent/data/                     │
     └─────────────────────────────────────────────────────────────┘
                                 │
                                 ▼
@@ -101,7 +101,7 @@ class GeminiRAGModule(XYZBaseModule):
 
     Store naming convention:
     - display_name: agent_{agent_id}
-    - Mapping file path: ./data/gemini_file_search_map.json
+    - Mapping file path: ~/.nexusagent/data/gemini_file_search_map.json
 
     Usage examples:
         # Via MCP tools (Agent auto-invokes)
@@ -116,10 +116,10 @@ class GeminiRAGModule(XYZBaseModule):
     # =========================================================================
 
     # Store mapping file path - saves display_name -> store_name mapping
-    STORE_MAP_FILE = Path("./data/gemini_file_search_map.json")
+    STORE_MAP_FILE = Path.home() / ".nexusagent" / "data" / "gemini_file_search_map.json"
 
     # Temporary file directory - used for creating temp .md files during upload_text
-    TEMP_DIR = Path("./data/gemini_rag_temp")
+    TEMP_DIR = Path.home() / ".nexusagent" / "data" / "gemini_rag_temp"
 
     # =========================================================================
     # Initialization
@@ -245,7 +245,7 @@ note: Your query should combine the user's question with the existing keywords a
         Returns:
             Updated ContextData
         """
-        logger.debug(f"          → GeminiRAGModule.hook_data_gathering() started")
+        logger.debug("          → GeminiRAGModule.hook_data_gathering() started")
 
         try:
             repo = RAGStoreRepository(self.db)
@@ -263,7 +263,7 @@ note: Your query should combine the user's question with the existing keywords a
                     agent_id=self.agent_id,
                     user_id=None
                 )
-                logger.debug(f"          Using agent_id for RAG keywords")
+                logger.debug("          Using agent_id for RAG keywords")
 
             if not keywords:
                 logger.debug("          No RAG keywords found, knowledge base may be empty")
@@ -286,7 +286,7 @@ note: Your query should combine the user's question with the existing keywords a
             # Also save keywords to ctx_data (for other modules to use)
             ctx_data.rag_keywords = keywords
 
-            logger.debug(f"          ← GeminiRAGModule.hook_data_gathering() completed")
+            logger.debug("          ← GeminiRAGModule.hook_data_gathering() completed")
 
         except Exception as e:
             logger.error(f"Error in GeminiRAGModule.hook_data_gathering: {e}")
@@ -812,316 +812,10 @@ Please analyze and generate an updated keywords list and reasoning from the new 
         """
         Create MCP Server instance
 
-        Creates and configures a FastMCP server, registering three tools:
-        1. rag_query - Query documents
-        2. rag_upload_file - Upload files
-        3. rag_upload_text - Upload text
+        Delegates tool registration to _rag_mcp_tools module.
 
         Returns:
             FastMCP: Configured MCP server instance
         """
-        from mcp.server.fastmcp import FastMCP
-
-        # Create MCP server instance
-        mcp = FastMCP("gemini_rag_module")
-        mcp.settings.port = self.port
-
-        # -----------------------------------------------------------------
-        # Tool: rag_query - Document query tool
-        # -----------------------------------------------------------------
-        @mcp.tool()
-        def rag_query(
-            agent_id: str,
-            query: str,
-            top_k: int = 5
-        ) -> dict:
-            """
-            Search documents in the RAG store using natural language.
-
-            Use this tool to find information from previously uploaded documents.
-            The search uses semantic similarity to find relevant content.
-            The RAG store is shared across all users for this Agent.
-
-            Args:
-                agent_id: The Agent ID (required for store identification)
-                query: Natural language search query.
-                top_k: Maximum number of results to return (default: 5)
-
-            Returns:
-                dict with search results containing text chunks and their sources
-
-            Note:
-                - The query should be optimized by combining the user's question, the knowledge base keywords and the keywords likely to appear in the answer.
-                - The content of the query will directly affect the accuracy and relevance of the results.
-            Example:
-                rag_query(
-                    agent_id="agent_xxx",
-                    query="What is the main topic of the document?",
-                    top_k=3
-                )
-            """
-            try:
-                # Call static method to execute query
-                chunks = GeminiRAGModule.query_store(
-                    agent_id=agent_id,
-                    query=query,
-                    top_k=top_k
-                )
-
-                # Handle empty results
-                if not chunks:
-                    return {
-                        "success": True,
-                        "query": query,
-                        "total_results": 0,
-                        "chunks": [],
-                        "message": "No relevant documents found. The store might be empty or no documents match the query."
-                    }
-
-                return {
-                    "success": True,
-                    "query": query,
-                    "total_results": len(chunks),
-                    "chunks": chunks,
-                }
-
-            except Exception as e:
-                logger.error(f"rag_query execution error: {e}")
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-
-        # -----------------------------------------------------------------
-        # Tool: rag_upload_file - File upload tool
-        # -----------------------------------------------------------------
-        @mcp.tool()
-        def rag_upload_file(
-            agent_id: str,
-            file_path: str,
-            update_keywords: bool = True
-        ) -> dict:
-            """
-            Upload a file to the RAG store for future searches.
-
-            The file will be indexed and made available for semantic search.
-            Supports various text formats including PDF, TXT, MD, etc.
-            The RAG store is shared across all users for this Agent.
-
-            Args:
-                agent_id: The Agent ID (required for store identification)
-                file_path: Absolute path to the file to upload
-                update_keywords: Whether to update keywords using LLM (default: True)
-
-            Returns:
-                dict with upload status and details
-
-            Example:
-                rag_upload_file(
-                    agent_id="agent_xxx",
-                    file_path="/path/to/document.pdf"
-                )
-            """
-            import asyncio
-
-            try:
-                # Call static method to execute upload
-                result = GeminiRAGModule.upload_file_to_store(
-                    agent_id=agent_id,
-                    file_path=file_path
-                )
-
-                # After successful upload, update database records and keywords
-                if result.get("success") and update_keywords:
-                    try:
-                        # Get filename and content
-                        filename = os.path.basename(file_path)
-
-                        # Try to read file content (for keyword extraction)
-                        file_content = ""
-                        try:
-                            with open(file_path, "r", encoding="utf-8") as f:
-                                file_content = f.read()[:3000]
-                        except Exception:
-                            # If binary file (e.g., PDF), skip content reading
-                            file_content = f"[Binary file: {filename}]"
-
-                        # Asynchronously update database and keywords
-                        async def update_db_and_keywords():
-                            from xyz_agent_context.utils import get_db_client
-                            db = await get_db_client()
-                            repo = RAGStoreRepository(db)
-
-                            # Ensure database record exists (Agent level, no user_id needed)
-                            await repo.get_or_create_store(
-                                agent_id=agent_id,
-                                user_id=None,  # Agent level, no user_id
-                                store_name=result.get("store_name", "")
-                            )
-
-                            # Add file record
-                            await repo.add_uploaded_file(
-                                agent_id=agent_id,
-                                user_id=None,  # Agent level, no user_id
-                                filename=filename
-                            )
-                            logger.info(f"Added file record: {filename}")
-                            # Update keywords using LLM
-                            current_keywords, new_keywords = await GeminiRAGModule.update_keywords_with_llm(
-                                agent_id=agent_id,
-                                new_file_content=file_content,
-                                new_filename=filename,
-                                db_client=db
-                            )
-                            
-                            logger.info(f"Original keywords: {current_keywords}")
-                            logger.info(f"New keywords: {new_keywords}")
-
-                            return new_keywords
-
-                        # Execute async operations in event loop
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                # If event loop already exists, create task
-                                asyncio.ensure_future(update_db_and_keywords())
-                                # Note: cannot await result here, keyword update is async
-                                result["keywords_update"] = "scheduled"
-                            else:
-                                new_keywords = loop.run_until_complete(update_db_and_keywords())
-                                result["keywords"] = new_keywords
-                        except RuntimeError:
-                            # When no event loop exists, create a new one
-                            new_keywords = asyncio.run(update_db_and_keywords())
-                            result["keywords"] = new_keywords
-
-                    except Exception as e:
-                        logger.warning(f"Failed to update keywords: {e}")
-                        result["keywords_update_error"] = str(e)
-
-                return result
-
-            except FileNotFoundError as e:
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-            except Exception as e:
-                logger.error(f"rag_upload_file execution error: {e}")
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-
-        # -----------------------------------------------------------------
-        # Tool: rag_upload_text - Text upload tool
-        # -----------------------------------------------------------------
-        @mcp.tool()
-        def rag_upload_text(
-            agent_id: str,
-            content: str,
-            update_keywords: bool = True
-        ) -> dict:
-            """
-            Upload text content directly to the RAG store.
-
-            Use this to store important information, notes, or any text content
-            that should be searchable later. The content will be saved as a
-            markdown file and indexed for semantic search.
-            The RAG store is shared across all users for this Agent.
-
-            Args:
-                agent_id: The Agent ID (required for store identification)
-                content: The text content to upload (will be saved as .md file)
-                update_keywords: Whether to update keywords using LLM (default: True)
-
-            Returns:
-                dict with upload status and details
-
-            Example:
-                rag_upload_text(
-                    agent_id="agent_xxx",
-                    content="# Important Notes\\n\\nThis is some important information..."
-                )
-            """
-            import asyncio
-
-            try:
-                # Validate content is not empty
-                if not content or not content.strip():
-                    return {
-                        "success": False,
-                        "error": "Content cannot be empty"
-                    }
-
-                # Call static method to execute upload
-                result = GeminiRAGModule.upload_text_to_store(
-                    agent_id=agent_id,
-                    content=content
-                )
-
-                # After successful upload, update database records and keywords
-                if result.get("success") and update_keywords:
-                    try:
-                        temp_filename = result.get("temp_filename", "text_upload.md")
-
-                        # Asynchronously update database and keywords
-                        async def update_db_and_keywords():
-                            from xyz_agent_context.utils import get_db_client
-                            db = await get_db_client()
-                            repo = RAGStoreRepository(db)
-
-                            # Ensure database record exists (Agent level, no user_id needed)
-                            await repo.get_or_create_store(
-                                agent_id=agent_id,
-                                user_id=None,  # Agent level, no user_id
-                                store_name=result.get("store_name", "")
-                            )
-
-                            # Add file record
-                            await repo.add_uploaded_file(
-                                agent_id=agent_id,
-                                user_id=None,  # Agent level, no user_id
-                                filename=temp_filename
-                            )
-                            logger.info(f"Uploaded file: {temp_filename}")
-
-                            # Update keywords using LLM
-                            current_keywords, new_keywords = await GeminiRAGModule.update_keywords_with_llm(
-                                agent_id=agent_id,
-                                new_file_content=content,
-                                new_filename=temp_filename,
-                                db_client=db
-                            )
-                            logger.info(f"Original keywords: {current_keywords}")
-                            logger.info(f"New keywords: {new_keywords}")
-
-                            return new_keywords
-
-                        # Execute async operations in event loop
-                        try:
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.ensure_future(update_db_and_keywords())
-                                result["keywords_update"] = "scheduled"
-                            else:
-                                new_keywords = loop.run_until_complete(update_db_and_keywords())
-                                result["keywords"] = new_keywords
-                        except RuntimeError:
-                            new_keywords = asyncio.run(update_db_and_keywords())
-                            result["keywords"] = new_keywords
-
-                    except Exception as e:
-                        logger.warning(f"Failed to update keywords: {e}")
-                        result["keywords_update_error"] = str(e)
-
-                return result
-
-            except Exception as e:
-                logger.error(f"rag_upload_text execution error: {e}")
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-
-        return mcp
+        from xyz_agent_context.module.gemini_rag_module._rag_mcp_tools import create_rag_mcp_server
+        return create_rag_mcp_server(self.port, GeminiRAGModule)

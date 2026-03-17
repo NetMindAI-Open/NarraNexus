@@ -70,13 +70,14 @@ const ServiceLaunchView: React.FC<ServiceLaunchViewProps> = ({
 
   // Ordered step IDs
   const stepOrder: LaunchStepId[] = [
-    'wait-docker', 'compose-up', 'wait-mysql', 'init-tables', 'wait-evermemos', 'start-services'
+    'wait-docker', 'compose-up', 'wait-mysql', 'wait-synapse', 'init-tables', 'wait-evermemos', 'start-services'
   ]
 
   const defaultLabels: Record<LaunchStepId, string> = {
     'wait-docker': 'Wait for Docker',
     'compose-up': 'Start containers',
     'wait-mysql': 'Wait for MySQL',
+    'wait-synapse': 'Wait for Synapse',
     'init-tables': 'Initialize database',
     'wait-evermemos': 'Wait for EverMemOS infra',
     'start-services': 'Start services'

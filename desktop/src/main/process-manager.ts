@@ -222,7 +222,36 @@ export class ProcessManager extends EventEmitter {
     }
   }
 
-  private spawnProcess(svc: ServiceDef): boolean {
+  private async ensureServiceRepo(svc: ServiceDef, cwd: string): Promise<boolean> {
+    if (!svc.gitRepo || existsSync(cwd)) return true
+
+    // Auto-clone the repository
+    const parentDir = join(cwd, '..')
+    const dirName = cwd.split('/').pop() || cwd.split('\\').pop() || ''
+
+    this.addLog(svc.id, 'stdout', `Cloning ${svc.gitRepo} ...`)
+    this.statuses.set(svc.id, 'starting')
+    this.emit('status-change', svc.id, 'starting')
+
+    try {
+      await execFileAsync('git', ['clone', svc.gitRepo, dirName], {
+        cwd: parentDir,
+        timeout: 120_000,
+        env: this.getExecEnv()
+      })
+      this.addLog(svc.id, 'stdout', 'Repository cloned successfully')
+      return true
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      this.addLog(svc.id, 'stderr', `Failed to clone repository: ${msg}`)
+      this.statuses.set(svc.id, 'crashed')
+      this.lastErrors.set(svc.id, `Git clone failed: ${msg}`)
+      this.emit('status-change', svc.id, 'crashed')
+      return false
+    }
+  }
+
+  private async spawnProcess(svc: ServiceDef): Promise<boolean> {
     try {
       const cwd = svc.cwd ? join(PROJECT_ROOT, svc.cwd) : PROJECT_ROOT
 
@@ -231,6 +260,12 @@ export class ProcessManager extends EventEmitter {
         this.addLog(svc.id, 'stderr', `Skipping optional service: directory not found (${cwd})`)
         this.statuses.set(svc.id, 'stopped')
         return false
+      }
+
+      // Auto-clone repository if gitRepo is configured and cwd is missing
+      if (svc.gitRepo && !existsSync(cwd)) {
+        const cloned = await this.ensureServiceRepo(svc, cwd)
+        if (!cloned) return false
       }
 
       const proc = spawn(svc.command, svc.args, {
@@ -330,7 +365,7 @@ export class ProcessManager extends EventEmitter {
     await this.delay(waitMs)
 
     if (!this.shuttingDown) {
-      this.spawnProcess(svc)
+      await this.spawnProcess(svc)
     }
   }
 

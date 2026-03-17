@@ -42,6 +42,19 @@ class SkillInfo(BaseModel):
         default=None,
         description="Installation time (ISO format)"
     )
+    # Environment requirements (detected from frontmatter + study)
+    requires_env: Optional[list[str]] = Field(
+        default=None,
+        description="Required environment variable names"
+    )
+    requires_bins: Optional[list[str]] = Field(
+        default=None,
+        description="Required binary dependencies"
+    )
+    env_configured: Optional[bool] = Field(
+        default=None,
+        description="Whether all required env vars have values configured"
+    )
     # Study status related fields
     study_status: Optional[str] = Field(
         default=None,
@@ -91,3 +104,13 @@ class SkillStudyResponse(BaseModel):
     message: str = Field(default="", description="Operation result message")
     study_status: str = Field(default="idle", description="Study status")
     study_result: Optional[str] = Field(default=None, description="Study result")
+
+
+class SkillEnvConfigResponse(BaseModel):
+    """Skill environment configuration response"""
+    success: bool = Field(..., description="Whether the operation succeeded")
+    requires_env: list[str] = Field(default_factory=list, description="Required env var names")
+    env_configured: dict[str, bool] = Field(
+        default_factory=dict,
+        description="Env var name -> whether it is configured (never returns actual values)"
+    )

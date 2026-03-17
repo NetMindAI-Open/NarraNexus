@@ -25,14 +25,18 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 
 ## Key Features
 
+- **Inter-Agent Communication** -- Agents talk to each other via Matrix protocol: create rooms, send messages, @mention specific agents, and coordinate in group chats — all through natural language
 - **Narrative Structure** -- Conversations are routed into semantic storylines maintained across sessions, retrieved by topic similarity rather than chronological order
-- **Hot-Swappable Modules** -- Each capability (chat, social graph, RAG, jobs, skills, memory) is a standalone module with its own DB tables, MCP tools, and lifecycle hooks
+- **Hot-Swappable Modules** -- Each capability (chat, social graph, RAG, jobs, skills, Matrix, memory) is a standalone module with its own DB tables, MCP tools, and lifecycle hooks
+- **Skill Marketplace** -- Browse and install skills from ClawHub via chat: describe what you need, get recommendations, install with one click
 - **Social Network** -- Entity graph tracking people, relationships, expertise, and interaction history with semantic search
 - **Job Scheduling** -- One-shot, cron, periodic, and continuous tasks with dependency DAGs
 - **RAG Knowledge Base** -- Document indexing and semantic retrieval via Gemini File Search
 - **Semantic Memory** -- Long-term episodic memory powered by EverMemOS (MongoDB + Elasticsearch + Milvus)
+- **Cost Tracking** -- Real-time metering of every LLM and embedding call with per-model cost breakdowns
 - **Execution Transparency** -- Every pipeline step visible in real time: what the Agent decided, why, and what changed
 - **Multi-LLM Support** -- Claude, OpenAI, and Gemini via unified adapter layer
+- **Desktop App** -- Electron-based desktop application with auto-updater and one-click service orchestration
 
 ## Quick Start
 
@@ -61,8 +65,8 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 ### Install & Run
 
 ```bash
-git clone https://github.com/NetMindAI-Open/NexusAgent.git
-cd NexusAgent
+git clone https://github.com/NetMindAI-Open/NarraNexus.git
+cd NarraNexus
 bash run.sh
 ```
 
@@ -130,6 +134,7 @@ The main interface uses a three-column layout:
 │          │  Input              │  · Agent Inbox       │
 │          │                     │  · Jobs              │
 │          │                     │  · Skills            │
+│          │                     │  💰 Cost (top bar)   │
 └──────────┴─────────────────────┴──────────────────────┘
 ```
 
@@ -167,21 +172,46 @@ The right panel has multiple tabs showing agent state:
 5. **Refresh Jobs tab** → Click 🔄 to see created jobs
 6. **Ongoing interaction** → After agent executes tasks, refresh panels to see social network updates, narrative accumulation, etc.
 
+## Data Directory (`~/.narranexus/`)
+
+NarraNexus stores runtime logs in a user-level directory at `~/.narranexus/`. This directory is created automatically on first run and does not contain any user data or secrets -- only service logs.
+
+```
+~/.narranexus/
+└── logs/
+    ├── agents/              # Per-agent execution logs (one file per run)
+    │   ├── agent_<id>_<timestamp>.log.zip
+    │   └── ...
+    ├── job_trigger/         # Job scheduler logs (daily rotation)
+    │   └── job_trigger_YYYYMMDD.log
+    ├── matrix_trigger/      # Matrix communication trigger logs
+    │   └── matrix_trigger_YYYYMMDD.log
+    ├── mcp/                 # MCP server logs
+    │   └── mcp_YYYYMMDD.log
+    └── module_poller/       # Module poller logs
+        └── module_poller_YYYYMMDD.log
+```
+
+- **Rotation**: logs rotate daily at midnight; old logs are compressed (`.zip`) and retained for 7 days
+- **Safe to delete**: the entire `~/.narranexus/` directory can be safely removed at any time -- it will be recreated on next run
+- **Desktop app**: uses the same `~/.narranexus/` path (on macOS: `~/.narranexus/`, not inside `~/Library/Application Support/`)
+
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
+| [Changelog](./docs/CHANGELOG.md) | What's new in each release |
 | [Examples](./docs/EXAMPLES.md) | Usage patterns: sales agents, monitoring, RAG, job scheduling |
 | [Architecture](./docs/ARCHITECTURE.md) | System architecture, modules, tech stack, project structure |
 | [Development Guide](./docs/DEVELOPMENT.md) | Manual setup, configuration, table management, adding modules |
 
 ## Star History
 
-<a href="https://star-history.com/#NetMindAI-Open/NexusAgent&Date">
+<a href="https://star-history.com/#NetMindAI-Open/NarraNexus&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NexusAgent&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NexusAgent&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NetMindAI-Open/NexusAgent&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date" />
  </picture>
 </a>
 
@@ -200,7 +230,7 @@ If you find NarraNexus useful, please cite it as:
   title        = {NarraNexus: A Framework for Building Nexuses of Agents},
   author       = {NetMind.AI},
   year         = {2026},
-  url          = {https://github.com/NetMindAI-Open/NexusAgent},
+  url          = {https://github.com/NetMindAI-Open/NarraNexus},
   license      = {CC-BY-NC-4.0}
 }
 ```

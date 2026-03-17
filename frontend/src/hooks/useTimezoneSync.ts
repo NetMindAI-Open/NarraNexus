@@ -37,7 +37,6 @@ export function useTimezoneSync(): void {
         const result = await api.updateTimezone(userId, timezone);
 
         if (result.success) {
-          console.log(`Timezone synced: ${timezone}`);
           hasSynced.current = true;
         } else {
           console.warn('Failed to sync timezone:', result.error);

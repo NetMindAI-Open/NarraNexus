@@ -56,35 +56,39 @@ async def list_inbox_messages(
     user_id: str = Query(..., description="User ID"),
     is_read: Optional[bool] = Query(None, description="Filter by read status"),
     limit: int = Query(50, description="Max number of messages to return"),
+    offset: int = Query(0, description="Number of messages to skip"),
 ):
     """
-    List inbox messages for a user
+    List inbox messages for a user (supports pagination via limit/offset)
     """
-    logger.info(f"Listing inbox for user: {user_id}, is_read: {is_read}")
+    logger.info(f"Listing inbox for user: {user_id}, is_read: {is_read}, limit: {limit}, offset: {offset}")
 
     try:
         db_client = await get_db_client()
         repo = InboxRepository(db_client)
 
-        # Get messages
+        # Get messages with pagination
         messages = await repo.get_messages(
             user_id=user_id,
             is_read=is_read,
-            limit=limit
+            limit=limit,
+            offset=offset,
         )
 
-        # Get unread count
+        # Get total count and unread count
+        total = await repo.get_total_count(user_id, is_read=is_read)
         unread = await repo.get_unread_count(user_id)
 
         # Convert to response format
         message_responses = [inbox_model_to_response(msg) for msg in messages]
 
-        logger.info(f"Found {len(message_responses)} messages, {unread} unread")
+        logger.info(f"Found {len(message_responses)} messages (total: {total}), {unread} unread")
 
         return InboxListResponse(
             success=True,
             messages=message_responses,
             count=len(message_responses),
+            total_count=total,
             unread_count=unread,
         )
 

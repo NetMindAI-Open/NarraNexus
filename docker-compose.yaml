@@ -1,8 +1,9 @@
 # ============================================================================
 # NarraNexus local development Docker services
 # ============================================================================
-# 仅包含项目自身的基础设施（MySQL）
-# EverMemOS 的基础设施（MongoDB, ES, Milvus, Redis）在 .evermemos/docker-compose.yaml
+# MySQL      — 主数据库
+# Synapse    — Matrix homeserver（NexusMatrix 的底层依赖）
+# EverMemOS  — 在 .evermemos/docker-compose.yaml（独立管理）
 # ============================================================================
 
 services:
@@ -26,6 +27,21 @@ services:
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pxyz_root_pass"]
       interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: nexus-synapse
+    restart: unless-stopped
+    volumes:
+      - ./deploy/synapse/data:/data
+    ports:
+      - "8008:8008"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fSs http://localhost:8008/health || exit 1"]
+      interval: 15s
       timeout: 5s
       retries: 5
       start_period: 30s

@@ -750,7 +750,7 @@ class JobInstanceService:
             social_instance_id = await self._get_social_network_instance_id(agent_id)
             if not social_instance_id:
                 logger.warning(
-                    f"No SocialNetworkModule instance found, skipping diff sync"
+                    "No SocialNetworkModule instance found, skipping diff sync"
                 )
                 return
 

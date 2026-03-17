@@ -183,7 +183,7 @@ class GeminiRAGTrigger:
                 content=content,
                 wait_seconds=wait_seconds
             )
-            logger.info(f"[GeminiRAGTrigger] Text upload successful")
+            logger.info("[GeminiRAGTrigger] Text upload successful")
             return result
 
         except Exception as e:
@@ -419,55 +419,55 @@ Usage examples:
     # List all stores
     if args.list_stores:
         stores = GeminiRAGTrigger.list_stores()
-        print("\nAll Stores:")
-        print("-" * 60)
+        logger.info("\nAll Stores:")
+        logger.info("-" * 60)
         if stores:
             for display_name, store_name in stores.items():
-                print(f"  {display_name}: {store_name}")
+                logger.info(f"  {display_name}: {store_name}")
         else:
-            print("  No stores found")
-        print()
+            logger.info("  No stores found")
+        logger.info("")
         return
 
     # Check required parameters
     if not args.agent_id or not args.user_id:
-        print("Error: Upload/query operations require --agent-id and --user-id parameters")
+        logger.error("Upload/query operations require --agent-id and --user-id parameters")
         return
 
     # Upload file
     if args.upload:
-        print(f"\nUploading file: {args.upload}")
+        logger.info(f"\nUploading file: {args.upload}")
         result = GeminiRAGTrigger.upload_file(
             agent_id=args.agent_id,
             user_id=args.user_id,
             file_path=args.upload
         )
-        print(f"Result: {result}")
+        logger.info(f"Result: {result}")
 
     # Upload text
     elif args.text:
-        print(f"\nUploading text ({len(args.text)} characters)")
+        logger.info(f"\nUploading text ({len(args.text)} characters)")
         result = GeminiRAGTrigger.upload_text(
             agent_id=args.agent_id,
             user_id=args.user_id,
             content=args.text
         )
-        print(f"Result: {result}")
+        logger.info(f"Result: {result}")
 
     # Query documents
     elif args.query:
-        print(f"\nQuerying: {args.query}")
+        logger.info(f"\nQuerying: {args.query}")
         chunks = GeminiRAGTrigger.query(
             agent_id=args.agent_id,
             user_id=args.user_id,
             query=args.query,
             top_k=args.top_k
         )
-        print(f"\nFound {len(chunks)} results:")
-        print("-" * 60)
+        logger.info(f"\nFound {len(chunks)} results:")
+        logger.info("-" * 60)
         for i, chunk in enumerate(chunks, 1):
-            print(f"\n[Chunk {i}] Source: {chunk.get('title', 'Unknown')}")
-            print(f"Content: {chunk.get('text', '')[:500]}...")
+            logger.info(f"\n[Chunk {i}] Source: {chunk.get('title', 'Unknown')}")
+            logger.info(f"Content: {chunk.get('text', '')[:500]}...")
 
     else:
         parser.print_help()

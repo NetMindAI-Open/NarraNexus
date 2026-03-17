@@ -286,7 +286,7 @@ class NarrativeUpdater:
         context_parts = []
 
         # Current Narrative information
-        context_parts.append(f"## Current Narrative Information")
+        context_parts.append("## Current Narrative Information")
         context_parts.append(f"- Name: {narrative.narrative_info.name}")
         context_parts.append(f"- Description: {narrative.narrative_info.description}")
         context_parts.append(f"- Current Summary: {narrative.narrative_info.current_summary}")
@@ -294,7 +294,7 @@ class NarrativeUpdater:
         context_parts.append("")
 
         # Recent conversation history
-        context_parts.append(f"## Recent Conversation History")
+        context_parts.append("## Recent Conversation History")
 
         # Get recent summaries from dynamic_summary
         recent_count = config.NARRATIVE_LLM_UPDATE_EVENTS_COUNT
@@ -305,7 +305,7 @@ class NarrativeUpdater:
         context_parts.append("")
 
         # Latest Event details
-        context_parts.append(f"## Latest Conversation")
+        context_parts.append("## Latest Conversation")
         if event.env_context:
             user_input = event.env_context.get("input", "")
             if user_input:

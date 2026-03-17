@@ -7,6 +7,8 @@ We can use this script to execute the mcp tools independently.
 
 from urllib.parse import urlparse
 
+from loguru import logger
+
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
@@ -140,7 +142,7 @@ async def main():
         "self_agent_id": "agent_ecb12faf"
     }
     result = await mcp_tool_executor(mcp_server_url, mcp_tool_name, args)
-    print(result)
+    logger.info(result)
 
 if __name__ == "__main__":
     import asyncio

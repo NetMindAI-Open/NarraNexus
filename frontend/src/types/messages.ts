@@ -91,6 +91,8 @@ export interface ChatMessage {
   timestamp: number;
   thinking?: string;
   toolCalls?: AgentToolCall[];
+  isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
+  warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
 }
 
 // Step for display in StepsPanel

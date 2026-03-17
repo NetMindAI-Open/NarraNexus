@@ -16,7 +16,7 @@ Architecture:
 - The concrete implementation of each Step is in the _agent_runtime_steps/ directory
 """
 
-from typing import AsyncGenerator, Optional, Union, Dict
+from typing import Any, AsyncGenerator, Dict, Optional, Union
 from loguru import logger
 
 # Type alias for database client
@@ -144,6 +144,7 @@ class AgentRuntime:
         pass_mcp_urls: dict = {},
         job_instance_id: Optional[str] = None,
         forced_narrative_id: Optional[str] = None,
+        trigger_extra_data: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator:
         """
         Execute the main flow of the Agent runtime
@@ -190,6 +191,7 @@ class AgentRuntime:
             pass_mcp_urls: Externally provided MCP Server URLs
             job_instance_id: Instance ID when executing a Job
             forced_narrative_id: Forced Narrative ID (used for Job triggers, skips Narrative selection)
+            trigger_extra_data: Trigger 层传入的附加数据（如 channel_tag），会合并到 ctx_data.extra_data
 
         Yields:
             ProgressMessage: Progress messages for each step
@@ -198,14 +200,30 @@ class AgentRuntime:
         # =============================================================================
         # Initialization
         # =============================================================================
-        # Save current running agent_id and user_id (used for callbacks)
-        self._current_agent_id = agent_id
-        self._current_user_id = user_id
-
         self._logging_service.setup(agent_id)
 
         # Ensure database client is initialized (lazy-load AsyncDatabaseClient)
         db_client = await self._ensure_database_client()
+
+        # Override user_id with agent's creator — all triggers share a single workspace
+        # so that Matrix conversations, Job triggers, etc. see the same narratives/jobs.
+        from xyz_agent_context.repository.agent_repository import AgentRepository
+        _agent = await AgentRepository(db_client).get_agent(agent_id)
+        if _agent and _agent.created_by:
+            original_user_id = user_id
+            user_id = _agent.created_by
+            if original_user_id != user_id:
+                logger.info(f"user_id overridden: {original_user_id} -> {user_id} (agent creator)")
+
+        # Save current running agent_id and user_id (used for callbacks)
+        self._current_agent_id = agent_id
+        self._current_user_id = user_id
+
+        # Set global cost tracking context so ALL LLM calls (narrative, job, social
+        # network, module decisions, etc.) automatically record costs without needing
+        # explicit agent_id/db parameters at each call site.
+        from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
+        set_cost_context(agent_id, db_client)
 
         # Initialize the three major Services
         self.session_service = SessionService()
@@ -236,6 +254,7 @@ class AgentRuntime:
             pass_mcp_urls=pass_mcp_urls,
             job_instance_id=job_instance_id,
             forced_narrative_id=forced_narrative_id,
+            trigger_extra_data=trigger_extra_data or {},
         )
 
         # =============================================================================
@@ -522,6 +541,9 @@ class AgentRuntime:
                 execute_callback_instance=self._execute_callback_instance
             )
 
+        # Clean up cost tracking context to prevent leakage across tasks
+        clear_cost_context()
+
         # Clean up log handlers
         self._logging_service.cleanup()
 
@@ -629,7 +651,7 @@ async def test_agent_runtime():
             input_content="Do you know what a vector bundle is?",
             working_source=WorkingSource.CHAT,  # Use enum type (also supports string "chat")
         ):
-            print(f"response: {response}")
+            logger.info(f"response: {response}")
 
 
 if __name__ == "__main__":

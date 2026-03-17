@@ -5,7 +5,7 @@
 @description: Instance creation factory
 
 Uses different creation strategies based on Module type:
-- Agent level: Automatically created when creating an Agent (AwarenessModule, SocialNetworkModule, BasicInfoModule, GeminiRAGModule)
+- Agent level: Automatically created when creating an Agent (AwarenessModule, SocialNetworkModule, BasicInfoModule, GeminiRAGModule, MatrixModule)
 - Narrative level: Created when creating a Narrative (ChatModule)
 - Task level: Created each time a task is created (JobModule)
 
@@ -87,6 +87,7 @@ class InstanceFactory:
         - SocialNetworkModule instance (is_public=True)
         - BasicInfoModule instance (is_public=True)
         - GeminiRAGModule instance (is_public=True)
+        - MatrixModule instance (is_public=True)
 
         Args:
             agent_id: Agent ID
@@ -117,6 +118,11 @@ class InstanceFactory:
         rag_instance = await self._create_rag_instance(agent_id)
         if rag_instance:
             instances.append(rag_instance)
+
+        # 5. Create MatrixModule instance
+        matrix_instance = await self._create_matrix_instance(agent_id)
+        if matrix_instance:
+            instances.append(matrix_instance)
 
         logger.info(f"Created {len(instances)} agent-level instances")
         return instances
@@ -235,6 +241,35 @@ class InstanceFactory:
 
         await self._instance_repo.create_instance(instance)
         logger.info(f"Created GeminiRAGModule instance: {instance.instance_id}")
+        return instance
+
+    async def _create_matrix_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
+        """Create MatrixModule Instance"""
+        # Check if already exists
+        existing = await self._instance_repo.get_by_agent(
+            agent_id=agent_id,
+            module_class="MatrixModule",
+            is_public=True
+        )
+        if existing:
+            logger.debug(f"MatrixModule instance already exists for agent {agent_id}")
+            return existing[0]
+
+        instance = ModuleInstanceRecord(
+            instance_id=generate_instance_id("matrix"),
+            module_class="MatrixModule",
+            agent_id=agent_id,
+            user_id=None,
+            is_public=True,
+            status=InstanceStatus.ACTIVE,
+            description="Matrix communication channel for inter-Agent messaging",
+            keywords=["matrix", "communication", "messaging", "agent"],
+            topic_hint="Inter-agent messaging via Matrix protocol",
+            created_at=utc_now(),
+        )
+
+        await self._instance_repo.create_instance(instance)
+        logger.info(f"Created MatrixModule instance: {instance.instance_id}")
         return instance
 
     async def get_agent_level_instances(self, agent_id: str) -> List[ModuleInstanceRecord]:
@@ -413,7 +448,8 @@ class InstanceFactory:
         """
         Ensure Agent-level Instances exist
 
-        Creates them if they don't exist, for backward compatibility with old data.
+        Creates all missing instances. When new module types are added
+        (e.g. MatrixModule), existing agents will get them on next load.
 
         Args:
             agent_id: Agent ID
@@ -424,4 +460,21 @@ class InstanceFactory:
         existing = await self.get_agent_level_instances(agent_id)
         if not existing:
             return await self.create_agent_level_instances(agent_id)
+
+        # Check for missing module types and create them
+        existing_classes = {inst.module_class for inst in existing}
+        creators = {
+            "AwarenessModule": self._create_awareness_instance,
+            "SocialNetworkModule": self._create_social_network_instance,
+            "BasicInfoModule": self._create_basic_info_instance,
+            "GeminiRAGModule": self._create_rag_instance,
+            "MatrixModule": self._create_matrix_instance,
+        }
+        for module_class, creator_fn in creators.items():
+            if module_class not in existing_classes:
+                new_inst = await creator_fn(agent_id)
+                if new_inst:
+                    existing.append(new_inst)
+                    logger.info(f"Auto-created missing {module_class} instance for agent {agent_id}")
+
         return existing

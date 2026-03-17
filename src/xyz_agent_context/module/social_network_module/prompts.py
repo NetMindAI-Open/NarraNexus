@@ -86,9 +86,25 @@ Use when the user needs the contact method of a known entity.
 Use to report your interaction patterns:
 recent interactions, most active contacts, strongest relationships, tag-filtered lists, etc.
 
+###### 5. `contact_agent` — Send Message to Another Entity
+Routes messages through the best available channel (Matrix, Slack, etc.).
+Automatically selects channel based on entity's contact_info.
+
+###### 6. `check_channel_updates` — Cross-Channel Status Check
+Check for recent updates across all registered communication channels.
+Use when user asks "any new messages?" or "check my channels".
+
+###### 7. `merge_entities` — Merge Duplicate Entities
+When you detect duplicate entity records (e.g., same person from different channels),
+use this to merge them into one consolidated record.
+
 ---
 
 ##### 4. Tagging Rules
+
+**IMPORTANT — Tags must be concise and minimal.**
+Tags are expensive metadata. Only add a tag when it carries clear, lasting signal.
+Aim for **3-5 tags per entity** at most. Do NOT add tags redundantly.
 
 ###### Expertise Level Tags (choose ONE per domain)
 - `expert:domain` — explicitly stated expertise
@@ -96,36 +112,24 @@ recent interactions, most active contacts, strongest relationships, tag-filtered
 - `interested:domain` — learning or exploring the domain
 
 ###### Role Tags
-Use simple role categories such as:
-`architect`, `engineer`, `researcher`, `student`, `manager`, `designer`
+One simple role: `engineer`, `researcher`, `student`, `manager`, `designer`, `architect`
 
-###### Intent Tags (for sales/relationship scenarios)
-Track customer intent and behavioral signals:
-- `intent:high_interest` — Shows strong buying/engagement intent
-- `intent:low_interest` — Shows weak or no interest
-- `intent:price_sensitive` — Concerned about pricing, asks for discounts
-- `intent:needs_time` — Needs time to decide, will consult others
-- `intent:urgent` — Has urgent need, wants quick resolution
-- `intent:technical_buyer` — Makes decisions based on technical merit
-- `intent:business_buyer` — Makes decisions based on ROI/business value
-- `intent:decision_maker` — Has authority to make final decision
-- `intent:influencer` — Can influence but not decide alone
+###### Intent Tags (only when clearly observed)
+- `intent:high_interest` / `intent:low_interest`
+- `intent:price_sensitive` / `intent:urgent`
+- `intent:decision_maker` / `intent:influencer`
 
-###### Sales Stage Tags (for tracking progress)
-- `stage:initial_contact` — First interaction, no clear intent yet
-- `stage:interested` — Expressed interest, asking questions
-- `stage:evaluating` — Actively comparing options
-- `stage:negotiating` — Discussing terms, pricing, timeline
-- `stage:committed` — Verbally committed, pending final action
-- `stage:closed_won` — Deal closed successfully
-- `stage:closed_lost` — Deal lost
-- `stage:on_hold` — Paused, will revisit later
+###### Sales Stage Tags
+- `stage:initial_contact` / `stage:interested` / `stage:evaluating`
+- `stage:negotiating` / `stage:committed` / `stage:closed_won` / `stage:closed_lost`
 
-###### Deduplication Rules
-- Only one expertise level per domain
-- Only one sales stage tag at a time (update when stage changes)
-- Intent tags can be multiple (a person can be both `price_sensitive` and `technical_buyer`)
-- Avoid sub-domains if a broader domain tag already exists
+###### Strict Rules
+- **Max ONE expertise tag per domain** — do NOT add both `expert:ML` and `familiar:ML`
+- **Max ONE sales stage tag** — replace the old one, never accumulate
+- **No synonyms** — `expert:recommendation_system` and `expert:recommender_systems` are duplicates, pick ONE canonical form
+- **No sub-domains when parent exists** — if `expert:ML` exists, do NOT add `expert:deep_learning`
+- **Do NOT re-tag** what is already tagged — check existing tags before adding new ones
+- **When updating, REPLACE outdated tags** rather than appending new variations
 
 ---
 
@@ -181,3 +185,44 @@ Focus on:
 - Things to avoid
 
 The persona should be actionable and specific, not generic."""
+
+# ============================================================================
+# Batch entity extraction LLM instructions
+# Used by extract_mentioned_entities() to find all entities in a conversation
+# ============================================================================
+BATCH_ENTITY_EXTRACTION_INSTRUCTIONS = """Extract all people, agents, or organizations mentioned in the conversation.
+
+Rules:
+- EXCLUDE the primary speaker (the user/entity directly talking)
+- IGNORE channel source tags formatted like [Channel · Name · ID] or [Channel · Name · ID · RoomID] — these are system metadata markers, not conversation participants to extract
+- Only extract entities explicitly named or described in the conversation content
+- Do NOT infer entities that are not mentioned
+- For each entity: provide name, type (user/agent/organization), and a brief summary
+- If no other entities are mentioned, return an empty list
+
+Tagging Rules (CRITICAL — be minimal):
+- Only add tags when the conversation CLEARLY reveals expertise, role, or intent
+- Use at most 1-2 tags per entity. Prefer ZERO tags if nothing specific is mentioned
+- Use canonical forms: `expert:recommendation_system` not `expert:recommender_systems`
+- If the entity's existing tags are provided, do NOT generate synonyms or variations — only add genuinely NEW information
+- Prefer broad domains over sub-domains: `expert:ML` not `expert:deep_learning` + `expert:neural_networks`
+
+Deduplication & Naming Rules (IMPORTANT):
+- Use the entity's CANONICAL name (e.g., "千里眼" not "千里眼agent" or "千里眼兄弟")
+- Do NOT extract Matrix IDs (e.g., @username:server.org) as separate entities — they refer to an already-named entity
+- Do NOT extract pronouns ("他", "她", "they", "him") or vague references ("兄弟", "那个人", "the other agent") as entities
+- If the same entity is referred to by multiple names/aliases, output it ONCE using the most recognizable name
+- Do NOT extract the agent itself (the one generating the response) as an entity
+
+Examples of what to extract:
+- "My colleague Bob is a frontend expert" -> Bob (user, tags: ["expert:frontend"])
+- "We use products from Google" -> Google (organization, tags: [])
+- "Agent Research-01 helped me" -> Research-01 (agent, tags: [])
+- "Talk to Alice about this" -> Alice (user, tags: [])
+
+Examples of what NOT to extract:
+- "@bob:matrix.org said hello" -> Do NOT extract "@bob:matrix.org" (use "Bob" if identifiable)
+- "他很厉害" -> Do NOT extract "他" (pronoun)
+- "那个兄弟 agent" -> Do NOT extract (vague reference)
+
+If the conversation is purely between the primary speaker and the agent with no mention of anyone else, return an empty entities list."""

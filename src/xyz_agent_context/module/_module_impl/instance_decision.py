@@ -90,7 +90,7 @@ class InstanceDict(BaseModel):
     Dictionary representation of a single Instance (LLM output format)
 
     Module Categories:
-    - Capability Modules: ChatModule, AwarenessModule, GeminiRAGModule, SocialNetworkModule, BasicInfoModule
+    - Capability Modules: ChatModule, AwarenessModule, GeminiRAGModule, SocialNetworkModule, BasicInfoModule, MatrixModule
       These are Agent capabilities, do NOT set depends_on
     - Task Modules: JobModule
       Represents a task to be executed, only JobModule can set depends_on
@@ -224,8 +224,7 @@ async def llm_decide_instances(
 
     except Exception as e:
         logger.error(f"Instance Decision: LLM call failed: {e}")
-        # Return default decision (keep current instances, use AGENT_LOOP)
-        return _get_default_decision(current_instances)
+        raise
 
 
 def dict_to_module_instance(inst_dict: InstanceDict, agent_id: str) -> ModuleInstance:

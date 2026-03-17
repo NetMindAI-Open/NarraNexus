@@ -425,6 +425,7 @@ class InboxListResponse(BaseModel):
     success: bool
     messages: List[InboxMessageResponse] = []
     count: int = 0
+    total_count: int = 0
     unread_count: int = 0
     error: Optional[str] = None
 
@@ -470,4 +471,51 @@ class RAGFileDeleteResponse(BaseModel):
     """Response for RAG file deletion"""
     success: bool
     filename: Optional[str] = None
+    error: Optional[str] = None
+
+
+# ===== Cost Schemas =====
+
+class CostModelBreakdown(BaseModel):
+    """Cost breakdown for a single model"""
+    cost: float = 0.0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    call_count: int = 0
+
+
+class CostDailyEntry(BaseModel):
+    """Daily cost entry"""
+    date: str
+    cost: float = 0.0
+
+
+class CostSummary(BaseModel):
+    """Aggregated cost summary"""
+    total_cost_usd: float = 0.0
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    by_model: Dict[str, CostModelBreakdown] = {}
+    daily: List[CostDailyEntry] = []
+
+
+class CostRecord(BaseModel):
+    """Single cost record"""
+    id: int
+    agent_id: str
+    event_id: Optional[str] = None
+    call_type: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    created_at: Optional[str] = None
+
+
+class CostResponse(BaseModel):
+    """Response for cost endpoint"""
+    success: bool
+    summary: Optional[CostSummary] = None
+    records: List[CostRecord] = []
+    total_count: int = 0
     error: Optional[str] = None

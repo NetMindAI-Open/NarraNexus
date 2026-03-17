@@ -9,8 +9,6 @@ Responsibilities:
 - Retrieve due tasks (with row locks to prevent concurrency)
 - Semantic search and keyword search
 - Task status and time management
-- Calculate next execution time
-- Format task display
 """
 
 import json
@@ -483,7 +481,7 @@ class JobRepository(BaseRepository[JobModel]):
             query += " AND status = %s"
             params.append(status.value)
 
-        query += f" ORDER BY updated_at DESC LIMIT %s"
+        query += " ORDER BY updated_at DESC LIMIT %s"
         params.append(limit)
 
         rows = await self._db.execute(query, params=tuple(params), fetch=True)
@@ -724,7 +722,7 @@ class JobRepository(BaseRepository[JobModel]):
         Returns:
             List of JobModel ready for execution
         """
-        logger.debug(f"    → JobRepository.get_due_jobs()")
+        logger.debug("    → JobRepository.get_due_jobs()")
 
         query = f"""
             SELECT * FROM {self.table_name}
@@ -1293,140 +1291,7 @@ class JobRepository(BaseRepository[JobModel]):
         return value
 
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-def calculate_next_run_time(
-    job_type: JobType,
-    trigger_config: TriggerConfig,
-    last_run_time: Optional[datetime] = None
-) -> Optional[datetime]:
-    """
-    Calculate the next execution time for a task
-
-    Supports four trigger types:
-    1. ONE_OFF + run_at: Execute at a specified time
-    2. SCHEDULED + cron: Execute by cron expression (requires croniter)
-    3. SCHEDULED + interval_seconds: Execute at fixed intervals
-    4. ONGOING + interval_seconds: Execute at fixed intervals until end condition is met (2026-01-21)
-
-    Args:
-        job_type: Task type (ONE_OFF, SCHEDULED, or ONGOING)
-        trigger_config: Trigger configuration object
-        last_run_time: Last execution time (used for interval calculation)
-
-    Returns:
-        Next execution time, or None if not applicable
-
-    Example:
-        # One-off task
-        next_time = calculate_next_run_time(
-            JobType.ONE_OFF,
-            TriggerConfig(run_at=datetime(2025, 1, 16, 8, 0))
-        )
-
-        # Cron task (daily at 8 AM)
-        next_time = calculate_next_run_time(
-            JobType.SCHEDULED,
-            TriggerConfig(cron="0 8 * * *")
-        )
-
-        # Interval task (every hour)
-        next_time = calculate_next_run_time(
-            JobType.SCHEDULED,
-            TriggerConfig(interval_seconds=3600),
-            last_run_time=utc_now()
-        )
-
-        # ONGOING task (check every hour until condition is met)
-        next_time = calculate_next_run_time(
-            JobType.ONGOING,
-            TriggerConfig(interval_seconds=3600, end_condition="Customer completes purchase"),
-            last_run_time=utc_now()
-        )
-    """
-    if job_type == JobType.ONE_OFF:
-        # One-off task: return the specified run_at time
-        return trigger_config.run_at
-
-    elif job_type == JobType.SCHEDULED:
-        if trigger_config.cron:
-            # Use croniter to parse cron expression
-            try:
-                from croniter import croniter
-                base_time = last_run_time or utc_now()
-                cron = croniter(trigger_config.cron, base_time)
-                return cron.get_next(datetime)
-            except ImportError:
-                logger.warning(
-                    "croniter package not installed. "
-                    "Install with: pip install croniter"
-                )
-                # Fallback: return 1 hour later
-                return utc_now() + timedelta(hours=1)
-            except Exception as e:
-                logger.error(f"Failed to parse cron expression '{trigger_config.cron}': {e}")
-                return None
-
-        elif trigger_config.interval_seconds:
-            # Interval-based execution
-            base_time = last_run_time or utc_now()
-            return base_time + timedelta(seconds=trigger_config.interval_seconds)
-
-    elif job_type == JobType.ONGOING:
-        # 2026-01-21: ONGOING type uses interval_seconds
-        if trigger_config.interval_seconds:
-            base_time = last_run_time or utc_now()
-            return base_time + timedelta(seconds=trigger_config.interval_seconds)
-
-    return None
-
-
-def format_jobs_for_display(
-    jobs_summary: List[Dict[str, Any]],
-    max_display: int = 10
-) -> str:
-    """
-    Format task summary as a Markdown table for display in agent instructions
-
-    Args:
-        jobs_summary: Task summary list from get_active_jobs_summary()
-        max_display: Maximum number to display
-
-    Returns:
-        Markdown formatted string
-
-    Example output:
-        | # | Title | Next Run | Type |
-        |---|-------|----------|------|
-        | 1 | Daily News | 2025-01-16 08:00 | scheduled |
-        | 2 | Meeting Reminder | 2025-01-15 14:30 | one_off |
-
-        *Showing 2 of 5 active jobs. Use job_retrieval to search for more.*
-    """
-    if not jobs_summary:
-        return "*No active jobs.*"
-
-    # Build Markdown table
-    lines = [
-        "| # | Title | Next Run | Type | Status |",
-        "|---|-------|----------|------|--------|",
-    ]
-
-    displayed = jobs_summary[:max_display]
-    for i, job in enumerate(displayed, 1):
-        title = job.get("title", "Untitled")[:30]  # Truncate long titles
-        next_run = job.get("next_run_time", "N/A")
-        job_type = job.get("job_type", "unknown")
-        status = job.get("status", "unknown")
-        lines.append(f"| {i} | {title} | {next_run} | {job_type} | {status} |")
-
-    result = "\n".join(lines)
-
-    # If there are more tasks, add a hint
-    total = len(jobs_summary)
-    if total > max_display:
-        result += f"\n\n*Showing {max_display} of {total} active jobs. Use `job_retrieval` to search for more.*"
-
-    return result
+def calculate_next_run_time(*args, **kwargs):
+    """Re-export shim (moved to _job_scheduling.py). Lazy import to avoid circular dependency."""
+    from xyz_agent_context.module.job_module._job_scheduling import calculate_next_run_time as _impl
+    return _impl(*args, **kwargs)

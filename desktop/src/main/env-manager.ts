@@ -125,6 +125,20 @@ export function readEnv(): EnvConfig {
   return parseEnvContent(content)
 }
 
+function normalizeEnvValue(value: string): string {
+  return value.replace(/\0/g, '').replace(/\r?\n/g, ' ')
+}
+
+export function sanitizeEnvUpdates(updates: EnvConfig): EnvConfig {
+  const allowedKeys = new Set(getEnvFields().map((field) => field.key))
+  const sanitized: EnvConfig = {}
+  for (const [key, value] of Object.entries(updates)) {
+    if (!allowedKeys.has(key) || typeof value !== 'string') continue
+    sanitized[key] = normalizeEnvValue(value)
+  }
+  return sanitized
+}
+
 /** Write key-value pairs to .env file (merge mode, does not overwrite unspecified keys) */
 export function writeEnv(updates: EnvConfig): void {
   ensureEnvFile()

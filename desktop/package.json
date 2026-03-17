@@ -1,6 +1,6 @@
 {
   "name": "narranexus-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "NarraNexus Desktop - One-click launcher",
   "main": "./out/main/index.js",
   "scripts": {
@@ -12,7 +12,8 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "@lydell/node-pty": "1.2.0-beta.3"
+    "@lydell/node-pty": "1.2.0-beta.3",
+    "electron-updater": "^6.8.3"
   },
   "devDependencies": {
     "@electron-toolkit/preload": "^3.0.1",

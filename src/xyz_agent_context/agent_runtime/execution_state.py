@@ -42,6 +42,10 @@ class ExecutionState:
     tool_output_count: int = 0
     thinking_count: int = 0
     all_steps: tuple = field(default_factory=tuple)  # Use tuple for immutability
+    input_tokens: int = 0    # Cumulative input tokens across all Agent Loop turns
+    output_tokens: int = 0   # Cumulative output tokens across all Agent Loop turns
+    model: str = ""          # LLM model identifier (from the last response.done event)
+    total_cost_usd: float = 0.0  # SDK-calculated cost (Claude Agent SDK provides this directly)
 
     def append_text(self, text: str) -> 'ExecutionState':
         """
@@ -60,6 +64,10 @@ class ExecutionState:
             tool_output_count=self.tool_output_count,
             thinking_count=self.thinking_count,
             all_steps=self.all_steps,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model=self.model,
+            total_cost_usd=self.total_cost_usd,
         )
 
     def increment_response(self) -> 'ExecutionState':
@@ -76,6 +84,10 @@ class ExecutionState:
             tool_output_count=self.tool_output_count,
             thinking_count=self.thinking_count,
             all_steps=self.all_steps,
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model=self.model,
+            total_cost_usd=self.total_cost_usd,
         )
 
     def record_tool_call(self, tool_name: str, tool_call_id: str, arguments: Dict[str, Any]) -> 'ExecutionState':
@@ -103,6 +115,10 @@ class ExecutionState:
             tool_output_count=self.tool_output_count,
             thinking_count=self.thinking_count,
             all_steps=self.all_steps + (new_step,),
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model=self.model,
+            total_cost_usd=self.total_cost_usd,
         )
 
     def record_tool_output(self, output: str) -> 'ExecutionState':
@@ -126,6 +142,10 @@ class ExecutionState:
             tool_output_count=self.tool_output_count + 1,
             thinking_count=self.thinking_count,
             all_steps=self.all_steps + (new_step,),
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model=self.model,
+            total_cost_usd=self.total_cost_usd,
         )
 
     def record_thinking(self, content: str, display: Any = None) -> 'ExecutionState':
@@ -154,6 +174,42 @@ class ExecutionState:
             tool_output_count=self.tool_output_count,
             thinking_count=self.thinking_count + 1,
             all_steps=self.all_steps + (new_step,),
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model=self.model,
+            total_cost_usd=self.total_cost_usd,
+        )
+
+    def accumulate_usage(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        model: str = "",
+        total_cost_usd: float | None = None,
+    ) -> 'ExecutionState':
+        """
+        Accumulate token usage from an Agent Loop turn.
+
+        Args:
+            input_tokens: Input tokens from this turn
+            output_tokens: Output tokens from this turn
+            model: Model identifier (kept from the latest turn)
+            total_cost_usd: SDK-calculated cost for this turn (Claude SDK provides this)
+
+        Returns:
+            New ExecutionState object with updated token counts
+        """
+        return ExecutionState(
+            final_output=self.final_output,
+            response_count=self.response_count,
+            tool_call_count=self.tool_call_count,
+            tool_output_count=self.tool_output_count,
+            thinking_count=self.thinking_count,
+            all_steps=self.all_steps,
+            input_tokens=self.input_tokens + input_tokens,
+            output_tokens=self.output_tokens + output_tokens,
+            model=model or self.model,
+            total_cost_usd=self.total_cost_usd + (total_cost_usd or 0.0),
         )
 
     def finalize(self) -> 'ExecutionState':
@@ -178,6 +234,10 @@ class ExecutionState:
             tool_output_count=self.tool_output_count,
             thinking_count=self.thinking_count,
             all_steps=self.all_steps + (final_step,),
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model=self.model,
+            total_cost_usd=self.total_cost_usd,
         )
 
     def get_all_steps_as_list(self) -> List[Dict[str, Any]]:

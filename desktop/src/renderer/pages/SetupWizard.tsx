@@ -674,6 +674,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
               </>
             )}
 
+            {/* Claude Code notice */}
+            <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <p className="text-xs text-amber-700">
+                <strong>Note:</strong> Claude Code (if installed) uses its own global API key config.
+                Run <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">claude config</code> in terminal to set it separately.
+              </p>
+            </div>
+
             {/* Finish button */}
             <div className="mt-6">
               <button

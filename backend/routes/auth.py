@@ -179,7 +179,7 @@ async def create_agent(request: CreateAgentRequest):
         agent_id = f"agent_{uuid4().hex[:12]}"
 
         # Set default name if not provided
-        agent_name = request.agent_name or f"New Agent"
+        agent_name = request.agent_name or "New Agent"
         agent_description = request.agent_description or "A new agent ready for configuration"
 
         # Add agent to database
@@ -194,16 +194,17 @@ async def create_agent(request: CreateAgentRequest):
 
         logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
 
+        # Compute workspace path (used by bootstrap + matrix registration)
+        from xyz_agent_context.settings import settings
+        workspace_path = os.path.join(
+            settings.base_working_path,
+            f"{agent_id}_{request.created_by}"
+        )
+        os.makedirs(workspace_path, exist_ok=True)
+
         # Eagerly create workspace and write Bootstrap.md for first-run setup
         try:
-            from xyz_agent_context.settings import settings
             from xyz_agent_context.bootstrap.template import BOOTSTRAP_MD_TEMPLATE
-
-            workspace_path = os.path.join(
-                settings.base_working_path,
-                f"{agent_id}_{request.created_by}"
-            )
-            os.makedirs(workspace_path, exist_ok=True)
 
             bootstrap_file = os.path.join(workspace_path, "Bootstrap.md")
             with open(bootstrap_file, "w", encoding="utf-8") as f:
@@ -213,6 +214,19 @@ async def create_agent(request: CreateAgentRequest):
         except Exception as bootstrap_err:
             # Non-fatal: agent is already created, bootstrap is best-effort
             logger.warning(f"Failed to write Bootstrap.md: {bootstrap_err}")
+
+        # Register agent on NexusMatrix Server (non-fatal)
+        try:
+            from xyz_agent_context.module.matrix_module._matrix_credential_manager import (
+                ensure_agent_registered,
+            )
+            cred = await ensure_agent_registered(db=db_client, agent_id=agent_id)
+            if cred:
+                logger.info(f"Agent {agent_id} registered on NexusMatrix: {cred.matrix_user_id}")
+            else:
+                logger.warning(f"Agent {agent_id} Matrix registration failed (NexusMatrix may be down)")
+        except Exception as matrix_err:
+            logger.warning(f"Matrix registration error (non-fatal): {matrix_err}")
 
         # Return the created agent info
         agent_info = AgentInfo(
@@ -286,6 +300,38 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
                 created_by=updated_agent.created_by,
             )
             logger.info(f"Agent {agent_id} updated successfully")
+
+            # Sync profile to NexusMatrix (non-blocking, don't fail the request)
+            if request.agent_name is not None or request.agent_description is not None:
+                try:
+                    from xyz_agent_context.module.matrix_module._matrix_credential_manager import MatrixCredentialManager
+                    from xyz_agent_context.module.matrix_module.matrix_client import NexusMatrixClient
+
+                    cred_mgr = MatrixCredentialManager(db_client)
+                    cred = await cred_mgr.get_credential(agent_id)
+                    if cred:
+                        # Get NexusMatrix agent_id from profile
+                        client = NexusMatrixClient(server_url=cred.server_url)
+                        try:
+                            profile = await client.get_my_profile(api_key=cred.api_key)
+                            nexus_agent_id = profile.get("agent_id", "") if profile else ""
+                            if nexus_agent_id:
+                                matrix_updates = {}
+                                if request.agent_name is not None:
+                                    matrix_updates["agent_name"] = request.agent_name
+                                if request.agent_description is not None:
+                                    matrix_updates["description"] = request.agent_description
+                                await client.update_agent_profile(
+                                    api_key=cred.api_key,
+                                    agent_id=nexus_agent_id,
+                                    updates=matrix_updates,
+                                )
+                                logger.info(f"Synced agent profile to NexusMatrix: {nexus_agent_id}")
+                        finally:
+                            await client.close()
+                except Exception as e:
+                    logger.warning(f"Failed to sync profile to NexusMatrix (non-critical): {e}")
+
             return UpdateAgentResponse(
                 success=True,
                 agent=agent_info,
@@ -508,7 +554,53 @@ async def delete_agent(
         except Exception:
             pass
 
-        # 13. The Agent itself
+        # 13. Matrix credentials + NexusMatrix Server deregistration
+        try:
+            from xyz_agent_context.module.matrix_module._matrix_credential_manager import MatrixCredentialManager
+            from xyz_agent_context.module.matrix_module.matrix_client import NexusMatrixClient
+
+            cred_mgr = MatrixCredentialManager(db_client)
+            cred = await cred_mgr.get_credential(agent_id)
+            if cred:
+                # Deactivate on NexusMatrix Server (best-effort)
+                try:
+                    client = NexusMatrixClient(server_url=cred.server_url)
+                    try:
+                        profile = await client.get_my_profile(api_key=cred.api_key)
+                        if profile and profile.get("agent_id"):
+                            await client.update_agent_profile(
+                                api_key=cred.api_key,
+                                agent_id=profile["agent_id"],
+                                updates={"status": "inactive"},
+                            )
+                            logger.info(f"Deactivated agent on NexusMatrix: {profile['agent_id']}")
+                    finally:
+                        await client.close()
+                except Exception as e:
+                    logger.warning(f"Failed to deactivate on NexusMatrix (non-critical): {e}")
+
+                # Delete local credentials
+                await cred_mgr.delete(agent_id)
+                stats["matrix_credentials"] = 1
+        except Exception as e:
+            logger.warning(f"Matrix credential cleanup failed (non-critical): {e}")
+
+        # 14. Workspace directory
+        try:
+            import os
+            import shutil
+            from xyz_agent_context.settings import settings
+            workspace_path = os.path.join(
+                settings.base_working_path, f"{agent_id}_{agent.created_by}"
+            )
+            if os.path.isdir(workspace_path):
+                shutil.rmtree(workspace_path)
+                stats["workspace_dir"] = 1
+                logger.info(f"Deleted workspace: {workspace_path}")
+        except Exception as e:
+            logger.warning(f"Workspace cleanup failed (non-critical): {e}")
+
+        # 15. The Agent itself
         result = await db_client.execute(
             "DELETE FROM agents WHERE agent_id = %s",
             (agent_id,),

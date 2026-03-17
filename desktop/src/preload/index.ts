@@ -61,6 +61,12 @@ export interface NexusAPI {
   saveSetupToken: (token: string) => Promise<{ valid: boolean; message: string }>
   onClaudeLoginStatus: (callback: (status: unknown) => void) => () => void
 
+  // Auto-updater
+  checkForUpdates: () => Promise<void>
+  downloadUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
+  onUpdateStatus: (callback: (status: unknown) => void) => () => void
+
   // Miscellaneous
   openExternal: (url: string) => Promise<void>
   getSetupState: () => Promise<{ setupComplete: boolean }>
@@ -136,6 +142,16 @@ const nexusAPI: NexusAPI = {
     const handler = (_event: unknown, status: unknown) => callback(status)
     ipcRenderer.on(IPC.ON_CLAUDE_LOGIN_STATUS, handler)
     return () => ipcRenderer.removeListener(IPC.ON_CLAUDE_LOGIN_STATUS, handler)
+  },
+
+  // ─── Auto-Updater ─────────────────────────────────────────
+  checkForUpdates: () => ipcRenderer.invoke(IPC.CHECK_FOR_UPDATES),
+  downloadUpdate: () => ipcRenderer.invoke(IPC.DOWNLOAD_UPDATE),
+  installUpdate: () => ipcRenderer.invoke(IPC.INSTALL_UPDATE),
+  onUpdateStatus: (callback) => {
+    const handler = (_event: unknown, status: unknown) => callback(status)
+    ipcRenderer.on(IPC.ON_UPDATE_STATUS, handler)
+    return () => ipcRenderer.removeListener(IPC.ON_UPDATE_STATUS, handler)
   },
 
   // ─── Miscellaneous ─────────────────────────────────────────

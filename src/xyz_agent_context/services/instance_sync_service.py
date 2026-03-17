@@ -580,7 +580,7 @@ class InstanceSyncService:
 
             if not instances:
                 # Auto-create SocialNetworkModule instance
-                logger.info(f"SocialNetworkModule instance does not exist, creating automatically...")
+                logger.info("SocialNetworkModule instance does not exist, creating automatically...")
                 social_instance_id = generate_instance_id("social")
                 social_instance = ModuleInstanceRecord(
                     instance_id=social_instance_id,

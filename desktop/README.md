@@ -105,10 +105,10 @@ After the initial setup is complete, opening the app goes directly to the Dashbo
 
 | Data | Location (Packaged) | Location (Dev Mode) |
 |------|---------------------|---------------------|
-| API Keys & DB config | `~/Library/Application Support/NarraNexus/project/.env` | `NexusAgent/.env` |
+| API Keys & DB config | `~/Library/Application Support/NarraNexus/project/.env` | `NarraNexus/.env` |
 | App state (setupComplete) | `~/Library/Application Support/NarraNexus/config.json` | same |
 | Project source & dependencies | `~/Library/Application Support/NarraNexus/project/` | repo root |
-| Python virtual environment | `~/Library/Application Support/NarraNexus/project/.venv/` | `NexusAgent/.venv/` |
+| Python virtual environment | `~/Library/Application Support/NarraNexus/project/.venv/` | `NarraNexus/.venv/` |
 
 On Linux, `~/Library/Application Support/NarraNexus/` is replaced by `~/.config/NarraNexus/`.
 

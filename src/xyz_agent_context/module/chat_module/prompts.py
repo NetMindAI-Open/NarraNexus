@@ -100,6 +100,7 @@ get_chat_history(
 - Use inbox for async/proactive messages, not for direct conversation responses
 - Use `get_chat_history` with the correct `instance_id` to retrieve past conversations for a specific user
 - Each user has a separate Chat Instance - use the appropriate instance_id when querying history
+- **IMPORTANT: After completing any research, tool calls, or multi-step work, you MUST send a FINAL conclusive response to the user via `send_message_to_user_directly` with your findings or results.** If you sent an interim message like "Let me look into this..." earlier, you MUST follow up with a final answer. Never leave the user waiting without a conclusion.
 - When NOT to call `send_message_to_user_directly`:
     - The message has no relation with you
     - The user has not completed their request (wait for more input)

@@ -122,7 +122,7 @@ class SessionService:
         # Concurrency control lock
         self._lock = asyncio.Lock()
 
-        logger.info(f"SessionService initialized")
+        logger.info("SessionService initialized")
         logger.info(f"  Session storage directory: {self._session_dir}")
 
     def _get_session_file_path(self, agent_id: str, user_id: str) -> Path:

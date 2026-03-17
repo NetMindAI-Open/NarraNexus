@@ -65,7 +65,7 @@ class NarrativeMarkdownManager:
         Args:
             agent_id: Agent unique identifier
             user_id: User unique identifier
-            base_path: Base path, defaults to environment variable NARRATIVE_MARKDOWN_PATH or ./data/narratives
+            base_path: Base path, defaults to environment variable NARRATIVE_MARKDOWN_PATH or ~/.nexusagent/data/narratives
         """
         self.agent_id = agent_id
         self.user_id = user_id
@@ -463,7 +463,7 @@ class TrajectoryRecorder:
         Args:
             agent_id: Agent unique identifier
             user_id: User unique identifier
-            base_path: Base path, defaults to environment variable TRAJECTORY_PATH or ./data/trajectories
+            base_path: Base path, defaults to environment variable TRAJECTORY_PATH or ~/.nexusagent/data/trajectories
         """
         self.agent_id = agent_id
         self.user_id = user_id

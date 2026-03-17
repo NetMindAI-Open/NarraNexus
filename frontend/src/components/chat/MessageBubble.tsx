@@ -3,7 +3,7 @@
  * Distinctive message bubbles with dramatic visual effects
  */
 
-import { User, Bot, ChevronDown, ChevronRight, Wrench, Sparkles } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Wrench, Sparkles, AlertTriangle } from 'lucide-react';
 import { useState } from 'react';
 import type { ChatMessage } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
@@ -56,13 +56,21 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
                   'text-[var(--text-inverse)] dark:text-[var(--bg-deep)]',
                   'rounded-tr-md',
                 ]
-              : [
-                  'message-assistant',
-                  'bg-[var(--bg-elevated)]',
-                  'text-[var(--text-primary)]',
-                  'border border-[var(--border-default)]',
-                  'rounded-tl-md',
-                ]
+              : message.isError
+                ? [
+                    'message-assistant',
+                    'bg-red-950/30',
+                    'text-red-400',
+                    'border border-red-500/40',
+                    'rounded-tl-md',
+                  ]
+                : [
+                    'message-assistant',
+                    'bg-[var(--bg-elevated)]',
+                    'text-[var(--text-primary)]',
+                    'border border-[var(--border-default)]',
+                    'rounded-tl-md',
+                  ]
           )}
         >
           {/* Thinking section */}
@@ -151,8 +159,13 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
           )}
 
           {/* Message content */}
-          <div className="text-sm break-words leading-relaxed">
+          <div className={cn(
+            'text-sm break-words leading-relaxed',
+            message.isError && 'text-red-400'
+          )}>
             {isUser ? (
+              <span className="whitespace-pre-wrap">{message.content}</span>
+            ) : message.isError ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
             ) : (
               <Markdown content={message.content} />
@@ -161,6 +174,18 @@ export function MessageBubble({ message, isStreaming = false }: MessageBubblePro
               <span className="inline-block w-0.5 h-4 ml-0.5 bg-[var(--accent-primary)] animate-pulse rounded-full" />
             )}
           </div>
+
+          {/* Non-fatal warnings (e.g., module decision LLM failed but fallback used) */}
+          {message.warnings && message.warnings.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-amber-500/20">
+              {message.warnings.map((warning, i) => (
+                <div key={i} className="flex items-start gap-1.5 text-xs text-amber-500">
+                  <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                  <span>{warning}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Timestamp */}

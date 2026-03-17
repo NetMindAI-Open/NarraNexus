@@ -1,0 +1,204 @@
+# =============================================================================
+# Desktop App Build & Release
+#
+# Triggers:
+#   - Push to main (when desktop/ or frontend/ files change)
+#   - Manual dispatch
+#
+# Flow:
+#   1. Read version from desktop/version.json
+#   2. Build frontend (bundled into desktop app)
+#   3. Build & package Electron app (macOS DMG)
+#   4. Create GitHub Release with version tag
+#
+# Signing:
+#   Not configured yet. When ready, add these secrets:
+#     - APPLE_CERTIFICATE_P12_BASE64
+#     - APPLE_CERTIFICATE_PASSWORD
+#     - APPLE_ID
+#     - APPLE_APP_SPECIFIC_PASSWORD
+#     - APPLE_TEAM_ID
+# =============================================================================
+
+name: Desktop Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'frontend/**'
+      - '.github/workflows/desktop-release.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  # ── Read version & check if release needed ────────────────────────────────
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION=$(jq -r .version desktop/version.json)
+          BUILD=$(jq -r .buildNumber desktop/version.json)
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "📦 Version: ${VERSION} (build ${BUILD})"
+
+      - name: Check if tag exists
+        id: check
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "⏭️ Tag ${TAG} already exists, skipping release"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ Tag ${TAG} does not exist, will create release"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Build frontend (shared by all platforms) ──────────────────────────────
+  build-frontend:
+    name: Build Frontend
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install & build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 1
+
+  # ── Build macOS DMG ───────────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS
+    needs: [prepare, build-frontend]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+      - name: Sync version to package.json
+        working-directory: desktop
+        run: |
+          VERSION=${{ needs.prepare.outputs.version }}
+          jq --arg v "$VERSION" '.version = $v' package.json > tmp.json && mv tmp.json package.json
+          echo "package.json version set to ${VERSION}"
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm install
+
+      - name: Build Electron
+        working-directory: desktop
+        run: npx electron-vite build
+
+      # ── macOS signing (when secrets are configured) ──
+      # - name: Import signing certificate
+      #   if: env.APPLE_CERTIFICATE_P12_BASE64 != ''
+      #   env:
+      #     APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+      #     APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      #   run: |
+      #     echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > certificate.p12
+      #     security create-keychain -p actions build.keychain
+      #     security default-keychain -s build.keychain
+      #     security unlock-keychain -p actions build.keychain
+      #     security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+      #     security set-key-partition-list -S apple-tool:,apple: -s -k actions build.keychain
+      #     rm certificate.p12
+
+      - name: Package DMG
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false  # Skip signing for now
+        run: npx electron-builder --mac --publish never
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/latest-mac.yml
+          retention-days: 5
+
+  # ── Create GitHub Release ─────────────────────────────────────────────────
+  release:
+    name: Create Release
+    needs: [prepare, build-macos]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-macos
+          path: release-assets/
+
+      - name: List release assets
+        run: find release-assets/ -type f | sort
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: "NarraNexus ${{ needs.prepare.outputs.tag }}"
+          body: |
+            ## NarraNexus Desktop ${{ needs.prepare.outputs.tag }}
+
+            ### Downloads
+            - **macOS**: `NarraNexus-${{ needs.prepare.outputs.version }}-universal.dmg`
+
+            > ⚠️ macOS: App is not signed yet. Right-click → Open to bypass Gatekeeper.
+
+            ---
+            Built from commit ${{ github.sha }}
+          files: release-assets/*
+          draft: false
+          prerelease: false

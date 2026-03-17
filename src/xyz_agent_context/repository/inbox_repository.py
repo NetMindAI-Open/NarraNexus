@@ -122,7 +122,8 @@ class InboxRepository(BaseRepository[InboxMessage]):
         is_read: Optional[bool] = None,
         message_type: Optional[InboxMessageType] = None,
         source_type: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        offset: int = 0
     ) -> List[InboxMessage]:
         """
         Get user message list
@@ -133,6 +134,7 @@ class InboxRepository(BaseRepository[InboxMessage]):
             message_type: Filter by message type
             source_type: Filter by source type
             limit: Maximum number of results
+            offset: Number of results to skip
 
         Returns:
             List of InboxMessage
@@ -155,7 +157,7 @@ class InboxRepository(BaseRepository[InboxMessage]):
                 query += " AND message_type = %s"
                 params.append(message_type.value)
 
-            query += f" ORDER BY created_at DESC LIMIT {limit}"
+            query += f" ORDER BY created_at DESC LIMIT {limit} OFFSET {offset}"
 
             results = await self._db.execute(query, params=tuple(params), fetch=True)
             return [self._row_to_entity(row) for row in results]
@@ -170,8 +172,34 @@ class InboxRepository(BaseRepository[InboxMessage]):
         return await self.find(
             filters=filters,
             limit=limit,
+            offset=offset,
             order_by="created_at DESC"
         )
+
+    async def get_total_count(
+        self,
+        user_id: str,
+        is_read: Optional[bool] = None,
+    ) -> int:
+        """
+        Get total message count for a user
+
+        Args:
+            user_id: User ID
+            is_read: Filter by read status
+
+        Returns:
+            Total message count
+        """
+        query = f"SELECT COUNT(*) as cnt FROM {self.table_name} WHERE user_id = %s"
+        params: list = [user_id]
+
+        if is_read is not None:
+            query += " AND is_read = %s"
+            params.append(is_read)
+
+        results = await self._db.execute(query, params=tuple(params), fetch=True)
+        return results[0]["cnt"] if results else 0
 
     async def get_unread_count(self, user_id: str) -> int:
         """

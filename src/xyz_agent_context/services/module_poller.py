@@ -431,7 +431,7 @@ class ModulePoller:
             if newly_activated:
                 logger.info(f"Newly activated instances (will be executed by JobTrigger): {newly_activated}")
             else:
-                logger.debug(f"No new instances activated")
+                logger.debug("No new instances activated")
 
             # 4. Update callback_processed and last_polled_status
             await self._mark_callback_processed(info.instance_id, status_str)
@@ -594,14 +594,17 @@ Examples:
         logger.remove()
         logger.add(sys.stderr, level="DEBUG")
 
-    print("=" * 60)
-    print("🔄 ModulePoller - Module Callback Detection Service")
-    print("=" * 60)
-    print(f"   Poll interval: {args.interval}s")
-    print(f"   Max workers: {args.workers}")
-    print(f"   Mode: {'Single run' if args.once else 'Continuous'}")
-    print("=" * 60)
-    print("\n💡 Press Ctrl+C to stop\n")
+    from xyz_agent_context.utils.service_logger import setup_service_logger
+    setup_service_logger("module_poller")
+
+    logger.info("=" * 60)
+    logger.info("ModulePoller - Module Callback Detection Service")
+    logger.info("=" * 60)
+    logger.info(f"   Poll interval: {args.interval}s")
+    logger.info(f"   Max workers: {args.workers}")
+    logger.info(f"   Mode: {'Single run' if args.once else 'Continuous'}")
+    logger.info("=" * 60)
+    logger.info("\n💡 Press Ctrl+C to stop\n")
 
     if args.once:
         # Run once for testing
@@ -613,7 +616,7 @@ Examples:
             )
             poller._db = await get_db_client()
             await poller._poll_and_enqueue()
-            print(f"\n✅ Single poll completed, {poller._task_queue.qsize()} instances in queue")
+            logger.info(f"\n✅ Single poll completed, {poller._task_queue.qsize()} instances in queue")
 
         asyncio.run(run_once())
     else:

@@ -177,13 +177,20 @@ class BaseTableManager(ABC):
         return columns
 
     @classmethod
-    async def sync_table(cls, dry_run: bool = False, db_client: Optional["AsyncDatabaseClient"] = None) -> None:
+    async def sync_table(
+        cls,
+        dry_run: bool = False,
+        db_client: Optional["AsyncDatabaseClient"] = None,
+        auto_safe: bool = False,
+    ) -> None:
         """
         Sync database table structure with Pydantic model
 
         Args:
             dry_run: Whether to only display changes without actually executing
             db_client: AsyncDatabaseClient instance (optional)
+            auto_safe: If True, auto-apply safe changes (ENUM expansion, VARCHAR growth),
+                       skip dangerous changes silently. No user prompts.
         """
         if db_client is None:
             db_client = await get_db_client()
@@ -222,6 +229,20 @@ class BaseTableManager(ABC):
                 default_value = cls.new_column_defaults.get(pydantic_name, "")
                 columns_to_add.append((db_name, mysql_type, default_value))
 
+        # Find columns whose type has changed (e.g., ENUM values added)
+        # Each entry: (db_name, actual_type, expected_type, safety_level)
+        # safety_level: "safe" = auto-apply, "dangerous" = warn + confirm per-column
+        columns_to_modify = []
+        for pydantic_name, db_name in pydantic_to_db.items():
+            if db_name not in db_columns or db_name in cls.protected_columns:
+                continue
+            field_type, field_info = pydantic_fields[pydantic_name]
+            expected_type = cls.get_mysql_type(pydantic_name, field_type, field_info)
+            actual_type = db_columns[db_name]
+            if cls._type_needs_modify(actual_type, expected_type):
+                safety = cls._classify_modify_safety(actual_type, expected_type)
+                columns_to_modify.append((db_name, actual_type, expected_type, safety))
+
         # Find columns that need to be dropped
         db_to_pydantic = {v: k for k, v in pydantic_to_db.items()}
         columns_to_drop = [
@@ -240,6 +261,16 @@ class BaseTableManager(ABC):
 
         print()
 
+        if columns_to_modify:
+            print("Columns to MODIFY:")
+            for col_name, old_type, new_type, safety in columns_to_modify:
+                safety_tag = "⚠ DANGEROUS" if safety == "dangerous" else "✓ safe"
+                print(f"   ~ {col_name}: {old_type} → {new_type}  [{safety_tag}]")
+        else:
+            print("No columns to modify")
+
+        print()
+
         if columns_to_drop:
             print("Columns to DROP:")
             for col_name in columns_to_drop:
@@ -247,8 +278,18 @@ class BaseTableManager(ABC):
         else:
             print("No columns to drop")
 
+        # In auto_safe mode, apply everything but collect dangerous changes for a summary notice
+        dangerous_changes_applied = []
+        if auto_safe:
+            for col_name, old_type, new_type, safety in columns_to_modify:
+                if safety == "dangerous":
+                    dangerous_changes_applied.append((col_name, old_type, new_type))
+            if columns_to_drop:
+                for col_name in columns_to_drop:
+                    dangerous_changes_applied.append((col_name, "DROP", "—"))
+
         # If no changes
-        if not columns_to_add and not columns_to_drop:
+        if not columns_to_add and not columns_to_modify and not columns_to_drop:
             print("\nTable structure is up-to-date!")
             return
 
@@ -257,11 +298,12 @@ class BaseTableManager(ABC):
             print("\nDRY RUN - No changes were made")
             return
 
-        print("\n" + "="*60)
-        proceed = input("Proceed with changes? (yes/no): ")
-        if proceed.lower() != "yes":
-            print("Aborted by user")
-            return
+        if not auto_safe:
+            print("\n" + "="*60)
+            proceed = input("Proceed with changes? (yes/no): ")
+            if proceed.lower() != "yes":
+                print("Aborted by user")
+                return
 
         # Add new columns
         for col_name, col_type, default in columns_to_add:
@@ -282,6 +324,32 @@ class BaseTableManager(ABC):
             except Exception as e:
                 print(f"   Error adding column {col_name}: {e}")
 
+        # Modify columns with type changes
+        for col_name, old_type, new_type, safety in columns_to_modify:
+            if safety == "dangerous" and not auto_safe:
+                # Interactive mode: confirm per-column for dangerous changes
+                count_sql = f"SELECT COUNT(*) as cnt FROM `{cls.table_name}` WHERE `{col_name}` IS NOT NULL"
+                try:
+                    result = await db_client.execute(count_sql)
+                    row_count = result[0]["cnt"] if result else 0
+                except Exception:
+                    row_count = "unknown"
+
+                print(f"\n   ⚠ WARNING: Column `{col_name}` has {row_count} rows with data.")
+                print(f"     This change ({old_type} → {new_type}) may cause data loss!")
+                confirm = input(f"     Apply this MODIFY to `{col_name}`? (yes/no): ")
+                if confirm.lower() != "yes":
+                    print(f"     Skipped column: {col_name}")
+                    continue
+
+            alter_sql = f"ALTER TABLE `{cls.table_name}` MODIFY COLUMN `{col_name}` {new_type}"
+            print(f"   Executing: {alter_sql}")
+            try:
+                await db_client.execute(alter_sql, fetch=False)
+                print(f"   Modified column: {col_name}")
+            except Exception as e:
+                print(f"   Error modifying column {col_name}: {e}")
+
         # Drop columns
         for col_name in columns_to_drop:
             alter_sql = f"ALTER TABLE `{cls.table_name}` DROP COLUMN `{col_name}`"
@@ -292,4 +360,76 @@ class BaseTableManager(ABC):
             except Exception as e:
                 print(f"   Error dropping column {col_name}: {e}")
 
+        # Show a friendly notice when dangerous changes were auto-applied
+        if auto_safe and dangerous_changes_applied:
+            print("\n" + "─"*60)
+            print("  ⚠ Notice: the following schema changes were auto-applied:")
+            for col_name, old_type, new_type in dangerous_changes_applied:
+                if old_type == "DROP":
+                    print(f"     DROP  {col_name}")
+                else:
+                    print(f"     MODIFY  {col_name}: {old_type} → {new_type}")
+            print("  We're iterating fast — sorry for the inconvenience!")
+            print("  Your data has been migrated automatically.")
+            print("─"*60)
+
         print("\nTable sync completed!")
+
+    @staticmethod
+    def _classify_modify_safety(actual_mysql_type: str, expected_mysql_type: str) -> str:
+        """
+        Classify whether a MODIFY COLUMN operation is safe or dangerous.
+
+        Returns:
+            "safe"      — additive change, no data loss (e.g., ENUM expansion, VARCHAR growth)
+            "dangerous" — may cause data loss (e.g., ENUM contraction, VARCHAR shrink, type change)
+        """
+        import re
+
+        actual = actual_mysql_type.lower().strip()
+        expected = expected_mysql_type.lower().strip()
+
+        # --- ENUM: safe if only adding values, dangerous if removing ---
+        actual_enum = re.match(r"enum\((.+?)\)", actual)
+        expected_enum = re.match(r"enum\((.+?)\)", expected)
+        if actual_enum and expected_enum:
+            actual_vals = set(re.findall(r"'([^']*)'", actual_enum.group(1)))
+            expected_vals = set(re.findall(r"'([^']*)'", expected_enum.group(1)))
+            removed = actual_vals - expected_vals
+            if not removed:
+                return "safe"  # Only adding new values
+            return "dangerous"  # Removing existing values
+
+        # --- VARCHAR: safe if growing, dangerous if shrinking ---
+        actual_vc = re.match(r"varchar\((\d+)\)", actual)
+        expected_vc = re.match(r"varchar\((\d+)\)", expected)
+        if actual_vc and expected_vc:
+            if int(expected_vc.group(1)) >= int(actual_vc.group(1)):
+                return "safe"
+            return "dangerous"
+
+        # --- Any other type change is dangerous by default ---
+        return "dangerous"
+
+    @staticmethod
+    def _type_needs_modify(actual_mysql_type: str, expected_mysql_type: str) -> bool:
+        """
+        Compare MySQL column type from DB (e.g., "enum('pending','active','running')")
+        with expected type from Pydantic model (e.g., "ENUM('pending','active','running','cancelled') NOT NULL DEFAULT 'pending'").
+
+        Only returns True if the core type definition differs (ignoring NULL/DEFAULT clauses).
+        """
+        import re
+
+        def extract_base_type(type_str: str) -> str:
+            """Extract the base type, stripping NOT NULL / NULL / DEFAULT ... clauses."""
+            s = type_str.lower().strip()
+            # Remove DEFAULT clause (with its value) first, then NULL clauses
+            # DEFAULT 'value', DEFAULT value, DEFAULT NULL
+            s = re.sub(r"\s+default\s+\S+", "", s)
+            s = re.sub(r"\s+not\s+null", "", s)
+            s = re.sub(r"\s+null", "", s)
+            # Remove all spaces for comparison
+            return s.replace(" ", "").strip()
+
+        return extract_base_type(actual_mysql_type) != extract_base_type(expected_mysql_type)
