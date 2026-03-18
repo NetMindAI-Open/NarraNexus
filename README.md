@@ -23,6 +23,7 @@ Most agent frameworks focus on making agents *smarter*. NarraNexus focuses on ma
 
 An agent in isolation is a tool. An agent with persistent memory, social identity, relationships, and goals becomes a participant in a **nexus** -- a network where intelligence is a collective property, not a model property. NarraNexus provides the infrastructure for this: narrative structure that accumulates across conversations, a social graph that tracks entities and relationships, task systems with dependency chains, and modular capabilities that can be composed at runtime.
 
+
 ## Key Features
 
 - **Inter-Agent Communication** -- Agents talk to each other via Matrix protocol: create rooms, send messages, @mention specific agents, and coordinate in group chats — all through natural language
@@ -37,6 +38,13 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 - **Execution Transparency** -- Every pipeline step visible in real time: what the Agent decided, why, and what changed
 - **Multi-LLM Support** -- Claude, OpenAI, and Gemini via unified adapter layer
 - **Desktop App** -- Electron-based desktop application with auto-updater and one-click service orchestration
+
+<br/>
+
+![Feature Showcase](docs/images/FeatureShowcase.gif)
+<p align="center"><em>NarraNexus in action</em></p>
+
+<br/>
 
 ## Quick Start
 
@@ -73,6 +81,11 @@ bash run.sh
 The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, `.env` configuration. Just follow the prompts.
 
 After install, select **Run** to start all services, then open `http://localhost:5173`.
+
+<br/>
+
+![Install Interface](docs/images/install-interface.png)
+<p align="center"><em>First-run experience</em></p>
 
 ### Configure EverMemOS (Long-term Memory)
 
@@ -112,65 +125,7 @@ All other settings (MongoDB, Redis, Elasticsearch, Milvus) use Docker defaults a
 
 > For manual setup and development workflows, see [Development Guide](./docs/DEVELOPMENT.md).
 
-## UI Guide
-
-### Login & Create Agent
-
-1. Open `http://localhost:5173` and enter any **User ID** to log in (e.g., `user_alice`) -- the system identifies users by User ID
-2. First-time use requires creating an Agent: click the create button in the sidebar and enter the **Admin Secret Key** (the `ADMIN_SECRET_KEY` value from your `.env` file, default: `nexus-admin-secret`)
-3. Once created, your Agent appears in the sidebar -- click to start chatting
-
-### Interface Layout
-
-The main interface uses a three-column layout:
-
-```
-┌──────────┬─────────────────────┬──────────────────────┐
-│ Sidebar  │    Chat Panel       │   Context Panel      │
-│          │                     │                      │
-│ Agent    │  Message stream     │  Tabs:               │
-│ List     │  (real-time)        │  · Runtime           │
-│          │  History            │  · Agent Config      │
-│          │  Input              │  · Agent Inbox       │
-│          │                     │  · Jobs              │
-│          │                     │  · Skills            │
-│          │                     │  💰 Cost (top bar)   │
-└──────────┴─────────────────────┴──────────────────────┘
-```
-
-### Sidebar
-
-- Shows your agent list after login; click to switch agents
-- Switching agents auto-loads all data for that agent
-
-### Chat Panel
-
-- Primary interaction with the agent, streamed in real-time via WebSocket
-- Execution steps appear in the right-side "Runtime" tab during streaming
-- History (last 20 messages) loads automatically on agent switch
-
-### Context Panel
-
-The right panel has multiple tabs showing agent state:
-
-| Tab | Function | Manual refresh needed? |
-|-----|----------|:---:|
-| **Runtime** | Current pipeline steps + Narrative list | Narratives need 🔄 |
-| **Agent Config** | Agent self-awareness (editable) + Social network (searchable) + RAG files | Needs 🔄 |
-| **Agent Inbox** | Messages the agent received from other users | Needs 🔄 |
-| **Jobs** | List / dependency graph / timeline views, filter by status, cancel jobs | Needs 🔄 |
-| **Skills** | Available tools and skills | Needs 🔄 |
-
-> **⚠️ Important: Data in the right panel does not auto-update (except chat messages).** After you ask the agent to modify Awareness, create jobs, or update the social network via chat, click the 🔄 refresh button in the corresponding tab header to see the latest data.
-
-### Typical Workflow
-
-1. **Login** → Select or create an agent
-2. **Chat to configure** → Use natural language to set up Awareness (role, goals, key info)
-3. **Refresh Agent Config tab** → Click 🔄 to confirm changes took effect
-4. **Chat to assign tasks** → Use natural language to create jobs (cron, periodic, ongoing, etc.)
-5. **Refresh Jobs tab** → Click 🔄 to see created jobs
-6. **Ongoing interaction** → After agent executes tasks, refresh panels to see social network updates, narrative accumulation, etc.
+## [UI Guide](./docs/UI-GUIDE.md)
 
 ## Documentation
 
