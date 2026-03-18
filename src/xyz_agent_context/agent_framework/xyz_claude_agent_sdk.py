@@ -6,6 +6,7 @@
 """
 
 
+import asyncio
 import os
 
 from loguru import logger
@@ -154,6 +155,9 @@ class ClaudeAgentSDK:
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
+        # Idle timeout: if no message is received within this duration, assume CLI is stuck
+        IDLE_TIMEOUT_SECONDS = 120
+
         client = None
         message_count = 0
         # 去重集合：include_partial_messages=True 时，partial AssistantMessage
@@ -167,7 +171,30 @@ class ClaudeAgentSDK:
             logger.info("[ClaudeAgentSDK] Connected. Sending query...")
             await client.query(this_turn_user_message)
             logger.info("[ClaudeAgentSDK] Query sent. Waiting for responses...")
-            async for message in client.receive_response():
+
+            # Wrap receive_response with idle timeout detection:
+            # If no message arrives within IDLE_TIMEOUT_SECONDS, raise TimeoutError.
+            response_iter = client.receive_response().__aiter__()
+            while True:
+                try:
+                    message = await asyncio.wait_for(
+                        response_iter.__anext__(),
+                        timeout=IDLE_TIMEOUT_SECONDS,
+                    )
+                except StopAsyncIteration:
+                    break  # Stream ended normally
+                except asyncio.TimeoutError:
+                    logger.error(
+                        f"[ClaudeAgentSDK] ⚠️ No response from Claude Code CLI for {IDLE_TIMEOUT_SECONDS}s. "
+                        f"Aborting agent loop. Messages received so far: {message_count}"
+                    )
+                    if cli_stderr_lines:
+                        logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
+                    raise TimeoutError(
+                        f"Claude Code CLI did not respond for {IDLE_TIMEOUT_SECONDS} seconds. "
+                        f"The service may be overloaded or unresponsive. Please try again."
+                    )
+
                 message_count += 1
                 msg_type = type(message).__name__
                 if message_count <= 5 or message_count % 20 == 0:
