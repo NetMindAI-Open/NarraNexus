@@ -102,6 +102,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       if (response.success) {
         setHistoryMessages(response.messages);
         setHistoryTotalCount(response.total_count);
+        // Re-enable auto-scroll after history loads (onScroll may have disabled it during transition)
+        shouldAutoScrollRef.current = true;
       }
     } catch (error) {
       console.error('Failed to load chat history:', error);
@@ -181,7 +183,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
         if (latestTs > lastHistoryTimestampRef.current) {
           lastHistoryTimestampRef.current = latestTs;
-          setHistoryMessages(response.messages);
+          // Merge: keep older loaded history, replace only the tail (latest page)
+          setHistoryMessages((prev) => {
+            if (prev.length <= HISTORY_PAGE_SIZE) {
+              // No extra history loaded yet — safe to replace
+              return response.messages;
+            }
+            // User has scrolled up and loaded more: keep older portion, update tail
+            const olderPortion = prev.slice(0, prev.length - HISTORY_PAGE_SIZE);
+            return [...olderPortion, ...response.messages];
+          });
           setHistoryTotalCount(response.total_count);
           // New messages arrived → auto-scroll to bottom
           shouldAutoScrollRef.current = true;
@@ -242,6 +253,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       });
     }
 
+    // Sort by timestamp to ensure chronological order
+    items.sort((a, b) => a.timestamp - b.timestamp);
+
     return items;
   }, [historyMessages, messages]);
 
@@ -251,6 +265,20 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [timeline, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
+
+  // ── Auto-load more if content doesn't fill the container ──
+  // When activity messages are small, the initial page may not cause overflow,
+  // making it impossible to scroll up to trigger loadMoreHistory.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !historyLoaded || isLoadingMore) return;
+    if (historyMessages.length >= historyTotalCount) return;
+
+    // If container is not scrollable, auto-load more
+    if (container.scrollHeight <= container.clientHeight) {
+      loadMoreHistory();
+    }
+  }, [timeline, historyLoaded, isLoadingMore, historyMessages.length, historyTotalCount, loadMoreHistory]);
 
   // Re-enable auto-scroll when user sends a message or streaming starts
   useEffect(() => {

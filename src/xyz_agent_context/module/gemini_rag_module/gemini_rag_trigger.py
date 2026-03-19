@@ -115,7 +115,6 @@ class GeminiRAGTrigger:
             logger.info(f"[GeminiRAGTrigger] Uploading file: {file_path}")
             result = GeminiRAGModule.upload_file_to_store(
                 agent_id=agent_id,
-                user_id=user_id,
                 file_path=file_path,
                 wait_seconds=wait_seconds
             )
@@ -179,7 +178,6 @@ class GeminiRAGTrigger:
             logger.info(f"[GeminiRAGTrigger] Uploading text content ({len(content)} characters)")
             result = GeminiRAGModule.upload_text_to_store(
                 agent_id=agent_id,
-                user_id=user_id,
                 content=content,
                 wait_seconds=wait_seconds
             )
@@ -296,7 +294,6 @@ class GeminiRAGTrigger:
             logger.debug(f"[GeminiRAGTrigger] Querying: {query[:50]}...")
             chunks = GeminiRAGModule.query_store(
                 agent_id=agent_id,
-                user_id=user_id,
                 query=query,
                 top_k=top_k
             )
@@ -323,7 +320,7 @@ class GeminiRAGTrigger:
         Returns:
             Optional[str]: Store name, or None if it doesn't exist
         """
-        display_name = GeminiRAGModule._get_display_name(agent_id, user_id)
+        display_name = GeminiRAGModule._get_display_name(agent_id)
         store_map = GeminiRAGModule._load_store_map()
         return store_map.get(display_name)
 
@@ -339,7 +336,7 @@ class GeminiRAGTrigger:
         Returns:
             str: Store name
         """
-        store = GeminiRAGModule._get_or_create_store(agent_id, user_id)
+        store = GeminiRAGModule._get_or_create_store(agent_id)
         return store.name
 
     @staticmethod
@@ -364,7 +361,7 @@ class GeminiRAGTrigger:
         Returns:
             str: Formatted display_name, format: agent_{agent_id}_user_{user_id}
         """
-        return GeminiRAGModule._get_display_name(agent_id, user_id)
+        return GeminiRAGModule._get_display_name(agent_id)
 
 
 # =============================================================================
