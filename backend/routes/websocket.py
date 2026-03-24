@@ -118,6 +118,10 @@ async def websocket_agent_run(websocket: WebSocket):
 
         heartbeat_task = asyncio.create_task(heartbeat_loop())
 
+        import time as _time
+        _ws_start = _time.monotonic()
+        _step3_end: float = 0  # will be set when last agent_response arrives
+
         try:
             async with AgentRuntime() as runtime:
                 async for message in runtime.run(
@@ -145,6 +149,7 @@ async def websocket_agent_run(websocket: WebSocket):
                     # Verbose logging: show type + content preview for monitoring
                     msg_type = message_dict.get('type', '?')
                     if msg_type == 'agent_response':
+                        _step3_end = _time.monotonic()  # track last streaming token time
                         preview = message_dict.get('delta', '')[:80]
                         logger.info(f"  📤 WS [{msg_type}] delta='{preview}'")
                     elif msg_type == 'agent_thinking':
@@ -161,7 +166,13 @@ async def websocket_agent_run(websocket: WebSocket):
             heartbeat_stop.set()
             await heartbeat_task
 
-        logger.info("Agent execution completed")
+        _ws_end = _time.monotonic()
+        _total = _ws_end - _ws_start
+        _post_stream = (_ws_end - _step3_end) if _step3_end else 0
+        logger.info(
+            f"Agent execution completed — total={_total:.1f}s, "
+            f"post-stream (step 4)={_post_stream:.1f}s"
+        )
 
         # Send completion signal (skip if WebSocket already closed)
         try:

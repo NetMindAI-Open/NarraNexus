@@ -110,6 +110,8 @@ class ClaudeAgentSDK:
                 
         logger.debug(f"  System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"  Your MCP: {claude_agent_mcp_dict}")
+        logger.info(f"  [FULL_SYSTEM_PROMPT]\n{system_prompt}")
+        logger.info(f"  [USER_PROMPT]\n{this_turn_user_message}")
 
         # stderr 回调：将 Claude Code CLI 的错误输出记录到日志
         # SDK 默认会静默丢弃 stderr，导致认证失败、进程崩溃等问题完全不可见

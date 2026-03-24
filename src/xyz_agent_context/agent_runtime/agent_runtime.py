@@ -503,49 +503,76 @@ class AgentRuntime:
         #
         # [Output] hook_callback_results: callback requests for subsequent processing
         # =============================================================================
-        hook_callback_results = None
-        async for msg in step_5_execute_hooks(ctx, self.hook_manager):
-            if isinstance(msg, ProgressMessage):
-                yield msg
-            else:
-                # The last yield is hook_callback_results
-                hook_callback_results = msg
-
         # =============================================================================
-        # Step 6: Process Hook Callbacks
+        # Steps 5 + 6: Execute Hooks & Process Callbacks (BACKGROUND)
         # =============================================================================
-        # [Function] Process callback requests collected in Step 5
+        # Move to background so the WebSocket can close immediately after Step 4.
+        # The user already saw the full response during Step 3; Steps 5-6 are
+        # post-processing (entity extraction, memory writes, job analysis, etc.)
+        # that should not block the UI.
         #
-        # [Internal Logic]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  1. Check hook_callback_results                         │
-        #   │                                                         │
-        #   │  2. If there are Instances to trigger:                  │
-        #   │     - Get Instance dependencies                         │
-        #   │     - Check if dependencies are completed               │
-        #   │     - If dependencies done -> trigger new run()         │
-        #   │       in background                                     │
-        #   │       - working_source = CALLBACK                       │
-        #   │       - Async execution, non-blocking                   │
-        #   │                                                         │
-        #   │  3. Update Instance status to Narrative                 │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Output] Background async execution (no direct output)
+        # Safety: Step 4.3 already persisted ctx.event.final_output, so hooks
+        # have access to the response text. Modules use the global shared DB
+        # client from db_factory (not the runtime's own client), so DB access
+        # survives after AgentRuntime.__aexit__ closes its connection.
         # =============================================================================
-        if hook_callback_results:
-            await self.hook_manager.hook_callback_results(
-                hook_callback_results=hook_callback_results,
-                narrative=ctx.main_narrative,
-                narrative_service=self.narrative_service,
-                execute_callback_instance=self._execute_callback_instance
-            )
+        import asyncio
+        import time as _time
 
-        # Clean up cost tracking context to prevent leakage across tasks
-        clear_cost_context()
+        _bg_start = _time.monotonic()
+        _agent_id = ctx.agent_id
+        _logging_service = self._logging_service  # capture ref for background task
 
-        # Clean up log handlers
-        self._logging_service.cleanup()
+        async def _run_hooks_background():
+            """Run Step 5 hooks + Step 6 callbacks in background."""
+            try:
+                hook_callback_results = None
+                async for msg in step_5_execute_hooks(ctx, self.hook_manager):
+                    if isinstance(msg, ProgressMessage):
+                        pass  # No WebSocket to send to; just skip progress messages
+                    else:
+                        hook_callback_results = msg
+
+                # Step 6: Process Hook Callbacks
+                if hook_callback_results:
+                    await self.hook_manager.hook_callback_results(
+                        hook_callback_results=hook_callback_results,
+                        narrative=ctx.main_narrative,
+                        narrative_service=self.narrative_service,
+                        execute_callback_instance=self._execute_callback_instance
+                    )
+
+                elapsed = _time.monotonic() - _bg_start
+                logger.info(
+                    f"[BG] Steps 5-6 completed for {_agent_id} in {elapsed:.1f}s"
+                )
+            except Exception as e:
+                elapsed = _time.monotonic() - _bg_start
+                logger.error(
+                    f"[BG] Steps 5-6 failed for {_agent_id} after {elapsed:.1f}s: {e}"
+                )
+            finally:
+                clear_cost_context()
+                # Clean up the agent log file handler AFTER background work finishes,
+                # so all [BG] log lines are captured in the agent's .log file.
+                _logging_service.cleanup()
+
+        asyncio.create_task(_run_hooks_background())
+        logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
+
+        # Yield a completed Step 5 progress message so the frontend sidebar
+        # shows "Post-processing (background) ✓" without actually waiting.
+        yield ProgressMessage(
+            step="5",
+            title="Post-processing (background)",
+            description="✓ Module hooks dispatched to background",
+            status=ProgressStatus.COMPLETED,
+            substeps=["Entity extraction, memory writes, job analysis running in background"],
+        )
+
+        # NOTE: Do NOT call self._logging_service.cleanup() here.
+        # The background task owns the cleanup — it will remove the log
+        # handler after hooks finish so that [BG] lines go to the agent's log file.
 
     async def _execute_callback_instance(
         self,

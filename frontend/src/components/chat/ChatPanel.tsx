@@ -300,7 +300,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           [agentId]: {
             ...(state.agentSessions[agentId] ?? {
               messages: [], currentSteps: [], currentThinking: '', currentToolCalls: [],
-              currentErrors: [], currentAssistantMessage: '', isStreaming: false, history: [], totalSteps: 6,
+              currentErrors: [], currentAssistantMessage: '', isStreaming: false, history: [], totalSteps: 5,
             }),
             messages: [
               {
