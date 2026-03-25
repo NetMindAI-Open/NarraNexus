@@ -161,12 +161,11 @@ app.whenReady().then(async () => {
   trayManager = new TrayManager(healthMonitor, processManager)
   trayManager.create(mainWindow)
 
-  // Clean up stale processes from a previous unclean exit (e.g., EverMemOS
-  // still occupying port 1995). Only kills by port scan, does NOT touch
-  // processManager state or trigger auto-restart logic.
+  // Clean up stale processes from a previous unclean exit BEFORE health
+  // monitor starts, so Dashboard doesn't flash stale green indicators.
   await processManager.forceKillServicePorts()
 
-  // Start health checks
+  // Start health checks (AFTER port cleanup so first check is accurate)
   healthMonitor.start()
 
   // Initialize auto-updater (checks GitHub Releases)
@@ -187,9 +186,8 @@ app.on('window-all-closed', () => {
   }
 })
 
-// Before app quit: clean up all background processes
-// before-quit is synchronous; async won't make Electron wait.
-// Must use preventDefault() to block quit, then manually quit after cleanup.
+// Before app quit: clean up ALL background processes, Docker containers, and ports.
+// Uses preventDefault() to block quit until cleanup completes (or hard timeout).
 let cleanupDone = false
 
 app.on('before-quit', (e) => {
@@ -199,21 +197,32 @@ app.on('before-quit', (e) => {
 
   e.preventDefault() // Prevent immediate quit
 
-  // Stop health checks
+  // Stop health checks immediately
   healthMonitor.stop()
 
   // Destroy tray
   trayManager?.destroy()
 
-  // Stop all service processes AND Docker containers, then quit.
-  // Without stopping Docker, MySQL/Synapse/EverMemOS containers keep
-  // running in the background consuming memory after the app closes.
   const cleanup = async () => {
-    await (processManager?.stopAll() ?? Promise.resolve())
+    // Phase 1: Stop service processes AND Docker containers in parallel
+    const stopProcesses = processManager?.stopAll() ?? Promise.resolve()
     const { stopAll: stopDocker } = await import('./docker-manager')
-    await stopDocker()
+    await Promise.all([stopProcesses, stopDocker()])
+
+    // Phase 2: Final port sweep — kill anything still occupying service ports
+    // (catches orphaned MCP children, uvicorn workers, etc.)
+    await (processManager?.forceKillServicePorts() ?? Promise.resolve())
   }
+
+  // Hard timeout: force quit after 15s even if cleanup hangs
+  const forceQuitTimer = setTimeout(() => {
+    console.error('[main] Cleanup timed out after 15s, forcing quit')
+    cleanupDone = true
+    app.quit()
+  }, 15000)
+
   cleanup().finally(() => {
+    clearTimeout(forceQuitTimer)
     cleanupDone = true
     app.quit()
   })

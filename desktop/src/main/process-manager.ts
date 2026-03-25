@@ -80,16 +80,20 @@ export class ProcessManager extends EventEmitter {
       await this.stopService(serviceId)
     }
 
-    // EverMemOS needs Docker infrastructure; start containers if not running
+    // EverMemOS needs Docker infrastructure (MongoDB, ES, Milvus, Redis).
+    // Check ALL required ports, not just MongoDB.
     if (svc.id === 'evermemos') {
-      const mongoUp = await this.isPortReachable(27017)
-      if (!mongoUp) {
+      const allUp = await this.isEverMemOSInfraReady()
+      if (!allUp) {
         this.addLog(svc.id, 'stdout', 'Starting EverMemOS Docker infrastructure...')
         try {
           const { startEverMemOS } = await import('./docker-manager')
           await startEverMemOS()
-          // Wait for infrastructure ports
-          await this.waitForEverMemOSInfra(svc.id)
+          const ready = await this.waitForEverMemOSInfra(svc.id)
+          if (!ready) {
+            this.addLog(svc.id, 'stderr', 'EverMemOS infrastructure did not become ready in time')
+            return false
+          }
         } catch (e) {
           this.addLog(svc.id, 'stderr', `Failed to start Docker containers: ${e}`)
           return false
@@ -395,10 +399,10 @@ export class ProcessManager extends EventEmitter {
     }
 
     // EverMemOS depends on Docker infrastructure (MongoDB, ES, Milvus, Redis).
-    // If ports aren't reachable, try to start the Docker containers first.
+    // If any infrastructure port is down, start the Docker containers first.
     if (svc.id === 'evermemos') {
-      const anyPortUp = await this.isPortReachable(27017)
-      if (!anyPortUp) {
+      const allUp = await this.isEverMemOSInfraReady()
+      if (!allUp) {
         this.addLog(svc.id, 'stderr', 'Infrastructure not running, starting EverMemOS Docker containers...')
         try {
           const { startEverMemOS } = await import('./docker-manager')
@@ -410,7 +414,7 @@ export class ProcessManager extends EventEmitter {
       const infraReady = await this.waitForEverMemOSInfra(svc.id)
       if (!infraReady) {
         this.restartCounts.set(svc.id, count - 1)
-        this.addLog(svc.id, 'stderr', 'Infrastructure not ready, skipping restart')
+        this.addLog(svc.id, 'stderr', 'Infrastructure not ready after 180s, skipping restart')
         return
       }
     }
@@ -423,6 +427,14 @@ export class ProcessManager extends EventEmitter {
     if (!this.shuttingDown) {
       await this.spawnProcess(svc)
     }
+  }
+
+  /** Quick check if ALL EverMemOS infrastructure ports are reachable */
+  private async isEverMemOSInfraReady(): Promise<boolean> {
+    for (const { port } of ProcessManager.EM_INFRA_PORTS) {
+      if (!await this.isPortReachable(port)) return false
+    }
+    return true
   }
 
   /** EverMemOS infrastructure port list */

@@ -81,8 +81,8 @@ export class TrayManager {
     // Build service status submenu
     const statusItems: Electron.MenuItemConstructorOptions[] = []
 
-    // MySQL
-    const mysqlHealth = health.services.find((s) => s.serviceId === 'mysql')
+    // MySQL (in infrastructure, not services)
+    const mysqlHealth = health.infrastructure.find((s) => s.serviceId === 'mysql')
     statusItems.push({
       label: `${stateIcon(mysqlHealth?.state)} MySQL`,
       enabled: false
@@ -140,10 +140,9 @@ export class TrayManager {
       {
         label: 'Quit',
         click: () => {
-          // Notify main process to stop all services before quitting
-          this.mainWindow?.webContents.send('tray-action', 'quit')
-          // Delay exit to allow time for services to stop
-          setTimeout(() => app.quit(), 3000)
+          // app.quit() triggers 'before-quit' handler which does full cleanup
+          // (processes + Docker + port sweep) before actually exiting.
+          app.quit()
         }
       }
     ])

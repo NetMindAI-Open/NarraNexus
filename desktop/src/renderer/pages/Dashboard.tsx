@@ -103,21 +103,28 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     window.nexus.openExternal('http://localhost:8000')
   }
 
-  // Merge health check and process status to determine display status for each card.
-  // ProcessManager status takes priority: if it says stopped/crashed, show that
-  // regardless of port health (ports may linger briefly after process kill).
+  // Merge ProcessManager status + HealthMonitor port check for display.
+  //
+  // Rules:
+  //   ProcessManager stopped/crashed → show that (authoritative, regardless of port)
+  //   ProcessManager starting → show starting
+  //   ProcessManager running + port healthy → healthy (green)
+  //   ProcessManager running + port unhealthy → unhealthy (red, process up but not serving)
+  //   ProcessManager running + no port check → running (green, e.g. poller has no port)
+  //   No ProcessManager info + port healthy → healthy (e.g. external service)
+  //   Otherwise → stopped
   const getCardStatus = (serviceId: string) => {
     const proc = services.find((s) => s.serviceId === serviceId)
     const svcHealth = health?.services.find((s) => s.serviceId === serviceId)
 
-    // Process status is authoritative for stopped/crashed
     if (proc?.status === 'stopped') return 'stopped'
     if (proc?.status === 'crashed') return 'crashed'
     if (proc?.status === 'starting') return 'starting'
-    // Process running + port healthy = fully healthy
-    if (proc?.status === 'running' && svcHealth?.state === 'healthy') return 'healthy'
-    if (proc?.status === 'running') return 'running'
-    // Fallback: use health check for services not managed by ProcessManager
+    if (proc?.status === 'running') {
+      if (svcHealth?.state === 'healthy') return 'healthy'
+      if (svcHealth?.state === 'unhealthy') return 'unhealthy'
+      return 'running' // No port check (poller, job-trigger)
+    }
     if (svcHealth?.state === 'healthy') return 'healthy'
     return 'stopped'
   }
