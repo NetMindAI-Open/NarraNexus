@@ -80,6 +80,23 @@ export class ProcessManager extends EventEmitter {
       await this.stopService(serviceId)
     }
 
+    // EverMemOS needs Docker infrastructure; start containers if not running
+    if (svc.id === 'evermemos') {
+      const mongoUp = await this.isPortReachable(27017)
+      if (!mongoUp) {
+        this.addLog(svc.id, 'stdout', 'Starting EverMemOS Docker infrastructure...')
+        try {
+          const { startEverMemOS } = await import('./docker-manager')
+          await startEverMemOS()
+          // Wait for infrastructure ports
+          await this.waitForEverMemOSInfra(svc.id)
+        } catch (e) {
+          this.addLog(svc.id, 'stderr', `Failed to start Docker containers: ${e}`)
+          return false
+        }
+      }
+    }
+
     return this.spawnProcess(svc)
   }
 
@@ -377,8 +394,19 @@ export class ProcessManager extends EventEmitter {
       return
     }
 
-    // EverMemOS depends on infrastructure ports
+    // EverMemOS depends on Docker infrastructure (MongoDB, ES, Milvus, Redis).
+    // If ports aren't reachable, try to start the Docker containers first.
     if (svc.id === 'evermemos') {
+      const anyPortUp = await this.isPortReachable(27017)
+      if (!anyPortUp) {
+        this.addLog(svc.id, 'stderr', 'Infrastructure not running, starting EverMemOS Docker containers...')
+        try {
+          const { startEverMemOS } = await import('./docker-manager')
+          await startEverMemOS()
+        } catch (e) {
+          this.addLog(svc.id, 'stderr', `Failed to start Docker containers: ${e}`)
+        }
+      }
       const infraReady = await this.waitForEverMemOSInfra(svc.id)
       if (!infraReady) {
         this.restartCounts.set(svc.id, count - 1)
