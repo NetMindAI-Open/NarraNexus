@@ -196,9 +196,12 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
-   * Force clean all residual processes on service ports (no dialog)
+   * Force clean all residual processes on service ports.
+   *
+   * Used at startup to kill stale processes from a previous unclean exit,
+   * and in stopAll() to kill orphaned child processes (MCP workers etc.).
    */
-  private async forceKillServicePorts(): Promise<void> {
+  async forceKillServicePorts(): Promise<void> {
     const portsSet = new Set<number>()
     for (const svc of SERVICES) {
       if (svc.port !== null) portsSet.add(svc.port)

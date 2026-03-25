@@ -162,9 +162,9 @@ app.whenReady().then(async () => {
   trayManager.create(mainWindow)
 
   // Clean up stale processes from a previous unclean exit (e.g., EverMemOS
-  // still occupying port 1995). This runs before health checks so the
-  // dashboard doesn't show stale green indicators on launch.
-  await processManager.stopAll()
+  // still occupying port 1995). Only kills by port scan, does NOT touch
+  // processManager state or trigger auto-restart logic.
+  await processManager.forceKillServicePorts()
 
   // Start health checks
   healthMonitor.start()
