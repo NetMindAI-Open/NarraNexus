@@ -238,17 +238,27 @@ export class ProcessManager extends EventEmitter {
       portsSet.add(p)
     }
 
+    // Get our own PID and parent PID to avoid killing ourselves or Electron
+    const safePids = new Set([process.pid, process.ppid])
+
     let killed = false
     for (const port of portsSet) {
       try {
-        const { stdout } = await execFileAsync('lsof', ['-ti', `:${port}`], {
+        // Use -sTCP:LISTEN to only find the LISTENING process, not all
+        // connected clients (e.g., Cursor SSH port forwarding). This
+        // prevents accidentally killing the IDE or other unrelated processes.
+        const { stdout } = await execFileAsync('lsof', [
+          '-ti', `:${port}`, '-sTCP:LISTEN'
+        ], {
           timeout: 5000,
           env: getShellEnv()
         })
         const pids = stdout.trim().split('\n').filter(Boolean)
         for (const pid of pids) {
+          const numPid = Number(pid)
+          if (safePids.has(numPid)) continue // Never kill ourselves
           try {
-            process.kill(Number(pid), 'SIGKILL')
+            process.kill(numPid, 'SIGKILL')
             this.addLog('system', 'stderr', `Killed stale process on port ${port} (PID: ${pid})`)
             killed = true
           } catch { /* process may have already exited */ }
@@ -396,6 +406,9 @@ export class ProcessManager extends EventEmitter {
 
   /** Auto-restart after crash (exponential backoff) */
   private async tryAutoRestart(svc: ServiceDef): Promise<void> {
+    // First check: abort immediately if shutdown is in progress
+    if (this.shuttingDown) return
+
     const count = (this.restartCounts.get(svc.id) ?? 0) + 1
     this.restartCounts.set(svc.id, count)
 
@@ -408,8 +421,10 @@ export class ProcessManager extends EventEmitter {
     // EverMemOS depends on Docker infrastructure (MongoDB, ES, Milvus, Redis).
     // If any infrastructure port is down, start the Docker containers first.
     if (svc.id === 'evermemos') {
+      if (this.shuttingDown) return // Re-check after potential async gap
       const allUp = await this.isEverMemOSInfraReady()
       if (!allUp) {
+        if (this.shuttingDown) return
         this.addLog(svc.id, 'stderr', 'Infrastructure not running, starting EverMemOS Docker containers...')
         try {
           const { startEverMemOS } = await import('./docker-manager')
@@ -418,18 +433,13 @@ export class ProcessManager extends EventEmitter {
           this.addLog(svc.id, 'stderr', `Failed to start Docker containers: ${e}`)
         }
       }
+      if (this.shuttingDown) return
       const infraReady = await this.waitForEverMemOSInfra(svc.id)
       if (!infraReady) {
         this.restartCounts.set(svc.id, count - 1)
         this.addLog(svc.id, 'stderr', 'Infrastructure not ready after 180s, skipping restart')
         return
       }
-    }
-
-    // Snapshot: if shuttingDown is true NOW, don't even schedule restart
-    if (this.shuttingDown) {
-      this.addLog(svc.id, 'stderr', 'Shutdown in progress, skipping auto-restart')
-      return
     }
 
     const waitMs = RESTART_BACKOFF_BASE * Math.pow(2, count - 1)

@@ -11,6 +11,7 @@ import { join } from 'path'
 import { ensureWritableProject } from './constants'
 import { initShellEnv } from './shell-env'
 import { ProcessManager } from './process-manager'
+import { stopAll as stopDocker } from './docker-manager'
 import { HealthMonitor } from './health-monitor'
 import { TrayManager } from './tray-manager'
 import { InstallerRegistry } from './installer-registry'
@@ -206,7 +207,6 @@ app.on('before-quit', (e) => {
   const cleanup = async () => {
     // Phase 1: Stop service processes AND Docker containers in parallel
     const stopProcesses = processManager?.stopAll() ?? Promise.resolve()
-    const { stopAll: stopDocker } = await import('./docker-manager')
     await Promise.all([stopProcesses, stopDocker()])
 
     // Phase 2: Final port sweep — kill anything still occupying service ports
