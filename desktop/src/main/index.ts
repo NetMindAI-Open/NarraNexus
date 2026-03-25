@@ -161,6 +161,11 @@ app.whenReady().then(async () => {
   trayManager = new TrayManager(healthMonitor, processManager)
   trayManager.create(mainWindow)
 
+  // Clean up stale processes from a previous unclean exit (e.g., EverMemOS
+  // still occupying port 1995). This runs before health checks so the
+  // dashboard doesn't show stale green indicators on launch.
+  await processManager.stopAll()
+
   // Start health checks
   healthMonitor.start()
 
@@ -200,9 +205,15 @@ app.on('before-quit', (e) => {
   // Destroy tray
   trayManager?.destroy()
 
-  // Stop all service processes, then quit
-  const cleanup = processManager?.stopAll() ?? Promise.resolve()
-  cleanup.finally(() => {
+  // Stop all service processes AND Docker containers, then quit.
+  // Without stopping Docker, MySQL/Synapse/EverMemOS containers keep
+  // running in the background consuming memory after the app closes.
+  const cleanup = async () => {
+    await (processManager?.stopAll() ?? Promise.resolve())
+    const { stopAll: stopDocker } = await import('./docker-manager')
+    await stopDocker()
+  }
+  cleanup().finally(() => {
     cleanupDone = true
     app.quit()
   })
