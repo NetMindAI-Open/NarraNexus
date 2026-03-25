@@ -12,12 +12,47 @@ Changelog:
 
 from __future__ import annotations
 
+import asyncio
 from typing import AsyncGenerator, Dict, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
+
+
+async def _run_with_cancellation(coro, cancellation: CancellationToken):
+    """
+    Run a coroutine that can be interrupted by a CancellationToken.
+
+    If the token fires while the coroutine is awaiting (e.g., an LLM call),
+    the task is cancelled immediately via asyncio.Task.cancel(), so the user
+    doesn't have to wait for a long operation to finish.
+    """
+    task = asyncio.ensure_future(coro)
+
+    # Wait for cancellation event
+    cancel_waiter = asyncio.ensure_future(cancellation._event.wait())
+
+    done, pending = await asyncio.wait(
+        [task, cancel_waiter],
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    if cancel_waiter in done:
+        # Cancellation fired — abort the task
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
+        cancel_waiter.cancel()
+        raise CancelledByUser(cancellation.reason)
+
+    # Task finished normally — clean up the cancel waiter
+    cancel_waiter.cancel()
+    return task.result()
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
-from xyz_agent_context.utils.embedding import cosine_similarity
+
 from .step_display import format_narrative_for_display
 
 if TYPE_CHECKING:
@@ -137,6 +172,10 @@ async def step_1_select_narrative(
 
     logger.info("🎯 Step 1: Selecting Narratives")
 
+    # Cancellation checkpoint — abort before any work if already cancelled
+    if ctx.cancellation:
+        ctx.cancellation.raise_if_cancelled()
+
     # ========== Check if there is a forced Narrative (used for Job triggers) ==========
     is_new = False  # Default to not newly created
     retrieval_method = ""  # Default empty, will be set in subsequent branches
@@ -155,11 +194,15 @@ async def step_1_select_narrative(
         else:
             logger.warning(f"⚠️ Forced Narrative {ctx.forced_narrative_id} does not exist, falling back to normal selection")
             # Fall back to normal selection flow
-            selection_result = await narrative_service.select(
+            fallback_coro = narrative_service.select(
                 ctx.agent_id, ctx.user_id, ctx.input_content,
                 session=ctx.session,
                 awareness=ctx.awareness
             )
+            if ctx.cancellation:
+                selection_result = await _run_with_cancellation(fallback_coro, ctx.cancellation)
+            else:
+                selection_result = await fallback_coro
             narrative_list = selection_result.narratives
             query_embedding = selection_result.query_embedding
             selection_reason = selection_result.selection_reason
@@ -168,12 +211,16 @@ async def step_1_select_narrative(
             retrieval_method = selection_result.retrieval_method
     else:
         # ========== Normal Narrative selection flow ==========
-        # Pass Session and Awareness to NarrativeService.select()
-        selection_result = await narrative_service.select(
+        # Wrap select() so cancellation can interrupt LLM/embedding calls mid-flight
+        select_coro = narrative_service.select(
             ctx.agent_id, ctx.user_id, ctx.input_content,
             session=ctx.session,
             awareness=ctx.awareness
         )
+        if ctx.cancellation:
+            selection_result = await _run_with_cancellation(select_coro, ctx.cancellation)
+        else:
+            selection_result = await select_coro
         narrative_list = selection_result.narratives
         query_embedding = selection_result.query_embedding
         selection_reason = selection_result.selection_reason
@@ -188,6 +235,10 @@ async def step_1_select_narrative(
                 f"[Phase 2] Cached evermemos_memories: {len(ctx.evermemos_memories)} Narratives"
             )
 
+    # Cancellation checkpoint — abort after selection before post-processing
+    if ctx.cancellation:
+        ctx.cancellation.raise_if_cancelled()
+
     ctx.narrative_list = narrative_list
     ctx.query_embedding = query_embedding
 
@@ -196,16 +247,10 @@ async def step_1_select_narrative(
         f"method={selection_method}, reason={selection_reason[:50]}..."
     )
 
-    # Calculate similarity scores (if query_embedding is available)
-    scores: Dict[str, float] = {}
-    if query_embedding:
-        for narrative in narrative_list:
-            if hasattr(narrative, 'routing_embedding') and narrative.routing_embedding:
-                try:
-                    score = cosine_similarity(query_embedding, narrative.routing_embedding)
-                    scores[narrative.id] = score
-                except Exception as e:
-                    logger.warning(f"Failed to calculate similarity for {narrative.id}: {e}")
+    # Use similarity scores already computed during Narrative selection
+    # (carried through NarrativeSelectionResult.scores, avoiding redundant
+    # embedding loading and cosine similarity re-computation)
+    scores: Dict[str, float] = selection_result.scores
 
     # Format for developer-friendly display
     display_data = format_narrative_for_display(narrative_list, scores=scores)

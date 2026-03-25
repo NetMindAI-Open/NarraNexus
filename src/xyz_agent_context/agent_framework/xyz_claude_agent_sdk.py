@@ -7,7 +7,6 @@
 
 
 import asyncio
-import os
 
 from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
@@ -19,8 +18,10 @@ from typing import Any, AsyncGenerator
 # Handle both relative import (when used as module) and absolute import (when run as script)
 try:
     from .output_transfer import output_transfer
+    from .api_config import claude_config
 except ImportError:
     from output_transfer import output_transfer
+    from api_config import claude_config
 
 # Monkey-patch claude_agent_sdk's parse_message to handle unknown message types gracefully.
 # The SDK v0.1.6 raises MessageParseError for unrecognized types like "rate_limit_event",
@@ -53,6 +54,7 @@ class ClaudeAgentSDK:
         mcp_server_urls: dict[str, str],  # Corrected type annotation: should be a dict, not a list
         streaming: bool = True,  # Whether to use streaming output
         extra_env: dict[str, str] | None = None,  # Additional env vars (e.g., skill-configured API keys)
+        cancellation: Any | None = None,  # CancellationToken for cooperative cancellation
         **kwargs: Any,
         ) -> AsyncGenerator[dict[str, Any], None]:
 
@@ -110,6 +112,8 @@ class ClaudeAgentSDK:
                 
         logger.debug(f"  System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"  Your MCP: {claude_agent_mcp_dict}")
+        logger.info(f"  [FULL_SYSTEM_PROMPT]\n{system_prompt}")
+        logger.info(f"  [USER_PROMPT]\n{this_turn_user_message}")
 
         # stderr 回调：将 Claude Code CLI 的错误输出记录到日志
         # SDK 默认会静默丢弃 stderr，导致认证失败、进程崩溃等问题完全不可见
@@ -119,12 +123,8 @@ class ClaudeAgentSDK:
             logger.warning(f"[Claude CLI stderr] {line}")
 
         # Step 1: Build ClaudeAgentOptions
-        # 构建传给 Claude CLI 子进程的额外环境变量（仅包含非空值）
-        cli_env: dict[str, str] = {}
-        for env_key in ("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"):
-            val = os.environ.get(env_key, "")
-            if val:
-                cli_env[env_key] = val
+        # 从 api_config 构建传给 Claude CLI 子进程的环境变量（仅包含非空值）
+        cli_env: dict[str, str] = claude_config.to_cli_env()
 
         # 确保 CLI 子进程绕过代理直连 localhost 的 MCP 服务器。
         # 系统若设置了 http_proxy / https_proxy（如 VPN 代理），会导致
@@ -141,7 +141,8 @@ class ClaudeAgentSDK:
         if extra_env:
             cli_env.update(extra_env)
 
-        options = ClaudeAgentOptions(
+        # Build ClaudeAgentOptions; only pass model when explicitly configured
+        options_kwargs: dict[str, Any] = dict(
             system_prompt=system_prompt,
             cwd=self.working_path,
             mcp_servers=claude_agent_mcp_dict,
@@ -152,6 +153,9 @@ class ClaudeAgentSDK:
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
             env=cli_env,  # 传递 Anthropic API Key 等环境变量给 Claude CLI
         )
+        if claude_config.model:
+            options_kwargs["model"] = claude_config.model
+        options = ClaudeAgentOptions(**options_kwargs)
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
@@ -194,6 +198,11 @@ class ClaudeAgentSDK:
                         f"Claude Code CLI did not respond for {IDLE_TIMEOUT_SECONDS} seconds. "
                         f"The service may be overloaded or unresponsive. Please try again."
                     )
+
+                # Check cancellation before processing
+                if cancellation is not None and cancellation.is_cancelled:
+                    logger.info(f"[ClaudeAgentSDK] Cancellation detected after {message_count} messages, stopping")
+                    break
 
                 message_count += 1
                 msg_type = type(message).__name__

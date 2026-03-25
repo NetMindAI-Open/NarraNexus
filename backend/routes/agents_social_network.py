@@ -207,7 +207,7 @@ async def search_social_network_entities(
         social_repo = SocialNetworkRepository(db_client)
 
         if search_type == "semantic":
-            from xyz_agent_context.utils.embedding import get_embedding
+            from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
             query_embedding = await get_embedding(query)
             results = await social_repo.semantic_search(
                 instance_id=instance_id,

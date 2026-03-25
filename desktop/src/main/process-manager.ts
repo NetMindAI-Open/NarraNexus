@@ -133,8 +133,16 @@ export class ProcessManager extends EventEmitter {
   /** Stop All Services */
   async stopAll(): Promise<void> {
     this.shuttingDown = true
+
+    // Phase 1: SIGTERM each managed process group
     const stopPromises = SERVICES.map((svc) => this.stopService(svc.id))
     await Promise.all(stopPromises)
+
+    // Phase 2: Kill any orphaned child processes still occupying service ports.
+    // Python's multiprocessing (used by MCP module_runner) spawns children that
+    // escape the parent process group and survive SIGTERM. Same as run.sh's
+    // port-based cleanup.
+    await this.forceKillServicePorts()
   }
 
   /** Restart a single service */
@@ -229,15 +237,32 @@ export class ProcessManager extends EventEmitter {
     const parentDir = join(cwd, '..')
     const dirName = cwd.split('/').pop() || cwd.split('\\').pop() || ''
 
+    // Ensure parent directory exists (ENOENT from spawn is often a missing cwd, not a missing binary)
+    const fs = await import('fs')
+    fs.mkdirSync(parentDir, { recursive: true })
+
     this.addLog(svc.id, 'stdout', `Cloning ${svc.gitRepo} ...`)
     this.statuses.set(svc.id, 'starting')
     this.emit('status-change', svc.id, 'starting')
 
     try {
-      await execFileAsync('git', ['clone', svc.gitRepo, dirName], {
-        cwd: parentDir,
-        timeout: 120_000,
-        env: this.getExecEnv()
+      const env = this.getExecEnv()
+      // Use shell: true to let the OS resolve git via PATH and handle
+      // macOS Xcode shim (/usr/bin/git) which fails under Hardened Runtime
+      // when called directly via execFile.
+      const shell = process.platform === 'darwin' ? '/bin/zsh' : true
+      await new Promise<void>((resolve, reject) => {
+        const proc = spawn('git', ['clone', svc.gitRepo!, dirName], {
+          cwd: parentDir,
+          env,
+          shell,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 120_000,
+        })
+        let stderr = ''
+        proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString() })
+        proc.on('exit', (code) => code === 0 ? resolve() : reject(new Error(stderr.trim() || `exit code ${code}`)))
+        proc.on('error', reject)
       })
       this.addLog(svc.id, 'stdout', 'Repository cloned successfully')
       return true
@@ -439,5 +464,29 @@ export class ProcessManager extends EventEmitter {
 
   private delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+
+  /**
+   * Resolve a command name to its full path via the given PATH env.
+   * execFile doesn't spawn a shell, so it needs the absolute path on macOS
+   * when launched from Finder/Dock (minimal launchd PATH).
+   */
+  private async resolveCommand(cmd: string, env: Record<string, string>): Promise<string> {
+    const pathDirs = (env.PATH || '').split(':')
+    for (const dir of pathDirs) {
+      const fullPath = join(dir, cmd)
+      if (existsSync(fullPath)) return fullPath
+    }
+    // Fallback: try common known locations
+    const fallbacks = [
+      `/usr/bin/${cmd}`,
+      `/usr/local/bin/${cmd}`,
+      `/opt/homebrew/bin/${cmd}`,
+    ]
+    for (const p of fallbacks) {
+      if (existsSync(p)) return p
+    }
+    // Last resort: return the bare command name (will likely fail with ENOENT)
+    return cmd
   }
 }

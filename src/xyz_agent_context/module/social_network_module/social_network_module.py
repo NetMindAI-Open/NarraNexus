@@ -31,7 +31,7 @@ from xyz_agent_context.schema import (
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient
-from xyz_agent_context.utils.embedding import get_embedding
+from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 
 # Repository
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity, InstanceRepository

@@ -282,5 +282,6 @@ class NarrativeSelectionResult(BaseModel):
     selection_method: str = ""  # Selection method: continuous, high_confidence, llm_confirmed, new_created
     is_new: bool = False  # Whether a new Narrative was created
     best_score: Optional[float] = None  # Best match score (if any)
+    scores: Dict[str, float] = {}  # Per-narrative similarity scores (narrative_id → score)
     retrieval_method: str = ""  # Retrieval method: evermemos, vector, fallback_vector
     evermemos_memories: Dict[str, Any] = {} # EverMemOS retrieval result cache (for MemoryModule use)

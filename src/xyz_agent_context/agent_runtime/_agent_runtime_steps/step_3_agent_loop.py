@@ -162,6 +162,7 @@ async def step_3_agent_loop(
             messages=messages,
             mcp_server_urls=ctx.mcp_urls,
             extra_env=skill_env_vars or None,
+            cancellation=ctx.cancellation,
         ):
             # Use ResponseProcessor to process responses
             result = response_processor.process(response, state)

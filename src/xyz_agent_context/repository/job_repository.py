@@ -1036,22 +1036,59 @@ class JobRepository(BaseRepository[JobModel]):
         """
         logger.debug(f"    → JobRepository.search_semantic({agent_id})")
 
+        from xyz_agent_context.agent_framework.llm_api.embedding import cosine_similarity
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+            use_embedding_store,
+            get_stored_embeddings_batch,
+        )
+
+        # Fetch all jobs matching filters
         filters = {"agent_id": agent_id}
         if user_id:
             filters["user_id"] = user_id
         if status:
             filters["status"] = status.value
 
-        results = await self._db.semantic_search(
-            table=self.table_name,
-            embedding_column="embedding",
-            query_embedding=query_embedding,
-            filters=filters,
-            limit=limit,
-            min_similarity=min_similarity,
-        )
+        where_parts = [f"`{k}` = %s" for k in filters]
+        params = list(filters.values())
+        where_sql = " AND ".join(where_parts)
 
-        return [(self._row_to_entity(row), score) for row, score in results]
+        rows = await self._db.execute(
+            f"SELECT * FROM {self.table_name} WHERE {where_sql}",
+            tuple(params),
+            fetch=True,
+        )
+        if not rows:
+            return []
+
+        new_system = use_embedding_store()
+        job_ids = [r.get("job_id") for r in rows if r.get("job_id")]
+        store_vectors: dict = {}
+        if new_system:
+            store_vectors = await get_stored_embeddings_batch("job", job_ids)
+
+        scored_results = []
+        for row in rows:
+            job_id = row.get("job_id", "")
+            if new_system:
+                vector = store_vectors.get(job_id)
+            else:
+                import json as _json
+                raw = row.get("embedding")
+                if raw and isinstance(raw, str):
+                    vector = _json.loads(raw)
+                elif raw and isinstance(raw, list):
+                    vector = raw
+                else:
+                    vector = None
+            if not vector:
+                continue
+            score = cosine_similarity(query_embedding, vector)
+            if score >= min_similarity:
+                scored_results.append((self._row_to_entity(row), score))
+
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        return scored_results[:limit]
 
     async def search_by_keywords(
         self,

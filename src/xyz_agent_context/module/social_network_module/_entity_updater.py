@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity
-from xyz_agent_context.utils.embedding import get_embedding
+from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 from xyz_agent_context.module.social_network_module.prompts import (
     ENTITY_SUMMARY_INSTRUCTIONS,
     DESCRIPTION_COMPRESSION_INSTRUCTIONS,
@@ -222,6 +222,10 @@ async def update_entity_embedding(
             instance_id=instance_id,
             updates={"embedding": embedding}
         )
+        # Dual-write to embeddings_store
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
+        await store_embedding("entity", entity_id, embedding, source_text=embedding_text)
+
         logger.info(f"Updated embedding for entity {entity_id} (dim={len(embedding)})")
 
     except Exception as e:

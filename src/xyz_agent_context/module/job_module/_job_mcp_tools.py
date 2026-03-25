@@ -24,7 +24,7 @@ from mcp.server.fastmcp import FastMCP
 
 from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.utils.embedding import get_embedding
+from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 
 
 def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:

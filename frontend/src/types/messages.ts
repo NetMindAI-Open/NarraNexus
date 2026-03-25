@@ -11,7 +11,8 @@ export type MessageType =
   | 'tool_call'
   | 'error'
   | 'complete'
-  | 'heartbeat';
+  | 'heartbeat'
+  | 'cancelled';
 
 // Progress status
 export type ProgressStatus = 'running' | 'completed' | 'failed';
@@ -73,6 +74,12 @@ export interface HeartbeatMessage extends BaseMessage {
   type: 'heartbeat';
 }
 
+// Cancelled message - user requested stop
+export interface CancelledMessage extends BaseMessage {
+  type: 'cancelled';
+  message: string;
+}
+
 // Union type for all runtime messages
 export type RuntimeMessage =
   | ProgressMessage
@@ -81,7 +88,8 @@ export type RuntimeMessage =
   | AgentToolCall
   | ErrorMessage
   | CompleteMessage
-  | HeartbeatMessage;
+  | HeartbeatMessage
+  | CancelledMessage;
 
 // Chat message for display
 export interface ChatMessage {

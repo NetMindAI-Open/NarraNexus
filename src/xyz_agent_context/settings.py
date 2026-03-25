@@ -79,6 +79,7 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""
+    anthropic_model: str = ""  # Empty = let Claude Code CLI use its default model
 
     # ===== Database =====
     database_url: Optional[str] = None

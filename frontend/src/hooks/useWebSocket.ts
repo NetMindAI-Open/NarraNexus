@@ -26,12 +26,17 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
     [options.onComplete]
   );
 
+  const stop = useCallback((agentId: string) => {
+    wsManager.stop(agentId);
+  }, []);
+
   const close = useCallback((agentId: string) => {
     wsManager.close(agentId);
   }, []);
 
   return {
     run,
+    stop,
     close,
     isLoading: isStreaming,
   };

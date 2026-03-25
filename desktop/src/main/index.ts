@@ -32,10 +32,10 @@ let serviceLauncher: ServiceLauncher | null = null
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 800,
-    height: 620,
-    minWidth: 640,
-    minHeight: 480,
+    width: 1000,
+    height: 750,
+    minWidth: 800,
+    minHeight: 600,
     title: 'NarraNexus',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 15, y: 15 },

@@ -43,6 +43,8 @@ import type {
   SkillStudyResponse,
   CostResponse,
   SkillEnvConfigResponse,
+  EmbeddingStatusResponse,
+  EmbeddingRebuildResponse,
 } from '@/types';
 
 // In development, use relative paths (Vite proxy handles it)
@@ -557,6 +559,16 @@ class ApiClient {
         body: JSON.stringify({ env_config: envConfig }),
       }
     );
+  }
+  // Embedding Status API
+  async getEmbeddingStatus(): Promise<EmbeddingStatusResponse> {
+    return this.request<EmbeddingStatusResponse>('/api/providers/embeddings/status');
+  }
+
+  async rebuildEmbeddings(): Promise<EmbeddingRebuildResponse> {
+    return this.request<EmbeddingRebuildResponse>('/api/providers/embeddings/rebuild', {
+      method: 'POST',
+    });
   }
 }
 

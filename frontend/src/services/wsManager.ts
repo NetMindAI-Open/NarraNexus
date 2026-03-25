@@ -95,6 +95,20 @@ class WebSocketManager {
     };
   }
 
+  /**
+   * Send a stop signal to gracefully cancel the running agent loop.
+   *
+   * The backend's dual-task WebSocket handler listens for this message
+   * and triggers the CancellationToken, which propagates through the
+   * entire execution pipeline including killing the Claude CLI subprocess.
+   */
+  stop(agentId: string): void {
+    const entry = this.connections.get(agentId);
+    if (entry && entry.ws.readyState === WebSocket.OPEN) {
+      entry.ws.send(JSON.stringify({ action: 'stop' }));
+    }
+  }
+
   /** Close a specific agent's connection */
   close(agentId: string): void {
     const entry = this.connections.get(agentId);

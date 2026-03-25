@@ -42,6 +42,9 @@ from .instance_repository import InstanceRepository
 from .instance_link_repository import InstanceNarrativeLinkRepository
 from .instance_awareness_repository import InstanceAwarenessRepository, InstanceAwareness
 
+# Embedding Store
+from .embedding_store_repository import EmbeddingStoreRepository
+
 # Import entity types from schema (convenient re-export)
 from xyz_agent_context.schema import (
     SocialNetworkEntity,
@@ -87,4 +90,6 @@ __all__ = [
     # Instance Awareness
     "InstanceAwarenessRepository",
     "InstanceAwareness",
+    # Embedding Store
+    "EmbeddingStoreRepository",
 ]

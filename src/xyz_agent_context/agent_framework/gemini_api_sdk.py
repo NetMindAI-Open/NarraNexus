@@ -11,15 +11,15 @@ from loguru import logger
 from pydantic import BaseModel
 from google import genai
 
-from xyz_agent_context.settings import settings
+from xyz_agent_context.agent_framework.api_config import gemini_config
 from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
 
 
 class GeminiAPISDK:
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
-        self.client = genai.Client(api_key=settings.google_api_key)
-        self.model = model
+    def __init__(self, model: str | None = None):
+        self.client = genai.Client(api_key=gemini_config.api_key)
+        self.model = model or gemini_config.model
 
     async def llm_function(
         self,

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from xyz_agent_context.narrative import Event, Narrative, Session
     from xyz_agent_context.schema import PathExecutionResult, ModuleLoadResult
     from xyz_agent_context.module import ModuleService
+    from xyz_agent_context.agent_runtime.cancellation import CancellationToken
 
 
 @dataclass
@@ -73,6 +74,9 @@ class RunContext:
     job_instance_id: Optional[str] = None  # Instance ID when executing a Job
     forced_narrative_id: Optional[str] = None  # Forced Narrative ID (used for Job triggers)
     trigger_extra_data: Dict[str, Any] = field(default_factory=dict)  # Trigger 层传入的附加数据（如 channel_tag）
+
+    # ===== Cancellation =====
+    cancellation: Optional["CancellationToken"] = None  # Cooperative cancellation token
 
     # ===== Core Data Objects =====
     agent_data: Optional[Dict[str, Any]] = None

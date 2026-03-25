@@ -59,12 +59,33 @@
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | 从官网下载安装并启动 |
 | [Node.js](https://nodejs.org/) (v20) | 推荐使用 [nvm](https://github.com/nvm-sh/nvm) 安装：`curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
 
-**API 密钥**：
+### LLM 供应商配置
+
+NarraNexus 使用 **三槽位（Slot）** 架构来接入 LLM 服务。每个槽位承担不同职责，需要特定的 API 协议：
+
+| 槽位 | 协议 | 用途 | 为什么需要 |
+|------|------|------|-----------|
+| **Agent** | Anthropic | 核心对话 — Agent 的主推理循环 | 驱动 Agent 的思考、工具调用和多轮对话（通过 Claude Code CLI） |
+| **Embedding** | OpenAI | 向量嵌入生成 | 将文本转换为向量，用于 Narrative 话题匹配和社交网络语义搜索 |
+| **Helper LLM** | OpenAI | 辅助 LLM 调用 | 处理轻量任务：实体提取、Narrative 摘要、模块决策——比 Agent 模型更便宜快速 |
+
+你可以通过以下几种方式配置供应商：
+
+| 方案 | 你需要的 | 效果 |
+|------|---------|------|
+| **[NetMind.AI Power](https://www.netmind.ai/)** | 一个 API Key | 覆盖全部 3 个槽位（Anthropic + OpenAI 协议端点），最快上手，但可选模型有限 |
+| **Claude Code 登录 + OpenAI** | Claude Code CLI 登录 + OpenAI API Key | Agent 槽位通过 OAuth（有免费额度），Embedding + Helper 通过 OpenAI |
+| **Anthropic + OpenAI** | Anthropic API Key + OpenAI API Key | 完全控制两个供应商 |
+| **自定义端点** | 任何 Anthropic/OpenAI 兼容 URL | 适用于代理、自托管模型或其他供应商 |
+
+> **关于 Embedding**：目前仅支持 **OpenAI 官方 API** 和 **NetMind.AI Power** 的 Embedding 服务。未来将支持更多供应商。
+
+配置可通过安装向导（桌面应用）或 LLM Providers 面板（Web 界面，点击头部的 CPU 图标）完成。配置存储在 `~/.nexusagent/llm_config.json`。
+
+**其他 API 密钥**：
 
 | 依赖 | 是否必需 | 获取方式 |
 |------|---------|---------|
-| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | **必需** | 安装并认证 Claude Code CLI（`npm install -g @anthropic-ai/claude-code`）-- 作为核心 Agent 运行时 |
-| **OpenAI API Key** | **必需** | 从 [platform.openai.com](https://platform.openai.com/api-keys) 获取 -- 用于 Embedding 和作为备选 LLM |
 | **Google Gemini API Key** | 可选 | 从 [aistudio.google.com](https://aistudio.google.com/apikey) 获取 -- 启用 RAG 知识库（Gemini File Search） |
 | **EverMemOS LLM API Key** | 可选 | 用于长期记忆（边界检测和情景提取）。默认使用 [OpenRouter](https://openrouter.ai/)。**未配置时**：记忆提取功能不可用，Agent 仍可正常工作但没有长期记忆。 |
 | **EverMemOS Embedding/Rerank API Key** | 可选 | 用于语义搜索和重排序。默认使用 [DeepInfra](https://deepinfra.com/)。**未配置时**：默认为 vLLM 本地模式——需要自行部署 GPU 推理服务才能使用。 |
@@ -77,7 +98,7 @@ cd NarraNexus
 bash run.sh
 ```
 
-脚本会自动检测操作系统（Linux / macOS / Windows WSL2）并处理一切——Python、Docker、Node.js、MySQL、依赖安装、`.env` 配置。按提示操作即可。
+脚本会自动检测操作系统（Linux / macOS / Windows WSL2）并处理一切——Python、Docker、Node.js、MySQL、依赖安装、`.env` 配置、LLM 供应商设置。按提示操作即可。
 
 安装完成后，选择 **Run** 启动所有服务，然后打开 `http://localhost:5173`。
 

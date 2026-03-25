@@ -112,8 +112,11 @@ export function registerIpcHandlers(
 
   // ─── Health Check ─────────────────────────────────────
 
-  ipcMain.handle(IPC.HEALTH_STATUS, () => {
-    return healthMonitor.getStatus()
+  ipcMain.handle(IPC.HEALTH_STATUS, async () => {
+    // Run a fresh health check instead of returning stale cache.
+    // This ensures the UI reflects the real state immediately after
+    // start/stop operations, rather than waiting for the next poll cycle.
+    return healthMonitor.checkAll()
   })
 
   // ─── Three-Phase Setup ─────────────────────────────────

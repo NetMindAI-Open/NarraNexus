@@ -12,7 +12,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Loader2, Sparkles, MessageSquare, CheckCircle2 } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2 } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea } from '@/components/ui';
 import { useChatStore, useConfigStore } from '@/stores';
@@ -20,6 +20,7 @@ import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { MessageBubble } from './MessageBubble';
+import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
 import type { SimpleChatMessage } from '@/types';
 
 // Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
@@ -83,7 +84,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
 
-  const { run, isLoading } = useAgentWebSocket({
+  const { run, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
       refreshAgents();
       if (completedAgentId) checkAwarenessUpdate(completedAgentId);
@@ -300,7 +301,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           [agentId]: {
             ...(state.agentSessions[agentId] ?? {
               messages: [], currentSteps: [], currentThinking: '', currentToolCalls: [],
-              currentErrors: [], currentAssistantMessage: '', isStreaming: false, history: [], totalSteps: 6,
+              currentErrors: [], currentAssistantMessage: '', isStreaming: false, history: [], totalSteps: 5,
             }),
             messages: [
               {
@@ -382,6 +383,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
       </div>
+
+      {/* Embedding rebuild warning banner */}
+      <EmbeddingBanner />
 
       {/* Messages area — single unified timeline */}
       <div
@@ -597,22 +601,27 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               rows={1}
             />
           </div>
-          <Button
-            variant="accent"
-            size="icon"
-            onClick={handleSubmit}
-            disabled={!input.trim() || isLoading || !agentId}
-            className={cn(
-              'shrink-0 h-[52px] w-[52px] rounded-xl',
-              isLoading && 'animate-pulse'
-            )}
-          >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
+          {isStreaming ? (
+            <Button
+              variant="accent"
+              size="icon"
+              onClick={() => agentId && stop(agentId)}
+              className="shrink-0 h-[52px] w-[52px] rounded-xl bg-[var(--color-error)] hover:bg-[var(--color-error)]/80 border-[var(--color-error)]"
+              title="Stop generation"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              variant="accent"
+              size="icon"
+              onClick={handleSubmit}
+              disabled={!input.trim() || isLoading || !agentId}
+              className="shrink-0 h-[52px] w-[52px] rounded-xl"
+            >
               <Send className="w-5 h-5" />
-            )}
-          </Button>
+            </Button>
+          )}
         </div>
         <p className="mt-2 text-[10px] text-[var(--text-tertiary)] text-center">
           Press <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] font-mono text-[9px]">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] font-mono text-[9px]">Shift + Enter</kbd> for new line

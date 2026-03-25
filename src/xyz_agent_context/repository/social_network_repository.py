@@ -290,11 +290,10 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         """
         logger.debug(f"    → SocialNetworkRepository.semantic_search({instance_id})")
 
-        # Get all entities that have embeddings
+        # Get all entities for this instance
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE instance_id = %s
-            AND embedding IS NOT NULL
         """
 
         results = await self._db.execute(
@@ -306,14 +305,27 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         if not results:
             return []
 
-        # Calculate cosine similarity at the application layer
-        from xyz_agent_context.utils.embedding import cosine_similarity
+        from xyz_agent_context.agent_framework.llm_api.embedding import cosine_similarity
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+            use_embedding_store,
+            get_stored_embeddings_batch,
+        )
+
+        entity_ids = [row.get("entity_id") for row in results if row.get("entity_id")]
+        new_system = use_embedding_store()
+        store_vectors: dict = {}
+        if new_system:
+            store_vectors = await get_stored_embeddings_batch("entity", entity_ids)
 
         entities_with_scores = []
         for row in results:
             entity = self._row_to_entity(row)
-            if entity.embedding:
-                similarity = cosine_similarity(query_embedding, entity.embedding)
+            if new_system:
+                vector = store_vectors.get(entity.entity_id) if entity.entity_id else None
+            else:
+                vector = entity.embedding
+            if vector:
+                similarity = cosine_similarity(query_embedding, vector)
                 if similarity >= min_similarity:
                     entities_with_scores.append((entity, similarity))
 

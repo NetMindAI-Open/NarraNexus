@@ -203,7 +203,7 @@ export function SkillsPanel() {
 
   // Auto-detect skills being studied (resume polling after page load)
   const activeStudying = studyingSkillName
-    ?? skills.find((s) => s.study_status === 'studying')?.name
+    ?? skills.find((s: { study_status?: string }) => s.study_status === 'studying')?.name
     ?? null;
   useStudyStatus(activeStudying);
 
@@ -343,7 +343,7 @@ export function SkillsPanel() {
           </div>
         ) : (
           <div className="h-full overflow-y-auto space-y-2 py-2">
-            {skills.map((skill) => (
+            {skills.map((skill: SkillInfo) => (
               <SkillCard
                 key={skill.name}
                 skill={skill}

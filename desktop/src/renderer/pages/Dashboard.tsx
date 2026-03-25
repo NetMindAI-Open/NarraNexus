@@ -76,6 +76,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     await window.nexus.startDocker()
     await new Promise((r) => setTimeout(r, 3000))
     await window.nexus.startAllServices()
+    // Extra delay for infrastructure containers (MongoDB, ES, Milvus, Redis)
+    // to fully initialize and accept connections.
+    await new Promise((r) => setTimeout(r, 3000))
     setStarting(false)
     refreshStatus()
   }
@@ -84,6 +87,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     setStopping(true)
     await window.nexus.stopAllServices()
     await window.nexus.stopDocker()
+    // Brief delay for Docker containers to fully release ports,
+    // then refresh so health checks detect the stopped state.
+    await new Promise((r) => setTimeout(r, 2000))
     setStopping(false)
     refreshStatus()
   }
@@ -97,15 +103,22 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
     window.nexus.openExternal('http://localhost:8000')
   }
 
-  // Merge health check and process status to determine display status for each card
+  // Merge health check and process status to determine display status for each card.
+  // ProcessManager status takes priority: if it says stopped/crashed, show that
+  // regardless of port health (ports may linger briefly after process kill).
   const getCardStatus = (serviceId: string) => {
     const proc = services.find((s) => s.serviceId === serviceId)
     const svcHealth = health?.services.find((s) => s.serviceId === serviceId)
 
-    if (svcHealth?.state === 'healthy') return 'healthy'
-    if (proc?.status === 'running') return 'running'
-    if (proc?.status === 'starting') return 'starting'
+    // Process status is authoritative for stopped/crashed
+    if (proc?.status === 'stopped') return 'stopped'
     if (proc?.status === 'crashed') return 'crashed'
+    if (proc?.status === 'starting') return 'starting'
+    // Process running + port healthy = fully healthy
+    if (proc?.status === 'running' && svcHealth?.state === 'healthy') return 'healthy'
+    if (proc?.status === 'running') return 'running'
+    // Fallback: use health check for services not managed by ProcessManager
+    if (svcHealth?.state === 'healthy') return 'healthy'
     return 'stopped'
   }
 
@@ -146,8 +159,9 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
               <ServiceCard
                 key={infra.serviceId}
                 label={infra.label}
-                status={infra.state === 'healthy' ? 'healthy' : 'stopped'}
+                status={infra.state === 'healthy' ? 'healthy' : infra.state === 'unknown' ? 'unknown' : 'stopped'}
                 port={infra.port}
+                message={infra.state === 'unknown' ? 'Checking...' : infra.message}
               />
             ))}
           </div>

@@ -20,8 +20,10 @@ import type {
 } from '@/types';
 import { generateId } from '@/lib/utils';
 
-// Total AgentRuntime pipeline steps (only counting 6 major steps: 0, 1, 2, 3, 4, 5)
-const TOTAL_PIPELINE_STEPS = 6;
+// Total AgentRuntime pipeline steps: 0 (init), 1 (narrative), 2 (modules),
+// 3 (agent loop), 4 (persist), 5 (background hooks — completes instantly).
+// Steps 5-6 (hooks + callbacks) run in background and don't block the UI.
+const TOTAL_PIPELINE_STEPS = 5;
 
 /** Per-agent independent chat state */
 export interface AgentChatState {
@@ -402,6 +404,12 @@ export const useChatStore = create<ChatState>((_set, get) => {
         }
 
         case 'complete': {
+          get().stopStreaming(agentId);
+          break;
+        }
+
+        case 'cancelled': {
+          // User-initiated cancellation — stop streaming gracefully
           get().stopStreaming(agentId);
           break;
         }

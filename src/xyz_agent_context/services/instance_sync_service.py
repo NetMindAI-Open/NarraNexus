@@ -139,7 +139,7 @@ class InstanceSyncService:
         """
         from xyz_agent_context.repository import JobRepository
         from xyz_agent_context.schema.job_schema import JobType, TriggerConfig
-        from xyz_agent_context.utils.embedding import get_embedding, prepare_job_text_for_embedding
+        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding, prepare_job_text_for_embedding
 
         job_repo = JobRepository(self.db)
         created_job_ids = []
@@ -245,6 +245,9 @@ class InstanceSyncService:
                 job_config.payload
             )
             embedding = await get_embedding(embedding_text)
+            # Dual-write to embeddings_store
+            from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
+            await store_embedding("job", job_id, embedding, source_text=embedding_text)
 
             # Extract related_entity_id (Feature 2.2, changed to single value)
             related_entity_id = getattr(job_config, 'related_entity_id', None)

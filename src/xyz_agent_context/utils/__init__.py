@@ -21,8 +21,8 @@ from xyz_agent_context.utils.dataloader import DataLoader
 # DatabaseClient is a short alias for AsyncDatabaseClient
 DatabaseClient = AsyncDatabaseClient
 
-# Embedding utilities
-from xyz_agent_context.utils.embedding import (
+# Embedding utilities (moved to agent_framework/llm_api/)
+from xyz_agent_context.agent_framework.llm_api.embedding import (
     EmbeddingClient,
     get_embedding,
     prepare_job_text_for_embedding,

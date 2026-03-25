@@ -60,12 +60,33 @@ An agent in isolation is a tool. An agent with persistent memory, social identit
 | [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Download from official site and launch |
 | [Node.js](https://nodejs.org/) (v20) | Install via [nvm](https://github.com/nvm-sh/nvm) (recommended): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
 
-**API Keys**:
+### LLM Provider Configuration
+
+NarraNexus uses a **three-slot** architecture for LLM access. Each slot serves a different purpose and requires a specific API protocol:
+
+| Slot | Protocol | Purpose | Why it's needed |
+|------|----------|---------|-----------------|
+| **Agent** | Anthropic | Core dialogue — the main Agent reasoning loop | Powers the Agent's thinking, tool use, and multi-turn conversations via Claude Code CLI |
+| **Embedding** | OpenAI | Vector embedding generation | Converts text to vectors for Narrative topic matching and Social Network semantic search |
+| **Helper LLM** | OpenAI | Auxiliary LLM calls | Handles lightweight tasks: entity extraction, narrative summarization, module decisions — cheaper and faster than the Agent model |
+
+You can configure providers in several ways:
+
+| Option | What you need | Result |
+|--------|--------------|--------|
+| **[NetMind.AI Power](https://www.netmind.ai/)** | One API key | Covers all 3 slots (Anthropic + OpenAI protocol endpoints). Quickest setup, limited model selection. |
+| **Claude Code Login + OpenAI** | Claude Code CLI login + OpenAI API key | Agent slot via OAuth (free tier available), Embedding + Helper via OpenAI |
+| **Anthropic + OpenAI** | Anthropic API key + OpenAI API key | Full control over both providers |
+| **Custom endpoints** | Any Anthropic/OpenAI compatible URL | For proxies, self-hosted models, or alternative providers |
+
+> **Note on Embedding**: Currently only **OpenAI official API** and **NetMind.AI Power** are supported for embedding. More providers will be added in the future.
+
+Configuration is done through the setup wizard (desktop app) or the LLM Providers panel (web UI, click the CPU icon in the header). The config is stored at `~/.nexusagent/llm_config.json`.
+
+**Other API Keys**:
 
 | Dependency | Required | How to get |
 |------------|----------|------------|
-| **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** | **Yes** | Install and authenticate Claude Code CLI (`npm install -g @anthropic-ai/claude-code`) -- used as the core Agent runtime |
-| **OpenAI API Key** | **Yes** | Get from [platform.openai.com](https://platform.openai.com/api-keys) -- used for embeddings and as an alternative LLM |
 | **Google Gemini API Key** | Optional | Get from [aistudio.google.com](https://aistudio.google.com/apikey) -- enables RAG Knowledge Base (Gemini File Search) |
 | **EverMemOS LLM API Key** | Optional | For long-term memory (boundary detection & episode extraction). Default config uses [OpenRouter](https://openrouter.ai/). **If not configured**: memory extraction is disabled; Agent still works but without long-term memory. |
 | **EverMemOS Embedding/Rerank API Key** | Optional | For semantic search & reranking over memories. Default config uses [DeepInfra](https://deepinfra.com/). **If not configured**: defaults to local vLLM mode -- requires self-hosted GPU inference to function. |
@@ -78,7 +99,7 @@ cd NarraNexus
 bash run.sh
 ```
 
-The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, `.env` configuration. Just follow the prompts.
+The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles everything -- Python, Docker, Node.js, MySQL, dependencies, `.env` configuration, and LLM provider setup. Just follow the prompts.
 
 After install, select **Run** to start all services, then open `http://localhost:5173`.
 

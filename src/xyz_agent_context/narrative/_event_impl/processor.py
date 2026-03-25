@@ -19,7 +19,7 @@ from ..models import Event, EventLogEntry
 from .crud import EventCRUD
 
 # Use common utilities from utils
-from xyz_agent_context.utils.embedding import get_embedding, cosine_similarity
+from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding, cosine_similarity
 
 if TYPE_CHECKING:
     from xyz_agent_context.schema.module_schema import ModuleInstance
@@ -87,6 +87,9 @@ class EventProcessor:
                     if embedding:
                         update_data["event_embedding"] = json.dumps(embedding)
                         update_data["embedding_text"] = embedding_text
+                        # Dual-write to embeddings_store
+                        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
+                        await store_embedding("event", event_id, embedding, source_text=embedding_text)
 
         if event_log is not None:
             update_data["event_log"] = json.dumps([log.model_dump(mode='json') for log in event_log])
@@ -194,10 +197,24 @@ class EventProcessor:
         # Select Top-K based on relevance
         relevant_event_ids = []
         if query_embedding and len(narrative_event_ids) > max_recent:
+            from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+                use_embedding_store,
+                get_stored_embeddings_batch,
+            )
+            all_event_ids = list(events_by_id.keys())
+            new_system = use_embedding_store()
+            store_vectors: dict = {}
+            if new_system:
+                store_vectors = await get_stored_embeddings_batch("event", all_event_ids)
+
             event_scores = []
             for event_id, event in events_by_id.items():
-                if event.event_embedding:
-                    score = cosine_similarity(query_embedding, event.event_embedding)
+                if new_system:
+                    vector = store_vectors.get(event_id)
+                else:
+                    vector = event.event_embedding
+                if vector:
+                    score = cosine_similarity(query_embedding, vector)
                     if score >= min_relevance_score:
                         event_scores.append((event_id, score))
 

@@ -35,7 +35,7 @@ from .vector_store import VectorStore
 from .prompts import NARRATIVE_UPDATE_INSTRUCTIONS
 
 # Use common utilities from utils
-from xyz_agent_context.utils.embedding import get_embedding
+from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 from xyz_agent_context.utils.text import truncate_text
 
 if TYPE_CHECKING:
@@ -428,8 +428,12 @@ class NarrativeUpdater:
             if existing:
                 await self._vector_store.update(narrative.id, new_embedding)
 
-        # Save
+        # Save to legacy table
         await self._crud.save(narrative)
+
+        # Dual-write to embeddings_store
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
+        await store_embedding("narrative", narrative.id, new_embedding, source_text=new_hint)
 
         logger.info(f"Narrative {narrative.id} embedding update completed")
         return True

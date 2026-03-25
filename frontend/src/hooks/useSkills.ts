@@ -8,6 +8,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores';
+import type { SkillListResponse, SkillInfo } from '@/types';
 
 const SKILLS_KEY = 'skills';
 
@@ -25,7 +26,7 @@ export function useSkillsList(showDisabled: boolean) {
     queryKey,
     queryFn: () => api.listSkills(agentId!, userId!, showDisabled),
     enabled: !!agentId && !!userId,
-    select: (data) => data.skills,
+    select: (data: SkillListResponse): SkillInfo[] => data.skills,
   });
 }
 
@@ -107,7 +108,7 @@ export function useStudyStatus(skillName: string | null) {
       return status;
     },
     enabled: !!skillName && !!agentId && !!userId,
-    refetchInterval: (query) => {
+    refetchInterval: (query: { state: { data?: { study_status?: string } } }) => {
       const status = query.state.data?.study_status;
       if (status === 'completed' || status === 'failed') return false;
       return 3000; // Poll every 3s while studying

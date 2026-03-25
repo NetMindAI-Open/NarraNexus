@@ -53,7 +53,7 @@ async def _extract_requirements_via_llm(
     a specific output format. A small model reads the SKILL.md and returns structured JSON.
     """
     from openai import AsyncOpenAI
-    from xyz_agent_context.settings import settings
+    from xyz_agent_context.agent_framework.api_config import openai_config
 
     skill_md_path = Path(skill_path) / "SKILL.md"
     if not skill_md_path.exists():
@@ -64,8 +64,7 @@ async def _extract_requirements_via_llm(
     except Exception:
         return
 
-    api_key = settings.openai_api_key
-    if not api_key:
+    if not openai_config.api_key:
         logger.warning("No OPENAI_API_KEY configured, skipping LLM requirements extraction")
         return
 
@@ -84,7 +83,10 @@ async def _extract_requirements_via_llm(
     )
 
     try:
-        client = AsyncOpenAI(api_key=api_key)
+        client_kwargs: dict = {"api_key": openai_config.api_key}
+        if openai_config.base_url:
+            client_kwargs["base_url"] = openai_config.base_url
+        client = AsyncOpenAI(**client_kwargs)
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             max_tokens=256,

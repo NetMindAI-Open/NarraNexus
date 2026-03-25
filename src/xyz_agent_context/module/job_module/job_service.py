@@ -107,7 +107,7 @@ class JobInstanceService:
         from xyz_agent_context.schema.job_schema import JobType, TriggerConfig, JobStatus
         from xyz_agent_context.repository import JobRepository, InstanceRepository, NarrativeRepository
         from xyz_agent_context.repository.job_repository import calculate_next_run_time
-        from xyz_agent_context.utils.embedding import get_embedding, prepare_job_text_for_embedding
+        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding, prepare_job_text_for_embedding
         from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
         from xyz_agent_context.narrative.models import NarrativeActorType, NarrativeActor
 
@@ -214,6 +214,9 @@ class JobInstanceService:
             # 6. Generate embedding vector
             embedding_text = prepare_job_text_for_embedding(title, description, payload)
             embedding = await get_embedding(embedding_text)
+            # Dual-write to embeddings_store
+            from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
+            await store_embedding("job", job_id, embedding, source_text=embedding_text)
 
             # 7. Determine initial status
             initial_status = InstanceStatus.ACTIVE

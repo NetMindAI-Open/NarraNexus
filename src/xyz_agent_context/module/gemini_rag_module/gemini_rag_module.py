@@ -372,11 +372,11 @@ note: Your query should combine the user's question with the existing keywords a
             ValueError: If GOOGLE_API_KEY environment variable is not set
         """
         from google import genai
+        from xyz_agent_context.agent_framework.api_config import gemini_config
 
-        from xyz_agent_context.settings import settings
-        if not settings.google_api_key:
+        if not gemini_config.api_key:
             raise ValueError("Environment variable GOOGLE_API_KEY is not set")
-        return genai.Client(api_key=settings.google_api_key)
+        return genai.Client(api_key=gemini_config.api_key)
 
     @staticmethod
     def _get_or_create_store(agent_id: str):

@@ -16,6 +16,7 @@ import AsciiBanner from '../components/AsciiBanner'
 import PreflightView from '../components/setup/PreflightView'
 import GuidedInstallView from '../components/setup/GuidedInstallView'
 import ServiceLaunchView from '../components/setup/ServiceLaunchView'
+import ProviderConfigView from '../components/setup/ProviderConfigView'
 
 interface SetupWizardProps {
   onComplete: () => void
@@ -73,7 +74,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const [emFields, setEmFields] = useState<EverMemOSEnvField[]>([])
   const [emValues, setEmValues] = useState<Record<string, string>>({})
   const [emAdvancedOpen, setEmAdvancedOpen] = useState(false)
-  const [emMode, setEmMode] = useState<'netmind' | 'custom'>('netmind')
+  const [emMode, setEmMode] = useState<'skip' | 'netmind' | 'custom'>('netmind')
   const [everMemOSInstalled, setEverMemOSInstalled] = useState(false)
 
   // Claude Code authentication state
@@ -88,6 +89,9 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
 
   // Install state
   const [missingIds, setMissingIds] = useState<string[]>([])
+
+  // Provider config ready (all 3 slots configured)
+  const [providerReady, setProviderReady] = useState(false)
 
   // Config finishing state
   const [finishing, setFinishing] = useState(false)
@@ -124,12 +128,14 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   // Compute derived state
   const PLACEHOLDER_VALUES = ['sk-or-v1-xxxx', 'xxxxx']
 
-  const emConfigured = emMode === 'netmind'
-    ? !!values['NETMIND_API_KEY']?.trim()
-    : emFields.filter((f) => f.required).every((f) => {
-        const v = emValues[f.key]?.trim()
-        return v && !PLACEHOLDER_VALUES.includes(v)
-      })
+  const emConfigured = emMode === 'skip'
+    ? false
+    : emMode === 'netmind'
+      ? !!values['NETMIND_API_KEY']?.trim()
+      : emFields.filter((f) => f.required).every((f) => {
+          const v = emValues[f.key]?.trim()
+          return v && !PLACEHOLDER_VALUES.includes(v)
+        })
 
   // Docker gets ~50% of system RAM (same formula as Colima allocation, capped 2-12GB)
   const dockerMemoryGb = preflightResult
@@ -309,185 +315,18 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
         {/* ─── Phase: Config ─────────────────────────── */}
         {phase === 'config' && (
           <>
-            {/* API Keys */}
-            <div className="space-y-3">
-              {apiFields.map((field) => (
-                <div key={field.key}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {field.label}
-                    {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="password"
-                      value={values[field.key] || ''}
-                      onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder}
-                      className="titlebar-no-drag flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    />
-                    {KEY_LINKS[field.key] && (
-                      <button
-                        onClick={() => window.nexus.openExternal(KEY_LINKS[field.key].url)}
-                        className="titlebar-no-drag px-3 py-2 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 whitespace-nowrap transition-colors"
-                      >
-                        {KEY_LINKS[field.key].label}
-                      </button>
-                    )}
-                  </div>
-                  {(field.key === 'ANTHROPIC_API_KEY' || field.key === 'ANTHROPIC_BASE_URL') && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      If you have already logged in via Claude Code CLI locally, you can leave this empty.
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Claude Code authentication panel */}
-            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <p className="text-sm font-medium text-gray-700 mb-3">Claude Code Authentication</p>
-
-              {claudeAuth?.cliInstalled && (
-                <div className="flex flex-wrap gap-x-6 gap-y-1 mb-3 text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
-                    CLI: {claudeAuth.cliVersion || 'installed'}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${
-                      claudeAuth.authStatus.state === 'logged_in' ? 'bg-green-500' :
-                      claudeAuth.authStatus.state === 'expired' ? 'bg-yellow-500' :
-                      'bg-gray-400'
-                    }`} />
-                    {claudeAuth.authStatus.state === 'logged_in' && (
-                      <>Logged in{claudeAuth.authStatus.expiresAt
-                        ? ` (expires: ${new Date(claudeAuth.authStatus.expiresAt).toLocaleDateString()})`
-                        : ''
-                      }</>
-                    )}
-                    {claudeAuth.authStatus.state === 'expired' && 'Login expired'}
-                    {claudeAuth.authStatus.state === 'not_logged_in' && 'Not logged in'}
-                  </span>
-                  {claudeAuth.hasApiKey && (
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
-                      API Key configured
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {/* OAuth login — only show when CLI is installed */}
-              {claudeAuth?.cliInstalled && (
-                <div className="mb-3">
-                  <p className="text-xs text-gray-500 mb-2">
-                    Option 1 (Recommended): Click below to open browser and authorize with your Anthropic account.
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setLoginStatus({ state: 'running', message: 'Opening browser...' })
-                        window.nexus.startClaudeLogin()
-                      }}
-                      disabled={loginStatus.state === 'running'}
-                      className="titlebar-no-drag px-4 py-1.5 text-xs font-medium text-white bg-indigo-500 rounded-lg hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {loginStatus.state === 'running' ? 'Waiting for browser...' :
-                       claudeAuth?.authStatus.state === 'logged_in' ? 'Re-login' :
-                       'Login with Claude Code'}
-                    </button>
-                    {loginStatus.state === 'running' && (
-                      <>
-                        <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                        <button
-                          onClick={() => window.nexus.cancelClaudeLogin()}
-                          className="titlebar-no-drag text-xs text-gray-500 hover:text-gray-700 underline"
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    )}
-                    {loginStatus.state === 'success' && (
-                      <span className="text-xs text-green-600 font-medium">Login successful!</span>
-                    )}
-                    {(loginStatus.state === 'failed' || loginStatus.state === 'timeout') && (
-                      <span className="text-xs text-red-500">{loginStatus.message}</span>
-                    )}
-                  </div>
-                  {loginStatus.state === 'running' && (
-                    <div className="mt-2">
-                      {loginStatus.message && (
-                        <p className="text-xs text-gray-500 mb-1.5">{loginStatus.message}</p>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          placeholder="Paste the auth code from browser here"
-                          className="titlebar-no-drag flex-1 px-3 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const value = (e.target as HTMLInputElement).value.trim()
-                              if (value) {
-                                window.nexus.sendClaudeLoginInput(value)
-                                ;(e.target as HTMLInputElement).value = ''
-                              }
-                            }
-                          }}
-                        />
-                        <span className="text-[10px] text-gray-400 shrink-0">Press Enter to submit</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {!claudeAuth?.cliInstalled && (
-                <p className="text-xs text-gray-400 mb-3">
-                  OAuth login will be available after Claude Code is installed during setup. You can use Option 1/2 below for now.
-                </p>
-              )}
-
-              {/* Paste Setup Token */}
-              <div className="mb-2">
-                <p className="text-xs text-gray-500 mb-1.5">
-                  Option {claudeAuth?.cliInstalled ? '2' : '1'}: Run <code className="px-1 py-0.5 bg-gray-200 rounded text-[11px]">claude setup-token</code> on
-                  another machine and paste the token below.
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={setupToken}
-                    onChange={(e) => { setSetupToken(e.target.value); setTokenResult(null) }}
-                    placeholder="sk-ant-oat01-..."
-                    className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                  />
-                  <button
-                    onClick={async () => {
-                      const result = await window.nexus.saveSetupToken(setupToken)
-                      setTokenResult(result)
-                      if (result.valid) {
-                        window.nexus.getClaudeAuthInfo().then(setClaudeAuth)
-                        setValues((v) => ({ ...v, ANTHROPIC_API_KEY: setupToken.trim() }))
-                        setSetupToken('')
-                      }
-                    }}
-                    disabled={!setupToken.trim()}
-                    className="titlebar-no-drag px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Save
-                  </button>
-                </div>
-                {tokenResult && (
-                  <p className={`text-xs mt-1 ${tokenResult.valid ? 'text-green-600' : 'text-red-500'}`}>
-                    {tokenResult.valid ? 'Token saved!' : tokenResult.message}
-                  </p>
-                )}
-              </div>
-
-              <p className="text-xs text-gray-400">
-                Option {claudeAuth?.cliInstalled ? '3' : '2'}: Fill in the Anthropic API Key field above directly.
-              </p>
-            </div>
+            {/* LLM Provider Configuration */}
+            <ProviderConfigView
+              onReady={() => setProviderReady(true)}
+              claudeAuth={claudeAuth}
+              loginStatus={loginStatus}
+              onStartClaudeLogin={() => {
+                setLoginStatus({ state: 'running', message: 'Opening browser...' })
+                window.nexus.startClaudeLogin()
+              }}
+              onCancelClaudeLogin={() => window.nexus.cancelClaudeLogin()}
+              onSendClaudeLoginInput={(input) => window.nexus.sendClaudeLoginInput(input)}
+            />
 
             {/* Divider */}
             <div className="my-5 border-t border-gray-200" />
@@ -538,6 +377,16 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                       <input
                         type="radio"
                         name="emMode"
+                        checked={emMode === 'skip'}
+                        onChange={() => setEmMode('skip')}
+                        className="accent-blue-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Skip</span>
+                    </label>
+                    <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="emMode"
                         checked={emMode === 'netmind'}
                         onChange={() => setEmMode('netmind')}
                         className="accent-blue-500"
@@ -555,6 +404,15 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                       <span className="text-sm font-medium text-gray-700">Custom Configuration</span>
                     </label>
                   </div>
+
+                  {emMode === 'skip' && (
+                    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-xs text-gray-600">
+                        EverMemOS will not be started. The core Agent will still work without long-term memory features.
+                        You can configure this later in settings.
+                      </p>
+                    </div>
+                  )}
 
                   {emMode === 'netmind' && (
                     <>
@@ -675,22 +533,42 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
               </>
             )}
 
-            {/* Claude Code notice */}
-            <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
-              <p className="text-xs text-amber-700">
-                <strong>Note:</strong> Claude Code (if installed) uses its own global API key config.
-                Run <code className="px-1 py-0.5 bg-amber-100 rounded text-[11px]">claude config</code> in terminal to set it separately.
+            {/* Google Gemini API Key (for RAG) */}
+            <div className="my-5 border-t border-gray-200" />
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 mb-1">
+                Gemini RAG Knowledge Base
+              </h2>
+              <p className="text-[11px] text-gray-400 mb-3">
+                Optional. Enables the RAG (Retrieval-Augmented Generation) module powered by
+                Gemini File Search. Without this key, the RAG knowledge base feature is unavailable
+                but all other Agent capabilities work normally.
               </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={values['GOOGLE_API_KEY'] || ''}
+                  onChange={(e) => setValues((v) => ({ ...v, GOOGLE_API_KEY: e.target.value }))}
+                  placeholder="Google Gemini API Key"
+                  className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+                <button
+                  onClick={() => window.nexus.openExternal('https://aistudio.google.com/apikey')}
+                  className="titlebar-no-drag px-3 py-1.5 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 whitespace-nowrap border border-blue-200"
+                >
+                  Get Key
+                </button>
+              </div>
             </div>
 
             {/* Finish button */}
             <div className="mt-6">
               <button
                 onClick={handleConfigComplete}
-                disabled={finishing}
+                disabled={finishing || !providerReady}
                 className="titlebar-no-drag w-full py-2.5 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {finishing ? 'Finishing...' : 'Finish Setup'}
+                {finishing ? 'Finishing...' : !providerReady ? 'Configure LLM Providers First' : 'Finish Setup'}
               </button>
               {everMemOSInstalled && emConfigured && !lowMemory && (
                 <p className="text-xs text-green-600 mt-1.5 text-center">

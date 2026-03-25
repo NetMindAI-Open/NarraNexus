@@ -34,7 +34,7 @@ Features:
     4. Async interface for non-blocking operations
 
 Usage:
-    from xyz_agent_context.utils.embedding import (
+    from xyz_agent_context.agent_framework.llm_api.embedding import (
         get_embedding,
         EmbeddingClient,
     )
@@ -61,7 +61,7 @@ from loguru import logger
 # Retry utility for API calls
 from xyz_agent_context.utils.retry import with_retry
 
-from xyz_agent_context.settings import settings
+from xyz_agent_context.agent_framework.api_config import embedding_config
 
 # Try to import OpenAI
 try:
@@ -138,12 +138,15 @@ class EmbeddingClient:
                 "Install with: pip install openai"
             )
 
-        self.model = model or settings.openai_embedding_model
+        self.model = model or embedding_config.model
         self.dimensions = MODEL_DIMENSIONS.get(self.model, 1536)
         self.enable_cache = enable_cache
 
-        # Initialize OpenAI client
-        self._client = AsyncOpenAI(api_key=api_key or settings.openai_api_key)
+        # Initialize OpenAI client; only pass base_url when configured
+        client_kwargs: dict = {"api_key": api_key or embedding_config.api_key}
+        if embedding_config.base_url:
+            client_kwargs["base_url"] = embedding_config.base_url
+        self._client = AsyncOpenAI(**client_kwargs)
 
         # In-memory cache: hash(text) -> embedding
         self._cache: Dict[str, List[float]] = {}
@@ -212,10 +215,10 @@ class EmbeddingClient:
         This is an internal method that handles the actual API call
         with automatic retry for transient failures.
         """
-        response = await self._client.embeddings.create(
-            model=self.model,
-            input=text,
-        )
+        create_kwargs: dict = {"model": self.model, "input": text}
+        # Don't pass dimensions — let each model use its native output size.
+        # Passing catalog dimensions across model switches causes 400 errors.
+        response = await self._client.embeddings.create(**create_kwargs)
         # Record embedding cost if tracking context is set
         await self._try_record_cost(getattr(response, "usage", None))
         return response.data[0].embedding
@@ -348,10 +351,9 @@ class EmbeddingClient:
         This is an internal method that handles the actual API call
         with automatic retry for transient failures.
         """
-        response = await self._client.embeddings.create(
-            model=self.model,
-            input=texts,
-        )
+        create_kwargs: dict = {"model": self.model, "input": texts}
+        # Don't pass dimensions — let each model use its native output size.
+        response = await self._client.embeddings.create(**create_kwargs)
         await self._try_record_cost(getattr(response, "usage", None))
         return response
 
@@ -379,6 +381,12 @@ def _get_global_client() -> EmbeddingClient:
     if _global_client is None:
         _global_client = EmbeddingClient()
     return _global_client
+
+
+def reset_global_client() -> None:
+    """Reset the global embedding client so the next call picks up new config."""
+    global _global_client
+    _global_client = None
 
 
 # =============================================================================

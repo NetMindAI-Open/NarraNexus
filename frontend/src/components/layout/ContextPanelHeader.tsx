@@ -11,9 +11,13 @@
  * - Jobs: Task management
  */
 
-import { Activity, Settings, Inbox, ListTodo, Puzzle } from 'lucide-react';
+import { Activity, Settings, Inbox, ListTodo, Puzzle, Cpu } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { Button } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
+import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
 
@@ -91,6 +95,23 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
 
       {/* Utility buttons */}
       <div className="flex items-center gap-1">
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon" title="LLM Providers">
+              <Cpu className="w-5 h-5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            sideOffset={8}
+            className="w-[340px] max-h-[70vh] overflow-y-auto p-3 bg-[var(--bg-primary)] border border-[var(--border-default)] rounded-xl shadow-lg"
+          >
+            <ProviderSettings />
+            <div className="mt-3">
+              <EmbeddingStatus />
+            </div>
+          </PopoverContent>
+        </Popover>
         <CostPopover />
       </div>
     </div>

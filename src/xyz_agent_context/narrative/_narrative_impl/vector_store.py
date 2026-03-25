@@ -55,7 +55,8 @@ class VectorStore:
         """
         Load embedding vectors from database into memory
 
-        Uses NarrativeRepository to fetch data, following the Repository pattern.
+        Prefers embeddings_store (multi-model) over legacy routing_embedding column.
+        Falls back to the legacy column if embeddings_store has no data.
 
         Args:
             db_client: Database client
@@ -69,8 +70,12 @@ class VectorStore:
         if filter_key in self._loaded_filters:
             return 0
 
-        # Use NarrativeRepository to get Narratives with embeddings
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+            use_embedding_store,
+            get_stored_embeddings_batch,
+        )
         from xyz_agent_context.repository import NarrativeRepository
+
         narrative_repo = NarrativeRepository(db_client)
         narratives = await narrative_repo.get_with_embedding(
             agent_id=agent_id,
@@ -78,10 +83,29 @@ class VectorStore:
             limit=1000
         )
 
+        if not narratives:
+            self._loaded_filters.add(filter_key)
+            return 0
+
+        narrative_ids = [n.id for n in narratives if n.id]
+        new_system = use_embedding_store()
+
+        # New system: only use embeddings_store (model-aware, no cross-model mixing)
+        # Legacy: only use old routing_embedding column
+        store_vectors: dict = {}
+        if new_system:
+            store_vectors = await get_stored_embeddings_batch("narrative", narrative_ids)
+
         loaded_count = 0
         for narrative in narratives:
-            if narrative.id and narrative.routing_embedding:
-                self._embeddings[narrative.id] = narrative.routing_embedding
+            if not narrative.id:
+                continue
+            if new_system:
+                vector = store_vectors.get(narrative.id)
+            else:
+                vector = narrative.routing_embedding
+            if vector:
+                self._embeddings[narrative.id] = vector
                 self._metadata[narrative.id] = {
                     "agent_id": agent_id,
                     "user_id": user_id or "",
@@ -89,7 +113,7 @@ class VectorStore:
                 loaded_count += 1
 
         self._loaded_filters.add(filter_key)
-        logger.info(f"Loaded {loaded_count} Narrative embeddings from DB")
+        logger.info(f"Loaded {loaded_count} Narrative embeddings ({'embeddings_store' if new_system else 'legacy'})")
         return loaded_count
 
     async def add(
