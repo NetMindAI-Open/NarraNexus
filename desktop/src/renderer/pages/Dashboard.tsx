@@ -13,12 +13,13 @@ import UpdateBanner from '../components/UpdateBanner'
 
 interface DashboardProps {
   onOpenSettings: () => void
+  onOpenLLMConfig: () => void
 }
 
 /** Fixed log tab prefix (All is always first) */
 const LOG_TAB_ALL = { id: null as string | null, label: 'All' }
 
-const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
+const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings, onOpenLLMConfig }) => {
   const [services, setServices] = useState<ProcessInfo[]>([])
   const [health, setHealth] = useState<OverallHealth | null>(null)
   const [starting, setStarting] = useState(false)
@@ -231,9 +232,17 @@ const Dashboard: React.FC<DashboardProps> = ({ onOpenSettings }) => {
           )}
 
           <button
+            onClick={onOpenLLMConfig}
+            className="titlebar-no-drag px-3 py-2 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+            title="Configure LLM providers and models"
+          >
+            Configure LLM
+          </button>
+
+          <button
             onClick={onOpenSettings}
             className="titlebar-no-drag p-2.5 text-gray-400 hover:text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
-            title="Settings"
+            title="Full Setup"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path

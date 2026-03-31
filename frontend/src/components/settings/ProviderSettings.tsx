@@ -1,13 +1,24 @@
 /**
  * @file ProviderSettings.tsx
- * @description LLM Provider configuration for the web frontend (settings panel)
+ * @description LLM Provider configuration for the web frontend Settings modal
  *
- * Two-layer architecture (same as desktop ProviderConfigView):
- *   Layer 1 — Provider Atomic Cards: add/remove providers
- *   Layer 2 — Slot Model Selection: all 3 slots shown simultaneously
+ * Layout (always expanded, no collapsed state):
  *
- * Slot changes are accumulated locally and submitted together via Apply button,
- * so users can adjust multiple slots without the panel collapsing.
+ *   ┌─────────────────────────────────────────┐
+ *   │  SECTION 1: Add Providers               │
+ *   │  ┌ Quick Add (preset selector + key) ─┐ │
+ *   │  │ Claude Code Login card              │ │
+ *   │  │ + Anthropic / + OpenAI buttons      │ │
+ *   │  │ Configured Providers list           │ │
+ *   │  └────────────────────────────────────-┘ │
+ *   ├─────────────────────────────────────────┤
+ *   │  SECTION 2: Model Assignment            │
+ *   │  ┌ Agent slot ────────────────────────┐ │
+ *   │  │ Embedding slot                     │ │
+ *   │  │ Helper LLM slot                   │ │
+ *   │  │ Apply / Discard                    │ │
+ *   │  └───────────────────────────────────-┘ │
+ *   └─────────────────────────────────────────┘
  *
  * Uses the bioluminescent terminal design system CSS variables.
  */
@@ -57,26 +68,41 @@ interface EmbeddingModelInfo {
 }
 
 // =============================================================================
+// Preset providers (web-side copy — must match backend card_type support)
+// =============================================================================
+
+interface WebPresetProvider {
+  id: string       // card_type sent to backend
+  name: string
+  description: string
+  get_key_url: string
+}
+
+const PRESET_PROVIDERS: WebPresetProvider[] = [
+  { id: 'netmind',    name: 'NetMind.AI Power', description: 'One key covers both Anthropic & OpenAI endpoints', get_key_url: 'https://www.netmind.ai/user/dashboard' },
+  { id: 'yunwu',      name: 'Yunwu',            description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://yunwu.ai' },
+  { id: 'openrouter', name: 'OpenRouter',       description: 'Proxies official Claude & OpenAI APIs',           get_key_url: 'https://openrouter.ai/keys' },
+]
+
+// =============================================================================
 // Agent Framework definitions
 // =============================================================================
 
 interface AgentFramework {
   id: string
   label: string
-  protocol: string   // The LLM protocol this framework requires
+  protocol: string
   desc: string
 }
 
 const AGENT_FRAMEWORKS: AgentFramework[] = [
   { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
-  // Future:
-  // { id: 'openai_agents', label: 'OpenAI Agents SDK', protocol: 'openai', desc: 'OpenAI Agents SDK' },
 ]
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
-  { key: 'agent', label: 'Agent', desc: 'Main dialogue', protocol: 'anthropic' },
-  { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI protocol)', protocol: 'openai' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI protocol)', protocol: 'openai' },
+  { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
+  { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI)', protocol: 'openai' },
+  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI)', protocol: 'openai' },
 ]
 
 // =============================================================================
@@ -97,22 +123,40 @@ function ModelBubbleInput({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {models.map((m) => (
-        <span key={m} className="inline-flex items-center gap-0.5 px-2 py-0.5 text-xs rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
+        <span key={m} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 whitespace-nowrap">
           {m}
           <button onClick={() => onChange(models.filter((x) => x !== m))} className="text-[var(--accent-primary)]/50 hover:text-[var(--accent-primary)]">&times;</button>
         </span>
       ))}
-      <span className="inline-flex items-center gap-0.5">
+      <span className="inline-flex items-center gap-1">
         <input type="text" value={input} onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel() } }}
           placeholder={placeholder}
-          style={{ width: Math.max(80, (input.length + 1) * 7) }}
-          className="px-2 py-0.5 text-xs rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+          style={{ width: Math.max(100, (input.length + 1) * 8) }}
+          className="px-2.5 py-1 text-sm rounded-full border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
         <button onClick={addModel} disabled={!input.trim()}
-          className="px-1.5 py-0.5 text-xs rounded-full border border-[var(--accent-primary)]/20 text-[var(--accent-primary)] bg-[var(--accent-primary)]/5 hover:bg-[var(--accent-primary)]/10 disabled:opacity-30">
+          className="px-2 py-1 text-sm rounded-full border border-[var(--accent-primary)]/20 text-[var(--accent-primary)] bg-[var(--accent-primary)]/5 hover:bg-[var(--accent-primary)]/10 disabled:opacity-30">
           +
         </button>
       </span>
+    </div>
+  )
+}
+
+// =============================================================================
+// Section Header
+// =============================================================================
+
+function SectionHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
+  return (
+    <div className="mb-4">
+      <div className="flex items-center gap-2.5 mb-1">
+        <span className="w-6 h-6 rounded-full bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] text-sm font-semibold flex items-center justify-center">
+          {step}
+        </span>
+        <h3 className="text-base font-semibold text-[var(--text-primary)]">{title}</h3>
+      </div>
+      <p className="text-sm text-[var(--text-tertiary)] ml-[34px]">{subtitle}</p>
     </div>
   )
 }
@@ -128,12 +172,12 @@ export function ProviderSettings() {
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelInfo[]>([])
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
-  const [collapsed, setCollapsed] = useState(true)
   const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; expires_at: string | null } | null>(null)
 
-  // NetMind card
-  const [netmindKey, setNetmindKey] = useState('')
-  const [netmindAdding, setNetmindAdding] = useState(false)
+  // Quick Add (preset provider)
+  const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PROVIDERS[0].id)
+  const [presetKey, setPresetKey] = useState('')
+  const [presetAdding, setPresetAdding] = useState(false)
 
   // Protocol form
   const [showForm, setShowForm] = useState<'anthropic' | 'openai' | null>(null)
@@ -167,7 +211,6 @@ export function ProviderSettings() {
       if (cfgRes.success) {
         setProviders(cfgRes.data.providers)
         setSlots(cfgRes.data.slots)
-        // Clear pending slots since we just loaded fresh state
         setPendingSlots({})
       }
       if (catRes.success) {
@@ -182,8 +225,10 @@ export function ProviderSettings() {
 
   const providerList = Object.values(providers)
   const hasProviders = providerList.length > 0
-  const hasNetMind = providerList.some((p) => p.source === 'netmind')
   const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
+
+  // Check which preset providers are already added
+  const addedPresets = new Set(providerList.map((p) => p.source))
 
   // Compute effective config per slot: pending overrides server state
   const getEffectiveSlotConfig = (slotKey: string): SlotConfig | null => {
@@ -212,17 +257,16 @@ export function ProviderSettings() {
     } catch { setError('Network error'); return false }
   }
 
-  const handleAddNetMind = async () => {
-    if (!netmindKey.trim()) { setError('Enter NetMind API Key'); return }
-    setNetmindAdding(true)
-    const ok = await addProvider({ card_type: 'netmind', api_key: netmindKey.trim() })
-    if (ok) { setNetmindKey(''); setCollapsed(false) }
-    setNetmindAdding(false)
+  const handleQuickAdd = async () => {
+    if (!presetKey.trim()) { setError('Please enter your API key'); return }
+    setPresetAdding(true)
+    const ok = await addProvider({ card_type: selectedPreset, api_key: presetKey.trim() })
+    if (ok) setPresetKey('')
+    setPresetAdding(false)
   }
 
   const handleAddClaudeOAuth = async () => {
     await addProvider({ card_type: 'claude_oauth' })
-    setCollapsed(false)
   }
 
   const handleAddProtocol = async () => {
@@ -238,14 +282,12 @@ export function ProviderSettings() {
     })
     if (ok) {
       setShowForm(null); setFormName(''); setFormUrl(''); setFormKey(''); setFormAuth('api_key'); setFormModels([])
-      setCollapsed(false)
     }
     setFormAdding(false)
   }
 
   const handleDelete = async (id: string) => {
     await fetch(`${API_BASE}/api/providers/${id}`, { method: 'DELETE' })
-    // Clear any pending slots that reference the deleted provider
     setPendingSlots((prev) => {
       const next = { ...prev }
       for (const [k, v] of Object.entries(next)) {
@@ -267,7 +309,7 @@ export function ProviderSettings() {
     setTesting(null)
   }
 
-  // Local slot change — just update pending state, no API call
+  // Local slot change
   const handleLocalSlotChange = (slot: string, pid: string, model: string) => {
     setPendingSlots((prev) => ({ ...prev, [slot]: { provider_id: pid, model } }))
   }
@@ -277,8 +319,6 @@ export function ProviderSettings() {
     setApplying(true)
     setError('')
     try {
-      // Submit all pending slot changes sequentially (order doesn't matter but
-      // sequential is safer for error handling)
       for (const [slot, cfg] of Object.entries(pendingSlots)) {
         const res = await fetch(`${API_BASE}/api/providers/slots/${slot}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -290,25 +330,13 @@ export function ProviderSettings() {
         }
       }
       await refreshConfig()
-      // If all slots are ready after apply, collapse
-      // (we check via refreshConfig's fresh data, but collapsed is set here)
-      const cfgRes = await fetch(`${API_BASE}/api/providers`).then((r) => r.json())
-      if (cfgRes.success) {
-        const allReady = SLOT_DEFS.every(
-          (s) => cfgRes.data.slots[s.key]?.config?.provider_id && cfgRes.data.slots[s.key]?.config?.model
-        )
-        if (allReady) setCollapsed(true)
-      }
     } catch {
       setError('Network error applying changes')
     }
     setApplying(false)
   }
 
-  // Discard pending changes
-  const handleDiscard = () => {
-    setPendingSlots({})
-  }
+  const handleDiscard = () => { setPendingSlots({}) }
 
   const openForm = (protocol: 'anthropic' | 'openai') => {
     setShowForm(protocol)
@@ -337,40 +365,8 @@ export function ProviderSettings() {
       .map((mid) => ({ model_id: mid, display_name: knownModels[mid]?.display_name || mid }))
   }
 
-  // ---- Collapsed summary ----
-  if (collapsed && allSlotsReady && !hasPendingChanges) {
-    return (
-      <div className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-full bg-[var(--color-success)]/20 flex items-center justify-center">
-              <span className="text-[var(--color-success)] text-sm">{'\u2713'}</span>
-            </div>
-            <span className="text-sm text-[var(--text-secondary)]">LLM Providers configured</span>
-          </div>
-          <button onClick={() => setCollapsed(false)}
-            className="px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 rounded-lg hover:bg-[var(--accent-primary)]/20 transition-colors">
-            Edit
-          </button>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {SLOT_DEFS.map((s) => {
-            const cfg = slots[s.key]?.config
-            const prov = cfg?.provider_id ? providers[cfg.provider_id] : null
-            return (
-              <span key={s.key} className="text-xs px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">
-                {s.label}: {prov?.name || '?'} / {cfg?.model || '?'}
-              </span>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  // ---- Slot row renderer (used for all 3 slots) ----
+  // ---- Slot row renderer ----
   const renderSlotRow = (slot: typeof SLOT_DEFS[number]) => {
-    // For agent slot, protocol is driven by the selected framework
     const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
     const effectiveProtocol = slot.key === 'agent' && selectedFramework
       ? selectedFramework.protocol
@@ -383,292 +379,376 @@ export function ProviderSettings() {
     const isChanged = !!pendingSlots[slot.key]
 
     return (
-      <div key={slot.key} className={cn('p-3 rounded-lg border',
+      <div key={slot.key} className={cn('p-4 rounded-xl border',
         isChanged ? 'border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/5' :
         ready ? 'border-[var(--color-success)]/20 bg-[var(--color-success)]/5' : 'border-[var(--color-error)]/20 bg-[var(--color-error)]/5'
       )}>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-[var(--text-primary)]">
-            {slot.label} <span className="text-[var(--text-tertiary)] font-normal">({slot.desc}, {effectiveProtocol})</span>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-[var(--text-primary)]">
+            {slot.label}
+            <span className="text-[var(--text-tertiary)] font-normal ml-2">{slot.desc}</span>
           </span>
-          <div className="flex items-center gap-1.5">
-            {isChanged && <span className="text-[10px] text-[var(--accent-primary)]">modified</span>}
-            {ready ? <span className="text-[var(--color-success)] text-sm">{'\u2713'}</span> : <span className="text-xs text-[var(--color-error)]">Needed</span>}
+          <div className="flex items-center gap-2">
+            {isChanged && <span className="text-xs text-[var(--accent-primary)]">modified</span>}
+            {ready
+              ? <span className="text-[var(--color-success)] text-base">{'\u2713'}</span>
+              : <span className="text-sm text-[var(--color-error)]">Needed</span>}
           </div>
         </div>
-        {/* Agent Framework selector (agent slot only) */}
+
+        {/* Agent Framework selector */}
         {slot.key === 'agent' && (
-          <div className="mb-2">
-            <label className="block text-[11px] text-[var(--text-tertiary)] mb-0.5">Agent Framework</label>
+          <div className="mb-3">
+            <label className="block text-sm text-[var(--text-tertiary)] mb-1">Agent Framework</label>
             <select
               value={agentFramework}
               onChange={(e) => setAgentFramework(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+              className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
             >
               {AGENT_FRAMEWORKS.map((fw) => (
                 <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
               ))}
             </select>
-            {AGENT_FRAMEWORKS.length <= 1 && (
-              <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">More frameworks coming soon.</p>
-            )}
           </div>
         )}
 
         {matching.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2">
-            <select value={cfg?.provider_id || ''}
-              onChange={(e) => {
-                const pid = e.target.value
-                const prov = providers[pid]
-                if (!prov) return
-                const slotModels = getModelsForSlot(prov, slot.key)
-                if (slot.key === 'helper_llm' && isOfficialProvider(prov)) {
-                  handleLocalSlotChange(slot.key, pid, 'default')
-                } else if (slotModels.length > 0) {
-                  handleLocalSlotChange(slot.key, pid, slotModels[0].model_id)
-                } else {
-                  handleLocalSlotChange(slot.key, pid, '')
-                }
-              }}
-              className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-              <option value="">Provider...</option>
-              {matching.map((p) => <option key={p.provider_id} value={p.provider_id}>{p.name}</option>)}
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Provider dropdown */}
             <div>
+              <label className="block text-sm text-[var(--text-tertiary)] mb-1">Provider</label>
+              <select value={cfg?.provider_id || ''}
+                onChange={(e) => {
+                  const pid = e.target.value
+                  const prov = providers[pid]
+                  if (!prov) return
+                  const slotModels = getModelsForSlot(prov, slot.key)
+                  if (slot.key === 'helper_llm' && isOfficialProvider(prov)) {
+                    handleLocalSlotChange(slot.key, pid, 'default')
+                  } else if (slotModels.length > 0) {
+                    handleLocalSlotChange(slot.key, pid, slotModels[0].model_id)
+                  } else {
+                    handleLocalSlotChange(slot.key, pid, '')
+                  }
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
+                <option value="">Select provider...</option>
+                {matching.map((p) => <option key={p.provider_id} value={p.provider_id}>{p.name}</option>)}
+              </select>
+            </div>
+
+            {/* Model dropdown */}
+            <div>
+              <label className="block text-sm text-[var(--text-tertiary)] mb-1">Model</label>
               {(() => {
-                if (!curProv) return <select disabled className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] outline-none"><option>Select provider...</option></select>
+                if (!curProv) return (
+                  <select disabled className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] outline-none">
+                    <option>Select provider first...</option>
+                  </select>
+                )
 
                 if (slot.key === 'embedding') {
                   const emModels = embeddingModels.filter((em) => curProv.models.includes(em.model_id))
-                  return <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                    <option value="">Embedding model...</option>
-                    {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
-                  </select>
+                  return (
+                    <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
+                      <option value="">Select embedding model...</option>
+                      {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
+                    </select>
+                  )
                 }
 
                 if (slot.key === 'helper_llm' && isOfficialProvider(curProv)) {
                   const llmModels = getModelsForSlot(curProv, 'helper_llm')
-                  return <>
-                    <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                      <option value="default">Default (recommended)</option>
-                      {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
-                    </select>
-                    {cfg?.model && cfg.model !== 'default' && (
-                      <p className="text-[10px] text-[var(--color-warning)] mt-0.5">All auxiliary tasks will use this model. May affect speed/cost.</p>
-                    )}
-                  </>
+                  return (
+                    <>
+                      <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
+                        <option value="default">Default (recommended)</option>
+                        {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
+                      </select>
+                      {cfg?.model && cfg.model !== 'default' && (
+                        <p className="text-xs text-[var(--color-warning)] mt-1">All auxiliary tasks will use this model. May affect speed/cost.</p>
+                      )}
+                    </>
+                  )
                 }
 
                 const llmModels = getModelsForSlot(curProv, slot.key)
                 if (llmModels.length > 0) {
-                  return <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                    <option value="">Model...</option>
-                    {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
-                  </select>
+                  return (
+                    <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
+                      <option value="">Select model...</option>
+                      {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
+                    </select>
+                  )
                 }
 
-                return <input type="text" value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                  placeholder="Model name" className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none" />
+                return (
+                  <input type="text" value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
+                    placeholder="Enter model name"
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                )
               })()}
             </div>
           </div>
         ) : (
-          <p className="text-xs text-[var(--color-error)]">No {slot.protocol} provider. Add one above.</p>
+          <p className="text-sm text-[var(--color-error)]">
+            No {effectiveProtocol} protocol provider configured. Add one in Step 1 above.
+          </p>
         )}
       </div>
     )
   }
 
-  // ---- Full view ----
+  // ---- Full view (always expanded) ----
   return (
-    <div className="p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-[var(--text-primary)]">LLM Providers</span>
-        {allSlotsReady && !hasPendingChanges && (
-          <button onClick={() => setCollapsed(true)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Collapse</button>
-        )}
-      </div>
-      <div className="text-[11px] text-[var(--text-tertiary)] space-y-0.5">
-        <p>Need at least: <span className="text-[var(--text-secondary)]">one OpenAI-compatible provider</span> (Embedding &amp; Helper LLM) + <span className="text-[var(--text-secondary)]">one Anthropic-compatible provider or Claude Code Login</span> (Agent).</p>
-        <p>Embedding is required — currently only <span className="text-[var(--text-secondary)]">OpenAI official API</span> and <span className="text-[var(--text-secondary)]">NetMind.AI Power</span> are supported. More providers coming soon.</p>
-        <p>A <span className="text-[var(--text-secondary)]">NetMind.AI Power</span> key meets the minimum in one step, though model selection is limited.</p>
-      </div>
+    <div className="space-y-8">
 
-      {/* ---- NetMind.AI Power Card ---- */}
-      <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-[13px] font-medium text-[var(--text-primary)]">NetMind.AI Power</span>
-          {hasNetMind && <span className="text-[var(--color-success)] text-xs ml-auto">{'\u2713'} Added</span>}
-        </div>
-        <p className="text-[11px] text-[var(--text-tertiary)] mb-2">A single API key covers both Anthropic and OpenAI protocol endpoints.</p>
-        <div className="flex gap-1.5">
-          <input type="password" value={netmindKey} onChange={(e) => setNetmindKey(e.target.value)}
-            placeholder={hasNetMind ? 'New key to re-configure...' : 'NetMind API Key'}
-            className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-          <button onClick={handleAddNetMind} disabled={netmindAdding}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20 disabled:opacity-40">
-            {netmindAdding ? '...' : hasNetMind ? 'Update' : 'Add'}
-          </button>
-        </div>
-      </div>
+      {/* ================================================================= */}
+      {/* SECTION 1: Add Providers                                          */}
+      {/* ================================================================= */}
+      <div>
+        <SectionHeader
+          step={1}
+          title="Add Providers"
+          subtitle="Add API keys for your LLM providers. Each preset creates both Anthropic and OpenAI protocol endpoints automatically."
+        />
 
-      {/* ---- Claude Code Card ---- */}
-      <div className="p-3 rounded-lg border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-[13px] font-medium text-[var(--text-primary)]">Claude Code Login</span>
-          {hasClaude && <span className="text-[var(--color-success)] text-xs ml-auto">{'\u2713'} Added</span>}
-        </div>
-        <p className="text-[11px] text-[var(--text-tertiary)] mb-1.5">OAuth login via Claude Code CLI. No API key needed.</p>
-        {!hasClaude && claudeStatus && (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <span className={cn('inline-block w-2 h-2 rounded-full',
-                claudeStatus.logged_in ? 'bg-[var(--color-success)]' :
-                claudeStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
-              )} />
-              <span className="text-xs text-[var(--text-secondary)]">
-                {claudeStatus.logged_in ? 'Logged in' : claudeStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
-              </span>
-            </div>
-            {claudeStatus.logged_in && (
-              <button onClick={handleAddClaudeOAuth}
-                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30">
-                Add as Provider
-              </button>
-            )}
-            {!claudeStatus.logged_in && (
-              <p className="text-[11px] text-[var(--text-tertiary)]">
-                {claudeStatus.cli_installed
-                  ? 'Run "claude login" in your terminal first, then refresh this page.'
-                  : 'Install Claude Code CLI first, then run "claude login" in your terminal.'}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+        <div className="space-y-4 ml-[34px]">
+          {/* ---- Quick Add: Preset provider selector ---- */}
+          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Quick Add — Preset Provider</h4>
+            <p className="text-sm text-[var(--text-tertiary)] mb-3">
+              Select a provider, paste your API key, and both protocol endpoints will be created automatically.
+            </p>
 
-      {/* ---- Add Protocol Buttons ---- */}
-      <div className="flex gap-1.5">
-        <button onClick={() => openForm('anthropic')}
-          className="flex-1 py-2 text-xs rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">
-          + Anthropic Protocol
-        </button>
-        <button onClick={() => openForm('openai')}
-          className="flex-1 py-2 text-xs rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]">
-          + OpenAI Protocol
-        </button>
-      </div>
-
-      {/* ---- Protocol Form ---- */}
-      {showForm && (
-        <div className="p-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] font-medium text-[var(--text-primary)]">
-              {showForm === 'anthropic' ? 'Anthropic' : 'OpenAI'} Protocol
-            </span>
-            <button onClick={() => setShowForm(null)} className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Cancel</button>
-          </div>
-          <p className="text-[11px] text-[var(--text-tertiary)]">
-            {showForm === 'anthropic' ? 'Anthropic API or compatible endpoint.' : 'OpenAI API or compatible endpoint.'}
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
-              placeholder="Provider name"
-              className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-            {showForm === 'anthropic' ? (
-              <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
-                className="px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                <option value="api_key">API Key</option>
-                <option value="bearer_token">Bearer Token</option>
-              </select>
-            ) : (
-              <div />
-            )}
-          </div>
-          <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
-            placeholder="Base URL"
-            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-          <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
-            placeholder="API Key"
-            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-          <div>
-            <label className="block text-[11px] text-[var(--text-tertiary)] mb-1">Available Models</label>
-            <ModelBubbleInput models={formModels} onChange={setFormModels} />
-          </div>
-          <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-            className="w-full py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 hover:bg-[var(--accent-primary)]/20 disabled:opacity-40">
-            {formAdding ? 'Adding...' : 'Add Provider'}
-          </button>
-        </div>
-      )}
-
-      {error && <p className="text-xs text-[var(--color-error)]">{error}</p>}
-
-      {/* ---- Configured Providers ---- */}
-      {hasProviders && (
-        <div className="space-y-1.5">
-          <span className="text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider">Providers</span>
-          {providerList.map((prov) => (
-            <div key={prov.provider_id} className="flex items-center justify-between p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
-                </div>
-                <span className="text-[11px] text-[var(--text-tertiary)]">{prov.api_key_masked} · {prov.models.length} model(s)</span>
+            <div className="space-y-3">
+              {/* Provider selector */}
+              <div>
+                <label className="block text-sm text-[var(--text-secondary)] mb-1">Provider</label>
+                <select
+                  value={selectedPreset}
+                  onChange={(e) => setSelectedPreset(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+                >
+                  {PRESET_PROVIDERS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} — {p.description}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
-                  className="px-2 py-1 text-xs text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-md disabled:opacity-40">
-                  {testing === prov.provider_id ? '...' : 'Test'}
+
+              {/* API Key + Get Key + Add button */}
+              <div className="flex gap-2">
+                <input type="password" value={presetKey} onChange={(e) => setPresetKey(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleQuickAdd() }}
+                  placeholder={addedPresets.has(selectedPreset) ? 'New key to re-configure...' : 'Paste your API key'}
+                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                <a
+                  href={PRESET_PROVIDERS.find((p) => p.id === selectedPreset)?.get_key_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 text-sm text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 rounded-lg hover:bg-[var(--accent-primary)]/20 whitespace-nowrap transition-colors"
+                >
+                  Get Key
+                </a>
+                <button onClick={handleQuickAdd} disabled={presetAdding}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
+                  {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
                 </button>
-                <button onClick={() => handleDelete(prov.provider_id)}
-                  className="px-2 py-1 text-xs text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-md">Del</button>
-                {testResults[prov.provider_id] && (
-                  <span className={cn('text-[11px]', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
-                    {testResults[prov.provider_id].msg}
-                  </span>
-                )}
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
 
-      {/* ---- All Slot Rows (shown simultaneously, no tabs) ---- */}
-      {hasProviders && (
-        <div className="space-y-2 pt-2.5 border-t border-[var(--border-subtle)]">
-          <span className="text-[11px] text-[var(--text-tertiary)] uppercase tracking-wider">Model Assignment</span>
-          {SLOT_DEFS.map((slot) => renderSlotRow(slot))}
-
-          {/* ---- Apply / Discard buttons ---- */}
-          {hasPendingChanges && (
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={handleApply}
-                disabled={applying}
-                className={cn(
-                  'flex-1 py-2 text-xs font-medium rounded-lg transition-colors',
-                  'bg-[var(--accent-primary)] text-[var(--bg-primary)]',
-                  'hover:bg-[var(--accent-primary)]/90',
-                  'disabled:opacity-40'
+          {/* ---- Claude Code Login Card ---- */}
+          <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
+            <div className="flex items-center gap-2 mb-1">
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">Claude Code Login</h4>
+              {hasClaude && <span className="text-[var(--color-success)] text-sm ml-auto">{'\u2713'} Added</span>}
+            </div>
+            <p className="text-sm text-[var(--text-tertiary)] mb-2">OAuth login via Claude Code CLI. No API key needed.</p>
+            {!hasClaude && claudeStatus && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className={cn('inline-block w-2 h-2 rounded-full',
+                    claudeStatus.logged_in ? 'bg-[var(--color-success)]' :
+                    claudeStatus.cli_installed ? 'bg-[var(--color-warning)]' : 'bg-[var(--text-tertiary)]'
+                  )} />
+                  <span className="text-sm text-[var(--text-secondary)]">
+                    {claudeStatus.logged_in ? 'Logged in' : claudeStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
+                  </span>
+                </div>
+                {claudeStatus.logged_in && (
+                  <button onClick={handleAddClaudeOAuth}
+                    className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 transition-colors">
+                    Add as Provider
+                  </button>
                 )}
-              >
-                {applying ? 'Applying...' : 'Apply Changes'}
-              </button>
-              <button
-                onClick={handleDiscard}
-                disabled={applying}
-                className="px-4 py-2 text-xs rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
-              >
-                Discard
+                {!claudeStatus.logged_in && (
+                  <p className="text-sm text-[var(--text-tertiary)]">
+                    {claudeStatus.cli_installed
+                      ? 'Run "claude login" in your terminal first, then refresh this page.'
+                      : 'Install Claude Code CLI first, then run "claude login" in your terminal.'}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ---- Custom: Add Protocol Buttons ---- */}
+          <div className="flex gap-2">
+            <button onClick={() => openForm('anthropic')}
+              className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+              + Custom Anthropic
+            </button>
+            <button onClick={() => openForm('openai')}
+              className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+              + Custom OpenAI
+            </button>
+          </div>
+
+          {/* ---- Protocol Form ---- */}
+          {showForm && (
+            <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-[var(--text-primary)]">
+                  Custom {showForm === 'anthropic' ? 'Anthropic' : 'OpenAI'} Provider
+                </h4>
+                <button onClick={() => setShowForm(null)} className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">Cancel</button>
+              </div>
+              <p className="text-sm text-[var(--text-tertiary)]">
+                {showForm === 'anthropic' ? 'Anthropic API or any compatible endpoint.' : 'OpenAI API or any compatible endpoint.'}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Provider Name</label>
+                  <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
+                    placeholder={showForm === 'anthropic' ? 'e.g., Anthropic' : 'e.g., OpenAI'}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                </div>
+                {showForm === 'anthropic' ? (
+                  <div>
+                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">Auth Type</label>
+                    <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                      <option value="api_key">API Key</option>
+                      <option value="bearer_token">Bearer Token</option>
+                    </select>
+                  </div>
+                ) : <div />}
+              </div>
+              <div>
+                <label className="block text-sm text-[var(--text-tertiary)] mb-1">Base URL</label>
+                <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
+                  placeholder="Base URL"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+              </div>
+              <div>
+                <label className="block text-sm text-[var(--text-tertiary)] mb-1">API Key</label>
+                <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
+                  placeholder="Your API key"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+              </div>
+              <div>
+                <label className="block text-sm text-[var(--text-tertiary)] mb-1">Available Models</label>
+                <ModelBubbleInput models={formModels} onChange={setFormModels} />
+              </div>
+              <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
+                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-primary)]/90 disabled:opacity-40 transition-colors">
+                {formAdding ? 'Adding...' : 'Add Provider'}
               </button>
             </div>
           )}
+
+          {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
+
+          {/* ---- Configured Providers List ---- */}
+          {hasProviders && (
+            <div className="space-y-2">
+              <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
+                Configured Providers
+              </span>
+              {providerList.map((prov) => (
+                <div key={prov.provider_id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
+                    </div>
+                    <span className="text-sm text-[var(--text-tertiary)]">{prov.api_key_masked} · {prov.models.length} model(s)</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
+                      className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
+                      {testing === prov.provider_id ? '...' : 'Test'}
+                    </button>
+                    <button onClick={() => handleDelete(prov.provider_id)}
+                      className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
+                      Delete
+                    </button>
+                    {testResults[prov.provider_id] && (
+                      <span className={cn('text-sm', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
+                        {testResults[prov.provider_id].msg}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ================================================================= */}
+      {/* SECTION 2: Model Assignment                                        */}
+      {/* ================================================================= */}
+      {hasProviders && (
+        <div>
+          <SectionHeader
+            step={2}
+            title="Model Assignment"
+            subtitle="Assign a provider and model to each functional slot. All three must be configured for the agent to work."
+          />
+
+          <div className="space-y-3 ml-[34px]">
+            {SLOT_DEFS.map((slot) => renderSlotRow(slot))}
+
+            {/* Apply / Discard buttons */}
+            {hasPendingChanges && (
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={handleApply}
+                  disabled={applying}
+                  className={cn(
+                    'flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors',
+                    'bg-[var(--accent-primary)] text-white',
+                    'hover:bg-[var(--accent-primary)]/90',
+                    'disabled:opacity-40'
+                  )}
+                >
+                  {applying ? 'Applying...' : 'Apply Changes'}
+                </button>
+                <button
+                  onClick={handleDiscard}
+                  disabled={applying}
+                  className="px-6 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                >
+                  Discard
+                </button>
+              </div>
+            )}
+
+            {/* Status indicator */}
+            {allSlotsReady && !hasPendingChanges && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-[var(--color-success)]/10 border border-[var(--color-success)]/20">
+                <span className="text-[var(--color-success)] text-base">{'\u2713'}</span>
+                <span className="text-sm text-[var(--color-success)]">All model slots configured — agent is ready.</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

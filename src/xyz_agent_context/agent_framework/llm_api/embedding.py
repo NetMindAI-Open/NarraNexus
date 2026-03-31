@@ -155,7 +155,11 @@ class EmbeddingClient:
         self._cost_agent_id: Optional[str] = None
         self._cost_db = None
 
-        logger.debug(f"EmbeddingClient initialized with model: {self.model}")
+        logger.info(
+            f"[Embedding] Initialized: model={self.model}, "
+            f"base_url={embedding_config.base_url or '(official)'}, "
+            f"dims={self.dimensions}"
+        )
 
     def set_cost_context(self, agent_id: str, db) -> None:
         """

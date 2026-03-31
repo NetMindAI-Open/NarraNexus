@@ -44,14 +44,24 @@ router = APIRouter()
 # Request/Response Models
 # =============================================================================
 
+class SlotDefault(BaseModel):
+    """Default model assignment for a slot (used by Quick Setup)"""
+    protocol: str   # "anthropic" | "openai"
+    model: str      # e.g. "claude-sonnet-4-6"
+
+
 class AddProviderRequest(BaseModel):
     """Unified request for adding a provider (all 4 card types)"""
-    card_type: str          # "netmind" | "claude_oauth" | "anthropic" | "openai"
+    card_type: str          # "netmind" | "yunwu" | "openrouter" | "claude_oauth" | "anthropic" | "openai"
     name: str = ""          # Display name (for anthropic/openai cards)
     api_key: str = ""       # API key (not needed for claude_oauth)
     base_url: str = ""      # Base URL (defaults to official if empty)
     auth_type: str = "api_key"  # "api_key" | "bearer_token"
     models: list[str] = []  # User-specified model IDs
+    # Quick Setup: auto-assign slots after creating providers.
+    # Keys: "agent", "embedding", "helper_llm". Values: {protocol, model}.
+    # When provided, the backend assigns all specified slots atomically.
+    default_slots: dict[str, SlotDefault] | None = None
 
 
 class SetSlotRequest(BaseModel):
@@ -128,6 +138,7 @@ async def add_provider(req: AddProviderRequest):
     - "openai": user-configured openai-protocol provider. Can have multiple.
     """
     try:
+        logger.info(f"[add_provider] card_type={req.card_type}, name={req.name}")
         config, new_ids = provider_registry.add_provider(
             card_type=req.card_type,
             name=req.name,
@@ -136,13 +147,43 @@ async def add_provider(req: AddProviderRequest):
             auth_type=req.auth_type,
             models=req.models if req.models else None,
         )
+        logger.info(f"[add_provider] Success: created {new_ids}")
+
+        # Auto-assign slots if default_slots provided (Quick Setup flow)
+        if req.default_slots:
+            new_providers = [config.providers[pid] for pid in new_ids if pid in config.providers]
+            for slot_name, slot_def in req.default_slots.items():
+                match = next(
+                    (p for p in new_providers if p.protocol.value == slot_def.protocol),
+                    None,
+                )
+                if match:
+                    config = provider_registry.set_slot(config, slot_name, match.provider_id, slot_def.model)
+                    logger.info(f"[add_provider] Auto-assigned slot {slot_name}: provider={match.provider_id}, model={slot_def.model}")
+                else:
+                    logger.warning(f"[add_provider] No new provider with protocol={slot_def.protocol} for slot {slot_name}")
+            provider_registry.save(config)
+
+            # Hot-reload + EverMemOS sync
+            from xyz_agent_context.agent_framework.api_config import reload_llm_config
+            reload_llm_config()
+            try:
+                from xyz_agent_context.agent_framework.evermemos_sync import sync_evermemos_from_config
+                sync_evermemos_from_config(config)
+            except Exception:
+                logger.exception("[add_provider] EverMemOS sync failed")
+
         return {
             "success": True,
             "provider_ids": new_ids,
             "data": _config_to_response(config),
         }
     except ValueError as e:
+        logger.warning(f"[add_provider] ValueError: {e}")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[add_provider] Unexpected error: {e}", exc_info=True)
+        return {"success": False, "detail": str(e)}
 
 
 @router.delete("/{provider_id}")
@@ -188,6 +229,7 @@ async def update_provider_models(provider_id: str, req: UpdateModelsRequest):
 @router.put("/slots/{slot_name}")
 async def set_slot(slot_name: str, req: SetSlotRequest):
     """Assign a provider + model to a slot."""
+    logger.info(f"[set_slot] {slot_name} <- provider={req.provider_id}, model={req.model}")
     try:
         config = _get_or_empty_config()
         config = provider_registry.set_slot(config, slot_name, req.provider_id, req.model)
@@ -196,6 +238,16 @@ async def set_slot(slot_name: str, req: SetSlotRequest):
         # Hot-reload api_config so changes take effect immediately
         from xyz_agent_context.agent_framework.api_config import reload_llm_config
         reload_llm_config()
+
+        # Sync EverMemOS .env when embedding or helper_llm slot changes
+        if slot_name in ("embedding", "helper_llm"):
+            try:
+                from xyz_agent_context.agent_framework.evermemos_sync import sync_evermemos_from_config
+                sync_evermemos_from_config(config)
+            except Exception:
+                logger.exception(
+                    f"[set_slot] EverMemOS sync failed after saving slot '{slot_name}'"
+                )
 
         errors = provider_registry.validate(config)
         return {

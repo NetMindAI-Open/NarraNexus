@@ -1,6 +1,6 @@
 {
   "name": "narranexus-desktop",
-  "version": "1.0.7",
+  "version": "1.0.9",
   "description": "NarraNexus Desktop - One-click launcher",
   "main": "./out/main/index.js",
   "scripts": {

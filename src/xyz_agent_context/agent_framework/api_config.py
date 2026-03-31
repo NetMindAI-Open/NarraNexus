@@ -233,7 +233,23 @@ class _ConfigHolder:
 
         self._gemini = _load_gemini_config()
         self._loaded = True
-        logger.info("LLM configs (re)loaded")
+
+        # Log provider summary so it's clear which providers/models are active
+        def _mask(k: str) -> str:
+            return f"***{k[-4:]}" if k and len(k) > 4 else "(empty)"
+        logger.info(
+            f"LLM configs (re)loaded:\n"
+            f"  Agent:      model={self._claude.model or '(default)'}, "
+            f"base_url={self._claude.base_url or '(official)'}, "
+            f"auth={self._claude.auth_type}, key={_mask(self._claude.api_key)}\n"
+            f"  HelperLLM:  model={self._openai.model}, "
+            f"base_url={self._openai.base_url or '(official)'}, "
+            f"key={_mask(self._openai.api_key)}\n"
+            f"  Embedding:  model={self._embedding.model}, "
+            f"base_url={self._embedding.base_url or '(official)'}, "
+            f"dims={self._embedding.dimensions or '(default)'}, "
+            f"key={_mask(self._embedding.api_key)}"
+        )
 
     @property
     def claude(self) -> ClaudeConfig:

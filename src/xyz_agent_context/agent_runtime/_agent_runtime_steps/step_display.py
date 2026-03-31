@@ -434,9 +434,13 @@ def _summarize_tool_output(tool_name: str, output: str) -> str:
         elif "success" in data:
             if data["success"]:
                 msg = data.get("message", "success")
+                if not isinstance(msg, str):
+                    msg = "success"
                 return msg[:40] + "..." if len(msg) > 40 else msg
             else:
                 msg = data.get("message", "failed")
+                if not isinstance(msg, str):
+                    msg = "failed"
                 return f"FAILED: {msg[:30]}"
         elif "entity" in data:
             entity_id = data.get("entity", {}).get("entity_id", "")

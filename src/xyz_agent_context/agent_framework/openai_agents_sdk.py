@@ -114,14 +114,21 @@ class OpenAIAgentsSDK:
         model_name = self._resolve_model(model)
 
         # Resolve max_tokens from model catalog (per-model limit)
+        # If model is not in catalog, leave as None — let the API use its own default
         from xyz_agent_context.agent_framework.model_catalog import get_max_output_tokens
-        max_tokens = get_max_output_tokens(model_name) or 58000  # fallback for unknown models
+        max_tokens = get_max_output_tokens(model_name)
 
         # Build AsyncOpenAI client
         client_kwargs: dict = {"api_key": openai_config.api_key}
         if openai_config.base_url:
             client_kwargs["base_url"] = openai_config.base_url
         openai_client = AsyncOpenAI(**client_kwargs)
+
+        logger.debug(
+            f"[HelperLLM] Calling: model={model_name}, "
+            f"base_url={openai_config.base_url or '(official)'}, "
+            f"max_tokens={max_tokens}, output_type={output_type.__name__ if output_type else 'None'}"
+        )
 
         # Try Agents SDK structured output (skip if model is blocklisted)
         if output_type and model_name not in _structured_output_blocklist:
@@ -145,11 +152,12 @@ class OpenAIAgentsSDK:
         return result
 
     async def _try_agents_sdk(
-        self, client, model_name, instructions, user_input, output_type, max_tokens: int
+        self, client, model_name, instructions, user_input, output_type, max_tokens: Optional[int]
     ):
         """Attempt structured output via OpenAI Agents SDK"""
         from agents import Agent, Runner, OpenAIChatCompletionsModel, ModelSettings
 
+        settings = ModelSettings(max_tokens=max_tokens) if max_tokens else ModelSettings()
         agent = Agent(
             name="LLMFunction",
             instructions=instructions,
@@ -158,15 +166,16 @@ class OpenAIAgentsSDK:
                 model=model_name,
                 openai_client=client,
             ),
-            model_settings=ModelSettings(max_tokens=max_tokens),
+            model_settings=settings,
         )
+
         return await Runner.run(agent, user_input)
 
     async def _fallback_chat_completion(
         self, client: AsyncOpenAI, model_name: str,
         instructions: str, user_input: str,
         output_type: Optional[Type[BaseModel]] = None,
-        max_tokens: int = 58000,
+        max_tokens: Optional[int] = None,
     ):
         """
         Direct chat completion with prompt-guided JSON extraction.
@@ -190,11 +199,26 @@ class OpenAIAgentsSDK:
             {"role": "user", "content": user_input},
         ]
 
-        resp = await client.chat.completions.create(
-            model=model_name,
-            messages=messages,
-            max_tokens=max_tokens,  # Per-model limit from catalog; some providers default to 256
-        )
+        # Only pass max_tokens when explicitly configured in model catalog;
+        # otherwise let the API use its own default to avoid invalid_value errors.
+        token_kwargs = {}
+        if max_tokens is not None:
+            token_kwargs["max_completion_tokens"] = max_tokens
+
+        try:
+            resp = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                **token_kwargs,
+            )
+        except Exception:
+            # Fallback: some older providers only support max_tokens
+            fallback_kwargs = {"max_tokens": max_tokens} if max_tokens is not None else {}
+            resp = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                **fallback_kwargs,
+            )
 
         raw_content = resp.choices[0].message.content or ""
         input_tokens = getattr(resp.usage, "prompt_tokens", 0) or 0

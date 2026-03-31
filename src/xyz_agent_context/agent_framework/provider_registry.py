@@ -53,6 +53,14 @@ CONFIG_FILE = CONFIG_DIR / "llm_config.json"
 NETMIND_ANTHROPIC_BASE_URL = "https://api.netmind.ai/inference-api/anthropic"
 NETMIND_OPENAI_BASE_URL = "https://api.netmind.ai/inference-api/openai/v1"
 
+# Yunwu endpoint URLs (proxies official Claude & OpenAI)
+YUNWU_ANTHROPIC_BASE_URL = "https://yunwu.ai"
+YUNWU_OPENAI_BASE_URL = "https://yunwu.ai/v1"
+
+# OpenRouter endpoint URLs (proxies official Claude & OpenAI)
+OPENROUTER_ANTHROPIC_BASE_URL = "https://openrouter.ai/api"
+OPENROUTER_OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
+
 # Default base URLs for known providers
 DEFAULT_BASE_URLS = {
     "anthropic": "https://api.anthropic.com",
@@ -112,6 +120,82 @@ def _build_netmind_providers(api_key: str) -> list[ProviderConfig]:
             auth_type=AuthType.API_KEY,
             api_key=api_key,
             base_url=NETMIND_OPENAI_BASE_URL,
+            models=openai_models,
+            linked_group=group_id,
+            created_at=now,
+            updated_at=now,
+        ),
+    ]
+
+
+def _build_yunwu_providers(api_key: str) -> list[ProviderConfig]:
+    """Build two providers from a single Yunwu API key (anthropic + openai protocol)"""
+    now = datetime.now(timezone.utc)
+    group_id = _generate_group_id()
+
+    anthropic_models = get_default_models("yunwu", "anthropic")
+    openai_models = get_default_models("yunwu", "openai")
+
+    return [
+        ProviderConfig(
+            provider_id=_generate_provider_id(),
+            name="Yunwu (Anthropic)",
+            source=ProviderSource.YUNWU,
+            protocol=ProviderProtocol.ANTHROPIC,
+            auth_type=AuthType.BEARER_TOKEN,
+            api_key=api_key,
+            base_url=YUNWU_ANTHROPIC_BASE_URL,
+            models=anthropic_models,
+            linked_group=group_id,
+            created_at=now,
+            updated_at=now,
+        ),
+        ProviderConfig(
+            provider_id=_generate_provider_id(),
+            name="Yunwu (OpenAI)",
+            source=ProviderSource.YUNWU,
+            protocol=ProviderProtocol.OPENAI,
+            auth_type=AuthType.API_KEY,
+            api_key=api_key,
+            base_url=YUNWU_OPENAI_BASE_URL,
+            models=openai_models,
+            linked_group=group_id,
+            created_at=now,
+            updated_at=now,
+        ),
+    ]
+
+
+def _build_openrouter_providers(api_key: str) -> list[ProviderConfig]:
+    """Build two providers from a single OpenRouter API key (anthropic + openai protocol)"""
+    now = datetime.now(timezone.utc)
+    group_id = _generate_group_id()
+
+    anthropic_models = get_default_models("openrouter", "anthropic")
+    openai_models = get_default_models("openrouter", "openai")
+
+    return [
+        ProviderConfig(
+            provider_id=_generate_provider_id(),
+            name="OpenRouter (Anthropic)",
+            source=ProviderSource.OPENROUTER,
+            protocol=ProviderProtocol.ANTHROPIC,
+            auth_type=AuthType.BEARER_TOKEN,
+            api_key=api_key,
+            base_url=OPENROUTER_ANTHROPIC_BASE_URL,
+            models=anthropic_models,
+            linked_group=group_id,
+            created_at=now,
+            updated_at=now,
+        ),
+        ProviderConfig(
+            provider_id=_generate_provider_id(),
+            name="OpenRouter (OpenAI)",
+            source=ProviderSource.OPENROUTER,
+            protocol=ProviderProtocol.OPENAI,
+            auth_type=AuthType.API_KEY,
+            api_key=api_key,
+            base_url=OPENROUTER_OPENAI_BASE_URL,
             models=openai_models,
             linked_group=group_id,
             created_at=now,
@@ -260,6 +344,22 @@ class ProviderRegistry:
             # Unique: remove existing NetMind providers first
             self._remove_by_source(config, ProviderSource.NETMIND)
             providers = _build_netmind_providers(api_key)
+            for prov in providers:
+                config.providers[prov.provider_id] = prov
+                new_ids.append(prov.provider_id)
+
+        elif card_type == "yunwu":
+            # Unique: remove existing Yunwu providers first
+            self._remove_by_source(config, ProviderSource.YUNWU)
+            providers = _build_yunwu_providers(api_key)
+            for prov in providers:
+                config.providers[prov.provider_id] = prov
+                new_ids.append(prov.provider_id)
+
+        elif card_type == "openrouter":
+            # Unique: remove existing OpenRouter providers first
+            self._remove_by_source(config, ProviderSource.OPENROUTER)
+            providers = _build_openrouter_providers(api_key)
             for prov in providers:
                 config.providers[prov.provider_id] = prov
                 new_ids.append(prov.provider_id)

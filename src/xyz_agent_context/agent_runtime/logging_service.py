@@ -148,6 +148,9 @@ class LoggingService:
             except ValueError:
                 # Handler may have already been removed
                 pass
+            except OSError:
+                # Log file may have been deleted before compression could run
+                pass
             self._handler_id = None
             self._current_log_file = None
 

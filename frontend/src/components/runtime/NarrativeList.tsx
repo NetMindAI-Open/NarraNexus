@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { ChevronDown, ChevronRight, BookOpen, Clock, Users, MessageSquare, MessageCircle, Database, Briefcase, Search, Brain, User, Box, Sparkles } from 'lucide-react';
+import { ChevronDown, ChevronRight, BookOpen, Clock, Users, MessageSquare, MessageCircle, Database, Briefcase, Brain, User, Box, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { usePreloadStore } from '@/stores';
 import { cn, formatDate } from '@/lib/utils';
@@ -15,7 +15,6 @@ import type { ChatHistoryNarrative, ChatHistoryEvent, InstanceInfo } from '@/typ
 const MODULE_CONFIG: Record<string, { icon: React.ElementType; colorClass: string; bgClass: string; label: string }> = {
   ChatModule: { icon: MessageCircle, colorClass: 'text-[var(--accent-primary)]', bgClass: 'bg-[var(--accent-glow)]', label: 'Chat' },
   JobModule: { icon: Briefcase, colorClass: 'text-[var(--color-warning)]', bgClass: 'bg-[var(--color-warning)]/10', label: 'Job' },
-  GeminiRAGModule: { icon: Search, colorClass: 'text-[var(--color-success)]', bgClass: 'bg-[var(--color-success)]/10', label: 'RAG' },
   AwarenessModule: { icon: Brain, colorClass: 'text-[var(--accent-secondary)]', bgClass: 'bg-[var(--accent-secondary)]/10', label: 'Awareness' },
   SocialNetworkModule: { icon: User, colorClass: 'text-pink-400', bgClass: 'bg-pink-500/10', label: 'Social' },
   BasicInfoModule: { icon: User, colorClass: 'text-[var(--text-tertiary)]', bgClass: 'bg-[var(--bg-tertiary)]', label: 'Basic Info' },

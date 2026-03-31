@@ -7,7 +7,7 @@ import React, { useEffect, useState } from 'react'
 import SetupWizard from './pages/SetupWizard'
 import Dashboard from './pages/Dashboard'
 
-type Page = 'loading' | 'setup' | 'dashboard'
+type Page = 'loading' | 'setup' | 'setup-llm' | 'dashboard'
 
 const App: React.FC = () => {
   const [page, setPage] = useState<Page>('loading')
@@ -24,9 +24,14 @@ const App: React.FC = () => {
     setPage('dashboard')
   }
 
-  // Return to settings page from Dashboard
+  // Return to full settings page from Dashboard
   const handleOpenSettings = () => {
     setPage('setup')
+  }
+
+  // Go directly to LLM config phase from Dashboard
+  const handleOpenLLMConfig = () => {
+    setPage('setup-llm')
   }
 
   if (page === 'loading') {
@@ -40,11 +45,21 @@ const App: React.FC = () => {
     )
   }
 
-  if (page === 'setup') {
-    return <SetupWizard onComplete={handleSetupComplete} />
+  if (page === 'setup' || page === 'setup-llm') {
+    return (
+      <SetupWizard
+        onComplete={handleSetupComplete}
+        initialPhase={page === 'setup-llm' ? 'config' : 'preflight'}
+      />
+    )
   }
 
-  return <Dashboard onOpenSettings={handleOpenSettings} />
+  return (
+    <Dashboard
+      onOpenSettings={handleOpenSettings}
+      onOpenLLMConfig={handleOpenLLMConfig}
+    />
+  )
 }
 
 export default App

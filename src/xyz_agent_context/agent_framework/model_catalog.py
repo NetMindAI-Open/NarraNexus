@@ -100,6 +100,28 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "nvidia/NV-Embed-v2",
         "dunzhang/stella_en_1.5B_v5",
     ],
+    # Yunwu Anthropic protocol → Claude models (Yunwu proxies official Claude)
+    ("yunwu", "anthropic"): [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+    ],
+    # Yunwu OpenAI protocol → OpenAI models (Yunwu proxies official OpenAI)
+    ("yunwu", "openai"): [
+        "gpt-5.1-2025-11-13",
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+    ],
+    # OpenRouter Anthropic protocol → Claude models (OpenRouter proxies official Claude)
+    ("openrouter", "anthropic"): [
+        "claude-sonnet-4-6",
+        "claude-opus-4-6",
+    ],
+    # OpenRouter OpenAI protocol → OpenAI models (OpenRouter proxies official OpenAI)
+    ("openrouter", "openai"): [
+        "gpt-5.1-2025-11-13",
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+    ],
     # Claude OAuth → agent models
     ("claude_oauth", "anthropic"): [
         "claude-opus-4-6",

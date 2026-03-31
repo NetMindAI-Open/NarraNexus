@@ -13,7 +13,6 @@ import { api } from '@/lib/api';
 
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
-import { RAGUpload } from './RAGUpload';
 import { MCPManager } from './MCPManager';
 import type { SocialNetworkEntity } from '@/types';
 
@@ -399,8 +398,7 @@ export function AwarenessPanel() {
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-px bg-gradient-to-r from-transparent via-[var(--color-success)]/30 to-transparent" />
           </div>
 
-          {/* RAG Upload Section */}
-          <RAGUpload />
+          {/* RAG Upload Section removed — Gemini RAG deprecated */}
 
           {/* Divider */}
           <div className="border-t border-[var(--border-subtle)]" />

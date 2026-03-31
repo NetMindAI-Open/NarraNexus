@@ -3,7 +3,7 @@
  * @description Phase 1 UI — displays preflight dependency check results
  *
  * Shows a list of dependencies with status icons, system info summary,
- * an optional EverMemOS install toggle, and action buttons to proceed.
+ * EverMemOS auto-install status (based on memory), and action buttons to proceed.
  */
 
 import React from 'react'
@@ -15,7 +15,6 @@ interface PreflightViewProps {
   onRecheck: () => void
   checking: boolean
   installEverMemOS: boolean
-  onToggleEverMemOS: (v: boolean) => void
   lowMemory: boolean
   dockerMemoryGb: number
 }
@@ -33,7 +32,6 @@ const PreflightView: React.FC<PreflightViewProps> = ({
   onRecheck,
   checking,
   installEverMemOS,
-  onToggleEverMemOS,
   lowMemory,
   dockerMemoryGb
 }) => {
@@ -101,25 +99,22 @@ const PreflightView: React.FC<PreflightViewProps> = ({
         </span>
       </div>
 
-      {/* Optional Components */}
-      <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-        <p className="text-xs font-medium text-gray-500 mb-2">Optional Components</p>
-        <label className={`titlebar-no-drag flex items-start gap-2.5 ${lowMemory ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
-          <input
-            type="checkbox"
-            checked={installEverMemOS}
-            onChange={(e) => onToggleEverMemOS(e.target.checked)}
-            disabled={lowMemory}
-            className="accent-blue-500 mt-0.5"
-          />
-          <div>
-            <span className="text-sm font-medium text-gray-700">Install EverMemOS (memory system)</span>
-            <p className="text-xs text-gray-400 mt-0.5">Requires 6GB Docker memory</p>
-          </div>
-        </label>
-        {lowMemory && (
-          <p className="text-xs text-red-500 mt-2">
-            Docker memory too low ({dockerMemoryGb}GB). EverMemOS requires at least 6GB. Increase system memory or Docker allocation to enable.
+      {/* EverMemOS status (auto-decided by memory) */}
+      <div className={`p-3 rounded-lg border ${lowMemory ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className={`text-sm ${lowMemory ? 'text-amber-500' : 'text-green-500'}`}>
+            {lowMemory ? '\u26A0' : '\u2713'}
+          </span>
+          <span className="text-sm font-medium text-gray-700">EverMemOS (memory system)</span>
+        </div>
+        {lowMemory ? (
+          <p className="text-xs text-amber-700 ml-5">
+            Docker memory is {dockerMemoryGb}GB (needs 6GB+). EverMemOS will be skipped — the core Agent works fine without it.
+            You can enable it later by increasing system memory.
+          </p>
+        ) : (
+          <p className="text-xs text-green-700 ml-5">
+            Will be installed automatically. Provides long-term memory features for the Agent.
           </p>
         )}
       </div>
@@ -138,9 +133,7 @@ const PreflightView: React.FC<PreflightViewProps> = ({
             onClick={onProceedToLaunch}
             className="titlebar-no-drag flex-1 py-2 text-sm font-medium text-white bg-green-500 rounded-lg hover:bg-green-600 transition-colors"
           >
-            {installEverMemOS
-              ? 'Install EverMemOS & Start Services'
-              : 'Environment Ready — Start Services'}
+            {'Environment Ready — Start Services'}
           </button>
         ) : (
           <button

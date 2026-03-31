@@ -20,39 +20,11 @@ import ProviderConfigView from '../components/setup/ProviderConfigView'
 
 interface SetupWizardProps {
   onComplete: () => void
+  /** Start directly at a specific phase (e.g. 'config' for LLM reconfiguration) */
+  initialPhase?: SetupPhase
 }
 
 type SetupPhase = 'preflight' | 'install' | 'launch' | 'config'
-
-/** External link mapping */
-const KEY_LINKS: Record<string, { label: string; url: string }> = {
-  OPENAI_API_KEY: { label: 'Get Key', url: 'https://platform.openai.com/api-keys' },
-  GOOGLE_API_KEY: { label: 'Get Key', url: 'https://aistudio.google.com/apikey' },
-  NETMIND_API_KEY: { label: 'Get Key', url: 'https://www.netmind.ai' },
-  ANTHROPIC_API_KEY: { label: 'Get Key', url: 'https://console.anthropic.com/settings/keys' },
-  LLM_API_KEY: { label: 'Get Key', url: 'https://openrouter.ai/keys' }
-}
-
-/** NetMind one-click configuration presets */
-const NETMIND_PRESETS: Record<string, string> = {
-  LLM_MODEL: 'deepseek-ai/DeepSeek-V3.2',
-  LLM_BASE_URL: 'https://api.netmind.ai/inference-api/openai/v1',
-  VECTORIZE_PROVIDER: 'deepinfra',
-  VECTORIZE_MODEL: 'BAAI/bge-m3',
-  VECTORIZE_BASE_URL: 'https://api.netmind.ai/inference-api/openai/v1',
-  RERANK_PROVIDER: 'none',
-  RERANK_API_KEY: 'EMPTY',
-  RERANK_BASE_URL: '',
-  RERANK_MODEL: ''
-}
-
-const EM_GROUP_LABELS: Record<string, string> = {
-  llm: 'LLM',
-  vectorize: 'Embedding',
-  rerank: 'Rerank',
-  infrastructure: 'Infrastructure (usually no changes needed)',
-  other: 'Other'
-}
 
 /** Phase labels for the step indicator */
 const PHASE_LABELS: { phase: SetupPhase; label: string }[] = [
@@ -62,19 +34,15 @@ const PHASE_LABELS: { phase: SetupPhase; label: string }[] = [
   { phase: 'config', label: 'Configure' }
 ]
 
-const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
-  const [phase, setPhase] = useState<SetupPhase>('preflight')
+const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete, initialPhase = 'preflight' }) => {
+  const [phase, setPhase] = useState<SetupPhase>(initialPhase)
 
-  // EverMemOS install toggle (set during preflight)
+  // EverMemOS: auto-install if memory sufficient, skip otherwise (no user toggle)
   const [installEverMemOS, setInstallEverMemOS] = useState(true)
 
   // Config state (loaded early, used in config phase)
   const [fields, setFields] = useState<EnvField[]>([])
   const [values, setValues] = useState<Record<string, string>>({})
-  const [emFields, setEmFields] = useState<EverMemOSEnvField[]>([])
-  const [emValues, setEmValues] = useState<Record<string, string>>({})
-  const [emAdvancedOpen, setEmAdvancedOpen] = useState(false)
-  const [emMode, setEmMode] = useState<'skip' | 'netmind' | 'custom'>('netmind')
   const [everMemOSInstalled, setEverMemOSInstalled] = useState(false)
 
   // Claude Code authentication state
@@ -97,15 +65,13 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const [finishing, setFinishing] = useState(false)
 
   // Load .env, EverMemOS config, and Claude auth on mount (needed later for config phase)
+  // Load .env and Claude auth on mount
   useEffect(() => {
     window.nexus.getEnv().then(({ config, fields: f }) => {
       setFields(f)
       setValues(config)
     })
-    window.nexus.getEverMemOSEnv().then(({ config, fields: f }) => {
-      setEmFields(f)
-      setEmValues(config)
-    })
+    // EverMemOS env is auto-synced by backend — no need to load here
     window.nexus.getClaudeAuthInfo().then(setClaudeAuth)
   }, [])
 
@@ -120,22 +86,12 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     return unsub
   }, [])
 
-  // Auto-start preflight on mount
+  // Auto-start preflight on mount (skip if entering directly at config phase)
   useEffect(() => {
-    runPreflight()
+    if (initialPhase === 'preflight') {
+      runPreflight()
+    }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Compute derived state
-  const PLACEHOLDER_VALUES = ['sk-or-v1-xxxx', 'xxxxx']
-
-  const emConfigured = emMode === 'skip'
-    ? false
-    : emMode === 'netmind'
-      ? !!values['NETMIND_API_KEY']?.trim()
-      : emFields.filter((f) => f.required).every((f) => {
-          const v = emValues[f.key]?.trim()
-          return v && !PLACEHOLDER_VALUES.includes(v)
-        })
 
   // Docker gets ~50% of system RAM (same formula as Colima allocation, capped 2-12GB)
   const dockerMemoryGb = preflightResult
@@ -143,27 +99,15 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     : 0
   const lowMemory = preflightResult ? dockerMemoryGb < 6 : false
 
-  const buildFinalEmValues = (): Record<string, string> => {
-    if (emMode === 'netmind') {
-      return {
-        ...emValues,
-        ...NETMIND_PRESETS,
-        LLM_API_KEY: values['NETMIND_API_KEY'] || '',
-        VECTORIZE_API_KEY: values['NETMIND_API_KEY'] || ''
-      }
-    }
-    return emValues
-  }
-
   // Phase transitions
   const runPreflight = useCallback(async () => {
     setChecking(true)
     try {
       const result = await window.nexus.runPreflight() as PreflightResult
       setPreflightResult(result)
-      // Auto-disable EverMemOS toggle if low memory
+      // Auto-decide EverMemOS install based on available memory
       const mem = Math.max(2, Math.min(12, Math.floor(result.systemInfo.totalMemoryGb / 2)))
-      if (mem < 6) setInstallEverMemOS(false)
+      setInstallEverMemOS(mem >= 6)
     } catch (err) {
       console.error('Preflight failed:', err)
     }
@@ -213,12 +157,11 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   const handleConfigComplete = async () => {
     setFinishing(true)
     try {
-      // Save .env
+      // Save .env (database defaults are baked in — no user input needed)
       await window.nexus.setEnv(values)
-      // Save EverMemOS env
-      await window.nexus.setEverMemOSEnv(buildFinalEmValues())
-      // If EverMemOS is installed AND configured, launch it now
-      if (everMemOSInstalled && emConfigured && !lowMemory) {
+      // EverMemOS .env is auto-synced from slot config by the backend
+      // (evermemos_sync.py). If EverMemOS is installed and memory is sufficient, launch it.
+      if (everMemOSInstalled && !lowMemory) {
         await window.nexus.launchEverMemOS()
       }
       // Mark setup as complete
@@ -230,11 +173,8 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
     setFinishing(false)
   }
 
-  // Field groups
-  const apiFields = fields.filter(
-    (f) => f.key.includes('API_KEY') || f.key.includes('SECRET') || f.key.includes('BASE_URL')
-  )
-  const dbFields = fields.filter((f) => f.key.startsWith('DB_'))
+  // (Database and Gemini RAG fields removed from DMG setup — power users
+  //  can configure these via .env or the web UI's Advanced Settings.)
 
   return (
     <div className="flex flex-col h-screen bg-white">
@@ -281,7 +221,6 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
                 onRecheck={runPreflight}
                 checking={checking}
                 installEverMemOS={installEverMemOS}
-                onToggleEverMemOS={setInstallEverMemOS}
                 lowMemory={lowMemory}
                 dockerMemoryGb={dockerMemoryGb}
               />
@@ -315,7 +254,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
         {/* ─── Phase: Config ─────────────────────────── */}
         {phase === 'config' && (
           <>
-            {/* LLM Provider Configuration */}
+            {/* LLM Provider Configuration (2-step wizard) */}
             <ProviderConfigView
               onReady={() => setProviderReady(true)}
               claudeAuth={claudeAuth}
@@ -328,249 +267,39 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
               onSendClaudeLoginInput={(input) => window.nexus.sendClaudeLoginInput(input)}
             />
 
-            {/* Divider */}
-            <div className="my-5 border-t border-gray-200" />
-
-            {/* Database configuration */}
-            <div>
-              <p className="text-xs text-gray-400 mb-3">
-                Database (defaults usually work fine)
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                {dbFields.map((field) => (
-                  <div key={field.key}>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">
-                      {field.label}
-                    </label>
-                    <input
-                      type={field.key === 'DB_PASSWORD' ? 'password' : 'text'}
-                      value={values[field.key] || ''}
-                      onChange={(e) => setValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                      placeholder={field.placeholder}
-                      className="titlebar-no-drag w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* EverMemOS configuration — only show if installed */}
+            {/* EverMemOS — auto-synced from LLM provider config */}
             {everMemOSInstalled && (
               <>
                 <div className="my-5 border-t border-gray-200" />
-                <div>
-                  <h2 className="text-sm font-semibold text-gray-700 mb-3">
+                <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                  <h2 className="text-sm font-semibold text-gray-700 mb-1">
                     EverMemOS Memory System
                   </h2>
-
-                  {lowMemory && (
-                    <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <p className="text-xs text-red-700 font-medium">
-                        Docker memory too low: {dockerMemoryGb}GB allocated (system {preflightResult?.systemInfo.totalMemoryGb ?? '?'}GB), EverMemOS requires at least 6GB.
-                        EverMemOS will be disabled. The core Agent will still work without memory features.
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="flex gap-4 mb-4">
-                    <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="emMode"
-                        checked={emMode === 'skip'}
-                        onChange={() => setEmMode('skip')}
-                        className="accent-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Skip</span>
-                    </label>
-                    <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="emMode"
-                        checked={emMode === 'netmind'}
-                        onChange={() => setEmMode('netmind')}
-                        className="accent-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">NetMind.AI Power</span>
-                    </label>
-                    <label className="titlebar-no-drag flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="emMode"
-                        checked={emMode === 'custom'}
-                        onChange={() => setEmMode('custom')}
-                        className="accent-blue-500"
-                      />
-                      <span className="text-sm font-medium text-gray-700">Custom Configuration</span>
-                    </label>
-                  </div>
-
-                  {emMode === 'skip' && (
-                    <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                      <p className="text-xs text-gray-600">
-                        EverMemOS will not be started. The core Agent will still work without long-term memory features.
-                        You can configure this later in settings.
-                      </p>
-                    </div>
-                  )}
-
-                  {emMode === 'netmind' && (
-                    <>
-                      {!emConfigured ? (
-                        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                          <p className="text-xs text-amber-700">
-                            NetMind API Key is not configured above. Fill it in to enable EverMemOS memory features.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <p className="text-xs text-green-700">
-                            Will use the NetMind API Key above to power: LLM (DeepSeek-V3.2), Embedding (bge-m3). Rerank disabled. No extra configuration needed.
-                          </p>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {emMode === 'custom' && (
-                    <>
-                      {(['llm', 'vectorize', 'rerank', 'other'] as const).map((group) => {
-                        const groupFields = emFields
-                          .filter((f) => f.group === group)
-                          .sort((a, b) => a.order - b.order)
-                        if (groupFields.length === 0) return null
-
-                        return (
-                          <div key={group} className="mb-4">
-                            <p className="text-xs font-medium text-gray-500 mb-2">
-                              {EM_GROUP_LABELS[group]}
-                            </p>
-                            <div className="space-y-2">
-                              {groupFields.map((field) => (
-                                <div key={field.key}>
-                                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                                    {field.label}
-                                    {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                                  </label>
-                                  <div className="flex gap-2">
-                                    {field.inputType === 'select' ? (
-                                      <select
-                                        value={emValues[field.key] || ''}
-                                        onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                                        className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all bg-white"
-                                      >
-                                        <option value="">{field.placeholder}</option>
-                                        {field.options?.map((opt) => (
-                                          <option key={opt} value={opt}>{opt}</option>
-                                        ))}
-                                      </select>
-                                    ) : (
-                                      <input
-                                        type={field.inputType}
-                                        value={emValues[field.key] || ''}
-                                        onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                                        placeholder={field.placeholder}
-                                        className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                                      />
-                                    )}
-                                    {KEY_LINKS[field.key] && (
-                                      <button
-                                        onClick={() => window.nexus.openExternal(KEY_LINKS[field.key].url)}
-                                        className="titlebar-no-drag px-3 py-1.5 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 whitespace-nowrap transition-colors"
-                                      >
-                                        {KEY_LINKS[field.key].label}
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })}
-
-                      {(() => {
-                        const infraFields = emFields
-                          .filter((f) => f.group === 'infrastructure')
-                          .sort((a, b) => a.order - b.order)
-                        if (infraFields.length === 0) return null
-
-                        return (
-                          <div className="mb-4">
-                            <button
-                              onClick={() => setEmAdvancedOpen((v) => !v)}
-                              className="titlebar-no-drag flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 transition-colors mb-2"
-                            >
-                              <span className={`inline-block transition-transform ${emAdvancedOpen ? 'rotate-90' : ''}`}>
-                                &#9654;
-                              </span>
-                              {EM_GROUP_LABELS.infrastructure}
-                            </button>
-                            {emAdvancedOpen && (
-                              <div className="grid grid-cols-2 gap-2">
-                                {infraFields.map((field) => (
-                                  <div key={field.key}>
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">
-                                      {field.label}
-                                    </label>
-                                    <input
-                                      type={field.inputType}
-                                      value={emValues[field.key] || ''}
-                                      onChange={(e) => setEmValues((v) => ({ ...v, [field.key]: e.target.value }))}
-                                      placeholder={field.placeholder}
-                                      className="titlebar-no-drag w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                                    />
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })()}
-                    </>
+                  {lowMemory ? (
+                    <p className="text-xs text-red-700">
+                      Docker memory too low ({dockerMemoryGb}GB). EverMemOS will be disabled.
+                      The core Agent will still work without long-term memory features.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-600">
+                      EverMemOS will automatically use your configured Embedding and Helper LLM providers.
+                      No extra configuration needed.
+                    </p>
                   )}
                 </div>
               </>
             )}
 
-            {/* Google Gemini API Key (for RAG) */}
-            <div className="my-5 border-t border-gray-200" />
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-1">
-                Gemini RAG Knowledge Base
-              </h2>
-              <p className="text-[11px] text-gray-400 mb-3">
-                Optional. Enables the RAG (Retrieval-Augmented Generation) module powered by
-                Gemini File Search. Without this key, the RAG knowledge base feature is unavailable
-                but all other Agent capabilities work normally.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={values['GOOGLE_API_KEY'] || ''}
-                  onChange={(e) => setValues((v) => ({ ...v, GOOGLE_API_KEY: e.target.value }))}
-                  placeholder="Google Gemini API Key"
-                  className="titlebar-no-drag flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-                <button
-                  onClick={() => window.nexus.openExternal('https://aistudio.google.com/apikey')}
-                  className="titlebar-no-drag px-3 py-1.5 text-xs text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 whitespace-nowrap border border-blue-200"
-                >
-                  Get Key
-                </button>
-              </div>
-            </div>
-
             {/* Finish button */}
             <div className="mt-6">
               <button
                 onClick={handleConfigComplete}
-                disabled={finishing || !providerReady}
+                disabled={finishing}
                 className="titlebar-no-drag w-full py-2.5 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
-                {finishing ? 'Finishing...' : !providerReady ? 'Configure LLM Providers First' : 'Finish Setup'}
+                {finishing ? 'Finishing...' : 'Finish Setup'}
               </button>
-              {everMemOSInstalled && emConfigured && !lowMemory && (
+              {everMemOSInstalled && !lowMemory && (
                 <p className="text-xs text-green-600 mt-1.5 text-center">
                   EverMemOS will be started automatically on finish
                 </p>

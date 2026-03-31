@@ -110,8 +110,14 @@ class ClaudeAgentSDK:
             logger.warning(f"System prompt too long ({len(system_prompt)} chars), truncating to {MAX_SYSTEM_PROMPT_LENGTH} chars")
             system_prompt = system_prompt[:MAX_SYSTEM_PROMPT_LENGTH] + "\n\n[...truncated due to length limit...]"
                 
-        logger.debug(f"  System prompt length: {len(system_prompt):,} chars")
-        logger.debug(f"  Your MCP: {claude_agent_mcp_dict}")
+        logger.debug(f"System prompt length: {len(system_prompt):,} chars")
+        logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
+        logger.info(
+            f"[ClaudeAgentSDK] Provider config: "
+            f"model={claude_config.model or '(default)'}, "
+            f"base_url={claude_config.base_url or '(official)'}, "
+            f"auth_type={claude_config.auth_type}"
+        )
         logger.info(f"  [FULL_SYSTEM_PROMPT]\n{system_prompt}")
         logger.info(f"  [USER_PROMPT]\n{this_turn_user_message}")
 
