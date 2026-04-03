@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-02
 **Branch:** `design/tauri-migration`
-**Status:** Draft
+**Status:** Ready for review
 
 ## Goal
 
@@ -14,13 +14,13 @@ Transform NarraNexus from a developer-oriented Electron launcher (requiring Dock
 |---------|-------|
 | Final UI opens in external browser | Electron shell is only a launcher; the real chat UI is a separate Vite app at `localhost:8000` |
 | Installation requires 15-30 minutes of setup | Preflight requires: Docker Desktop, uv, Python >= 3.13, Node.js >= 20, Claude Code CLI |
-| Docker is overkill | Only runs MySQL 8.0 and Synapse (Matrix homeserver) |
-| ~2GB+ of dependencies | Docker Desktop alone is 2GB+ |
+| Local bootstrap is still infrastructure-heavy | Core local startup depends on Docker for MySQL + Synapse; optional memory infrastructure increases complexity further |
+| ~2GB+ of dependencies | Docker Desktop alone is 2GB+, before counting Python/Node toolchain setup |
 
 ## Target User Experience
 
 ```
-Download NarraNexus.dmg (~180MB)
+Download NarraNexus.dmg (~180-250MB)
   -> Drag to Applications
   -> Double-click to open (no Gatekeeper warning, app is notarized)
   -> Choose: Local Mode / Cloud Mode
@@ -93,7 +93,9 @@ Download NarraNexus.dmg (~180MB)
 | **Backend** | Local Python sidecar | Cloud server | Cloud server |
 | **Database** | SQLite | AWS RDS (MySQL) | AWS RDS (MySQL) |
 | **Message Bus** | LocalMessageBus | CloudMessageBus | CloudMessageBus |
-| **Cross-user comms** | No (single user) | Yes | Yes |
+| **Long-term Memory** | Native vector / event-memory only (`EverMemOS` off) | EverMemOS + native fallback | EverMemOS + native fallback |
+| **Cross-user comms** | No (single user on one device) | Yes | Yes |
+| **Auth Model** | Local profile / local session only | Server session / JWT required | Server session / JWT required |
 | **Claude Code** | User's own (anyone) | Internal employees only | Internal employees only |
 | **API Mode** | Optional | All users | All users |
 | **System page** | Visible | Hidden | Hidden |
@@ -102,11 +104,39 @@ Download NarraNexus.dmg (~180MB)
 
 ---
 
+## Prerequisite Decisions
+
+These decisions must be treated as locked assumptions for the migration:
+
+1. **Local mode does not start EverMemOS.**
+   - Local mode uses SQLite + native vector retrieval / event memory only.
+   - `EVERMEMOS_ENABLED=false` in local packaged desktop builds.
+   - EverMemOS remains a cloud-only capability.
+
+2. **V1 keeps the existing multi-process runtime model.**
+   - Local desktop still launches multiple Python processes (`backend`, `mcp`, `poller`, `job-trigger`).
+   - Therefore, local message delivery cannot rely on in-memory callbacks as the correctness mechanism.
+
+3. **Cloud mode requires real authentication and authorization.**
+   - Passing `user_id` in request body or query string is acceptable only for current local/dev flows.
+   - Cloud App and Cloud Web require server-validated session/JWT, permission checks, rate limits, and audit logs.
+
+4. **"Zero upper-layer changes" is not a design constraint.**
+   - The DB backend abstraction should preserve the broad repository API where possible.
+   - Repositories, raw SQL routes, and table-management scripts are allowed to change where MySQL-specific behavior leaks through.
+
+---
+
 ## Phase 1: MySQL to SQLite (Pluggable Database Backend)
 
 ### 1.1 Strategy
 
-Create a pluggable database backend behind the existing `AsyncDatabaseClient` interface. Upper layers (Repository, Service, AgentRuntime) require zero changes.
+Create a pluggable database backend behind the existing `AsyncDatabaseClient` interface, but do **not** treat "upper layers require zero changes" as a hard requirement. The real goal is:
+
+- Keep the high-level repository/service shape stable where practical
+- Isolate dialect differences behind backend adapters when possible
+- Explicitly refactor repositories and raw SQL call sites that currently depend on MySQL-only behavior
+- Make local packaged desktop run without MySQL present at all
 
 ```
 AsyncDatabaseClient (unified interface, unchanged)
@@ -123,6 +153,20 @@ DATABASE_URL="sqlite:///~/Library/Application Support/NarraNexus/nexus.db"
 # Cloud mode (AWS RDS)
 DATABASE_URL="mysql://user:pass@rds-endpoint:3306/nexus"
 ```
+
+Migration rule:
+
+1. `AsyncDatabaseClient` stays as the public facade used by repositories and services.
+2. Table-management utilities get a dialect-aware DDL/introspection layer instead of assuming MySQL metadata APIs.
+3. Raw SQL in repositories/routes/modules is audited and either:
+   - rewritten into backend-neutral patterns, or
+   - isolated behind cloud-only code paths.
+
+Definition of done for Phase 1:
+
+- Local packaged desktop boots with SQLite and no MySQL service
+- Cloud server still boots with MySQL
+- Local mode passes schema creation and repository smoke tests without MySQL installed
 
 ### 1.2 MySQL-Specific Features Migration
 
@@ -259,13 +303,14 @@ Tauri's `app_data_dir()` handles this automatically.
 
 | File | Change |
 |------|--------|
-| `utils/database.py` | Refactor into pluggable backend interface |
+| `utils/database.py` | Refactor into pluggable backend facade |
 | `utils/db_backend_sqlite.py` | New: SQLite backend implementation |
 | `utils/db_backend_mysql.py` | New: extracted from current database.py |
 | `utils/db_factory.py` | Select backend by DATABASE_URL scheme |
 | `repository/base.py` | Adapt UPSERT syntax (backend handles internally) |
 | `repository/narrative_repository.py` | Add narrative_participants table, remove JSON_CONTAINS |
 | `repository/embedding_store_repository.py` | True batch upsert |
+| raw SQL routes / repositories | Audit `%s`, `DATE_SUB`, `JSON_EXTRACT`, `information_schema`, `SHOW COLUMNS`, etc. |
 | 18x `create_*_table.py` | Dual-dialect DDL (SQLite + MySQL) |
 | 18x `modify_*_table.py` | SQLite: recreate-table pattern (ALTER limitations) |
 
@@ -290,8 +335,8 @@ Core need: **message send/receive + channel management + agent discovery**. Matr
 
 ```
 MessageBusService (abstract interface)
-    +-- LocalMessageBus  (local mode)   <- SQLite + asyncio events
-    +-- CloudMessageBus  (cloud mode)   <- REST API to cloud backend
+    +-- LocalMessageBus  (local mode)   <- SQLite durable bus
+    +-- CloudMessageBus  (cloud mode)   <- REST / WebSocket to cloud backend
 ```
 
 ### 2.3 Unified Interface
@@ -349,8 +394,18 @@ CREATE TABLE bus_channel_members (
     channel_id TEXT NOT NULL,
     agent_id TEXT NOT NULL,
     joined_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_read_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_read_at TEXT NOT NULL DEFAULT (datetime('now')),       -- UI-level "read" cursor
+    last_processed_at TEXT,                                     -- runtime-level "processed" cursor
     PRIMARY KEY (channel_id, agent_id)
+);
+
+CREATE TABLE bus_message_failures (
+    message_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    last_retry_at TEXT,
+    PRIMARY KEY (message_id, agent_id)
 );
 
 CREATE TABLE bus_messages (
@@ -372,14 +427,20 @@ CREATE TABLE bus_agent_registry (
     registered_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE bus_delivery_cursors (
+    consumer_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    last_seen_message_id TEXT,
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (consumer_id, channel_id)
+);
 ```
 
-**Real-time notification mechanism:**
+**Delivery model (correct for multi-process local runtime):**
 
 ```python
 class LocalMessageBus(MessageBusService):
-    _subscriptions: Dict[str, List[Callable]]  # channel_id -> callbacks
-
     async def send_message(self, from_agent, to_channel, content, msg_type="text"):
         message_id = generate_id("msg")
         await self._db.insert("bus_messages", {
@@ -389,13 +450,24 @@ class LocalMessageBus(MessageBusService):
             "content": content,
             "msg_type": msg_type,
         })
-        # Event-driven: trigger callbacks immediately (no polling!)
-        for callback in self._subscriptions.get(to_channel, []):
-            asyncio.create_task(callback(message))
         return message_id
 ```
 
-Key performance advantage over MatrixTrigger: **zero polling, event-driven**. Message delivery latency drops from 15-120 seconds to milliseconds.
+Process-boundary rules:
+
+- **Backend -> frontend/WebView:** backend process may keep in-memory subscriptions and push updates through WebSocket/SSE.
+- **Backend -> worker processes / agent triggers:** use durable DB-backed cursors (`bus_delivery_cursors`) plus a lightweight `MessageBusTrigger` scan, or fold the scan into `ModulePoller`.
+- **Do not rely on in-memory callback state for cross-process correctness.**
+
+V1 target:
+
+- Replace Synapse/NexusMatrix with a much simpler durable bus
+- Keep local delivery latency in the low-seconds range
+- Preserve correctness across separate Python processes
+
+Future optimization:
+
+- If the runtime is later collapsed into fewer processes, add an in-process callback fast path on top of the same durable bus tables.
 
 **Unread query (optimized):**
 
@@ -409,7 +481,71 @@ ORDER BY m.created_at ASC;
 
 **Agent discovery:** Reuses existing VectorStore + numpy cosine similarity on `capability_embedding`.
 
-### 2.5 CloudMessageBus Implementation
+### 2.5 Delivery Semantics
+
+**Guarantee:** at-least-once delivery. Messages are never silently dropped.
+
+**Trigger ownership:** MessageBus polling is merged into ModulePoller (no separate process).
+ModulePoller already polls every 5 seconds; adding message checks is near-zero cost.
+
+**Cursor model:** Each agent tracks its own processing position via `bus_channel_members.last_processed_at` (separate from UI-level `last_read_at`).
+
+**Polling query (unified for local and cloud):**
+
+```sql
+SELECT m.* FROM bus_messages m
+JOIN bus_channel_members cm ON m.channel_id = cm.channel_id
+WHERE cm.agent_id = ?
+  AND m.created_at > COALESCE(cm.last_processed_at, '1970-01-01')
+  AND m.from_agent != ?   -- skip self-sent messages
+ORDER BY m.created_at ASC
+LIMIT 50;
+```
+
+**Cursor advancement (after successful processing):**
+
+```sql
+UPDATE bus_channel_members
+SET last_processed_at = ?   -- created_at of last successfully processed message
+WHERE channel_id = ? AND agent_id = ?;
+```
+
+**Crash recovery:** Cursor only advances after successful processing. On crash and restart, unprocessed messages are automatically replayed. Agent-side idempotency via `message_id`.
+
+**Poison message handling:**
+1. Processing failure increments `retry_count` in `bus_message_failures`
+2. `retry_count >= 3` → message is skipped, cursor advances past it
+3. Failed messages are logged but do not block the queue
+
+**Local vs cloud execution:**
+
+| | Local Mode | Cloud Mode |
+|--|-----------|------------|
+| Trigger | ModulePoller (single process) | MessageBusWorker (cloud service, horizontally scalable) |
+| Database | SQLite | MySQL |
+| Sharding | Not needed (single user) | By `agent_id` hash across worker instances |
+| Logic | Identical SQL and cursor model | Identical SQL and cursor model |
+
+**Observability:**
+
+```sql
+-- Queue depth per agent
+SELECT COUNT(*) FROM bus_messages m
+JOIN bus_channel_members cm ON m.channel_id = cm.channel_id
+WHERE cm.agent_id = ?
+  AND m.created_at > COALESCE(cm.last_processed_at, '1970-01-01');
+
+-- Max delivery lag in seconds
+SELECT MAX(julianday('now') - julianday(m.created_at)) * 86400 AS lag_seconds
+FROM bus_messages m
+JOIN bus_channel_members cm ON m.channel_id = cm.channel_id
+WHERE cm.agent_id = ?
+  AND m.created_at > COALESCE(cm.last_processed_at, '1970-01-01');
+```
+
+Queue depth and lag are exposed on the frontend System page (local mode) and admin dashboard (cloud mode).
+
+### 2.6 CloudMessageBus Implementation
 
 ```python
 class CloudMessageBus(MessageBusService):
@@ -431,7 +567,7 @@ class CloudMessageBus(MessageBusService):
 
 The cloud API server runs the same `LocalMessageBus` logic internally, just backed by MySQL instead of SQLite.
 
-### 2.6 Cross-User Communication (Cloud Mode)
+### 2.7 Cross-User Communication (Cloud Mode)
 
 In cloud mode, public agents can be discovered and messaged by any user.
 
@@ -442,13 +578,23 @@ In cloud mode, public agents can be discovered and messaged by any user.
 | Communication scope | Same user's agents only | All users' agents |
 | Agent discovery | Only own agents | All `visibility = 'public'` agents + own agents |
 | Channel visibility | All visible (single user) | `private` (invite only) / `public` (searchable) |
-| Permission control | Not needed | `register_agent()` declares `visibility: public/private` |
+| Permission control | Minimal | Server-enforced authz + agent visibility metadata |
 
-### 2.7 Public Agent Interaction Model
+### 2.8 Public Agent Interaction Model
 
 Agents marked `is_public = true` can be interacted with by any user in cloud mode.
 
-**Security approach:** Instead of hard-coding access rules, the agent is informed of the caller's identity via message context. The agent uses its own cognitive ability (Awareness) to decide how to respond.
+**Security boundary:** the backend enforces authentication and authorization. Agent reasoning is useful for behavior, but is **not** the primary security control.
+
+Server responsibilities:
+
+- authenticate the caller (session / JWT)
+- authorize visibility to public/private agents and channels
+- enforce creator-only operations server-side
+- apply rate limits / abuse controls
+- write audit logs for public interactions
+
+Agent context injection is still useful, but only as a behavioral hint:
 
 Example context injection:
 ```
@@ -462,9 +608,117 @@ The agent decides autonomously whether to:
 - Decline certain operations
 - Ask for authorization
 
-This aligns with the Awareness-driven design philosophy of the project.
+This aligns with the Awareness-driven design philosophy of the project, but the **server remains the hard security boundary**.
 
-### 2.8 MCP Tool Mapping
+### 2.9 Cloud Authentication and Authorization
+
+**Identity provider:** Supabase Auth (managed). 50,000 MAU free tier. Open-source, can self-host later if needed.
+
+**Login methods:**
+- Google / GitHub social login (lowest friction for end users)
+- Email + password registration
+
+**Architecture:**
+
+```
+Frontend (React)
+    |
+    +-- @supabase/supabase-js SDK
+    |   +-- Google / GitHub social login
+    |   +-- Email + password registration
+    |
+    +-- Receives JWT access_token
+    |
+    +-- All API requests: Authorization: Bearer <token>
+            |
+            v
+Python Backend (FastAPI)
+    |
+    +-- Middleware verifies JWT signature (Supabase public key, no remote call)
+    +-- Extracts user_id, email, user_type from JWT claims
+    +-- Injects into request context
+```
+
+**User type distinction:**
+
+Supabase stores custom fields in `user.app_metadata` (server-set, user cannot modify):
+
+```json
+{
+  "user_type": "internal",
+  "org": "netmind"
+}
+```
+
+- Internal employees: registered via admin invite, server sets `user_type: "internal"`
+- External users: self-registration, default `user_type: "external"`
+
+JWT automatically includes these claims. Backend parses directly, no extra DB lookup.
+
+**Token lifecycle:**
+
+| Concern | Solution |
+|---------|----------|
+| Storage | Tauri App: Tauri secure storage (OS keychain). Web: httpOnly cookie |
+| Refresh | Supabase SDK auto-refresh (access_token expires in 1h, refresh_token auto-renews) |
+| Logout | `supabase.auth.signOut()`, clears local tokens |
+| Multi-device | Supabase native support, independent sessions per device |
+| Revocation | Admin dashboard can revoke all sessions for a user |
+
+**Backend auth middleware:**
+
+```python
+async def auth_middleware(request: Request, call_next):
+    # Local mode: skip authentication entirely
+    if app_config.mode == "local":
+        request.state.user = LocalUser(
+            user_id=app_config.local_user_id,
+            user_type="internal"
+        )
+        return await call_next(request)
+
+    # Cloud mode: verify JWT
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    if not token:
+        return JSONResponse(status_code=401, content={"error": "Unauthorized"})
+
+    payload = verify_supabase_jwt(token)  # local signature check, no remote call
+    request.state.user = CloudUser(
+        user_id=payload["sub"],
+        email=payload["email"],
+        user_type=payload["app_metadata"]["user_type"],
+    )
+    return await call_next(request)
+```
+
+**API authorization rules:**
+
+```python
+def require_agent_access(func):
+    async def wrapper(request: Request, agent_id: str, ...):
+        user = request.state.user
+        agent = await agent_repo.get_by_id(agent_id)
+
+        if agent.owner_user_id == user.user_id:
+            pass  # creator: full access
+        elif agent.is_public:
+            pass  # public agent: allowed, agent decides boundaries
+        else:
+            return JSONResponse(status_code=403, content={"error": "Forbidden"})
+
+        return await func(request, agent_id, ...)
+    return wrapper
+```
+
+**Audit and rate limiting (V1 minimum):**
+
+| Need | Solution |
+|------|----------|
+| Audit log | API middleware logs `user_id + action + agent_id + timestamp` to audit table |
+| Rate limiting | FastAPI `slowapi`, keyed by `user_id`. External users get stricter limits |
+| Abuse detection | V1: not implemented, rate limiting is the backstop |
+
+### 2.10 MCP Tool Mapping
 
 | Original Matrix Tool | New MessageBus Method | Change |
 |---------------------|----------------------|--------|
@@ -476,18 +730,18 @@ This aligns with the Awareness-driven design philosophy of the project.
 
 Module rename: `MatrixModule` -> `MessageBusModule`.
 
-### 2.9 What Gets Removed
+### 2.11 What Gets Removed
 
 | Removed | Reason |
 |---------|--------|
 | Synapse service in `docker-compose.yaml` | No longer needed |
 | `related_project/NetMind-AI-RS-NexusMatrix/` | No longer needed |
 | `matrix_credentials` table | Replaced by `bus_agent_registry` |
-| `matrix_processed_events` table | Event-driven model needs no dedup table |
-| MatrixTrigger background process | Replaced by asyncio callbacks (one fewer process) |
+| `matrix_processed_events` table | Replaced by bus delivery cursor state |
+| MatrixTrigger background process | Replaced by `MessageBusTrigger` or ModulePoller-integrated bus scan |
 | `matrix-nio` dependency | No longer needed |
 
-**Net effect: one fewer Docker container, one fewer background process, one fewer external dependency, lower latency.**
+**Net effect:** one fewer Docker container, one fewer external service, one fewer protocol dependency, and a much simpler local/cloud messaging stack. A lightweight trigger may still exist in V1 because the local runtime remains multi-process.
 
 ---
 
@@ -538,19 +792,33 @@ Components to migrate:
         +-- Start/stop controls
 ```
 
-### 3.4 Mode Detection and Feature Gating
+### 3.4 Mode Detection, Runtime Config, and Feature Gating
 
 ```typescript
 type AppMode = 'local' | 'cloud-app' | 'cloud-web'
 
-function detectAppMode(): AppMode {
-  if (window.__TAURI__) {
-    const config = await invoke('get_app_config')
-    return config.mode  // 'local' | 'cloud-app'
+type RuntimeConfig = {
+  mode: AppMode
+  apiBaseUrl: string
+  authMode: 'local-dev' | 'session'
+  userType?: 'internal' | 'external'
+  featureFlags: string[]
+}
+
+async function loadRuntimeConfig(): Promise<RuntimeConfig> {
+  if ((window as any).__TAURI__) {
+    return await invoke<RuntimeConfig>('get_app_config')
   }
-  return 'cloud-web'
+  const resp = await fetch('/app-config.json', { cache: 'no-store' })
+  return await resp.json()
 }
 ```
+
+Rules:
+
+- The frontend loads `RuntimeConfig` before mounting protected routes.
+- `ApiClient` reads `apiBaseUrl` from runtime config, not only from build-time `VITE_API_BASE_URL`.
+- Cloud feature gates come from authenticated server claims, not client-only flags.
 
 UI differences by mode:
 
@@ -592,6 +860,11 @@ const FEATURE_GATES: Record<UserType, FeatureFlags> = {
 }
 ```
 
+Source of truth:
+
+- Local mode: desktop config may supply local feature flags
+- Cloud modes: authenticated backend session supplies `userType` and enabled capabilities
+
 | | Local Mode | Cloud (Internal) | Cloud (External) |
 |--|-----------|-----------------|-----------------|
 | Claude Code | User's own (anyone can use) | Server-deployed (our account) | Not available |
@@ -612,8 +885,7 @@ interface PlatformBridge {
   onHealthUpdate(cb: (health: OverallHealth) => void): () => void
 
   // App lifecycle
-  getAppMode(): Promise<AppMode>
-  getAppConfig(): Promise<AppConfig>
+  getAppConfig(): Promise<RuntimeConfig>
   checkForUpdates(): Promise<UpdateInfo | null>
 
   // File system (local mode)
@@ -799,22 +1071,24 @@ User double-clicks NarraNexus.app
     |
     +-- Local mode startup:
     |   1. Detect Python runtime (bundled sidecar)       ~1s
-    |   2. Initialize SQLite database (auto-create)      ~1s
+    |   2. Initialize SQLite database + migrations       ~1-2s
     |   3. Start Python backend (uvicorn, port 8000)     ~3s
-    |   4. Wait for backend health (GET /docs -> 200)    ~2s
+    |   4. Wait for backend health (GET /health -> 200)  ~1-2s
     |   5. Start MCP Server                              ~2s
-    |   6. Start Module Poller                           ~1s
-    |   7. WebView loads frontend                        ~1s
-    |   Total: ~10 seconds
+    |   6. Start Module Poller + Job Trigger             ~1-2s
+    |   7. Start MessageBusTrigger (or poller-integrated)
+    |   8. WebView loads frontend                        ~1s
+    |   Total target: ~10-15 seconds
     |
     +-- Cloud mode startup:
         1. WebView loads frontend
-        2. Frontend points to cloud API
-        3. Show login page
-        Total: ~3 seconds
+        2. Frontend loads runtime config
+        3. Frontend points to cloud API
+        4. Restore or request authenticated session
+        Total target: ~3-5 seconds
 ```
 
-Compared to current: eliminates Docker startup (~30s), Synapse wait (~90s), dependency installation (5-20 min). Cold start drops from 2-3 minutes (best case) to ~10 seconds.
+Compared to current: eliminates Docker startup for packaged local mode, removes Synapse/NexusMatrix bootstrap, and avoids first-run dependency installation. EverMemOS is explicitly excluded from local mode and remains cloud-only.
 
 ### 4.6 Python Runtime Bundling
 
@@ -845,11 +1119,11 @@ NarraNexus.app/
 | Component | Size |
 |-----------|------|
 | Python 3.13 standalone | ~45MB |
-| Virtual environment (all deps) | ~120MB |
+| Virtual environment (local packaged deps) | ~120-180MB |
 | Project source code | ~5MB |
 | Tauri shell | ~5MB |
 | Frontend build artifacts | ~3MB |
-| **Total DMG size** | **~180MB** |
+| **Total DMG size** | **~180-250MB (verify in CI)** |
 
 Compared to current: Electron shell alone is 150MB, plus user must install Docker (2GB+), Python, Node.js, etc.
 
@@ -997,7 +1271,22 @@ User opens app
         +-- No -> Do nothing
 ```
 
-### 5.4 Python Dependency Split
+### 5.4 Release Matrix
+
+| Dimension | V1 Decision |
+|-----------|-------------|
+| Target platform | macOS ARM (Apple Silicon) only |
+| Future platforms | Windows (Tauri native support, add CI job) |
+| Artifact format | `.dmg` |
+| Code signing | Apple Developer certificate |
+| Notarization | Apple notarization via `tauri-action` |
+| Auto-update | GitHub Releases + `tauri-plugin-updater` |
+| Python runtime | `python-build-standalone` macOS aarch64 |
+| Estimated DMG size | ~180MB |
+| Release trigger | Git tag `v*` -> GitHub Actions auto-build |
+| CI jobs required | Build (compile Rust + bundle Python + build frontend) -> Sign -> Notarize -> Smoke test (open app on runner) -> Publish to GitHub Releases |
+
+### 5.5 Python Dependency Split
 
 ```toml
 # pyproject.toml
@@ -1042,7 +1331,7 @@ tauri/                              # Tauri 2 app shell (replaces desktop/)
 src/xyz_agent_context/
     +-- message_bus/                # Agent message bus (replaces Matrix)
     |   +-- message_bus_service.py  # Abstract interface
-    |   +-- local_bus.py            # Local implementation (SQLite + asyncio)
+    |   +-- local_bus.py            # Local implementation (SQLite + cursor-based delivery)
     |   +-- cloud_bus.py            # Cloud implementation (REST API)
     +-- utils/
         +-- db_backend_sqlite.py    # SQLite backend
@@ -1052,6 +1341,7 @@ frontend/src/
     +-- pages/SettingsPage.tsx      # Model config + execution mode
     +-- pages/ModeSelectPage.tsx    # Mode selection
     +-- lib/platform.ts            # Platform abstraction layer
+    +-- stores/runtimeConfigStore.ts # Runtime config + session bootstrap
 ```
 
 ### Modified Files
@@ -1059,9 +1349,13 @@ frontend/src/
 ```
 frontend/src/App.tsx               # New routes
 frontend/src/lib/api.ts            # Dynamic API_BASE_URL
+frontend/src/stores/configStore.ts # Session-aware auth state
 src/xyz_agent_context/utils/
     +-- database.py                # Pluggable backend interface
     +-- db_factory.py              # Backend selection by config
+src/xyz_agent_context/services/
+    +-- module_poller.py           # Add MessageBus polling (merged trigger)
+backend/routes/auth.py            # Cloud-ready auth/session contract
 pyproject.toml                     # Dependency split
 ```
 
@@ -1069,10 +1363,43 @@ pyproject.toml                     # Dependency split
 
 ```
 desktop/                           # Electron app (entire directory)
-docker-compose.yaml                # Docker no longer needed
+docker-compose.yaml                # Docker no longer needed for local mode
 related_project/NetMind-AI-RS-NexusMatrix/  # Synapse no longer needed
 src/xyz_agent_context/module/matrix_module/ # Replaced by message_bus
 ```
+
+---
+
+## Local vs Cloud Capability Matrix
+
+Local mode is a complete, fully functional product. Cloud mode adds social and shared capabilities.
+
+| Feature | Local Mode | Cloud Mode |
+|---------|-----------|------------|
+| Agent chat, Awareness, Jobs | Full | Full |
+| Narrative core logic | Full | Full |
+| All standard Modules | Full | Full |
+| Claude Code execution | User's own CLI (anyone) | Internal employees only (server-deployed) |
+| API mode execution (base_url + api_key + model) | Available | Available |
+| Agent-to-agent communication | Same user's agents | Cross-user |
+| Public Agent interaction | N/A (single user) | Any user can interact with public agents |
+| EverMemOS Module | Not available | Optional (independent Module) |
+| Model/provider configuration | Full | Full |
+| Offline usage | Yes | No |
+
+**Frontend handling:** Features unavailable in a given mode are simply not rendered (e.g., EverMemOS Module does not appear in the Module list for local mode). No "disabled" states or "upgrade to cloud" prompts in V1.
+
+---
+
+## Migration & Cutover
+
+**Decision: No migration. Clean install for all users.**
+
+- The current Electron + Docker + MySQL stack has very few external users due to its high installation barrier.
+- CLAUDE.md principle #2: "no backward compatibility."
+- Existing users install the new Tauri app fresh. No data migration tooling, no dual-runtime coexistence.
+- Old Electron app and new Tauri app can coexist on the same machine (different app bundles, different data directories).
+- Matrix inbox/history data is not migrated. The new MessageBus starts with a clean slate.
 
 ---
 
@@ -1082,10 +1409,11 @@ All phases are completed before any release. The phased approach is for developm
 
 | Phase | Scope | Key Risk | Mitigation |
 |-------|-------|----------|------------|
-| 1. DB Backend | Python backend only | SQL dialect differences | Comprehensive table tests |
-| 2. Message Bus | Python backend only | Missing Matrix features | 1:1 API mapping verified |
-| 3. Frontend Merge | Frontend only | Dashboard component integration | Isolated route, no side effects |
-| 4. Tauri Shell | New directory, no edits to existing | Rust sidecar process management | Mirrors existing Electron logic |
-| 5. Build/Release | CI/CD only | Python bundling, notarization | Test on clean macOS VM |
+| 0. Scope/Auth Lock | Cross-cutting | Ambiguous local/cloud behavior, weak cloud security model | Lock assumptions before implementation |
+| 1. DB Backend | Python backend only | SQL dialect differences | Comprehensive SQLite/MySQL table and repository tests |
+| 2. Message Bus | Python backend only | Cross-process delivery gaps after removing Matrix | Durable bus + trigger design, not in-memory callbacks only |
+| 3. Frontend + Session Bootstrap | Frontend + API contract | Runtime config / auth drift between local and cloud | Bootstrap from runtime config + server session |
+| 4. Tauri Shell | New directory, no edits to existing | Rust sidecar process management | Mirror existing service topology first, optimize later |
+| 5. Build/Release | CI/CD only | Python bundling size, signing, notarization | Test on clean macOS VM and verify artifact size in CI |
 
-Each phase is independently testable. If Phase 4 hits issues, Phases 1-3 are still valid improvements.
+Each phase is independently testable. If Phase 4 hits issues, Phases 0-3 are still valid improvements and reduce architectural risk.
