@@ -20,7 +20,7 @@ import {
   Rocket,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
-import { SettingsPage } from '@/pages/SettingsPage';
+import SettingsPage from '@/pages/SettingsPage';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 import { cn } from '@/lib/utils';
 

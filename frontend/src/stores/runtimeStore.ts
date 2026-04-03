@@ -18,7 +18,7 @@ interface RuntimeState {
   features: FeatureFlags;
   initialized: boolean;
 
-  setMode: (mode: AppMode) => void;
+  setMode: (mode: AppMode | null) => void;
   setUserType: (type: UserType) => void;
   initialize: () => void;
 }

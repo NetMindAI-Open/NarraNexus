@@ -2,272 +2,108 @@
  * @file_name: SettingsPage.tsx
  * @author: NexusAgent
  * @date: 2026-04-02
- * @description: Settings page for model provider configuration
+ * @description: Settings page — reuses existing ProviderSettings + adds mode switching
  *
- * Allows users to configure the LLM provider (Anthropic, OpenAI, Google, Custom),
- * enter API credentials, test connectivity, and select the execution mode.
+ * Uses the existing ProviderSettings component (which calls /api/providers)
+ * for LLM configuration, and adds a mode switch section for local/cloud toggle.
  */
 
-import { useState, useEffect } from 'react';
-import {
-  Save,
-  FlaskConical,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-} from 'lucide-react';
-import { Button, Input, Card, CardHeader, CardTitle, CardContent } from '@/components/ui';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { RotateCcw, Monitor, Cloud } from 'lucide-react';
+import { Button, Card, CardContent } from '@/components/ui';
+import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { useRuntimeStore } from '@/stores/runtimeStore';
-import { cn } from '@/lib/utils';
 
-type Provider = 'anthropic' | 'openai' | 'google' | 'custom';
-type ExecutionMode = 'claude-code' | 'api';
-type TestStatus = 'idle' | 'testing' | 'success' | 'error';
+export default function SettingsPage() {
+  const navigate = useNavigate();
+  const { mode, setMode } = useRuntimeStore();
+  const [showModeConfirm, setShowModeConfirm] = useState(false);
 
-const PROVIDERS: { value: Provider; label: string }[] = [
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'google', label: 'Google' },
-  { value: 'custom', label: 'Custom' },
-];
-
-const STORAGE_KEY = 'narranexus-settings';
-
-interface SettingsData {
-  provider: Provider;
-  baseUrl: string;
-  apiKey: string;
-  modelName: string;
-  executionMode: ExecutionMode;
-}
-
-function loadSettings(): SettingsData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as SettingsData;
-  } catch {
-    // Ignore parse errors
-  }
-  return {
-    provider: 'anthropic',
-    baseUrl: '',
-    apiKey: '',
-    modelName: '',
-    executionMode: 'api',
-  };
-}
-
-export function SettingsPage() {
-  const { features } = useRuntimeStore();
-
-  const [provider, setProvider] = useState<Provider>('anthropic');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [modelName, setModelName] = useState('');
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>('api');
-  const [testStatus, setTestStatus] = useState<TestStatus>('idle');
-  const [saved, setSaved] = useState(false);
-
-  // Load from localStorage on mount
-  useEffect(() => {
-    const data = loadSettings();
-    setProvider(data.provider);
-    setBaseUrl(data.baseUrl);
-    setApiKey(data.apiKey);
-    setModelName(data.modelName);
-    setExecutionMode(data.executionMode);
-  }, []);
-
-  const handleSave = () => {
-    const data: SettingsData = {
-      provider,
-      baseUrl,
-      apiKey,
-      modelName,
-      executionMode,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
-  const handleTestConnection = async () => {
-    setTestStatus('testing');
-    // Placeholder: simulate a connection test
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    // For now, succeed if apiKey is non-empty
-    setTestStatus(apiKey.trim() ? 'success' : 'error');
-    setTimeout(() => setTestStatus('idle'), 3000);
+  const handleSwitchMode = () => {
+    // Reset mode — go back to mode selection
+    setMode(null);
+    navigate('/mode-select');
   };
 
   return (
-    <div className="h-full flex flex-col gap-6 p-6 overflow-y-auto max-w-2xl">
-      <h1 className="text-lg font-semibold text-[var(--text-primary)]">
-        Settings
-      </h1>
+    <div className="h-full overflow-y-auto p-6 space-y-6">
+      {/* LLM Provider Configuration — uses existing component that calls /api/providers */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+          LLM Providers
+        </h2>
+        <ProviderSettings />
+      </section>
 
-      {/* Provider configuration */}
-      <Card variant="default">
-        <CardHeader>
-          <CardTitle>Model Provider</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {/* Provider dropdown */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Provider
-            </label>
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as Provider)}
-              className={cn(
-                'w-full bg-[var(--bg-sunken)] border border-[var(--border-default)] rounded-xl',
-                'px-4 py-2.5 text-[var(--text-primary)]',
-                'focus:outline-none focus:border-[var(--accent-primary)]',
-                'focus:shadow-[0_0_0_3px_var(--accent-glow),0_0_20px_var(--accent-glow)]',
-                'hover:border-[var(--border-strong)]',
-                'transition-all duration-200',
-              )}
-            >
-              {PROVIDERS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* Embedding Status */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+          Embedding Index
+        </h2>
+        <EmbeddingStatus />
+      </section>
 
-          {/* Base URL */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Base URL
-            </label>
-            <Input
-              type="text"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.anthropic.com"
-            />
-          </div>
-
-          {/* API Key */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              API Key
-            </label>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-..."
-            />
-          </div>
-
-          {/* Model Name */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Model Name
-            </label>
-            <Input
-              type="text"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="claude-sonnet-4-20250514"
-            />
-          </div>
-
-          {/* Test connection */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleTestConnection}
-            disabled={testStatus === 'testing'}
-          >
-            {testStatus === 'testing' && (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            )}
-            {testStatus === 'success' && (
-              <CheckCircle2 className="w-3.5 h-3.5 text-[var(--color-success)]" />
-            )}
-            {testStatus === 'error' && (
-              <XCircle className="w-3.5 h-3.5 text-[var(--color-error)]" />
-            )}
-            {testStatus === 'idle' && <FlaskConical className="w-3.5 h-3.5" />}
-            {testStatus === 'testing'
-              ? 'Testing...'
-              : testStatus === 'success'
-                ? 'Connection OK'
-                : testStatus === 'error'
-                  ? 'Connection Failed'
-                  : 'Test Connection'}
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Execution mode */}
-      <Card variant="default">
-        <CardHeader>
-          <CardTitle>Execution Mode</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {/* API Mode */}
-          <label className="flex items-center gap-3 cursor-pointer group">
-            <input
-              type="radio"
-              name="executionMode"
-              value="api"
-              checked={executionMode === 'api'}
-              onChange={() => setExecutionMode('api')}
-              className="accent-[var(--accent-primary)]"
-            />
-            <div>
-              <span className="text-sm font-medium text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
-                API Mode
-              </span>
-              <p className="text-xs text-[var(--text-tertiary)]">
-                Use the model provider API directly
-              </p>
-            </div>
-          </label>
-
-          {/* Claude Code - only visible when feature flag allows */}
-          {features.canUseClaudeCode && (
-            <label className="flex items-center gap-3 cursor-pointer group">
-              <input
-                type="radio"
-                name="executionMode"
-                value="claude-code"
-                checked={executionMode === 'claude-code'}
-                onChange={() => setExecutionMode('claude-code')}
-                className="accent-[var(--accent-primary)]"
-              />
-              <div>
-                <span className="text-sm font-medium text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
-                  Claude Code
-                </span>
-                <p className="text-xs text-[var(--text-tertiary)]">
-                  Execute tasks via Claude Code CLI
-                </p>
+      {/* Mode Switching */}
+      <section>
+        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+          Runtime Mode
+        </h2>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                {mode === 'local' ? (
+                  <Monitor className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
+                ) : (
+                  <Cloud className="w-5 h-5" style={{ color: 'var(--accent-primary)' }} />
+                )}
+                <div>
+                  <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
+                  </p>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    {mode === 'local'
+                      ? 'Everything runs on your machine. Data stays local.'
+                      : 'Connected to cloud services.'}
+                  </p>
+                </div>
               </div>
-            </label>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Save button */}
-      <div className="flex items-center gap-3">
-        <Button variant="accent" onClick={handleSave}>
-          <Save className="w-4 h-4" />
-          {saved ? 'Saved!' : 'Save Settings'}
-        </Button>
-        {saved && (
-          <span className="text-xs text-[var(--color-success)] animate-fade-in">
-            Settings saved to local storage
-          </span>
-        )}
-      </div>
+              {!showModeConfirm ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowModeConfirm(true)}
+                >
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                  Switch Mode
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    Switch to {mode === 'local' ? 'Cloud' : 'Local'}?
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowModeConfirm(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSwitchMode}
+                  >
+                    Confirm
+                  </Button>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }
-
-export default SettingsPage;
