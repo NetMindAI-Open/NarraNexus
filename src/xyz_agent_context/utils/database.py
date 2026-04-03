@@ -241,13 +241,14 @@ class AsyncDatabaseClient:
         self._transaction_connection: Optional[aiomysql.Connection] = None
         self._initialized = _pool is not None or _backend is not None
         self._backend: Optional["DatabaseBackend"] = _backend
+        self._owns_backend: bool = _backend is not None  # Only close if we own it
 
     async def _ensure_pool(self) -> aiomysql.Pool:
         """
         Ensure the connection pool is initialized (lazy loading)
 
         If the connection pool is not initialized, create it.
-        If DATABASE_URL is sqlite://, auto-creates a SQLiteBackend instead.
+        If DATABASE_URL is sqlite://, uses the shared SQLiteBackend from db_factory.
         Supports calling methods after direct DatabaseClient() instantiation.
 
         Returns:
@@ -261,12 +262,22 @@ class AsyncDatabaseClient:
             from xyz_agent_context.settings import settings
             url = getattr(settings, 'database_url', None) or ''
             if url.startswith('sqlite'):
+                # Use the shared singleton from db_factory to avoid multiple connections
+                from xyz_agent_context.utils.db_factory import get_db_client
+                shared = await get_db_client()
+                if shared._backend:
+                    self._backend = shared._backend  # Share the same backend
+                    self._owns_backend = False  # Don't close it on our close()
+                    self._initialized = True
+                    return None
+                # Fallback: create own backend
                 from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
                 from xyz_agent_context.utils.db_factory import parse_sqlite_url
                 db_path = parse_sqlite_url(url)
                 backend = SQLiteBackend(db_path)
                 await backend.initialize()
                 self._backend = backend
+                self._owns_backend = True
                 self._initialized = True
                 logger.info(f"AsyncDatabaseClient auto-switched to SQLite backend: {db_path}")
                 return None
@@ -397,7 +408,13 @@ class AsyncDatabaseClient:
             else:
                 return await self._backend.execute_write(q, p)
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             # Use transaction connection
@@ -573,7 +590,13 @@ class AsyncDatabaseClient:
         query = f"INSERT INTO `{safe_table}` ({columns}) VALUES ({placeholders})"
         params = tuple(data.values())
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -636,7 +659,13 @@ class AsyncDatabaseClient:
             f"WHERE {' AND '.join(where_clauses)}"
         )
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -683,7 +712,13 @@ class AsyncDatabaseClient:
 
         query = f"DELETE FROM `{safe_table}` WHERE {' AND '.join(where_clauses)}"
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -754,7 +789,13 @@ class AsyncDatabaseClient:
 
         params = tuple(data.values())
 
-        pool = await self._ensure_pool()
+        await self._ensure_pool()
+        if self._backend:
+            # _ensure_pool auto-switched to SQLite — delegate with translation
+            q = _mysql_to_sqlite_sql(query) if self._backend.dialect == "sqlite" else query
+            p = tuple(params) if params else ()
+            return (await self._backend.execute(q, p)) if fetch else (await self._backend.execute_write(q, p))
+        pool = self._pool
 
         if self._transaction_connection:
             async with self._transaction_connection.cursor() as cursor:
@@ -1022,9 +1063,12 @@ class AsyncDatabaseClient:
     async def close(self) -> None:
         """Close the connection pool or backend"""
         if self._backend:
-            await self._backend.close()
+            if self._owns_backend:
+                await self._backend.close()
+                logger.info("AsyncDatabaseClient (backend-delegated) closed")
+            else:
+                logger.debug("AsyncDatabaseClient detached from shared backend (not closing)")
             self._backend = None
-            logger.info("AsyncDatabaseClient (backend-delegated) closed")
             return
 
         if self._pool is None:
