@@ -11,9 +11,11 @@ Contains:
 
 from .module_poller import ModulePoller, run_module_poller
 from .instance_sync_service import InstanceSyncService
+from .message_bus_poller import poll_message_bus
 
 __all__ = [
     "ModulePoller",
     "run_module_poller",
     "InstanceSyncService",
+    "poll_message_bus",
 ]
