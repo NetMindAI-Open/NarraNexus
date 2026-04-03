@@ -155,3 +155,10 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 .vite/
+
+# ── Tauri build artifacts ────────────────────────────────────────────────
+tauri/src-tauri/target/
+tauri/src-tauri/resources/python/
+tauri/src-tauri/resources/venv/
+tauri/src-tauri/resources/project/
+tauri/src-tauri/gen/
