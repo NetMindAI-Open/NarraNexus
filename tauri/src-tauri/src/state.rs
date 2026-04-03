@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -52,8 +53,131 @@ pub struct ServiceDef {
     pub order: u32,
 }
 
+// ---------------------------------------------------------------------------
+// Path resolution helpers
+// ---------------------------------------------------------------------------
+
+/// Resolve the Resources directory.
+/// In a macOS .app bundle the executable lives at Contents/MacOS/narranexus,
+/// so Contents/Resources is one level up from the executable directory.
+/// Falls back to the current working directory in development.
+pub fn resolve_resource_dir() -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        let exe_dir = exe.parent().unwrap_or(Path::new("."));
+        // .app bundle: exe is at Contents/MacOS/narranexus
+        let resources = exe_dir.join("../Resources");
+        if resources.exists() {
+            return resources.canonicalize().unwrap_or(resources);
+        }
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+}
+
+/// Resolve the project root that contains backend/, src/, etc.
+/// Bundle mode: Contents/Resources/project/
+/// Dev mode: two levels up from src-tauri (i.e. the repo root).
+pub fn resolve_project_root() -> PathBuf {
+    let resources = resolve_resource_dir();
+    let project = resources.join("project");
+    if project.exists() {
+        return project;
+    }
+    // Development: CWD is typically tauri/src-tauri or tauri/
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("..")
+}
+
+/// Resolve the Python interpreter path.
+/// Bundle mode: Contents/Resources/python/bin/python3
+/// Dev mode: fall back to "uv" (used via `uv run`).
+pub fn resolve_python_path() -> PathBuf {
+    let resources = resolve_resource_dir();
+    let python = resources.join("python/bin/python3");
+    if python.exists() {
+        return python;
+    }
+    PathBuf::from("uv")
+}
+
+/// Resolve the SQLite database path using platform app-data directory.
+pub fn resolve_db_path() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("NarraNexus")
+        .join("nexus.db")
+}
+
+/// Returns true when we are running inside a .app bundle
+/// (i.e. a standalone Python interpreter is shipped alongside the app).
+pub fn is_bundled() -> bool {
+    resolve_resource_dir().join("python/bin/python3").exists()
+}
+
+// ---------------------------------------------------------------------------
+// ServiceDef factories
+// ---------------------------------------------------------------------------
+
 impl ServiceDef {
-    pub fn default_services() -> Vec<ServiceDef> {
+    pub fn default_services(project_root: &str, python_path: &str, bundled: bool) -> Vec<ServiceDef> {
+        if bundled {
+            Self::bundled_services(project_root, python_path)
+        } else {
+            Self::dev_services(project_root)
+        }
+    }
+
+    /// Services when running from a packaged .app bundle.
+    /// Uses the standalone Python interpreter directly (no uv).
+    fn bundled_services(project_root: &str, python_path: &str) -> Vec<ServiceDef> {
+        vec![
+            ServiceDef {
+                id: "backend".to_string(),
+                label: "Backend API".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "uvicorn".to_string(),
+                    "backend.main:app".to_string(),
+                    "--port".to_string(),
+                    "8000".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: Some(8000),
+                health_url: Some("/docs".to_string()),
+                order: 1,
+            },
+            ServiceDef {
+                id: "mcp".to_string(),
+                label: "MCP Server".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "src/xyz_agent_context/module/module_runner.py".to_string(),
+                    "mcp".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 2,
+            },
+            ServiceDef {
+                id: "poller".to_string(),
+                label: "Module Poller".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.services.module_poller".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 3,
+            },
+        ]
+    }
+
+    /// Services during development — uses `uv run`.
+    fn dev_services(project_root: &str) -> Vec<ServiceDef> {
         vec![
             ServiceDef {
                 id: "backend".to_string(),
@@ -66,7 +190,7 @@ impl ServiceDef {
                     "--port".to_string(),
                     "8000".to_string(),
                 ],
-                cwd: None,
+                cwd: Some(project_root.to_string()),
                 port: Some(8000),
                 health_url: Some("/docs".to_string()),
                 order: 1,
@@ -81,7 +205,7 @@ impl ServiceDef {
                     "src/xyz_agent_context/module/module_runner.py".to_string(),
                     "mcp".to_string(),
                 ],
-                cwd: None,
+                cwd: Some(project_root.to_string()),
                 port: None,
                 health_url: None,
                 order: 2,
@@ -96,7 +220,7 @@ impl ServiceDef {
                     "-m".to_string(),
                     "xyz_agent_context.services.module_poller".to_string(),
                 ],
-                cwd: None,
+                cwd: Some(project_root.to_string()),
                 port: None,
                 health_url: None,
                 order: 3,
@@ -114,11 +238,22 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        let project_root = resolve_project_root();
+        let python_path = resolve_python_path();
+        let bundled = is_bundled();
+
+        let project_root_str = project_root.to_string_lossy().to_string();
+        let python_path_str = python_path.to_string_lossy().to_string();
+
         Self {
-            config: Mutex::new(AppConfig::default()),
+            config: Mutex::new(AppConfig {
+                db_path: Some(resolve_db_path().to_string_lossy().to_string()),
+                python_path: Some(python_path_str.clone()),
+                ..AppConfig::default()
+            }),
             process_manager: Arc::new(Mutex::new(ProcessManager::new())),
             health_monitor: Arc::new(HealthMonitor::new()),
-            service_defs: ServiceDef::default_services(),
+            service_defs: ServiceDef::default_services(&project_root_str, &python_path_str, bundled),
         }
     }
 }

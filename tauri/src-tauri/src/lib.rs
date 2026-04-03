@@ -5,7 +5,7 @@ mod tray;
 
 use tauri::Manager;
 
-use state::AppState;
+use state::{resolve_db_path, AppState};
 
 pub fn run() {
     env_logger::init();
@@ -28,8 +28,18 @@ pub fn run() {
             commands::health::get_logs,
         ])
         .setup(|app| {
+            // Set DATABASE_URL so the Python backend picks up the correct SQLite path
+            let db_path = resolve_db_path();
+            if let Some(parent) = db_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
+            std::env::set_var(
+                "DATABASE_URL",
+                format!("sqlite:///{}", db_path.display()),
+            );
+
             tray::create_tray(app)?;
-            log::info!("NarraNexus started");
+            log::info!("NarraNexus started, DB: {}", db_path.display());
             Ok(())
         })
         .on_window_event(|window, event| {
