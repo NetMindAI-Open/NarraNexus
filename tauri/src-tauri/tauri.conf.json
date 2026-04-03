@@ -1,0 +1,53 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicedoc/tauri-schema/v2/schema.json",
+  "productName": "NarraNexus",
+  "identifier": "com.narranexus.app",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../../frontend/dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NarraNexus",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "decorations": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app"],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "resources": [
+      "resources/python/**",
+      "resources/venv/**",
+      "resources/project/**"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/NetMindAI-Open/NarraNexus/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
+    },
+    "shell": {
+      "open": true
+    }
+  }
+}
