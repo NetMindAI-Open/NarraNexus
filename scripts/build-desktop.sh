@@ -107,6 +107,14 @@ cargo tauri build 2>&1 || {
         rm -f "$DMG_PATH"
         hdiutil create -volname NarraNexus -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH"
         echo "DMG created: $DMG_PATH"
+
+        # Also create ZIP (fewer quarantine issues than DMG)
+        ZIP_PATH="$DMG_DIR/NarraNexus.zip"
+        rm -f "$ZIP_PATH"
+        cd "$(dirname "$APP_DIR")"
+        ditto -c -k --keepParent "$(basename "$APP_DIR")" "$ZIP_PATH"
+        echo "ZIP created: $ZIP_PATH"
+        cd "$TAURI_DIR"
     fi
 }
 
