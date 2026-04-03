@@ -33,7 +33,8 @@
       "icons/icon.png"
     ],
     "resources": [
-      "resources/**/*"
+      "resources/python/**/*",
+      "resources/project/**/*"
     ],
     "macOS": {
       "minimumSystemVersion": "12.0"
