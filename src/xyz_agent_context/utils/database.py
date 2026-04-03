@@ -139,22 +139,43 @@ def _mysql_to_sqlite_sql(query: str) -> str:
     """
     Translate MySQL-specific SQL syntax to SQLite-compatible syntax.
 
-    Handles:
-    - %s placeholders -> ?
-    - BINARY keyword removal (SQLite is case-sensitive by default)
-    - Backtick quotes -> double quotes
-    - ON DUPLICATE KEY UPDATE -> ON CONFLICT DO UPDATE
-    - CURRENT_TIMESTAMP(6) -> datetime('now')
+    Covers DDL (CREATE TABLE) and DML (SELECT/INSERT/UPDATE/DELETE).
     """
     q = query
     # %s -> ?
     q = q.replace("%s", "?")
-    # Remove BINARY keyword (SQLite strings are case-sensitive by default)
+    # Remove BINARY keyword
     q = re.sub(r'\bBINARY\s+', '', q)
     # Backticks -> double quotes
     q = q.replace('`', '"')
     # CURRENT_TIMESTAMP(6) -> datetime('now')
     q = re.sub(r"CURRENT_TIMESTAMP\(\d+\)", "datetime('now')", q)
+    # DATETIME(6) -> TEXT
+    q = re.sub(r'\bDATETIME\(\d+\)', 'TEXT', q)
+    # BIGINT UNSIGNED NOT NULL AUTO_INCREMENT -> INTEGER PRIMARY KEY AUTOINCREMENT
+    q = re.sub(r'\bBIGINT\s+UNSIGNED\s+NOT\s+NULL\s+AUTO_INCREMENT', 'INTEGER', q, flags=re.IGNORECASE)
+    # VARCHAR(N) -> TEXT
+    q = re.sub(r'\bVARCHAR\(\d+\)', 'TEXT', q)
+    # MEDIUMTEXT / LONGTEXT / TINYTEXT -> TEXT
+    q = re.sub(r'\b(MEDIUM|LONG|TINY)TEXT\b', 'TEXT', q, flags=re.IGNORECASE)
+    # TINYINT(1) -> INTEGER
+    q = re.sub(r'\bTINYINT\(\d+\)', 'INTEGER', q, flags=re.IGNORECASE)
+    # Remove ON UPDATE CURRENT_TIMESTAMP / ON UPDATE datetime('now')
+    q = re.sub(r"\bON\s+UPDATE\s+(CURRENT_TIMESTAMP\(\d+\)|datetime\('now'\))", '', q, flags=re.IGNORECASE)
+    # Remove ENGINE=... (to end of statement or next comma)
+    q = re.sub(r"\)\s*ENGINE\s*=\s*\w+[^;]*", ')', q, flags=re.IGNORECASE)
+    # Remove COMMENT='...' or COMMENT "..."
+    q = re.sub(r"\bCOMMENT\s*=?\s*'[^']*'", '', q, flags=re.IGNORECASE)
+    q = re.sub(r'\bCOMMENT\s*=?\s*"[^"]*"', '', q, flags=re.IGNORECASE)
+    # Remove DEFAULT CHARSET=... COLLATE=...
+    q = re.sub(r'\bDEFAULT\s+CHARSET\s*=\s*\w+', '', q, flags=re.IGNORECASE)
+    q = re.sub(r'\bCOLLATE\s*=?\s*\w+', '', q, flags=re.IGNORECASE)
+    # Remove UNSIGNED
+    q = re.sub(r'\bUNSIGNED\b', '', q, flags=re.IGNORECASE)
+    # Remove AUTO_INCREMENT (standalone, after we already handled BIGINT combo)
+    q = re.sub(r'\bAUTO_INCREMENT\b', '', q, flags=re.IGNORECASE)
+    # Clean up extra whitespace
+    q = re.sub(r'  +', ' ', q)
     return q
 
 

@@ -127,12 +127,15 @@ export function RuntimePanel() {
   const { chatHistoryNarratives, chatHistoryEvents, chatHistoryLoading, refreshChatHistory } = usePreloadStore();
   const { agentId, userId } = useConfigStore();
 
-  // Dynamically count main steps (integer step IDs like '0', '1', '2', ...), excluding substeps ('1.5', '2.5')
+  // Count main steps (integer IDs: '0','1','2',...), use max step ID + 1 as total
   const mainSteps = currentSteps.filter((s) => /^\d+$/.test(s.step));
   const completedCount = mainSteps.filter((s) => s.status === 'completed').length;
-  const totalCount = mainSteps.length > 0 ? mainSteps.length : 1;
+  const maxStepId = mainSteps.reduce((max, s) => Math.max(max, parseInt(s.step, 10)), -1);
+  const totalCount = maxStepId >= 0 ? maxStepId + 1 : 1;
   const inProgressCount = mainSteps.filter((s) => s.status === 'running').length;
-  const progress = Math.min(100, Math.round((completedCount / totalCount) * 100));
+  const progress = isStreaming
+    ? Math.min(99, Math.round((completedCount / totalCount) * 100))
+    : (completedCount > 0 ? 100 : 0);
 
   // Calculate narrative metrics
   const narrativeMetrics = useMemo(() => {
