@@ -192,8 +192,11 @@ class SQLiteBackend(DatabaseBackend):
             where_clauses = []
             for key, value in filters.items():
                 safe_key = _validate_identifier(key)
-                where_clauses.append(f'"{safe_key}" = ?')
-                params.append(_serialize_value(value))
+                if value is None:
+                    where_clauses.append(f'"{safe_key}" IS NULL')
+                else:
+                    where_clauses.append(f'"{safe_key}" = ?')
+                    params.append(_serialize_value(value))
             query += " WHERE " + " AND ".join(where_clauses)
 
         if order_by:
@@ -290,8 +293,11 @@ class SQLiteBackend(DatabaseBackend):
         where_clauses = []
         for key, value in filters.items():
             safe_key = _validate_identifier(key)
-            where_clauses.append(f'"{safe_key}" = ?')
-            params.append(_serialize_value(value))
+            if value is None:
+                where_clauses.append(f'"{safe_key}" IS NULL')
+            else:
+                where_clauses.append(f'"{safe_key}" = ?')
+                params.append(_serialize_value(value))
 
         query = (
             f'UPDATE "{safe_table}" '
@@ -321,8 +327,11 @@ class SQLiteBackend(DatabaseBackend):
         params: list[Any] = []
         for key, value in filters.items():
             safe_key = _validate_identifier(key)
-            where_clauses.append(f'"{safe_key}" = ?')
-            params.append(_serialize_value(value))
+            if value is None:
+                where_clauses.append(f'"{safe_key}" IS NULL')
+            else:
+                where_clauses.append(f'"{safe_key}" = ?')
+                params.append(_serialize_value(value))
 
         query = f'DELETE FROM "{safe_table}" WHERE {" AND ".join(where_clauses)}'
 
