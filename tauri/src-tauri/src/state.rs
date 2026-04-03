@@ -74,13 +74,16 @@ pub fn resolve_resource_dir() -> PathBuf {
 }
 
 /// Resolve the project root that contains backend/, src/, etc.
-/// Bundle mode: Contents/Resources/project/
+/// Bundle mode: Contents/Resources/resources/project/  (Tauri nests under resources/)
 /// Dev mode: two levels up from src-tauri (i.e. the repo root).
 pub fn resolve_project_root() -> PathBuf {
     let resources = resolve_resource_dir();
-    let project = resources.join("project");
-    if project.exists() {
-        return project;
+    // Tauri bundles src-tauri/resources/ → Contents/Resources/resources/
+    for subdir in &["resources/project", "project"] {
+        let project = resources.join(subdir);
+        if project.exists() {
+            return project;
+        }
     }
     // Development: CWD is typically tauri/src-tauri or tauri/
     std::env::current_dir()
@@ -89,15 +92,25 @@ pub fn resolve_project_root() -> PathBuf {
 }
 
 /// Resolve the Python interpreter path.
-/// Bundle mode: Contents/Resources/python/bin/python3
+/// Bundle mode: Contents/Resources/resources/python/bin/python3
 /// Dev mode: fall back to "uv" (used via `uv run`).
 pub fn resolve_python_path() -> PathBuf {
     let resources = resolve_resource_dir();
-    let python = resources.join("python/bin/python3");
-    if python.exists() {
-        return python;
+    // Tauri nests under resources/
+    for subdir in &["resources/python/bin/python3", "python/bin/python3"] {
+        let python = resources.join(subdir);
+        if python.exists() {
+            return python;
+        }
     }
     PathBuf::from("uv")
+}
+
+/// Returns true when we are running inside a .app bundle
+pub fn is_bundled() -> bool {
+    let resources = resolve_resource_dir();
+    resources.join("resources/python/bin/python3").exists()
+        || resources.join("python/bin/python3").exists()
 }
 
 /// Resolve the SQLite database path using platform app-data directory.
@@ -108,11 +121,7 @@ pub fn resolve_db_path() -> PathBuf {
         .join("nexus.db")
 }
 
-/// Returns true when we are running inside a .app bundle
-/// (i.e. a standalone Python interpreter is shipped alongside the app).
-pub fn is_bundled() -> bool {
-    resolve_resource_dir().join("python/bin/python3").exists()
-}
+// is_bundled() defined above with resolve_python_path()
 
 // ---------------------------------------------------------------------------
 // ServiceDef factories

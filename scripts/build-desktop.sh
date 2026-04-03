@@ -63,6 +63,10 @@ rsync -a \
     --exclude='*.pyc' --exclude='.env' --exclude='logs' \
     --exclude='.claude' --exclude='.codex' --exclude='.worktrees' \
     --exclude='.evermemos' --exclude='related_project' \
+    --exclude='sessions' --exclude='deploy' --exclude='tests' \
+    --exclude='* 2' --exclude='.ruff_cache' --exclude='.pytest_cache' \
+    --exclude='.vscode' --exclude='.DS_Store' --exclude='*.log' \
+    --exclude='image.png' --exclude='.vite' \
     "$PROJECT_ROOT/" "$PROJ_DIR/"
 echo "Project source copied"
 
