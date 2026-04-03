@@ -36,10 +36,7 @@
       "resources/**/*"
     ],
     "macOS": {
-      "minimumSystemVersion": "12.0",
-      "signing": {
-        "identity": null
-      }
+      "minimumSystemVersion": "12.0"
     }
   },
   "plugins": {
