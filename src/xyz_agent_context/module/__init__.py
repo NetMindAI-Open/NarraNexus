@@ -41,6 +41,7 @@ from xyz_agent_context.module.gemini_rag_module.gemini_rag_module import GeminiR
 from xyz_agent_context.module.skill_module.skill_module import SkillModule
 from xyz_agent_context.module.memory_module.memory_module import MemoryModule
 from xyz_agent_context.module.matrix_module.matrix_module import MatrixModule
+from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
 
 # Module mapping table
 MODULE_MAP = {
@@ -53,6 +54,7 @@ MODULE_MAP = {
     "GeminiRAGModule": GeminiRAGModule,
     "SkillModule": SkillModule,
     "MatrixModule": MatrixModule,
+    "MessageBusModule": MessageBusModule,
 }
 
 # =============================================================================
@@ -101,6 +103,7 @@ __all__ = [
     "GeminiRAGModule",
     "SkillModule",
     "MatrixModule",
+    "MessageBusModule",
 
     # ===== Module mapping =====
     "MODULE_MAP",
