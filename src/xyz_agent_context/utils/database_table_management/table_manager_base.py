@@ -149,6 +149,100 @@ class BaseTableManager(ABC):
         return f"TEXT {null_str}"
 
     @classmethod
+    def get_sqlite_type(cls, field_name: str, field_type: type, field_info: Any) -> str:
+        """
+        Map Python types to SQLite types.
+
+        SQLite has a simplified type system compared to MySQL:
+        - str -> TEXT
+        - int -> INTEGER
+        - float -> REAL
+        - bool -> INTEGER (0/1)
+        - datetime -> TEXT (ISO 8601)
+        - dict, list -> TEXT (JSON stored as text)
+        - bytes -> BLOB
+        - Enum -> TEXT
+        - default -> TEXT
+
+        Subclasses can override this method to add custom field handling logic.
+        """
+        origin = get_origin(field_type)
+        args = get_args(field_type)
+
+        # Handle Optional[T] type
+        is_optional = False
+        if origin is type(None) or (origin and args and type(None) in args):
+            is_optional = True
+            if args:
+                actual_type = next((arg for arg in args if arg is not type(None)), None)
+                if actual_type:
+                    field_type = actual_type
+                    origin = get_origin(field_type)
+                    args = get_args(field_type)
+
+        # ID field handling (SQLite auto-increment primary key)
+        if field_name == "id":
+            return "INTEGER PRIMARY KEY AUTOINCREMENT"
+
+        # Get default value from Field
+        has_default = False
+        default_value = None
+        if hasattr(field_info, 'default') and field_info.default is not None:
+            has_default = True
+            default_value = field_info.default
+
+        null_str = '' if is_optional else ' NOT NULL'
+
+        # Handle Enum type -> TEXT
+        if inspect.isclass(field_type) and issubclass(field_type, Enum):
+            default_str = ""
+            if has_default and hasattr(default_value, 'value'):
+                default_str = f" DEFAULT '{default_value.value}'"
+            return f"TEXT{null_str}{default_str}"
+
+        # str -> TEXT
+        if field_type == str or field_type == "str":
+            default_str = f" DEFAULT '{default_value}'" if has_default and not is_optional else ""
+            return f"TEXT{null_str}{default_str}"
+
+        # int -> INTEGER
+        if field_type == int or field_type == "int":
+            default_str = f" DEFAULT {default_value}" if has_default and not is_optional else ""
+            return f"INTEGER{null_str}{default_str}"
+
+        # float -> REAL
+        if field_type == float or field_type == "float":
+            default_str = f" DEFAULT {default_value}" if has_default and not is_optional else ""
+            return f"REAL{null_str}{default_str}"
+
+        # bool -> INTEGER (0/1)
+        if field_type == bool or field_type == "bool":
+            default_str = f" DEFAULT {1 if default_value else 0}" if has_default and not is_optional else ""
+            return f"INTEGER{null_str}{default_str}"
+
+        # datetime -> TEXT (ISO 8601)
+        if field_type == datetime or field_type == "datetime":
+            return f"TEXT{null_str}"
+
+        # bytes -> BLOB
+        if field_type == bytes or field_type == "bytes":
+            return f"BLOB{null_str}"
+
+        # dict, list -> TEXT (JSON stored as text)
+        if origin == dict or field_type == dict:
+            return "TEXT"
+
+        if origin == list or field_type == list:
+            return "TEXT"
+
+        # Pydantic BaseModel -> TEXT (JSON stored as text)
+        if inspect.isclass(field_type) and issubclass(field_type, BaseModel):
+            return "TEXT"
+
+        # Default: TEXT
+        return f"TEXT{null_str}"
+
+    @classmethod
     def get_pydantic_fields(cls) -> Dict[str, tuple[type, Any]]:
         """Get Pydantic model field definitions (filtering out ignored fields)"""
         fields = {}

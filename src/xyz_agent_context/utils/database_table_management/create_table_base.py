@@ -58,6 +58,27 @@ async def check_table_exists(table_name: str) -> bool:
     return False
 
 
+async def check_table_exists_sqlite(table_name: str, db_client) -> bool:
+    """
+    Check if a table exists in a SQLite database.
+
+    Uses sqlite_master to check for table existence without requiring
+    information_schema (which is MySQL-specific).
+
+    Args:
+        table_name: Table name to check.
+        db_client: A DatabaseBackend instance (SQLiteBackend).
+
+    Returns:
+        True if the table exists, otherwise False.
+    """
+    rows = await db_client.execute(
+        "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,)
+    )
+    return rows[0]["cnt"] > 0 if rows else False
+
+
 def generate_create_table_sql(
     manager_class: Type[BaseTableManager],
     indexes: Optional[List[Tuple[str, List[str], bool]]] = None,
