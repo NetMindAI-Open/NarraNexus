@@ -41,6 +41,7 @@ class Settings:
         "http://127.0.0.1:3000,"
         "http://127.0.0.1:8000,"
         "tauri://localhost,"
+        "http://tauri.localhost,"
         "https://tauri.localhost"
     )
     cors_origins: List[str] = _parse_list(
