@@ -51,7 +51,7 @@ import type {
 // 1. Explicit env var always wins (cloud deployment)
 // 2. Tauri app: backend runs on localhost:8000, no proxy available
 // 3. Dev mode: empty string, Vite proxy handles /api/* routes
-const getBaseUrl = (): string => {
+export const getBaseUrl = (): string => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL;
   }

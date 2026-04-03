@@ -18,11 +18,13 @@ import {
   Database,
   Settings,
   Rocket,
+  SkipForward,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import SettingsPage from '@/pages/SettingsPage';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 import { cn } from '@/lib/utils';
+import { getBaseUrl } from '@/lib/api';
 
 type Step = 1 | 2 | 3;
 
@@ -38,16 +40,34 @@ export function SetupPage() {
 
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [initDone, setInitDone] = useState(false);
+  const [existingProviderCount, setExistingProviderCount] = useState(0);
 
   // Step 1: auto-run initialization
   useEffect(() => {
     if (currentStep !== 1) return;
     const timer = setTimeout(() => {
       setInitDone(true);
-      // Auto-advance after a brief pause
       setTimeout(() => setCurrentStep(2), 500);
     }, 2000);
     return () => clearTimeout(timer);
+  }, [currentStep]);
+
+  // Step 2: check if providers are already configured
+  useEffect(() => {
+    if (currentStep !== 2) return;
+    const checkProviders = async () => {
+      try {
+        const baseUrl = getBaseUrl();
+        const res = await fetch(`${baseUrl}/api/providers`);
+        const data = await res.json();
+        if (data.success && data.data?.providers) {
+          setExistingProviderCount(Object.keys(data.data.providers).length);
+        }
+      } catch {
+        // Backend not ready yet, no existing config
+      }
+    };
+    checkProviders();
   }, [currentStep]);
 
   const handleGetStarted = () => {
@@ -141,6 +161,28 @@ export function SetupPage() {
         {/* Step 2: Configure */}
         {currentStep === 2 && (
           <div className="flex flex-col items-center animate-fade-in">
+            {existingProviderCount > 0 && (
+              <div className="w-full max-w-2xl mb-4 p-4 rounded-lg border"
+                style={{
+                  backgroundColor: 'var(--bg-secondary)',
+                  borderColor: 'var(--accent-primary)',
+                }}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {existingProviderCount} provider{existingProviderCount > 1 ? 's' : ''} already configured
+                    </p>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      You can skip this step or update your settings below.
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={() => setCurrentStep(3)}>
+                    <SkipForward className="w-4 h-4 mr-1" />
+                    Skip
+                  </Button>
+                </div>
+              </div>
+            )}
             <div className="w-full max-w-2xl">
               <SettingsPage />
             </div>
