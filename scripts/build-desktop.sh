@@ -13,16 +13,12 @@ echo "=== NarraNexus Desktop Build ==="
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
-# Step 0: Clean resources (keep Rust target for incremental builds)
-echo "--- Step 0: Cleaning resources ---"
+# Step 0: Clean previous build artifacts
+echo "--- Step 0: Cleaning previous build ---"
 rm -rf "$PYTHON_DIR"
 rm -rf "$PROJ_DIR"
 rm -rf "$RESOURCES_DIR/venv"
-# Only clean Rust target if --clean flag is passed
-if [[ "${1:-}" == "--clean" ]]; then
-    echo "Full clean: removing Rust target..."
-    rm -rf "$SRC_TAURI/target"
-fi
+rm -rf "$SRC_TAURI/target"
 mkdir -p "$PYTHON_DIR"
 mkdir -p "$PROJ_DIR"
 echo "Clean done"
