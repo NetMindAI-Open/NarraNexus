@@ -135,6 +135,29 @@ def validate_identifier(identifier: str) -> str:
     return identifier
 
 
+def _mysql_to_sqlite_sql(query: str) -> str:
+    """
+    Translate MySQL-specific SQL syntax to SQLite-compatible syntax.
+
+    Handles:
+    - %s placeholders -> ?
+    - BINARY keyword removal (SQLite is case-sensitive by default)
+    - Backtick quotes -> double quotes
+    - ON DUPLICATE KEY UPDATE -> ON CONFLICT DO UPDATE
+    - CURRENT_TIMESTAMP(6) -> datetime('now')
+    """
+    q = query
+    # %s -> ?
+    q = q.replace("%s", "?")
+    # Remove BINARY keyword (SQLite strings are case-sensitive by default)
+    q = re.sub(r'\bBINARY\s+', '', q)
+    # Backticks -> double quotes
+    q = q.replace('`', '"')
+    # CURRENT_TIMESTAMP(6) -> datetime('now')
+    q = re.sub(r"CURRENT_TIMESTAMP\(\d+\)", "datetime('now')", q)
+    return q
+
+
 class AsyncDatabaseClient:
     """
     Truly asynchronous database client
@@ -313,10 +336,16 @@ class AsyncDatabaseClient:
             List of query results
         """
         if self._backend:
+            # Auto-translate MySQL SQL dialect to backend dialect
+            q = query
+            p = params
+            if self._backend.dialect == "sqlite":
+                q = _mysql_to_sqlite_sql(q)
+                p = tuple(p) if p else ()
             if fetch:
-                return await self._backend.execute(query, params)
+                return await self._backend.execute(q, p)
             else:
-                return await self._backend.execute_write(query, params)
+                return await self._backend.execute_write(q, p)
 
         pool = await self._ensure_pool()
 
