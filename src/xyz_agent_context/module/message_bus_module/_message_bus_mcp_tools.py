@@ -36,6 +36,7 @@ def register_message_bus_mcp_tools(
         agent_id: str,
         channel_id: str,
         content: str,
+        mention_list: str = "",
     ) -> dict:
         """
         Send a text message to a MessageBus channel.
@@ -46,6 +47,7 @@ def register_message_bus_mcp_tools(
             agent_id: Your agent ID (the sender)
             channel_id: Target channel ID (e.g. "ch_a1b2c3d4")
             content: Message text to send
+            mention_list: Comma-separated agent IDs to mention (e.g. "agent_abc,agent_def")
 
         Returns:
             Result dict with message_id on success, or error details
@@ -55,10 +57,15 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": "MessageBus not available"}
 
         try:
+            mentions: Optional[List[str]] = None
+            if mention_list.strip():
+                mentions = [m.strip() for m in mention_list.split(",") if m.strip()]
+
             msg_id = await bus.send_message(
                 from_agent=agent_id,
                 to_channel=channel_id,
                 content=content,
+                mentions=mentions,
             )
             return {"success": True, "message_id": msg_id}
         except Exception as e:
@@ -228,5 +235,101 @@ def register_message_bus_mcp_tools(
                 description=description,
             )
             return {"success": True, "message": "Agent registered successfully"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_get_messages(agent_id: str, channel_id: str, limit: int = 50) -> dict:
+        """Get message history from a channel.
+
+        Args:
+            agent_id: Your agent ID
+            channel_id: Channel to retrieve messages from
+            limit: Maximum number of messages (default 50)
+        """
+        try:
+            bus = get_message_bus_fn()
+            if bus is None:
+                return {"success": False, "error": "MessageBus not available"}
+            messages = await bus.get_messages(channel_id, limit=limit)
+            return {"success": True, "messages": [
+                {"from": m.from_agent, "content": m.content, "time": str(m.created_at), "mentions": m.mentions}
+                for m in messages
+            ]}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_get_channel_members(agent_id: str, channel_id: str) -> dict:
+        """Get all members of a channel.
+
+        Args:
+            agent_id: Your agent ID
+            channel_id: Channel to inspect
+        """
+        try:
+            bus = get_message_bus_fn()
+            if bus is None:
+                return {"success": False, "error": "MessageBus not available"}
+            members = await bus.get_channel_members(channel_id)
+            return {"success": True, "members": [m.agent_id for m in members]}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_leave_channel(agent_id: str, channel_id: str) -> dict:
+        """Leave a channel.
+
+        Args:
+            agent_id: Your agent ID
+            channel_id: Channel to leave
+        """
+        try:
+            bus = get_message_bus_fn()
+            if bus is None:
+                return {"success": False, "error": "MessageBus not available"}
+            await bus.leave_channel(agent_id, channel_id)
+            return {"success": True, "message": f"Left channel {channel_id}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_kick_member(agent_id: str, channel_id: str, target_agent_id: str) -> dict:
+        """Remove another agent from a channel.
+
+        Args:
+            agent_id: Your agent ID (must be channel creator)
+            channel_id: Channel to remove member from
+            target_agent_id: Agent to remove
+        """
+        try:
+            bus = get_message_bus_fn()
+            if bus is None:
+                return {"success": False, "error": "MessageBus not available"}
+            await bus.kick_member(channel_id, target_agent_id)
+            return {"success": True, "message": f"Removed {target_agent_id} from {channel_id}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_get_agent_profile(agent_id: str, target_agent_id: str) -> dict:
+        """Get another agent's profile.
+
+        Args:
+            agent_id: Your agent ID
+            target_agent_id: Agent whose profile to retrieve
+        """
+        try:
+            bus = get_message_bus_fn()
+            if bus is None:
+                return {"success": False, "error": "MessageBus not available"}
+            profile = await bus.get_agent_profile(target_agent_id)
+            if profile is None:
+                return {"success": False, "error": f"Agent {target_agent_id} not found"}
+            return {"success": True, "profile": {
+                "agent_id": profile.agent_id, "owner": profile.owner_user_id,
+                "capabilities": profile.capabilities, "description": profile.description,
+                "visibility": profile.visibility,
+            }}
         except Exception as e:
             return {"success": False, "error": str(e)}
