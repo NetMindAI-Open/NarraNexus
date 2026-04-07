@@ -271,6 +271,43 @@ def _mysql_to_sqlite_sql(query: str) -> str:
         "datetime('now', '-' || ? || ' days')",
         q, flags=re.IGNORECASE
     )
+
+    # JSON_UNQUOTE(JSON_EXTRACT(col, path)) -> json_extract(col, path)
+    # SQLite's json_extract already returns unquoted strings
+    q = re.sub(
+        r'JSON_UNQUOTE\s*\(\s*JSON_EXTRACT\s*\(([^)]+),\s*([^)]+)\)\s*\)',
+        r'json_extract(\1, \2)',
+        q, flags=re.IGNORECASE
+    )
+
+    # JSON_SEARCH(col, 'one', val) IS NOT NULL -> EXISTS(SELECT 1 FROM json_each(col) WHERE value = val)
+    q = re.sub(
+        r"JSON_SEARCH\s*\(\s*(\w+)\s*,\s*'one'\s*,\s*(\?)\s*\)\s*IS\s+NOT\s+NULL",
+        r'EXISTS(SELECT 1 FROM json_each(\1) WHERE value = \2)',
+        q, flags=re.IGNORECASE
+    )
+
+    # JSON_CONTAINS(JSON_EXTRACT(col, path), JSON_OBJECT('id', ?, 'type', 'participant'))
+    # -> EXISTS(SELECT 1 FROM json_each(json_extract(col, path)) WHERE json_extract(value, '$.id') = ? AND json_extract(value, '$.type') = 'participant')
+    json_contains_match = re.search(
+        r"JSON_CONTAINS\s*\(\s*JSON_EXTRACT\s*\(\s*(\w+)\s*,\s*'([^']+)'\s*\)\s*,\s*"
+        r"JSON_OBJECT\s*\(\s*'(\w+)'\s*,\s*(\?)\s*,\s*'(\w+)'\s*,\s*'(\w+)'\s*\)\s*\)",
+        q, flags=re.IGNORECASE
+    )
+    if json_contains_match:
+        col = json_contains_match.group(1)
+        path = json_contains_match.group(2)
+        key1 = json_contains_match.group(3)
+        val1 = json_contains_match.group(4)
+        key2 = json_contains_match.group(5)
+        val2 = json_contains_match.group(6)
+        replacement = (
+            f"EXISTS(SELECT 1 FROM json_each(json_extract({col}, '{path}')) "
+            f"WHERE json_extract(value, '$.{key1}') = {val1} "
+            f"AND json_extract(value, '$.{key2}') = '{val2}')"
+        )
+        q = q[:json_contains_match.start()] + replacement + q[json_contains_match.end():]
+
     # Clean up extra whitespace
     q = re.sub(r'  +', ' ', q)
     return q
