@@ -21,7 +21,9 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import time
 from collections import defaultdict
 from typing import Dict, List, Optional
 
@@ -35,6 +37,15 @@ POLL_INTERVAL = 10
 
 # Maximum concurrent agent processing workers
 MAX_WORKERS = 3
+
+# Rate limiting constants
+RATE_LIMIT_MAX = 20
+RATE_LIMIT_WINDOW = 1800  # 30 minutes in seconds
+
+# Adaptive polling constants
+POLL_MIN_INTERVAL = 10
+POLL_MAX_INTERVAL = 120
+POLL_STEP_UP = 15
 
 
 class MessageBusTrigger:
@@ -61,9 +72,11 @@ class MessageBusTrigger:
         self._max_workers = max_workers
         self._running = False
         self._semaphore = asyncio.Semaphore(max_workers)
+        self._rate_counters: Dict[str, List[float]] = {}
+        self._current_interval = poll_interval
 
     async def start(self) -> None:
-        """Start the polling loop."""
+        """Start the polling loop with adaptive interval."""
         self._running = True
         logger.info(
             f"MessageBusTrigger started (poll_interval={self._poll_interval}s, "
@@ -72,65 +85,135 @@ class MessageBusTrigger:
 
         while self._running:
             try:
-                await self._poll_cycle()
+                had_messages = await self._poll_cycle()
+                if had_messages:
+                    self._current_interval = POLL_MIN_INTERVAL
+                else:
+                    self._current_interval = min(
+                        self._current_interval + POLL_STEP_UP,
+                        POLL_MAX_INTERVAL,
+                    )
             except Exception as e:
                 logger.error(f"MessageBusTrigger poll cycle error: {e}")
 
-            await asyncio.sleep(self._poll_interval)
+            await asyncio.sleep(self._current_interval)
 
     def stop(self) -> None:
         """Signal the polling loop to stop."""
         self._running = False
         logger.info("MessageBusTrigger stopping")
 
-    async def _poll_cycle(self) -> None:
-        """
-        Single poll cycle: fetch all registered agents and process
-        pending messages for each.
-        """
-        # Get all registered agents
+    async def _poll_cycle(self) -> bool:
+        """Run one poll cycle. Returns True if any messages were found."""
         agents = await self._bus.search_agents(query="", limit=1000)
         if not agents:
-            return
+            return False
 
+        had_messages = False
         tasks = []
         for agent_info in agents:
             tasks.append(self._process_agent(agent_info.agent_id))
 
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if r is True:
+                had_messages = True
 
-    async def _process_agent(self, agent_id: str) -> None:
-        """
-        Process pending messages for a single agent.
+        return had_messages
 
-        Groups messages by channel_id and triggers AgentRuntime for each
-        channel batch (only the latest message triggers execution).
+    def _should_process_message(
+        self, msg: BusMessage, agent_id: str, channel_type: str,
+    ) -> bool:
+        """Check if a message should trigger processing for an agent.
+
+        Rules:
+        - DM (direct) channels: always process
+        - Group channels: only process if agent is mentioned or @everyone
+        - Never process own messages
         """
+        if msg.from_agent == agent_id:
+            return False
+        if channel_type == "direct":
+            return True
+        if not msg.mentions:
+            return False
+        return agent_id in msg.mentions or "@everyone" in msg.mentions
+
+    async def _get_channel_type(self, channel_id: str) -> str:
+        """Get channel type (direct/group) from database."""
+        rows = await self._bus._backend.execute(
+            "SELECT channel_type FROM bus_channels WHERE channel_id = ?",
+            (channel_id,),
+        )
+        if rows:
+            return rows[0].get("channel_type", "group")
+        return "group"
+
+    def _check_rate_limit(self, agent_id: str, channel_id: str) -> bool:
+        """Return True if within rate limit, False if exceeded."""
+        key = f"{agent_id}:{channel_id}"
+        now = time.monotonic()
+        timestamps = self._rate_counters.get(key, [])
+        timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+        if len(timestamps) >= RATE_LIMIT_MAX:
+            logger.warning(
+                f"Rate limit exceeded for {agent_id} in channel {channel_id} "
+                f"({len(timestamps)}/{RATE_LIMIT_MAX} in {RATE_LIMIT_WINDOW}s)"
+            )
+            return False
+        timestamps.append(now)
+        self._rate_counters[key] = timestamps
+        return True
+
+    async def _process_agent(self, agent_id: str) -> bool:
+        """Process pending messages for an agent. Returns True if messages handled."""
         async with self._semaphore:
             try:
                 pending = await self._bus.get_pending_messages(agent_id)
                 if not pending:
-                    return
+                    return False
 
-                # Group by channel_id
                 by_channel: Dict[str, List[BusMessage]] = defaultdict(list)
                 for msg in pending:
                     by_channel[msg.channel_id].append(msg)
 
+                handled_any = False
                 for channel_id, messages in by_channel.items():
-                    # Use the latest message as the trigger
-                    latest = messages[-1]
+                    channel_type = await self._get_channel_type(channel_id)
+
+                    # Mention filtering
+                    relevant = [
+                        m for m in messages
+                        if self._should_process_message(m, agent_id, channel_type)
+                    ]
+                    if not relevant:
+                        # Still ack to advance cursor
+                        latest = max(messages, key=lambda m: str(m.created_at))
+                        await self._bus.ack_processed(
+                            agent_id, channel_id, str(latest.created_at)
+                        )
+                        continue
+
+                    # Rate limiting
+                    if not self._check_rate_limit(agent_id, channel_id):
+                        latest = max(relevant, key=lambda m: str(m.created_at))
+                        await self._bus.ack_processed(
+                            agent_id, channel_id, str(latest.created_at)
+                        )
+                        continue
+
+                    trigger_msg = relevant[-1]
                     await self._handle_channel_batch(
-                        agent_id=agent_id,
-                        channel_id=channel_id,
-                        messages=messages,
-                        trigger_message=latest,
+                        agent_id, channel_id, relevant, trigger_msg
                     )
+                    handled_any = True
+
+                return handled_any
             except Exception as e:
                 logger.error(
-                    f"MessageBusTrigger failed processing agent {agent_id}: {e}"
+                    f"MessageBusTrigger: error processing agent {agent_id}: {e}"
                 )
+                return False
 
     async def _handle_channel_batch(
         self,
@@ -148,9 +231,6 @@ class MessageBusTrigger:
         try:
             # Build prompt from messages
             prompt = self._build_prompt(messages)
-
-            # Try to get channel name
-            channel_name = channel_id  # fallback
 
             logger.info(
                 f"MessageBusTrigger: triggering agent {agent_id} "
@@ -176,6 +256,12 @@ class MessageBusTrigger:
                 f"MessageBusTrigger: agent {agent_id} processed "
                 f"{len(messages)} messages in channel {channel_id}"
             )
+
+            # Write response to inbox
+            if response_text:
+                await self._write_to_inbox(
+                    agent_id, channel_id, trigger_message, response_text
+                )
 
         except Exception as e:
             logger.error(
@@ -244,6 +330,42 @@ class MessageBusTrigger:
                         final_output.append(response.delta)
 
         return "".join(final_output)
+
+    async def _write_to_inbox(
+        self, agent_id: str, channel_id: str,
+        trigger_message: BusMessage, agent_response: str,
+    ) -> None:
+        """Write the agent's response to the user's inbox."""
+        try:
+            from xyz_agent_context.utils.db_factory import get_db_client
+            db = await get_db_client()
+            agent_row = await db.get_one("agents", {"agent_id": agent_id})
+            if not agent_row:
+                logger.warning(f"Cannot write to inbox: agent {agent_id} not found")
+                return
+            owner_user_id = agent_row.get("created_by", "")
+            from xyz_agent_context.utils.timezone import utc_now
+            now = utc_now()
+            inbox_data = {
+                "agent_id": agent_id,
+                "owner_user_id": owner_user_id,
+                "message_type": "channel_message",
+                "title": f"Message Bus: {trigger_message.from_agent}",
+                "content": agent_response,
+                "source": json.dumps({
+                    "type": "message_bus",
+                    "channel_id": channel_id,
+                    "from_agent": trigger_message.from_agent,
+                    "original_message": trigger_message.content[:500],
+                }),
+                "is_read": False,
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db.insert("inbox_table", inbox_data)
+            logger.info(f"Wrote MessageBus result to inbox for user {owner_user_id}")
+        except Exception as e:
+            logger.warning(f"Failed to write to inbox: {e}")
 
 
 async def _get_bus() -> LocalMessageBus:
