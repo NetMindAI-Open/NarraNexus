@@ -363,6 +363,11 @@ class ModuleRunner:
         user = user_id or agent_id
         db = await get_db_client()
 
+        # Ensure all tables exist (MCP runs as separate process)
+        from xyz_agent_context.utils.schema_registry import auto_migrate
+        await auto_migrate(db._backend)
+        logger.info("Schema auto-migration complete")
+
         logger.info("=" * 60)
         logger.info("🚀 Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")
