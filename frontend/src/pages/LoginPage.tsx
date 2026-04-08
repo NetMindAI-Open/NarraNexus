@@ -45,13 +45,14 @@ export function LoginPage() {
         return;
       }
 
+      // Store token FIRST so subsequent API calls can use it
+      login(userId.trim(), loginRes.token || undefined, loginRes.role || undefined);
+
       const agentsRes = await api.getAgents(userId.trim());
       if (agentsRes.success && agentsRes.agents.length > 0) {
         setAgents(agentsRes.agents);
         setAgentId(agentsRes.agents[0].agent_id);
       }
-
-      login(userId.trim(), loginRes.token || undefined, loginRes.role || undefined);
       navigate('/');
     } catch (err) {
       setError('Connection failed. Please try again.');
