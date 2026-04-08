@@ -289,6 +289,17 @@ class AgentRuntime:
         ):
             yield msg
 
+        # Load per-user LLM config (cloud mode: from DB, local: from file)
+        try:
+            from xyz_agent_context.agent_framework.api_config import (
+                get_user_llm_configs,
+                set_user_config,
+            )
+            user_claude, user_openai, user_embedding = await get_user_llm_configs(user_id)
+            set_user_config(user_claude, user_openai, user_embedding)
+        except Exception as e:
+            logger.warning(f"Failed to load per-user LLM config for {user_id}: {e}")
+
         # =============================================================================
         # Step 1: Select Narrative
         # =============================================================================

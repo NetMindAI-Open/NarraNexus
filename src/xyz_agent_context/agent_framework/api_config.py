@@ -301,3 +301,85 @@ def reload_llm_config() -> None:
     # Reset the global embedding client so it picks up the new model/config
     from xyz_agent_context.agent_framework.llm_api.embedding import reset_global_client
     reset_global_client()
+
+
+def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: EmbeddingConfig) -> None:
+    """
+    Override the global config with per-user config.
+
+    Called before agent execution to set user-specific LLM credentials.
+    After execution, call restore_global_config() or set_user_config again for next user.
+    """
+    _holder._claude = claude
+    _holder._openai = openai
+    _holder._embedding = embedding
+    _holder._loaded = True
+
+    # Also reset embedding client to use the new config
+    from xyz_agent_context.agent_framework.llm_api.embedding import reset_global_client
+    reset_global_client()
+
+
+# =============================================================================
+# Per-user config loading (for cloud multi-tenant mode)
+# =============================================================================
+
+async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    """
+    Load LLM configs for a specific user from the database.
+
+    In cloud mode: reads from user_providers + user_slots tables.
+    In local mode: falls back to global llm_config.json (single user).
+
+    This function is called per-request during agent execution,
+    NOT cached globally like the singleton.
+    """
+    # Load from database per user (works for both local SQLite and cloud MySQL)
+    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+
+    db = await get_db_client()
+    service = UserProviderService(db)
+    config = await service.get_user_config(user_id)
+
+    # Build ClaudeConfig from agent slot
+    agent_slot = config.slots.get(SlotName.AGENT) or config.slots.get("agent")
+    agent_provider = config.providers.get(agent_slot.provider_id) if agent_slot else None
+
+    if agent_provider:
+        claude = ClaudeConfig(
+            api_key=agent_provider.api_key,
+            base_url=agent_provider.base_url,
+            model=agent_slot.model,
+            auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+        )
+    else:
+        claude = ClaudeConfig()
+
+    # Build OpenAIConfig from helper_llm slot
+    helper_slot = config.slots.get(SlotName.HELPER_LLM) or config.slots.get("helper_llm")
+    helper_provider = config.providers.get(helper_slot.provider_id) if helper_slot else None
+
+    if helper_provider:
+        openai_cfg = OpenAIConfig(
+            api_key=helper_provider.api_key,
+            base_url=helper_provider.base_url,
+            model=helper_slot.model,
+        )
+    else:
+        openai_cfg = OpenAIConfig()
+
+    # Build EmbeddingConfig from embedding slot
+    emb_slot = config.slots.get(SlotName.EMBEDDING) or config.slots.get("embedding")
+    emb_provider = config.providers.get(emb_slot.provider_id) if emb_slot else None
+
+    if emb_provider:
+        embedding = EmbeddingConfig(
+            api_key=emb_provider.api_key,
+            base_url=emb_provider.base_url,
+            model=emb_slot.model,
+        )
+    else:
+        embedding = EmbeddingConfig()
+
+    return claude, openai_cfg, embedding

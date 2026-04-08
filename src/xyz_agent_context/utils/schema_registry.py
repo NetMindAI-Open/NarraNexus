@@ -640,7 +640,52 @@ _register(
     )
 )
 
-# 24. bus_message_failures (composite primary key)
+# 24. user_providers (per-user LLM provider configurations)
+_register(
+    TableDef(
+        name="user_providers",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("source", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("protocol", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("auth_type", "TEXT", "VARCHAR(32)", nullable=False, default="'api_key'"),
+            Column("api_key", "TEXT", "VARCHAR(512)"),
+            Column("base_url", "TEXT", "VARCHAR(512)"),
+            Column("models", "TEXT", "TEXT"),
+            Column("linked_group", "TEXT", "VARCHAR(64)"),
+            Column("is_active", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_up_user_provider", ["user_id", "provider_id"], unique=True),
+            Index("idx_up_user_id", ["user_id"]),
+        ],
+    )
+)
+
+# 25. user_slots (per-user slot assignments)
+_register(
+    TableDef(
+        name="user_slots",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("model", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_us_user_slot", ["user_id", "slot_name"], unique=True),
+        ],
+    )
+)
+
+# 26. bus_message_failures (composite primary key)
 _register(
     TableDef(
         name="bus_message_failures",
