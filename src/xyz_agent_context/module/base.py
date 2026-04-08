@@ -116,9 +116,9 @@ class XYZBaseModule(ABC):
                 return str(result)
         """
         if cls._mcp_db_client is None:
-            from xyz_agent_context.utils.database import AsyncDatabaseClient
+            from xyz_agent_context.utils.db_factory import get_db_client
             logger.info(f"Creating MCP-specific AsyncDatabaseClient for {cls.__name__}")
-            cls._mcp_db_client = await AsyncDatabaseClient.create()
+            cls._mcp_db_client = await get_db_client()
             logger.success(f"MCP AsyncDatabaseClient created for {cls.__name__}")
         return cls._mcp_db_client
 

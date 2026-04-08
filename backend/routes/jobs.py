@@ -346,53 +346,49 @@ async def create_job_complex(request: CreateJobComplexRequest):
         # 2. Generate group_id
         group_id = request.group_id or f"group_{uuid4().hex[:8]}"
 
-        # 3. Create Jobs
+        # 3. Create Jobs via JobInstanceService (creates ModuleInstance + Job records)
         db_client = await get_db_client()
+        from xyz_agent_context.module.job_module.job_service import JobInstanceService
+        job_service = JobInstanceService(db_client)
+
         job_ids = []
         task_key_to_job_id = {}  # task_key -> job_id mapping
 
-        # Generate all job_ids first
         for job in request.jobs:
-            job_id = f"job_{uuid4().hex[:8]}"
-            task_key_to_job_id[job.task_key] = job_id
-            job_ids.append(job_id)
-
-        # Create Jobs
-        now = utc_now()
-        for i, job in enumerate(request.jobs):
-            job_id = job_ids[i]
-
             # Convert task_key dependencies to job_id dependencies
             depends_on_job_ids = [task_key_to_job_id[dep] for dep in job.depends_on]
 
-            # Root Jobs (no dependencies) set to ACTIVE, others set to PENDING
-            status = JobStatus.ACTIVE if not job.depends_on else JobStatus.PENDING
-
-            # Build payload, including dependency information
-            payload_dict = {
+            # Build payload with dependency information
+            payload_str = json.dumps({
                 "task_key": job.task_key,
                 "depends_on": depends_on_job_ids,
                 "group_id": group_id,
                 "original_payload": job.payload,
-            }
+            })
 
-            job_data = {
-                "job_id": job_id,
-                "agent_id": request.agent_id,
-                "user_id": request.user_id,
-                "job_type": "one_off",
-                "title": job.title,
-                "description": job.description or "",
-                "status": status.value,
-                "payload": json.dumps(payload_dict),
-                "trigger_config": json.dumps({"trigger_type": "immediate"}),
-                "process": json.dumps([]),
-                "created_at": now,
-                "updated_at": now,
-            }
+            result = await job_service.create_job_with_instance(
+                agent_id=request.agent_id,
+                user_id=request.user_id,
+                title=job.title,
+                description=job.description or "",
+                job_type="one_off",
+                trigger_config={"trigger_type": "immediate", "run_at": utc_now()},
+                payload=payload_str,
+                dependencies=depends_on_job_ids if depends_on_job_ids else None,
+            )
 
-            await db_client.insert("instance_jobs", job_data)
-            logger.debug(f"Created job: {job_id} (task_key: {job.task_key}, status: {status.value})")
+            if not result.get("success"):
+                error_msg = result.get("error", "Unknown error creating job")
+                logger.error(f"Failed to create job for task_key={job.task_key}: {error_msg}")
+                return CreateJobComplexResponse(
+                    success=False,
+                    error=f"Failed to create job '{job.title}': {error_msg}"
+                )
+
+            job_id = result.get("job_id", "")
+            task_key_to_job_id[job.task_key] = job_id
+            job_ids.append(job_id)
+            logger.info(f"Created job: {job_id} (task_key: {job.task_key}, result: {result})")
 
         logger.info(f"Job Complex created: group_id={group_id}, {len(job_ids)} jobs")
 

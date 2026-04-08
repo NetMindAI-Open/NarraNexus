@@ -334,9 +334,10 @@ async def clear_conversation_history(
 
         logger.info(f"Will delete {len(narrative_ids_to_delete)} narratives: {narrative_ids_to_delete}")
 
-        # Delete Events and Narratives within a transaction
+        # Delete Events, Narratives, and ChatModule instance memory
         events_deleted = 0
         narratives_deleted = 0
+        chat_memory_deleted = 0
 
         async with db_client.transaction():
             for narrative_id in narrative_ids_to_delete:
@@ -348,7 +349,54 @@ async def clear_conversation_history(
                 count = await db_client.delete("narratives", filters={"narrative_id": narrative_id})
                 narratives_deleted += count
 
-        logger.info(f"Deleted {narratives_deleted} narratives and {events_deleted} events")
+        # Also clear ChatModule instance memory (source for simple-chat-history and agent context)
+        try:
+            instance_repo = InstanceRepository(db_client)
+            all_instances = await instance_repo.get_by_agent(
+                agent_id=agent_id,
+                module_class="ChatModule"
+            )
+            for inst in all_instances:
+                count = await db_client.delete(
+                    "instance_json_format_memory_chat",
+                    filters={"instance_id": inst.instance_id}
+                )
+                chat_memory_deleted += count
+            if chat_memory_deleted > 0:
+                logger.info(f"Cleared {chat_memory_deleted} ChatModule instance memory records")
+        except Exception as e:
+            logger.warning(f"Failed to clear ChatModule memory (non-critical): {e}")
+
+        # Also clear agent_messages table
+        try:
+            agent_messages_deleted = await db_client.delete(
+                "agent_messages", filters={"agent_id": agent_id}
+            )
+            if agent_messages_deleted > 0:
+                logger.info(f"Cleared {agent_messages_deleted} agent_messages records")
+        except Exception:
+            pass
+
+        # Also clear session markdown files
+        try:
+            import os
+            import glob
+            from xyz_agent_context.settings import settings
+            session_dir = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "sessions"
+            )
+            if os.path.isdir(session_dir):
+                for f in glob.glob(os.path.join(session_dir, f"{agent_id}_*.md")):
+                    os.remove(f)
+                    logger.debug(f"Removed session file: {f}")
+        except Exception as e:
+            logger.warning(f"Failed to clear session files (non-critical): {e}")
+
+        logger.info(
+            f"Deleted {narratives_deleted} narratives, {events_deleted} events, "
+            f"{chat_memory_deleted} chat memory records"
+        )
 
         return ClearHistoryResponse(
             success=True,

@@ -283,14 +283,22 @@ def _get_default_bus():
         from xyz_agent_context.settings import settings
         url = getattr(settings, 'database_url', '') or ''
         if url.startswith('sqlite'):
-            from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-            from xyz_agent_context.utils.db_factory import parse_sqlite_url
-            db_path = parse_sqlite_url(url)
-            backend = SQLiteBackend(db_path)
-            # Can't await initialize() in sync context, but SQLiteBackend
-            # might already be initialized via shared client
-            _bus_instance = LocalMessageBus(backend=backend)
-            return _bus_instance
+            import os
+            proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+            if proxy_url:
+                from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                backend = SQLiteProxyBackend(proxy_url)
+                # Note: initialize() requires await, but proxy client works without it
+                # for simple HTTP calls. The httpx client is created lazily.
+                _bus_instance = LocalMessageBus(backend=backend)
+                return _bus_instance
+            else:
+                from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                db_path = parse_sqlite_url(url)
+                backend = SQLiteBackend(db_path)
+                _bus_instance = LocalMessageBus(backend=backend)
+                return _bus_instance
 
         logger.warning("MessageBus: no SQLite URL configured, bus unavailable")
         return None

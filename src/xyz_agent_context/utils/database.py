@@ -404,17 +404,29 @@ class AsyncDatabaseClient:
                     self._owns_backend = False  # Don't close it on our close()
                     self._initialized = True
                     return None
-                # Fallback: create own backend
-                from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-                from xyz_agent_context.utils.db_factory import parse_sqlite_url
-                db_path = parse_sqlite_url(url)
-                backend = SQLiteBackend(db_path)
-                await backend.initialize()
-                self._backend = backend
-                self._owns_backend = True
-                self._initialized = True
-                logger.info(f"AsyncDatabaseClient auto-switched to SQLite backend: {db_path}")
-                return None
+                # Fallback: create own backend (respects proxy if configured)
+                import os
+                proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+                if proxy_url:
+                    from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                    backend = SQLiteProxyBackend(proxy_url)
+                    await backend.initialize()
+                    self._backend = backend
+                    self._owns_backend = True
+                    self._initialized = True
+                    logger.info(f"AsyncDatabaseClient auto-switched to SQLite Proxy: {proxy_url}")
+                    return None
+                else:
+                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                    from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                    db_path = parse_sqlite_url(url)
+                    backend = SQLiteBackend(db_path)
+                    await backend.initialize()
+                    self._backend = backend
+                    self._owns_backend = True
+                    self._initialized = True
+                    logger.info(f"AsyncDatabaseClient auto-switched to SQLite backend: {db_path}")
+                    return None
 
             if self._db_config is None:
                 self._db_config = load_db_config()
@@ -464,13 +476,22 @@ class AsyncDatabaseClient:
             from xyz_agent_context.settings import settings
             url = getattr(settings, 'database_url', None) or ''
             if url.startswith('sqlite'):
-                from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-                from xyz_agent_context.utils.db_factory import parse_sqlite_url
-                db_path = parse_sqlite_url(url)
-                backend = SQLiteBackend(db_path)
-                await backend.initialize()
-                logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite: {db_path}")
-                return cls(_backend=backend)
+                import os
+                proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+                if proxy_url:
+                    from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+                    backend = SQLiteProxyBackend(proxy_url)
+                    await backend.initialize()
+                    logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite Proxy: {proxy_url}")
+                    return cls(_backend=backend)
+                else:
+                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                    from xyz_agent_context.utils.db_factory import parse_sqlite_url
+                    db_path = parse_sqlite_url(url)
+                    backend = SQLiteBackend(db_path)
+                    await backend.initialize()
+                    logger.info(f"AsyncDatabaseClient.create() auto-switched to SQLite: {db_path}")
+                    return cls(_backend=backend)
             db_config = load_db_config()
 
         # Create aiomysql connection pool

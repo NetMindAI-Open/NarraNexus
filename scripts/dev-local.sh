@@ -46,7 +46,9 @@ echo -e "  Database: ${Y}$DATABASE_URL${R}"
 echo ""
 
 # --- Common env ---
-ENV_CMD="export DATABASE_URL='$DATABASE_URL'; cd '$PROJECT_ROOT'"
+SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
+SQLITE_PROXY_URL="http://localhost:${SQLITE_PROXY_PORT}"
+ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
@@ -92,6 +94,7 @@ STATUS_ROW=8
 while true; do
   # Move cursor to status area and overwrite
   printf "\033[${STATUS_ROW};0H"
+  status_line "DB Proxy      :8100" "lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null || ss -tlnp 2>/dev/null | grep -q ':8100 '"
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
   status_line "MCP Server"          "pgrep -f 'module_runner.py mcp' >/dev/null"
@@ -118,6 +121,13 @@ chmod +x "$CONTROL_SCRIPT"
 # --- Create tmux session with Control window ---
 tmux new-session -d -s "$SESSION" -n "Control" \
   "bash '$CONTROL_SCRIPT'"
+
+# --- SQLite Proxy (MUST start first — all other services depend on it) ---
+tmux new-window -t "$SESSION" -n "DB Proxy" \
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+
+# Wait for proxy to be ready before starting other services
+sleep 3
 
 # --- Backend ---
 tmux new-window -t "$SESSION" -n "Backend" \

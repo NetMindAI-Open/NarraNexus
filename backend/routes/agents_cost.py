@@ -147,7 +147,7 @@ async def get_agent_costs(
                 input_tokens=r["input_tokens"],
                 output_tokens=r["output_tokens"],
                 total_cost_usd=float(r["total_cost_usd"]),
-                created_at=r["created_at"].isoformat() if r["created_at"] else None,
+                created_at=r["created_at"].isoformat() if hasattr(r.get("created_at"), "isoformat") else r.get("created_at"),
             )
             for r in recent
         ]

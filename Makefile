@@ -83,6 +83,9 @@ build-frontend:
 
 # ── Dev Servers ─────────────────────────────────────────────────────────────
 
+dev-db-proxy:
+	uv run python -m xyz_agent_context.utils.sqlite_proxy_server
+
 dev-backend:
 	uv run uvicorn backend.main:app --reload --port 8000
 

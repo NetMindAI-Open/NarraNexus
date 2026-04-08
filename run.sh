@@ -30,7 +30,7 @@ status() {
   echo ""
   echo -e "${C}Service Status${R}"
   echo ""
-  local services=("8000:Backend API" "5173:Frontend" "7801:MCP Server")
+  local services=("8100:DB Proxy" "8000:Backend API" "5173:Frontend" "7801:MCP Server")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"
@@ -49,10 +49,11 @@ stop_all() {
   # Kill tmux session if running
   tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8000 5173 5174 7801 7802 7803 7804 7805; do
+  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
+  pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
   pkill -f "module_runner.py mcp" 2>/dev/null || true
   pkill -f "module_poller" 2>/dev/null || true

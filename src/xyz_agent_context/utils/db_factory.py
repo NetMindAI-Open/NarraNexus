@@ -39,6 +39,7 @@ Usage examples:
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Optional, TYPE_CHECKING
 from loguru import logger
 
@@ -164,13 +165,23 @@ async def get_db_client() -> "AsyncDatabaseClient":
                 db_url = getattr(settings, 'database_url', None) or ''
 
                 if db_url.startswith('sqlite'):
-                    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+                    proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
 
-                    db_path = parse_sqlite_url(db_url)
-                    logger.info(f"Creating shared AsyncDatabaseClient with SQLite backend (path={db_path})")
-                    backend = SQLiteBackend(db_path)
-                    await backend.initialize()
-                    _shared_async_client = await AsyncDatabaseClient.create_with_backend(backend)
+                    if proxy_url:
+                        from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+
+                        logger.info(f"Creating shared AsyncDatabaseClient with SQLite Proxy backend (proxy={proxy_url})")
+                        backend = SQLiteProxyBackend(proxy_url)
+                        await backend.initialize()
+                        _shared_async_client = await AsyncDatabaseClient.create_with_backend(backend)
+                    else:
+                        from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
+
+                        db_path = parse_sqlite_url(db_url)
+                        logger.info(f"Creating shared AsyncDatabaseClient with SQLite backend (path={db_path})")
+                        backend = SQLiteBackend(db_path)
+                        await backend.initialize()
+                        _shared_async_client = await AsyncDatabaseClient.create_with_backend(backend)
                 else:
                     logger.info("Creating shared AsyncDatabaseClient instance")
                     _shared_async_client = await AsyncDatabaseClient.create()

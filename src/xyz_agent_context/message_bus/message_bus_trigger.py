@@ -374,6 +374,9 @@ async def _get_bus() -> LocalMessageBus:
     if not db_url:
         raise RuntimeError("DATABASE_URL environment variable is required")
 
+    if not db_url.startswith("sqlite"):
+        raise RuntimeError("MessageBusTrigger only supports SQLite. MySQL deployments use Matrix for inter-agent messaging.")
+
     from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
     from xyz_agent_context.utils.database_table_management.create_message_bus_tables import (
         create_bus_tables_sqlite,
@@ -385,8 +388,15 @@ async def _get_bus() -> LocalMessageBus:
     else:
         db_path = db_url
 
-    backend = SQLiteBackend(db_path)
-    await backend.initialize()
+    proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
+    if proxy_url:
+        from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
+        backend = SQLiteProxyBackend(proxy_url)
+        await backend.initialize()
+        logger.info(f"MessageBusTrigger using SQLite Proxy at {proxy_url}")
+    else:
+        backend = SQLiteBackend(db_path)
+        await backend.initialize()
 
     # Ensure all tables exist (runs as separate process)
     from xyz_agent_context.utils.schema_registry import auto_migrate

@@ -39,10 +39,13 @@ async def lifespan(app: FastAPI):
     db = await get_db_client()
     logger.info("Database connection pool initialized")
 
-    # Auto-migrate schema (works for both SQLite and MySQL)
-    from xyz_agent_context.utils.schema_registry import auto_migrate
-    await auto_migrate(db._backend)
-    logger.info("Schema auto-migration complete")
+    # Auto-migrate schema (SQLite via backend, MySQL uses legacy scripts)
+    if db._backend:
+        from xyz_agent_context.utils.schema_registry import auto_migrate
+        await auto_migrate(db._backend)
+        logger.info("Schema auto-migration complete")
+    else:
+        logger.info("MySQL mode: schema migration handled by external scripts (make db-sync)")
 
     yield
 

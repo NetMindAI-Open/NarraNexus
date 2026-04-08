@@ -229,11 +229,15 @@ async def create_agent(request: CreateAgentRequest):
             logger.warning(f"Matrix registration error (non-fatal): {matrix_err}")
 
         # Return the created agent info
+        # Re-fetch from DB to get server-generated fields (created_at)
+        agent_row = await db_client.get_one("agents", {"agent_id": agent_id})
         agent_info = AgentInfo(
             agent_id=agent_id,
             name=agent_name,
             description=agent_description,
             status='active',
+            created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
+            created_by=request.created_by,
             bootstrap_active=True,
         )
 
@@ -290,6 +294,14 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
         if affected_rows > 0:
             # Get the updated agent info
             updated_agent = await repo.get_agent(agent_id)
+            # Check bootstrap_active (Bootstrap.md exists in workspace)
+            from xyz_agent_context.settings import settings
+            workspace_path = os.path.join(
+                settings.base_working_path,
+                f"{agent_id}_{updated_agent.created_by}"
+            )
+            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+
             agent_info = AgentInfo(
                 agent_id=updated_agent.agent_id,
                 name=updated_agent.agent_name,
@@ -298,6 +310,7 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
                 created_at=format_for_api(updated_agent.agent_create_time),
                 is_public=updated_agent.is_public,
                 created_by=updated_agent.created_by,
+                bootstrap_active=bootstrap_active,
             )
             logger.info(f"Agent {agent_id} updated successfully")
 
@@ -412,17 +425,30 @@ async def delete_agent(
         )
         narrative_ids = [r["narrative_id"] for r in nar_rows] if nar_rows else []
 
-        # 4. Discover dynamic Memory tables
-        mem_rows = await db_client.execute(
-            """
-            SELECT TABLE_NAME AS tbl FROM information_schema.tables
-            WHERE table_schema = DATABASE()
-              AND (TABLE_NAME LIKE 'json_format_event_memory_%%'
-                   OR TABLE_NAME LIKE 'instance_json_format_memory_%%')
-            """,
-            params=(),
-            fetch=True,
-        )
+        # 4. Discover dynamic Memory tables (compatible with both MySQL and SQLite)
+        is_sqlite = hasattr(db_client, '_backend') and db_client._backend and db_client._backend.dialect == "sqlite"
+        if is_sqlite:
+            mem_rows = await db_client.execute(
+                """
+                SELECT name AS tbl FROM sqlite_master
+                WHERE type='table'
+                  AND (name LIKE 'json_format_event_memory_%'
+                       OR name LIKE 'instance_json_format_memory_%')
+                """,
+                params=(),
+                fetch=True,
+            )
+        else:
+            mem_rows = await db_client.execute(
+                """
+                SELECT TABLE_NAME AS tbl FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                  AND (TABLE_NAME LIKE 'json_format_event_memory_%%'
+                       OR TABLE_NAME LIKE 'instance_json_format_memory_%%')
+                """,
+                params=(),
+                fetch=True,
+            )
         memory_tables = [r["tbl"] for r in mem_rows] if mem_rows else []
 
         # ========== Delete from leaf to root ==========

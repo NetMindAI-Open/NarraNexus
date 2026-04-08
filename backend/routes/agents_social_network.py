@@ -58,6 +58,106 @@ def _parse_json(value: Any, default: Any) -> Any:
     return default
 
 
+@router.get("/{agent_id}/social-network/search", response_model=SocialNetworkSearchResponse)
+async def search_social_network_entities(
+    agent_id: str,
+    query: str = Query(..., description="Search query"),
+    search_type: str = Query("semantic", description="Search type: 'keyword' or 'semantic'"),
+    limit: int = Query(10, description="Maximum number of results")
+):
+    """
+    Search social entities (supports keyword and semantic modes)
+
+    - keyword: Keyword matching (searches entity_name, entity_description, tags)
+    - semantic: Semantic similarity search (based on embedding vectors)
+
+    NOTE: This route MUST be registered before /{user_id} to avoid path shadowing.
+    """
+    logger.info(f"Searching social network entities: agent={agent_id}, query='{query}', type={search_type}")
+
+    try:
+        db_client = await get_db_client()
+
+        instance_repo = InstanceRepository(db_client)
+        instances = await instance_repo.get_by_agent(
+            agent_id=agent_id,
+            module_class="SocialNetworkModule"
+        )
+
+        if not instances:
+            return SocialNetworkSearchResponse(
+                success=True, entities=[], count=0, search_type=search_type
+            )
+
+        instance_id = instances[0].instance_id
+        social_repo = SocialNetworkRepository(db_client)
+
+        if search_type == "semantic":
+            from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
+            query_embedding = await get_embedding(query)
+            results = await social_repo.semantic_search(
+                instance_id=instance_id,
+                query_embedding=query_embedding,
+                limit=limit
+            )
+            entity_list = []
+            for entity, score in results:
+                entity_info = SocialNetworkEntityInfo(
+                    entity_id=entity.entity_id,
+                    entity_name=entity.entity_name,
+                    entity_description=entity.entity_description,
+                    entity_type=entity.entity_type,
+                    identity_info=entity.identity_info or {},
+                    contact_info=entity.contact_info or {},
+                    tags=entity.tags or [],
+                    relationship_strength=entity.relationship_strength or 0.0,
+                    interaction_count=entity.interaction_count or 0,
+                    last_interaction_time=format_for_api(entity.last_interaction_time),
+                    persona=entity.persona,
+                    related_job_ids=entity.related_job_ids or [],
+                    expertise_domains=entity.expertise_domains or [],
+                    similarity_score=round(score, 4)
+                )
+                entity_list.append(entity_info)
+        else:
+            results = await social_repo.keyword_search(
+                instance_id=instance_id,
+                keyword=query,
+                limit=limit
+            )
+            entity_list = []
+            for entity in results:
+                entity_info = SocialNetworkEntityInfo(
+                    entity_id=entity.entity_id,
+                    entity_name=entity.entity_name,
+                    entity_description=entity.entity_description,
+                    entity_type=entity.entity_type,
+                    identity_info=entity.identity_info or {},
+                    contact_info=entity.contact_info or {},
+                    tags=entity.tags or [],
+                    relationship_strength=entity.relationship_strength or 0.0,
+                    interaction_count=entity.interaction_count or 0,
+                    last_interaction_time=format_for_api(entity.last_interaction_time),
+                    persona=entity.persona,
+                    related_job_ids=entity.related_job_ids or [],
+                    expertise_domains=entity.expertise_domains or [],
+                )
+                entity_list.append(entity_info)
+
+        return SocialNetworkSearchResponse(
+            success=True,
+            entities=entity_list,
+            count=len(entity_list),
+            search_type=search_type
+        )
+
+    except Exception as e:
+        logger.error(f"Error searching social network entities: {e}")
+        return SocialNetworkSearchResponse(
+            success=False, error=str(e), search_type=search_type
+        )
+
+
 @router.get("/{agent_id}/social-network/{user_id}", response_model=SocialNetworkResponse)
 async def get_user_social_network_info(agent_id: str, user_id: str):
     """
@@ -174,99 +274,3 @@ async def get_all_social_network_entities(agent_id: str):
         return SocialNetworkListResponse(success=False, error=str(e))
 
 
-@router.get("/{agent_id}/social-network/search", response_model=SocialNetworkSearchResponse)
-async def search_social_network_entities(
-    agent_id: str,
-    query: str = Query(..., description="Search query"),
-    search_type: str = Query("semantic", description="Search type: 'keyword' or 'semantic'"),
-    limit: int = Query(10, description="Maximum number of results")
-):
-    """
-    Search social entities (supports keyword and semantic modes)
-
-    - keyword: Keyword matching (searches entity_name, entity_description, tags)
-    - semantic: Semantic similarity search (based on embedding vectors)
-    """
-    logger.info(f"Searching social network entities: agent={agent_id}, query='{query}', type={search_type}")
-
-    try:
-        db_client = await get_db_client()
-
-        instance_repo = InstanceRepository(db_client)
-        instances = await instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="SocialNetworkModule"
-        )
-
-        if not instances:
-            return SocialNetworkSearchResponse(
-                success=True, entities=[], count=0, search_type=search_type
-            )
-
-        instance_id = instances[0].instance_id
-        social_repo = SocialNetworkRepository(db_client)
-
-        if search_type == "semantic":
-            from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
-            query_embedding = await get_embedding(query)
-            results = await social_repo.semantic_search(
-                instance_id=instance_id,
-                query_embedding=query_embedding,
-                limit=limit
-            )
-            entity_list = []
-            for entity, score in results:
-                entity_info = SocialNetworkEntityInfo(
-                    entity_id=entity.entity_id,
-                    entity_name=entity.entity_name,
-                    entity_description=entity.entity_description,
-                    entity_type=entity.entity_type,
-                    identity_info=entity.identity_info or {},
-                    contact_info=entity.contact_info or {},
-                    tags=entity.tags or [],
-                    relationship_strength=entity.relationship_strength or 0.0,
-                    interaction_count=entity.interaction_count or 0,
-                    last_interaction_time=format_for_api(entity.last_interaction_time),
-                    persona=entity.persona,
-                    related_job_ids=entity.related_job_ids or [],
-                    expertise_domains=entity.expertise_domains or [],
-                    similarity_score=round(score, 4)
-                )
-                entity_list.append(entity_info)
-        else:
-            results = await social_repo.keyword_search(
-                instance_id=instance_id,
-                keyword=query,
-                limit=limit
-            )
-            entity_list = []
-            for entity in results:
-                entity_info = SocialNetworkEntityInfo(
-                    entity_id=entity.entity_id,
-                    entity_name=entity.entity_name,
-                    entity_description=entity.entity_description,
-                    entity_type=entity.entity_type,
-                    identity_info=entity.identity_info or {},
-                    contact_info=entity.contact_info or {},
-                    tags=entity.tags or [],
-                    relationship_strength=entity.relationship_strength or 0.0,
-                    interaction_count=entity.interaction_count or 0,
-                    last_interaction_time=format_for_api(entity.last_interaction_time),
-                    persona=entity.persona,
-                    related_job_ids=entity.related_job_ids or [],
-                    expertise_domains=entity.expertise_domains or [],
-                )
-                entity_list.append(entity_info)
-
-        return SocialNetworkSearchResponse(
-            success=True,
-            entities=entity_list,
-            count=len(entity_list),
-            search_type=search_type
-        )
-
-    except Exception as e:
-        logger.error(f"Error searching social network entities: {e}")
-        return SocialNetworkSearchResponse(
-            success=False, error=str(e), search_type=search_type
-        )
