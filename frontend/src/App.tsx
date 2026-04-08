@@ -35,8 +35,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setValidating(false);
       return;
     }
-    // Validate that the user still exists in the backend DB
-    api.login(userId)
+    // Validate that the session is still valid (JWT token accepted by backend)
+    api.getAgents(userId)
       .then(res => {
         if (!res.success) logout();
       })

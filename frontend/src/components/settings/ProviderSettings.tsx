@@ -28,6 +28,19 @@ import { cn } from '@/lib/utils'
 
 const API_BASE = ''  // Relative — Vite proxy handles /api/*
 
+/** fetch wrapper that injects JWT auth header when available (cloud mode) */
+function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers)
+  try {
+    const raw = localStorage.getItem('narra-nexus-config')
+    if (raw) {
+      const token = JSON.parse(raw)?.state?.token
+      if (token) headers.set('Authorization', `Bearer ${token}`)
+    }
+  } catch {}
+  return fetch(input, { ...init, headers })
+}
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -203,9 +216,9 @@ export function ProviderSettings() {
   const refreshConfig = useCallback(async () => {
     try {
       const [cfgRes, catRes, claudeRes] = await Promise.all([
-        fetch(`${API_BASE}/api/providers`).then((r) => r.json()),
-        fetch(`${API_BASE}/api/providers/catalog`).then((r) => r.json()),
-        fetch(`${API_BASE}/api/providers/claude-status`).then((r) => r.json()).catch(() => null),
+        authFetch(`${API_BASE}/api/providers`).then((r) => r.json()),
+        authFetch(`${API_BASE}/api/providers/catalog`).then((r) => r.json()),
+        authFetch(`${API_BASE}/api/providers/claude-status`).then((r) => r.json()).catch(() => null),
       ])
       if (claudeRes?.success) setClaudeStatus(claudeRes.data)
       if (cfgRes.success) {
@@ -247,7 +260,7 @@ export function ProviderSettings() {
   const addProvider = async (body: Record<string, unknown>) => {
     setError('')
     try {
-      const res = await fetch(`${API_BASE}/api/providers`, {
+      const res = await authFetch(`${API_BASE}/api/providers`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }).then((r) => r.json())
@@ -287,7 +300,7 @@ export function ProviderSettings() {
   }
 
   const handleDelete = async (id: string) => {
-    await fetch(`${API_BASE}/api/providers/${id}`, { method: 'DELETE' })
+    await authFetch(`${API_BASE}/api/providers/${id}`, { method: 'DELETE' })
     setPendingSlots((prev) => {
       const next = { ...prev }
       for (const [k, v] of Object.entries(next)) {
@@ -301,7 +314,7 @@ export function ProviderSettings() {
   const handleTest = async (id: string) => {
     setTesting(id)
     try {
-      const res = await fetch(`${API_BASE}/api/providers/${id}/test`, { method: 'POST' }).then((r) => r.json())
+      const res = await authFetch(`${API_BASE}/api/providers/${id}/test`, { method: 'POST' }).then((r) => r.json())
       setTestResults((p) => ({ ...p, [id]: { ok: res.success, msg: res.message } }))
     } catch {
       setTestResults((p) => ({ ...p, [id]: { ok: false, msg: 'Network error' } }))
@@ -320,7 +333,7 @@ export function ProviderSettings() {
     setError('')
     try {
       for (const [slot, cfg] of Object.entries(pendingSlots)) {
-        const res = await fetch(`${API_BASE}/api/providers/slots/${slot}`, {
+        const res = await authFetch(`${API_BASE}/api/providers/slots/${slot}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ provider_id: cfg.provider_id, model: cfg.model }),
         }).then((r) => r.json())
