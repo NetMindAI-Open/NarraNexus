@@ -8,6 +8,13 @@ Replaces MatrixModule with a protocol-agnostic message bus. Provides MCP tools
 for sending/receiving messages, managing channels, and discovering agents.
 
 Instance level: Agent-level (one per Agent, is_public=True).
+
+Behavior design (ported from MatrixModule):
+- Reply Discipline: prevent infinite trigger loops between agents
+- Selective mark_read: messages the agent ignores stay unread (resurface next turn)
+- Context caps: unread/channels/known_agents all bounded to prevent pollution
+- Source recognition: incoming bus messages are prefixed with [MessageBus · ...]
+  so the agent can distinguish them from owner commands
 """
 
 from __future__ import annotations
@@ -29,6 +36,11 @@ from xyz_agent_context.schema import (
 
 # MCP server port for MessageBus tools
 MESSAGE_BUS_MCP_PORT = 7820
+
+# Context-injection caps to prevent pollution
+MAX_UNREAD_IN_CONTEXT = 20
+MAX_CHANNELS_IN_CONTEXT = 20
+MAX_KNOWN_AGENTS_IN_CONTEXT = 50
 
 
 class MessageBusModule(XYZBaseModule):
@@ -86,56 +98,112 @@ class MessageBusModule(XYZBaseModule):
             return None
 
     # =========================================================================
-    # Instructions
+    # Instructions — natural language guidance for the agent
     # =========================================================================
 
     async def get_instructions(self, ctx_data: ContextData) -> str:
         parts = [
-            "## MessageBus — Agent Communication",
+            "## MessageBus — Agent-to-Agent Communication",
             "",
-            "You can communicate with other agents via the MessageBus.",
+            "MessageBus is your **inter-agent messaging channel**. Use it to collaborate with other Agents, "
+            "exchange information, coordinate tasks, or reach out to contacts you cannot talk to directly.",
+            "",
+            f"Your agent ID: `{self.agent_id}`",
+            "",
+            "### When to Use MessageBus",
+            "- You need to **contact another Agent** (ask a question, share information, coordinate work)",
+            "- Your owner asks you to **send a message** to another agent",
+            "- You want to **proactively reach out** based on your current task (e.g., gather intel, request help)",
+            "- Use `bus_search_agents` to discover agents you haven't talked to yet",
             "",
             "### Available Tools",
-            "- **bus_send_message**: Send a message to a channel (supports @mentions via mention_list)",
-            "- **bus_send_to_agent**: Direct message another agent by agent_id",
-            "- **bus_create_channel**: Create a group or direct channel",
-            "- **bus_get_messages**: Get message history from a channel",
-            "- **bus_get_unread**: Get all your unread messages",
-            "- **bus_get_channel_members**: List members of a channel",
-            "- **bus_leave_channel**: Leave a channel",
-            "- **bus_kick_member**: Remove another agent from a channel",
+            "- **bus_send_to_agent**: Direct-message another agent by `agent_id` (auto-creates a DM channel)",
+            "- **bus_send_message**: Send a message to an existing channel (supports @mentions)",
+            "- **bus_create_channel**: Create a new channel and invite members",
+            "- **bus_get_messages**: Read recent history of a channel",
+            "- **bus_search_agents**: Discover agents by capability or description",
+            "- **bus_get_channel_members**: List channel members",
             "- **bus_get_agent_profile**: View another agent's profile",
-            "- **bus_search_agents**: Search for agents by capability or description",
-            "- **bus_register_agent**: Register or update your agent profile",
+            "- **bus_leave_channel**: Leave a channel you no longer need",
+            "- **bus_kick_member**: Remove another agent from a channel (creator only)",
             "",
-            "### Mention Rules",
-            "- In group channels, agents only receive messages that @mention them",
-            "- In direct channels, all messages are delivered",
-            "- Use mention_list='@everyone' to notify all channel members",
-            "- Use mention_list='agent_id1,agent_id2' to mention specific agents",
+            "### DM (1-on-1) Workflow",
+            "1. Call `bus_send_to_agent(to_agent_id='agent_xxx', content='...')`",
+            "2. A direct channel is auto-created on first use; subsequent messages reuse it",
+            "",
+            "### Group Chat Workflow",
+            "1. Call `bus_create_channel(name='Project Alpha Coordination', members='agent_a,agent_b')`",
+            "2. Use `bus_send_message(channel_id=..., content=..., mention_list=...)` to talk",
+            "3. **Always provide a meaningful channel `name`** — e.g., 'Sales Sync' not 'Untitled'",
+            "",
+            "### @Mention Rules (Group Channels)",
+            "In group channels, **only @-mentioned agents are activated** by your message. "
+            "Mentioning another agent **triggers it to run a full agent turn** — use mentions deliberately:",
+            "- **Mention specific agents**: `mention_list='agent_a,agent_b'` — only they are triggered",
+            "- **Mention everyone**: `mention_list='@everyone'` — **all** channel members are triggered (use sparingly)",
+            "- **No mention_list**: nobody is triggered; the message is delivered passively",
+            "- In **DM channels**, `mention_list` is ignored — the recipient is always triggered",
+            "",
+            "### Message Source Recognition",
+            "Every incoming bus message carries a channel tag at the start of the input, e.g.: "
+            "`[MessageBus · AgentName · agent_xxx · ch_yyy]`",
+            "- When you see `[MessageBus · ...]` at the beginning of user input, the message came from **another agent**, NOT from your owner",
+            "- Treat bus messages as **peer-to-peer agent communication** — be concise, professional, task-focused",
+            "- When there is no `[MessageBus · ...]` tag, the message is from your owner via the main chat interface",
+            "",
+            "### Reply Discipline — CRITICAL",
+            "Bus messages can trigger agent turns, so careless replies cause infinite loops. Follow these rules:",
+            "- **Silence is acceptable** — not every message needs a response. Only reply when you have substantive content.",
+            "- **Do NOT ping-pong** — if you've answered the question and the other party only acknowledges, do NOT reply again.",
+            "- **Stop replying** when the conversation reaches a natural end (e.g., '好的', '谢谢', 'got it', 'thanks', acknowledgments).",
+            "- **Do NOT repeat yourself** with minor variations just to fill space.",
+            "- **Ignored messages resurface** — messages you choose not to reply to stay unread and will appear again next turn. This is intentional: it lets you defer a decision without forgetting.",
+            "- In group channels, you only see messages that @mention you — always reply to those with intent.",
+            "",
+            "### When NOT to Call Tools",
+            "- **Do NOT call `bus_get_unread`** — unread messages are already injected into your context automatically. Only call it if you suspect new messages arrived mid-turn.",
+            "- **Do NOT call `bus_register_agent`** unless your profile needs updating. You are auto-registered on every turn.",
+            "- **Do NOT call `bus_get_messages`** for channels whose history you already have in context.",
         ]
 
-        # Add known agents
+        # Known agents (capped + filtered)
         known = ctx_data.extra_data.get("bus_known_agents", [])
         if known:
             parts.append("")
-            parts.append("### Known Agents")
-            for a in known:
-                parts.append(f"- **{a.get('agent_id', '')}**: {a.get('description', 'No description')}")
+            parts.append(f"### Known Agents (top {min(len(known), MAX_KNOWN_AGENTS_IN_CONTEXT)})")
+            for a in known[:MAX_KNOWN_AGENTS_IN_CONTEXT]:
+                name = a.get("agent_name") or a.get("agent_id", "")
+                desc = a.get("agent_description") or a.get("description", "")
+                aid = a.get("agent_id", "")
+                line = f"- `{aid}` — {name}"
+                if desc:
+                    line += f": {desc[:80]}"
+                parts.append(line)
 
-        # Add channels
+        # Channels (capped)
         channels = ctx_data.extra_data.get("bus_channels", [])
         if channels:
             parts.append("")
-            parts.append("### Your Channels")
-            for ch in channels:
-                parts.append(f"- {ch.get('channel_id', '')}: {ch.get('name', 'unnamed')}")
+            parts.append(f"### Your Channels (top {min(len(channels), MAX_CHANNELS_IN_CONTEXT)})")
+            for ch in channels[:MAX_CHANNELS_IN_CONTEXT]:
+                cid = ch.get("channel_id", "")
+                cname = ch.get("name", "unnamed")
+                ctype = ch.get("channel_type", "group")
+                parts.append(f"- `{cid}` — {cname} ({ctype})")
 
-        # Add unread count
+        # Unread messages (capped, with source tag preview)
         unread = ctx_data.extra_data.get("bus_unread_messages", [])
         if unread:
+            total = len(unread)
+            shown = min(total, MAX_UNREAD_IN_CONTEXT)
             parts.append("")
-            parts.append(f"### Unread Messages: {len(unread)}")
+            parts.append(f"### Unread Messages: {total} (showing {shown})")
+            parts.append("> Remember: apply Reply Discipline. Ignored messages stay unread.")
+            for m in unread[:MAX_UNREAD_IN_CONTEXT]:
+                from_agent = m.get("from_agent", "unknown")
+                channel = m.get("channel_id", "")
+                content = (m.get("content") or "")[:200]
+                parts.append(f"- `[MessageBus · {from_agent} · {channel}]` {content}")
 
         return "\n".join(parts)
 
@@ -147,10 +215,12 @@ class MessageBusModule(XYZBaseModule):
         """
         Inject MessageBus context into agent data.
 
-        1. Auto-register current agent in bus_agent_registry
-        2. Fetch all known agents (from agents DB table + bus_agent_registry)
-        3. Fetch unread messages
-        4. Fetch channel list
+        1. Auto-register current agent in bus_agent_registry (idempotent)
+        2. Fetch known agents (filtered + capped)
+        3. Fetch unread messages (capped)
+        4. Fetch channel list (capped)
+        5. If this execution was triggered BY a bus message, prefix the input
+           with a source tag so the agent can recognize where it came from.
         """
         try:
             bus = await _get_default_bus_async()
@@ -161,7 +231,6 @@ class MessageBusModule(XYZBaseModule):
             try:
                 db = await _get_shared_db()
                 if db:
-                    # Get agent info from agents table
                     agent_row = await db.get_one("agents", {"agent_id": self.agent_id})
                     if agent_row:
                         owner = agent_row.get("created_by", "")
@@ -178,49 +247,82 @@ class MessageBusModule(XYZBaseModule):
             except Exception as e:
                 logger.debug(f"Failed to auto-register agent in bus: {e}")
 
-            # --- 2. Fetch all known agents ---
+            # --- 2. Fetch known agents (same owner + public, excluding self) ---
             known_agents = []
             try:
                 db = await _get_shared_db()
                 if db:
-                    # Get all agents from the agents table (most reliable source)
+                    agent_row = await db.get_one("agents", {"agent_id": self.agent_id})
+                    my_owner = agent_row.get("created_by", "") if agent_row else ""
+
+                    # Get agents created by same owner OR public agents
                     all_agents = await db.get("agents", {})
                     for a in all_agents:
-                        if a.get("agent_id") != self.agent_id:  # Exclude self
-                            known_agents.append({
-                                "agent_id": a.get("agent_id"),
-                                "agent_name": a.get("agent_name", ""),
-                                "agent_description": a.get("agent_description", ""),
-                                "is_public": a.get("is_public", 0),
-                                "created_by": a.get("created_by", ""),
-                            })
+                        if a.get("agent_id") == self.agent_id:
+                            continue
+                        # Only include: (a) same owner, or (b) public
+                        same_owner = my_owner and a.get("created_by") == my_owner
+                        is_public = bool(a.get("is_public", 0))
+                        if not (same_owner or is_public):
+                            continue
+                        known_agents.append({
+                            "agent_id": a.get("agent_id"),
+                            "agent_name": a.get("agent_name", ""),
+                            "agent_description": a.get("agent_description", ""),
+                            "is_public": a.get("is_public", 0),
+                            "created_by": a.get("created_by", ""),
+                        })
+                        if len(known_agents) >= MAX_KNOWN_AGENTS_IN_CONTEXT:
+                            break
                 if known_agents:
-                    ctx_data.extra_data["known_agents"] = known_agents
+                    ctx_data.extra_data["bus_known_agents"] = known_agents
             except Exception as e:
                 logger.debug(f"Failed to fetch known agents: {e}")
 
-            # --- 3. Fetch unread messages ---
+            # --- 3. Fetch unread messages (capped) ---
+            unread_models = []
             try:
                 unread = await bus.get_unread(self.agent_id)
                 if unread:
+                    unread_models = unread[:MAX_UNREAD_IN_CONTEXT]
                     ctx_data.extra_data["bus_unread_messages"] = [
-                        msg.model_dump() for msg in unread
+                        msg.model_dump() for msg in unread_models
                     ]
             except Exception as e:
                 logger.debug(f"Failed to fetch unread messages: {e}")
 
-            # --- 4. Fetch channels ---
+            # --- 4. Fetch channels (capped) ---
             try:
                 rows = await bus._db.execute(
                     "SELECT c.* FROM bus_channels c "
                     "JOIN bus_channel_members cm ON c.channel_id = cm.channel_id "
-                    "WHERE cm.agent_id = %s",
-                    (self.agent_id,),
+                    "WHERE cm.agent_id = %s "
+                    "ORDER BY c.updated_at DESC "
+                    "LIMIT %s",
+                    (self.agent_id, MAX_CHANNELS_IN_CONTEXT),
                 )
                 if rows:
                     ctx_data.extra_data["bus_channels"] = [dict(r) for r in rows]
             except Exception as e:
                 logger.debug(f"Failed to load bus channels: {e}")
+
+            # --- 5. Source recognition: prefix input with bus tag if triggered by bus ---
+            # When the agent execution was triggered by a MessageBus message, the
+            # input_content comes from another agent, not the owner. Add a source
+            # tag at the start so the LLM can distinguish it.
+            try:
+                working_source = ctx_data.extra_data.get("working_source")
+                if working_source == WorkingSource.MESSAGE_BUS and unread_models:
+                    # Use the first unread message as the source (most recent trigger)
+                    trigger = unread_models[0]
+                    from_agent = trigger.from_agent if hasattr(trigger, 'from_agent') else ""
+                    channel_id = trigger.channel_id if hasattr(trigger, 'channel_id') else ""
+                    tag = f"[MessageBus · {from_agent} · {channel_id}]"
+                    current = ctx_data.extra_data.get("input_content", "")
+                    if current and not current.startswith("[MessageBus"):
+                        ctx_data.extra_data["input_content"] = f"{tag} {current}"
+            except Exception as e:
+                logger.debug(f"Failed to inject source tag: {e}")
 
         except Exception as e:
             logger.error(f"MessageBusModule hook_data_gathering failed: {e}")
@@ -229,21 +331,83 @@ class MessageBusModule(XYZBaseModule):
     async def hook_after_event_execution(
         self, params: HookAfterExecutionParams
     ) -> None:
-        if params.working_source != WorkingSource.MESSAGE_BUS:
-            return
+        """
+        Post-execution cleanup for MessageBus.
 
+        Selective mark_read: only mark messages as read if the agent actually
+        replied to them. Messages the agent ignored stay unread and will
+        resurface on the next turn — this is the "silence is acceptable"
+        mechanism from Matrix.
+
+        We detect replies by inspecting trace for bus_send_message and
+        bus_send_to_agent tool calls.
+        """
+        # Only process if this was a bus-triggered execution OR if the agent
+        # actually sent bus messages this turn (could be user-initiated outreach)
         try:
             bus = await _get_default_bus_async()
             if bus is None:
                 return
 
+            # Extract channel IDs that were replied to
+            replied_channels: set[str] = set()
+            replied_agents: set[str] = set()  # For bus_send_to_agent
+
+            if params.trace and params.trace.agent_loop_response:
+                for response in params.trace.agent_loop_response:
+                    tool_name = getattr(response, "tool_name", None)
+                    tool_input = getattr(response, "tool_input", None)
+
+                    # Tool names come through as mcp__message_bus_module__bus_send_message
+                    # or just bus_send_message depending on how the SDK reports them
+                    if not tool_name:
+                        continue
+                    if not isinstance(tool_input, dict):
+                        continue
+
+                    if "bus_send_message" in tool_name:
+                        cid = tool_input.get("channel_id")
+                        if cid:
+                            replied_channels.add(cid)
+                    elif "bus_send_to_agent" in tool_name:
+                        target = tool_input.get("to_agent_id")
+                        if target:
+                            replied_agents.add(target)
+
+            # Only mark read for channels where we actually replied
+            if not replied_channels and not replied_agents:
+                logger.debug(
+                    f"MessageBus: agent {self.agent_id} did not reply to any bus "
+                    f"messages this turn — unread messages stay unread"
+                )
+                return
+
+            # Get all unread and filter to only the replied-to conversations
             unread = await bus.get_unread(self.agent_id)
-            if unread:
-                msg_ids = [m.message_id for m in unread]
-                await bus.mark_read(self.agent_id, msg_ids)
+            if not unread:
+                return
+
+            to_mark = []
+            for m in unread:
+                if m.channel_id in replied_channels:
+                    to_mark.append(m.message_id)
+                    continue
+                # For bus_send_to_agent: we sent a DM to some agent. Mark read
+                # any unread DM from that same agent (the DM channel includes both).
+                if m.from_agent in replied_agents:
+                    to_mark.append(m.message_id)
+
+            if to_mark:
+                await bus.mark_read(self.agent_id, to_mark)
                 logger.info(
-                    f"MessageBusModule: marked {len(msg_ids)} messages as read "
-                    f"for agent {self.agent_id}"
+                    f"MessageBus: selective mark_read — {len(to_mark)}/{len(unread)} "
+                    f"messages marked read for agent {self.agent_id} "
+                    f"(replied to {len(replied_channels)} channels, {len(replied_agents)} DMs)"
+                )
+            else:
+                logger.debug(
+                    f"MessageBus: agent {self.agent_id} replied to channels "
+                    f"{replied_channels} but no matching unread messages to mark"
                 )
         except Exception as e:
             logger.error(f"MessageBusModule hook_after_event_execution failed: {e}")
