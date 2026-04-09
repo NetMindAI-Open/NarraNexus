@@ -77,7 +77,7 @@ class MessageBusModule(XYZBaseModule):
             mcp.settings.port = MESSAGE_BUS_MCP_PORT
 
             from ._message_bus_mcp_tools import register_message_bus_mcp_tools
-            register_message_bus_mcp_tools(mcp, get_message_bus_fn=_get_default_bus)
+            register_message_bus_mcp_tools(mcp, get_message_bus_fn=_get_default_bus_async)
 
             logger.info(f"MessageBusModule MCP server created on port {MESSAGE_BUS_MCP_PORT}")
             return mcp
@@ -153,7 +153,7 @@ class MessageBusModule(XYZBaseModule):
         4. Fetch channel list
         """
         try:
-            bus = _get_default_bus()
+            bus = await _get_default_bus_async()
             if bus is None:
                 return ctx_data
 
@@ -214,7 +214,7 @@ class MessageBusModule(XYZBaseModule):
                 rows = await bus._db.execute(
                     "SELECT c.* FROM bus_channels c "
                     "JOIN bus_channel_members cm ON c.channel_id = cm.channel_id "
-                    "WHERE cm.agent_id = ?",
+                    "WHERE cm.agent_id = %s",
                     (self.agent_id,),
                 )
                 if rows:
@@ -233,7 +233,7 @@ class MessageBusModule(XYZBaseModule):
             return
 
         try:
-            bus = _get_default_bus()
+            bus = await _get_default_bus_async()
             if bus is None:
                 return
 
@@ -253,57 +253,50 @@ class MessageBusModule(XYZBaseModule):
 # Module-level helpers
 # =============================================================================
 
-_bus_instance = None
+_bus_instances: dict[int, Any] = {}  # keyed by event loop id
 
 
-def _get_default_bus():
-    """Get or create the default LocalMessageBus using the shared DB backend."""
-    global _bus_instance
-    if _bus_instance is not None:
-        return _bus_instance
+async def _get_default_bus_async():
+    """Get or create a LocalMessageBus bound to the current event loop.
+
+    Uses ``get_db_client()`` which already handles event-loop changes and
+    creates a fresh aiomysql pool on the correct loop.  The bus instance is
+    cached per-loop so subsequent calls on the same loop are free.
+    """
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    loop_id = id(loop)
+
+    if loop_id in _bus_instances:
+        return _bus_instances[loop_id]
 
     try:
-        import asyncio
         from xyz_agent_context.message_bus import LocalMessageBus
         from xyz_agent_context.utils.db_factory import get_db_client
 
-        # Get the shared DB client's backend
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're in an async context — can't await here
-            # Use a sync fallback: try to get the existing shared client
-            import xyz_agent_context.utils.db_factory as factory
-            if hasattr(factory, '_shared_async_client') and factory._shared_async_client:
-                backend = factory._shared_async_client._backend
-                if backend:
-                    _bus_instance = LocalMessageBus(backend=backend)
-                    return _bus_instance
+        db = await get_db_client()
+        backend = db._backend
+        if backend is None:
+            logger.warning("MessageBus: database backend is None")
+            return None
 
-        # Fallback: create with a new backend from settings
-        from xyz_agent_context.settings import settings
-        url = getattr(settings, 'database_url', '') or ''
-        if url.startswith('sqlite'):
-            import os
-            proxy_url = os.environ.get("SQLITE_PROXY_URL", "")
-            if proxy_url:
-                from xyz_agent_context.utils.db_backend_sqlite_proxy import SQLiteProxyBackend
-                backend = SQLiteProxyBackend(proxy_url)
-                # Note: initialize() requires await, but proxy client works without it
-                # for simple HTTP calls. The httpx client is created lazily.
-                _bus_instance = LocalMessageBus(backend=backend)
-                return _bus_instance
-            else:
-                from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-                from xyz_agent_context.utils.db_factory import parse_sqlite_url
-                db_path = parse_sqlite_url(url)
-                backend = SQLiteBackend(db_path)
-                _bus_instance = LocalMessageBus(backend=backend)
-                return _bus_instance
-
-        logger.warning("MessageBus: no SQLite URL configured, bus unavailable")
-        return None
+        bus = LocalMessageBus(backend=backend)
+        _bus_instances[loop_id] = bus
+        logger.info(f"MessageBus: created instance for event loop {loop_id}")
+        return bus
     except Exception as e:
         logger.error(f"Failed to initialize default MessageBus: {e}")
+        return None
+
+
+def _get_default_bus():
+    """Sync wrapper — only works if a bus was already created for the current loop."""
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        return _bus_instances.get(id(loop))
+    except RuntimeError:
         return None
 
 

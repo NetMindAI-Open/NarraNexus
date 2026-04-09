@@ -7,7 +7,7 @@
 These tools map to the MessageBusService interface methods.
 The bus_ prefix avoids collision with matrix_*, slack_*, etc.
 
-Each tool receives a get_message_bus_fn callable that returns a
+Each tool receives a get_message_bus_fn async callable that returns a
 MessageBusService instance, following the project pattern for
 dependency injection in MCP tool modules.
 """
@@ -28,7 +28,7 @@ def register_message_bus_mcp_tools(
 
     Args:
         mcp: The FastMCP server instance.
-        get_message_bus_fn: Callable that returns a MessageBusService instance.
+        get_message_bus_fn: Async callable that returns a MessageBusService instance.
     """
 
     @mcp.tool()
@@ -52,7 +52,7 @@ def register_message_bus_mcp_tools(
         Returns:
             Result dict with message_id on success, or error details
         """
-        bus = get_message_bus_fn()
+        bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
 
@@ -92,7 +92,7 @@ def register_message_bus_mcp_tools(
         Returns:
             Result dict with channel_id on success
         """
-        bus = get_message_bus_fn()
+        bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
 
@@ -125,7 +125,7 @@ def register_message_bus_mcp_tools(
         Returns:
             Result dict with matching agents list
         """
-        bus = get_message_bus_fn()
+        bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
 
@@ -153,7 +153,7 @@ def register_message_bus_mcp_tools(
         Returns:
             Result dict with unread messages list
         """
-        bus = get_message_bus_fn()
+        bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
 
@@ -187,7 +187,7 @@ def register_message_bus_mcp_tools(
         Returns:
             Result dict with message_id on success, or error details
         """
-        bus = get_message_bus_fn()
+        bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
 
@@ -222,7 +222,7 @@ def register_message_bus_mcp_tools(
         Returns:
             Result dict indicating success or failure
         """
-        bus = get_message_bus_fn()
+        bus = await get_message_bus_fn()
         if bus is None:
             return {"success": False, "error": "MessageBus not available"}
 
@@ -248,7 +248,7 @@ def register_message_bus_mcp_tools(
             limit: Maximum number of messages (default 50)
         """
         try:
-            bus = get_message_bus_fn()
+            bus = await get_message_bus_fn()
             if bus is None:
                 return {"success": False, "error": "MessageBus not available"}
             messages = await bus.get_messages(channel_id, limit=limit)
@@ -268,7 +268,7 @@ def register_message_bus_mcp_tools(
             channel_id: Channel to inspect
         """
         try:
-            bus = get_message_bus_fn()
+            bus = await get_message_bus_fn()
             if bus is None:
                 return {"success": False, "error": "MessageBus not available"}
             members = await bus.get_channel_members(channel_id)
@@ -285,7 +285,7 @@ def register_message_bus_mcp_tools(
             channel_id: Channel to leave
         """
         try:
-            bus = get_message_bus_fn()
+            bus = await get_message_bus_fn()
             if bus is None:
                 return {"success": False, "error": "MessageBus not available"}
             await bus.leave_channel(agent_id, channel_id)
@@ -303,7 +303,7 @@ def register_message_bus_mcp_tools(
             target_agent_id: Agent to remove
         """
         try:
-            bus = get_message_bus_fn()
+            bus = await get_message_bus_fn()
             if bus is None:
                 return {"success": False, "error": "MessageBus not available"}
             await bus.kick_member(channel_id, target_agent_id)
@@ -320,7 +320,7 @@ def register_message_bus_mcp_tools(
             target_agent_id: Agent whose profile to retrieve
         """
         try:
-            bus = get_message_bus_fn()
+            bus = await get_message_bus_fn()
             if bus is None:
                 return {"success": False, "error": "MessageBus not available"}
             profile = await bus.get_agent_profile(target_agent_id)
