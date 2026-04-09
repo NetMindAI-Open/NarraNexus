@@ -373,24 +373,33 @@ class EmbeddingClient:
 
 
 # =============================================================================
-# Global Client Instance (Lazy Initialization)
+# Client Creation (per-call for multi-tenant safety)
 # =============================================================================
+#
+# The previous global client cache was unsafe in multi-tenant concurrent
+# execution: once cached, the client uses its original API key even after
+# set_user_config() switches the ContextVar-based config. Creating a fresh
+# client per call ensures every embedding call picks up the current task's
+# per-user config.
+#
+# Perf note: AsyncOpenAI client creation is cheap (just HTTP client init);
+# the expensive part is the network request itself, which we can't avoid.
 
-_global_client: Optional[EmbeddingClient] = None
 
-
-def _get_global_client() -> EmbeddingClient:
-    """Get or create the global embedding client."""
-    global _global_client
-    if _global_client is None:
-        _global_client = EmbeddingClient()
-    return _global_client
+def _make_client() -> EmbeddingClient:
+    """Create a fresh EmbeddingClient using the current context's config."""
+    return EmbeddingClient()
 
 
 def reset_global_client() -> None:
-    """Reset the global embedding client so the next call picks up new config."""
-    global _global_client
-    _global_client = None
+    """Backward-compatibility no-op.
+
+    There is no longer a cached global client — each call to get_embedding()
+    creates a fresh client that reads from the current task's ContextVar
+    config. This function is kept for callers that still invoke it on
+    config reload.
+    """
+    pass
 
 
 # =============================================================================
@@ -423,7 +432,7 @@ async def get_embedding(
         client = EmbeddingClient(model=model)
         return await client.embed(text)
 
-    return await _get_global_client().embed(text)
+    return await _make_client().embed(text)
 
 
 # =============================================================================

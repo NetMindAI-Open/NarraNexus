@@ -27,6 +27,7 @@ Usage:
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Optional
 
@@ -274,75 +275,141 @@ class _ConfigHolder:
 
 _holder = _ConfigHolder()
 
-# Public API — properties that auto-reload on first access.
-# Existing code reads `claude_config.model` etc. — these module-level
-# names delegate to the holder so no import changes are needed.
+
+# =============================================================================
+# Per-coroutine config via ContextVar (multi-tenant concurrency safe)
+# =============================================================================
+#
+# Why ContextVar:
+# - asyncio.Task copies the parent context at creation time, so each task
+#   started by asyncio.gather() has its own isolated ContextVar state.
+# - set_user_config() inside one task does NOT affect sibling tasks.
+# - This is critical when multiple background triggers (bus_trigger,
+#   job_trigger) concurrently process agents from different owners.
+# - Without ContextVar, the global _holder mutation would leak API keys
+#   across users (Alice's agent using Bob's API key).
+#
+# Fallback chain:
+# 1. ContextVar value set for current task (per-user, highest priority)
+# 2. Global _holder (loaded from llm_config.json or .env on first access)
+
+_claude_ctx: ContextVar[Optional[ClaudeConfig]] = ContextVar("claude_config", default=None)
+_openai_ctx: ContextVar[Optional[OpenAIConfig]] = ContextVar("openai_config", default=None)
+_embedding_ctx: ContextVar[Optional[EmbeddingConfig]] = ContextVar("embedding_config", default=None)
 
 
 class _ConfigProxy:
-    """Proxy that delegates attribute access to the holder's config object."""
+    """
+    Proxy that delegates attribute access to the context-local config if
+    set, otherwise to the global holder.
 
-    def __init__(self, attr_name: str):
+    Existing code reads `claude_config.model` etc. — this proxy resolves
+    to the right config for the current asyncio task at read time, which
+    makes multi-tenant concurrent execution safe.
+    """
+
+    def __init__(self, attr_name: str, ctx_var: Optional[ContextVar] = None):
         self._attr_name = attr_name
+        self._ctx_var = ctx_var
 
     def __getattr__(self, name: str):
+        # Check context-local override first (per-user in current task)
+        if self._ctx_var is not None:
+            ctx_val = self._ctx_var.get()
+            if ctx_val is not None:
+                return getattr(ctx_val, name)
+        # Fall back to global holder
         return getattr(getattr(_holder, self._attr_name), name)
 
 
-claude_config: ClaudeConfig = _ConfigProxy("claude")  # type: ignore
-openai_config: OpenAIConfig = _ConfigProxy("openai")  # type: ignore
-embedding_config: EmbeddingConfig = _ConfigProxy("embedding")  # type: ignore
+claude_config: ClaudeConfig = _ConfigProxy("claude", _claude_ctx)  # type: ignore
+openai_config: OpenAIConfig = _ConfigProxy("openai", _openai_ctx)  # type: ignore
+embedding_config: EmbeddingConfig = _ConfigProxy("embedding", _embedding_ctx)  # type: ignore
 gemini_config: GeminiConfig = _ConfigProxy("gemini")  # type: ignore
 
 
 def reload_llm_config() -> None:
     """Reload LLM config from disk. Call after llm_config.json changes."""
     _holder.reload()
-    # Reset the global embedding client so it picks up the new model/config
-    from xyz_agent_context.agent_framework.llm_api.embedding import reset_global_client
-    reset_global_client()
 
 
 def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig, embedding: EmbeddingConfig) -> None:
     """
-    Override the global config with per-user config.
+    Set per-user LLM config for the CURRENT asyncio task only.
 
-    Called before agent execution to set user-specific LLM credentials.
-    After execution, call restore_global_config() or set_user_config again for next user.
+    This uses ContextVar so concurrent tasks from different users cannot
+    see each other's config. Call this at the start of an agent turn
+    after loading the owner's config from the database.
+
+    The setting automatically goes out of scope when the task finishes.
     """
-    _holder._claude = claude
-    _holder._openai = openai
-    _holder._embedding = embedding
-    _holder._loaded = True
-
-    # Also reset embedding client to use the new config
-    from xyz_agent_context.agent_framework.llm_api.embedding import reset_global_client
-    reset_global_client()
+    _claude_ctx.set(claude)
+    _openai_ctx.set(openai)
+    _embedding_ctx.set(embedding)
 
 
 # =============================================================================
 # Per-user config loading (for cloud multi-tenant mode)
 # =============================================================================
 
+async def get_agent_owner_llm_configs(
+    agent_id: str,
+) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    """
+    Load LLM configs for an agent based on its OWNER (agents.created_by).
+
+    This is the correct multi-tenant lookup: LLM API keys are billed to
+    the agent owner, not to whoever triggered the agent run. Background
+    triggers (bus_trigger, job_trigger) pass arbitrary user_ids that may
+    represent other agents or target identities, but LLM billing must
+    always go to the owner.
+
+    Fallback: if agent is not found or owner has no config, returns
+    the global default (from llm_config.json or .env).
+    """
+    try:
+        from xyz_agent_context.utils.db_factory import get_db_client
+        db = await get_db_client()
+        agent_row = await db.get_one("agents", {"agent_id": agent_id})
+        if agent_row and agent_row.get("created_by"):
+            owner_user_id = agent_row["created_by"]
+            return await get_user_llm_configs(owner_user_id)
+    except Exception as e:
+        logger.warning(f"Failed to look up agent owner for {agent_id}: {e}")
+
+    # Fallback to global defaults
+    _holder._ensure_loaded()
+    return _holder.claude, _holder.openai, _holder.embedding
+
+
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
     Load LLM configs for a specific user from the database.
 
-    In cloud mode: reads from user_providers + user_slots tables.
-    In local mode: falls back to global llm_config.json (single user).
+    Reads from user_providers + user_slots tables. If a slot is not
+    configured for the user, that slot falls back to the global default
+    (from llm_config.json or .env) rather than returning an empty config.
 
-    This function is called per-request during agent execution,
-    NOT cached globally like the singleton.
+    This function is called per-request during agent execution.
     """
-    # Load from database per user (works for both local SQLite and cloud MySQL)
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
 
-    db = await get_db_client()
-    service = UserProviderService(db)
-    config = await service.get_user_config(user_id)
+    # Ensure globals are loaded so we can fall back on per-slot basis
+    _holder._ensure_loaded()
+    default_claude = _holder.claude
+    default_openai = _holder.openai
+    default_embedding = _holder.embedding
 
-    # Build ClaudeConfig from agent slot
+    try:
+        db = await get_db_client()
+        service = UserProviderService(db)
+        config = await service.get_user_config(user_id)
+    except Exception as e:
+        logger.warning(f"Failed to load user providers for {user_id}: {e}")
+        return default_claude, default_openai, default_embedding
+
+    # Build ClaudeConfig from agent slot (fall back to global default)
     agent_slot = config.slots.get(SlotName.AGENT) or config.slots.get("agent")
     agent_provider = config.providers.get(agent_slot.provider_id) if agent_slot else None
 
@@ -354,7 +421,7 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
             auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
         )
     else:
-        claude = ClaudeConfig()
+        claude = default_claude
 
     # Build OpenAIConfig from helper_llm slot
     helper_slot = config.slots.get(SlotName.HELPER_LLM) or config.slots.get("helper_llm")
@@ -367,7 +434,7 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
             model=helper_slot.model,
         )
     else:
-        openai_cfg = OpenAIConfig()
+        openai_cfg = default_openai
 
     # Build EmbeddingConfig from embedding slot
     emb_slot = config.slots.get(SlotName.EMBEDDING) or config.slots.get("embedding")
@@ -380,6 +447,6 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
             model=emb_slot.model,
         )
     else:
-        embedding = EmbeddingConfig()
+        embedding = default_embedding
 
     return claude, openai_cfg, embedding

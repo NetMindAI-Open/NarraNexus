@@ -289,16 +289,24 @@ class AgentRuntime:
         ):
             yield msg
 
-        # Load per-user LLM config (cloud mode: from DB, local: from file)
+        # Load LLM config based on the AGENT OWNER (not user_id).
+        #
+        # user_id passed here may be: the chat user, a sender agent_id from
+        # bus_trigger, a related_entity_id from job_trigger, etc. — it's used
+        # for narrative/context identity, NOT for LLM billing.
+        #
+        # LLM API keys always come from the agent's owner (agents.created_by).
+        # This lookup + set_user_config() uses ContextVar, so concurrent
+        # agent turns from different owners are isolated from each other.
         try:
             from xyz_agent_context.agent_framework.api_config import (
-                get_user_llm_configs,
+                get_agent_owner_llm_configs,
                 set_user_config,
             )
-            user_claude, user_openai, user_embedding = await get_user_llm_configs(user_id)
-            set_user_config(user_claude, user_openai, user_embedding)
+            owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
+            set_user_config(owner_claude, owner_openai, owner_embedding)
         except Exception as e:
-            logger.warning(f"Failed to load per-user LLM config for {user_id}: {e}")
+            logger.warning(f"Failed to load LLM config for agent {agent_id}: {e}")
 
         # =============================================================================
         # Step 1: Select Narrative
