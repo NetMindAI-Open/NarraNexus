@@ -109,45 +109,81 @@ if [ $CARGO_EXIT -ne 0 ]; then
     echo "cargo tauri build exited $CARGO_EXIT (expected if codesign failed)"
 fi
 
-# Step 7: Clean xattrs, manually codesign, build DMG + ZIP.
-# This MUST run regardless of cargo tauri's outcome.
+# Step 7: Escape iCloud sync, clean xattrs, manually codesign, build DMG.
+#
+# Why ditto to /tmp:
+# If the project lives under ~/Documents (default macOS iCloud Drive path),
+# iCloud continuously re-writes com.apple.FinderInfo / ResourceFork metadata
+# to every file in the bundle. `xattr -cr` clears them, then iCloud puts
+# them back the instant codesign starts reading — a losing race. /tmp is
+# never iCloud-managed, so once we ditto the .app over there with
+# --noextattr --noqtn (which strips xattrs and the quarantine flag during
+# the copy), they stay clean.
+#
+# All subsequent signing / DMG creation happens inside /tmp, then we copy
+# the final artifacts back under the project tree for the developer to find.
 echo ""
 echo "--- Step 7: Signing & packaging ---"
-APP_DIR="$SRC_TAURI/target/release/bundle/macos/NarraNexus.app"
-if [ ! -d "$APP_DIR" ]; then
-    echo "Error: .app bundle not found at $APP_DIR"
+SRC_APP_DIR="$SRC_TAURI/target/release/bundle/macos/NarraNexus.app"
+if [ ! -d "$SRC_APP_DIR" ]; then
+    echo "Error: .app bundle not found at $SRC_APP_DIR"
     echo "cargo tauri build failed before creating the .app (exit=$CARGO_EXIT)."
     echo "Check step 6 output for the real error."
     exit 1
 fi
 
-# Final xattr scrub RIGHT before codesign — this is the critical window.
-xattr -cr "$APP_DIR" 2>/dev/null || true
-find "$APP_DIR" -name '._*' -delete 2>/dev/null || true
-find "$APP_DIR" -name '.DS_Store' -delete 2>/dev/null || true
+# Staging directory outside of any sync-watched tree.
+STAGE_DIR="/tmp/narranexus-build-$$"
+STAGE_APP="$STAGE_DIR/NarraNexus.app"
+rm -rf "$STAGE_DIR"
+mkdir -p "$STAGE_DIR"
 
-# Ad-hoc sign (no Apple Developer identity required; users need to
+# ditto with --noextattr --noqtn does the copy AND strips extended
+# attributes / quarantine bits in one pass. More reliable than xattr -cr
+# because the destination never has them in the first place.
+echo "  Staging .app to $STAGE_APP (no extended attributes)..."
+ditto --noextattr --noqtn "$SRC_APP_DIR" "$STAGE_APP"
+
+# Belt-and-suspenders: also scrub anything ditto might have missed.
+xattr -cr "$STAGE_APP" 2>/dev/null || true
+find "$STAGE_APP" -name '._*' -delete 2>/dev/null || true
+find "$STAGE_APP" -name '.DS_Store' -delete 2>/dev/null || true
+
+# Ad-hoc sign (no Apple Developer identity required; recipients need to
 # right-click → Open on first launch to bypass Gatekeeper).
-codesign --force --deep --sign - "$APP_DIR"
-echo "Signing done"
-codesign --verify --verbose=2 "$APP_DIR" 2>&1 | head -3 || true
+echo "  Signing staged .app..."
+codesign --force --deep --sign - "$STAGE_APP"
+codesign --verify --verbose=2 "$STAGE_APP" 2>&1 | head -3 || true
+echo "  Signing OK"
 
-# Create DMG
+# Create DMG from the staged .app
 echo ""
 echo "--- Creating DMG ---"
 DMG_DIR="$SRC_TAURI/target/release/bundle/dmg"
 mkdir -p "$DMG_DIR"
 DMG_PATH="$DMG_DIR/NarraNexus.dmg"
 rm -f "$DMG_PATH"
-hdiutil create -volname NarraNexus -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH"
+STAGE_DMG="$STAGE_DIR/NarraNexus.dmg"
+hdiutil create -volname NarraNexus -srcfolder "$STAGE_APP" -ov -format UDZO "$STAGE_DMG"
+# Copy the finished DMG back under the project tree
+cp "$STAGE_DMG" "$DMG_PATH"
 echo "DMG created: $DMG_PATH"
 
-# Also create ZIP (fewer quarantine issues than DMG when distributed over web)
+# Create ZIP (fewer quarantine issues than DMG when distributed over web)
 ZIP_PATH="$DMG_DIR/NarraNexus.zip"
 rm -f "$ZIP_PATH"
-cd "$(dirname "$APP_DIR")"
-ditto -c -k --keepParent "$(basename "$APP_DIR")" "$ZIP_PATH"
+STAGE_ZIP="$STAGE_DIR/NarraNexus.zip"
+(cd "$STAGE_DIR" && ditto -c -k --keepParent "NarraNexus.app" "NarraNexus.zip")
+cp "$STAGE_ZIP" "$ZIP_PATH"
 echo "ZIP created: $ZIP_PATH"
+
+# Also overwrite the .app under src-tauri with the signed-clean copy so
+# `cargo tauri build` artifacts are consistent with the DMG contents.
+rm -rf "$SRC_APP_DIR"
+ditto --noextattr --noqtn "$STAGE_APP" "$SRC_APP_DIR"
+
+# Clean up staging directory
+rm -rf "$STAGE_DIR"
 cd "$TAURI_DIR"
 
 echo ""

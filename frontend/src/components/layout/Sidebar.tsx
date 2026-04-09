@@ -37,54 +37,68 @@ export function Sidebar() {
 
   /**
    * Wipe all session + cached data before leaving the current mode.
-   * This must be thorough — any store that caches per-user or per-agent
-   * data needs to be reset, otherwise cloud data leaks into a
-   * subsequent local session (or vice versa).
+   *
+   * This is deliberately aggressive. We do NOT trust Zustand's persist
+   * middleware to have flushed to localStorage by the time the subsequent
+   * window.location.href reload happens — so we also manually
+   * `removeItem()` every known persisted key. After the reload each store
+   * will re-hydrate from whatever is (or is not) in localStorage, so
+   * removed keys mean default-state stores.
+   *
+   * Keys wiped:
+   *   - narra-nexus-config  → configStore (userId, token, agents, ...)
+   *   - narranexus-runtime  → runtimeStore (mode, cloudApiUrl, ...)
+   *   - lastSeenAwarenessTime:*  → written directly by configStore, not
+   *                                 covered by any store's clearAll
    */
   const wipeAllSessionData = () => {
-    logout();           // configStore: userId, token, role, agents
-    clearChat();        // chatStore: per-agent chat history
-    clearPreload();     // preloadStore: cached jobs, awareness, costs, etc.
+    // 1. Reset in-memory store state via each store's clearAll/logout.
+    //    This updates the UI immediately and invokes persist middleware
+    //    to sync localStorage (best-effort — we do not rely on it).
+    logout();           // configStore
+    clearChat();        // chatStore
+    clearPreload();     // preloadStore
 
-    // Also wipe auxiliary localStorage keys that are written directly
-    // (not through Zustand persist). Currently just lastSeenAwarenessTime:*
-    // but kept as a pattern scan so future per-agent keys are picked up.
+    // 2. Directly nuke every key in localStorage that could carry
+    //    session state. This is the authoritative clear, independent
+    //    of whatever Zustand persist may or may not have flushed yet.
     try {
-      const keysToRemove: string[] = [];
+      localStorage.removeItem('narra-nexus-config');
+      localStorage.removeItem('narranexus-runtime');
+
+      const auxKeys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (k && k.startsWith('lastSeenAwarenessTime:')) {
-          keysToRemove.push(k);
+          auxKeys.push(k);
         }
       }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
+      auxKeys.forEach((k) => localStorage.removeItem(k));
     } catch {
-      // ignore storage exceptions (Safari private mode, etc.)
+      // Safari private mode / other storage exceptions — ignore.
     }
   };
 
   const handleSwitchMode = () => {
     wipeAllSessionData();
-    setCloudApiUrl('');   // forget the cloud server URL
+    setCloudApiUrl('');
     setMode(null);
     setShowModePopup(false);
 
-    // Hard reload on mode switch — bypassing React Router navigate() here
-    // is deliberate. Soft-navigating keeps React component state, pending
-    // fetches, closure-captured store snapshots, and any in-memory caches
-    // from the previous mode alive across the transition, which is what
-    // caused cloud data to bleed into a subsequent local session. A full
-    // document reload guarantees a clean slate: React tree is torn down,
-    // all fetches abort, modules re-initialize, every store starts from
-    // its persisted-or-default state.
+    // Hard reload, NOT React Router navigate. Soft navigation keeps the
+    // React tree, closure-captured store snapshots, in-flight fetches,
+    // and module-level caches from the previous mode alive — which is
+    // exactly how cloud data was bleeding into a subsequent local
+    // session. A full document reload tears everything down.
+    //
+    // Combined with the localStorage.removeItem() calls above, the next
+    // page load starts from true factory defaults.
     window.location.href = '/mode-select';
   };
 
   const handleLogout = () => {
     if (!confirm('Are you sure you want to logout?')) return;
     wipeAllSessionData();
-    // Same rationale as handleSwitchMode — full reload prevents stale
-    // session data from surviving into the next login.
     window.location.href = '/login';
   };
 
