@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, ArrowRight, Sparkles, UserPlus, Zap, Cloud } from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, Sparkles, UserPlus, Zap, Cloud } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -21,8 +21,22 @@ export function LoginPage() {
   const navigate = useNavigate();
   const { login, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
+  const setMode = useRuntimeStore((s) => s.setMode);
+  const setCloudApiUrl = useRuntimeStore((s) => s.setCloudApiUrl);
 
   const isCloudMode = mode === 'cloud-app' || mode === 'cloud-web';
+
+  // "Change Mode" — clears the selected mode so the router sends the user
+  // back to /mode-select. We also clear cloudApiUrl so the next cloud pick
+  // prompts for a fresh URL instead of silently reusing the last one.
+  // `cloud-web` (force-cloud deployment) has no real "other mode" to
+  // switch to, so the button is hidden in that case.
+  const canChangeMode = mode !== 'cloud-web';
+  const handleChangeMode = () => {
+    setCloudApiUrl('');
+    setMode(null);
+    navigate('/mode-select');
+  };
 
   const handleLogin = async () => {
     if (!userId.trim()) {
@@ -69,6 +83,18 @@ export function LoginPage() {
   return (
     <div className="login-container">
       <div className="login-card animate-scale-in">
+        {/* Change Mode — lets the user back out of an accidental pick */}
+        {canChangeMode && (
+          <button
+            type="button"
+            onClick={handleChangeMode}
+            className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] transition-colors mb-4 -mt-2"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            <span>Change mode</span>
+          </button>
+        )}
+
         {/* Logo / Header */}
         <div className="text-center mb-10">
           <div className="relative inline-block mb-5">

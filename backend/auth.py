@@ -32,8 +32,20 @@ INVITE_CODE = os.environ.get("INVITE_CODE", "narranexus2026")
 
 
 def _is_cloud_mode() -> bool:
-    """Check if running in cloud mode (MySQL) vs local mode (SQLite)."""
+    """Check if running in cloud mode (MySQL) vs local mode (SQLite).
+
+    SAFETY: an unset / empty DATABASE_URL MUST default to local mode, not
+    cloud. A packaged desktop app (Tauri dmg) sets DATABASE_URL via Rust's
+    std::env::set_var, which is NOT thread-safe on macOS — the tokio-spawned
+    Python subprocess may not see it. If we defaulted to cloud here, the
+    bundled backend would demand passwords from users who are using the
+    desktop app in its intended local mode, which is exactly the bug that
+    surfaced in the v0.1.0 dmg. Cloud mode is only active when someone
+    explicitly provides a non-sqlite DATABASE_URL.
+    """
     db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        return False
     return not db_url.startswith("sqlite")
 
 

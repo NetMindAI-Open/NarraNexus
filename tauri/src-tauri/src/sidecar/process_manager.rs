@@ -64,9 +64,26 @@ impl ProcessManager {
             .clone()
             .unwrap_or_else(|| project_root.to_string());
 
+        // Explicitly propagate DATABASE_URL to the child process.
+        //
+        // Tauri's lib.rs setup() calls std::env::set_var("DATABASE_URL", ...)
+        // to point the bundled Python backend at the per-user SQLite file.
+        // However, std::env::set_var is NOT thread-safe on macOS — the tokio
+        // thread that spawns this subprocess may not observe the write, and
+        // the child then inherits an empty DATABASE_URL. The Python side
+        // historically treated empty DATABASE_URL as "cloud mode", which
+        // made the bundled desktop app demand passwords in local mode.
+        //
+        // Reading the var here and passing it via .env() bypasses the
+        // implicit inheritance path and makes the intent fully explicit.
+        // If the var is unset here too, we pass an empty string and rely
+        // on the Python-side default (empty → local).
+        let db_url = std::env::var("DATABASE_URL").unwrap_or_default();
+
         let child = Command::new(&def.command)
             .args(&def.args)
             .current_dir(&cwd)
+            .env("DATABASE_URL", &db_url)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)

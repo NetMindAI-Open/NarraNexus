@@ -71,52 +71,71 @@ rsync -a \
 echo "Project source copied"
 
 # Step 5: Clean ALL extended attributes in tauri dir (macOS resource fork issue)
+#
+# macOS codesign refuses any file carrying extended attributes like
+# com.apple.ResourceFork / com.apple.FinderInfo. iCloud, Spotlight, tar/rsync,
+# even the linker can add them. `xattr -cr` clears them recursively; we do it
+# multiple times around the build because cargo tauri's bundle step re-copies
+# files and new xattrs can appear in between cleanup and codesign.
 echo ""
 echo "--- Step 5: Cleaning extended attributes ---"
-find "$TAURI_DIR" -type f -exec xattr -c {} \; 2>/dev/null || true
+# Prevent macOS cp/tar from writing AppleDouble (._*) sidecar files that carry xattrs
+export COPYFILE_DISABLE=1
+xattr -cr "$TAURI_DIR" 2>/dev/null || true
+# Also strip any leftover ._ AppleDouble files
+find "$TAURI_DIR" -name '._*' -delete 2>/dev/null || true
 echo "xattr cleaned"
 
-# Step 6: Build Tauri (compile only, no bundle yet)
+# Step 6: Build + bundle via cargo tauri, but SKIP its internal codesign.
+#
+# Setting APPLE_SIGNING_IDENTITY to empty string tells Tauri to skip signing.
+# We sign manually in step 7 so the codesign call happens IMMEDIATELY after
+# a fresh xattr cleanup — no window for new xattrs to sneak in.
 echo ""
-echo "--- Step 6: Compiling Tauri app ---"
+echo "--- Step 6: Building Tauri app (unsigned) ---"
 cd "$TAURI_DIR"
-export APPLE_SIGNING_IDENTITY='-'
-cargo build --release --manifest-path src-tauri/Cargo.toml
-echo "Rust compilation done"
+export APPLE_SIGNING_IDENTITY=''
+cargo tauri build
+echo "Tauri build done"
 
-# Step 7: Clean xattr on compiled binary, then bundle
+# Step 7: Clean xattrs, manually codesign, build DMG + ZIP.
 echo ""
-echo "--- Step 7: Bundling app ---"
-find "$SRC_TAURI/target/release" -type f -exec xattr -c {} \; 2>/dev/null || true
-cargo tauri build 2>&1 || {
-    # If bundling fails due to codesign, do manual sign + DMG
-    echo ""
-    echo "--- Bundling failed, trying manual approach ---"
-    APP_DIR="$SRC_TAURI/target/release/bundle/macos/NarraNexus.app"
-    if [ -d "$APP_DIR" ]; then
-        find "$APP_DIR" -type f -exec xattr -c {} \; 2>/dev/null || true
-        codesign --force --deep --sign - "$APP_DIR" 2>/dev/null || true
-        echo "Manual signing done"
+echo "--- Step 7: Signing & packaging ---"
+APP_DIR="$SRC_TAURI/target/release/bundle/macos/NarraNexus.app"
+if [ ! -d "$APP_DIR" ]; then
+    echo "Error: .app bundle not found at $APP_DIR"
+    echo "Build may have failed upstream — check output above."
+    exit 1
+fi
 
-        # Generate DMG
-        echo ""
-        echo "--- Creating DMG ---"
-        DMG_DIR="$SRC_TAURI/target/release/bundle/dmg"
-        mkdir -p "$DMG_DIR"
-        DMG_PATH="$DMG_DIR/NarraNexus.dmg"
-        rm -f "$DMG_PATH"
-        hdiutil create -volname NarraNexus -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH"
-        echo "DMG created: $DMG_PATH"
+# Final xattr scrub RIGHT before codesign — this is the critical window.
+xattr -cr "$APP_DIR" 2>/dev/null || true
+find "$APP_DIR" -name '._*' -delete 2>/dev/null || true
+find "$APP_DIR" -name '.DS_Store' -delete 2>/dev/null || true
 
-        # Also create ZIP (fewer quarantine issues than DMG)
-        ZIP_PATH="$DMG_DIR/NarraNexus.zip"
-        rm -f "$ZIP_PATH"
-        cd "$(dirname "$APP_DIR")"
-        ditto -c -k --keepParent "$(basename "$APP_DIR")" "$ZIP_PATH"
-        echo "ZIP created: $ZIP_PATH"
-        cd "$TAURI_DIR"
-    fi
-}
+# Ad-hoc sign (no Apple Developer identity required; users need to
+# right-click → Open on first launch to bypass Gatekeeper).
+codesign --force --deep --sign - "$APP_DIR"
+echo "Signing done"
+codesign --verify --verbose=2 "$APP_DIR" 2>&1 | head -3 || true
+
+# Create DMG
+echo ""
+echo "--- Creating DMG ---"
+DMG_DIR="$SRC_TAURI/target/release/bundle/dmg"
+mkdir -p "$DMG_DIR"
+DMG_PATH="$DMG_DIR/NarraNexus.dmg"
+rm -f "$DMG_PATH"
+hdiutil create -volname NarraNexus -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH"
+echo "DMG created: $DMG_PATH"
+
+# Also create ZIP (fewer quarantine issues than DMG when distributed over web)
+ZIP_PATH="$DMG_DIR/NarraNexus.zip"
+rm -f "$ZIP_PATH"
+cd "$(dirname "$APP_DIR")"
+ditto -c -k --keepParent "$(basename "$APP_DIR")" "$ZIP_PATH"
+echo "ZIP created: $ZIP_PATH"
+cd "$TAURI_DIR"
 
 echo ""
 echo "=== Build complete ==="
