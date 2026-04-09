@@ -26,8 +26,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
-
-const API_BASE = ''  // Relative — Vite proxy handles /api/*
+import { getApiBaseUrl } from '@/stores/runtimeStore'
 
 /** fetch wrapper that injects JWT auth header when available (cloud mode) */
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -182,10 +181,15 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 export function ProviderSettings() {
   const userId = useConfigStore((s) => s.userId)
 
-  /** Build a provider API URL with user_id query param */
+  /** Build a provider API URL with user_id query param.
+   *
+   * IMPORTANT: getApiBaseUrl() is called INSIDE the callback (not captured at
+   * component mount), so it always reflects the current mode. When the user
+   * switches between local and cloud, every fresh call returns the right host
+   * without needing to re-mount this component. */
   const providerUrl = useCallback((path: string = '') => {
     const sep = path.includes('?') ? '&' : '?'
-    return `${API_BASE}/api/providers${path}${sep}user_id=${encodeURIComponent(userId)}`
+    return `${getApiBaseUrl()}/api/providers${path}${sep}user_id=${encodeURIComponent(userId)}`
   }, [userId])
 
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})

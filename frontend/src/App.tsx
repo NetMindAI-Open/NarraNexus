@@ -28,6 +28,7 @@ function PageFallback() {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, userId, logout } = useConfigStore();
+  const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
 
   useEffect(() => {
@@ -46,6 +47,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       .finally(() => setValidating(false));
   }, [isLoggedIn, userId]);
 
+  // Order matters: check mode BEFORE isLoggedIn.
+  //
+  // When the user clicks "Switch Mode" in the sidebar, handleSwitchMode
+  // clears both `mode` (to null) and `isLoggedIn` (to false) in a single
+  // Zustand batch. Zustand updates commit synchronously, but the imperative
+  // navigate('/mode-select') goes through React Router's transition queue,
+  // which has lower priority. That means ProtectedRoute re-renders against
+  // the NEW store state while still matched to the OLD /app/* location —
+  // and if we checked isLoggedIn first, we'd redirect to /login before the
+  // mode-select transition lands, stranding the user on a stale-mode
+  // login form backed by the wrong API URL.
+  //
+  // By checking `!mode` first, we route "mode cleared" through /mode-select
+  // regardless of who wins the race.
+  if (!mode) return <Navigate to="/mode-select" replace />;
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (validating) return <PageFallback />;
   return <>{children}</>;
@@ -53,7 +69,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useConfigStore();
+  const mode = useRuntimeStore((s) => s.mode);
   if (isLoggedIn) return <Navigate to="/" replace />;
+  // Login/register need a resolved mode to know whether to render the
+  // local (user_id only) or cloud (user_id + password) form and which
+  // backend to hit. If we got here with mode=null (e.g. via a stale
+  // persisted route after a mode switch), punt to mode-select first.
+  if (!mode) return <Navigate to="/mode-select" replace />;
   return <>{children}</>;
 }
 

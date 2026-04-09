@@ -26,11 +26,13 @@ Message Types:
 import asyncio
 import traceback
 from typing import Optional
+import jwt
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ValidationError
 from loguru import logger
 
 from backend.config import settings
+from backend.auth import _is_cloud_mode, decode_token
 
 from xyz_agent_context.agent_runtime import AgentRuntime
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
@@ -41,6 +43,9 @@ from xyz_agent_context.utils.db_factory import get_db_client
 
 router = APIRouter()
 
+# WebSocket close codes (RFC 6455 + application-specific)
+WS_CLOSE_POLICY_VIOLATION = 1008  # auth failure / policy violation
+
 
 class AgentRunRequest(BaseModel):
     """WebSocket request payload for running an agent"""
@@ -48,6 +53,10 @@ class AgentRunRequest(BaseModel):
     user_id: str
     input_content: str
     working_source: Optional[str] = "chat"
+    # JWT token — required in cloud mode, ignored in local mode.
+    # Sent in the first WS message because browser WebSocket API cannot
+    # set arbitrary Authorization headers.
+    token: Optional[str] = None
 
 
 async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken) -> None:
@@ -103,6 +112,75 @@ async def websocket_agent_run(websocket: WebSocket):
             })
             await websocket.close()
             return
+
+        # ---- Cloud-mode JWT authentication ----
+        #
+        # The FastAPI auth middleware skips /ws/* paths because browser
+        # WebSocket API cannot set Authorization headers. Instead, the
+        # client sends the JWT in the first message payload. We validate
+        # it here and refuse the connection if it is missing/invalid/expired.
+        #
+        # The token's user_id is authoritative — we reject any request
+        # whose payload user_id does not match the token's user_id, to
+        # prevent one authenticated user from running agents as another.
+        #
+        # Local mode (SQLite) bypasses this check entirely.
+        if _is_cloud_mode():
+            if not request.token:
+                logger.warning("WS auth failed: missing token in cloud mode")
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Authentication required",
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+            try:
+                payload = decode_token(request.token)
+            except jwt.ExpiredSignatureError:
+                logger.warning("WS auth failed: token expired")
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Token expired",
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+            except jwt.InvalidTokenError as e:
+                logger.warning(f"WS auth failed: invalid token ({e})")
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Invalid token",
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+
+            token_user_id = payload.get("user_id")
+            if not token_user_id:
+                logger.warning("WS auth failed: token missing user_id claim")
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Invalid token claims",
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+
+            if token_user_id != request.user_id:
+                logger.warning(
+                    f"WS auth failed: user_id mismatch — token={token_user_id}, "
+                    f"payload={request.user_id}"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "User ID does not match token",
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+
+            logger.info(f"WS auth OK: user_id={token_user_id}, role={payload.get('role')}")
 
         # Convert working_source string to enum
         working_source = WorkingSource(request.working_source)

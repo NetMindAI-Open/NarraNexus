@@ -6,6 +6,7 @@
  */
 
 import { useChatStore } from '@/stores/chatStore';
+import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import type { RuntimeMessage } from '@/types';
 
@@ -51,11 +52,16 @@ class WebSocketManager {
     const store = useChatStore.getState;
 
     ws.onopen = () => {
+      // Include JWT token in first message — cloud mode requires it,
+      // local mode ignores it. Browser WebSocket API can't set custom
+      // headers, so auth piggy-backs on the existing request payload.
+      const token = useConfigStore.getState().token;
       ws.send(JSON.stringify({
         agent_id: agentId,
         user_id: userId,
         input_content: inputContent,
         working_source: 'chat',
+        token: token || undefined,
       }));
     };
 

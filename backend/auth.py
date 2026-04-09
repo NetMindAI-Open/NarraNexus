@@ -151,6 +151,21 @@ async def auth_middleware(request: Request, call_next):
     Local mode: passes through all requests unchanged.
     Cloud mode: validates JWT for all non-exempt paths, injects user info into request.state.
     """
+    # CORS preflight (OPTIONS) requests MUST bypass auth entirely.
+    #
+    # The CORS spec requires browsers to omit the Authorization header on
+    # preflight, so any JWT check here would 401 every cross-origin non-simple
+    # request (e.g. requests with Authorization or custom Content-Type). That
+    # would kill all /api/* calls from the dev server or from a cloud-app
+    # frontend on a different origin.
+    #
+    # CORSMiddleware is registered in backend/main.py, but FastAPI middleware
+    # is LIFO — this auth middleware runs FIRST, so CORSMiddleware never gets
+    # a chance at the preflight unless we call_next here. Let the request fall
+    # through; CORSMiddleware will intercept and return the correct headers.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     if not _is_cloud_mode():
         # Local mode: no auth enforcement
         response = await call_next(request)
