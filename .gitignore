@@ -15,7 +15,6 @@
 
 # ── Reference & internal docs ─────────────────────────────────────────────
 /reference/
-CLAUDE.md
 AGENT.md
 /deploy/synapse/
 
