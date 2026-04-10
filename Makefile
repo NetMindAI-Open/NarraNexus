@@ -12,6 +12,7 @@
 .PHONY: help lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
         test test-backend build build-frontend \
         dev-db-proxy dev-backend dev-frontend dev-mcp dev-poller \
+        scaffold-nac-doc check-nac-doc audit-nac-doc install-hooks \
         clean
 
 # Default target
@@ -44,6 +45,12 @@ help:
 	@echo ""
 	@echo "  Database:"
 	@echo "    Schema auto-migrates on startup (schema_registry.py)"
+	@echo ""
+	@echo "  NAC Doc:"
+	@echo "    make scaffold-nac-doc   Generate/refresh mirror md stubs"
+	@echo "    make check-nac-doc      Layer 1 structural invariants"
+	@echo "    make audit-nac-doc      Layer 3 soft staleness detection"
+	@echo "    make install-hooks      Install git pre-commit hook"
 	@echo ""
 	@echo "  Cleanup:"
 	@echo "    make clean              Remove generated artifacts"
@@ -101,6 +108,20 @@ dev-poller:
 # ── Database ────────────────────────────────────────────────────────────────
 # Schema is auto-migrated on startup via schema_registry.auto_migrate().
 # No manual sync needed. To add tables/columns, edit schema_registry.py.
+
+# ── NAC Doc ─────────────────────────────────────────────────────────────────
+
+scaffold-nac-doc:
+	uv run python -m scripts.scaffold_nac_doc
+
+check-nac-doc:
+	uv run python -m scripts.check_nac_doc
+
+audit-nac-doc:
+	uv run python -m scripts.audit_nac_doc
+
+install-hooks:
+	bash scripts/install_git_hooks.sh
 
 # ── Cleanup ─────────────────────────────────────────────────────────────────
 
