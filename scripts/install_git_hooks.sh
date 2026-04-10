@@ -11,8 +11,10 @@
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-HOOK="$REPO_ROOT/.git/hooks/pre-commit"
+# Use --git-path so we resolve correctly in both main repo and worktrees.
+# In a worktree, .git is a file pointing to .git/worktrees/<name>/; hooks
+# still live in the shared .git/hooks/ directory.
+HOOK="$(git rev-parse --git-path hooks/pre-commit)"
 MARKER="# nac-doc-hook-v1"
 
 HOOK_BODY=$(cat <<'HOOK_EOF'
@@ -20,9 +22,20 @@ HOOK_BODY=$(cat <<'HOOK_EOF'
 # nac-doc-hook-v1
 # Installed by scripts/install_git_hooks.sh
 # Runs NAC Doc Layer 1 structural invariant check.
+#
+# IMPORTANT: This hook lives in the shared .git/hooks/ directory and is
+# therefore executed for commits from ANY worktree or branch. To avoid
+# breaking branches that don't have the NAC Doc system yet, the hook
+# silently skips if scripts/check_nac_doc.py is not present in the
+# current checkout.
 
 set -e
 cd "$(git rev-parse --show-toplevel)"
+
+if [ ! -f "scripts/check_nac_doc.py" ]; then
+    # Branch doesn't have NAC Doc yet — nothing to check.
+    exit 0
+fi
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "[nac-doc-hook] uv not found in PATH — skipping check." >&2
