@@ -172,8 +172,47 @@ AsyncDatabaseClient + Schema      ← 数据层
 必须对齐的铁律：
 - 模块必须继承 `XYZBaseModule` 并定义 `get_config()`
 - 必须在 `module/__init__.py` 的 `MODULE_MAP` 中注册
-- 必须提供 `create_{module}_table.py` 和 `modify_{module}_table.py`
+- 数据库表在 `utils/schema_registry.py` 中用 `_register(TableDef(...))` 注册（**不再**使用 `create_*_table.py` / `modify_*_table.py`）
 - Repository 放 `repository/`；Schema 放 `schema/`；私有实现放 `_{module}_impl/`
+- MCP 端口从下表选下一个可用值
+
+### MCP 端口分配
+
+| 端口 | Module |
+|------|--------|
+| 7801 | AwarenessModule |
+| 7802 | SocialNetworkModule |
+| 7803 | JobModule |
+| 7804 | ChatModule |
+| 7805 | GeminiRagModule |
+| 7806 | SkillModule |
+| 7807+ | 新 Module 从这里顺序分配 |
+
+### 数据库表注册（schema_registry）
+
+所有表统一在 `utils/schema_registry.py` 中注册，SQLite 和 MySQL 共用同一份定义。每列同时声明两种方言的类型：
+
+```python
+from xyz_agent_context.utils.schema_registry import _register, TableDef, Column, Index
+
+_register(TableDef(
+    name="instance_lark_bindings",
+    columns=[
+        Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+        Column("instance_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+        Column("config_json", "TEXT", "MEDIUMTEXT"),
+        Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+    ],
+    indexes=[Index("idx_lark_bindings_instance", ["instance_id"], unique=True)],
+))
+```
+
+关键规则：
+- `sqlite_type` + `mysql_type` **必须同时填**，`auto_migrate()` 按 backend dialect 自动选
+- 时间戳统一用 `default="(datetime('now'))""`，MySQL DDL 生成时自动翻译为 `CURRENT_TIMESTAMP(6)`
+- **不需要**手写 CREATE TABLE / ALTER TABLE —— `auto_migrate()` 在每个进程启动时幂等执行，自动建表、加列、加索引
+- 表名约定：Module 专属表以 `instance_` 前缀开头（如 `instance_jobs`, `instance_social_entities`, `instance_lark_bindings`）
 
 ---
 
@@ -248,8 +287,9 @@ class EventRepository(BaseRepository[Event]):
 
 ## 易忘事项
 
-- `modify_*_table.py` 是独立脚本，外部不允许引用其内容
-- 新建数据表的时候，要完善 create/modify 脚本
+- 数据库表定义统一在 `utils/schema_registry.py`，**不再**有独立的 `create_*_table.py` / `modify_*_table.py` 脚本
+- 新建数据表时，在 `schema_registry.py` 添加 `_register(TableDef(...))`，`auto_migrate()` 会在下次启动时自动生效
+- `Column` 的 `sqlite_type` 和 `mysql_type` **必须同时填写**
 
 ---
 

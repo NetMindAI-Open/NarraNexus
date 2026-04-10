@@ -119,7 +119,7 @@ chore(deps): bump pydantic-settings to 2.5
 ### General
 
 - Python 3.13+. Type hints where they add clarity (no need to annotate every local variable).
-- Comments in Chinese (project convention). Docstrings follow the format in `CLAUDE.md`.
+- All code comments and docstrings in **English** (CLAUDE.md ironclad rule #1: no Chinese in code). Docstrings follow the format in `CLAUDE.md`.
 - No unnecessary abstractions. Three similar lines > a premature helper function.
 - No backward-compatibility shims.
 

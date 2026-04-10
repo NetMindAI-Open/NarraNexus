@@ -144,9 +144,9 @@ RERANK_BASE_URL=https://api.deepinfra.com/v1/inference
 
 All other settings (MongoDB, Redis, Elasticsearch, Milvus) use Docker defaults and don't need changes.
 
-> For manual setup and development workflows, see [Development Guide](./docs/DEVELOPMENT.md).
+> For development workflows and project documentation, see [`.nac_doc/_overview.md`](./.nac_doc/_overview.md) and `CLAUDE.md`.
 
-## [UI Guide](./docs/UI-GUIDE.md)
+## UI Guide
 
 ## Data Directory (`~/.narranexus/`)
 
@@ -176,10 +176,10 @@ NarraNexus stores runtime logs in a user-level directory at `~/.narranexus/`. Th
 
 | Document | Description |
 |----------|-------------|
-| [Changelog](./docs/CHANGELOG.md) | What's new in each release |
-| [Examples](./docs/EXAMPLES.md) | Usage patterns: sales agents, monitoring, RAG, job scheduling |
-| [Architecture](./docs/ARCHITECTURE.md) | System architecture, modules, tech stack, project structure |
-| [Development Guide](./docs/DEVELOPMENT.md) | Manual setup, configuration, table management, adding modules |
+| [`.nac_doc/_overview.md`](./.nac_doc/_overview.md) | Documentation system entry point with project overview and reading path |
+| `CLAUDE.md` | Ironclad rules, architecture, module creation steps, coding standards |
+| [`.nac_doc/README.md`](./.nac_doc/README.md) | NAC Doc methodology (three-tier documentation system) |
+| [`.nac_doc/project/`](./.nac_doc/project/) | Deep references and task playbooks (Tier-3) |
 
 ## Star History
 
