@@ -1,23 +1,11 @@
 ---
 code_file: frontend/src/components/ui/EmbeddingStatus.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# EmbeddingStatus.tsx — <!-- TODO: one-line role -->
+# EmbeddingStatus.tsx — Full vector index rebuild status panel
 
-## 为什么存在
-<!-- TODO: intent -->
+Shows per-entity-type progress bars (Narrative / Event / Job / Entity), overall percentage, error messages, and a "Rebuild" trigger button. Intended for the settings or config area, not for the chat surface (that's `EmbeddingBanner`).
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Auto-polls when a rebuild is running; collapses to a compact green checkmark when `all_done`. Shares `embeddingStore` with `EmbeddingBanner` — they stay in sync automatically.

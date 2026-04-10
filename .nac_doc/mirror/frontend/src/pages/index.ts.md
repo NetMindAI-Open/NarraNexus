@@ -1,23 +1,15 @@
 ---
 code_file: frontend/src/pages/index.ts
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# index.ts — <!-- TODO: one-line role -->
+# index.ts — Pages barrel export (partial)
 
-## 为什么存在
-<!-- TODO: intent -->
+## Why it exists
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+Provides a `@/pages` import path for `LoginPage`. Only `LoginPage` is exported here — all other pages are lazy-loaded directly in `App.tsx` via `React.lazy(() => import('@/pages/FooPage'))`.
 
-## 设计决策
-<!-- TODO: intent -->
+## Notes
 
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+The barrel is intentionally sparse. `App.tsx` uses `React.lazy` for all pages to enable route-level code splitting. Adding pages to this barrel would cause them to be eagerly bundled into the main chunk. Only `LoginPage` is exported here; `App.tsx` also lazy-imports it, meaning the barrel export is currently unused in production. It exists for cases where `LoginPage` needs to be imported without lazy-loading (e.g., in tests or Storybook).

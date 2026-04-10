@@ -1,23 +1,11 @@
 ---
 code_file: frontend/src/components/ui/Textarea.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# Textarea.tsx — <!-- TODO: one-line role -->
+# Textarea.tsx — Multi-line input matching Input.tsx style
 
-## 为什么存在
-<!-- TODO: intent -->
+Same glow focus ring and error state as `Input`. `resize-none` by default (can be overridden). Has a decorative SVG corner marker (the L-shaped bracket). Used in `ChatPanel` (main message input) and `AwarenessPanel` (awareness edit modal).
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+The `ChatPanel` usage sets `rows={1}` with `max-h-[160px]` for auto-grow via CSS; actual grow logic is CSS-only (no JS resize observer).

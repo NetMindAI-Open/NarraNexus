@@ -1,23 +1,16 @@
 ---
 code_file: frontend/src/components/system/ServiceCard.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# ServiceCard.tsx — <!-- TODO: one-line role -->
+# ServiceCard.tsx — Status card for one backend service
 
-## 为什么存在
-<!-- TODO: intent -->
+Shows an animated status dot (pings for healthy/running/starting, static for
+crashed/stopped), service label, port number, last error, and an optional
+restart button.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+Pure display component. All state lives in the System page parent. The restart
+button calls `onRestart` which in Tauri mode maps to the `restart_service`
+IPC command.
 
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Used by: System page (one card per entry in `OverallHealth.services`).

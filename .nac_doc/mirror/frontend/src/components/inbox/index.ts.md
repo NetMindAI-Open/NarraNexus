@@ -1,23 +1,9 @@
 ---
 code_file: frontend/src/components/inbox/index.ts
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# index.ts — <!-- TODO: one-line role -->
+# index.ts — Barrel for inbox components
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Exports `AgentInboxPanel` and `InboxPanel`. Only `AgentInboxPanel` is consumed externally (by `ContextPanelContent` via lazy import).

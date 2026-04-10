@@ -1,16 +1,21 @@
 ---
 code_dir: frontend/src/services/
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# services/ — <!-- TODO: one-line role -->
+# services/ — Singleton non-React services
 
-## 目录角色
-<!-- TODO: intent -->
+## Directory role
 
-## 关键文件索引
-<!-- TODO: intent -->
+Long-lived services that manage connections or state outside the React lifecycle. Currently contains only `wsManager.ts`. Files here are plain TypeScript classes or objects — no hooks, no components. They are designed to outlive any individual component mount/unmount cycle.
 
-## 和外部目录的协作
-<!-- TODO: intent -->
+## Key file index
+
+| File | Responsibility |
+|------|---------------|
+| `wsManager.ts` | Singleton `WebSocketManager` class — owns all WebSocket connections, one per agent, routes messages to `chatStore`. |
+
+## Collaboration with other directories
+
+`wsManager` writes directly to `chatStore` via `useChatStore.getState()`, bypassing React subscriptions for performance. It reads `configStore` for the JWT token and `runtimeStore` (`getWsBaseUrl`) for connection URL. The `hooks/useWebSocket.ts` adapter is the React-layer entry point for components.

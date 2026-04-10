@@ -1,23 +1,13 @@
 ---
 code_file: frontend/src/components/system/HealthStatusBar.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# HealthStatusBar.tsx — <!-- TODO: one-line role -->
+# HealthStatusBar.tsx — Banner showing aggregate health of all services
 
-## 为什么存在
-<!-- TODO: intent -->
+Four possible states: loading (spinner), null/unavailable (red), all healthy
+(green), some unhealthy (amber with count). Pure display — no state, no
+effects.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Upstream: `OverallHealth | null` from the parent page's health-check poll.
+Used by: System page.

@@ -1,23 +1,9 @@
 ---
 code_file: frontend/src/components/ui/ThemeToggle.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# ThemeToggle.tsx — <!-- TODO: one-line role -->
+# ThemeToggle.tsx — Light / dark / system theme cycle button
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Wraps `Button` + `useTheme` hook. Cycles through light → dark → system on each click. Mounted in `Sidebar` footer (both expanded and collapsed states). No props.

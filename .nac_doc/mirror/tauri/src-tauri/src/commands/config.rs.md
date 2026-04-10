@@ -1,23 +1,23 @@
 ---
 code_file: tauri/src-tauri/src/commands/config.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# config.rs — <!-- TODO: one-line role -->
+# config.rs — IPC commands for app configuration and mode switching
 
-## 为什么存在
-<!-- TODO: intent -->
+Three commands:
+- `get_app_config` → full `AppConfig` struct (mode, user_type, api_base_url,
+  python_path, db_path)
+- `get_app_mode` → `"local"` or `"cloud-app"` string
+- `set_app_mode(mode)` → mutates `AppState.config.mode`
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+Mode switching (`set_app_mode`) only updates the Rust-side config — it does
+not restart services or reload the frontend. The frontend must handle its own
+side effects (hard reload, clear localStorage) after calling this command.
+This is why the frontend's mode-switch logic calls `window.location.reload()`
+after `set_app_mode` (commit `27c394e`).
 
-## 设计决策
-<!-- TODO: intent -->
+## Gotchas
 
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+`set_app_mode` accepts `"local"` and `"cloud-app"` only. Any other string
+returns an error. The frontend must use these exact string values.

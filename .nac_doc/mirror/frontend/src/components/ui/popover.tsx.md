@@ -1,23 +1,9 @@
 ---
 code_file: frontend/src/components/ui/popover.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# popover.tsx — <!-- TODO: one-line role -->
+# popover.tsx — Radix Popover wrapped with design-system styling
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Thin wrapper over `@radix-ui/react-popover`. Adds the project's border/bg/shadow tokens to `PopoverContent`. Used by `CostPopover` in the context panel header. Not re-exported from `index.ts` — import as `@/components/ui/popover`.

@@ -1,23 +1,11 @@
 ---
 code_file: frontend/src/components/inbox/InboxPanel.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# InboxPanel.tsx — <!-- TODO: one-line role -->
+# InboxPanel.tsx — LEGACY: Older inbox panel (not currently mounted)
 
-## 为什么存在
-<!-- TODO: intent -->
+Simpler predecessor to `AgentInboxPanel`. No KPI cards, no load-all, no newest-first sort within rooms. Still reads from `usePreloadStore.agentInboxRooms`.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Not mounted anywhere in the current app. If `AgentInboxPanel` is replaced, this file could serve as a starting point but would need updating to match current store API. Can be deleted.

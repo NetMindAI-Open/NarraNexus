@@ -1,23 +1,8 @@
 ---
 code_file: tauri/src-tauri/src/commands/mod.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# mod.rs — <!-- TODO: one-line role -->
+# mod.rs — Module declaration for the commands directory
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Three lines: `pub mod config; pub mod health; pub mod service;`. No logic.

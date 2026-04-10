@@ -1,23 +1,15 @@
 ---
 code_file: tauri/src-tauri/src/tray.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# tray.rs — <!-- TODO: one-line role -->
+# tray.rs — System tray icon and menu
 
-## 为什么存在
-<!-- TODO: intent -->
+Creates a tray icon with three menu items: Start All Services, Stop All
+Services, Quit. The "Start" and "Stop" items currently only log — the actual
+service management is done at startup (auto-start) and shutdown
+(window close event). Wiring the tray items to `start_all_services` /
+`stop_all_services` commands is future work.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Called by `lib.rs::setup()`. Uses `tauri_plugin_shell` (indirectly via
+Tauri builder).

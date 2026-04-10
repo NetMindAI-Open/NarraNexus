@@ -1,23 +1,13 @@
 ---
 code_file: frontend/src/components/awareness/EntityCard.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# EntityCard.tsx — <!-- TODO: one-line role -->
+# EntityCard.tsx — Expandable contact card in the social network list
 
-## 为什么存在
-<!-- TODO: intent -->
+Shows a compact header (name, type, chat count, relationship strength badge) that expands to reveal: persona/communication style, related job IDs, expertise domains, description (Markdown), tags, identity info, and contact info.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+The current user's card (`isCurrentUser`) starts expanded by default and gets accent styling. All other cards start collapsed.
 
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+`relationship_strength >= 0.7` = "Strong" (green), `0.4–0.7` = "Medium" (yellow), `< 0.4` = no badge. Used in both the default list and search results.

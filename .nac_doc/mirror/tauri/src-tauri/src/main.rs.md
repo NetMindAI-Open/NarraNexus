@@ -1,23 +1,10 @@
 ---
 code_file: tauri/src-tauri/src/main.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# main.rs — <!-- TODO: one-line role -->
+# main.rs — Entry point, suppresses Windows console window
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Four lines. The `#[cfg_attr(not(debug_assertions), windows_subsystem = "windows")]`
+attribute prevents a terminal window appearing on Windows release builds.
+All logic is in `narranexus_lib::run()`.

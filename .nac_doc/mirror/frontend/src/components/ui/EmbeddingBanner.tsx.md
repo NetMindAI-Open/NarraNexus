@@ -1,23 +1,13 @@
 ---
 code_file: frontend/src/components/ui/EmbeddingBanner.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# EmbeddingBanner.tsx — <!-- TODO: one-line role -->
+# EmbeddingBanner.tsx — Thin warning strip for incomplete vector index
 
-## 为什么存在
-<!-- TODO: intent -->
+Sits at the top of `ChatPanel`, just below the header. Renders nothing when `status.all_done === true` or when there are no missing vectors. Starts polling `embeddingStore` on mount, stops on unmount.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+The companion component `EmbeddingStatus.tsx` provides the full rebuild-progress panel for the settings area. This banner is just the lightweight "heads up" version.
 
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Gotcha: calls `useEmbeddingStore.getState().stopPolling()` directly in the cleanup function (not via a hook reference) to avoid stale-closure issues.

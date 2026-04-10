@@ -1,23 +1,11 @@
 ---
 code_file: frontend/src/components/ui/Badge.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# Badge.tsx — <!-- TODO: one-line role -->
+# Badge.tsx — Status chip with optional live-dot pulse
 
-## 为什么存在
-<!-- TODO: intent -->
+Six semantic variants (default, accent, success, warning, error, outline). The `pulse` prop adds an animated dot to the left side — used for unread message counts in `ContextPanelHeader` and `AgentInboxPanel`.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Gotcha: `pulse` adds `ml-3` to the children `span` to make room for the dot. If you set `pulse` but the variant doesn't define a dot color (e.g., `variant="outline"`), the dot falls back to `--text-tertiary` (grey).

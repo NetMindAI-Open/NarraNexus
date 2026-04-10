@@ -1,16 +1,10 @@
 ---
 code_dir: frontend/src/components/cost/
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# cost/ — <!-- TODO: one-line role -->
+# cost/ — Token usage popover
 
-## 目录角色
-<!-- TODO: intent -->
-
-## 关键文件索引
-<!-- TODO: intent -->
-
-## 和外部目录的协作
-<!-- TODO: intent -->
+Single component (`CostPopover`) that lives in the top navbar. Shows LLM API
+token consumption for the current agent or all agents, broken down by model
+and by day (last 5 days).

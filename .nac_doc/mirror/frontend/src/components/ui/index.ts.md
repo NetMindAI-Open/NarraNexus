@@ -1,23 +1,11 @@
 ---
 code_file: frontend/src/components/ui/index.ts
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# index.ts — <!-- TODO: one-line role -->
+# index.ts — Barrel export for the design-system primitives
 
-## 为什么存在
-<!-- TODO: intent -->
+Re-exports: `Button`, `Card` (+ `CardHeader/Content/Title/Footer`), `Input`, `Textarea`, `Badge`, `ThemeToggle`, `Markdown`, `MarkdownPreview`, `Dialog` (+ `DialogContent/Footer`), `KPICard`, `KPIColor`.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Not re-exported here: `popover.tsx`, `scroll-area.tsx`, `tabs.tsx`, `tooltip.tsx`, `AgentCompletionToast`, `EmbeddingBanner`, `EmbeddingStatus`. Those are imported from their direct file paths by the specific consumers that need them.

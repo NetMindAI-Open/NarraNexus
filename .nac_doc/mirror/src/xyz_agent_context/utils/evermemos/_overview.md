@@ -1,16 +1,19 @@
----
-code_dir: src/xyz_agent_context/utils/evermemos/
-last_verified: 2026-04-09
-stub: true
----
+# evermemos/
 
-# evermemos/ — <!-- TODO: one-line role -->
+HTTP client package for the optional EverMemOS external memory service.
 
-## 目录角色
-<!-- TODO: intent -->
+## Directory role
 
-## 关键文件索引
-<!-- TODO: intent -->
+`evermemos/` contains the client-side integration with EverMemOS — an optional external service for long-term memory storage and semantic retrieval. The directory is intentionally narrow: it holds only the HTTP client implementation and nothing else. All orchestration logic (when to write, how to blend EverMemOS results with local Narrative memory) lives in the callers, not here.
 
-## 和外部目录的协作
-<!-- TODO: intent -->
+## Key file index
+
+| File | Role |
+|---|---|
+| `client.py` | `EverMemOSClient` and `get_evermemos_client()` factory — HTTP write and search operations |
+
+## Collaboration with external directories
+
+- **`narrative/_narrative_impl/`** — historically the primary caller; migrated here to decouple the HTTP client from narrative orchestration.
+- **`utils/__init__.py`** — does not re-export EverMemOS symbols; callers must import directly from `xyz_agent_context.utils.evermemos.client`.
+- **EverMemOS service** — a separate running process (default `http://localhost:1995`) that this package calls over HTTP. It is not part of this repository.

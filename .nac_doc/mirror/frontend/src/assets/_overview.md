@@ -1,16 +1,13 @@
 ---
 code_dir: frontend/src/assets/
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# assets/ — <!-- TODO: one-line role -->
+# assets/ — Static frontend assets
 
-## 目录角色
-<!-- TODO: intent -->
+Currently contains only `react.svg` — the default Vite scaffold SVG that
+ships with every new React + Vite project. It is not used anywhere in the
+application; it's a scaffold leftover. Safe to delete if it clutters the
+directory.
 
-## 关键文件索引
-<!-- TODO: intent -->
-
-## 和外部目录的协作
-<!-- TODO: intent -->
+Any app-specific icons (favicon, logo) live in `public/` rather than here.

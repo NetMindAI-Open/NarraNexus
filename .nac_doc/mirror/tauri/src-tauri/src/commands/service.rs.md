@@ -1,23 +1,18 @@
 ---
 code_file: tauri/src-tauri/src/commands/service.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# service.rs — <!-- TODO: one-line role -->
+# service.rs — IPC commands for process lifecycle management
 
-## 为什么存在
-<!-- TODO: intent -->
+Four commands:
+- `get_service_status` → `Vec<ProcessInfo>` (all services' current status)
+- `start_all_services` → spawns all services (idempotent if already running?)
+- `stop_all_services` → kills all children
+- `restart_service(service_id)` → stop + 1 s delay + start one service
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+`restart_service` looks up the `ServiceDef` by `service_id` from
+`state.service_defs`. If the ID doesn't match any definition, returns an
+error string.
 
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Used by: System page's restart buttons and (planned) tray menu actions.

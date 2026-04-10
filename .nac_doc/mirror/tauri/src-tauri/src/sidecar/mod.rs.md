@@ -1,23 +1,8 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/mod.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# mod.rs — <!-- TODO: one-line role -->
+# mod.rs — Module declaration for the sidecar directory
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Two lines: `pub mod health_monitor; pub mod process_manager;`. No logic.

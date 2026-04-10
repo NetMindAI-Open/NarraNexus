@@ -1,23 +1,13 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# FileUpload.tsx — <!-- TODO: one-line role -->
+# FileUpload.tsx — Drag-and-drop file manager for agent workspace
 
-## 为什么存在
-<!-- TODO: intent -->
+Allows uploading files that the agent can read via its file-access MCP tools. No file-type restriction (unlike `RAGUpload`). Supports both drag-and-drop and the standard file picker dialog.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+Files are scoped to `agentId + userId`. Deleting prompts a `confirm()` dialog. No upload progress bar — a full-screen overlay spinner covers the drop zone during upload.
 
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Used only inside `AwarenessPanel`. Does not use `usePreloadStore` — manages its own local `files` state.

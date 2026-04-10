@@ -1,23 +1,9 @@
 ---
 code_file: frontend/src/components/ui/scroll-area.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
+stub: false
 ---
 
-# scroll-area.tsx — <!-- TODO: one-line role -->
+# scroll-area.tsx — Radix ScrollArea with themed scrollbar
 
-## 为什么存在
-<!-- TODO: intent -->
-
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+Thin wrapper over `@radix-ui/react-scroll-area`. Renders a styled scrollbar thumb using `--border-default` / `--text-tertiary` tokens. Not re-exported from `index.ts`. Used wherever a custom scrollbar is needed alongside overflow control.

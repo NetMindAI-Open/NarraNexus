@@ -1,23 +1,16 @@
 ---
 code_file: frontend/src/components/steps/StepsPanel.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# StepsPanel.tsx — <!-- TODO: one-line role -->
+# StepsPanel.tsx — Standalone execution steps panel (possibly vestigial)
 
-## 为什么存在
-<!-- TODO: intent -->
+Minimal wrapper: reads `currentSteps` from `useChatStore`, filters to the six
+main step IDs (`'0'`–`'5'`), shows a progress badge, and renders `StepCard`
+for each.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
-
-## 设计决策
-<!-- TODO: intent -->
-
-## Gotcha / 边界情况
-<!-- TODO: intent -->
-
-## 新人易踩的坑
-<!-- TODO: intent -->
+This was the original standalone execution view before the steps were
+integrated into `RuntimePanel`'s execution tab. `RuntimePanel` now re-uses
+`StepCard` directly and provides a richer dashboard (KPI cards, progress
+ring). `StepsPanel` is not known to be rendered anywhere in the current
+layout — verify before modifying.

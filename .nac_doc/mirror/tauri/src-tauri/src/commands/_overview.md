@@ -1,16 +1,17 @@
 ---
 code_dir: tauri/src-tauri/src/commands/
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# commands/ — <!-- TODO: one-line role -->
+# commands/ — IPC command handlers exposed to the frontend via Tauri
 
-## 目录角色
-<!-- TODO: intent -->
+All `#[tauri::command]` functions live here. The frontend calls these via
+`@tauri-apps/api/core`'s `invoke()`. Registered in `lib.rs::invoke_handler`.
 
-## 关键文件索引
-<!-- TODO: intent -->
+Three modules:
+- `service.rs` — process lifecycle (status, start all, stop all, restart one)
+- `health.rs` — health check and log retrieval
+- `config.rs` — app config and mode (local / cloud-app)
 
-## 和外部目录的协作
-<!-- TODO: intent -->
+All commands take `state: State<'_, AppState>` for access to the shared
+process manager, health monitor, and config.

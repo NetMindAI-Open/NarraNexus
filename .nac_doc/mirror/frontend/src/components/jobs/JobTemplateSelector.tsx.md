@@ -1,23 +1,33 @@
 ---
 code_file: frontend/src/components/jobs/JobTemplateSelector.tsx
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# JobTemplateSelector.tsx — <!-- TODO: one-line role -->
+# JobTemplateSelector.tsx — Two-step wizard for creating jobs from templates
 
-## 为什么存在
-<!-- TODO: intent -->
+Step 1: pick a preset from `JOB_TEMPLATES` (stored in `jobComplexStore`).
+Step 2: fill in variables, preview the dependency graph, submit.
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+## Why it exists
 
-## 设计决策
-<!-- TODO: intent -->
+Allows non-technical users to create multi-job dependency chains without
+hand-crafting payloads. The template defines the DAG structure; the user only
+fills in the named variables.
 
-## Gotcha / 边界情况
-<!-- TODO: intent -->
+## Current status
 
-## 新人易踩的坑
-<!-- TODO: intent -->
+Not wired into the main `JobsPanel` layout. It is exported and ready but the
+trigger UI (e.g., a "New Job" button) does not exist yet. This is intentional
+preparatory work.
+
+## Upstream / downstream
+
+- **Upstream:** `JOB_TEMPLATES` constant from `jobComplexStore`, `JobDependencyGraph`
+  (preview), `onCreateJobs` callback (provided by the future parent)
+- **Downstream:** nothing in production yet
+
+## Gotchas
+
+The icon map (`iconMap`) keys must match the string values in each template's
+`icon` field. Adding a new template with an unsupported icon silently falls
+back to `Building2`.

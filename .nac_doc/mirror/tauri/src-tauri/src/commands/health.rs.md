@@ -1,23 +1,26 @@
 ---
 code_file: tauri/src-tauri/src/commands/health.rs
-last_verified: 2026-04-09
-stub: true
+last_verified: 2026-04-10
 ---
 
-# health.rs — <!-- TODO: one-line role -->
+# health.rs — IPC commands for health status and log retrieval
 
-## 为什么存在
-<!-- TODO: intent -->
+Two commands:
+- `get_health_status` → `OverallHealth` (calls `health_monitor.check_service`
+  for each `ServiceDef`, aggregates `all_healthy` flag)
+- `get_logs(service_id?)` → `Vec<LogEntry>` (reads from ProcessManager's ring
+  buffer, optionally filtered by service ID)
 
-## 上下游关系
-- **被谁用**：<!-- TODO: intent -->
-- **依赖谁**：<!-- TODO: intent -->
+`all_healthy` treats services with no port as passing: only services with a
+defined port contribute to the aggregate. This prevents mcp/poller (no health
+URL) from making the system always look unhealthy.
 
-## 设计决策
-<!-- TODO: intent -->
+Used by: System page health polling and LogViewer data fetch.
 
-## Gotcha / 边界情况
-<!-- TODO: intent -->
+## Gotchas
 
-## 新人易踩的坑
-<!-- TODO: intent -->
+`get_health_status` is called on demand (each time the frontend polls). There
+is no background health loop on the Rust side. The debounce in
+`HealthMonitor` accumulates across calls — calling `get_health_status`
+repeatedly within seconds will debounce transient failures before reporting
+`Unhealthy`.
