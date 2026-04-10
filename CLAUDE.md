@@ -84,7 +84,14 @@
 - `.nac_doc/project/playbooks/work_with_worktree.md` — worktree 流程
   **何时读**：开始多人并行任务、或按 superpowers 流程启动 plan
 
-> 注：以上 references / playbooks 的实际内容可能还未写就（Phase 2 内容创作工作）。未写时 Read 会返回 file-not-found，这种情况下按 `.nac_doc/README.md` 的方法论现场推断。
+> **未写就时的 fallback**（Phase 2 内容创作工作延后）：Read 返回 file-not-found 时，按以下顺序回退——
+>
+> 1. **先读 CLAUDE.md 本文**：`项目介绍`、`架构分层`、`新建 Module 步骤`（简表版）、`编码规范` 这四节合起来覆盖了绝大部分 on-board 信息
+> 2. **再读对应的 mirror md**：`.nac_doc/mirror/<path>.md` —— 即使是 stub，frontmatter 的 `code_file` 也会告诉你去读哪个源码文件
+> 3. **最后读源码**：`code_file` 指向的 `.py/.tsx/.ts/.rs`，配合 docstring 和文件头注释（铁律 #1 保证都是英文）
+> 4. **完工时回填 mirror md**：按铁律 #10，在同一 commit 内把你理解的 intent 写进对应 mirror md，把 frontmatter 的 `stub: true` 改成 `false`，刷新 `last_verified`
+>
+> `.nac_doc/README.md` 是**方法论**，教你 HOW 写 md，不是项目知识；它**无法**替代项目特定信息。
 
 ---
 

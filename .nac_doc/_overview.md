@@ -5,7 +5,30 @@ last_verified: 2026-04-09
 
 # NexusAgent · `.nac_doc/` 顶层入口
 
-欢迎。这是 NexusAgent 项目的三级文档系统入口。如果你是第一次来，按下面的顺序读：
+欢迎。这是 NexusAgent 项目的三级文档系统入口。
+
+## 项目速览（60 秒版）
+
+**NexusAgent** 是一个拥有长期记忆（Narrative）、Module 可热插拔的 Agent 系统。核心是算法 + Agent 的开发；前后端 + 桌面端（Tauri）同等重要。
+
+**架构一眼**（完整版见 `CLAUDE.md` 的「架构分层」章节）：
+
+```
+API (FastAPI)  →  AgentRuntime (7 步流水线)  →  Services (Narrative, Module)
+                                                ↓
+             Background (ModulePoller)  ←→  Repository  →  DB (MySQL/SQLite)
+```
+
+**怎么跑起来**（4 个进程，各一个终端；完整列表 `make help`）：
+
+```bash
+make dev-backend      # FastAPI 后端，port 8000
+make dev-frontend     # Vite 前端
+make dev-mcp          # MCP servers（Module 的 tool 服务）
+make dev-poller       # ModulePoller 后台服务
+```
+
+**双运行方式对齐**（铁律 #7）：本地开发走 `bash run.sh` 或 `make dev-*`；桌面端走 Tauri dmg。改动任何一个必须检查另一个。
 
 ## 新人推荐阅读路径
 
