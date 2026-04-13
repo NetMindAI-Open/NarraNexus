@@ -248,13 +248,16 @@ async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:
     """Partition instance_jobs across all 6 live states per agent.
 
     v2.1: widened from ('running', 'pending', 'active') to include
-    blocked / paused / failed. Dashboard surfaces each separately so users
-    can triage without leaving the page.
+    blocked / paused / failed. Each key holds the RAW per-status list — no
+    overlap between keys. Callers iterating multiple states will not see
+    duplicates.
 
-    Return shape: { agent_id: { 'running': [...], 'active': [...], ..., 'failed': [...] } }
-    Plus legacy key 'pending' kept as union of (pending + active) for
-    backwards-compat with the original "pending jobs" list — but callers
-    should migrate to state-specific keys.
+    v2.1.1 fix: previously 'pending' was a union (pending+active+blocked+paused)
+    for "v2 legacy compat". The route then iterated all states, double-counting
+    everything that was already in the union. Now each state is independent.
+
+    Return shape: { agent_id: { 'running': [...], 'active': [...], 'pending': [...],
+                                'blocked': [...], 'paused': [...], 'failed': [...] } }
     """
     if not agent_ids:
         return {}
@@ -274,16 +277,11 @@ async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:
     out: dict[str, dict[str, list[dict]]] = {
         aid: {s: [] for s in _LIVE_JOB_STATES} for aid in agent_ids
     }
-    for aid in agent_ids:
-        out[aid]["pending"] = []  # will be union below
-        out[aid]["running"] = []
-
-    raw_state_jobs: dict[str, dict[str, list[dict]]] = {
-        aid: {s: [] for s in _LIVE_JOB_STATES} for aid in agent_ids
-    }
     for r in rows:
         state = r["status"]
-        entry = {
+        if state not in out[r["agent_id"]]:
+            continue  # safety — shouldn't happen given WHERE clause
+        out[r["agent_id"]][state].append({
             "job_id": r["job_id"],
             "title": r["title"],
             "description": r.get("description"),
@@ -293,21 +291,7 @@ async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:
             "last_error": r.get("last_error"),
             "last_run_time": r.get("last_run_time"),
             "iteration_count": r.get("iteration_count") or 0,
-        }
-        raw_state_jobs[r["agent_id"]][state].append(entry)
-
-    for aid in agent_ids:
-        per_state = raw_state_jobs[aid]
-        out[aid] = dict(per_state)
-        # Legacy 'running' and 'pending' buckets (kept for existing call sites)
-        out[aid]["running"] = list(per_state["running"])
-        # 'pending' legacy union: anything waiting to run
-        out[aid]["pending"] = (
-            list(per_state["pending"])
-            + list(per_state["active"])
-            + list(per_state["blocked"])
-            + list(per_state["paused"])
-        )
+        })
     return out
 
 

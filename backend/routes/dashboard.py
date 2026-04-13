@@ -128,36 +128,22 @@ async def agents_status(request: Request, response: Response):
         )
         action_line = build_action_line(run_state)
 
-        # v2.1: queue counts (all 6 live states)
+        # v2.1.1: queue counts (all 6 live states, no overlap — see fetch_jobs)
         queue_counts = {
-            "running": len(per_state.get("running", [])),
-            "active": len(per_state.get("active", [])),
-            "pending": len(per_state.get("pending_raw", per_state.get("pending", []))) if "pending_raw" in per_state else len(per_state.get("pending", [])),
-            "blocked": len(per_state.get("blocked", [])),
-            "paused": len(per_state.get("paused", [])),
-            "failed": len(per_state.get("failed", [])),
+            s: len(per_state.get(s, []))
+            for s in ("running", "active", "pending", "blocked", "paused", "failed")
         }
-        # The 'pending' key in jobs_map is a union (pending+active+blocked+paused) for
-        # legacy; for counts we want raw pending only (already excludes dupes).
-        # Reconstruct from per_state — the raw pending-only list isn't exposed, so
-        # we count by subtracting.
-        total_non_running = (
-            queue_counts["active"] + queue_counts["blocked"]
-            + queue_counts["paused"] + queue_counts["failed"]
-        )
-        # 'pending' in per_state is the legacy union; subtract others to get true pending
-        queue_counts["pending"] = max(
-            0, len(per_state.get("pending", [])) - total_non_running
-        )
-        queue_counts["total"] = sum(
-            queue_counts[k] for k in ("running", "active", "pending", "blocked", "paused", "failed")
-        )
+        queue_counts["total"] = sum(queue_counts.values())
 
-        # v2.1: pending jobs list — now surfaces all 5 non-running live states with
-        # a queue_status tag so the frontend can render them differently.
+        # v2.1.1: pending_jobs surfaces all 5 non-running live states with
+        # a queue_status tag. Each job appears EXACTLY ONCE (was a v2.1 bug).
         pending_jobs_items: list[dict] = []
+        seen_job_ids: set[str] = set()
         for qstate in ("pending", "active", "blocked", "paused", "failed"):
             for j in per_state.get(qstate, []):
+                if j["job_id"] in seen_job_ids:
+                    continue  # belt-and-suspenders dedup
+                seen_job_ids.add(j["job_id"])
                 pending_jobs_items.append({
                     "job_id": j["job_id"],
                     "title": j["title"],

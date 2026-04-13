@@ -1,8 +1,9 @@
 /**
  * @file_name: QueueBar.tsx
- * @description: v2.1 — stacked bar + counts for all 6 live job states.
- * Each segment width is proportional to count. Zero-width segments render
- * nothing to avoid visual clutter.
+ * @description: v2.1.1 — stacked bar + counts for all 6 live job states.
+ * Compact mode (inline in collapsed card) shows just the bar + total + the
+ * top 2 worrying states (failed/blocked first). Full mode shows all states
+ * with labels.
  */
 import type { QueueCounts } from '@/types';
 
@@ -20,23 +21,56 @@ const ORDER: Array<keyof Omit<QueueCounts, 'total'>> = [
 ];
 
 const LABEL_SHORT: Record<keyof Omit<QueueCounts, 'total'>, string> = {
-  running: 'R',
-  active: 'A',
-  pending: 'P',
-  blocked: 'B',
-  paused: 'Pa',
-  failed: 'F',
+  running: 'running',
+  active: 'active',
+  pending: 'pending',
+  blocked: 'blocked',
+  paused: 'paused',
+  failed: 'failed',
 };
 
-export function QueueBar({ queue }: { queue: QueueCounts }) {
+export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compact?: boolean }) {
   if (!queue || queue.total === 0) {
+    // Don't render at all when empty — was visual noise before.
+    return null;
+  }
+
+  if (compact) {
+    // Inline strip: tiny bar + total + only states that need attention
     return (
-      <div data-testid="queue-bar-empty" className="text-xs text-[var(--text-secondary)]">
-        Queue · empty
+      <div className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-secondary)]">
+        <span>Q</span>
+        <div
+          data-testid="queue-bar"
+          className="flex h-1.5 w-16 overflow-hidden rounded-full bg-[var(--bg-tertiary)]"
+        >
+          {ORDER.map((key) => {
+            const count = queue[key];
+            if (count === 0) return null;
+            const pct = (count / queue.total) * 100;
+            return (
+              <div
+                key={key}
+                data-testid={`queue-seg-${key}`}
+                className={SEGMENT_CLS[key]}
+                style={{ width: `${pct}%` }}
+                title={`${count} ${LABEL_SHORT[key]}`}
+              />
+            );
+          })}
+        </div>
+        <span>{queue.total}</span>
+        {queue.failed > 0 && (
+          <span className="text-red-500" title={`${queue.failed} failed`}>· 🔴 {queue.failed}</span>
+        )}
+        {queue.blocked > 0 && (
+          <span className="text-amber-600" title={`${queue.blocked} blocked`}>· 🟠 {queue.blocked}</span>
+        )}
       </div>
     );
   }
 
+  // Full (in expanded section)
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
@@ -55,7 +89,7 @@ export function QueueBar({ queue }: { queue: QueueCounts }) {
                 data-testid={`queue-seg-${key}`}
                 className={SEGMENT_CLS[key]}
                 style={{ width: `${pct}%` }}
-                title={`${count} ${key}`}
+                title={`${count} ${LABEL_SHORT[key]}`}
               />
             );
           })}

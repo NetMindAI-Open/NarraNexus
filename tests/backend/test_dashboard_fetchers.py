@@ -28,12 +28,26 @@ async def test_fetch_last_activity_uses_max_per_agent(tmp_db_with_events):
 
 @pytest.mark.asyncio
 async def test_fetch_jobs_partitions_running_vs_pending(tmp_db_with_jobs):
+    """v2.1.1: each state has its raw count — no overlap, no duplicates.
+
+    Fixture seeds 3 jobs: 1 running + 1 pending + 1 active. Previously
+    'pending' was a union (counted as 2); now it's raw pending only (1).
+    """
     agent_a = tmp_db_with_jobs["agent_a"]
     out = await fetch_jobs([agent_a])
     assert len(out[agent_a]["running"]) == 1
-    assert len(out[agent_a]["pending"]) == 2  # pending + active
+    assert len(out[agent_a]["pending"]) == 1
+    assert len(out[agent_a]["active"]) == 1
     assert out[agent_a]["running"][0]["title"] == "running1"
     assert out[agent_a]["running"][0]["description"] == "desc for running1"
+    # Anti-regression: the same job_id MUST NOT appear in two state buckets.
+    seen: dict[str, str] = {}
+    for state in ("running", "active", "pending", "blocked", "paused", "failed"):
+        for j in out[agent_a].get(state, []):
+            assert j["job_id"] not in seen, (
+                f"DUPLICATE: {j['job_id']} in both {seen[j['job_id']]} and {state}"
+            )
+            seen[j["job_id"]] = state
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ import { useDashboardStore } from '@/stores/dashboardStore';
 import { api } from '@/lib/api';
 import { setTrayBadge, listenTauri } from '@/lib/tauri';
 import { AgentCard } from '@/components/dashboard/AgentCard';
-import { AgentCardExpanded } from '@/components/dashboard/AgentCardExpanded';
+import { DashboardSummary } from '@/components/dashboard/DashboardSummary';
 
 export function DashboardPage() {
   const agents = useDashboardStore((s) => s.agents);
@@ -99,6 +99,7 @@ export function DashboardPage() {
           No agents yet.
         </div>
       )}
+      {agents.length > 0 && <DashboardSummary agents={agents} />}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {agents.map((a) => (
           <div key={a.agent_id}>
@@ -109,7 +110,8 @@ export function DashboardPage() {
                 setExpandedId(expandedId === a.agent_id ? null : a.agent_id)
               }
             />
-            {expandedId === a.agent_id && <AgentCardExpanded agent={a} />}
+            {/* AgentCardExpanded is intentionally NOT rendered: AgentCard now
+                handles its own expand state with full sections inline. */}
           </div>
         ))}
       </div>
