@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
+use tauri::tray::TrayIcon;
 use tokio::sync::Mutex;
 
 use crate::sidecar::health_monitor::HealthMonitor;
@@ -364,6 +365,12 @@ pub struct AppState {
     pub process_manager: Arc<Mutex<ProcessManager>>,
     pub health_monitor: Arc<HealthMonitor>,
     pub service_defs: Vec<ServiceDef>,
+    /// Dashboard v2 (TDR-7): holds the TrayIcon created in `lib.rs::setup`
+    /// so that `commands::tray::set_tray_badge` can update its title.
+    ///
+    /// std::sync::Mutex (not tokio) because tray ops are sync + do not span
+    /// await boundaries. Set once at startup, rarely modified after.
+    pub tray_handle: Arc<StdMutex<Option<TrayIcon>>>,
 }
 
 impl Default for AppState {
@@ -384,6 +391,7 @@ impl Default for AppState {
             process_manager: Arc::new(Mutex::new(ProcessManager::new())),
             health_monitor: Arc::new(HealthMonitor::new()),
             service_defs: ServiceDef::default_services(&project_root_str, &python_path_str, bundled),
+            tray_handle: Arc::new(StdMutex::new(None)),
         }
     }
 }

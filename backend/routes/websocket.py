@@ -187,6 +187,29 @@ async def websocket_agent_run(websocket: WebSocket):
 
         logger.info(f"Starting agent runtime: agent_id={request.agent_id}, user_id={request.user_id}")
 
+        # ---- Dashboard v2 (TDR-2): register active session AFTER auth passes, ----
+        # ---- BEFORE any MCP/runtime setup that can throw. The enclosing try/finally
+        # ---- below guarantees removal on every exit path.
+        # ---- NOTE: logging discipline — never print SessionInfo fields user_id /
+        # ---- user_display / channel (PII). Only session_id + agent_id are log-safe.
+        import uuid as _uuid
+        from datetime import datetime as _datetime, timezone as _timezone
+        from backend.state.active_sessions import get_session_registry as _get_registry, SessionInfo as _SessionInfo
+
+        _session_id = str(_uuid.uuid4())
+        _channel = request.working_source or "web"
+        _registry = _get_registry()
+        await _registry.add(
+            request.agent_id,
+            _SessionInfo(
+                session_id=_session_id,
+                user_id=request.user_id,
+                user_display=request.user_id,  # refine via channel_tag.sender_name when available
+                channel=_channel,
+                started_at=_datetime.now(_timezone.utc).isoformat(),
+            ),
+        )
+
         # Load MCP URLs from database for this agent+user
         mcp_urls = {}
         try:
@@ -327,6 +350,14 @@ async def websocket_agent_run(websocket: WebSocket):
             pass
 
     finally:
+        # Dashboard v2 (TDR-2): remove session on every exit path. `_session_id`
+        # may be unset if we exited before the registry add (auth failure, bad
+        # payload) — guard against NameError.
+        try:
+            if "_session_id" in locals():
+                await _registry.remove(request.agent_id, _session_id)
+        except Exception as _cleanup_err:
+            logger.warning(f"session registry cleanup failed: {_cleanup_err}")
         try:
             await websocket.close()
         except Exception:

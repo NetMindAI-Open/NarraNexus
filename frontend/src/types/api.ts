@@ -450,3 +450,96 @@ export interface EmbeddingStatusResponse extends ApiResponse {
 export interface EmbeddingRebuildResponse extends ApiResponse {
   message?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Dashboard v2 types (T19)
+//
+// Discriminated union via `owned_by_viewer`. Public-variant lacks owner-only
+// fields at the type level — TS users cannot accidentally read sessions or
+// action_line on a public agent.
+// ---------------------------------------------------------------------------
+
+export type AgentKind =
+  | 'idle'
+  | 'CHAT'
+  | 'JOB'
+  | 'MESSAGE_BUS'
+  | 'A2A'
+  | 'CALLBACK'
+  | 'SKILL_STUDY'
+  | 'MATRIX';
+
+export interface MessageBusDetails {
+  src_channel?: string | null;
+  dst_channel?: string | null;
+}
+
+export interface StatusCommon {
+  kind: AgentKind;
+  last_activity_at: string | null;
+  started_at: string | null;
+}
+
+export interface StatusWithDetails extends StatusCommon {
+  details?: MessageBusDetails | null;
+}
+
+export interface SessionInfoResp {
+  session_id: string;
+  user_display: string;
+  channel: string;
+  started_at: string;
+}
+
+export interface DashboardRunningJob {
+  job_id: string;
+  title: string;
+  job_type: string;
+  started_at: string | null;
+}
+
+export interface DashboardPendingJob {
+  job_id: string;
+  title: string;
+  job_type: string;
+  next_run_time: string | null;
+}
+
+export interface EnhancedSignals {
+  recent_errors_1h: number;
+  token_rate_1h: number | null;
+  active_narratives: number;
+  unread_bus_messages: number;
+}
+
+export interface OwnedAgentStatus {
+  agent_id: string;
+  name: string;
+  description: string | null;
+  is_public: boolean;
+  owned_by_viewer: true;
+  status: StatusWithDetails;
+  running_count: number;
+  /** null → frontend must render "—" */
+  action_line: string | null;
+  sessions: SessionInfoResp[];
+  running_jobs: DashboardRunningJob[];
+  pending_jobs: DashboardPendingJob[];
+  enhanced: EnhancedSignals;
+}
+
+export interface PublicAgentStatus {
+  agent_id: string;
+  name: string;
+  description: string | null;
+  is_public: true;
+  owned_by_viewer: false;
+  status: StatusCommon;
+  running_count_bucket: '0' | '1-2' | '3-5' | '6-10' | '10+';
+}
+
+export type AgentStatus = OwnedAgentStatus | PublicAgentStatus;
+
+export interface DashboardResponse extends ApiResponse {
+  agents: AgentStatus[];
+}

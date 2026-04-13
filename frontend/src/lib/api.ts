@@ -45,6 +45,7 @@ import type {
   SkillEnvConfigResponse,
   EmbeddingStatusResponse,
   EmbeddingRebuildResponse,
+  DashboardResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -595,6 +596,17 @@ class ApiClient {
     return this.request<EmbeddingRebuildResponse>('/api/providers/embeddings/rebuild', {
       method: 'POST',
     });
+  }
+
+  /**
+   * Fetch aggregated agent status for the Dashboard page (v2).
+   *
+   * Viewer identity is derived server-side from the session (JWT in cloud
+   * mode, local singleton user in local mode). The client MUST NOT pass a
+   * `user_id` param — the backend rejects it with 400 (TDR-12).
+   */
+  async getDashboardStatus(): Promise<DashboardResponse> {
+    return this.request<DashboardResponse>('/api/dashboard/agents-status');
   }
 }
 

@@ -19,5 +19,21 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // Dashboard v2 security (TDR-4 + security M-2): dashboard renders
+      // user-supplied text (events.final_output, bus_messages.content,
+      // session sender names). React's default text interpolation is safe;
+      // dangerouslySetInnerHTML is not. Ban it project-wide — we have no
+      // legitimate use case that offsets the XSS risk.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+          message:
+            "dangerouslySetInnerHTML is banned (Dashboard v2 security). " +
+            "Use JSX text interpolation; React auto-escapes.",
+        },
+      ],
+    },
   },
 ])

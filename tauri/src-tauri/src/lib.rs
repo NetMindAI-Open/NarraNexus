@@ -26,6 +26,7 @@ pub fn run() {
             commands::config::set_app_mode,
             commands::health::get_health_status,
             commands::health::get_logs,
+            commands::tray::set_tray_badge,
         ])
         .setup(|app| {
             // Set DATABASE_URL so the Python backend picks up the correct SQLite path
@@ -46,7 +47,15 @@ pub fn run() {
             std::env::set_var("SQLITE_PROXY_URL", "http://localhost:8100");
             std::env::set_var("SQLITE_PROXY_PORT", "8100");
 
-            tray::create_tray(app)?;
+            // Dashboard v2 (TDR-7): keep the TrayIcon handle in AppState so that
+            // `commands::tray::set_tray_badge` can update its title later.
+            let tray = tray::create_tray(app)?;
+            {
+                let state = app.state::<AppState>();
+                if let Ok(mut guard) = state.tray_handle.lock() {
+                    *guard = Some(tray);
+                }
+            }
 
             // Auto-start Python services in local mode (non-blocking)
             let app_handle = app.handle().clone();

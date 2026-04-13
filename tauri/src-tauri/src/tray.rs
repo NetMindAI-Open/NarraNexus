@@ -1,10 +1,12 @@
+//! Tray icon setup. Returns the TrayIcon so `lib.rs::setup` can store it in
+//! AppState for later badge updates (`commands::tray::set_tray_badge`).
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    tray::{TrayIcon, TrayIconBuilder},
     App,
 };
 
-pub fn create_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
+pub fn create_tray(app: &App) -> Result<TrayIcon, Box<dyn std::error::Error>> {
     let start_item =
         MenuItem::with_id(app, "start_all", "Start All Services", true, None::<&str>)?;
     let stop_item =
@@ -13,7 +15,7 @@ pub fn create_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::with_items(app, &[&start_item, &stop_item, &quit_item])?;
 
-    TrayIconBuilder::new()
+    let tray = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("NarraNexus")
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -31,5 +33,5 @@ pub fn create_tray(app: &App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    Ok(())
+    Ok(tray)
 }
