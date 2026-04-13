@@ -608,6 +608,34 @@ class ApiClient {
   async getDashboardStatus(): Promise<DashboardResponse> {
     return this.request<DashboardResponse>('/api/dashboard/agents-status');
   }
+
+  // ── v2.1: lazy-loaded detail endpoints + job mutations ────────────────
+
+  async getAgentSparkline(agentId: string, hours = 24): Promise<{ success: boolean; buckets: number[]; hours: number }> {
+    return this.request(`/api/dashboard/agents/${encodeURIComponent(agentId)}/sparkline?hours=${hours}`);
+  }
+
+  async getJobDetail(jobId: string): Promise<{ success: boolean; job: unknown }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  async getSessionDetail(sessionId: string, agentId: string): Promise<{ success: boolean; session: unknown }> {
+    return this.request(
+      `/api/dashboard/sessions/${encodeURIComponent(sessionId)}?agent_id=${encodeURIComponent(agentId)}`,
+    );
+  }
+
+  async retryJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST' });
+  }
+
+  async pauseJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/pause`, { method: 'POST' });
+  }
+
+  async resumeJob(jobId: string): Promise<{ success: boolean; job_id: string; new_status: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
+  }
 }
 
 export const api = new ApiClient();

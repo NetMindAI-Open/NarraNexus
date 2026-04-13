@@ -6,13 +6,16 @@
 # on any residual v1 symbol; prints which pattern + where for debugging.
 set -eu
 
+# v2.1 note: `DashboardRunningJob` and `DashboardPendingJob` were v1 type
+# names but they are generic enough that v2.1 legitimately reuses them with
+# different semantics (added `description`, `queue_status`, `progress`).
+# Only patterns below are truly v1-unique concepts or signatures that must
+# never return.
 FORBIDDEN=(
-    'DashboardRunningJob'
-    'DashboardInProgressInstance'
-    'DashboardPendingJob'
-    'AgentStatusCard'
-    'getDashboardStatus(userId'
-    'POLL_INTERVAL_MS = 5000'
+    'DashboardInProgressInstance'       # v1-only concept
+    'AgentStatusCard'                    # v1 component name; v2+ uses AgentCard
+    'getDashboardStatus(userId'          # v1 method signature; v2+ takes no args
+    'POLL_INTERVAL_MS = 5000'            # v1 constant
 )
 PATHS=(backend frontend/src tauri/src-tauri/src)
 

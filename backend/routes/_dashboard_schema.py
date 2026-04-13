@@ -42,11 +42,21 @@ class StatusWithDetails(StatusCommon):
     details: MessageBusDetails | None = None
 
 
+class JobProgress(BaseModel):
+    """v2.1: step-level progress if emitted by the job; else None."""
+    current_step: int
+    total_steps: int
+    stage_name: str | None = None
+    estimated_pct: float | None = None  # 0..100
+
+
 class SessionInfoResp(BaseModel):
     session_id: str
     user_display: str
     channel: str
     started_at: str
+    # v2.1: inline preview for the session item row (before user clicks to expand)
+    user_last_message_preview: str | None = None
 
 
 class RunningJob(BaseModel):
@@ -54,6 +64,9 @@ class RunningJob(BaseModel):
     title: str
     job_type: str
     started_at: str | None = None
+    # v2.1 additions
+    description: str | None = None
+    progress: JobProgress | None = None
 
 
 class PendingJob(BaseModel):
@@ -61,6 +74,55 @@ class PendingJob(BaseModel):
     title: str
     job_type: str
     next_run_time: str | None = None
+    # v2.1 additions
+    description: str | None = None
+    # Human-readable status variant: "pending" / "active" / "blocked" / "paused" / "failed"
+    # Needed because we now surface all live states (not just pending/active).
+    queue_status: Literal['pending', 'active', 'blocked', 'paused', 'failed'] = 'pending'
+
+
+class QueueCounts(BaseModel):
+    """v2.1: how many jobs are in each live state for this agent."""
+    running: int = 0
+    active: int = 0
+    pending: int = 0
+    blocked: int = 0
+    paused: int = 0
+    failed: int = 0
+    total: int = 0
+
+
+class RecentEvent(BaseModel):
+    """v2.1: one item in the per-agent 'Recent' feed (last 3 events)."""
+    event_id: str
+    kind: Literal['completed', 'running', 'failed', 'chat', 'other']
+    verb: str          # Human-readable: "Completed daily-digest" / "Failed sync-rag" / "Chat with Alice"
+    target: str | None = None
+    duration_ms: int | None = None
+    created_at: str
+
+
+class MetricsToday(BaseModel):
+    """v2.1: per-agent today stats shown at card footer."""
+    runs_ok: int = 0
+    errors: int = 0
+    avg_duration_ms: int | None = None
+    avg_duration_trend: Literal['up', 'down', 'flat', 'unknown'] = 'unknown'
+    token_cost_cents: int | None = None  # None when no data source
+
+
+class AttentionBannerAction(BaseModel):
+    label: str
+    endpoint: str  # relative path the frontend can POST to
+    method: Literal['POST', 'GET'] = 'POST'
+
+
+class AttentionBanner(BaseModel):
+    """v2.1: top-of-card notice needing user attention (error / blocked / paused)."""
+    level: Literal['error', 'warning', 'info']
+    kind: Literal['job_failed', 'job_blocked', 'jobs_paused', 'slow_response']
+    message: str
+    action: AttentionBannerAction | None = None
 
 
 class EnhancedSignals(BaseModel):
@@ -101,10 +163,20 @@ class OwnedAgentStatus(BaseModel):
     status: StatusWithDetails
     running_count: int
     action_line: str | None = None  # None → frontend renders "—"
+    # Human-language verb: "Serving 3 users" / "Running: weekly-report" / "Idle 4m ago".
+    # v2.1: richer than kind+action_line; drives the card's primary narrative row.
+    verb_line: str | None = None
     sessions: list[SessionInfoResp] = Field(default_factory=list)
     running_jobs: list[RunningJob] = Field(default_factory=list)
     pending_jobs: list[PendingJob] = Field(default_factory=list)
     enhanced: EnhancedSignals
+    # v2.1 additions
+    queue: QueueCounts = Field(default_factory=QueueCounts)
+    recent_events: list[RecentEvent] = Field(default_factory=list)
+    metrics_today: MetricsToday = Field(default_factory=MetricsToday)
+    attention_banners: list[AttentionBanner] = Field(default_factory=list)
+    # Status rail color: derived server-side for consistent client rendering.
+    health: Literal['healthy_running', 'healthy_idle', 'idle_long', 'warning', 'error', 'paused'] = 'healthy_idle'
 
 
 # FastAPI response_model + pydantic v2 discriminated union

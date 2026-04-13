@@ -484,11 +484,22 @@ export interface StatusWithDetails extends StatusCommon {
   details?: MessageBusDetails | null;
 }
 
+export interface JobProgress {
+  current_step: number;
+  total_steps: number;
+  stage_name?: string | null;
+  estimated_pct?: number | null;
+}
+
+export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed';
+
 export interface SessionInfoResp {
   session_id: string;
   user_display: string;
   channel: string;
   started_at: string;
+  /** v2.1: preview of latest user input in this session */
+  user_last_message_preview?: string | null;
 }
 
 export interface DashboardRunningJob {
@@ -496,6 +507,9 @@ export interface DashboardRunningJob {
   title: string;
   job_type: string;
   started_at: string | null;
+  /** v2.1 */
+  description?: string | null;
+  progress?: JobProgress | null;
 }
 
 export interface DashboardPendingJob {
@@ -503,6 +517,10 @@ export interface DashboardPendingJob {
   title: string;
   job_type: string;
   next_run_time: string | null;
+  /** v2.1 */
+  description?: string | null;
+  /** v2.1: which live state this queued job is in */
+  queue_status?: JobQueueStatus;
 }
 
 export interface EnhancedSignals {
@@ -511,6 +529,68 @@ export interface EnhancedSignals {
   active_narratives: number;
   unread_bus_messages: number;
 }
+
+// v2.1 — rich card types
+
+export interface QueueCounts {
+  running: number;
+  active: number;
+  pending: number;
+  blocked: number;
+  paused: number;
+  failed: number;
+  total: number;
+}
+
+export type RecentEventKind = 'completed' | 'running' | 'failed' | 'chat' | 'other';
+
+export interface RecentEvent {
+  event_id: string;
+  kind: RecentEventKind;
+  verb: string;
+  target?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export type MetricsTrend = 'up' | 'down' | 'flat' | 'unknown';
+
+export interface MetricsToday {
+  runs_ok: number;
+  errors: number;
+  avg_duration_ms: number | null;
+  avg_duration_trend: MetricsTrend;
+  token_cost_cents: number | null;
+}
+
+export interface AttentionBannerAction {
+  label: string;
+  endpoint: string;
+  method?: 'POST' | 'GET';
+}
+
+export type AttentionBannerKind =
+  | 'job_failed'
+  | 'job_blocked'
+  | 'jobs_paused'
+  | 'slow_response';
+
+export type AttentionBannerLevel = 'error' | 'warning' | 'info';
+
+export interface AttentionBanner {
+  level: AttentionBannerLevel;
+  kind: AttentionBannerKind;
+  message: string;
+  action?: AttentionBannerAction | null;
+}
+
+export type AgentHealth =
+  | 'healthy_running'
+  | 'healthy_idle'
+  | 'idle_long'
+  | 'warning'
+  | 'error'
+  | 'paused';
 
 export interface OwnedAgentStatus {
   agent_id: string;
@@ -522,10 +602,18 @@ export interface OwnedAgentStatus {
   running_count: number;
   /** null → frontend must render "—" */
   action_line: string | null;
+  /** v2.1: human verb ("Serving 3 users" / "Running: weekly-report" / "Idle · last active 4m ago") */
+  verb_line: string | null;
   sessions: SessionInfoResp[];
   running_jobs: DashboardRunningJob[];
   pending_jobs: DashboardPendingJob[];
   enhanced: EnhancedSignals;
+  // v2.1 rich fields
+  queue: QueueCounts;
+  recent_events: RecentEvent[];
+  metrics_today: MetricsToday;
+  attention_banners: AttentionBanner[];
+  health: AgentHealth;
 }
 
 export interface PublicAgentStatus {
