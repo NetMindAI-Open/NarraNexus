@@ -118,6 +118,56 @@ def test_verb_message_bus_and_a2a():
     assert humanize_verb("A2A", [], [], None) == "Called by another agent"
 
 
+# ---- v2.1.2: CALLBACK / SKILL_STUDY / MATRIX surface module info ----
+
+def test_verb_callback_names_module_when_available():
+    """Regression for 'Callback ×2 不知道对象是谁' — verb must include module."""
+    out = humanize_verb(
+        "CALLBACK", [], [], last_activity_at=None,
+        instances=[{"module_class": "SocialNetworkModule", "description": "syncing entities"}],
+    )
+    assert "SocialNetworkModule" in out
+    assert "syncing entities" in out
+
+
+def test_verb_callback_no_instances_fallback():
+    out = humanize_verb("CALLBACK", [], [], None, instances=[])
+    assert out == "Processing callback"
+
+
+def test_verb_callback_multiple_instances_enumerates():
+    out = humanize_verb(
+        "CALLBACK", [], [], None,
+        instances=[
+            {"module_class": "SocialNetworkModule"},
+            {"module_class": "JobModule"},
+        ],
+    )
+    assert "2" in out
+    assert "SocialNetworkModule" in out
+    assert "JobModule" in out
+
+
+def test_verb_skill_study_uses_instance_info():
+    out = humanize_verb(
+        "SKILL_STUDY", [], [], None,
+        instances=[{"module_class": "SkillModule", "description": "learning curl usage"}],
+    )
+    assert "SkillModule" in out
+    assert "learning curl usage" in out
+
+
+def test_verb_instance_description_truncated():
+    long_desc = "x" * 200
+    out = humanize_verb(
+        "CALLBACK", [], [], None,
+        instances=[{"module_class": "Mod", "description": long_desc}],
+    )
+    # Should be truncated with ellipsis; not 200+ chars
+    assert len(out) < 120
+    assert "…" in out or "..." in out
+
+
 # ---- build_recent_events_resp -------------------------------------------
 
 def test_recent_events_classifies_error():

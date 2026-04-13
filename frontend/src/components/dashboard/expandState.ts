@@ -64,3 +64,31 @@ export function useExpanded(key: string, defaultOpen = false) {
 
   return { expanded: value, toggle, set } as const;
 }
+
+/**
+ * v2.1.2 — true iff every provided banner key is marked dismissed in
+ * sessionStorage. Returns `false` when the banner list is empty (there's
+ * nothing to dismiss, so "all dismissed" is not a meaningful state).
+ *
+ * Reactive: re-renders on `dashboard-expand-changed` so dismissing the
+ * last banner immediately dims the status rail without waiting for the
+ * next polling tick.
+ */
+export function useAllBannersDismissed(
+  bannerKeys: string[],
+): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => {
+      if (bannerKeys.length === 0) return false;
+      const all = readAll();
+      return bannerKeys.every((k) => all[k] === true);
+    },
+    () => false,
+  );
+}
+
+/** Mirror of the banner sessionStorage key format used by AttentionBanners. */
+export function bannerKey(agentId: string, kind: string, message: string): string {
+  return `${agentId}:banner:${kind}:${encodeURIComponent(message)}`;
+}

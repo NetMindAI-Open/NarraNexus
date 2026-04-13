@@ -1,24 +1,26 @@
 /**
  * @file_name: AgentCard.tsx
- * @description: v2.1.1 — agent card with two-tier visibility (collapsed vs
- * expanded). Goal: reduce visual noise so the user sees only what matters at
- * a glance, and gets richer detail by clicking.
+ * @description: v2.1.2 — agent card with two-tier visibility (collapsed vs
+ * expanded) driven by card-body click (inner buttons stopPropagation).
  *
- * COLLAPSED (default state, what most cards always look like):
- *   ┌─▋ Alpha · 💬 · ⏱ 12s ─────────────────────────────────┐
- *   │ ▋ Serving 3 users [A][B][C]                            │  ← verb_line + avatars
- *   │ ▋ 🔴 1 job failed 3m ago                  [Retry] [×] │  ← banner (dismissible)
- *   │ ▋ Queue ████▓░░░ 5  ·  ✓ 47  ⚠ 1  $0.12  ·  ▾ more   │  ← inline metrics + expand
- *   └────────────────────────────────────────────────────────┘
+ * Changes vs v2.1.1:
+ *   - Card body itself is clickable again (regression fix). Inner interactive
+ *     sections (banners, section headers, items, action buttons) all call
+ *     e.stopPropagation() in their own handlers, so clicking a session row
+ *     or a Retry button doesn't bubble up and toggle the whole card.
+ *   - When all attention banners are dismissed in sessionStorage, the status
+ *     rail dims (opacity-40) instead of staying bright red/amber. The
+ *     underlying health is still "error" or "warning" (server-driven), but
+ *     the visual urgency drops once the user has acknowledged. If count
+ *     changes (new failure), banners re-appear and the rail un-dims.
  *
- * EXPANDED (after click — full sections visible):
- *   above + SessionSection + JobsSection + Sparkline + RecentFeed
- *
- * Public non-owned variant: only the header line (no verb, no sections).
- * Permission boundary preserved by the discriminated union; here it's an
- * `if` early return.
+ * Layout (owned agents):
+ *   COLLAPSED (default):
+ *     Header · verb_line · banners · inline queue+metrics + ▾ more hint
+ *   EXPANDED:
+ *     above + sessions + jobs + sparkline + recent feed
  */
-import type { AgentStatus, OwnedAgentStatus } from '@/types';
+import type { AgentStatus, OwnedAgentStatus, AttentionBanner } from '@/types';
 import { StatusBadge } from './StatusBadge';
 import { DurationDisplay } from './DurationDisplay';
 import { ConcurrencyBadge } from './ConcurrencyBadge';
@@ -30,6 +32,7 @@ import { Sparkline } from './Sparkline';
 import { RecentFeed } from './RecentFeed';
 import { MetricsRow } from './MetricsRow';
 import { HEALTH_COLORS } from './healthColors';
+import { useAllBannersDismissed, bannerKey } from './expandState';
 
 const HEALTH_TOOLTIP = {
   healthy_running: 'Healthy · running',
@@ -89,22 +92,46 @@ function OwnedCard({
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
+  const banners = agent.attention_banners ?? [];
+  // Key list for dismiss state lookup — must match the format used in
+  // AttentionBanners.BannerRow (see expandState.bannerKey).
+  const allKeys = banners.map((b: AttentionBanner) => bannerKey(agent.agent_id, b.kind, b.message));
+  const allDismissed = useAllBannersDismissed(allKeys);
+
   const colors = HEALTH_COLORS[agent.health];
+  // When the user has acknowledged every banner, dim the rail to de-escalate.
+  // We keep the semantic color (still red/amber) but reduce opacity so the
+  // card visually quiets down. It un-dims automatically if a new banner appears
+  // (new signature → new storage key → not dismissed yet → allDismissed=false).
+  const railDimClass = allDismissed ? 'opacity-40' : '';
   const verbLine = agent.verb_line;
   const hasSessions = agent.sessions.length > 0;
   const hasJobs = agent.running_jobs.length > 0 || agent.pending_jobs.length > 0;
   const hasRecent = agent.recent_events.length > 0;
+  // Same idea on card-body tint: drop the red wash if acknowledged.
+  const cardTint = allDismissed ? '' : colors.cardTint;
 
   return (
     <div
       data-testid={`agent-card-${agent.agent_id}`}
       data-expanded={expanded ? 'true' : 'false'}
       data-health={agent.health}
-      className={`group flex overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-glass)] transition-colors ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
+      data-banners-dismissed={allDismissed ? 'true' : 'false'}
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      onClick={onToggleExpand}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggleExpand();
+        }
+      }}
+      className={`group flex overflow-hidden rounded-xl border border-[var(--border-primary)] bg-[var(--bg-glass)] cursor-pointer hover:border-[var(--accent-primary)] transition-colors ${cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
     >
       <div
-        className={`w-1 shrink-0 ${colors.rail}`}
-        title={HEALTH_TOOLTIP[agent.health]}
+        className={`w-1 shrink-0 ${colors.rail} ${railDimClass} transition-opacity`}
+        title={HEALTH_TOOLTIP[agent.health] + (allDismissed ? ' · acknowledged' : '')}
         aria-hidden
       />
       <div className="flex-1 p-3 min-w-0">
@@ -124,21 +151,16 @@ function OwnedCard({
           </div>
         )}
 
-        {/* Banners */}
-        <AttentionBanners agentId={agent.agent_id} banners={agent.attention_banners ?? []} />
+        {/* Banners (each dismissible individually) */}
+        <AttentionBanners agentId={agent.agent_id} banners={banners} />
 
         {/* Inline summary row — visible in both collapsed + expanded modes */}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
           <QueueBar queue={agent.queue} compact />
           <MetricsRow metrics={agent.metrics_today} />
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onToggleExpand(); }}
-            className="ml-auto text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            aria-expanded={expanded}
-          >
+          <span className="ml-auto text-[11px] text-[var(--text-secondary)]">
             {expanded ? '▴ less' : '▾ more'}
-          </button>
+          </span>
         </div>
 
         {/* Expanded sections */}

@@ -168,9 +168,12 @@ async def agents_status(request: Request, response: Response):
         )
 
         # v2.1: verb line (human-readable)
+        # v2.1.2: pass instances so CALLBACK/SKILL_STUDY/MATRIX can name
+        # the specific module instead of a generic "Processing callback".
         verb_line = humanize_verb(
             kind=kind, sessions=sessions, running_jobs=running_jobs_raw,
             last_activity_at=last_act.get(aid),
+            instances=instances,
         )
 
         raw = {

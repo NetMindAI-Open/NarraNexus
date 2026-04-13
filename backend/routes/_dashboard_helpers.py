@@ -468,20 +468,27 @@ def humanize_verb(
     sessions: list,
     running_jobs: list,
     last_activity_at: str | None,
+    instances: list | None = None,
 ) -> str:
     """v2.1: turn kind + context into a human-readable 'verb' line.
 
+    v2.1.2: CALLBACK / SKILL_STUDY / MATRIX now use `instances` (in_progress
+    module_instances) to name the specific module — "Callback" alone doesn't
+    tell the user what module is running or what it's doing.
+
     Examples:
-      idle + recent  → "Idle · last active 4m ago"
-      idle + never   → "Never run"
-      CHAT + 3 users → "Serving 3 users"
-      CHAT + 1 user  → "In conversation with Alice"
-      JOB + 1        → "Running: weekly-report"
-      JOB + 2        → "Running 2 jobs"
-      MESSAGE_BUS    → "Forwarding bus messages"
-      A2A            → "Called by another agent"
-      CALLBACK       → "Resuming after external callback"
+      idle + recent       → "Idle · last active 4m ago"
+      CHAT + 1 user       → "In conversation with Alice"
+      CHAT + 3 users      → "Serving 3 users"
+      JOB + 1             → "Running: weekly-report"
+      JOB + 2             → "Running 2 jobs"
+      MESSAGE_BUS         → "Handling bus message"
+      A2A                 → "Called by another agent"
+      CALLBACK + 1 inst   → "Running SocialNetworkModule: syncing entity graph"
+      CALLBACK + 2 inst   → "Running 2 modules (SocialNetworkModule, JobModule)"
+      CALLBACK + 0 inst   → "Processing callback"
     """
+    instances = instances or []
     if kind == "idle":
         if not last_activity_at:
             return "Never run"
@@ -521,12 +528,36 @@ def humanize_verb(
         return "Handling bus message"
     if kind == "A2A":
         return "Called by another agent"
-    if kind == "CALLBACK":
-        return "Resuming after callback"
-    if kind == "SKILL_STUDY":
-        return "Learning a skill"
-    if kind == "MATRIX":
-        return "Running matrix flow"
+
+    # CALLBACK / SKILL_STUDY / MATRIX all surface the module that's running.
+    # "Callback" by itself is just a trigger category — the user wants to know
+    # WHICH module instance is active.
+    if kind in ("CALLBACK", "SKILL_STUDY", "MATRIX"):
+        if not instances:
+            fallback = {
+                "CALLBACK": "Processing callback",
+                "SKILL_STUDY": "Learning a skill",
+                "MATRIX": "Running matrix flow",
+            }
+            return fallback[kind]
+        if len(instances) == 1:
+            inst = instances[0]
+            module = inst.get("module_class") or "module"
+            desc = (inst.get("description") or "").strip()
+            if desc:
+                short = desc[:60] + "…" if len(desc) > 60 else desc
+                return f"Running {module}: {short}"
+            return f"Running {module}"
+        # Multiple instances — enumerate up to 3 module classes
+        modules = [i.get("module_class") or "module" for i in instances]
+        uniq = []
+        for m in modules:
+            if m not in uniq:
+                uniq.append(m)
+        sample = ", ".join(uniq[:3])
+        more = "" if len(uniq) <= 3 else f" + {len(uniq) - 3} more"
+        return f"Running {len(instances)} modules ({sample}{more})"
+
     return f"Running ({kind})"
 
 

@@ -12,7 +12,7 @@
  * removed by the backend; sessionStorage entries become inert.
  */
 import type { AttentionBanner } from '@/types';
-import { useExpanded } from './expandState';
+import { useExpanded, bannerKey } from './expandState';
 
 const LEVEL_STYLE: Record<AttentionBanner['level'], { wrap: string; icon: string; accent: string }> = {
   error: {
@@ -52,12 +52,11 @@ export function AttentionBanners({
 function BannerRow({ agentId, banner }: { agentId: string; banner: AttentionBanner }) {
   // Signature embeds the message (which contains the live count). When the
   // underlying count changes the signature changes → banner re-appears.
-  const sig = encodeURIComponent(banner.message);
+  // v2.1.2: keep the key format in sync with `bannerKey()` so AgentCard can
+  // derive rail dimming from the same storage entries.
+  const key = bannerKey(agentId, banner.kind, banner.message);
   // useExpanded stores `true` when expanded. We invert to "dismissed".
-  const { expanded: dismissed, set } = useExpanded(
-    `${agentId}:banner:${banner.kind}:${sig}`,
-    false,
-  );
+  const { expanded: dismissed, set } = useExpanded(key, false);
   if (dismissed) return null;
   const s = LEVEL_STYLE[banner.level];
   return (
