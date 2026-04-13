@@ -94,3 +94,6 @@ scripts/.control.sh
 
 # ── Related projects (separate repos) ───────────────────────────────────
 /related_project/
+
+# MindFlow runtime state (not tracked)
+.mindflow/state/

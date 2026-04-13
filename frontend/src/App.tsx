@@ -16,6 +16,7 @@ const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
 const SetupPage = lazy(() => import('@/pages/SetupPage'));
 const SystemPage = lazy(() => import('@/pages/SystemPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -167,6 +168,7 @@ function App() {
         >
           <Route index element={<Navigate to="chat" replace />} />
           <Route path="chat" element={null} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

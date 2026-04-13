@@ -88,7 +88,7 @@ dev-db-proxy:
 	uv run python -m xyz_agent_context.utils.sqlite_proxy_server
 
 dev-backend:
-	uv run uvicorn backend.main:app --reload --port 8000
+	DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 
 dev-frontend:
 	cd frontend && npm run dev

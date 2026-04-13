@@ -219,3 +219,32 @@ def _json_response(status_code: int, body: dict):
     """Create a JSON response without importing starlette at module level."""
     from starlette.responses import JSONResponse
     return JSONResponse(status_code=status_code, content=body)
+
+
+# ---------------------------------------------------------------------------
+# Local-mode identity (dashboard v2 TDR-12)
+# ---------------------------------------------------------------------------
+
+async def get_local_user_id() -> str:
+    """Return the singleton local user_id; bootstrap 'local-default' when empty.
+
+    Local mode assumes a single trusted user on the machine. The user_id is
+    never derived from a query param — that would be an impersonation vector
+    (see design doc TDR-12 + security critic C-1). Callers MUST use this
+    function, not `request.query_params["user_id"]`.
+    """
+    from xyz_agent_context.utils.db_factory import get_db_client
+    db = await get_db_client()
+    row = await db.get_one("users", {})
+    if row:
+        return row["user_id"]
+    await db.insert(
+        "users",
+        {
+            "user_id": "local-default",
+            "user_type": "local",
+            "role": "user",
+            "display_name": "Local User",
+        },
+    )
+    return "local-default"

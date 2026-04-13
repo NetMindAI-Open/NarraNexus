@@ -174,10 +174,15 @@ impl ServiceDef {
                 id: "backend".to_string(),
                 label: "Backend API".to_string(),
                 command: python_path.to_string(),
+                // Dashboard v2 TDR-12: local mode MUST bind loopback.
+                // lifespan in backend/main.py also asserts via DASHBOARD_BIND_HOST env
+                // (set in process_manager.rs for id=="backend").
                 args: vec![
                     "-m".to_string(),
                     "uvicorn".to_string(),
                     "backend.main:app".to_string(),
+                    "--host".to_string(),
+                    "127.0.0.1".to_string(),
                     "--port".to_string(),
                     "8000".to_string(),
                 ],
@@ -271,10 +276,13 @@ impl ServiceDef {
                 id: "backend".to_string(),
                 label: "Backend API".to_string(),
                 command: "uv".to_string(),
+                // Dashboard v2 TDR-12: see bundled_services() for rationale.
                 args: vec![
                     "run".to_string(),
                     "uvicorn".to_string(),
                     "backend.main:app".to_string(),
+                    "--host".to_string(),
+                    "127.0.0.1".to_string(),
                     "--port".to_string(),
                     "8000".to_string(),
                 ],

@@ -17,6 +17,7 @@ import {
   Monitor,
   Cloud,
   RotateCcw,
+  LayoutDashboard,
 } from 'lucide-react';
 import { Button, ThemeToggle } from '@/components/ui';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
@@ -234,6 +235,19 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => navigate('/app/dashboard')}
+              className={cn(
+                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                location.pathname === '/app/dashboard' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Dashboard
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => navigate('/app/settings')}
               className={cn(
                 'w-full justify-start gap-2 text-[var(--text-secondary)]',
@@ -273,6 +287,18 @@ export function Sidebar() {
               ) : (
                 <Cloud className="w-4 h-4" />
               )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/dashboard')}
+              title="Dashboard"
+              className={cn(
+                location.pathname === '/app/dashboard' &&
+                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+              )}
+            >
+              <LayoutDashboard className="w-4 h-4" />
             </Button>
             <Button
               variant="ghost"

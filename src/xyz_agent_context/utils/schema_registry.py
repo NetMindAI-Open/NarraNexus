@@ -157,6 +157,7 @@ _register(
             Index("idx_events_user_id", ["user_id"]),
             Index("idx_events_trigger", ["trigger"]),
             Index("idx_events_created_at", ["created_at"]),
+            Index("idx_events_agent_created", ["agent_id", "created_at"]),
         ],
     )
 )

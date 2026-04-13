@@ -98,12 +98,20 @@ impl ProcessManager {
         let proxy_url = std::env::var("SQLITE_PROXY_URL").unwrap_or_default();
         let proxy_port = std::env::var("SQLITE_PROXY_PORT").unwrap_or_default();
 
-        let mut child = Command::new(&def.command)
-            .args(&def.args)
+        // Dashboard v2 TDR-12: for the backend service, export DASHBOARD_BIND_HOST
+        // as a redundant signal to the lifespan bind assertion. The uvicorn CLI
+        // `--host 127.0.0.1` is already set in ServiceDef.args; this env var is
+        // a defense-in-depth that survives even if args are ever edited.
+        let mut cmd = Command::new(&def.command);
+        cmd.args(&def.args)
             .current_dir(&cwd)
             .env("DATABASE_URL", &db_url)
             .env("SQLITE_PROXY_URL", &proxy_url)
-            .env("SQLITE_PROXY_PORT", &proxy_port)
+            .env("SQLITE_PROXY_PORT", &proxy_port);
+        if def.id == "backend" {
+            cmd.env("DASHBOARD_BIND_HOST", "127.0.0.1");
+        }
+        let mut child = cmd
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
