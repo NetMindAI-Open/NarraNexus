@@ -198,20 +198,12 @@ class ChatModule(XYZBaseModule):
         where the agent chose not to send a message to the user.
 
         Args:
-            working_source: Execution source ("job", "matrix", etc.)
+            working_source: Execution source ("job", "message_bus", etc.)
             meta: Shared meta_data dict (may contain channel_tag)
 
         Returns:
             Short activity description string
         """
-        if working_source == "matrix":
-            channel_tag = meta.get("channel_tag", {})
-            room_name = channel_tag.get("room_name") or channel_tag.get("room_id", "unknown room")
-            sender = channel_tag.get("sender_name") or channel_tag.get("sender_id", "")
-            if sender:
-                return f"Handled a message from {sender} in {room_name}"
-            return f"Handled a message in {room_name}"
-
         if working_source == "job":
             return "Executed a background job"
 

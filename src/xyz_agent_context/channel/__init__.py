@@ -4,19 +4,18 @@
 @date: 2026-03-10
 @description: IM channel protocol layer
 
-This package defines shared protocols for IM channel modules (Matrix, Slack, etc.):
+This package defines shared protocols for IM channel modules (Slack, Lark, etc.):
 - ChannelContextBuilderBase: Abstract base for prompt construction
-- ChannelSenderRegistry: Channel sender registration table
 - channel_contact_utils: Read/write utils for contact_info.channels
 - channel_prompts: Shared prompt templates
 
-Note the distinction:
-- schema/channel_tag.py: Infrastructure, used by Chat, Job, Matrix, etc.
-- channel/: IM-channel-specific protocols, only needed by Matrix, Slack, etc.
+Inter-agent communication is handled by MessageBusModule (see
+module/message_bus_module/); this package only covers IM-to-user
+channels. The old Matrix-era ChannelSenderRegistry has been removed
+along with its sole consumer, the `contact_agent` MCP tool.
 """
 
 from .channel_context_builder_base import ChannelContextBuilderBase, ChannelHistoryConfig
-from .channel_sender_registry import ChannelSenderRegistry
 from .channel_contact_utils import (
     get_channel_info,
     set_channel_info,
@@ -30,7 +29,6 @@ from .channel_contact_utils import (
 __all__ = [
     "ChannelContextBuilderBase",
     "ChannelHistoryConfig",
-    "ChannelSenderRegistry",
     "get_channel_info",
     "set_channel_info",
     "get_preferred_channel",

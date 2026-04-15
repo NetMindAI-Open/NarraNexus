@@ -342,58 +342,6 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         }
 
     @mcp.tool()
-    async def check_channel_updates(
-        agent_id: str,
-        channels: str = "",
-    ) -> dict:
-        """
-        Check for recent updates across all communication channels (Matrix, Slack, etc.).
-
-        Returns a summary of unread messages, pending invitations, and recent activity
-        from all registered channels.
-
-        Args:
-            agent_id: Your agent ID
-            channels: Comma-separated channel names to check (empty = all channels)
-
-        Returns:
-            Cross-channel summary with updates per channel
-
-        Example:
-            check_channel_updates(agent_id="your_agent_id")
-            check_channel_updates(agent_id="your_agent_id", channels="matrix,slack")
-        """
-        from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
-
-        available = ChannelSenderRegistry.available_channels()
-
-        # Filter channels if specified
-        if channels and channels.strip():
-            check_list = [ch.strip() for ch in channels.split(",") if ch.strip() in available]
-        else:
-            check_list = available
-
-        if not check_list:
-            return {
-                "success": True,
-                "message": "No channels to check",
-                "channels": [],
-                "available_channels": available,
-            }
-
-        updates = []
-        for channel_name in check_list:
-            channel_update = {"channel": channel_name, "status": "connected"}
-
-            updates.append(channel_update)
-
-        return {
-            "success": True,
-            "channels_checked": len(updates),
-            "updates": updates,
-        }
-
-    @mcp.tool()
     async def merge_entities(
         agent_id: str,
         source_entity_id: str,

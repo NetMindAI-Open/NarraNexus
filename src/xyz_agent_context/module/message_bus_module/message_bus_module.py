@@ -83,9 +83,15 @@ class MessageBusModule(XYZBaseModule):
 
     def create_mcp_server(self) -> Optional[Any]:
         try:
-            from fastmcp import FastMCP
+            # Use the official mcp SDK's FastMCP (same as every other module)
+            # so FASTMCP_HOST, TransportSecuritySettings, and the shared
+            # module_runner._run_mcp_in_thread configuration all apply
+            # uniformly. The standalone `fastmcp` v2 package has a different
+            # API and does not honour those settings, which caused this MCP
+            # to silently fail cross-container reachability.
+            from mcp.server.fastmcp import FastMCP
 
-            mcp = FastMCP("MessageBusModule MCP")
+            mcp = FastMCP("message_bus_module")
             mcp.settings.port = MESSAGE_BUS_MCP_PORT
 
             from ._message_bus_mcp_tools import register_message_bus_mcp_tools

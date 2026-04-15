@@ -91,11 +91,7 @@ Use when the user needs the contact method of a known entity.
 Use to report your interaction patterns:
 recent interactions, most active contacts, strongest relationships, tag-filtered lists, etc.
 
-###### 5. `check_channel_updates` — Cross-Channel Status Check
-Check for recent updates across all registered communication channels.
-Use when user asks "any new messages?" or "check my channels".
-
-###### 7. `merge_entities` — Merge Duplicate Entities
+###### 5. `merge_entities` — Merge Duplicate Entities
 When you detect duplicate entity records (e.g., same person from different channels),
 use this to merge them into one consolidated record.
 
