@@ -20,6 +20,10 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
 
+# Configure loguru stderr level from LOG_LEVEL env var (default: INFO)
+logger.remove()
+logger.add(sys.stderr, level=os.environ.get("LOG_LEVEL", "INFO").upper())
+
 from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode
