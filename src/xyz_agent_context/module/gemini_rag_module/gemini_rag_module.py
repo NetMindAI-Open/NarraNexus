@@ -58,7 +58,7 @@ from uuid import uuid4
 from loguru import logger
 
 # Module base class
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.agent_framework.gemini_api_sdk import GeminiAPISDK
 
 # Schema definitions
@@ -803,7 +803,7 @@ Please analyze and generate an updated keywords list and reasoning from the new 
         """
         return MCPServerConfig(
             server_name="gemini_rag_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 

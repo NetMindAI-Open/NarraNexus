@@ -19,7 +19,7 @@ from loguru import logger
 from datetime import datetime
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 
 # Schema
 from xyz_agent_context.schema import (
@@ -557,7 +557,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
         """
         return MCPServerConfig(
             server_name="social_network_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 

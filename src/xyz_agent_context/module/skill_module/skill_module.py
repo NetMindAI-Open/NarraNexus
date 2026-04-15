@@ -33,7 +33,7 @@ from urllib.parse import urlparse
 import yaml
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -240,7 +240,7 @@ class SkillModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="skill_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 

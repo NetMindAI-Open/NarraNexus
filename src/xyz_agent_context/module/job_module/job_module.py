@@ -58,7 +58,7 @@ from loguru import logger
 from fastmcp import Client
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 
 # Schema
 from xyz_agent_context.schema import (
@@ -570,7 +570,7 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
         """
         return MCPServerConfig(
             server_name="job_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 

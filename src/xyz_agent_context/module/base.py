@@ -11,6 +11,7 @@ Per design document:
 - Instance belongs to a specific Narrative
 """
 
+import os
 from abc import ABC, abstractmethod
 from typing import Optional, List, Any, TYPE_CHECKING
 
@@ -31,6 +32,20 @@ from xyz_agent_context.utils.mcp_executor import list_mcp_tools
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.database import AsyncDatabaseClient
+
+
+def mcp_host() -> str:
+    """
+    Resolve the host used to reach MCP servers from this process.
+
+    Defaults to 127.0.0.1 so single-host / systemd / `bash run.sh`
+    deployments keep working. In container setups where MCP runs in a
+    separate container (e.g. Docker Compose on one EC2, or Phase 2
+    Fargate), set MCP_HOST to the container / service name so loopback
+    calls resolve across the network instead of hitting the caller's own
+    loopback.
+    """
+    return os.getenv("MCP_HOST", "127.0.0.1")
 
 
 class XYZBaseModule(ABC):

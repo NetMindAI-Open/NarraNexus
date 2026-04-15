@@ -27,7 +27,7 @@ Usage:
 # =============================================================================
 # Base class (imported from base.py)
 # =============================================================================
-from .base import XYZBaseModule
+from .base import XYZBaseModule, mcp_host
 
 # =============================================================================
 # Concrete Module implementations (must be after XYZBaseModule definition)

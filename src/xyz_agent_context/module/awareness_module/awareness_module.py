@@ -17,7 +17,7 @@ from loguru import logger
 
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 
 # Schema
 from xyz_agent_context.schema import (
@@ -141,7 +141,7 @@ class AwarenessModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="awareness_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
         

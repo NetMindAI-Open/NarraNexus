@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema import (
     ModuleConfig,
     MCPServerConfig,
@@ -77,7 +77,7 @@ class MessageBusModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="message_bus_module",
-            server_url=f"http://localhost:{MESSAGE_BUS_MCP_PORT}/sse",
+            server_url=f"http://{mcp_host()}:{MESSAGE_BUS_MCP_PORT}/sse",
             type="sse",
         )
 

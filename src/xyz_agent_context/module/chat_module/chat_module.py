@@ -24,7 +24,7 @@ from loguru import logger
 
 
 # Module (same package)
-from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module import XYZBaseModule, mcp_host
 from xyz_agent_context.module.event_memory_module import EventMemoryModule
 
 # Schema
@@ -120,7 +120,7 @@ class ChatModule(XYZBaseModule):
         """
         return MCPServerConfig(
             server_name="chat_module",
-            server_url=f"http://127.0.0.1:{self.port}/sse",
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
             type="sse"
         )
 
@@ -143,7 +143,7 @@ class ChatModule(XYZBaseModule):
         Returns:
             MCP Server URL
         """
-        return f"http://127.0.0.1:{self.port}/sse"
+        return f"http://{mcp_host()}:{self.port}/sse"
     
     
     # ============================================================================= Hooks
