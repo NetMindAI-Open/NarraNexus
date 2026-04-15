@@ -504,3 +504,21 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
     )
 
     return claude, openai_cfg, embedding
+
+
+async def setup_mcp_llm_context(agent_id: str) -> None:
+    """
+    Load the agent owner's LLM config from the database and set it on
+    the current asyncio task's ContextVar.
+
+    Call this at the top of every MCP tool handler that makes embedding
+    or LLM calls. It mirrors what AgentRuntime.run() does in step 0,
+    ensuring per-user API keys are used even when the tool is invoked
+    from a separate MCP process rather than inside an agent turn.
+
+    Raises:
+        LLMConfigNotConfigured: if the owner has not configured their
+            LLM providers. The caller should surface this as a tool error.
+    """
+    claude, openai_cfg, embedding = await get_agent_owner_llm_configs(agent_id)
+    set_user_config(claude, openai_cfg, embedding)

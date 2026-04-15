@@ -423,7 +423,16 @@ class ModuleRunner:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            mcp_server.settings.host = "0.0.0.0"
             mcp_server.settings.port = port
+            # Disable DNS rebinding protection so other containers can
+            # reach MCP servers via Docker service name (e.g. "mcp:7801").
+            # FastMCP auto-enables this when host is 127.0.0.1 at init
+            # time, and changing host afterward doesn't clear it.
+            from mcp.server.transport_security import TransportSecuritySettings
+            mcp_server.settings.transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=False,
+            )
             mcp_server.run(transport="sse")
         except Exception as e:
             logger.error(f"MCP server {module_name} crashed: {e}")

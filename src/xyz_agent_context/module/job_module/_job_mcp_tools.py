@@ -25,6 +25,7 @@ from mcp.server.fastmcp import FastMCP
 from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
+from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, LLMConfigNotConfigured
 
 
 def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
@@ -147,6 +148,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         """
         from xyz_agent_context.module.job_module.job_service import JobInstanceService
 
+        await setup_mcp_llm_context(agent_id)
         db = await get_db_client_fn()
         service = JobInstanceService(db)
         result = await service.create_job_with_instance(
@@ -229,6 +231,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                         "error": f"Invalid status: {status}. Valid values: pending, active, running, completed, failed"
                     }
 
+            await setup_mcp_llm_context(agent_id)
             db = await get_db_client_fn()
             repo = JobRepository(db)
 

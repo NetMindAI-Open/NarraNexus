@@ -91,11 +91,7 @@ Use when the user needs the contact method of a known entity.
 Use to report your interaction patterns:
 recent interactions, most active contacts, strongest relationships, tag-filtered lists, etc.
 
-###### 5. `contact_agent` — Send Message to Another Entity
-Routes messages through the best available channel (Matrix, Slack, etc.).
-Automatically selects channel based on entity's contact_info.
-
-###### 6. `check_channel_updates` — Cross-Channel Status Check
+###### 5. `check_channel_updates` — Cross-Channel Status Check
 Check for recent updates across all registered communication channels.
 Use when user asks "any new messages?" or "check my channels".
 
