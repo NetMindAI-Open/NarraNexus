@@ -709,6 +709,13 @@ class ApiClient {
   async getMyQuota(): Promise<QuotaMeResponse> {
     return this.request<QuotaMeResponse>('/api/quota/me');
   }
+
+  async setQuotaPreference(preferSystemOverride: boolean): Promise<QuotaMeResponse> {
+    return this.request<QuotaMeResponse>('/api/quota/me/preference', {
+      method: 'PATCH',
+      body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
+    });
+  }
 }
 
 export const api = new ApiClient();

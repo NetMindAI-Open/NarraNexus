@@ -517,29 +517,33 @@ async def get_agent_owner_llm_configs(
 
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
-    Load LLM configs for a specific user, with fallback to the
-    system-default free-tier provider when the user has no complete
-    config of their own and their quota budget is available.
+    Load LLM configs for a specific user.
 
-    Preference order:
-        1. User's own fully-configured providers (all three slots)
-        2. System-default NetMind config + quota deduct tagging
-        3. Raise LLMConfigNotConfigured
+    Decision tree:
+        1. If the user has opted in to `prefer_system_override` AND the
+           system-default free tier is usable (enabled + has budget) →
+           route to system, tag ContextVars for quota deduct.
+        2. Otherwise try the user's own fully-configured providers.
+        3. If the user has no complete config of their own AND the
+           system-default free tier is usable → fallback to system.
+        4. Otherwise raise LLMConfigNotConfigured.
 
-    The fallback tags `provider_source="system"` and
+    The system branches (1 and 3) tag `provider_source="system"` and
     `current_user_id=user_id` on the current asyncio task's ContextVars
     so `cost_tracker.record_cost` deducts the quota after the LLM call
-    completes. This path fires for HTTP requests (via auth_middleware
-    → ProviderResolver) AND for background triggers (jobs / bus / lark)
-    — the only requirement is that `QuotaService.default()` was
-    initialised in the current process (see
-    `quota_service.bootstrap_quota_subsystem`).
+    completes. Works for both HTTP requests and background triggers
+    (jobs / bus / lark), as long as `QuotaService.default()` was
+    initialised in the current process.
 
     Raises:
-        LLMConfigNotConfigured: if the user has no usable config and
-            (a) the feature is disabled, OR
-            (b) the user has no quota budget remaining.
+        LLMConfigNotConfigured: if no usable config exists in any branch.
     """
+    # Branch 1: user explicitly chose the free tier.
+    override_cfg = await _try_user_choice_system_override(user_id)
+    if override_cfg is not None:
+        return override_cfg
+
+    # Branch 2/3: normal path — own provider if complete, else fallback.
     try:
         return await _get_user_llm_configs_strict(user_id)
     except LLMConfigNotConfigured as strict_err:
@@ -547,6 +551,30 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         if fallback is not None:
             return fallback
         raise strict_err
+
+
+async def _try_user_choice_system_override(
+    user_id: str,
+) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]]:
+    """If the user toggled `prefer_system_override` in Settings, try to
+    route through the system-default free tier. Returns None when the
+    user has not opted in, or when the free tier is unusable (disabled
+    / un-initialised QuotaService / exhausted budget). In the "user
+    opted in but free tier unusable" case, callers will naturally fall
+    back to the user's own provider — treating the toggle as a
+    preference rather than a hard lock."""
+    from xyz_agent_context.agent_framework.quota_service import QuotaService
+
+    try:
+        svc = QuotaService.default()
+    except RuntimeError:
+        return None
+
+    q = await svc.get(user_id)
+    if q is None or not q.prefer_system_override:
+        return None
+
+    return await _try_system_default_fallback(user_id)
 
 
 async def _try_system_default_fallback(

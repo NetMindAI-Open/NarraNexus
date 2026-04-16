@@ -99,6 +99,16 @@ export function QuotaPanel() {
     : 'border-[var(--border-muted)]'
   const inputTotal = data.initial_input_tokens + data.granted_input_tokens
   const outputTotal = data.initial_output_tokens + data.granted_output_tokens
+  const preferSystem = data.prefer_system_override
+
+  const togglePreference = async () => {
+    try {
+      const next = await api.setQuotaPreference(!preferSystem)
+      setData(next)
+    } catch {
+      // swallow — the UI will simply stay on the previous state
+    }
+  }
 
   return (
     <div
@@ -129,10 +139,29 @@ export function QuotaPanel() {
         total={outputTotal}
         accent={exhausted ? 'warn' : 'ok'}
       />
+      <div className="mt-3 pt-3 border-t border-[var(--border-muted)]">
+        <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={preferSystem}
+            onChange={togglePreference}
+            className="accent-[var(--accent-primary)]"
+          />
+          <span>
+            Use free-tier quota even when I have my own provider
+            configured
+          </span>
+        </label>
+        <div className="mt-1 text-[11px] text-[var(--text-tertiary)] pl-6">
+          {preferSystem
+            ? 'Currently: routing through system provider — free-tier usage applies. Falls back to your own provider if the free tier runs out.'
+            : 'Currently: using your own provider when configured; free tier only applies when you have no provider set.'}
+        </div>
+      </div>
       {exhausted && (
         <div className="mt-2 text-xs text-[var(--accent-error)]">
-          Free tier consumed. Add your own provider below to keep using
-          the app.
+          Free tier consumed. Add your own provider below, or uncheck
+          the toggle above to route through your existing provider.
         </div>
       )}
     </div>

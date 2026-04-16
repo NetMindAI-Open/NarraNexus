@@ -31,6 +31,11 @@ class Quota(BaseModel):
     granted_input_tokens: int = Field(default=0, ge=0)
     granted_output_tokens: int = Field(default=0, ge=0)
     status: QuotaStatus = QuotaStatus.ACTIVE
+    # When True, the user has opted in to routing LLM calls through the
+    # system-default free-tier provider even when they have their own
+    # provider configured. Respects the same quota gating as the
+    # no-config fallback path — running out still raises / returns 402.
+    prefer_system_override: bool = False
     created_at: datetime
     updated_at: datetime
 

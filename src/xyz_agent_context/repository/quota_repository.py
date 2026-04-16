@@ -96,6 +96,21 @@ class QuotaRepository(BaseRepository[Quota]):
             fetch=False,
         )
 
+    async def set_preference(
+        self, user_id: str, prefer_system_override: bool
+    ) -> None:
+        """Atomic UPDATE of the user-choice toggle."""
+        sql = f"""
+        UPDATE {self.table_name}
+        SET prefer_system_override = %s
+        WHERE user_id = %s
+        """
+        await self._db.execute(
+            sql,
+            params=(1 if prefer_system_override else 0, user_id),
+            fetch=False,
+        )
+
     def _row_to_entity(self, row: Dict[str, Any]) -> Quota:
         return Quota(
             user_id=row["user_id"],
@@ -106,6 +121,7 @@ class QuotaRepository(BaseRepository[Quota]):
             granted_input_tokens=row["granted_input_tokens"],
             granted_output_tokens=row["granted_output_tokens"],
             status=QuotaStatus(row["status"]),
+            prefer_system_override=bool(row.get("prefer_system_override", 0)),
             created_at=_parse_dt(row["created_at"]),
             updated_at=_parse_dt(row["updated_at"]),
         )
@@ -120,6 +136,7 @@ class QuotaRepository(BaseRepository[Quota]):
             "granted_input_tokens": entity.granted_input_tokens,
             "granted_output_tokens": entity.granted_output_tokens,
             "status": entity.status.value,
+            "prefer_system_override": 1 if entity.prefer_system_override else 0,
             "created_at": entity.created_at.isoformat(),
             "updated_at": entity.updated_at.isoformat(),
         }

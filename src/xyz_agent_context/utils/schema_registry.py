@@ -759,6 +759,10 @@ _register(
             Column("granted_input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
             Column("granted_output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
             Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'active'"),
+            # User-choice toggle: when 1, force routing to the system-default
+            # provider even if the user has configured their own. Respects the
+            # same quota gating as the no-config fallback path.
+            Column("prefer_system_override", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

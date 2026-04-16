@@ -275,6 +275,9 @@ export type QuotaMeResponse =
       granted_output_tokens: number;
       used_input_tokens: number;
       used_output_tokens: number;
+      // User's choice: when true, route LLM calls through the system-default
+      // provider even when they have their own provider configured.
+      prefer_system_override: boolean;
     };
 
 export interface CreateUserResponse extends ApiResponse {

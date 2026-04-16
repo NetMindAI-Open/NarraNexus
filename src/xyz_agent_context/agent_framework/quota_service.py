@@ -110,6 +110,23 @@ class QuotaService:
         assert result is not None
         return result
 
+    async def set_preference(
+        self, user_id: str, prefer_system_override: bool
+    ) -> Quota:
+        """User toggles whether to force-route through the system-default
+        provider (free tier) instead of their own. Upserts: if no row
+        exists for this user, creates one with initial=0 so the toggle
+        value is persisted — subsequent budget lookups return the normal
+        has_budget() answer (false, since 0 + 0 = 0 remaining).
+        """
+        existing = await self.repo.get_by_user_id(user_id)
+        if existing is None:
+            await self.repo.create(user_id, 0, 0)
+        await self.repo.set_preference(user_id, prefer_system_override)
+        result = await self.repo.get_by_user_id(user_id)
+        assert result is not None
+        return result
+
 
 async def bootstrap_quota_subsystem(db) -> QuotaService:
     """Initialise the QuotaService.default() singleton for a process.
