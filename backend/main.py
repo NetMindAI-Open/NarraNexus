@@ -107,6 +107,42 @@ async def lifespan(app: FastAPI):
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
 
+    # Wire system-default quota services. SystemProviderService is a
+    # module-level singleton that reads env once; in local mode or when
+    # env is incomplete its is_enabled() returns False and every downstream
+    # call is a no-op. Expose each piece on app.state for routes to consume.
+    from xyz_agent_context.agent_framework.system_provider_service import (
+        SystemProviderService,
+    )
+    from xyz_agent_context.agent_framework.quota_service import QuotaService
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        ProviderResolver,
+    )
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    from xyz_agent_context.repository.quota_repository import QuotaRepository
+    from xyz_agent_context.repository.user_repository import UserRepository
+
+    system_provider = SystemProviderService.instance()
+    quota_service = QuotaService(
+        repo=QuotaRepository(db),
+        system_provider=system_provider,
+    )
+    QuotaService.set_default(quota_service)  # cost_tracker hook reaches it
+
+    app.state.system_provider = system_provider
+    app.state.quota_service = quota_service
+    app.state.user_repository = UserRepository(db)
+    app.state.provider_resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=system_provider,
+        quota_svc=quota_service,
+    )
+    logger.info(
+        f"Quota subsystem wired (enabled={system_provider.is_enabled()})"
+    )
+
     yield
 
     # Shutdown
@@ -146,6 +182,8 @@ from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
+from backend.routes.quota import router as quota_router
+from backend.routes.admin_quota import router as admin_quota_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -156,6 +194,8 @@ app.include_router(providers_router, prefix="/api/providers", tags=["Providers"]
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
+app.include_router(quota_router, tags=["Quota"])
+app.include_router(admin_quota_router, tags=["AdminQuota"])
 
 
 @app.get("/health")

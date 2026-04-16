@@ -1,8 +1,29 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-04-10
+last_verified: 2026-04-16
 stub: false
 ---
+
+## 2026-04-16 addition — system-default quota wiring
+
+Lifespan now constructs the four quota-feature dependencies after
+`auto_migrate` and binds them to `app.state`:
+
+- `app.state.system_provider` — `SystemProviderService.instance()` (module
+  singleton; reads env once)
+- `app.state.quota_service` — `QuotaService(QuotaRepository(db),
+  system_provider)`, also registered as `QuotaService.set_default()` so
+  `cost_tracker.record_cost`'s deduct hook can reach it
+- `app.state.user_repository` — `UserRepository(db)` used by the admin
+  endpoints to validate target users
+- `app.state.provider_resolver` — `ProviderResolver(user_provider_svc,
+  system_provider, quota_service)` called by `auth_middleware` on every
+  authenticated cloud-mode request
+
+Two new routers (`quota_router` at `/api/quota/me`, `admin_quota_router`
+at `/api/admin/quota/*`) are included alongside the existing set. Local
+mode uses the same code paths but every gated service returns no-op
+values, so lifespan wiring is harmless when the feature is off.
 
 # main.py — FastAPI application entry point
 
