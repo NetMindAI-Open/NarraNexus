@@ -28,10 +28,30 @@ function PageFallback() {
   );
 }
 
+/**
+ * Recover a null mode when the deploy pipeline has forced one.
+ *
+ * After logout/wipe, localStorage is cleared and the runtimeStore hydrates
+ * with mode=null. Without this recovery, Public/ProtectedRoute would
+ * redirect to /mode-select → which in forced deployments redirects back to
+ * /login → infinite loop → black screen. Call this from a useEffect; it's
+ * a no-op when no force is configured or when mode is already set.
+ */
+function useAutoRestoreForcedMode() {
+  const mode = useRuntimeStore((s) => s.mode);
+  const setMode = useRuntimeStore((s) => s.setMode);
+  useEffect(() => {
+    if (mode) return;
+    if (isForcedCloud()) setMode('cloud-web');
+    else if (isForcedLocal()) setMode('local');
+  }, [mode, setMode]);
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, userId, logout } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
+  useAutoRestoreForcedMode();
 
   useEffect(() => {
     if (!isLoggedIn || !userId) {
@@ -62,8 +82,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // login form backed by the wrong API URL.
   //
   // By checking `!mode` first, we route "mode cleared" through /mode-select
-  // regardless of who wins the race.
-  if (!mode) return <Navigate to="/mode-select" replace />;
+  // regardless of who wins the race — EXCEPT in forced deployments, where
+  // /mode-select bounces back here, so we short-circuit to avoid the loop.
+  if (!mode) {
+    if (isForcedCloud() || isForcedLocal()) return <PageFallback />;
+    return <Navigate to="/mode-select" replace />;
+  }
   if (!isLoggedIn) return <Navigate to="/login" replace />;
   if (validating) return <PageFallback />;
   return <>{children}</>;
@@ -72,12 +96,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
+  useAutoRestoreForcedMode();
+
   if (isLoggedIn) return <Navigate to="/" replace />;
   // Login/register need a resolved mode to know whether to render the
   // local (user_id only) or cloud (user_id + password) form and which
   // backend to hit. If we got here with mode=null (e.g. via a stale
   // persisted route after a mode switch), punt to mode-select first.
-  if (!mode) return <Navigate to="/mode-select" replace />;
+  //
+  // EXCEPT in forced-mode deployments: /mode-select bounces back to
+  // /login, so punting here causes an infinite redirect loop (the user
+  // sees a black screen after logout). useAutoRestoreForcedMode() above
+  // will fill mode in on the next tick; render a loading placeholder
+  // in the meantime.
+  if (!mode) {
+    if (isForcedCloud() || isForcedLocal()) return <PageFallback />;
+    return <Navigate to="/mode-select" replace />;
+  }
   return <>{children}</>;
 }
 
