@@ -27,6 +27,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
+import { QuotaPanel } from './QuotaPanel'
 
 /** fetch wrapper that injects JWT auth header when available (cloud mode) */
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -531,6 +532,9 @@ export function ProviderSettings() {
   // ---- Full view (always expanded) ----
   return (
     <div className="space-y-8">
+
+      {/* System free-tier quota — renders only in cloud mode + feature on */}
+      <QuotaPanel />
 
       {/* ================================================================= */}
       {/* SECTION 1: Add Providers                                          */}
