@@ -199,6 +199,13 @@ class JobTrigger:
         await auto_migrate(self._db._backend)
         logger.info("Schema auto-migration complete")
 
+        # Initialise system-default quota so jobs run by agents whose
+        # owners have no personal provider fall back to the free tier.
+        from xyz_agent_context.agent_framework.quota_service import (
+            bootstrap_quota_subsystem,
+        )
+        await bootstrap_quota_subsystem(self._db)
+
         logger.info("=" * 60)
         logger.info("🚀 JobTrigger starting (Worker Pool mode)...")
         logger.info(f"   Poll interval: {self.poll_interval} seconds")

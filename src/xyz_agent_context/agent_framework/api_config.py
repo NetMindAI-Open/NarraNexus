@@ -517,16 +517,74 @@ async def get_agent_owner_llm_configs(
 
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
-    Load LLM configs for a specific user from the database.
+    Load LLM configs for a specific user, with fallback to the
+    system-default free-tier provider when the user has no complete
+    config of their own and their quota budget is available.
 
-    Reads from user_providers + user_slots tables. Requires all three
-    slots (agent, embedding, helper_llm) to be configured. If ANY slot
-    is missing or its provider is broken, raises LLMConfigNotConfigured
-    with a clear message — no silent fallback to global defaults.
+    Preference order:
+        1. User's own fully-configured providers (all three slots)
+        2. System-default NetMind config + quota deduct tagging
+        3. Raise LLMConfigNotConfigured
+
+    The fallback tags `provider_source="system"` and
+    `current_user_id=user_id` on the current asyncio task's ContextVars
+    so `cost_tracker.record_cost` deducts the quota after the LLM call
+    completes. This path fires for HTTP requests (via auth_middleware
+    → ProviderResolver) AND for background triggers (jobs / bus / lark)
+    — the only requirement is that `QuotaService.default()` was
+    initialised in the current process (see
+    `quota_service.bootstrap_quota_subsystem`).
 
     Raises:
-        LLMConfigNotConfigured: if any slot is missing or invalid.
+        LLMConfigNotConfigured: if the user has no usable config and
+            (a) the feature is disabled, OR
+            (b) the user has no quota budget remaining.
     """
+    try:
+        return await _get_user_llm_configs_strict(user_id)
+    except LLMConfigNotConfigured as strict_err:
+        fallback = await _try_system_default_fallback(user_id)
+        if fallback is not None:
+            return fallback
+        raise strict_err
+
+
+async def _try_system_default_fallback(
+    user_id: str,
+) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]]:
+    """System-default free-tier fallback. Returns None when unavailable
+    (disabled, un-initialised QuotaService, exhausted budget)."""
+    from xyz_agent_context.agent_framework.system_provider_service import (
+        SystemProviderService,
+    )
+    from xyz_agent_context.agent_framework.quota_service import QuotaService
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        _llm_config_to_dataclasses,
+    )
+
+    sys_provider = SystemProviderService.instance()
+    if not sys_provider.is_enabled():
+        return None
+
+    try:
+        svc = QuotaService.default()
+    except RuntimeError:
+        return None
+
+    if not await svc.check(user_id):
+        return None
+
+    # Budget available — tag ContextVars so cost_tracker's deduct hook
+    # attributes the cost correctly when the LLM call completes.
+    set_provider_source("system")
+    set_current_user_id(user_id)
+    return _llm_config_to_dataclasses(sys_provider.get_config())
+
+
+async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    """Strict version: raises LLMConfigNotConfigured on any missing
+    slot / broken provider. The public `get_user_llm_configs` wraps
+    this with a system-default fallback."""
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
 

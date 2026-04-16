@@ -109,3 +109,25 @@ class QuotaService:
         result = await self.repo.get_by_user_id(user_id)
         assert result is not None
         return result
+
+
+async def bootstrap_quota_subsystem(db) -> QuotaService:
+    """Initialise the QuotaService.default() singleton for a process.
+
+    backend.main's FastAPI lifespan already wires this for the HTTP
+    process; any separate long-running entry point (job_trigger,
+    bus_trigger, lark trigger, MCP runner when spawned standalone)
+    must call this at startup so QuotaService.default() resolves and
+    AgentRuntime's fallback to the system-default quota can fire.
+
+    Idempotent: replaces the current singleton if already set.
+    """
+    from xyz_agent_context.repository.quota_repository import QuotaRepository
+
+    sys_provider = SystemProviderService.instance()
+    svc = QuotaService(
+        repo=QuotaRepository(db),
+        system_provider=sys_provider,
+    )
+    QuotaService.set_default(svc)
+    return svc
