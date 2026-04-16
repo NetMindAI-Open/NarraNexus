@@ -35,6 +35,8 @@ import type {
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
+  RegisterResponse,
+  QuotaMeResponse,
   AgentListResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
@@ -217,8 +219,8 @@ class ApiClient {
     });
   }
 
-  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<LoginResponse> {
-    return this.request<LoginResponse>('/api/auth/register', {
+  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<RegisterResponse> {
+    return this.request<RegisterResponse>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({
         user_id: userId,
@@ -684,6 +686,11 @@ class ApiClient {
       method: 'DELETE',
       body: JSON.stringify({ agent_id: agentId }),
     });
+  }
+
+  // System-default free-tier quota
+  async getMyQuota(): Promise<QuotaMeResponse> {
+    return this.request<QuotaMeResponse>('/api/quota/me');
   }
 }
 

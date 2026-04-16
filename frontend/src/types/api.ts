@@ -246,6 +246,37 @@ export interface LoginResponse extends ApiResponse {
   role?: string;   // 'user' | 'staff' (cloud mode)
 }
 
+// Response from /api/auth/register. Carries the optional system free-tier
+// quota fields so the client can render a welcome toast without a follow-up
+// API call. has_system_quota is false in local mode or when the feature is
+// disabled server-side.
+export interface RegisterResponse extends ApiResponse {
+  user_id?: string;
+  token?: string;
+  has_system_quota?: boolean;
+  initial_input_tokens?: number;
+  initial_output_tokens?: number;
+}
+
+// Response shape for GET /api/quota/me. Discriminated by `enabled` and
+// `status` so the UI can switch exhaustively without "is the feature on"
+// booleans scattered through the component tree.
+export type QuotaMeResponse =
+  | { enabled: false }
+  | { enabled: true; status: 'uninitialized' }
+  | {
+      enabled: true;
+      status: 'active' | 'exhausted' | 'disabled';
+      remaining_input_tokens: number;
+      remaining_output_tokens: number;
+      initial_input_tokens: number;
+      initial_output_tokens: number;
+      granted_input_tokens: number;
+      granted_output_tokens: number;
+      used_input_tokens: number;
+      used_output_tokens: number;
+    };
+
 export interface CreateUserResponse extends ApiResponse {
   user_id?: string;
 }
