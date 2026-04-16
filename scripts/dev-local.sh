@@ -197,4 +197,27 @@ echo -e "  Backend:   ${C}http://localhost:8000${R}"
 echo ""
 
 # --- Attach ---
-tmux attach -t "$SESSION"
+# tmux attach needs a real interactive terminal. Three conditions must hold:
+#   1. stdin and stdout are TTYs ([ -t 0 ] && [ -t 1 ])
+#   2. TERM is set to something other than "dumb"
+#   3. tmux itself thinks attach is viable (probed via a dry-run below)
+# In non-interactive contexts (CI, agent shells, Claude Code's Bash tool),
+# `tmux attach` crashes with "open terminal failed: not a terminal". In that
+# case we leave the session detached and print clear manual instructions.
+_can_attach=false
+if [ -t 0 ] && [ -t 1 ] && [ -n "${TERM:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+  # Final probe: try a no-op tmux command against the current $TERM. If tmux
+  # can't open a terminal here, the attach would fail the same way.
+  if tmux display-message -p "" >/dev/null 2>&1; then
+    _can_attach=true
+  fi
+fi
+
+if [ "$_can_attach" = "true" ]; then
+  exec tmux attach -t "$SESSION"
+else
+  echo -e "  ${Y}No interactive terminal — services running in detached tmux session.${R}"
+  echo -e "  Attach manually:  ${C}tmux attach -t ${SESSION}${R}"
+  echo -e "  Stop all:         ${C}bash $(dirname "$SCRIPT_DIR")/run.sh stop${R}"
+  echo ""
+fi

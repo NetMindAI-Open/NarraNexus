@@ -98,9 +98,13 @@ class LarkModule(XYZBaseModule):
 
     def create_mcp_server(self) -> Optional[Any]:
         try:
-            from fastmcp import FastMCP
+            # Use the official MCP SDK's FastMCP (mcp.server.fastmcp) — NOT the
+            # standalone `fastmcp` v2 package. The standalone package has a
+            # different Settings API that breaks ModuleRunner's host/port/
+            # transport_security configuration (see MessageBusModule notes).
+            from mcp.server.fastmcp import FastMCP
 
-            mcp = FastMCP("LarkModule MCP")
+            mcp = FastMCP("lark_module")
             mcp.settings.port = LARK_MCP_PORT
 
             from ._lark_mcp_tools import register_lark_mcp_tools

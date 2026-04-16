@@ -129,9 +129,9 @@ class ApiClient {
     return this.request<AgentInboxListResponse>(url);
   }
 
-  async markAgentMessageRead(messageId: string): Promise<MarkReadResponse> {
+  async markAgentMessageRead(messageId: string, agentId: string): Promise<MarkReadResponse> {
     return this.request<MarkReadResponse>(
-      `/api/agent-inbox/${encodeURIComponent(messageId)}/read`,
+      `/api/agent-inbox/${encodeURIComponent(messageId)}/read?agent_id=${encodeURIComponent(agentId)}`,
       { method: 'PUT' }
     );
   }

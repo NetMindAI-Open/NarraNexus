@@ -46,7 +46,7 @@ class InboxMessageType(str, Enum):
     JOB_RESULT = "job_result"      # Job execution result
     SYSTEM_NOTICE = "system"       # System notification (reserved)
     AGENT_MESSAGE = "agent"        # Agent proactive message (reserved)
-    CHANNEL_MESSAGE = "channel_message"  # IM channel message (Matrix, Slack, etc.)
+    CHANNEL_MESSAGE = "channel_message"  # IM channel message (Lark, Slack, etc.)
 
 
 # =============================================================================

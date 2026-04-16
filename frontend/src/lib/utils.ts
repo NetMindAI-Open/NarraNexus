@@ -13,10 +13,17 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Generate a unique ID
+ * Generate a unique ID.
+ *
+ * Uses a monotonic counter in addition to Date.now() so that IDs generated
+ * within the same millisecond are still totally ordered. Downstream sorts
+ * can use the trailing counter segment as a tie-breaker when timestamps
+ * collide (e.g. rapid user messages, assistant error + next user send).
  */
+let _idCounter = 0;
 export function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  _idCounter = (_idCounter + 1) & 0xffffff; // wrap at 16M, still monotonic per-ms
+  return `${Date.now()}-${_idCounter.toString(36)}-${Math.random().toString(36).substr(2, 6)}`;
 }
 
 /**

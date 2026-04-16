@@ -8,12 +8,16 @@
  * Cloud mode prompts for API URL before proceeding.
  */
 
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Monitor, Cloud, Sparkles, ArrowRight } from 'lucide-react';
-import { Button, Input } from '@/components/ui';
+import { Monitor, Cloud } from 'lucide-react';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 import { cn } from '@/lib/utils';
+
+// Hardcoded cloud endpoint for locally-built clients (Tauri desktop, dev).
+// Docker-deployed cloud-web builds inject their own URL via /config.js at
+// container start, which takes precedence in getApiBaseUrl().
+// Replace with the real domain once DNS is ready.
+const DEFAULT_CLOUD_URL = 'http://13.40.48.129/';
 
 interface ModeCardProps {
   icon: React.ReactNode;
@@ -60,23 +64,15 @@ function ModeCard({ icon, title, description, selected, onClick }: ModeCardProps
 export function ModeSelectPage() {
   const navigate = useNavigate();
   const { setMode, setCloudApiUrl } = useRuntimeStore();
-  const [showCloudConfig, setShowCloudConfig] = useState(false);
-  const [apiUrl, setApiUrl] = useState('https://');
 
   const handleLocal = () => {
     setMode('local');
     navigate('/login');
   };
 
+  // Cloud: URL is fixed (see DEFAULT_CLOUD_URL above). No manual input.
   const handleCloudSelect = () => {
-    setShowCloudConfig(true);
-  };
-
-  const handleCloudConnect = () => {
-    if (!apiUrl || apiUrl === 'https://') return;
-    // Remove trailing slash
-    const cleanUrl = apiUrl.replace(/\/+$/, '');
-    setCloudApiUrl(cleanUrl);
+    setCloudApiUrl(DEFAULT_CLOUD_URL.replace(/\/+$/, ''));
     setMode('cloud-app');
     navigate('/login');
   };
@@ -86,8 +82,8 @@ export function ModeSelectPage() {
       {/* Title */}
       <div className="text-center space-y-3 animate-fade-in">
         <div className="flex items-center justify-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)]">
-            <Sparkles className="w-5 h-5 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
+          <div className="w-10 h-10 rounded-xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)] overflow-hidden">
+            <img src="/logo.png" alt="NetMind.AI" className="w-7 h-7 object-contain" />
           </div>
         </div>
         <h1 className="text-3xl font-bold text-[var(--text-primary)] font-[family-name:var(--font-display)] tracking-tight">
@@ -109,41 +105,10 @@ export function ModeSelectPage() {
         <ModeCard
           icon={<Cloud className="w-7 h-7 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />}
           title="Cloud Mode"
-          description="Connect to cloud services. Access from any device. Share with others."
-          selected={showCloudConfig}
+          description="Connect to the managed NetMind.AI cloud. Access from any device."
           onClick={handleCloudSelect}
         />
       </div>
-
-      {/* Cloud API URL input */}
-      {showCloudConfig && (
-        <div className="animate-fade-in flex flex-col items-center gap-4 w-full max-w-md">
-          <div className="w-full space-y-2">
-            <label className="text-sm font-medium" style={{ color: 'var(--text-secondary)' }}>
-              Cloud Server URL
-            </label>
-            <div className="flex gap-2">
-              <Input
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://api.your-server.com"
-                className="flex-1"
-              />
-              <Button
-                variant="accent"
-                onClick={handleCloudConnect}
-                disabled={!apiUrl || apiUrl === 'https://'}
-              >
-                Connect
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </div>
-            <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-              Enter the URL of your NarraNexus cloud server
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

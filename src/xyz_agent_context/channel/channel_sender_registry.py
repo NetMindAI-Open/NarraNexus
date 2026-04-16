@@ -8,13 +8,13 @@ Each IM channel module registers its sender capability at init time.
 Composite operations like contact_agent route through this registry.
 
 Usage:
-    # MatrixModule registers at init
-    ChannelSenderRegistry.register("matrix", matrix_send_to_agent)
+    # LarkModule registers at init
+    ChannelSenderRegistry.register("lark", lark_send_to_agent)
 
     # Composite operations use it
-    sender = ChannelSenderRegistry.get_sender("matrix")
+    sender = ChannelSenderRegistry.get_sender("lark")
     if sender:
-        await sender(agent_id, room_id, message)
+        await sender(agent_id, chat_id, message)
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class ChannelSenderRegistry:
         Register a channel sender.
 
         Args:
-            channel: Channel name, e.g. "matrix", "slack"
+            channel: Channel name, e.g. "lark", "slack"
             sender_fn: Async sender function
         """
         cls._senders[channel] = sender_fn

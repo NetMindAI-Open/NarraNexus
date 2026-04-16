@@ -94,10 +94,10 @@ Each Job has a `Target User` (related_entity_id) shown in "Current Task Module I
 These are automatically loaded by the system based on rules. You do NOT need to include them in `active_instances`:
 - **ChatModule**: Conversation capability
 - **AwarenessModule**: Time awareness, context understanding
-- **GeminiRAGModule**: Knowledge base retrieval capability
 - **SocialNetworkModule**: Social network management capability
 - **BasicInfoModule**: Basic information
 - **MessageBusModule**: Inter-agent communication and messaging
+- **LarkModule**: Lark/Feishu integration (contacts, messages, documents, calendar, tasks)
 
 ## Task Modules (Your decision)
 You need to decide whether to create/keep these modules:

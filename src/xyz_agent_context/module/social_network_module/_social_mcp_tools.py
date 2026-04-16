@@ -118,7 +118,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             )
 
         Example 3 - Adding contact info (use channels structure for IM channels):
-            User: "我的邮箱是 alice@example.com, Matrix 上是 @alice:localhost"
+            User: "我的邮箱是 alice@example.com, 飞书 open_id 是 ou_alice_open_id"
 
             extract_entity_info(
                 agent_id="your_agent_id",
@@ -127,7 +127,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                     "contact_info": {
                         "email": "alice@example.com",
                         "channels": {
-                            "matrix": {"id": "@alice:localhost"}
+                            "lark": {"id": "ou_alice_open_id"}
                         }
                     }
                 }
@@ -367,7 +367,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         Example:
             merge_entities(
                 agent_id="your_agent_id",
-                source_entity_id="entity_alice_matrix",
+                source_entity_id="entity_alice_lark",
                 target_entity_id="user_alice_123"
             )
         """

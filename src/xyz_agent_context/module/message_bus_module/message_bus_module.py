@@ -4,12 +4,12 @@
 @date: 2026-04-02
 @description: MessageBusModule - Agent-to-agent communication via MessageBus
 
-Replaces MatrixModule with a protocol-agnostic message bus. Provides MCP tools
-for sending/receiving messages, managing channels, and discovering agents.
+Protocol-agnostic message bus for agent-to-agent communication. Provides MCP
+tools for sending/receiving messages, managing channels, and discovering agents.
 
 Instance level: Agent-level (one per Agent, is_public=True).
 
-Behavior design (ported from MatrixModule):
+Behavior design:
 - Reply Discipline: prevent infinite trigger loops between agents
 - Selective mark_read: messages the agent ignores stay unread (resurface next turn)
 - Context caps: unread/channels/known_agents all bounded to prevent pollution
@@ -353,7 +353,7 @@ class MessageBusModule(XYZBaseModule):
         Selective mark_read: only mark messages as read if the agent actually
         replied to them. Messages the agent ignored stay unread and will
         resurface on the next turn — this is the "silence is acceptable"
-        mechanism from Matrix.
+        mechanism.
 
         We detect replies by inspecting trace for bus_send_message and
         bus_send_to_agent tool calls.

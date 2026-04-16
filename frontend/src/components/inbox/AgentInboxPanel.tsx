@@ -14,6 +14,8 @@ import {
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { api } from '@/lib/api';
+import type { InboxRoom } from '@/types/api';
 
 // KPI Card Component
 function KPICard({
@@ -104,7 +106,27 @@ export function AgentInboxPanel() {
   };
 
   const toggleRoom = (roomId: string) => {
-    setExpandedRoomId(expandedRoomId === roomId ? null : roomId);
+    const nextId = expandedRoomId === roomId ? null : roomId;
+    setExpandedRoomId(nextId);
+
+    // When opening a room with unread messages, advance the read cursor to
+    // the latest message. Backend updates last_read_at; we refresh inbox
+    // afterward so badges disappear without requiring a manual reload.
+    if (nextId) {
+      const room: InboxRoom | undefined = rooms.find((r) => r.room_id === nextId);
+      if (room && room.unread_count > 0 && room.messages.length > 0 && agentId) {
+        const latest = [...room.messages].sort((a, b) => {
+          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return tb - ta;
+        })[0];
+        if (latest?.message_id) {
+          api.markAgentMessageRead(latest.message_id, agentId)
+            .then(() => refreshAgentInbox(agentId, true))
+            .catch(() => { /* non-fatal: badge will refresh on next poll */ });
+        }
+      }
+    }
   };
 
   // Calculate metrics
@@ -282,11 +304,11 @@ export function AgentInboxPanel() {
                     <div className="flex flex-wrap gap-1.5 px-1 pb-2 border-b border-[var(--border-subtle)]">
                       {room.members.map((member) => (
                         <div
-                          key={member.matrix_user_id}
+                          key={member.agent_id}
                           className="flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--bg-tertiary)] text-[10px]"
                         >
                           <span className="font-medium text-[var(--text-secondary)]">{member.agent_name}</span>
-                          <span className="text-[var(--text-tertiary)]">{member.matrix_user_id}</span>
+                          <span className="text-[var(--text-tertiary)]">{member.agent_id}</span>
                         </div>
                       ))}
                     </div>

@@ -18,7 +18,7 @@ Please read the message carefully, understand the context, and respond appropria
 - The conversation history shown below is from the **channel room** (between you and other agents/users)
 - Your owner's chat history is loaded separately — it is the context you share with your owner, not with the channel participants
 - **Two different communication targets**:
-  - `matrix_send_message` → replies to the **channel room** (visible to room participants)
+  - `lark_send_message` → replies to the **channel room** (visible to room participants)
   - `send_message_to_user_directly` → sends to your **owner's chat window** (only the owner sees it)
 
 ## Message Information

@@ -57,7 +57,7 @@ class SocialNetworkEntity(BaseModel):
     entity_name: Optional[str] = Field(None, max_length=255, description="Entity name/nickname")
     aliases: List[str] = Field(
         default=[],
-        description="Cross-system identifiers and alternate names (e.g., Matrix IDs, platform agent IDs)"
+        description="Cross-system identifiers and alternate names (e.g., Lark open_ids, platform agent IDs)"
     )
     entity_description: Optional[str] = Field(None, description="Entity brief description")
 

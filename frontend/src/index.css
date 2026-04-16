@@ -16,15 +16,53 @@
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'Victor Mono', 'Cascadia Code', monospace;
 
-  /* Bioluminescent Color Palette */
-  --color-cyan: #00ffd5;
-  --color-cyan-dim: #00b896;
-  --color-sky: #38bdf8;
-  --color-sky-bright: #7dd3fc;
-  --color-magenta: #ff006e;
-  --color-success: #00ff88;
-  --color-warning: #fbbf24;
-  --color-error: #ff4d6d;
+  /* ---------------------------------------------------------------
+   * Primitive palette (mirrors netmind-xyz-website)
+   * Semantic tokens below reference these by name so brand-level
+   * color tweaks only need to change the primitives.
+   * ---------------------------------------------------------------*/
+  --color-gray-50:  #F6F5F5;
+  --color-gray-100: #EDEBE9;
+  --color-gray-200: #E2E0DD;
+  --color-gray-300: #D0CECB;
+  --color-gray-400: #9F9C9B;
+  --color-gray-500: #787675;
+  --color-gray-600: #575655;
+  --color-gray-700: #414140;
+  --color-gray-800: #2C2C2B;
+  --color-gray-900: #20201F;
+  --color-gray-950: #191918;
+
+  --color-sky-blue-50:  #EFFAFF;
+  --color-sky-blue-100: #DFF5FF;
+  --color-sky-blue-200: #B8E7FF;
+  --color-sky-blue-300: #78D1FF;
+  --color-sky-blue-400: #37B9FF;
+  --color-sky-blue-500: #00A3FF;
+  --color-sky-blue-600: #008EE0;
+  --color-sky-blue-700: #006EB0;
+  --color-sky-blue-800: #02568A;
+  --color-sky-blue-900: #04426B;
+
+  --color-red-500:    #F93546;
+  --color-red-400:    #FF5D62;
+  --color-yellow-500: #FFC30A;
+  --color-yellow-400: #FFD220;
+  --color-green-500:  #409B3F;
+  --color-green-400:  #69C068;
+  --color-purple-500: #6F61FF;
+  --color-pink-500:   #F83CE9;
+
+  /* Legacy aliases — kept for any component still referencing them.
+   * Prefer the semantic tokens (--accent-primary etc.) for new code. */
+  --color-cyan: var(--color-sky-blue-500);
+  --color-cyan-dim: var(--color-sky-blue-700);
+  --color-sky: var(--color-sky-blue-400);
+  --color-sky-bright: var(--color-sky-blue-300);
+  --color-magenta: var(--color-pink-500);
+  --color-success: var(--color-green-500);
+  --color-warning: var(--color-yellow-500);
+  --color-error: var(--color-red-500);
 
   /* Animation Keyframes — functional only */
   @keyframes slide-up-fade {
@@ -67,25 +105,28 @@
    Light Mode - clean light theme
    ============================================================================ */
 :root {
-  --bg-deep: #f8fafb;
+  /* Background layers — mapped to netmind gray palette */
+  --bg-deep: var(--color-gray-50);
   --bg-primary: #ffffff;
-  --bg-secondary: #f1f5f8;
-  --bg-tertiary: #e8eef3;
+  --bg-secondary: var(--color-gray-50);
+  --bg-tertiary: var(--color-gray-100);
   --bg-elevated: #ffffff;
-  --bg-sunken: #edf2f7;
+  --bg-sunken: var(--color-gray-100);
 
-  --text-primary: #0a1628;
-  --text-secondary: #4a5568;
-  --text-tertiary: #8896a6;
+  /* Text hierarchy */
+  --text-primary: var(--color-gray-900);
+  --text-secondary: var(--color-gray-600);
+  --text-tertiary: var(--color-gray-500);
   --text-inverse: #ffffff;
 
-  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-subtle: rgba(0, 0, 0, 0.05);
   --border-default: rgba(0, 0, 0, 0.1);
-  --border-strong: rgba(0, 0, 0, 0.15);
+  --border-strong: rgba(0, 0, 0, 0.2);
 
-  --accent-primary: #0891b2;
-  --accent-secondary: #0ea5e9;
-  --accent-glow: rgba(8, 145, 178, 0.15);
+  /* Brand accents — NetMind sky-blue */
+  --accent-primary: var(--color-sky-blue-500);
+  --accent-secondary: var(--color-sky-blue-400);
+  --accent-glow: rgba(0, 163, 255, 0.15);
 
   --glass-bg: rgba(255, 255, 255, 0.85);
   --glass-border: rgba(0, 0, 0, 0.08);
@@ -93,61 +134,64 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 40px rgba(8, 145, 178, 0.12);
+  --shadow-glow: 0 0 40px rgba(0, 163, 255, 0.14);
   --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.04);
 
-  --gradient-primary: linear-gradient(135deg, #0891b2 0%, #0ea5e9 100%);
-  --gradient-subtle: linear-gradient(180deg, rgba(8, 145, 178, 0.05) 0%, transparent 100%);
-  --gradient-card: linear-gradient(180deg, #ffffff 0%, #f8fafb 100%);
+  --gradient-primary: linear-gradient(135deg, var(--color-sky-blue-500) 0%, var(--color-sky-blue-400) 100%);
+  --gradient-subtle: linear-gradient(180deg, rgba(0, 163, 255, 0.05) 0%, transparent 100%);
+  --gradient-card: linear-gradient(180deg, #ffffff 0%, var(--color-gray-50) 100%);
 
-  --code-bg: #f1f5f9;
-  --code-border: #e2e8f0;
+  --code-bg: var(--color-gray-100);
+  --code-border: var(--color-gray-200);
 }
 
 /* ============================================================================
    Dark Mode - deep-sea bioluminescent theme
    ============================================================================ */
 .dark {
-  --bg-deep: #0a0a12;
-  --bg-primary: #0c0c18;
-  --bg-secondary: #12121f;
-  --bg-tertiary: #1a1a2a;
-  --bg-elevated: #1e1e32;
-  --bg-sunken: #0e0e18;
+  /* Background layers — netmind gray-900/950 family */
+  --bg-deep: #0f0f10;
+  --bg-primary: var(--color-gray-950);
+  --bg-secondary: var(--color-gray-900);
+  --bg-tertiary: var(--color-gray-800);
+  --bg-elevated: var(--color-gray-800);
+  --bg-sunken: #13131a;
 
-  --text-primary: #f0f6fa;
-  --text-secondary: #b8c8d8;
-  --text-tertiary: #8899aa;
-  --text-inverse: #0a0a12;
+  /* Text hierarchy — soft whites */
+  --text-primary: var(--color-gray-50);
+  --text-secondary: var(--color-gray-300);
+  --text-tertiary: var(--color-gray-400);
+  --text-inverse: var(--color-gray-950);
 
-  --border-subtle: rgba(0, 255, 213, 0.12);
-  --border-default: rgba(0, 255, 213, 0.22);
-  --border-strong: rgba(0, 255, 213, 0.35);
+  --border-subtle: rgba(55, 185, 255, 0.1);
+  --border-default: rgba(55, 185, 255, 0.2);
+  --border-strong: rgba(55, 185, 255, 0.35);
 
-  --accent-primary: #00ffd5;
-  --accent-secondary: #60c8f0;
-  --accent-glow: rgba(0, 255, 213, 0.2);
+  /* Brand accents — sky-blue shifted lighter for dark bg contrast */
+  --accent-primary: var(--color-sky-blue-400);
+  --accent-secondary: var(--color-sky-blue-300);
+  --accent-glow: rgba(55, 185, 255, 0.2);
 
-  --glass-bg: rgba(18, 18, 30, 0.85);
-  --glass-border: rgba(0, 255, 213, 0.25);
+  --glass-bg: rgba(32, 32, 31, 0.85);
+  --glass-border: rgba(55, 185, 255, 0.25);
 
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 60px rgba(0, 255, 213, 0.25), 0 0 100px rgba(96, 200, 240, 0.15);
+  --shadow-glow: 0 0 60px rgba(55, 185, 255, 0.25), 0 0 100px rgba(120, 209, 255, 0.12);
   --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.3);
 
-  --gradient-primary: linear-gradient(135deg, #00ffd5 0%, #60c8f0 100%);
-  --gradient-subtle: linear-gradient(180deg, rgba(0, 255, 213, 0.08) 0%, transparent 100%);
-  --gradient-card: linear-gradient(180deg, rgba(30, 30, 50, 1) 0%, rgba(18, 18, 30, 1) 100%);
+  --gradient-primary: linear-gradient(135deg, var(--color-sky-blue-400) 0%, var(--color-sky-blue-300) 100%);
+  --gradient-subtle: linear-gradient(180deg, rgba(55, 185, 255, 0.08) 0%, transparent 100%);
+  --gradient-card: linear-gradient(180deg, var(--color-gray-800) 0%, var(--color-gray-900) 100%);
 
-  --code-bg: #12121f;
-  --code-border: rgba(0, 255, 213, 0.18);
+  --code-bg: var(--color-gray-900);
+  --code-border: rgba(55, 185, 255, 0.18);
 
   /* Brighter status colors for dark mode visibility */
-  --color-success: #22f088;
-  --color-warning: #fcd34d;
-  --color-error: #ff6b8a;
+  --color-success: var(--color-green-400);
+  --color-warning: var(--color-yellow-400);
+  --color-error: var(--color-red-400);
 }
 
 /* ============================================================================

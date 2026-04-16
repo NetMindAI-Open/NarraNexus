@@ -537,7 +537,7 @@ class ChatModule(XYZBaseModule):
                 "meta_data": {**shared_meta},
             })
         else:
-            # Background task (job/matrix) where agent chose not to message user:
+            # Background task (job/lark/message_bus) where agent chose not to message user:
             # Store a lightweight activity record instead of a fake conversation pair
             activity_summary = self._build_activity_summary(working_source, shared_meta)
             messages.append({

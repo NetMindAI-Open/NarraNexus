@@ -173,7 +173,7 @@ async def agents_status(request: Request, response: Response):
         )
 
         # v2.1: verb line (human-readable)
-        # v2.1.2: pass instances so CALLBACK/SKILL_STUDY/MATRIX can name
+        # v2.1.2: pass instances so CALLBACK/SKILL_STUDY can name
         # the specific module instead of a generic "Processing callback".
         verb_line = humanize_verb(
             kind=kind, sessions=sessions, running_jobs=running_jobs_raw,
@@ -248,7 +248,7 @@ def _derive_kind(sessions, running_jobs, instances) -> str:
         return "JOB"
     if sessions:
         ch = (sessions[0].channel or "").lower()
-        if ch.startswith(("lark", "slack", "matrix", "message_bus", "bus")):
+        if ch.startswith(("lark", "slack", "message_bus", "bus")):
             return "MESSAGE_BUS"
         return "CHAT"
     if instances:

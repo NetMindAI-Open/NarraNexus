@@ -289,7 +289,7 @@ async def create_agent(request: CreateAgentRequest):
 
         logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
 
-        # Compute workspace path (used by bootstrap + matrix registration)
+        # Compute workspace path (used by bootstrap)
         from xyz_agent_context.settings import settings
         workspace_path = os.path.join(
             settings.base_working_path,

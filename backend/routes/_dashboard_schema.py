@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 Kind = Literal[
-    "idle", "CHAT", "JOB", "MESSAGE_BUS", "A2A", "CALLBACK", "SKILL_STUDY", "MATRIX"
+    "idle", "CHAT", "JOB", "MESSAGE_BUS", "A2A", "CALLBACK", "SKILL_STUDY", "LARK"
 ]
 
 CountBucket = Literal["0", "1-2", "3-5", "6-10", "10+"]

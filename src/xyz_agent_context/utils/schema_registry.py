@@ -660,6 +660,13 @@ _register(
             Column("models", "TEXT", "TEXT"),
             Column("linked_group", "TEXT", "VARCHAR(64)"),
             Column("is_active", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            # Capability flag — does this provider's endpoint run Anthropic's
+            # server-side tools (web_search_20250305, text_editor, ...)?
+            # False for aggregators like NetMind/OpenRouter (they hang on
+            # WebSearch); True for official Anthropic and transparent
+            # forward proxies. auto_migrate() will add this column to
+            # pre-existing tables with the default value.
+            Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],

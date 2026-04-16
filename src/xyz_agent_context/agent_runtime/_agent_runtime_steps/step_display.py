@@ -34,11 +34,6 @@ MODULE_DISPLAY_CONFIG: Dict[str, Dict[str, str]] = {
         "name": "Job",
         "desc": "Scheduled tasks, cron triggers",
     },
-    "GeminiRAGModule": {
-        "icon": "📚",
-        "name": "GeminiRAG",
-        "desc": "Vector search, document retrieval",
-    },
     "AwarenessModule": {
         "icon": "🤖",
         "name": "Awareness",
@@ -53,6 +48,16 @@ MODULE_DISPLAY_CONFIG: Dict[str, Dict[str, str]] = {
         "icon": "ℹ️",
         "name": "BasicInfo",
         "desc": "Time, location utilities",
+    },
+    "MessageBusModule": {
+        "icon": "📡",
+        "name": "MessageBus",
+        "desc": "Inter-agent messaging",
+    },
+    "LarkModule": {
+        "icon": "🐦",
+        "name": "Lark",
+        "desc": "Lark/Feishu integration",
     },
 }
 

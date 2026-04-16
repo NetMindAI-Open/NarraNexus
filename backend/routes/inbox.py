@@ -54,7 +54,7 @@ async def get_agent_inbox(
     """
     Get all channels and messages for an agent.
 
-    Returns data shaped for the frontend MatrixRoom-compatible format:
+    Returns data shaped for the frontend InboxRoom format:
     {
       rooms: [{ room_id, room_name, members, unread_count, messages, latest_at }],
       total_unread: int
@@ -147,7 +147,6 @@ async def get_agent_inbox(
                 {
                     "agent_id": m["agent_id"],
                     "agent_name": name_map.get(m["agent_id"], m["agent_id"]),
-                    "matrix_user_id": m["agent_id"],  # compat field
                 }
                 for m in channel_members
             ]

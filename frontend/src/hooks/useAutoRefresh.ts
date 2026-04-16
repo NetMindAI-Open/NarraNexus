@@ -6,7 +6,7 @@
  *
  * Features:
  * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): jobs/ragFiles/awareness/socialNetwork
- * 2. Background message detection (15s): polls chat history to detect new messages from jobs/matrix
+ * 2. Background message detection (15s): polls chat history to detect new messages from jobs/lark
  * 3. Visibility API — pauses all polling when the tab is hidden, refreshes immediately on re-focus
  * 4. Exposes refreshAll() for full data reload after agent execution completes
  *

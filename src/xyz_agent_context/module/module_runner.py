@@ -84,7 +84,6 @@ from xyz_agent_context.module import XYZBaseModule, MODULE_MAP
 from xyz_agent_context.module.awareness_module.awareness_module import AwarenessModule
 from xyz_agent_context.module.social_network_module import SocialNetworkModule
 from xyz_agent_context.module.job_module.job_module import JobModule
-from xyz_agent_context.module.gemini_rag_module.gemini_rag_module import GeminiRAGModule
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client_sync
@@ -95,11 +94,6 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client
 # =============================================================================
 
 # Modules that have MCP servers and their fixed ports.
-# GeminiRAGModule is temporarily excluded — its per-user Gemini API key
-# is not yet routed through the ContextVar system (api_config.gemini_config
-# lacks a ctx_var), so in a multi-tenant cloud deploy all agents would
-# share the global GOOGLE_API_KEY. Keep the code intact; just don't spin
-# up its MCP server until multi-tenant Gemini support lands.
 DEFAULT_MCP_MODULES = [
     "AwarenessModule",      # port: 7801
     "ChatModule",           # port: 7804
@@ -107,6 +101,7 @@ DEFAULT_MCP_MODULES = [
     "JobModule",            # port: 7803
     "SkillModule",          # port: 7806
     "MessageBusModule",     # port: 7820
+    "LarkModule",           # port: 7830
 ]
 
 # Port reference (for documentation only - actual ports are set in each module)
@@ -115,9 +110,9 @@ MODULE_PORTS = {
     "ChatModule": 7804,
     "SocialNetworkModule": 7802,
     "JobModule": 7803,
-    "GeminiRAGModule": 7805,  # reserved; module currently disabled
     "SkillModule": 7806,
     "MessageBusModule": 7820,
+    "LarkModule": 7830,
 }
 
 
@@ -676,7 +671,9 @@ MCP Servers (default ports):
   - SocialNetworkModule: http://localhost:7802/sse
   - JobModule:           http://localhost:7803/sse
   - ChatModule:          http://localhost:7804/sse
-  - GeminiRAGModule:     http://localhost:7805/sse
+  - SkillModule:         http://localhost:7806/sse
+  - MessageBusModule:    http://localhost:7820/sse
+  - LarkModule:          http://localhost:7830/sse
 
 Supported JSON-RPC Methods:
   - agentCard/get         Get Agent Card

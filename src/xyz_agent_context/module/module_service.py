@@ -48,13 +48,14 @@ class ModuleService:
 
     # Default static module list
     DEFAULT_MODULE_LIST = [
-        "MemoryModule",  
+        "MemoryModule",
         "AwarenessModule",
         "ChatModule",
         "BasicInfoModule",
         "SocialNetworkModule",
         "JobModule",
-        "GeminiRAGModule",
+        "MessageBusModule",
+        "LarkModule",
     ]
 
     def __init__(

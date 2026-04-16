@@ -39,7 +39,7 @@ interface TimelineItem {
   timestamp: number;
   source: 'history' | 'session';  // Where this message came from (for dedup)
   messageType?: string;           // "activity" for background activity records
-  workingSource?: string;         // "chat" | "job" | "matrix"
+  workingSource?: string;         // "chat" | "job" | "lark"
   eventId?: string;               // Associated Event ID (for loading event_log on demand)
   thinking?: string;              // Reasoning content (from session messages)
   toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
@@ -232,16 +232,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
 
     // 2. Add current session messages (from chatStore)
-    // Dedup by content: if a session message's role+content already exists in history,
-    // it has been persisted to DB and the history version is authoritative — skip it.
-    // This avoids timestamp-based dedup which is unreliable (frontend Date.now() vs backend utc_now()).
+    // Dedup: a session message is considered "already persisted" only if it
+    // matches a history message in (role + content) AND is older than the
+    // freshness window. Recent session messages (< 30s) are always kept —
+    // this prevents a coincidentally-identical old history message from
+    // swallowing the user's just-sent message (happens in error-retry flows).
+    const SESSION_FRESHNESS_MS = 30_000;
+    const now = Date.now();
     const historyContentKeys = new Set(
       items.slice(-30).map((item) => `${item.role}:${item.content}`)
     );
 
     for (const msg of messages) {
       const key = `${msg.role}:${msg.content}`;
-      if (historyContentKeys.has(key)) continue;
+      const isStale = (now - msg.timestamp) > SESSION_FRESHNESS_MS;
+      if (isStale && historyContentKeys.has(key)) continue;
 
       items.push({
         id: msg.id,
@@ -254,8 +259,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       });
     }
 
-    // Sort by timestamp to ensure chronological order
-    items.sort((a, b) => a.timestamp - b.timestamp);
+    // Sort by timestamp, with id as tie-breaker so same-ms messages are still
+    // totally ordered (Array.sort is spec-stable but the input order can be
+    // wrong when history and session are interleaved).
+    items.sort((a, b) => {
+      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
 
     return items;
   }, [historyMessages, messages]);

@@ -210,7 +210,7 @@ class AgentRuntime:
         db_client = await self._ensure_database_client()
 
         # Override user_id with agent's creator — all triggers share a single workspace
-        # so that Matrix conversations, Job triggers, etc. see the same narratives/jobs.
+        # so that Lark conversations, Job triggers, etc. see the same narratives/jobs.
         from xyz_agent_context.repository.agent_repository import AgentRepository
         _agent = await AgentRepository(db_client).get_agent(agent_id)
         if _agent and _agent.created_by:

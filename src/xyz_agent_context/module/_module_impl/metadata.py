@@ -108,23 +108,6 @@ MODULE_METADATA: Dict[str, Dict[str, Any]] = {
         "priority": 2,
     },
 
-    "GeminiRAGModule": {
-        "name": "GeminiRAGModule",
-        "description": "Provides Gemini-based RAG (Retrieval-Augmented Generation) capabilities",
-        "capabilities": [
-            "Document retrieval and Q&A",
-            "Knowledge base queries",
-            "Context-enhanced answer generation",
-        ],
-        "instance_type": "persistent",
-        "typical_instance_id": "rag_{uuid8}",
-        "use_cases": [
-            "Questions requiring knowledge base lookup",
-            "Document-related Q&A",
-            "Complex questions needing retrieval enhancement",
-        ],
-        "priority": 3,
-    },
 }
 
 

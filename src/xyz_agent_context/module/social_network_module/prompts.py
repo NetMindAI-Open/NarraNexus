@@ -56,7 +56,7 @@ No permission asking, no delay.
 - Name and role/position
 - Expertise/domain information
 - Contextual keywords (topics, platforms, projects associated with this person)
-- Aliases (alternate names, system IDs, Matrix IDs)
+- Aliases (alternate names, system IDs, Lark open_ids)
 - Contact information
 - Your conversational observations
 
@@ -158,7 +158,7 @@ Rules:
 - MERGE if the candidate clearly refers to the same person/agent/group as one of the existing entities:
   - Same name or overlapping aliases
   - Descriptions clearly describe the same individual
-  - System IDs match (e.g., Matrix IDs, platform agent IDs)
+  - System IDs match (e.g., Lark open_ids, platform agent IDs)
   - Different surface names but context makes it obvious (e.g., "hongyitest" and "Hongyi" with overlapping descriptions)
 - CREATE_NEW if the candidate is a genuinely different entity:
   - Different roles, organizations, or contexts
@@ -235,8 +235,8 @@ Non-social things mentioned alongside a person should become **keywords** on tha
 - If no social entities are mentioned, return an empty list
 
 **Aliases — CRITICAL for deduplication:**
-- When a name appears alongside a system ID (e.g., "alpha4 (@agent_5a22e015f115:localhost)"), extract ONE entity with name="alpha4" and aliases=["@agent_5a22e015f115:localhost"]
-- Matrix IDs (@user:server) are aliases, NOT separate entities
+- When a name appears alongside a system ID (e.g., "alpha4 (ou_alpha4_open_id)"), extract ONE entity with name="alpha4" and aliases=["ou_alpha4_open_id"]
+- Lark open_ids (ou_xxx) and other platform IDs are aliases, NOT separate entities
 - If the same person is referred to by multiple names, output ONCE with the most recognizable name and put alternatives in aliases
 
 **Keywords — attach non-social context to people:**

@@ -116,20 +116,23 @@ export const useRuntimeStore = create<RuntimeState>()(
 // call resolves fresh from the store — no caching, no constructor side
 // effects — so mode/cloudApiUrl changes take effect immediately.
 //
-// Resolution order:
+// Resolution order (first match wins):
 //
-// 1. Explicit build-time env var (VITE_API_BASE_URL) — highest priority.
-//    Used by the cloud-web deployment's Nginx-served build where the
-//    frontend is served from the same origin as the API.
+// 1. Runtime config `window.__NARRANEXUS_CONFIG__.apiUrl` — highest priority.
+//    Injected by the deploy pipeline via public/config.js at container start.
+//    One built bundle serves all deployments; changing the target URL does
+//    NOT require rebuilding the frontend.
 //
-// 2. Cloud mode (`cloud-app` or `cloud-web`) with a configured cloudApiUrl
-//    → use that URL verbatim. In cloud mode the backend's port 8000 is
-//    NOT exposed — all traffic goes through port 80 via Nginx which
-//    proxies /api/* and /ws/* to the backend.
+// 2. Explicit build-time env var (VITE_API_BASE_URL).
+//    Used by desktop Tauri builds where the URL is baked in at build time.
 //
-// 3. Local Tauri desktop → http://localhost:8000 (direct to backend).
+// 3. Persisted cloudApiUrl from the mode-select flow (legacy / desktop).
+//    Only honored when mode is cloud-app or cloud-web AND no higher-priority
+//    value was found.
 //
-// 4. Dev/vite mode → empty string, letting the Vite dev proxy handle
+// 4. Local Tauri desktop → http://localhost:8000 (direct to backend).
+//
+// 5. Dev/vite mode → empty string, letting the Vite dev proxy handle
 //    /api/* and /ws/* routing during `npm run dev`.
 //
 // The baseUrl is always an absolute HTTP URL (with scheme and host)
@@ -153,17 +156,24 @@ function _detectTauri(): boolean {
  * Safe to call from anywhere — reads the current store state.
  */
 export function getApiBaseUrl(): string {
-  // 1. Explicit env override
+  // 1. Runtime config injected by deploy pipeline (highest priority).
+  //    Lazy-require to avoid bundler cycles — runtimeConfig is leaf-level.
+  const runtimeCfg = (window as unknown as {
+    __NARRANEXUS_CONFIG__?: { apiUrl?: string };
+  }).__NARRANEXUS_CONFIG__;
+  if (runtimeCfg?.apiUrl) return runtimeCfg.apiUrl.replace(/\/+$/, '');
+
+  // 2. Explicit build-time env var
   const envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl) return (envUrl as string).replace(/\/+$/, '');
 
-  // 2. Cloud mode
+  // 3. Persisted cloud URL (legacy / desktop mode-select flow)
   const { mode, cloudApiUrl } = useRuntimeStore.getState();
   if ((mode === 'cloud-app' || mode === 'cloud-web') && cloudApiUrl) {
     return cloudApiUrl.replace(/\/+$/, '');
   }
 
-  // 3. Tauri local desktop
+  // 4. Tauri local desktop
   if (_detectTauri()) {
     return 'http://localhost:8000';
   }

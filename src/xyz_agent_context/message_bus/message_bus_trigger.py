@@ -4,8 +4,8 @@
 @date: 2026-04-03
 @description: Background poller that delivers pending messages to agents
 
-Replaces MatrixTrigger. Polls bus_messages table, triggers AgentRuntime
-for agents with unprocessed messages.
+Polls bus_messages table, triggers AgentRuntime for agents with
+unprocessed messages.
 
 Design:
 - Single poller cycles through all registered agents (from bus_agent_registry)

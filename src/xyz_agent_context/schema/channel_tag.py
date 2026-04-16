@@ -4,7 +4,7 @@
 @date: 2026-03-10
 @description: ChannelTag — unified trigger source identifier protocol
 
-ChannelTag is the universal identifier for ALL trigger sources (Chat, Job, Matrix,
+ChannelTag is the universal identifier for ALL trigger sources (Chat, Job, Lark,
 future Slack/Email, etc.). Every message entering AgentRuntime carries a ChannelTag,
 and every Chat History / Narrative record stores one too.
 
@@ -34,7 +34,7 @@ class ChannelTag:
     Consumers: Modules (Social Network, Narrative, etc.) read ChannelTag during processing.
 
     Attributes:
-        channel: Trigger source type — "direct" / "job" / "matrix" / "slack" / "email"
+        channel: Trigger source type — "direct" / "job" / "lark" / "slack" / "email"
         sender_name: Display name (username / agent name / job name)
         sender_id: Unique identifier within the trigger source
         room_id: Conversation identifier (optional, used by IM channels)
@@ -52,7 +52,7 @@ class ChannelTag:
 
         Examples:
             [Direct · Alice · user_alice]
-            [Matrix · Research Agent · @research:matrix.example.com · !room123:matrix.example.com]
+            [Lark · Research Agent · ou_research_open_id · oc_room_id_123]
             [Job · Daily Report · job_daily_report_001]
         """
         parts = [self.channel.capitalize(), self.sender_name, self.sender_id]
@@ -125,22 +125,6 @@ class ChannelTag:
             channel="job",
             sender_name=job_name,
             sender_id=job_id,
-        )
-
-    @staticmethod
-    def matrix(
-        sender_name: str,
-        sender_id: str,
-        room_id: str = "",
-        room_name: str = "",
-    ) -> ChannelTag:
-        """Create a ChannelTag for Matrix message."""
-        return ChannelTag(
-            channel="matrix",
-            sender_name=sender_name,
-            sender_id=sender_id,
-            room_id=room_id,
-            room_name=room_name,
         )
 
     @staticmethod

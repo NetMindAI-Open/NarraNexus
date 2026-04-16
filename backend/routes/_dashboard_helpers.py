@@ -103,7 +103,7 @@ def build_action_line(state: AgentRunState) -> str | None:
     if state.kind == "idle":
         return None
 
-    if state.kind in ("JOB", "CALLBACK", "SKILL_STUDY", "MATRIX") and state.job:
+    if state.kind in ("JOB", "CALLBACK", "SKILL_STUDY", "LARK") and state.job:
         title = _clean(state.job.get("title") or "")
         desc = _clean(state.job.get("description") or "")
         line = f"{title}: {desc}" if desc else title
@@ -161,8 +161,8 @@ _KIND_MAP = {
     "a2a": "A2A",
     "callback": "CALLBACK",
     "skill_study": "SKILL_STUDY",
-    "matrix": "MATRIX",
     "message_bus": "MESSAGE_BUS",
+    "lark": "LARK",
 }
 
 
@@ -495,7 +495,7 @@ def humanize_verb(
 ) -> str:
     """v2.1: turn kind + context into a human-readable 'verb' line.
 
-    v2.1.2: CALLBACK / SKILL_STUDY / MATRIX now use `instances` (in_progress
+    v2.1.2: CALLBACK / SKILL_STUDY / LARK now use `instances` (in_progress
     module_instances) to name the specific module — "Callback" alone doesn't
     tell the user what module is running or what it's doing.
 
@@ -551,16 +551,17 @@ def humanize_verb(
         return "Handling bus message"
     if kind == "A2A":
         return "Called by another agent"
+    if kind == "LARK":
+        return "Handling Lark message"
 
-    # CALLBACK / SKILL_STUDY / MATRIX all surface the module that's running.
+    # CALLBACK / SKILL_STUDY all surface the module that's running.
     # "Callback" by itself is just a trigger category — the user wants to know
     # WHICH module instance is active.
-    if kind in ("CALLBACK", "SKILL_STUDY", "MATRIX"):
+    if kind in ("CALLBACK", "SKILL_STUDY"):
         if not instances:
             fallback = {
                 "CALLBACK": "Processing callback",
                 "SKILL_STUDY": "Learning a skill",
-                "MATRIX": "Running matrix flow",
             }
             return fallback[kind]
         if len(instances) == 1:

@@ -5,7 +5,7 @@
 @description: MCP atomic tools for MessageBus operations (bus_* prefix)
 
 These tools map to the MessageBusService interface methods.
-The bus_ prefix avoids collision with matrix_*, slack_*, etc.
+The bus_ prefix avoids collision with lark_*, slack_*, etc.
 
 Each tool receives a get_message_bus_fn async callable that returns a
 MessageBusService instance, following the project pattern for

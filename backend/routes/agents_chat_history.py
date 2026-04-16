@@ -467,7 +467,7 @@ async def get_simple_chat_history(
                         working_source = meta_data.get("working_source", "chat")
                         role = msg.get("role", "unknown")
 
-                        # For non-chat sources (job/matrix), only show assistant messages
+                        # For non-chat sources (job/lark/etc), only show assistant messages
                         # (the "user" side is the trigger prompt, not a real user message)
                         if working_source != "chat" and role != "assistant":
                             continue

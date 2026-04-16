@@ -67,7 +67,6 @@ export interface MarkReadResponse extends ApiResponse {
 export interface RoomMember {
   agent_id: string;
   agent_name: string;
-  matrix_user_id: string;  // compat alias — contains agent_id
 }
 
 export interface RoomMessage {
@@ -79,7 +78,7 @@ export interface RoomMessage {
   created_at?: string;
 }
 
-export interface MatrixRoom {
+export interface InboxRoom {
   room_id: string;
   room_name: string;
   members: RoomMember[];
@@ -89,7 +88,7 @@ export interface MatrixRoom {
 }
 
 export interface AgentInboxListResponse extends ApiResponse {
-  rooms: MatrixRoom[];
+  rooms: InboxRoom[];
   total_unread: number;
 }
 
@@ -157,7 +156,7 @@ export interface SimpleChatMessage {
   content: string;
   timestamp?: string;
   narrative_id?: string;
-  working_source?: string;  // "chat" | "job" | "matrix" | etc.
+  working_source?: string;  // "chat" | "job" | "lark" | etc.
   message_type?: string;    // "chat" (default) | "activity"
   event_id?: string;        // Associated Event ID (for loading event_log on demand)
 }
@@ -470,7 +469,7 @@ export type AgentKind =
   | 'A2A'
   | 'CALLBACK'
   | 'SKILL_STUDY'
-  | 'MATRIX';
+  | 'LARK';
 
 export interface MessageBusDetails {
   src_channel?: string | null;

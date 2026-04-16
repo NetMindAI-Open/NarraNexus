@@ -74,6 +74,10 @@ class UserProviderService:
         rows = await self.db.get("user_providers", filters={"user_id": user_id})
         providers = {}
         for row in rows:
+            # supports_anthropic_server_tools is a newer column. Old rows
+            # pre-dating the migration won't have it; default False so we
+            # err on the side of disabling WebSearch rather than hanging it.
+            _server_tools = row.get("supports_anthropic_server_tools", 0)
             prov = ProviderConfig(
                 provider_id=row["provider_id"],
                 name=row["name"],
@@ -85,6 +89,7 @@ class UserProviderService:
                 models=json.loads(row["models"]) if row.get("models") else [],
                 linked_group=row.get("linked_group", ""),
                 is_active=bool(row.get("is_active", 1)),
+                supports_anthropic_server_tools=bool(_server_tools),
             )
             providers[prov.provider_id] = prov
 
@@ -145,6 +150,8 @@ class UserProviderService:
                 "api_key": "",
                 "base_url": "",
                 "models": json.dumps(["claude-opus-4-6", "claude-sonnet-4-6"]),
+                # OAuth funnels through official Anthropic → server tools OK.
+                "supports_anthropic_server_tools": True,
             }, now)
             new_ids.append(pid)
 
@@ -154,6 +161,14 @@ class UserProviderService:
             if not models:
                 from xyz_agent_context.agent_framework.model_catalog import get_default_models
                 models = get_default_models("user", card_type)
+            # Auto-detect: only the official api.anthropic.com host serves
+            # the server-side tool suite (WebSearch etc.). User can flip
+            # this later via the edit-provider flow if they front official
+            # with a transparent proxy.
+            server_tools = (
+                card_type == "anthropic"
+                and "api.anthropic.com" in (base_url or "").lower()
+            )
             await self._insert_provider(user_id, {
                 "provider_id": pid,
                 "name": display_name,
@@ -163,6 +178,7 @@ class UserProviderService:
                 "api_key": api_key,
                 "base_url": base_url,
                 "models": json.dumps(models or []),
+                "supports_anthropic_server_tools": server_tools,
             }, now)
             new_ids.append(pid)
         else:
@@ -184,6 +200,7 @@ class UserProviderService:
             "models": data.get("models", "[]"),
             "linked_group": data.get("linked_group", ""),
             "is_active": 1,
+            "supports_anthropic_server_tools": 1 if data.get("supports_anthropic_server_tools") else 0,
             "created_at": now,
             "updated_at": now,
         })

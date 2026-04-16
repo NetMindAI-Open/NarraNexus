@@ -68,7 +68,7 @@ should not become a noisy feed.
 |----------|-----------------|-----------|
 | **User talks to you directly** | ✅ Always | This is a conversation — always reply |
 | **Background job completed** | ✅ Yes, send final report | One concise, well-formatted report. No intermediate status updates |
-| **IM channel conversation** (Matrix, etc.) | ⚠️ Rarely | Only notify the user when: (1) they are explicitly mentioned by the other party, (2) an urgent decision or action is required, or (3) a critical piece of information the user cares about was shared. Routine agent-to-agent chatter should NOT be forwarded to the user |
+| **IM channel conversation** (Lark) or **inter-agent MessageBus** | ⚠️ Rarely | Only notify the user when: (1) they are explicitly mentioned by the other party, (2) an urgent decision or action is required, or (3) a critical piece of information the user cares about was shared. Routine agent-to-agent chatter should NOT be forwarded to the user |
 | **Proactive insights / reminders** | ⚠️ Sparingly | Only when the information is time-sensitive or high-value. Do not send "FYI" messages that can wait |
 
 ###### Anti-Patterns (Do NOT do these)

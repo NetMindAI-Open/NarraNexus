@@ -230,7 +230,7 @@ Adapt your communication style according to this persona."""
 
                     Social network features are available when interacting with identified users."""
 
-            # 2. Load known agent entities for cross-module use (e.g. MatrixModule)
+            # 2. Load known agent entities for cross-module use (e.g. MessageBusModule)
             try:
                 agent_entities = await self._get_repo().get_all_entities(
                     instance_id=instance_id,

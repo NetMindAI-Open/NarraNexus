@@ -265,7 +265,7 @@ class SimpleChatMessage(BaseModel):
     content: str
     timestamp: Optional[str] = None
     narrative_id: Optional[str] = None  # Source Narrative
-    working_source: Optional[str] = None  # "chat" | "job" | "matrix" | etc.
+    working_source: Optional[str] = None  # "chat" | "job" | "lark" | etc.
     message_type: Optional[str] = None  # "chat" (default) | "activity"
     event_id: Optional[str] = None  # Associated Event ID (for loading event_log on demand)
 

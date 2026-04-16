@@ -8,6 +8,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api, getBaseUrl } from '@/lib/api';
+import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -87,12 +88,22 @@ function RootRedirect() {
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
 
-  // Cloud web deployment: force cloud-web mode, skip mode select
-  const forceCloud = import.meta.env.VITE_FORCE_CLOUD === 'true';
-  if (forceCloud && !mode) {
-    setMode('cloud-web');
-    initialize();
-  }
+  // Force mode from deploy-injected runtime config (highest priority),
+  // falling back to the legacy build-time VITE_FORCE_CLOUD flag.
+  // Run inside useEffect so render isn't mutating store state directly.
+  useEffect(() => {
+    const forcedByRuntime = getRuntimeConfig().mode;
+    const forcedByBuild = import.meta.env.VITE_FORCE_CLOUD === 'true';
+    const desired: typeof mode =
+      forcedByRuntime === 'cloud' ? 'cloud-web'
+      : forcedByRuntime === 'local' ? 'local'
+      : forcedByBuild ? 'cloud-web'
+      : null;
+    if (desired && mode !== desired) {
+      setMode(desired);
+      initialize();
+    }
+  }, [mode, setMode, initialize]);
 
   useEffect(() => {
     if (!isLoggedIn || !userId) {
@@ -144,8 +155,16 @@ function App() {
   return (
     <Suspense fallback={<PageFallback />}>
       <Routes>
-        {/* Public routes */}
-        <Route path="/mode-select" element={<ModeSelectPage />} />
+        {/* Public routes — /mode-select is blocked when the deploy pipeline
+            has forced a mode (cloud-web server, or locked-down kiosk build). */}
+        <Route
+          path="/mode-select"
+          element={
+            (isForcedCloud() || isForcedLocal() || import.meta.env.VITE_FORCE_CLOUD === 'true')
+              ? <Navigate to="/login" replace />
+              : <ModeSelectPage />
+          }
+        />
         <Route
           path="/login"
           element={<PublicRoute><LoginPage /></PublicRoute>}

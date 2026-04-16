@@ -79,6 +79,22 @@ class ProviderConfig(BaseModel):
     models: list[str] = Field(default_factory=list, description="Available model IDs on this provider")
     linked_group: str = Field(default="", description="Group ID linking providers from the same key")
     is_active: bool = Field(default=True, description="Whether this provider is enabled")
+    # Capability: does this provider's endpoint run Anthropic's server-side
+    # tools (web_search_20250305, text_editor, computer_use, ...)? Only the
+    # official Anthropic API and transparent forward proxies implement these;
+    # aggregators such as NetMind / OpenRouter / Yunwu do not, and calling
+    # WebSearch against them hangs indefinitely. Default False is the
+    # conservative choice for user-added custom providers — the user opts
+    # in when they know their proxy forwards to official.
+    supports_anthropic_server_tools: bool = Field(
+        default=False,
+        description=(
+            "True only when this provider exposes Anthropic's server-side "
+            "tools (web_search, text_editor, etc.). Leave False for most "
+            "third-party proxies; the tool-policy hook will deny WebSearch "
+            "calls upfront instead of letting them hang."
+        ),
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

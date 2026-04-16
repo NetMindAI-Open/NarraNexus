@@ -27,7 +27,7 @@ const ICON_MAP: Record<
   A2A:         { Icon: ArrowLeftRight, label: 'A2A',          cls: 'text-violet-500' },
   CALLBACK:    { Icon: PhoneCall,      label: 'Callback',     cls: 'text-rose-500' },
   SKILL_STUDY: { Icon: GraduationCap,  label: 'Skill',        cls: 'text-blue-500' },
-  MATRIX:      { Icon: FlaskConical,   label: 'Matrix',       cls: 'text-fuchsia-500' },
+  LARK:        { Icon: FlaskConical,   label: 'Lark',         cls: 'text-fuchsia-500' },
 };
 
 export function StatusBadge({ kind }: { kind: AgentKind }) {

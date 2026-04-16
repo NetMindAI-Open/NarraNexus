@@ -36,9 +36,10 @@ MODULE_PREFIX_MAP = {
     "ChatModule": "chat",
     "JobModule": "job",
     "SocialNetworkModule": "social",
-    "GeminiRAGModule": "rag",
     "AwarenessModule": "aware",
     "BasicInfoModule": "info",
+    "MessageBusModule": "bus",
+    "LarkModule": "lark",
 }
 
 

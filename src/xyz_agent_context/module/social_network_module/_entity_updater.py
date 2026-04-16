@@ -61,7 +61,7 @@ class ExtractedEntity(BaseModel):
     entity_type: str = Field(default="user", description="Entity type: user | agent | group")
     summary: str = Field(default="", description="Brief summary of what was said about this entity")
     keywords: List[str] = Field(default_factory=list, description="0-3 contextual keywords (topics, domains, platforms associated with this person)")
-    aliases: List[str] = Field(default_factory=list, description="System IDs and alternate names (e.g. Matrix IDs, platform agent IDs)")
+    aliases: List[str] = Field(default_factory=list, description="System IDs and alternate names (e.g. Lark open_ids, platform agent IDs)")
     familiarity: str = Field(default="known_of", description="direct (participating in conversation) | known_of (only referenced)")
 
 

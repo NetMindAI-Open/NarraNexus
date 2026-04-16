@@ -7,14 +7,14 @@
  * - Social network list (all contacts)
  * - Chat history (narratives + events)
  * - RAG files
- * - Agent inbox (Matrix channel messages)
+ * - Agent inbox (IM channel messages)
  */
 
 import { create } from 'zustand';
 import { api } from '@/lib/api';
 import type {
   ApiResponse,
-  MatrixRoom,
+  InboxRoom,
   RoomMessage,
   Job,
   SocialNetworkEntity,
@@ -30,7 +30,7 @@ import type {
 
 interface PreloadState {
   // Data
-  agentInboxRooms: MatrixRoom[];
+  agentInboxRooms: InboxRoom[];
   agentInboxUnreadCount: number;
   _inboxLimit?: number;  // Remembered limit for auto-refresh (preserves "load all" choice)
   jobs: Job[];

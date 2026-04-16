@@ -5,7 +5,7 @@
 @description: Instance creation factory
 
 Uses different creation strategies based on Module type:
-- Agent level: Automatically created when creating an Agent (AwarenessModule, SocialNetworkModule, BasicInfoModule, GeminiRAGModule, MessageBusModule)
+- Agent level: Automatically created when creating an Agent (AwarenessModule, SocialNetworkModule, BasicInfoModule, MessageBusModule, LarkModule)
 - Narrative level: Created when creating a Narrative (ChatModule)
 - Task level: Created each time a task is created (JobModule)
 
@@ -56,7 +56,8 @@ class InstanceFactory:
       - AwarenessModule: One per Agent, stores Agent's self-awareness
       - SocialNetworkModule: One per Agent, stores social relationship network
       - BasicInfoModule: One per Agent, provides basic information and environment context
-      - GeminiRAGModule: One per Agent, Agent's knowledge base
+      - MessageBusModule: One per Agent, inter-agent communication
+      - LarkModule: One per Agent, Lark/Feishu bot binding
 
     - Narrative level Instance
       - ChatModule: One main_chat instance per Narrative
@@ -86,8 +87,8 @@ class InstanceFactory:
         - AwarenessModule instance (is_public=True)
         - SocialNetworkModule instance (is_public=True)
         - BasicInfoModule instance (is_public=True)
-        - GeminiRAGModule instance (is_public=True)
         - MessageBusModule instance (is_public=True)
+        - LarkModule instance (is_public=True)
 
         Args:
             agent_id: Agent ID
@@ -114,16 +115,15 @@ class InstanceFactory:
         if basic_info_instance:
             instances.append(basic_info_instance)
 
-        # 4. GeminiRAGModule instance creation is temporarily disabled —
-        # see module_runner.DEFAULT_MCP_MODULES for rationale (per-user
-        # Gemini config not yet routed through ContextVar). Existing RAG
-        # instances in the database are left untouched; no new ones will
-        # be provisioned until multi-tenant Gemini support lands.
-
-        # 5. Create MessageBusModule instance (replaces MessageBusModule)
+        # 4. Create MessageBusModule instance
         bus_instance = await self._create_message_bus_instance(agent_id)
         if bus_instance:
             instances.append(bus_instance)
+
+        # 5. Create LarkModule instance (agent may later bind a Feishu bot)
+        lark_instance = await self._create_lark_instance(agent_id)
+        if lark_instance:
+            instances.append(lark_instance)
 
         # 6. Auto-register agent in MessageBus registry
         await self._register_agent_in_bus(agent_id)
@@ -218,35 +218,6 @@ class InstanceFactory:
         logger.info(f"Created BasicInfoModule instance: {instance.instance_id}")
         return instance
 
-    async def _create_rag_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
-        """Create GeminiRAGModule Instance (Agent level, unique per Agent)"""
-        # Check if already exists
-        existing = await self._instance_repo.get_by_agent(
-            agent_id=agent_id,
-            module_class="GeminiRAGModule",
-            is_public=True
-        )
-        if existing:
-            logger.debug(f"GeminiRAGModule instance already exists for agent {agent_id}")
-            return existing[0]
-
-        instance = ModuleInstanceRecord(
-            instance_id=generate_instance_id("rag"),
-            module_class="GeminiRAGModule",
-            agent_id=agent_id,
-            user_id=None,
-            is_public=True,
-            status=InstanceStatus.ACTIVE,
-            description="Agent knowledge base and document retrieval",
-            keywords=["rag", "knowledge", "document", "retrieval"],
-            topic_hint="Agent documents and knowledge retrieval",
-            created_at=utc_now(),
-        )
-
-        await self._instance_repo.create_instance(instance)
-        logger.info(f"Created GeminiRAGModule instance: {instance.instance_id}")
-        return instance
-
     async def _create_message_bus_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
         """Create MessageBusModule Instance"""
         existing = await self._instance_repo.get_by_agent(
@@ -273,6 +244,34 @@ class InstanceFactory:
 
         await self._instance_repo.create_instance(instance)
         logger.info(f"Created MessageBusModule instance: {instance.instance_id}")
+        return instance
+
+    async def _create_lark_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
+        """Create LarkModule Instance"""
+        existing = await self._instance_repo.get_by_agent(
+            agent_id=agent_id,
+            module_class="LarkModule",
+            is_public=True
+        )
+        if existing:
+            logger.debug(f"LarkModule instance already exists for agent {agent_id}")
+            return existing[0]
+
+        instance = ModuleInstanceRecord(
+            instance_id=generate_instance_id("lark"),
+            module_class="LarkModule",
+            agent_id=agent_id,
+            user_id=None,
+            is_public=True,
+            status=InstanceStatus.ACTIVE,
+            description="Lark/Feishu integration: contacts, messages, documents, calendar, tasks",
+            keywords=["lark", "feishu", "im", "messaging", "document", "calendar"],
+            topic_hint="Lark/Feishu bot operations and IM interactions",
+            created_at=utc_now(),
+        )
+
+        await self._instance_repo.create_instance(instance)
+        logger.info(f"Created LarkModule instance: {instance.instance_id}")
         return instance
 
     async def _register_agent_in_bus(self, agent_id: str) -> None:
@@ -440,7 +439,13 @@ class InstanceFactory:
         """
         logger.debug(f"Loading instances for narrative: {narrative_id}")
 
-        # 1. Public instances (Agent level, including RAG)
+        # Historical module classes that may still have stale DB records —
+        # skip them at load time. GeminiRAGModule source code still exists
+        # (for RAG file management) but is not registered in MODULE_MAP
+        # until per-user Gemini API key support is wired through ContextVar.
+        DISABLED_MODULES = {"GeminiRAGModule"}
+
+        # 1. Public instances (Agent level)
         public_instances = await self._instance_repo.get_public_instances(agent_id)
 
         # 2. Narrative-associated instances
@@ -466,13 +471,20 @@ class InstanceFactory:
                     continue
                 linked_instances.append(inst)
 
-        # 3. Merge and deduplicate
+        # 3. Merge, deduplicate, and filter disabled modules
         seen_ids = set()
         result = []
         for inst in public_instances + linked_instances:
-            if inst.instance_id not in seen_ids:
-                seen_ids.add(inst.instance_id)
-                result.append(inst)
+            if inst.instance_id in seen_ids:
+                continue
+            if inst.module_class in DISABLED_MODULES:
+                logger.debug(
+                    f"Skipping disabled module instance: {inst.instance_id} "
+                    f"({inst.module_class})"
+                )
+                continue
+            seen_ids.add(inst.instance_id)
+            result.append(inst)
 
         logger.debug(f"Loaded {len(result)} instances for narrative")
         return result
@@ -496,12 +508,15 @@ class InstanceFactory:
 
         # Check for missing module types and create them
         existing_classes = {inst.module_class for inst in existing}
+        # GeminiRAGModule is intentionally excluded — the module is temporarily
+        # disabled pending per-user Gemini API key support via ContextVar.
+        # Existing RAG instances in the database are ignored at load time too.
         creators = {
             "AwarenessModule": self._create_awareness_instance,
             "SocialNetworkModule": self._create_social_network_instance,
             "BasicInfoModule": self._create_basic_info_instance,
-            "GeminiRAGModule": self._create_rag_instance,
             "MessageBusModule": self._create_message_bus_instance,
+            "LarkModule": self._create_lark_instance,
         }
         for module_class, creator_fn in creators.items():
             if module_class not in existing_classes:

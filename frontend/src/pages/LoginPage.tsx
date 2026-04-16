@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, ArrowRight, ArrowLeft, Sparkles, UserPlus, Zap, Cloud } from 'lucide-react';
+import { Loader2, ArrowRight, ArrowLeft, Sparkles, UserPlus, Cloud } from 'lucide-react';
 import { Button, Input } from '@/components/ui';
 import { useConfigStore, useRuntimeStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -98,11 +98,16 @@ export function LoginPage() {
         {/* Logo / Header */}
         <div className="text-center mb-10">
           <div className="relative inline-block mb-5">
-            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center">
-              {isCloudMode ? (
-                <Cloud className="w-10 h-10 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
-              ) : (
-                <Zap className="w-10 h-10 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
+            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center overflow-hidden shadow-[var(--shadow-glow)]">
+              <img
+                src="/logo.png"
+                alt="NetMind.AI"
+                className="w-14 h-14 object-contain"
+              />
+              {isCloudMode && (
+                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[var(--bg-primary)] border-2 border-[var(--accent-primary)] flex items-center justify-center">
+                  <Cloud className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                </div>
               )}
             </div>
           </div>
@@ -219,7 +224,7 @@ export function LoginPage() {
         <div className="mt-10 pt-6 border-t border-[var(--border-subtle)]">
           <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-tertiary)]">
             <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-            <span>Powered by NarraNexus</span>
+            <span>Powered by NetMind.AI</span>
           </div>
         </div>
       </div>

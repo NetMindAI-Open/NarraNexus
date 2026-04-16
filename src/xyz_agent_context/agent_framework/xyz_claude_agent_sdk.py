@@ -9,7 +9,7 @@
 import asyncio
 
 from loguru import logger
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
 from claude_agent_sdk._errors import MessageParseError
 from claude_agent_sdk._internal import message_parser as _message_parser_module
 from claude_agent_sdk.types import SystemMessage
@@ -19,9 +19,11 @@ from typing import Any, AsyncGenerator
 try:
     from .output_transfer import output_transfer
     from .api_config import claude_config
+    from ._tool_policy_guard import build_tool_policy_guard
 except ImportError:
     from output_transfer import output_transfer
     from api_config import claude_config
+    from _tool_policy_guard import build_tool_policy_guard
 
 # Monkey-patch claude_agent_sdk's parse_message to handle unknown message types gracefully.
 # The SDK v0.1.6 raises MessageParseError for unrecognized types like "rate_limit_event",
@@ -147,6 +149,27 @@ class ClaudeAgentSDK:
         if extra_env:
             cli_env.update(extra_env)
 
+        # Install the tool-policy guard:
+        #  • Read/Glob/Grep must stay inside the per-agent workspace.
+        #  • WebSearch is denied when the provider doesn't run Anthropic's
+        #    server-side tools (e.g. NetMind / OpenRouter just hang 45s).
+        # Hooks run before the permission-mode check, so they fire even under
+        # bypassPermissions. See agent_framework/_tool_policy_guard.py.
+        supports_server_tools = claude_config.supports_anthropic_server_tools
+        policy_guard = build_tool_policy_guard(
+            workspace=self.working_path,
+            supports_server_tools=supports_server_tools,
+        )
+
+        # Defense-in-depth: when the provider doesn't speak the server-tool
+        # protocol, also disallow WebSearch at the CLI level. Hooks cover
+        # the main session but do NOT propagate into Task-spawned subagent
+        # subprocesses; the CLI flag does. Without this, a subagent could
+        # still call WebSearch and hang the whole run.
+        disallowed_tools: list[str] = []
+        if not supports_server_tools:
+            disallowed_tools.append("WebSearch")
+
         # Build ClaudeAgentOptions; only pass model when explicitly configured
         options_kwargs: dict[str, Any] = dict(
             system_prompt=system_prompt,
@@ -158,6 +181,15 @@ class ClaudeAgentSDK:
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
             env=cli_env,  # 传递 Anthropic API Key 等环境变量给 Claude CLI
+            hooks={
+                "PreToolUse": [
+                    # Match the union of tools this guard cares about. The
+                    # guard itself is cheap (string check + path resolve)
+                    # so running it on every listed tool call is fine.
+                    HookMatcher(matcher="Read|Glob|Grep|WebSearch", hooks=[policy_guard]),
+                ],
+            },
+            disallowed_tools=disallowed_tools,
         )
         if claude_config.model:
             options_kwargs["model"] = claude_config.model

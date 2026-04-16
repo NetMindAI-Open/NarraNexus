@@ -11,7 +11,6 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Sliders,
   Server,
   Monitor,
@@ -140,30 +139,22 @@ export function Sidebar() {
       {/* Gradient edge glow */}
       <div className="absolute top-0 right-0 bottom-0 w-px bg-gradient-to-b from-transparent via-[var(--accent-primary)]/20 to-transparent" />
 
-      {/* Header */}
+      {/* Header — full-width logo replaces the old icon-tile + wordmark stack.
+          Collapsed state hides the logo and keeps only the toggle button. */}
       <div className="p-4 border-b border-[var(--border-subtle)]">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           {!collapsed && (
-            <div className="flex items-center gap-3 animate-fade-in">
-              <div className="relative">
-                <div className="w-10 h-10 rounded-xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)]">
-                  <Sparkles className="w-5 h-5 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
-                </div>
-                <div className="absolute -inset-1 rounded-xl bg-[var(--accent-primary)] opacity-20 blur-md -z-10" />
-              </div>
-              <div>
-                <span className="font-[family-name:var(--font-display)] font-bold text-lg text-[var(--text-primary)] tracking-tight">
-                  Narra<span className="text-[var(--accent-primary)]">Nexus</span>
-                </span>
-                <p className="text-[10px] text-[var(--text-tertiary)] font-mono tracking-wider">INTELLIGENT AGENT PLATFORM</p>
-              </div>
-            </div>
+            <img
+              src="/logo.png"
+              alt="NarraNexus"
+              className="h-12 w-auto object-contain animate-fade-in"
+            />
           )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className="shrink-0"
+            className={cn('shrink-0', collapsed && 'mx-auto')}
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4" />
@@ -363,8 +354,11 @@ export function Sidebar() {
               <LogOut className="w-4 h-4" />
               Logout
             </Button>
-            <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)]">
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border-subtle)]">
               <ThemeToggle />
+              <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
+                Powered by NetMind.AI
+              </span>
               <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v1.0.0</span>
             </div>
           </>

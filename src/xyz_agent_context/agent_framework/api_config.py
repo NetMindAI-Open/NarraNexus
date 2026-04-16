@@ -46,26 +46,65 @@ from xyz_agent_context.schema.provider_schema import (
 
 @dataclass(frozen=True)
 class ClaudeConfig:
-    """Claude API configuration (passed to Claude Code CLI subprocess)"""
+    """Claude API configuration (passed to Claude Code CLI subprocess)."""
     api_key: str = ""
     base_url: str = ""
     model: str = ""          # Empty = let Claude Code CLI use its default model
     auth_type: str = "api_key"  # "api_key" | "bearer_token" | "oauth"
+    # Whether the provider endpoint runs Anthropic's server-side tools
+    # (web_search_20250305, text_editor, computer_use, ...). Only the
+    # official Anthropic API and transparent forward proxies do; most
+    # aggregators (NetMind, OpenRouter, Yunwu, ...) do not. The tool
+    # policy hook reads this to decide whether to permit WebSearch.
+    supports_anthropic_server_tools: bool = False
 
     def to_cli_env(self) -> dict[str, str]:
-        """Build env vars dict for Claude Code CLI subprocess.
+        """Build env vars dict for the Claude Code CLI subprocess.
 
-        Only includes non-empty values to avoid overriding CLI defaults.
-        Uses ANTHROPIC_AUTH_TOKEN for bearer_token auth, ANTHROPIC_API_KEY otherwise.
+        Returns a **complete** dict for every key we care about — including
+        explicit blank strings where we want to suppress an inherited value
+        from the parent process's ``os.environ``. This is critical for
+        multi-tenant concurrency: the SDK merges ``{**os.environ, **options.env}``
+        at subprocess spawn, so any key we omit is inherited. Leaving model
+        overrides (for example) unset could leak tenant A's model into
+        tenant B's agent run when both are active on the same host.
+
+        Each invocation of this method is associated with a ``ClaudeConfig``
+        captured from the current asyncio task's ContextVar, so there is no
+        cross-task mutation of shared state.
         """
-        env: dict[str, str] = {}
+        env: dict[str, str] = {
+            # Auth — exactly one of these should be populated; we blank the
+            # other so a stray env var from the parent process can't leak in.
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_AUTH_TOKEN": "",
+            "ANTHROPIC_BASE_URL": self.base_url or "",
+        }
         if self.api_key:
             if self.auth_type == "bearer_token":
                 env["ANTHROPIC_AUTH_TOKEN"] = self.api_key
             else:
                 env["ANTHROPIC_API_KEY"] = self.api_key
-        if self.base_url:
-            env["ANTHROPIC_BASE_URL"] = self.base_url
+
+        # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
+        # subagent task dispatch, alias-to-model resolution) to the same
+        # provider as the main loop. Without these, those calls fall back
+        # to official Anthropic model names, hit the provider's endpoint
+        # with an unknown model, and either fail or drift off-provider.
+        # Docs: https://code.claude.com/docs/en/model-config
+        if self.model:
+            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = self.model
+            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = self.model
+            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self.model
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = self.model
+        else:
+            # No explicit model → blank these so a stale inherited value
+            # from os.environ can't steer CLI behavior for this run.
+            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
+            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
+            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = ""
+
         return env
 
 
@@ -127,6 +166,9 @@ def _load_from_llm_config() -> Optional[tuple[ClaudeConfig, OpenAIConfig, Embedd
             base_url=agent_provider.base_url,
             model=agent_slot.model,
             auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+            supports_anthropic_server_tools=bool(
+                getattr(agent_provider, "supports_anthropic_server_tools", False)
+            ),
         )
     else:
         claude = ClaudeConfig()
@@ -171,10 +213,17 @@ def _load_from_settings() -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
     from xyz_agent_context.settings import settings
 
+    # Heuristic for the .env fallback path: server tools are supported iff
+    # the base URL is empty (defaults to official Anthropic) or explicitly
+    # points at api.anthropic.com. Any third-party host is assumed unable
+    # to serve web_search_20250305 / text_editor / etc.
+    _base = (settings.anthropic_base_url or "").lower()
+    _is_official = not _base or "api.anthropic.com" in _base
     claude = ClaudeConfig(
         api_key=settings.anthropic_api_key,
         base_url=settings.anthropic_base_url,
         model=settings.anthropic_model,
+        supports_anthropic_server_tools=_is_official,
     )
 
     openai_cfg = OpenAIConfig(
@@ -461,6 +510,9 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         base_url=agent_provider.base_url,
         model=agent_slot.model,
         auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
+        supports_anthropic_server_tools=bool(
+            getattr(agent_provider, "supports_anthropic_server_tools", False)
+        ),
     )
 
     # ─── Helper LLM slot ─────────────────────────────────────────────

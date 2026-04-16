@@ -205,7 +205,11 @@ def _build_openrouter_providers(api_key: str) -> list[ProviderConfig]:
 
 
 def _build_claude_oauth_provider() -> ProviderConfig:
-    """Build a provider for Claude Code OAuth (no key needed)"""
+    """Build a provider for Claude Code OAuth (no key needed).
+
+    OAuth bounces through the official Anthropic API, so server-side tools
+    (WebSearch, text editor, computer use) all work.
+    """
     now = datetime.now(timezone.utc)
     models = get_default_models("claude_oauth", "anthropic")
     return ProviderConfig(
@@ -217,6 +221,7 @@ def _build_claude_oauth_provider() -> ProviderConfig:
         api_key="",
         base_url="",
         models=models,
+        supports_anthropic_server_tools=True,
         created_at=now,
         updated_at=now,
     )
@@ -229,8 +234,15 @@ def _build_user_provider(
     api_key: str,
     base_url: str,
     models: list[str],
+    supports_anthropic_server_tools: Optional[bool] = None,
 ) -> ProviderConfig:
-    """Build a user-configured provider (Anthropic or OpenAI protocol)"""
+    """Build a user-configured provider (Anthropic or OpenAI protocol).
+
+    ``supports_anthropic_server_tools``:
+        None  → auto-detect (True iff Anthropic protocol AND base_url
+                 points at the official api.anthropic.com).
+        bool  → honour caller's explicit value.
+    """
     now = datetime.now(timezone.utc)
 
     # Use default base_url if empty
@@ -241,6 +253,15 @@ def _build_user_provider(
     if not models:
         models = get_default_models("user", protocol.value)
 
+    if supports_anthropic_server_tools is None:
+        # Heuristic: only the official Anthropic endpoint has server tools.
+        # Users who front official with a proxy can still flip this via the
+        # explicit parameter (or later through the provider-edit flow).
+        supports_anthropic_server_tools = (
+            protocol == ProviderProtocol.ANTHROPIC
+            and "api.anthropic.com" in (base_url or "").lower()
+        )
+
     return ProviderConfig(
         provider_id=_generate_provider_id(),
         name=name or f"Custom ({protocol.value.title()})",
@@ -250,6 +271,7 @@ def _build_user_provider(
         api_key=api_key,
         base_url=base_url,
         models=models,
+        supports_anthropic_server_tools=supports_anthropic_server_tools,
         created_at=now,
         updated_at=now,
     )
