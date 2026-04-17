@@ -232,6 +232,17 @@ class ModuleRunner:
         mcp_server = module.create_mcp_server()
         if mcp_server is not None:
             logger.info(f"Starting MCP server for {module.__class__.__name__}")
+            # FastMCP's __init__ hardcodes host=127.0.0.1 and auto-enables
+            # DNS rebinding protection when host is localhost. In a multi-
+            # container deployment (Docker compose on EC2, MySQL mode that
+            # routes here via multiprocessing), that blocks backend/poller/
+            # jobs/bus/lark from reaching MCP via the `mcp` service name.
+            # Mirror the fix that _run_mcp_in_thread applies in async mode.
+            mcp_server.settings.host = "0.0.0.0"
+            from mcp.server.transport_security import TransportSecuritySettings
+            mcp_server.settings.transport_security = TransportSecuritySettings(
+                enable_dns_rebinding_protection=False,
+            )
             mcp_server.run("sse")
         else:
             raise ValueError(f"Module {module.__class__.__name__} does not have an MCP server")
