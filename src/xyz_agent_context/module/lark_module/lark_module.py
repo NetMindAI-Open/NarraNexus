@@ -200,6 +200,11 @@ class LarkModule(XYZBaseModule):
             else ("⏳ awaiting user click" if pending_oauth_url else "❌")
         )
 
+        # Availability is OPTIONAL — if the user skips it, the bot still
+        # works; only they can see/use it. Render as "optional" when
+        # unconfirmed so it doesn't look like a blocker.
+        availability_cell = "✅" if availability_ok else "➖ optional (bot stays private)"
+
         status_matrix = (
             "### Configuration Status (check every turn before acting)\n\n"
             "| # | Step                                  | State |\n"
@@ -207,25 +212,39 @@ class LarkModule(XYZBaseModule):
             f"| 1 | App created                           | {_tick(app_created)} |\n"
             f"| 2 | User OAuth (`auth login --domain all`) | {oauth_cell} |\n"
             f"| 3 | Bot scopes enabled in dev console      | {_tick(bot_scopes_ok)} |\n"
-            f"| 4 | Availability = all staff (org-visible) | {_tick(availability_ok)} |\n"
+            f"| 4 | Availability = all staff *(optional)* | {availability_cell} |\n"
             f"| 5 | Real-time receive (App Secret in DB)   | {_tick(receive_ok)} |\n\n"
         )
 
         # --- Next-step coach -----------------------------------------------
-        all_done = app_created and user_oauth_ok and bot_scopes_ok and availability_ok and receive_ok
+        # "Fully configured" does NOT require availability — that step only
+        # controls whether other org members can discover/use this bot.
+        all_done = app_created and user_oauth_ok and bot_scopes_ok and receive_ok
         if all_done:
-            coach = (
-                "**All configured.** You can send, receive, and hit every "
-                "standard API on behalf of the bot or owner.\n\n"
-            )
+            if availability_ok:
+                coach = (
+                    "**All configured.** Bot is org-visible; you can send, "
+                    "receive, and hit every standard API.\n\n"
+                )
+            else:
+                coach = (
+                    "**All required steps done.** Bot works fully for the owner. "
+                    "If the user wants OTHER people in their org to be able to "
+                    "see/use this bot, remind them to set availability to "
+                    "'全员可用' (or specific departments) in the dev console "
+                    "and publish a new version — without that step, only the "
+                    "owner can see the bot. Call "
+                    "`mcp__lark_module__lark_mark_console_done(agent_id, "
+                    "availability_ok=True)` after they confirm.\n\n"
+                )
         else:
             steps: list[str] = []
             if not user_oauth_ok and not pending_oauth_url:
                 steps.append(
-                    "- Step 2 + 3 + 4 (permission bootstrap): call "
+                    "- Step 2 + 3 (permission bootstrap): call "
                     "`mcp__lark_module__lark_configure_permissions(agent_id)` "
                     "to get ONE OAuth URL covering all user scopes plus the "
-                    "console checklist for bot scopes + availability."
+                    "console checklist for bot scopes."
                 )
             if pending_oauth_url and not user_oauth_ok:
                 steps.append(
@@ -233,12 +252,15 @@ class LarkModule(XYZBaseModule):
                     f"`{pending_oauth_url}` — when they confirm, call "
                     f"`mcp__lark_module__lark_auth_complete(agent_id, device_code=\"{pending_device_code}\")`."
                 )
-            if user_oauth_ok and not (bot_scopes_ok and availability_ok):
+            if user_oauth_ok and not bot_scopes_ok:
                 steps.append(
-                    "- Step 3 + 4 (console checklist): remind the user to "
-                    "finish the dev-console three-click task (bot scopes + "
-                    "availability + version publish). When they say it's done, "
-                    "call `mcp__lark_module__lark_mark_console_done(agent_id)`."
+                    "- Step 3 (console checklist): remind the user to finish "
+                    "the dev-console task — enable bot scopes and publish a "
+                    "version. Availability (step 4) is optional; mention it "
+                    "only if they want other org members to see the bot. "
+                    "When they confirm scopes are done, call "
+                    "`mcp__lark_module__lark_mark_console_done(agent_id, "
+                    "bot_scopes_ok=True, availability_ok=<True if they set it, else False>)`."
                 )
             if not receive_ok:
                 if lark_info.get("is_agent_assisted"):

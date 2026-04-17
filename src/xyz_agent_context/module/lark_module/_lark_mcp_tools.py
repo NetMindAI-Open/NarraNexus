@@ -724,11 +724,13 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
         console_url = _dev_console_url(cred.brand, cred.app_id)
         scopes_hint = ", ".join(_RECOMMENDED_BOT_SCOPES[:6]) + ", ..."
-        checklist = [
+        checklist_required = [
             f"1. 「权限管理」→ 勾选 bot scope（推荐: {scopes_hint}，一共 ~18 个）→ 提交申请（若需审批让管理员批，否则即时生效）",
             "2. 「应用能力」→ 机器人 → 开启机器人能力（若未开启）",
-            "3. 「可用范围」→ 改成 '全员可用'（或选择 '指定部门' 勾全部部门）",
-            "4. 「版本管理」→ 创建新版本 → 发布线上版本（管理员审批后生效）",
+            "3. 「版本管理」→ 创建新版本 → 发布线上版本（管理员审批后生效）",
+        ]
+        checklist_optional = [
+            "（可选）「可用范围」→ 改成 '全员可用'（或选择 '指定部门' 勾全部部门）— 不设的话，只有你自己能在 Lark 里看到这个 bot；其他人看不见。如果只是你自己用，可以跳过。",
         ]
 
         return {
@@ -737,14 +739,19 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 "oauth_url": oauth_url,
                 "oauth_device_code": device_code,
                 "dev_console_url": console_url,
-                "console_checklist": checklist,
+                "console_checklist": checklist_required,
+                "console_checklist_optional": checklist_optional,
                 "recommended_bot_scopes": _RECOMMENDED_BOT_SCOPES,
                 "message": (
                     "Ask the user to do two things in parallel:\n"
                     f"A. Click this ONE link to grant all user-level Lark scopes:\n   {oauth_url}\n"
-                    f"B. Open the dev console and run through the checklist:\n   {console_url}\n"
+                    f"B. Open the dev console and run through the REQUIRED checklist:\n   {console_url}\n"
+                    "Then mention the OPTIONAL 'availability' step as follows:\n"
+                    "   '如果你希望组织里其他人也能找到并使用这个 bot，再多做一步：\n"
+                    "   在「可用范围」里改成全员可用。不做的话 bot 只有你一个人能用。'\n"
                     "When they say 'A is done', call lark_auth_complete with the device_code above.\n"
-                    "When they say 'B is done', call lark_mark_console_done."
+                    "When they say 'B is done', call lark_mark_console_done (pass "
+                    "availability_ok=True only if they also did the optional step)."
                 ),
             },
         }
@@ -753,31 +760,39 @@ def register_lark_mcp_tools(mcp: Any) -> None:
     async def lark_mark_console_done(
         agent_id: str,
         bot_scopes_ok: bool = True,
-        availability_ok: bool = True,
+        availability_ok: bool = False,
     ) -> dict:
         """
-        Record that the user has completed the dev-console manual steps
-        (bot scopes enabled + version published + availability set to all
-        staff). Flips the tracked state so subsequent `get_instructions`
-        renders a "fully configured" status and stops nagging.
+        Record that the user has finished the dev-console manual steps.
 
-        **WHEN TO CALL**: when the user explicitly confirms they finished
-        the checklist returned by `lark_configure_permissions`. Do NOT
-        assume — always get verbal confirmation first.
+        Two things can be tracked separately:
+          - **bot_scopes_ok** (REQUIRED): scopes enabled + version published.
+            Without this, most Lark APIs will hit permission_denied.
+          - **availability_ok** (OPTIONAL): availability set to all staff /
+            department. Without this, ONLY THE OWNER can see/use the bot
+            inside Lark — other org members won't find it. This is fine
+            for a personal-use bot; only needed if the user wants to share.
 
-        **PARTIAL CONFIRMATION**: if the user only did some of the
-        checklist (e.g. "I set scopes but haven't published yet"), pass
-        the corresponding flags as False so the status stays accurate.
+        **WHEN TO CALL**: when the user explicitly confirms they did the
+        required step ("I added the scopes and published"). Pass
+        availability_ok=True only if they ALSO say they set availability
+        to all staff / multiple departments. Do NOT assume — ask.
+
+        **DEFAULT**: availability_ok defaults to False because it's the
+        less common intent. Always reflect what the user actually said.
 
         Args:
             agent_id: The agent.
-            bot_scopes_ok: User says scopes are enabled and version published.
-            availability_ok: User says availability is set to all staff.
+            bot_scopes_ok: User says bot scopes are enabled AND a new
+                           version was published. Required for most APIs.
+            availability_ok: User says availability is set to all staff
+                             (or multiple departments). Optional — without
+                             it, only the owner can see the bot in Lark.
 
         Returns:
-            {"success": True, "data": {"console_setup_done_at": "..."}} or
-            {"success": True, "data": {"console_setup_done_at": null, ...}}
-            when the user hasn't actually finished everything.
+            {"success": True, "data": {"console_setup_done_at": "...", ...}}
+            — console_setup_done_at is set once bot_scopes_ok is True
+            (availability is tracked separately and does not block it).
         """
         cred = await _get_credential(agent_id)
         if not cred:
@@ -788,11 +803,13 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         mgr = LarkCredentialManager(db)
 
         now = datetime.now(timezone.utc).isoformat()
-        all_done = bool(bot_scopes_ok and availability_ok)
+        # console_setup_done_at tracks the REQUIRED work (bot scopes +
+        # version published). Availability is optional and persisted on
+        # its own flag so the status matrix can still render ➖ / ✅.
         patched = await mgr.patch_permission_state(agent_id, {
             "bot_scopes_confirmed": bool(bot_scopes_ok),
             "availability_confirmed": bool(availability_ok),
-            "console_setup_done_at": now if all_done else None,
+            "console_setup_done_at": now if bot_scopes_ok else None,
         })
         return {"success": True, "data": patched}
 
