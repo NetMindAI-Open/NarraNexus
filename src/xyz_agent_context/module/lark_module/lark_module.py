@@ -231,15 +231,25 @@ class LarkModule(XYZBaseModule):
                     "receive, and hit every standard API.\n\n"
                 )
             else:
+                brand_key = lark_info.get("brand", "lark")
+                console = (
+                    f"https://open.feishu.cn/app/{app_id}" if brand_key == "feishu"
+                    else f"https://open.larksuite.com/app/{app_id}"
+                )
                 coach = (
-                    "**All required steps done.** Bot works fully for the owner. "
-                    "If the user wants OTHER people in their org to be able to "
-                    "see/use this bot, remind them to set availability to "
-                    "'全员可用' (or specific departments) in the dev console "
-                    "and publish a new version — without that step, only the "
-                    "owner can see the bot. Call "
-                    "`mcp__lark_module__lark_mark_console_done(agent_id, "
-                    "availability_ok=True)` after they confirm.\n\n"
+                    "**All required steps done.** Bot works fully for the owner.\n\n"
+                    "If the user wants OTHER colleagues to see/use this bot, "
+                    "walk them through the availability flow (all manual on "
+                    "Lark's side — we can't automate it):\n"
+                    f"  1. Open {console} → 「版本管理」→「创建版本」.\n"
+                    "  2. Set 「可见范围」 to the desired colleagues (or all staff).\n"
+                    "  3. Click 「保存」.\n"
+                    "  4. Click 「申请线上发版」. An admin must approve.\n"
+                    "  5. After approval, other people can see the bot.\n"
+                    "Only mention this if they ask OR if their intent is clearly "
+                    "multi-user. After they confirm the approval went through, "
+                    "call `mcp__lark_module__lark_mark_console_done(agent_id, "
+                    "availability_ok=True)`.\n\n"
                 )
         else:
             steps: list[str] = []

@@ -745,9 +745,13 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
         console_url = _dev_console_url(cred.brand, cred.app_id)
         optional_hint = (
-            "（可选）如果希望组织里其他人也能找到并使用这个 bot，去 "
-            f"{console_url} → 「可用范围」→ 改成 '全员可用'（或勾选指定部门）。"
-            "不设的话 bot 只有你一个人能看到；个人用可以跳过。"
+            "（可选）让其他同事能看到这个 bot：\n"
+            f"1. 打开 {console_url} → 「版本管理」→「创建版本」\n"
+            "2. 在「可见范围」里勾选你希望看到它的同事（或选全员）\n"
+            "3. 点「保存」\n"
+            "4. 点「申请线上发版」→ 等管理员审批\n"
+            "5. 审批通过后其他人才会看到。\n"
+            "不做这一步的话 bot 只有你自己可见，不影响它给你用。"
         )
 
         return {
