@@ -542,13 +542,23 @@ class LarkTrigger:
         )
         tagged_prompt = f"{channel_tag.format()}\n{prompt}"
 
+        # Resolve the AGENT'S OWNER (NarraNexus user_id) — NOT the Lark
+        # sender's open_id. sender_id is a Lark-internal identifier that
+        # ProviderResolver can't map to an API key; using it meant every
+        # Lark-triggered run silently fell back to the system default
+        # provider instead of the owner's configured one. JobTrigger and
+        # MessageBusTrigger already use NarraNexus user_id correctly; we
+        # bring Lark in line.
+        agent_row = await self._db.get_one("agents", {"agent_id": cred.agent_id})
+        owner_user_id = (agent_row or {}).get("created_by", "") or cred.agent_id
+
         runtime = AgentRuntime(logging_service=LoggingService(enabled=False))
         final_output: list[str] = []
         lark_replies: list[str] = []
 
         async for response in runtime.run(
             agent_id=cred.agent_id,
-            user_id=sender_id,
+            user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=WorkingSource.LARK,
             trigger_extra_data={"channel_tag": channel_tag.to_dict()},
