@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.module.base import XYZBaseModule
+from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.channel.channel_sender_registry import ChannelSenderRegistry
 from xyz_agent_context.schema import (
     ModuleConfig,
@@ -92,7 +92,7 @@ class LarkModule(XYZBaseModule):
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(
             server_name="lark_module",
-            server_url=f"http://localhost:{LARK_MCP_PORT}/sse",
+            server_url=f"http://{mcp_host()}:{LARK_MCP_PORT}/sse",
             type="sse",
         )
 
