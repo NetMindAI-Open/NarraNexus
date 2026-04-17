@@ -689,18 +689,35 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             return result
 
         # --- OAuth completion failed ---
-        # Most common causes: device_code expired (>10 min since generated),
-        # user didn't actually click, or user clicked "Submit for approval"
-        # and admin hasn't approved yet. Regenerate a fresh URL so the Agent
-        # has something actionable to tell the user instead of a dead end.
         err_msg = (result.get("error") or "").lower()
-        is_stale = any(kw in err_msg for kw in (
-            "expired", "invalid_grant", "device_code",
-            "authorization_pending", "slow_down",
-        ))
 
+        # `authorization_pending` / `slow_down`: user just hasn't clicked
+        # yet (or clicked milliseconds ago and Lark hasn't propagated).
+        # DO NOT auto-regen — that would invalidate the URL the user is
+        # about to click. Return a specific actionable message.
+        if "authorization_pending" in err_msg or "slow_down" in err_msg:
+            return {
+                "success": False,
+                "error": (
+                    "Lark says authorization is still pending. The user "
+                    "either hasn't clicked 'Authorize' yet, or clicked very "
+                    "recently and it hasn't propagated. Wait a few seconds "
+                    "and try once more — do not regenerate the URL."
+                ),
+            }
+
+        # Genuinely stale / consumed / malformed device_code — regenerate.
+        # Narrow matchers to avoid false positives (earlier version matched
+        # "device_code" as a substring of normal error messages).
+        is_stale = any(kw in err_msg for kw in (
+            "expired",
+            "invalid_grant",
+            "is invalid",           # "The device_code is invalid"
+            "restart the device",   # Lark's explicit hint
+        ))
         if not is_stale:
-            # Some other failure (network, wrong code format) — propagate as-is
+            # Some other failure (network, access_denied, app misconfig) —
+            # propagate as-is. Don't mask with a regen.
             return result
 
         # Regenerate URL automatically so the user gets ONE next-step action
