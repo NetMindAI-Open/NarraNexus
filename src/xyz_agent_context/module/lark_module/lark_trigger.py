@@ -164,10 +164,21 @@ class LarkTrigger:
                             self._subscriber_creds[app_id] = cred
                             logger.info(f"LarkTrigger: started SDK subscriber for {cred.profile_name}")
                         else:
-                            logger.warning(
-                                f"LarkTrigger: skipping {cred.profile_name} — "
-                                f"no app_secret_encrypted in DB (re-bind to fix)"
-                            )
+                            # Two possible causes — point the user at the right fix
+                            if cred.workspace_path:
+                                logger.info(
+                                    f"LarkTrigger: {cred.profile_name} pending "
+                                    f"lark_enable_receive (agent-assisted setup has "
+                                    f"no plain App Secret yet; bot can send but "
+                                    f"real-time receive stays off until user pastes "
+                                    f"the secret)."
+                                )
+                            else:
+                                logger.warning(
+                                    f"LarkTrigger: {cred.profile_name} has no "
+                                    f"plain App Secret in DB — re-bind via frontend "
+                                    f"LarkConfig panel to fix."
+                                )
 
                 # Adjust worker pool based on active subscriber count
                 self._adjust_workers(self._desired_worker_count())
@@ -197,14 +208,44 @@ class LarkTrigger:
         so it must run in a separate thread with NO existing event loop.
         We use threading.Thread (not asyncio.to_thread) to ensure a clean thread
         without an inherited event loop.
+
+        Re-reads the credential from DB at each iteration so that if the user
+        corrects a wrong App Secret via `lark_enable_receive` (or updates via
+        re-bind), the next retry picks up the fresh value instead of looping
+        forever against stale state.
         """
         import lark_oapi as lark
 
+        agent_id = cred.agent_id
+        app_id_initial = cred.app_id
         backoff = 5
         max_backoff = 120
-        app_secret = cred.get_app_secret()
 
         while self.running:
+            # Refresh the credential from DB each iteration
+            fresh_cred = await LarkCredentialManager(self._db).get_credential(agent_id)
+            if not fresh_cred or not fresh_cred.is_active:
+                logger.info(
+                    f"LarkTrigger: credential gone or inactive for {agent_id}, "
+                    f"exiting subscriber"
+                )
+                return
+            if fresh_cred.app_id != app_id_initial:
+                logger.info(
+                    f"LarkTrigger: app_id changed for {agent_id} "
+                    f"({app_id_initial} -> {fresh_cred.app_id}); exiting so the "
+                    f"watcher can start a fresh subscriber"
+                )
+                return
+            app_secret = fresh_cred.get_app_secret()
+            if not app_secret:
+                logger.warning(
+                    f"LarkTrigger: App Secret cleared for {fresh_cred.profile_name}; "
+                    f"exiting subscriber"
+                )
+                return
+            cred = fresh_cred  # use fresh cred throughout this iteration
+
             try:
                 # SDK callback: runs in SDK's thread, puts event into main async queue
                 def on_message(data):
