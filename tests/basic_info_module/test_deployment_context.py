@@ -68,6 +68,35 @@ def test_instructions_template_has_deployment_placeholder():
     assert "{deployment_context}" in BASIC_INFO_MODULE_INSTRUCTIONS
 
 
+# -------- Bug 23 · file/path delivery rules differ by mode -----------
+
+
+def test_cloud_context_warns_user_cannot_reach_container_paths():
+    """Cloud mode: user is not on this machine. Paths into the container
+    (/app, /opt/narranexus, skills/...) are useless; agent must embed
+    content inline or use the channel's native surface."""
+    cloud = DEPLOYMENT_CONTEXT_CLOUD.lower()
+    # Container paths are called out as unreachable.
+    assert "cannot reach" in cloud or "cannot open" in cloud or "useless" in cloud
+    # Guidance on how to deliver content.
+    assert "inline" in cloud
+    # Explicit prohibition on raw-path replies.
+    assert "saved" in cloud or "path" in cloud
+
+
+def test_local_context_separates_owner_from_im_recipients():
+    """Local mode: owner can open local paths (they're on the same
+    machine). But IM-channel recipients still can't — the prompt must
+    distinguish the two audiences so the agent doesn't blindly dump
+    paths into a Lark reply because it worked for the owner."""
+    local = DEPLOYMENT_CONTEXT_LOCAL.lower()
+    assert "owner" in local
+    # Must explicitly mention the IM/channel recipient caveat.
+    assert "channel" in local or "lark" in local or "matrix" in local or "telegram" in local
+    # Guidance on how to deliver to non-local recipients.
+    assert "inline" in local or "url" in local or "upload" in local
+
+
 # -------- hook populates ctx_data -------------------------------------
 
 

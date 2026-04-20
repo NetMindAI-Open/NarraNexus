@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_prompts.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 stub: false
 ---
 
@@ -38,3 +38,5 @@ stub: false
 ## 新人易踩的坑
 
 模板里有两个"消息目标"的说明：`matrix_send_message` 回复渠道房间，`send_message_to_user_directly` 发送给 owner。这两个工具名是硬编码在模板里的。如果渠道的 MCP 工具名改了，必须同步更新这里的说明，否则 Agent 会用错工具。
+
+**File & Path Rules for IM Delivery（Bug 23，2026-04-20 加）**：模板里有一节专门告诉 agent——**IM 对端读不了本地路径**。场景就是 agent 干完活把内容保存成了文件，然后直接回复"保存在 /app/xxx.md 了"。IM 用户看到一条他永远打不开的路径。解法三选一：短内容内联进消息、中长内容创建 Lark 文档发 URL、二进制文件走 Lark 文件上传 API。这和 `basic_info_module/prompts.py` 的 deployment_context 是联动的——后者在 **system prompt** 层提醒 agent "你在容器/本地机里，用户能不能触到你的路径"；这里在 **每条 IM 消息的 runtime prompt** 层重复强调（防止 agent 在长 context 里忘了）。**修改时保持 3 条 delivery route 的结构**，有测试（`tests/channel/test_channel_prompts_path_rules.py`）pin 住。

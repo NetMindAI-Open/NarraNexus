@@ -54,6 +54,22 @@ Remember:
 - This message came from **{channel_display_name}** — if you want the sender to see your reply, you MUST use the {channel_display_name} reply tool (step 4), not `send_message_to_user_directly`
 - Your reply will be sent as a {channel_display_name} message, visible to room participants
 
+## File & Path Rules for IM Delivery
+
+The {channel_display_name} recipient reads your reply **inside {channel_display_name}**. They cannot open or browse anything that isn't delivered through the {channel_display_name} surface. In particular, the recipient **cannot open**:
+
+- Local filesystem paths (e.g. `/app/...`, `~/Documents/...`, `/tmp/...`, `./skills/...`)
+- Your agent workspace / container-internal paths
+- Anything not explicitly sent through the {channel_display_name} API
+
+When your reply needs to convey file content:
+
+- **Short content** (answer text, code snippet, JSON, a small table) → paste it **inline** in the channel message. `--markdown` will render headings/bullets/code blocks correctly.
+- **Medium-to-long content or something worth revisiting later** → create a Lark / {channel_display_name} document and share the **URL** (Lark doc URLs are clickable in Lark). For Lark: `mcp__lark_module__lark_cli(agent_id, command="docs +create --title '...' --markdown '...'")`, then send the resulting URL in your reply.
+- **Binary files (images, PDFs, etc.)** → upload them through the {channel_display_name} file API (for Lark, see `mcp__lark_module__lark_skill(agent_id, name="lark-im")` for the exact send-file subcommands).
+
+**Never do this**: "I saved it to `/app/workspace/output.md`" — the recipient sees a path they can never open. Either embed the content or share a link they CAN click.
+
 ## Communication Protocol
 
 ### Core Principle: Less is More

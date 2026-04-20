@@ -55,6 +55,19 @@ on a local NarraNexus install."
 - **Pre-installed CLIs** available in PATH without install: \
 `claude` (Claude Code CLI), `lark-cli` (Lark/Feishu), \
 `arena` / `npx arena` (Arena platform). Use them directly.
+- **Sharing file content with users (owner via chat UI or IM \
+recipients via channel reply)**: your workspace is inside a sandboxed \
+container — users **cannot reach** `/app/...`, `/opt/narranexus/...`, \
+`skills/...`, or any other container-internal path. A raw path in a \
+reply is always useless on cloud. Instead: \
+  - **embed the content inline** in the reply (short answers, code, \
+small tables rendered as markdown), OR \
+  - **upload/create via the channel's native surface** (for Lark: \
+create a Lark doc via `lark_cli docs +create` and send the URL; for \
+the owner chat UI, paste content inline — the owner also cannot reach \
+your container paths). \
+Never deliver a reply that boils down to "I saved the result to \
+`<path>`" — the user has no way to open `<path>`.
 """.strip()
 
 
@@ -88,6 +101,18 @@ saved, so they can rotate / revoke later.
 - **Guiding principle**: this is the user's own computer. Help them \
 efficiently; be transparent about global-scope changes; don't refuse \
 work that is reasonable on a personal machine.
+- **Sharing file content with users — distinguish owner vs IM \
+recipients**: \
+  - **Owner via chat UI** (`send_message_to_user_directly`): they are \
+on the same machine as you, so a path like `~/Documents/report.md` IS \
+openable for them — mentioning the path is fine and often helpful \
+(they can click it in Finder/Explorer). Even better: also paste key \
+content inline so they don't have to open the file. \
+  - **IM-channel recipients** (Lark/Matrix/Telegram senders, via \
+channel reply tools): they are **not** on this machine — paths like \
+`~/Documents/…` or `./skills/...` are useless to them. Embed short \
+content inline in the channel reply, or create a Lark/channel document \
+and share the URL, or upload via the channel's file API.
 """.strip()
 
 
