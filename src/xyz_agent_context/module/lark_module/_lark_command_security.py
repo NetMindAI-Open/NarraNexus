@@ -108,10 +108,33 @@ def validate_command(command: str) -> Tuple[bool, str]:
     return True, ""
 
 
+_ESCAPE_MAP = {
+    r"\n": "\n",
+    r"\t": "\t",
+    r"\r": "\r",
+}
+
+
+def _expand_escapes(value: str) -> str:
+    """Convert literal backslash-escape sequences (\\n, \\t, \\r) to real chars.
+
+    LLMs compose shell-ish command strings and naturally write `\\n` to mean
+    newline — but shlex.split preserves backslashes literally. Without this
+    expansion, `--markdown "hi\\nworld"` reaches lark-cli as `hi\\nworld`
+    (7 chars) and Lark renders the literal `\\n` in the bubble instead of a
+    line break.
+    """
+    for esc, real in _ESCAPE_MAP.items():
+        value = value.replace(esc, real)
+    return value
+
+
 def sanitize_command(command: str) -> list[str]:
     """Parse command string into safe argument list.
 
-    Uses shlex.split for proper handling of quoted strings.
+    Uses shlex.split for proper handling of quoted strings, then expands
+    common escape sequences (\\n, \\t, \\r) in arg values so rich-text
+    flags like --markdown render correctly.
     Raises ValueError if command is blocked.
     """
     allowed, reason = validate_command(command)
@@ -122,6 +145,8 @@ def sanitize_command(command: str) -> list[str]:
     clean = _SHELL_CHARS.sub("", command.strip())
 
     try:
-        return shlex.split(clean)
+        args = shlex.split(clean)
     except ValueError as e:
         raise ValueError(f"Failed to parse command: {e}")
+
+    return [_expand_escapes(a) for a in args]
