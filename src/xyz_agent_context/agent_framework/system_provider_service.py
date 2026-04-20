@@ -29,10 +29,19 @@ _SYSTEM_OPENAI_PROVIDER_ID = "system_default_openai"
 
 
 def _is_cloud_mode() -> bool:
-    """Mirror backend/auth.py's cloud-mode detection logic."""
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url:
-        return not db_url.startswith("sqlite")
+    """Thin wrapper preserved for file-local readability; routes to the
+    single source of truth in ``utils.deployment_mode``. Honours the
+    same explicit ``NARRANEXUS_DEPLOYMENT_MODE`` env var as the rest of
+    the codebase.
+
+    Also keeps a DB_HOST fallback for existing cloud deployments that
+    set DB_HOST but haven't set NARRANEXUS_DEPLOYMENT_MODE or
+    DATABASE_URL — the canonical helper covers DATABASE_URL; we add
+    DB_HOST on top to avoid regressing on those deployments.
+    """
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+    if is_cloud_mode():
+        return True
     return bool(os.environ.get("DB_HOST", ""))
 
 

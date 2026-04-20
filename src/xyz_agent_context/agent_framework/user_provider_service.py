@@ -34,16 +34,11 @@ from xyz_agent_context.schema.provider_schema import (
 
 
 def _is_cloud_mode() -> bool:
-    db_url = os.environ.get("DATABASE_URL", "")
-    if db_url.startswith("sqlite"):
-        return False
-    # Check settings for non-sqlite DB
-    try:
-        from xyz_agent_context.settings import settings
-        url = getattr(settings, 'database_url', None) or ''
-        return not url.startswith("sqlite")
-    except Exception:
-        return True  # Default to cloud if settings unavailable
+    """Deprecated local name; routes to the single source of truth in
+    ``utils.deployment_mode``. Kept as a thin adapter so any external
+    callers that import this symbol keep working."""
+    from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+    return is_cloud_mode()
 
 
 def _generate_provider_id() -> str:
