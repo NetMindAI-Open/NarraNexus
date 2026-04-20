@@ -729,9 +729,18 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         authorization URL. Exchanges the pending device_code for tokens
         and flips `auth_status` to `user_logged_in`.
 
+        **MANDATORY FIRST RESPONSE** to any user "done / authorized /
+        完成了 / 点好了 / 授权了" confirmation. OAuth device flow requires
+        the client to poll with the device_code AFTER user clicks — that
+        poll IS this tool. Skipping it (e.g. calling `lark_status` instead)
+        leaves the token unclaimed on Lark's side; the click effectively
+        evaporates and `user_oauth_ok` stays false. NEVER verify OAuth
+        completion with `lark_status` before calling this tool.
+
         **WHEN TO CALL**: the user confirms they clicked "Authorize" on the
         URL you sent them. Typical cues: "done", "authorized", "I clicked
-        it", "点好了", "完成了", etc. Call immediately — don't wait or poll.
+        it", "点好了", "完成了", "授权了", etc. Call IMMEDIATELY — don't
+        wait, don't poll, don't call `lark_status` first.
 
         **NEVER PASS device_code YOURSELF**. Leave it empty and this tool
         reads the pending code from DB. Hand-copying long random strings
@@ -1121,16 +1130,25 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         `auth status` (identity + login state) with `doctor` (network and
         CLI sanity checks).
 
+        **NEVER USE TO VERIFY A FRESH USER OAUTH CLICK**. If the user just
+        said "done / 完成了 / 授权了", call `lark_auth_complete` FIRST.
+        That tool polls Lark to exchange the device_code for an access
+        token — `lark_status` only reads local state and will return
+        `user_oauth_ok=false` even when the user clicked successfully,
+        because the token was never claimed. Confusing these two tools
+        wastes a full regeneration cycle (user has to click twice).
+
         **WHEN TO CALL**:
           - Just after `lark_setup` completes, to verify the bind.
           - When a `lark_cli` call fails with a vague error and you want
             to know whether the bot itself is healthy.
           - When the user asks "is Lark working?", "what bot am I using?",
             "am I logged in?", etc.
-          - When the status matrix shows Step 2 (OAuth) as ❌ but you
-            suspect it actually worked — this tool queries the CLI's
-            auth store directly and self-heals the DB state if the CLI
-            says the user is logged in. Useful after a messy OAuth flow.
+          - AFTER `lark_auth_complete` returned success, as a final sanity
+            check — not INSTEAD of it.
+          - When the status matrix shows Step 2 (OAuth) as ❌ and NO
+            pending device_code exists — this tool self-heals the DB
+            state if the CLI says the user is logged in.
 
         **DO NOT CALL PREEMPTIVELY**: never before every `lark_cli` — that
         wastes a round-trip. Trust the normal error paths in typical use.
