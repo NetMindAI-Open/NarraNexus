@@ -67,6 +67,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Track whether we should auto-scroll (only for new messages, not load-more)
   const shouldAutoScrollRef = useRef(true);
 
+  // Bug 15: initial open (or agent switch) must land at the very bottom
+  // instantly, *after* MessageBubble subtrees (markdown, code blocks,
+  // tool-call UI) have had a frame to lay out. A smooth scrollIntoView
+  // from mount-time position can't catch a container that keeps growing
+  // as async content renders. We raise this flag whenever fresh history
+  // is loaded and consume it in a dedicated rAF-gated effect below.
+  const initialScrollPendingRef = useRef(false);
+
   const {
     messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
     isStreaming, addUserMessage, startStreaming,
@@ -105,6 +113,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         setHistoryTotalCount(response.total_count);
         // Re-enable auto-scroll after history loads (onScroll may have disabled it during transition)
         shouldAutoScrollRef.current = true;
+        // Bug 15: request an instant jump-to-bottom once timeline has
+        // rendered. The dedicated rAF-gated effect picks this up.
+        initialScrollPendingRef.current = true;
       }
     } catch (error) {
       console.error('Failed to load chat history:', error);
@@ -195,8 +206,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             return [...olderPortion, ...response.messages];
           });
           setHistoryTotalCount(response.total_count);
-          // New messages arrived → auto-scroll to bottom
+          // New messages arrived → auto-scroll to bottom.
+          // Bug 15: route through initialScrollPendingRef so the
+          // instant-jump effect handles it (smooth scrollIntoView lost
+          // the race against async markdown layout).
           shouldAutoScrollRef.current = true;
+          initialScrollPendingRef.current = true;
         }
       } catch {
         // Silently ignore
@@ -281,12 +296,44 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     return items;
   }, [historyMessages, messages]);
 
-  // ── Auto-scroll (only for new messages, not load-more) ──
+  // ── Bug 15: initial jump-to-bottom on open / agent switch ──
+  //
+  // After fresh history loads, wait one animation frame for MessageBubble
+  // subtrees (markdown, code highlighting, tool-call UI) to settle, then
+  // snap the chat container straight to the bottom. We operate on
+  // scrollContainerRef directly (not scrollIntoView on a sentinel) so
+  // we don't accidentally scroll ancestor containers. behavior is
+  // instant — smooth animation from the top can't catch a container
+  // that keeps growing as async content renders below the animation.
   useEffect(() => {
-    if (shouldAutoScrollRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [timeline, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
+    if (!initialScrollPendingRef.current) return;
+    if (timeline.length === 0) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    let cancelled = false;
+    const id = requestAnimationFrame(() => {
+      if (cancelled) return;
+      container.scrollTop = container.scrollHeight;
+      initialScrollPendingRef.current = false;
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(id);
+    };
+  }, [timeline]);
+
+  // ── Streaming auto-scroll ──
+  //
+  // During streaming, each delta adds a small amount of content; a smooth
+  // scrollIntoView per update gives the nice "following along" feel.
+  // Gated by isStreaming so it does NOT fire on initial open (that path
+  // is handled by the instant-jump effect above).
+  useEffect(() => {
+    if (!isStreaming) return;
+    if (!shouldAutoScrollRef.current) return;
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
 
   // ── Auto-load more if content doesn't fill the container ──
   // When activity messages are small, the initial page may not cause overflow,
@@ -314,6 +361,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     const content = input.trim();
     setInput('');
     shouldAutoScrollRef.current = true;
+    // Bug 15: snap to bottom for the user's freshly-sent bubble before
+    // streaming starts. The streaming effect takes over from there.
+    initialScrollPendingRef.current = true;
 
     if (showBootstrapGreeting) {
       useChatStore.setState((state) => ({
