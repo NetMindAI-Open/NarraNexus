@@ -662,13 +662,14 @@ class LarkTrigger:
                 "created_at": now,
             })
 
-            # Write agent response summary
+            # Write agent response summary — persist the actual reply so the
+            # Inbox UI shows what was sent, not a placeholder stub.
             if agent_response and agent_response.strip():
                 await db.insert("bus_messages", {
                     "message_id": f"lark_out_{uuid.uuid4().hex[:12]}",
                     "channel_id": channel_id,
                     "from_agent": cred.agent_id,
-                    "content": "(Replied on Lark)",
+                    "content": agent_response,
                     "msg_type": "text",
                     "created_at": now,
                 })

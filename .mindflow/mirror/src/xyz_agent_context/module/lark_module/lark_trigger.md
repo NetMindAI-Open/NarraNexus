@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-04-16
+last_verified: 2026-04-19
 ---
 
 ## Why it exists
@@ -53,3 +53,11 @@ respond to Lark messages.
   (`lark_send_message` tool) and V2 (`lark_cli` with `+messages-send`/
   `+messages-reply` in command string). Uses `shlex.split` to extract
   `--text` value from the V2 command string.
+- **Inbox outbound row stores the full reply verbatim** — earlier
+  revisions wrote a hard-coded `"(Replied on Lark)"` stub, which
+  erased the message content in the Inbox UI. The `bus_messages`
+  outbound row now persists `agent_response` directly. The string
+  `"(Replied on Lark)"` still appears in `_build_and_run_agent` as a
+  legitimate fallback for the case where the caller could not parse
+  out the reply text from the tool call — that scenario stays a
+  placeholder on purpose.
