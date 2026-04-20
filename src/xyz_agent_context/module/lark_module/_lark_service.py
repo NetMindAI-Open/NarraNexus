@@ -88,21 +88,33 @@ async def do_bind(
     )
     await mgr.save_credential(cred)
 
-    # Verify by hitting bot info (triggers hydrate which runs config init)
-    bot_info = await _cli._run_with_agent_id(["contact", "+get-user", "--as", "bot"], agent_id)
+    # Verify credentials via auth status (triggers hydrate which runs config
+    # init). Bot identity has no "current user" concept — using `get-user`
+    # without `--user-id` always fails. `auth status` works for bot identity
+    # and is the right shape for credential validation.
+    bot_info = await _cli._run_with_agent_id(["auth", "status"], agent_id)
     if not bot_info.get("success"):
         # Credentials invalid → rollback so the user can retry with correct values
         await mgr.delete_credential(agent_id)
+        raw_err = bot_info.get("error", "Credential verification failed. Check app_id and app_secret.")
+        # Unwrap nested error dict if present
+        if isinstance(raw_err, dict):
+            raw_err = raw_err.get("message", str(raw_err))
         return {
             "success": False,
-            "error": bot_info.get("error", "Credential verification failed. Check app_id and app_secret."),
+            "error": raw_err,
         }
 
-    # Capture bot name from verification response
-    data = bot_info.get("data", {})
-    name = data.get("name", data.get("en_name", ""))
-    if name:
-        await mgr.update_bot_name(agent_id, name)
+    # Fetch bot name via bot-info API (best-effort, non-fatal)
+    bot_user = await _cli._run_with_agent_id(
+        ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
+        agent_id,
+    )
+    if bot_user.get("success"):
+        bdata = bot_user.get("data", {}).get("bot", bot_user.get("data", {}))
+        name = bdata.get("app_name", bdata.get("name", ""))
+        if name:
+            await mgr.update_bot_name(agent_id, name)
 
     # Resolve owner identity from email
     owner_open_id = ""

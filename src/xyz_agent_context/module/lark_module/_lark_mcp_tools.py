@@ -5,7 +5,8 @@
 
 Tools exposed:
   - lark_cli(agent_id, command)                    — Run any lark-cli command
-  - lark_setup(agent_id, brand, email)             — Create new Lark app (agent-assisted)
+  - lark_setup(agent_id, brand, email)             — Create NEW Lark app (agent-assisted)
+  - lark_bind(agent_id, app_id, app_secret, ...)   — Bind EXISTING app (user has credentials)
   - lark_configure_permissions(agent_id)           — One-shot permission bootstrap
   - lark_auth(agent_id, scopes)                    — Targeted OAuth (by scope)
   - lark_auth_complete(agent_id, dc)               — Complete OAuth device flow
@@ -350,11 +351,21 @@ def register_lark_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def lark_setup(agent_id: str, brand: str = "lark", owner_email: str = "") -> dict:
         """
-        Create a new Lark/Feishu app and bind it as this agent's bot. Replaces
+        Create a NEW Lark/Feishu app and bind it as this agent's bot. Replaces
         the manual 9-step app-creation process with a single authorization URL.
 
         **WHEN TO CALL**: the user asks to "connect Lark / Feishu", "set up
-        Lark", or similar. Only works when the agent has NO bot bound yet.
+        Lark", or similar AND has no existing app. Only works when the agent
+        has NO bot bound yet.
+
+        **DO NOT CALL** when the user already provides an App ID + App Secret.
+        That means they have an existing app — use `lark_bind` instead.
+        Signs the user is pasting existing credentials:
+          - A string starting with `cli_` (App ID)
+          - A long random string alongside it (App Secret)
+          - Phrases like "帮我绑定", "bind my app", "here's my app id/secret"
+        Calling `lark_setup` in that case creates a useless NEW app and
+        discards the credentials the user just gave you.
 
         **BEFORE CALLING — COLLECT FROM USER (always ask, do NOT silently
         default)**:
@@ -550,6 +561,76 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             except (ProcessLookupError, OSError, UnboundLocalError):
                 pass
             return {"success": False, "error": f"Setup failed: {e}"}
+
+    # =====================================================================
+    # Lifecycle: lark_bind (existing app)
+    # =====================================================================
+
+    @mcp.tool()
+    async def lark_bind(
+        agent_id: str,
+        app_id: str,
+        app_secret: str,
+        brand: str = "lark",
+        owner_email: str = "",
+    ) -> dict:
+        """
+        Bind an EXISTING Lark/Feishu app to this agent using credentials the
+        user already has on hand (App ID + App Secret from the Lark Open
+        Platform / 飞书开放平台 console).
+
+        **WHEN TO CALL**: the user pastes app_id + app_secret (and usually
+        email). Typical cues:
+          - "帮我绑定 cli_xxx, secret_xxx, me@corp.com"
+          - "bind my existing Feishu app: id=... secret=..."
+          - Any time the user supplies values that look like an App ID
+            (starts with `cli_`) AND an App Secret.
+
+        Use `lark_setup` INSTEAD when the user has no app yet and wants to
+        create one from scratch via browser flow.
+
+        **BEFORE CALLING — CONFIRM BRAND**: the user may not say explicitly.
+        Ask "Feishu (飞书 · 中国大陆) or Lark International?" unless the
+        context makes it unambiguous.
+
+        **AFTER RETURN**:
+          - `success=True` → the bot can now SEND messages. Then, still
+            needed for auto-reply:
+              1. Call `lark_configure_permissions` (or `lark_auth`) to grant
+                 scopes like im:message:receive_v1, contact:user.base:readonly.
+              2. Call `lark_enable_receive(agent_id, app_secret)` to start
+                 listening for incoming messages.
+          - `success=False` with "App ID already bound" → tell the user which
+            other agent has it. Each Lark app binds to one agent.
+          - `success=False` with "Credential verification failed" → the
+            app_id/app_secret combo is wrong; ask the user to re-check.
+
+        Args:
+            agent_id: The agent to bind the bot to.
+            app_id: Lark app ID (typically starts with `cli_`).
+            app_secret: Lark app secret.
+            brand: "feishu" (中国大陆) or "lark" (International).
+            owner_email: User's Lark/Feishu email for identity linking.
+                         Optional but recommended — without it the bot can't
+                         resolve "me" / "my calendar" / etc.
+
+        Returns:
+            {"success": True, "data": {"profile_name": ..., "brand": ...,
+             "app_id": ..., "auth_status": "bot_ready",
+             "owner_open_id": ..., "owner_name": ...}} or
+            {"success": False, "error": "..."}.
+        """
+        from ._lark_service import do_bind
+
+        if brand not in ("feishu", "lark"):
+            return {"success": False, "error": "brand must be 'feishu' or 'lark'."}
+
+        if owner_email and "@" not in owner_email:
+            return {"success": False, "error": "Invalid owner_email format."}
+
+        db = await XYZBaseModule.get_mcp_db_client()
+        mgr = LarkCredentialManager(db)
+        return await do_bind(mgr, agent_id, app_id, app_secret, brand, owner_email)
 
     # =====================================================================
     # Lifecycle: lark_auth + lark_auth_complete

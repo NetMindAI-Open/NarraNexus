@@ -134,7 +134,7 @@ async def lark_auth_login(request: Request, body: AgentRequest) -> dict[str, Any
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
     # V2: use workspace-based runner
-    result = await _cli._run_v2(
+    result = await _cli._run_with_agent_id(
         ["auth", "login", "--recommend", "--json", "--no-wait"],
         agent_id=body.agent_id,
         timeout=60.0,
@@ -157,7 +157,7 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
     # V2: use workspace-based runner
-    result = await _cli._run_v2(
+    result = await _cli._run_with_agent_id(
         ["auth", "login", "--device-code", body.device_code, "--json"],
         agent_id=body.agent_id,
         timeout=60.0,
@@ -168,11 +168,15 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
         from xyz_agent_context.module.lark_module._lark_credential_manager import AUTH_STATUS_USER_LOGGED_IN
         await mgr.update_auth_status(body.agent_id, AUTH_STATUS_USER_LOGGED_IN)
 
-        # Try to get bot name
-        bot_info = await _cli._run_v2(["contact", "+get-user", "--as", "bot"], agent_id=body.agent_id)
+        # Try to get bot name via bot-info API (bot identity has no "self"
+        # user concept, so `+get-user --as bot` fails without --user-id).
+        bot_info = await _cli._run_with_agent_id(
+            ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
+            agent_id=body.agent_id,
+        )
         if bot_info.get("success"):
-            data = bot_info.get("data", {})
-            name = data.get("name", data.get("en_name", ""))
+            bdata = bot_info.get("data", {}).get("bot", bot_info.get("data", {}))
+            name = bdata.get("app_name", bdata.get("name", ""))
             if name:
                 await mgr.update_bot_name(body.agent_id, name)
 
@@ -193,7 +197,7 @@ async def lark_auth_status(request: Request, agent_id: str) -> dict[str, Any]:
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    result = await _cli._run_v2(["auth", "status"], agent_id=agent_id)
+    result = await _cli._run_with_agent_id(["auth", "status"], agent_id=agent_id)
 
     # Sync auth status to DB
     if result.get("success"):
@@ -220,7 +224,10 @@ async def test_lark_connection(request: Request, body: AgentRequest) -> dict[str
     if not cred:
         return {"success": False, "error": "No Lark bot bound to this agent."}
 
-    return await _cli._run_v2(["contact", "+get-user", "--as", "bot"], agent_id=body.agent_id)
+    return await _cli._run_with_agent_id(
+        ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
+        agent_id=body.agent_id,
+    )
 
 
 @router.delete("/unbind")
