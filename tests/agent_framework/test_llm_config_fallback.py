@@ -1,25 +1,28 @@
 """
 @file_name: test_llm_config_fallback.py
 @author: Bin Liang
-@date: 2026-04-16
-@description: `get_user_llm_configs` system-default fallback.
+@date: 2026-04-20
+@description: Unit tests for the strict system-default branch of the
+provider resolver (`_use_system_default_strict`).
 
-When a user has no complete provider config of their own, the function
-should fall back to the system-default free-tier config if the feature
-is enabled AND the user has budget. This enables:
-  - HTTP-path quota (auth_middleware's ContextVar gets overwritten by
-    AgentRuntime calling get_agent_owner_llm_configs; the fallback is
-    the real quota injection point)
-  - Background-trigger quota (jobs/bus/lark never hit auth_middleware;
-    the fallback is their ONLY quota injection point)
+The old `_try_system_default_fallback` returned ``None`` silently when the
+feature was off or the quota was exhausted. That let callers chain a
+"then fall back to the user's own provider" — i.e. the system-default
+free tier was an opt-out safety net.
+
+The new contract (Bug 2 design) is explicit: when a user opts in to the
+system free tier we strictly use it or raise `SystemDefaultUnavailable`.
+No silent fallback in either direction. These tests pin that contract.
+
+Broader decision-tree tests live in `test_provider_resolution.py`.
 """
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from xyz_agent_context.agent_framework.api_config import (
-    LLMConfigNotConfigured,
-    _try_system_default_fallback,
+    SystemDefaultUnavailable,
+    _use_system_default_strict,
     get_current_user_id,
     get_provider_source,
     set_current_user_id,
@@ -85,52 +88,48 @@ def _reset_state():
 
 
 def _stub_sys(enabled: bool, cfg: LLMConfig | None = None):
-    """Force-seed the SystemProviderService singleton with a stub."""
     SystemProviderService._instance = SystemProviderService(
         enabled=enabled, config=cfg
     )
 
 
-def _stub_quota(has_budget: bool):
+def _stub_quota(has_budget: bool) -> MagicMock:
     svc = MagicMock()
     svc.check = AsyncMock(return_value=has_budget)
     QuotaService.set_default(svc)
+    return svc
 
 
 @pytest.mark.asyncio
-async def test_fallback_returns_none_when_feature_disabled():
+async def test_raises_when_system_disabled():
     _stub_sys(enabled=False)
-    _stub_quota(True)
-    assert await _try_system_default_fallback("usr_x") is None
+    svc = _stub_quota(True)
+    with pytest.raises(SystemDefaultUnavailable, match="(disabled|administrator)"):
+        await _use_system_default_strict("usr_x", svc)
 
 
 @pytest.mark.asyncio
-async def test_fallback_returns_none_when_quota_service_not_initialised():
+async def test_raises_when_quota_exhausted():
     _stub_sys(enabled=True, cfg=_valid_system_cfg())
-    # deliberately DO NOT call _stub_quota → QuotaService.default() raises
-    assert await _try_system_default_fallback("usr_x") is None
+    svc = _stub_quota(has_budget=False)
+    with pytest.raises(SystemDefaultUnavailable, match="quota"):
+        await _use_system_default_strict("usr_x", svc)
 
 
 @pytest.mark.asyncio
-async def test_fallback_returns_none_when_no_budget():
+async def test_success_sets_context_vars_and_returns_dataclasses():
     _stub_sys(enabled=True, cfg=_valid_system_cfg())
-    _stub_quota(has_budget=False)
-    assert await _try_system_default_fallback("usr_x") is None
+    svc = _stub_quota(has_budget=True)
+    claude, openai_cfg, embedding = await _use_system_default_strict("usr_y", svc)
 
-
-@pytest.mark.asyncio
-async def test_fallback_success_sets_context_vars_and_returns_dataclasses():
-    _stub_sys(enabled=True, cfg=_valid_system_cfg())
-    _stub_quota(has_budget=True)
-    result = await _try_system_default_fallback("usr_y")
-    assert result is not None
-    claude, openai_cfg, embedding = result
     assert claude.api_key == "sk-system"
     assert claude.model == "claude-sonnet-4-5"
     assert openai_cfg.api_key == "sk-system"
     assert openai_cfg.model == "gpt-sys"
     assert embedding.api_key == "sk-system"
     assert embedding.model == "emb-sys"
-    # ContextVars tagged so cost_tracker's post-call hook fires correctly.
+
+    # ContextVars tagged so cost_tracker's post-call hook deducts to the
+    # right user's quota.
     assert get_provider_source() == "system"
     assert get_current_user_id() == "usr_y"

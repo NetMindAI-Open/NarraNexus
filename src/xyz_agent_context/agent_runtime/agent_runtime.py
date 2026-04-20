@@ -306,18 +306,27 @@ class AgentRuntime:
         from xyz_agent_context.agent_framework.api_config import (
             get_agent_owner_llm_configs,
             set_user_config,
-            LLMConfigNotConfigured,
+            LLMResolverError,
         )
         try:
             owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
             set_user_config(owner_claude, owner_openai, owner_embedding)
-        except LLMConfigNotConfigured as e:
-            logger.error(f"LLM config missing for agent {agent_id}: {e}")
-            # Surface the error to the WebSocket / caller as a structured message
+        except LLMResolverError as e:
+            logger.error(
+                f"LLM config resolution failed for agent {agent_id}: "
+                f"{type(e).__name__}: {e}"
+            )
+            # Surface the error to every consumer (WS route / LarkTrigger /
+            # JobTrigger / MessageBusTrigger / ChatTrigger A2A) as a
+            # structured ErrorMessage. The error_type string preserves the
+            # concrete subclass name so consumers can pick UX per type
+            # (e.g. "quota exhausted" vs "user hasn't configured own
+            # provider yet"). Silent drop by consumers = Bug 2 — each
+            # consumer uses ``collect_run`` + its own error display path.
             from xyz_agent_context.schema import ErrorMessage
             yield ErrorMessage(
                 error_message=str(e),
-                error_type="LLMConfigNotConfigured",
+                error_type=type(e).__name__,
             )
             return
 

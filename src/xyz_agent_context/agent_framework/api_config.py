@@ -472,13 +472,37 @@ def get_current_user_id() -> Optional[str]:
 # get_user_llm_configs, so this is cleanup not a bug fix).
 
 
-class LLMConfigNotConfigured(RuntimeError):
-    """Raised when a user's LLM config is missing or incomplete.
+class LLMResolverError(RuntimeError):
+    """Base class for failures when resolving LLM provider config for a user.
 
-    No silent fallback to global defaults — users MUST configure their
-    own providers via the Settings page. This prevents accidentally
-    billing one user's agent runs to another user (or to the company's
-    default keys).
+    Two concrete subclasses — callers can handle both together via
+    ``except LLMResolverError`` when they want "any resolution failure",
+    or differentiate via ``except LLMConfigNotConfigured``/
+    ``except SystemDefaultUnavailable`` when the UX differs.
+    """
+
+
+class LLMConfigNotConfigured(LLMResolverError):
+    """Raised when a user has opted out of the system-default free tier
+    and their own provider/slot configuration is missing or broken.
+
+    No silent fallback to the system free tier here — the user made an
+    explicit choice in Settings, and we honour it. The error message
+    tells them exactly what to fix (add provider, assign slot) or how
+    to switch back to the free tier.
+    """
+
+
+class SystemDefaultUnavailable(LLMResolverError):
+    """Raised when a user has opted in to the system-default free tier
+    but it can't serve the request — either the operator has disabled
+    it (``SYSTEM_DEFAULT_LLM_ENABLED!=true``) or the user's quota is
+    exhausted.
+
+    No silent fallback to the user's own provider here either — the
+    user's opt-in is a deliberate preference and we don't override it.
+    The error message directs them to either turn the toggle off and
+    configure their own provider, or to ask the operator for more quota.
     """
 
 
@@ -517,90 +541,96 @@ async def get_agent_owner_llm_configs(
 
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
     """
-    Load LLM configs for a specific user.
+    Resolve the LLM config stack for a specific user.
 
-    Decision tree:
-        1. If the user has opted in to `prefer_system_override` AND the
-           system-default free tier is usable (enabled + has budget) →
-           route to system, tag ContextVars for quota deduct.
-        2. Otherwise try the user's own fully-configured providers.
-        3. If the user has no complete config of their own AND the
-           system-default free tier is usable → fallback to system.
-        4. Otherwise raise LLMConfigNotConfigured.
+    Decision tree (deliberately simple, no silent fallback):
 
-    The system branches (1 and 3) tag `provider_source="system"` and
-    `current_user_id=user_id` on the current asyncio task's ContextVars
-    so `cost_tracker.record_cost` deducts the quota after the LLM call
-    completes. Works for both HTTP requests and background triggers
-    (jobs / bus / lark), as long as `QuotaService.default()` was
-    initialised in the current process.
+      1. ``prefer_system_override = True``  → strictly use the system
+         free tier. If disabled or quota exhausted →
+         ``SystemDefaultUnavailable`` (no fallback to the user's own
+         provider).
+      2. ``prefer_system_override = False`` (or no quota row) → strictly
+         use the user's own providers. If misconfigured →
+         ``LLMConfigNotConfigured`` (no fallback to the free tier).
+
+    The user's Settings toggle is the single source of truth. When they
+    opted in we honour it even if the free tier is broken; when they
+    opted out we honour it even if they forgot to configure their own
+    provider — both error messages direct them to the right place.
+
+    The system branch tags ``provider_source="system"`` and
+    ``current_user_id=user_id`` on the current asyncio task's ContextVars
+    so ``cost_tracker.record_cost`` deducts the quota after the LLM call
+    completes.
+
+    QuotaService is lazily bootstrapped via ``_ensure_quota_service``,
+    so every entry point (backend.main, job_trigger, bus_trigger,
+    run_lark_trigger, standalone MCP runner) works out-of-the-box
+    without each having to call ``bootstrap_quota_subsystem``.
 
     Raises:
-        LLMConfigNotConfigured: if no usable config exists in any branch.
+        SystemDefaultUnavailable: user opted in but free tier unusable.
+        LLMConfigNotConfigured: user opted out but own config missing.
     """
-    # Branch 1: user explicitly chose the free tier.
-    override_cfg = await _try_user_choice_system_override(user_id)
-    if override_cfg is not None:
-        return override_cfg
+    quota_service = await _ensure_quota_service()
+    quota = await quota_service.get(user_id)
 
-    # Branch 2/3: normal path — own provider if complete, else fallback.
+    if quota is not None and quota.prefer_system_override:
+        return await _use_system_default_strict(user_id, quota_service)
+
+    return await _get_user_llm_configs_strict(user_id)
+
+
+async def _ensure_quota_service():
+    """Return ``QuotaService.default()``, bootstrapping it on first use.
+
+    Every process that calls ``AgentRuntime.run()`` needs a live
+    QuotaService to resolve the free-tier branch. Instead of requiring
+    each entry point to call ``bootstrap_quota_subsystem`` at startup
+    (one was missed: ``run_lark_trigger``), we make the first access
+    self-bootstrap using the shared ``get_db_client()`` factory. The
+    operation is idempotent.
+    """
+    from xyz_agent_context.agent_framework.quota_service import (
+        QuotaService,
+        bootstrap_quota_subsystem,
+    )
     try:
-        return await _get_user_llm_configs_strict(user_id)
-    except LLMConfigNotConfigured as strict_err:
-        fallback = await _try_system_default_fallback(user_id)
-        if fallback is not None:
-            return fallback
-        raise strict_err
-
-
-async def _try_user_choice_system_override(
-    user_id: str,
-) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]]:
-    """If the user toggled `prefer_system_override` in Settings, try to
-    route through the system-default free tier. Returns None when the
-    user has not opted in, or when the free tier is unusable (disabled
-    / un-initialised QuotaService / exhausted budget). In the "user
-    opted in but free tier unusable" case, callers will naturally fall
-    back to the user's own provider — treating the toggle as a
-    preference rather than a hard lock."""
-    from xyz_agent_context.agent_framework.quota_service import QuotaService
-
-    try:
-        svc = QuotaService.default()
+        return QuotaService.default()
     except RuntimeError:
-        return None
-
-    q = await svc.get(user_id)
-    if q is None or not q.prefer_system_override:
-        return None
-
-    return await _try_system_default_fallback(user_id)
+        from xyz_agent_context.utils.db_factory import get_db_client
+        db = await get_db_client()
+        return await bootstrap_quota_subsystem(db)
 
 
-async def _try_system_default_fallback(
+async def _use_system_default_strict(
     user_id: str,
-) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]]:
-    """System-default free-tier fallback. Returns None when unavailable
-    (disabled, un-initialised QuotaService, exhausted budget)."""
+    quota_service,
+) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+    """Strict system-default branch. Raises SystemDefaultUnavailable
+    with an actionable message if the free tier can't serve the request."""
     from xyz_agent_context.agent_framework.system_provider_service import (
         SystemProviderService,
     )
-    from xyz_agent_context.agent_framework.quota_service import QuotaService
     from xyz_agent_context.agent_framework.provider_resolver import (
         _llm_config_to_dataclasses,
     )
 
     sys_provider = SystemProviderService.instance()
     if not sys_provider.is_enabled():
-        return None
+        raise SystemDefaultUnavailable(
+            f"User {user_id!r} has opted in to the system free tier, but "
+            f"the administrator has disabled it. Either turn off 'Use free "
+            f"quota' in Settings and configure your own provider, or ask "
+            f"the administrator to enable SYSTEM_DEFAULT_LLM_ENABLED."
+        )
 
-    try:
-        svc = QuotaService.default()
-    except RuntimeError:
-        return None
-
-    if not await svc.check(user_id):
-        return None
+    if not await quota_service.check(user_id):
+        raise SystemDefaultUnavailable(
+            f"User {user_id!r}: system free-tier quota exhausted. Either "
+            f"turn off 'Use free quota' in Settings and configure your "
+            f"own provider, or ask the administrator to grant more tokens."
+        )
 
     # Budget available — tag ContextVars so cost_tracker's deduct hook
     # attributes the cost correctly when the LLM call completes.
