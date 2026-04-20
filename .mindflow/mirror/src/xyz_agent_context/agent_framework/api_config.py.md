@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-04-16
+last_verified: 2026-04-20
 stub: false
 ---
+
+## 2026-04-20 change — strict 2-branch `get_user_llm_configs` (Bug 2)
+
+The old 4-branch tree silently fell back to the system free tier whenever
+`_get_user_llm_configs_strict` raised. That masked real configuration
+errors and also depended on `QuotaService.default()` being bootstrapped
+at process start — which `run_lark_trigger` had forgotten to do,
+rendering the fallback permanently unreachable from the Lark process
+(root cause of Bug 2 silent no-reply on Lark).
+
+The new tree is driven solely by `user_quotas.prefer_system_override`:
+
+  - `True`  → strict system free tier; raise `SystemDefaultUnavailable`
+              (disabled by admin / quota exhausted). No silent fallback
+              to the user's own provider.
+  - `False` → strict user's own provider; raise
+              `LLMConfigNotConfigured`. No silent fallback to the system
+              free tier.
+
+Error classes form a hierarchy:
+  `RuntimeError` ← `LLMResolverError` ←
+      `LLMConfigNotConfigured` / `SystemDefaultUnavailable`.
+
+Consumers that want "any resolver failure" catch `LLMResolverError`;
+consumers that want to branch UX per type catch the concrete subclass.
+`AgentRuntime.run` catches the base class and yields a structured
+`ErrorMessage(error_type=<subclass name>)`.
+
+The new helper `_ensure_quota_service()` lazy-bootstraps
+`QuotaService.default()` on first use via the shared `get_db_client()`.
+Every entry point (backend.main, job_trigger, bus_trigger,
+run_lark_trigger, standalone MCP runner) now works out-of-the-box
+without each calling `bootstrap_quota_subsystem` itself — the trigger
+that forgot is no longer a ticking bomb.
 
 ## 2026-04-16 addition — provider_source + current_user_id ContextVars
 

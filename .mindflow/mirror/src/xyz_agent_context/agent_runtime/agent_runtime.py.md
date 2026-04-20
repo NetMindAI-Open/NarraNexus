@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 stub: false
 ---
+
+## 2026-04-20 change — LLM resolver error path (Bug 2 + Bug 18)
+
+- Catches the new base class `LLMResolverError` (covers both
+  `LLMConfigNotConfigured` and `SystemDefaultUnavailable`) instead of
+  only `LLMConfigNotConfigured`. Yields a structured `ErrorMessage`
+  with `error_type=<subclass name>` so trigger-layer consumers can
+  pick per-type UX (see `agent_runtime/run_collector.py`).
+- Before the early `return`, best-effort persists the error as
+  `event.final_output = f"[ERROR:{type(e).__name__}] {e}"` via
+  `event_service.update_event_in_db`. Without this the Event row
+  created by Step 0 sat with `final_output=NULL` forever (Bug 18 —
+  failed turn invisible to audits / events-table-based UI).
+- The user's original input stays preserved in `events.env_context.input`
+  (Step 0 already wrote it); this patch only closes the missing
+  `final_output` gap. Writing a full failed-turn record into
+  `chat_module` instance memory is intentionally deferred until Bug 8
+  (failed-turn filtering on retrieval) is picked up — landing them
+  together avoids polluting chat history with half-failed entries.
+
 # agent_runtime.py — Agent 执行流水线编排器
 
 ## 为什么存在

@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_trigger.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 ---
+
+## 2026-04-20 — runtime consumption via `collect_run` (Bug 2)
+
+`_handle_tasks_send` uses `collect_run` instead of a raw
+`async for response in agent_runtime.run()` that filtered on
+`hasattr(response, 'delta')`. That old filter silently dropped
+`ErrorMessage` (no `.delta`), finishing the A2A task as COMPLETED with
+empty content. Now when `collection.is_error` is true the handler sets
+`TaskState.FAILED` with the underlying `error_type` + `error_message`
+carried in the A2A message, so A2A callers learn the run actually
+failed.
 
 # chat_trigger.py — A2A 协议 API Server
 

@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-04-19
+last_verified: 2026-04-20
 ---
+
+## 2026-04-20 change — uses `collect_run` + surfaces runtime errors (Bug 2)
+
+`_build_and_run_agent` used to iterate `runtime.run()` directly and only
+handled `MessageType.AGENT_RESPONSE`, silently dropping `ERROR` events.
+That's Bug 2 — if the runtime failed to resolve LLM config the Lark
+sender saw radio silence.
+
+Now the trigger delegates to `agent_runtime.run_collector.collect_run`
+and, when `collection.is_error` is true:
+
+  1. Renders a user-friendly IM text via the module-level
+     `format_lark_error_reply(error)` helper (not the raw developer
+     message — the Lark sender is usually not the bot's owner and
+     can't act on "slot is not configured").
+  2. Sends the friendly text through `self._cli.send_message` so the
+     chat acknowledges receipt of the user's message.
+  3. Returns the same text so the Inbox outbound row records what
+     happened.
+
+A secondary `send_message` failure is logged but doesn't propagate — we
+still return the text so Bug 10's Inbox fidelity is preserved.
 
 ## Why it exists
 

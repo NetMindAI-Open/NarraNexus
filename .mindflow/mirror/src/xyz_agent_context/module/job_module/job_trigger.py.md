@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 ---
+
+## 2026-04-20 — runtime consumption via `collect_run` (Bug 2)
+
+Inner loop now delegates to `agent_runtime.run_collector.collect_run`.
+When `collection.is_error` is true the returned job result carries
+`success=False`, `error_type`, and `error_message` — replacing the old
+misleading "Task executed but produced no text output" fallback for
+runs that actually errored (e.g. owner removed their provider, system
+quota exhausted). Downstream `_finalize_job_execution` persists the
+real failure reason on the job row.
 
 # job_trigger.py — Job 后台轮询执行服务
 

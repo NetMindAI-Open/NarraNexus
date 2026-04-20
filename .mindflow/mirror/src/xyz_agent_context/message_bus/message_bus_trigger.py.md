@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-04-10
+last_verified: 2026-04-20
 stub: false
 ---
+
+## 2026-04-20 — runtime consumption via `collect_run` (Bug 2)
+
+`_invoke_agent_runtime` now uses `collect_run`. When
+`collection.is_error` is true it returns a structured `"⚠️ I couldn't
+process your message right now (error_type). error_message"` string so
+the sender agent sees the failure inline instead of receiving an empty
+reply.
 
 # message_bus_trigger.py — MessageBus 事件驱动轮询引擎
 
