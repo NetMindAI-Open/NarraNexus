@@ -349,7 +349,7 @@ def register_lark_mcp_tools(mcp: Any) -> None:
     # =====================================================================
 
     @mcp.tool()
-    async def lark_setup(agent_id: str, brand: str = "lark", owner_email: str = "") -> dict:
+    async def lark_setup(agent_id: str, brand: str, owner_email: str = "") -> dict:
         """
         Create a NEW Lark/Feishu app and bind it as this agent's bot. Replaces
         the manual 9-step app-creation process with a single authorization URL.
@@ -571,7 +571,7 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         agent_id: str,
         app_id: str,
         app_secret: str,
-        brand: str = "lark",
+        brand: str,
         owner_email: str = "",
     ) -> dict:
         """
@@ -589,9 +589,17 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         Use `lark_setup` INSTEAD when the user has no app yet and wants to
         create one from scratch via browser flow.
 
-        **BEFORE CALLING — CONFIRM BRAND**: the user may not say explicitly.
-        Ask "Feishu (飞书 · 中国大陆) or Lark International?" unless the
-        context makes it unambiguous.
+        **BEFORE CALLING — YOU MUST ASK "FEISHU OR LARK?"**. No default,
+        no guessing. The App ID prefix (`cli_`) is the SAME for both
+        platforms — it gives you zero signal. If you pick wrong:
+          - Outbound messages still work (cross-region API routing)
+          - But WebSocket event subscription fails with error 1000040351
+            "Incorrect domain name" — the bot will silently drop every
+            inbound message the user sends on Lark.
+          - The user won't notice until they message the bot and hear
+            nothing back, often hours later.
+        Ask literally: "Feishu (飞书 · 中国大陆) or Lark International?"
+        Refuse to proceed until the user answers.
 
         **AFTER RETURN**:
           - `success=True` → the bot can now SEND messages. Then, still

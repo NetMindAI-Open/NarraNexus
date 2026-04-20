@@ -46,9 +46,29 @@ async def do_bind(
     bot-info lookup which hydrates the workspace via `config init`.
     Rollback if verification fails — that keeps DB and workspace consistent.
 
+    `brand` MUST be "feishu" or "lark" — no silent default. Caller is
+    expected to have ASKED the user which platform they're on. We can't
+    auto-detect: both platforms accept `cli_`-prefixed app IDs, both
+    tenant_access_token endpoints cross-route via redirect, and only the
+    lark_oapi WebSocket subscriber enforces domain strictly (error 1000040351
+    "Incorrect domain name"). By the time we discover the mismatch the
+    user is already bound and silently missing inbound messages.
+
     Returns {"success": True, "data": {...}} or {"success": False, "error": ...}.
     """
     from ._lark_workspace import build_profile_name, ensure_workspace
+
+    if brand not in ("feishu", "lark"):
+        return {
+            "success": False,
+            "error": (
+                f"brand must be 'feishu' (飞书 · 中国大陆) or 'lark' "
+                f"(Lark International), got {brand!r}. The caller MUST ask "
+                f"the user which platform they're on — guessing from the "
+                f"App ID is unreliable (both use cli_-prefixed IDs) and a "
+                f"wrong brand silently breaks WebSocket event delivery."
+            ),
+        }
 
     # Check if this agent already has a bot
     existing = await mgr.get_credential(agent_id)

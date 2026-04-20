@@ -60,6 +60,33 @@ def ensure_workspace(agent_id: str) -> Path:
         workspace.chmod(0o700)
     except OSError:
         pass  # Windows doesn't support chmod
+
+    # macOS Keychain lookup expands `~/Library/Keychains/...` via $HOME at
+    # call time. When we override HOME to the workspace, lark-cli (and the
+    # Security framework under it) looks for the keychain in
+    # `<workspace>/Library/Keychains/login.keychain-db` — which doesn't
+    # exist, so macOS pops up "找不到钥匙串" on every bind.
+    # Symlink Library/Keychains to the real user's keychain dir so lookups
+    # find the real login.keychain-db without the user ever seeing a
+    # dialog. Also symlink Library/Preferences so lark-cli's other
+    # preference reads land in the right place.
+    import sys
+    if sys.platform == "darwin":
+        real_home = Path(os.path.expanduser("~"))
+        lib_dir = workspace / "Library"
+        lib_dir.mkdir(exist_ok=True)
+        for sub in ("Keychains", "Preferences"):
+            link = lib_dir / sub
+            target = real_home / "Library" / sub
+            if not link.exists() and target.exists():
+                try:
+                    link.symlink_to(target)
+                except OSError as e:
+                    logger.warning(
+                        f"ensure_workspace: failed to symlink Library/{sub} "
+                        f"for {agent_id}: {e}"
+                    )
+
     return workspace
 
 
