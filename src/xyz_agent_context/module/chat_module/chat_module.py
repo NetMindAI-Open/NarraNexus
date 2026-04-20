@@ -49,6 +49,89 @@ from xyz_agent_context.module.chat_module.prompts import CHAT_MODULE_INSTRUCTION
 from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
 
 
+# =============================================================================
+# Bug 8 · Failed-turn isolation
+#
+# When a turn errors out (rate limit, API hiccup, tool exception), the agent
+# loop yields an ErrorMessage and stops early. Pre-fix, ChatModule stored the
+# turn as a normal (user, "") pair — so the next turn's prompt showed the
+# user's failed question with an empty assistant reply, and the LLM would
+# treat it as "I didn't finish last time" and retry instead of answering the
+# new user input.
+#
+# Two halves:
+#
+# 1. Storage: when ``_detect_error_in_agent_loop`` finds an ErrorMessage in
+#    ``agent_loop_response``, we persist ONLY the user question, tagged with
+#    ``meta_data.status="failed"`` + ``meta_data.error_type``. No fake
+#    assistant row. Partial output that streamed before the crash is
+#    discarded — it was never a complete answer.
+#
+# 2. Load: when feeding history back into the next turn's prompt, we apply
+#    ``_apply_failed_turn_filter`` to both long-term and short-term message
+#    lists:
+#      - failed USER rows → content rewritten to an annotated note that
+#        explicitly tells the LLM "this errored, do NOT retry"
+#      - failed ASSISTANT rows (legacy, pre-fix) → dropped defensively
+# =============================================================================
+
+_FAILED_TURN_ANNOTATION_TEMPLATE = (
+    "[Previous turn failed before the agent could reply. "
+    "The user's original question was: {original!r}. "
+    "An error ({error_type}) occurred and no reply was given. "
+    "Do NOT retry this question — focus on the current user input.]"
+)
+
+
+def _detect_error_in_agent_loop(agent_loop_response: List[Any]) -> Optional[Dict[str, str]]:
+    """Scan ``agent_loop_response`` for an ``ErrorMessage`` and return the
+    first one's signal, or ``None`` if the turn succeeded.
+
+    Import is local so the module doesn't couple to ``runtime_message``
+    at import time (keeps test fixtures simple)."""
+    from xyz_agent_context.schema import ErrorMessage
+    for msg in agent_loop_response:
+        if isinstance(msg, ErrorMessage):
+            return {
+                "error_type": msg.error_type,
+                "error_message": msg.error_message,
+            }
+    return None
+
+
+def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Prepare a history list for the next turn's prompt, isolating
+    failed turns so they can't trick the LLM into retrying them.
+
+    Shape contract (messages are the list stored in Instance JSON memory):
+      - rule A: role=user + meta_data.status==failed → content replaced
+        with an annotated "do NOT retry" note that also preserves the
+        original wording for pronoun resolution.
+      - rule B: role=assistant + meta_data.status==failed → dropped.
+        (The storage half should never write these after the fix, but
+        we tolerate legacy rows.)
+      - everything else passes through untouched.
+
+    Returns a NEW list; does not mutate the input messages.
+    """
+    out: List[Dict[str, Any]] = []
+    for msg in messages:
+        meta = msg.get("meta_data") or {}
+        if meta.get("status") != "failed":
+            out.append(msg)
+            continue
+        role = msg.get("role")
+        if role == "user":
+            annotated = dict(msg)
+            annotated["content"] = _FAILED_TURN_ANNOTATION_TEMPLATE.format(
+                original=msg.get("content", ""),
+                error_type=meta.get("error_type", "unknown"),
+            )
+            out.append(annotated)
+        # role == "assistant" with status=failed → drop
+    return out
+
+
 class ChatModule(XYZBaseModule):
     """
     Chat Module - Core module for Agent-user communication
@@ -293,6 +376,12 @@ class ChatModule(XYZBaseModule):
             except Exception as e:
                 logger.warning(f"ChatModule: Short-term memory loading failed: {e}")
 
+        # Bug 8: transform failed-turn rows before feeding history back
+        # into the next prompt — failed user rows get an annotated "do
+        # NOT retry" note, failed assistant rows (legacy) are dropped.
+        long_term_messages = _apply_failed_turn_filter(long_term_messages)
+        short_term_messages = _apply_failed_turn_filter(short_term_messages)
+
         # ========== 3. Merge and sort ==========
         all_messages = long_term_messages + short_term_messages
 
@@ -520,11 +609,28 @@ class ChatModule(XYZBaseModule):
                     channel_tag_data = channel_tag_data.to_dict()
                 shared_meta["channel_tag"] = channel_tag_data
 
+        # Bug 8: detect failure FIRST. If the agent loop raised, persist
+        # only the user question with status=failed so the next turn's
+        # prompt (after _apply_failed_turn_filter) shows an explicit
+        # "do not retry" annotation instead of a fake completed pair.
+        error_signal = _detect_error_in_agent_loop(params.agent_loop_response)
+
         # Extract the user-visible response (from send_message_to_user_directly tool call)
         assistant_content = self._extract_user_visible_response(params.agent_loop_response)
         is_no_response = assistant_content == "(Agent decided no response needed)"
 
-        if working_source == "chat" or not is_no_response:
+        if error_signal is not None:
+            # Failed turn: preserve user question (for reference), skip assistant.
+            messages.append({
+                "role": "user",
+                "content": params.input_content,
+                "meta_data": {
+                    **shared_meta,
+                    "status": "failed",
+                    "error_type": error_signal["error_type"],
+                },
+            })
+        elif working_source == "chat" or not is_no_response:
             # Normal conversation: store user message + assistant reply
             messages.append({
                 "role": "user",

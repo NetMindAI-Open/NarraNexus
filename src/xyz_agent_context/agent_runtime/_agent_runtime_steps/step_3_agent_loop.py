@@ -176,14 +176,20 @@ async def step_3_agent_loop(
                 yield result.message
     except Exception as e:
         # Yield error to frontend so the user sees what went wrong
-        # (instead of a cryptic "Agent decided no response needed")
+        # (instead of a cryptic "Agent decided no response needed").
+        # Also append the ErrorMessage to agent_loop_response so
+        # downstream hooks (notably ChatModule.hook_after_event_execution)
+        # can detect the failure and avoid persisting the turn as if it
+        # had succeeded — see Bug 8.
         error_str = str(e)
         error_type = type(e).__name__
         logger.error(f"  ❌ Agent loop error ({error_type}): {error_str}")
-        yield ErrorMessage(
+        error_msg = ErrorMessage(
             error_message=f"Agent execution error: {error_str}",
             error_type=error_type,
         )
+        agent_loop_response.append(error_msg)
+        yield error_msg
 
     # After Agent Loop completes, record final output
     state = state.finalize()
