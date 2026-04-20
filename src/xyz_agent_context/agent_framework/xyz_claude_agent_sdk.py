@@ -150,9 +150,15 @@ class ClaudeAgentSDK:
             cli_env.update(extra_env)
 
         # Install the tool-policy guard:
-        #  • Read/Glob/Grep must stay inside the per-agent workspace.
-        #  • WebSearch is denied when the provider doesn't run Anthropic's
-        #    server-side tools (e.g. NetMind / OpenRouter just hang 45s).
+        #  • Cloud mode: Read/Glob/Grep must stay inside the per-agent
+        #    workspace, and global-install Bash commands (brew, npm -g,
+        #    apt, sudo, bare pip install) are blocked.
+        #  • Local mode: only the always-on gates (lark-cli shell-out
+        #    redirection + WebSearch fallback) apply; the user owns the
+        #    host.
+        #  • WebSearch is denied in both modes when the provider doesn't
+        #    run Anthropic's server-side tools (e.g. NetMind / OpenRouter
+        #    just hang 45s).
         # Hooks run before the permission-mode check, so they fire even under
         # bypassPermissions. See agent_framework/_tool_policy_guard.py.
         supports_server_tools = claude_config.supports_anthropic_server_tools
@@ -186,7 +192,7 @@ class ClaudeAgentSDK:
                     # Match the union of tools this guard cares about. The
                     # guard itself is cheap (string check + path resolve)
                     # so running it on every listed tool call is fine.
-                    HookMatcher(matcher="Read|Glob|Grep|WebSearch", hooks=[policy_guard]),
+                    HookMatcher(matcher="Read|Glob|Grep|WebSearch|Bash", hooks=[policy_guard]),
                 ],
             },
             disallowed_tools=disallowed_tools,

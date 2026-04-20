@@ -73,14 +73,24 @@ def workspace(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def guard_no_server_tools(workspace: Path):
-    """The common case: aggregator provider like NetMind."""
-    return build_tool_policy_guard(workspace, supports_server_tools=False)
+    """The common case: aggregator provider like NetMind.
+
+    Pinned to cloud mode because the workspace-containment assertions in
+    this file are the cloud sandbox contract. Mode-branching between
+    cloud and local is covered separately in
+    ``test_tool_policy_guard_mode.py``.
+    """
+    return build_tool_policy_guard(
+        workspace, supports_server_tools=False, mode="cloud"
+    )
 
 
 @pytest.fixture()
 def guard_with_server_tools(workspace: Path):
     """Official Anthropic / transparent proxy."""
-    return build_tool_policy_guard(workspace, supports_server_tools=True)
+    return build_tool_policy_guard(
+        workspace, supports_server_tools=True, mode="cloud"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -205,8 +215,8 @@ async def test_webfetch_always_allowed(guard_no_server_tools, guard_with_server_
 
 
 def test_guard_is_builder_factory(workspace):
-    a = build_tool_policy_guard(workspace, supports_server_tools=False)
-    b = build_tool_policy_guard(workspace, supports_server_tools=True)
+    a = build_tool_policy_guard(workspace, supports_server_tools=False, mode="cloud")
+    b = build_tool_policy_guard(workspace, supports_server_tools=True, mode="cloud")
     assert a is not b
     assert asyncio.iscoroutinefunction(a)
     assert asyncio.iscoroutinefunction(b)

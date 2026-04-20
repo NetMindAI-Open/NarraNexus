@@ -50,22 +50,81 @@ from xyz_agent_context.utils.file_safety import (
 
 # =============================================================================
 # Shared prompt constants
-# WORKSPACE_RULES is shared between instructions (conversation) and study prompt
+#
+# Two workspace-rule variants — one for CLOUD (multi-tenant shared host,
+# strict isolation) and one for LOCAL (user's own machine, relaxed access
+# with advisory transparency). The right one is rendered at prompt-build
+# time based on the deployment mode reported by BasicInfoModule.
 # =============================================================================
 
-WORKSPACE_RULES = (
-    "- All files you create or download MUST be stored inside your workspace "
-    "(`skills/<skill-name>/` or current working directory)\n"
+WORKSPACE_RULES_CLOUD = (
+    "- All files you create or download MUST stay inside your workspace "
+    "(`skills/<skill-name>/` or current working directory). Paths like "
+    "`~/`, `/etc/`, `/tmp/` outside the workspace, `~/.config/`, `~/.aws/`, "
+    "`~/.gnupg/` are **blocked by the sandbox**.\n"
     "- When a SKILL.md suggests paths like `~/.foo/` or `~/.config/foo/`, "
-    "**remap them** to `skills/<skill-name>/` instead\n"
-    "- The ONLY exception: system-level tools that genuinely require global installation "
-    "(e.g., `pip install`)\n"
+    "**remap them** to `skills/<skill-name>/` instead.\n"
+    "- **Global installation is blocked in cloud.** `brew install`, "
+    "`npm install -g`, `yarn global add`, `apt-get install`, `sudo ...`, "
+    "and `pip install` without `--target=` / `--user` all fail. Drop "
+    "dependencies into `skills/<skill-name>/` instead: `pip install "
+    "--target=./skills/<name>/libs <pkg>` or `npm install <pkg>` (no `-g`) "
+    "inside the skill directory.\n"
+    "- **If a SKILL.md demands a global CLI / system package you can't "
+    "install** (e.g. needs `brew install ...`), do NOT keep trying. Call "
+    "`send_message_to_user_directly` and tell the user: *\"This skill "
+    "needs a global CLI install, which this cloud deployment does not "
+    "yet support. Please either pick a different skill, or run this on "
+    "a local NarraNexus install.\"*\n"
+    "- **Pre-installed CLIs** already in PATH: `claude`, `lark-cli`, "
+    "`arena` / `npx arena`. Use them directly.\n"
     "- **Credentials and API keys** — do BOTH of the following:\n"
-    "  1. If the SKILL.md instructs you to save to a local file (e.g., `credentials.json`), "
-    "do so inside `skills/<skill-name>/` (remapped path)\n"
-    "  2. **Also** call `skill_save_config` for each key — this registers it in the system "
-    "so it appears in the frontend config panel and is auto-injected at runtime"
+    "  1. If the SKILL.md instructs you to save to a local file (e.g., "
+    "`credentials.json`), do so inside `skills/<skill-name>/` (remapped "
+    "path). **Never** write credentials to `~/.config/`, `~/.aws/`, "
+    "`/etc/`, or other global locations — it would leak to other users.\n"
+    "  2. **Also** call `skill_save_config` for each key — this registers "
+    "it in the system so it appears in the frontend config panel and is "
+    "auto-injected at runtime."
 )
+
+WORKSPACE_RULES_LOCAL = (
+    "- `skills/<skill-name>/` is the **preferred** home for files you "
+    "create as part of a skill (keeps related things together), but this "
+    "is the user's own machine and you MAY read/write outside the "
+    "workspace when the task calls for it (e.g. `~/Documents/`, "
+    "`/tmp/`, a project directory the user points you at).\n"
+    "- **Global installation is allowed.** You MAY run `brew install`, "
+    "`npm install -g`, `pip install`, etc. when a skill needs it. "
+    "**Good practice (not strict)**: before a large global change "
+    "(new binary, modifying system PATH), briefly mention to the user "
+    "via `send_message_to_user_directly` what you're about to install "
+    "and where, so they know what changed on their computer.\n"
+    "- **Credentials and API keys** — do BOTH of the following:\n"
+    "  1. If the SKILL.md specifies where credentials live (e.g., "
+    "`~/.config/foo/` or `credentials.json` inside the skill dir), save "
+    "them there. If the skill is happy with a workspace-local file, "
+    "prefer `skills/<skill-name>/`. **Good practice**: tell the user "
+    "via `send_message_to_user_directly` where the credential was "
+    "saved so they can rotate / revoke it later.\n"
+    "  2. **Also** call `skill_save_config` for each key — this registers "
+    "it in the system so it appears in the frontend config panel and is "
+    "auto-injected at runtime."
+)
+
+
+def _resolve_workspace_rules(ctx_data: "ContextData") -> str:
+    """Pick the cloud or local workspace-rules block for the current run.
+
+    Falls back to cloud (the stricter set) when ``deployment_mode`` is
+    missing so we never accidentally hand a local-style prompt to a
+    cloud agent.
+    """
+    mode = getattr(ctx_data, "deployment_mode", None)
+    if mode == "local":
+        return WORKSPACE_RULES_LOCAL
+    return WORKSPACE_RULES_CLOUD
+
 
 SKILL_INSTRUCTIONS_TEMPLATE = """\
 #### Available Skills
@@ -80,7 +139,7 @@ Your skills directory: `skills/` (relative to your current working directory)
 - For scripts, execute them and use the output (don't read the source code)
 
 ##### 2. Workspace & File Storage Rules
-""" + WORKSPACE_RULES + """
+{workspace_rules}
 
 ##### 3. Skill Configuration Tools
 | Tool | Purpose |
@@ -221,13 +280,24 @@ class SkillModule(XYZBaseModule):
             skills_table = ctx_data.extra_data.get("skills_table", "")
             skills_count = ctx_data.extra_data.get("skills_count", 0)
 
+        # Deployment mode (populated by BasicInfoModule.hook_data_gathering)
+        # decides whether the agent sees the strict cloud rules or the
+        # relaxed local rules.
+        workspace_rules = _resolve_workspace_rules(ctx_data)
+
         # Agent's cwd is already {base_working_path}/{agent_id}_{user_id}/
         # Use relative path skills/ in prompt to avoid path duplication
         if skills_count == 0:
             # Even with no skills, agent needs workspace rules and installation instructions
-            return SKILL_INSTRUCTIONS_TEMPLATE.format(skills_table="*No skills installed.*")
+            return SKILL_INSTRUCTIONS_TEMPLATE.format(
+                skills_table="*No skills installed.*",
+                workspace_rules=workspace_rules,
+            )
 
-        return self.instructions.format(skills_table=skills_table)
+        return self.instructions.format(
+            skills_table=skills_table,
+            workspace_rules=workspace_rules,
+        )
 
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         """

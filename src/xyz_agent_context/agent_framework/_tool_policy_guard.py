@@ -4,10 +4,12 @@
 @description: PreToolUse hook — single place to express "what agents are
     allowed to do" before a tool runs.
 
-Two policies live here:
+Four policies live here:
 
-1. **Workspace-scoped reads.** ``Read`` / ``Glob`` / ``Grep`` must target
-   paths inside the per-agent workspace. Writes are governed elsewhere.
+1. **Workspace-scoped reads (cloud only).** ``Read`` / ``Glob`` / ``Grep``
+   must target paths inside the per-agent workspace. Writes are governed
+   elsewhere. In local mode we skip this check — it is the user's own
+   machine.
 
 2. **Server-tool gating.** ``WebSearch`` relies on Anthropic's server-side
    tool ``web_search_20250305``. Aggregators like NetMind, OpenRouter,
@@ -15,6 +17,18 @@ Two policies live here:
    times out. When the current provider does not advertise server-tool
    support, we deny ``WebSearch`` immediately with an actionable hint so
    the LLM pivots to ``WebFetch``.
+
+3. **Lark shell-out redirection (both modes).** Direct calls to
+   ``lark-cli`` via Bash, or package-manager installs of Lark integration
+   packages, are rejected and redirected to the MCP surface which does
+   workspace-aware credential hydration.
+
+4. **Global-install blocking (cloud only).** ``brew install``,
+   ``npm install -g``, ``yarn global add``, ``apt-get install``,
+   ``sudo ...``, or ``pip install`` without ``--target=``/``--user`` are
+   rejected in cloud mode because they would mutate the shared host and
+   leak between tenants. Local mode allows them — the host is the user's
+   own computer.
 
 Hooks fire before the permission-mode check, so these rules apply even
 under ``permission_mode="bypassPermissions"``. See
@@ -39,9 +53,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Literal
 
 from loguru import logger
+
+from xyz_agent_context.utils.deployment_mode import (
+    DeploymentMode,
+    get_deployment_mode,
+)
 
 
 # Tools whose target path must stay inside the workspace subtree.
@@ -68,6 +87,45 @@ _LARK_SHELL_PATTERNS = (
     re.compile(r"(?:^|\s)npx\s+skills\s+add\s+larksuite/cli"),
 )
 
+# Global-install patterns (Bug 5 cloud guard). Any of these in a Bash
+# command means the agent is trying to modify the shared host: install
+# a new binary system-wide, a Python package into the root site-packages,
+# or run something as root. On a multi-tenant cloud deployment these
+# leak into other users' sessions, so we reject them upfront in cloud
+# mode. Local mode is the user's own machine — allowed.
+_GLOBAL_INSTALL_PATTERNS = (
+    # brew install / brew cask install
+    re.compile(r"(?:^|[\s;&|`$(])brew\s+(?:cask\s+)?install\b"),
+    # npm install -g / npm i -g / npm -g install
+    re.compile(r"(?:^|[\s;&|`$(])npm\s+(?:install|i)\s+-g\b"),
+    re.compile(r"(?:^|[\s;&|`$(])npm\s+-g\s+(?:install|i)\b"),
+    # yarn global add
+    re.compile(r"(?:^|[\s;&|`$(])yarn\s+global\s+add\b"),
+    # apt / apt-get install (usually via sudo)
+    re.compile(r"(?:^|[\s;&|`$(])(?:sudo\s+)?apt(?:-get)?\s+install\b"),
+    # sudo <anything> — broadly privilege escalation is not allowed in cloud
+    re.compile(r"(?:^|[\s;&|`$(])sudo\s+\S+"),
+)
+
+# pip install is allowed when it writes to a bounded location
+# (``--target=`` or ``--user``); otherwise treated as global. We detect
+# the bare form to block, and exempt the scoped flags.
+_PIP_INSTALL_BARE = re.compile(r"(?:^|[\s;&|`$(])pip\s+install\b")
+_PIP_INSTALL_SCOPED_FLAGS = re.compile(r"(--target[=\s]|--user\b)")
+
+
+def _is_global_install_command(command: str) -> bool:
+    """True if ``command`` is a Bash invocation that would mutate the
+    shared host (brew / npm -g / pip without --target/--user / apt /
+    sudo / yarn global)."""
+    if any(p.search(command) for p in _GLOBAL_INSTALL_PATTERNS):
+        return True
+    # pip install is conditional: only bare form is global.
+    if _PIP_INSTALL_BARE.search(command):
+        if not _PIP_INSTALL_SCOPED_FLAGS.search(command):
+            return True
+    return False
+
 
 PreToolUseHook = Callable[
     [dict[str, Any], str | None, Any],
@@ -89,23 +147,31 @@ def _deny(reason: str) -> dict[str, Any]:
 def build_tool_policy_guard(
     workspace: str | Path,
     supports_server_tools: bool = False,
+    mode: DeploymentMode | None = None,
 ) -> PreToolUseHook:
     """Return an async PreToolUse hook that enforces workspace + server-tool policies.
 
     Args:
-        workspace: Absolute path of the per-agent workspace directory. Any
-            ``Read`` / ``Glob`` / ``Grep`` that resolves outside this subtree
-            is denied.
+        workspace: Absolute path of the per-agent workspace directory. In
+            cloud mode, any ``Read`` / ``Glob`` / ``Grep`` that resolves
+            outside this subtree is denied. In local mode the check is
+            skipped — it is the user's own machine.
         supports_server_tools: Whether the current LLM provider endpoint
             serves Anthropic's server-side tools. When ``False`` (the default
             and correct choice for NetMind / OpenRouter / other aggregators),
             ``WebSearch`` is denied upfront so the LLM can fall back to
             ``WebFetch`` without wasting a 45-second timeout.
+        mode: ``"cloud"`` or ``"local"``. ``None`` → resolve from env via
+            ``get_deployment_mode()``. Cloud mode activates the sandbox
+            (workspace containment + global-install blocking). Local mode
+            skips both — the user owns the host.
 
     Returns:
         A coroutine suitable for ``HookMatcher(hooks=[...])``.
     """
     workspace_root = Path(workspace).resolve(strict=False)
+    resolved_mode: DeploymentMode = mode if mode is not None else get_deployment_mode()
+    is_cloud = resolved_mode == "cloud"
 
     async def _guard(
         input_data: dict[str, Any],
@@ -127,13 +193,16 @@ def build_tool_policy_guard(
                 f"to provide the URL you need."
             )
 
-        # --- Bash + lark-cli gate -----------------------------------------
-        # Shelling directly to lark-cli (or using package managers to
-        # "install" Lark integration) skips workspace isolation and
-        # credential hydration. Redirect the agent to the MCP surface.
+        # --- Bash gates ---------------------------------------------------
         if tool_name == "Bash":
             command = (input_data.get("tool_input") or {}).get("command", "") or ""
-            if isinstance(command, str) and any(p.search(command) for p in _LARK_SHELL_PATTERNS):
+            if not isinstance(command, str):
+                command = ""
+
+            # (a) lark-cli shell-out — always blocked, both modes. Not an
+            # isolation rule, it's MCP routing: direct shell-outs skip
+            # credential hydration that the MCP tools perform.
+            if any(p.search(command) for p in _LARK_SHELL_PATTERNS):
                 logger.info(
                     f"[tool_policy_guard] blocked Bash Lark shell-out: {command[:200]!r}"
                 )
@@ -154,7 +223,39 @@ def build_tool_policy_guard(
                     "instead of shelling out as a workaround."
                 )
 
-        # --- Workspace-scoped read gate -----------------------------------
+            # (b) Global-install blocking — cloud only. These commands would
+            # mutate the shared host and leak between tenants.
+            if is_cloud and _is_global_install_command(command):
+                logger.info(
+                    f"[tool_policy_guard] blocked global-install command "
+                    f"(cloud mode): {command[:200]!r}"
+                )
+                return _deny(
+                    "Global installation commands (`brew install`, "
+                    "`npm install -g`, `yarn global add`, `apt-get install`, "
+                    "`sudo ...`, or `pip install` without `--target=` / "
+                    "`--user`) are blocked in this CLOUD deployment because "
+                    "they would modify the shared host and leak between "
+                    "users. Full sandboxed support for global installs is "
+                    "on the roadmap.\n\n"
+                    "What to do instead:\n"
+                    "  • Scope Python installs: `pip install --target=./libs <pkg>` "
+                    "or `pip install --user <pkg>`.\n"
+                    "  • Drop Node dependencies into the workspace: `npm install <pkg>` "
+                    "(no `-g`) inside your skill directory.\n"
+                    "  • If a skill's SKILL.md requires a global CLI you "
+                    "can't install: call `send_message_to_user_directly` "
+                    "and tell the user this skill needs global CLI install, "
+                    "which is not yet supported on cloud — ask them to use "
+                    "a local NarraNexus deployment, or pick another skill.\n"
+                    "Pre-installed CLIs already in PATH: `claude`, `lark-cli`, "
+                    "`arena` / `npx arena`."
+                )
+
+        # --- Workspace-scoped read gate — cloud only ----------------------
+        if not is_cloud:
+            return {}
+
         if tool_name not in _READ_TOOLS:
             return {}
 
