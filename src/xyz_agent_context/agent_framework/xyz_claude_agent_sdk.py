@@ -203,8 +203,15 @@ class ClaudeAgentSDK:
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
-        # Idle timeout: if no message is received within this duration, assume CLI is stuck
-        IDLE_TIMEOUT_SECONDS = 1200
+        # Idle timeout: if no message is received within this duration, assume CLI is stuck.
+        # Bug 20 (2026-04-20): lowered from 1200s → 600s. Every MCP tool handler now
+        # self-caps at ≤60s via `with_mcp_timeout` (see common_tools_module), and
+        # Claude CLI built-in tools (WebFetch/Bash) have their own short internal
+        # timeouts. 1200s was "20 minutes of complete silence" — that length of
+        # idle means something deeper is broken; 10 minutes gives reasonable
+        # margin for a legitimately long LLM thinking pass while surfacing true
+        # hangs an order of magnitude faster.
+        IDLE_TIMEOUT_SECONDS = 600
 
         client = None
         message_count = 0

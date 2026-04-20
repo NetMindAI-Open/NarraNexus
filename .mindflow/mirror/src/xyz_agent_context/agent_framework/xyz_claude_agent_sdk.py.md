@@ -3,6 +3,7 @@ code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
 last_verified: 2026-04-20
 stub: false
 ---
+
 # xyz_claude_agent_sdk.py — Claude Code CLI 主 Agent Loop 适配层
 
 ## 为什么存在
@@ -27,7 +28,7 @@ Claude Code CLI 是一个独立的命令行工具，通过 `claude_agent_sdk` Py
 
 **`max_buffer_size=50MB`**：MCP 工具（如 PDF 解析）可能返回大量内容，默认 buffer 太小会导致响应被截断。
 
-**1200 秒 idle timeout**：用 `asyncio.wait_for` 包装每次 `__anext__()`，如果 CLI 超过 20 分钟无响应则中止。这防止僵尸 agent 进程永久占用资源。
+**600 秒 idle timeout**（Bug 20, 2026-04-20 从 1200s 下调）：用 `asyncio.wait_for` 包装每次 `__anext__()`，超过 10 分钟 CLI 静默则抛 TimeoutError。原来 1200s 是基于"给 MCP tool call 足够空间"的保守估计；事故后每个 MCP 工具 handler 通过 `with_mcp_timeout` 自限在 ≤60s，Claude CLI 内置 tool 自己有更短 timeout，**真实工作下 600s 静默 = 一定出 bug**，早点 TimeoutError 让错误更快现形。
 
 **`build_tool_policy_guard` 注入 PreToolUse hook 做沙箱**：CLI 本身没有工作空间隔离概念，也不知道 WebSearch 需要 Anthropic 服务端工具。我们在这里装一个 hook（`_tool_policy_guard.py`），在云端部署下强制 Read/Glob/Grep 只能访问 workspace、Bash 不允许全局安装（brew/npm -g/apt/sudo/裸 pip），在任何模式下把 `lark-cli` shell-out 重定向到 MCP、把无 server-tool 的 provider 调 WebSearch 拦下来改用 WebFetch。hook 在 `permission_mode="bypassPermissions"` 之前触发，所以即使 bypass 也生效。`HookMatcher` 的 `matcher` 必须覆盖 `Read|Glob|Grep|WebSearch|Bash`。
 
