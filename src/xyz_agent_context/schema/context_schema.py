@@ -53,6 +53,12 @@ class ContextData(BaseModel):
     bootstrap_active: bool = False  # Whether bootstrap mode is active for this context
     user_role: Optional[str] = None  # Current user role description ("Creator (Boss)" or "User/Customer")
 
+    # Deployment environment (populated by BasicInfoModule.hook_data_gathering).
+    # Short tag + verbose description block — both rendered into the system
+    # prompt so the agent can reason about cloud vs local constraints.
+    deployment_mode: Optional[str] = None  # "cloud" | "local"
+    deployment_context: Optional[str] = None  # Full prose block for the prompt
+
     # RAG Module data (populated by GeminiRAGModule)
     rag_keywords: Optional[List[str]] = None  # Knowledge base keyword list
 

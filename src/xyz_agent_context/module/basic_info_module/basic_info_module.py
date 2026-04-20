@@ -30,7 +30,12 @@ from xyz_agent_context.schema import (
 from xyz_agent_context.utils import DatabaseClient
 
 # Prompts
-from xyz_agent_context.module.basic_info_module.prompts import BASIC_INFO_MODULE_INSTRUCTIONS
+from xyz_agent_context.module.basic_info_module.prompts import (
+    BASIC_INFO_MODULE_INSTRUCTIONS,
+    DEPLOYMENT_CONTEXT_CLOUD,
+    DEPLOYMENT_CONTEXT_LOCAL,
+)
+from xyz_agent_context.utils.deployment_mode import get_deployment_mode
 
 class BasicInfoModule(XYZBaseModule):
     """
@@ -76,6 +81,18 @@ class BasicInfoModule(XYZBaseModule):
         # 1. Get current time
         current_time = datetime.now().isoformat()
         ctx_data.current_time = current_time
+
+        # 1.5. Deployment environment — tell the agent whether it's
+        # running on a shared cloud server or the user's own machine.
+        # The two modes have fundamentally different filesystem / global-
+        # install / credential semantics; the rest of the rule system
+        # (SkillModule prompts, _tool_policy_guard) keys off this.
+        mode = get_deployment_mode()
+        ctx_data.deployment_mode = mode
+        ctx_data.deployment_context = (
+            DEPLOYMENT_CONTEXT_CLOUD if mode == "cloud"
+            else DEPLOYMENT_CONTEXT_LOCAL
+        )
 
         # 2. Get Agent information from database
         try:
