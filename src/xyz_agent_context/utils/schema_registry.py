@@ -806,6 +806,44 @@ _register(
 )
 
 
+# ----------------------------------------------------------------------------
+# lark_trigger_audit — append-only lifecycle log for the Lark trigger.
+#
+# Motivation: on EC2 deployments we often cannot pull container logs out.
+# Without a durable record of "what the trigger was doing", post-incident
+# triage degenerates into guessing. This table is the trigger's black box —
+# one row per lifecycle event (ingress, dedup decision, WS connect /
+# disconnect, worker error / timeout, heartbeat). The /healthz endpoint
+# and any future admin UI read from here.
+#
+# `details` is JSON so new fields can be added without migrations.
+# 30-day retention (longer than `lark_seen_messages`) because post-incident
+# review needs wider history than dedup does.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="lark_trigger_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("event_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("app_id", "TEXT", "VARCHAR(128)"),
+            Column("chat_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("details", "TEXT", "MEDIUMTEXT"),
+        ],
+        indexes=[
+            Index("idx_lark_trigger_audit_event_time", ["event_time"]),
+            Index("idx_lark_trigger_audit_event_type", ["event_type"]),
+            Index("idx_lark_trigger_audit_agent_id", ["agent_id"]),
+            Index("idx_lark_trigger_audit_message_id", ["message_id"]),
+        ],
+    )
+)
+
+
 # ============================================================================
 # DDL Generation
 # ============================================================================
