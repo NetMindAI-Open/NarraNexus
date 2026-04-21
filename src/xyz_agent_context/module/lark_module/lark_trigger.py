@@ -131,6 +131,17 @@ class LarkTrigger:
     # of rows older than this many days once per trigger startup.
     DEDUP_RETENTION_DAYS = 7
 
+    # Audit-table retention (M-7 / observability): 30 d is comfortably
+    # longer than the incident-review windows we've needed in practice.
+    AUDIT_RETENTION_DAYS = 30
+
+    # M-7 per-message total timeout. `collect_run` internally idle-times
+    # out in 600 s (see Bug 20), but that's per-idle-stream not total
+    # wall-clock. 30 min is a generous cap for any realistic agent turn
+    # and prevents a single stuck message from permanently occupying a
+    # worker slot.
+    PROCESS_MESSAGE_TIMEOUT_SECONDS = 1800
+
     def __init__(self, max_workers: int = 3):
         self._base_workers = max(max_workers, self.MIN_WORKERS)
         self._subscriber_tasks: dict[str, asyncio.Task] = {}  # app_id -> subscribe_loop task
@@ -141,8 +152,12 @@ class LarkTrigger:
         self.running = False
         self._cli = LarkCLIClient()  # Still used for get_user, bot info lookups
         self._loop: asyncio.AbstractEventLoop | None = None  # Set in start()
-        # profile_name -> bot open_id, ensures each bot's echo is filtered
-        self._bot_open_ids: dict[str, str] = {}
+        # (agent_id, app_id) -> bot open_id, ensures each bot's echo is
+        # filtered correctly. M-6 fix: keying by profile_name meant that
+        # a rebind to a different app under the same profile_name would
+        # reuse the old bot's open_id; the tuple key rules that out and
+        # `_stop_subscriber` clears stale entries explicitly.
+        self._bot_open_ids: dict[tuple[str, str], str] = {}
         # Thread-safe dedup: message_id -> timestamp
         self._seen_messages: dict[str, float] = {}
         self._seen_lock = threading.Lock()  # Protects _seen_messages
@@ -326,6 +341,12 @@ class LarkTrigger:
         task = self._subscriber_tasks.pop(app_id, None)
         if task and not task.done():
             task.cancel()
+
+        # M-6: clear the bot_open_id cache for this cred so a later
+        # rebind of the same agent to a different app doesn't reuse
+        # stale identity.
+        if cred is not None:
+            self._bot_open_ids.pop((cred.agent_id, cred.app_id), None)
 
         logger.info(f"LarkTrigger: stopped subscriber for {profile} (app_id={app_id})")
 
@@ -616,8 +637,25 @@ class LarkTrigger:
             except asyncio.TimeoutError:
                 continue
 
+            # M-7: cap the wall-clock any one message can consume so a
+            # stuck LLM / tool call cannot permanently occupy this worker.
+            # `collect_run` has its own idle timeout (~10 min) but that
+            # gates only stream silence, not total run time.
             try:
-                await self._process_message(cred, event, worker_id)
+                await asyncio.wait_for(
+                    self._process_message(cred, event, worker_id),
+                    timeout=self.PROCESS_MESSAGE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                message_id = (
+                    event.get("message_id", "")
+                    if isinstance(event, dict) else ""
+                )
+                logger.error(
+                    f"LarkTrigger worker {worker_id} message {message_id!r} "
+                    f"exceeded {self.PROCESS_MESSAGE_TIMEOUT_SECONDS}s "
+                    f"— cancelling"
+                )
             except Exception as e:
                 logger.error(
                     f"LarkTrigger worker {worker_id} error: {e}",
@@ -650,12 +688,20 @@ class LarkTrigger:
         }
 
     async def _is_echo(self, cred: LarkCredential, event: dict, sender_id: str) -> bool:
-        """Check if message was sent by the bot itself (prevents echo loops)."""
+        """Check if message was sent by the bot itself (prevents echo loops).
+
+        Two-layer defence:
+          1. Raw SDK event sender_type == bot|app — cheap, always tried.
+          2. open_id equality against this bot's cached open_id — requires
+             an API lookup which is cached per (agent_id, app_id).
+        """
         sender_type = event.get("sender_type", "")
         if sender_type in ("bot", "app"):
             return True
-        # Lazy-load bot open_id per credential
-        if cred.profile_name not in self._bot_open_ids:
+        # Lazy-load bot open_id. Key is (agent_id, app_id) — same agent
+        # rebound to a different app must NOT reuse old identity (M-6).
+        cache_key = (cred.agent_id, cred.app_id)
+        if cache_key not in self._bot_open_ids:
             try:
                 bot_info = await self._cli._run_with_agent_id(
                     ["api", "GET", "/open-apis/bot/v3/info"],
@@ -664,10 +710,10 @@ class LarkTrigger:
                 if bot_info.get("success"):
                     bot_oid = bot_info.get("data", {}).get("bot", {}).get("open_id", "")
                     if bot_oid:
-                        self._bot_open_ids[cred.profile_name] = bot_oid
+                        self._bot_open_ids[cache_key] = bot_oid
             except Exception:
                 logger.debug(f"Failed to fetch bot open_id for {cred.profile_name}")
-        bot_oid = self._bot_open_ids.get(cred.profile_name, "")
+        bot_oid = self._bot_open_ids.get(cache_key, "")
         return bool(bot_oid and sender_id == bot_oid)
 
     async def _resolve_sender_name(self, agent_id: str, sender_id: str) -> str:
@@ -708,6 +754,20 @@ class LarkTrigger:
         self, cred: LarkCredential, event: dict, worker_id: int
     ) -> None:
         """Process a single incoming message event."""
+        # H-2: cred gatekeeper. The SDK daemon thread keeps running even
+        # after we cancel its subscribe_loop task (no portable way to
+        # stop `ws_client.start()` from outside), so events from a bot
+        # that has been unbound can still reach the queue. Reject them
+        # here before running the agent.
+        if cred.app_id not in self._subscriber_creds:
+            logger.info(
+                f"LarkTrigger worker {worker_id}: dropping event from "
+                f"unbound credential (agent_id={cred.agent_id}, "
+                f"app_id={cred.app_id}); msg_id="
+                f"{event.get('message_id', '') if isinstance(event, dict) else ''!r}"
+            )
+            return
+
         fields = self._parse_event_fields(event)
         chat_id = fields["chat_id"]
         sender_id = fields["sender_id"]
