@@ -284,3 +284,80 @@ async def test_401_auth_failure_surfaces_in_bundle_not_retried(monkeypatch):
     assert len(bundles) == 1
     assert "auth rejected" in bundles[0]["error"]
     assert call_count == 1, f"401 was retried {call_count} times; must not retry"
+
+
+# -------- MCP handler outer timeout -------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_mcp_handler_outer_timeout_fires_even_if_retry_hangs(monkeypatch):
+    """If _search_with_retry somehow hangs, with_mcp_timeout catches it."""
+    from mcp.server.fastmcp import FastMCP
+    monkeypatch.setattr(brave, "_HANDLER_TIMEOUT_S", 1.0)
+
+    async def hang_forever(queries, max_results, api_key):
+        await asyncio.sleep(60)
+        return []
+
+    monkeypatch.setattr(brave, "_search_with_retry", hang_forever)
+
+    mcp = FastMCP("test")
+    brave.register(mcp, api_key="test-key")
+
+    start = time.monotonic()
+    result = await mcp.call_tool(
+        "web_search", {"queries": ["x"], "max_results_per_query": 3}
+    )
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 3.0, f"outer handler took {elapsed:.2f}s with 1s cap"
+    assert result is not None
+
+
+@pytest.mark.asyncio
+async def test_mcp_handler_returns_error_string_when_retry_exhausted(monkeypatch):
+    """All retries fail -> handler returns 'web_search failed: ...' string."""
+    from mcp.server.fastmcp import FastMCP
+
+    async def always_raise(queries, max_results, api_key):
+        raise RuntimeError("brave search failed after 3 attempts: ...")
+
+    monkeypatch.setattr(brave, "_search_with_retry", always_raise)
+
+    mcp = FastMCP("test")
+    brave.register(mcp, api_key="test-key")
+    result = await mcp.call_tool(
+        "web_search", {"queries": ["x"], "max_results_per_query": 3}
+    )
+    as_text = str(result)
+    assert "web_search failed" in as_text
+
+
+@pytest.mark.asyncio
+async def test_mcp_handler_formats_bundles_as_markdown_on_success(monkeypatch):
+    """Happy path through the MCP tool: bundles -> format_results markdown."""
+    from mcp.server.fastmcp import FastMCP
+    fake_bundles = [
+        {
+            "query": "react",
+            "error": None,
+            "results": [
+                {"title": "React Docs", "url": "https://react.dev/", "snippet": "UI library"}
+            ],
+        }
+    ]
+
+    async def spawn_success(queries, max_results, api_key):
+        return fake_bundles
+
+    monkeypatch.setattr(brave, "_search_with_retry", spawn_success)
+
+    mcp = FastMCP("test")
+    brave.register(mcp, api_key="test-key")
+    result = await mcp.call_tool(
+        "web_search", {"queries": ["react"], "max_results_per_query": 3}
+    )
+    as_text = str(result)
+    assert "Query 1: react" in as_text
+    assert "React Docs" in as_text
+    assert "https://react.dev/" in as_text
