@@ -1,7 +1,74 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-04-20
+last_verified: 2026-04-21
+---
+
+## 2026-04-21 hardening pass — reliability + observability
+
+After a user-reported incident ("bot went silent for hours, then
+replied to 5 old messages with no log access to diagnose") we walked
+the whole trigger and closed every reliability gap we could identify,
+then added an audit black-box so the NEXT incident can be diagnosed
+without EC2 shell access.
+
+### Fixes (see BUG_FIX_LOG entry for full rationale)
+
+- **H-1 — backoff resets on healthy sessions** (`_compute_next_backoff`):
+  previous loop compounded backoff every disconnect toward the 120 s
+  cap even after hours of clean session. Now resets to 5 s whenever
+  the just-ended WS session lasted ≥ 60 s.
+- **H-2 — cred gatekeeper** in `_process_message`: events from a bot
+  that has been unbound (subscriber removed, SDK thread still alive)
+  are dropped before reaching the agent. `_stop_subscriber` also
+  clears the `_bot_open_ids` cache for that cred.
+- **H-3 — dedup fail-open actually works**: `LarkSeenMessageRepository.mark_seen`
+  now re-raises non-UNIQUE exceptions; trigger's `_check_and_classify_event`
+  turns that into a loud fail-open (`layer=db_fail_open`). Previously
+  the repo fail-closed turned transient DB errors into silent message
+  loss.
+- **H-4 — worker self-heal**: `_prune_dead_workers` called from the
+  watcher loop drops any worker task that ended unexpectedly, letting
+  `_adjust_workers` rebuild the pool.
+- **H-5 — historic filter uses last WS reconnect as baseline**: a long
+  WS disconnect followed by reconnect releases Lark's backlog of
+  events created during the dark window; those are replays, not fresh
+  traffic. Baseline is now `max(startup_time, last_ws_connected_at)`.
+- **M-6 — `_bot_open_ids` keyed by `(agent_id, app_id)`**: a rebind of
+  the same agent to a different app no longer reuses the old bot's
+  open_id for echo detection.
+- **M-7 — per-message total timeout**: `_worker` wraps
+  `_process_message` in `asyncio.wait_for(PROCESS_MESSAGE_TIMEOUT_SECONDS=1800)`.
+  `collect_run`'s idle timeout covers stream silence only, not
+  total wall-clock.
+- **M-9 — `_WS_LOOP_PATCH_LOCK`** serialises the
+  `lark_oapi.ws.client.loop` mutation across concurrent reconnects.
+- **M-10 — inbox write failure fallback**: `_write_to_inbox` failures
+  now write an `inbox_write_failed` audit row with the original
+  message and agent reply, so content isn't silently lost.
+- **L-12 — `_sanitize_display_name` strips C0/C1 control characters**:
+  closes a prompt-injection seam via Lark nicknames with newlines.
+- **L-13 — periodic cleanup**: dedup + audit retention cleanup runs
+  from the watcher every `CLEANUP_INTERVAL_SECONDS` (24 h) instead
+  of only at startup.
+
+### Observability additions
+
+- **`lark_trigger_audit` table** (schema in
+  `utils/schema_registry.py`, repo in
+  `repository/lark_trigger_audit_repository.py`): every lifecycle
+  decision writes a row — ingress accept/drop (with dedup layer),
+  echo drop, unbound drop, WS connect/disconnect/backoff, subscriber
+  start/stop, worker error/timeout, inbox-write failure, heartbeat.
+  30-day retention.
+- **`/healthz` endpoint** on port `47831` (FastAPI + uvicorn, inside
+  the trigger process). Snapshot of running state, subscriber/worker
+  counts, queue depth, uptime, last WS connect wallclock, and 1-hour
+  event-type counts. Container-internal — `docker exec narranexus-lark
+  curl -s localhost:47831/healthz`.
+- **Heartbeat audit row every 10 min**: absence in the audit table =
+  trigger was stuck or down during that window.
+
 ---
 
 ## 2026-04-20 change — durable dedup + startup filter (Bug 27)
