@@ -62,6 +62,31 @@ async def test_update_last_run_writes_all_three_fields(db_client):
 
 
 @pytest.mark.asyncio
+async def test_create_job_writes_beta_fields(db_client):
+    from xyz_agent_context.schema.job_schema import TriggerConfig, JobType
+    repo = JobRepository(db_client)
+    tc = TriggerConfig(cron="0 8 * * *", timezone="Asia/Shanghai")
+    await repo.create_job(
+        agent_id="agent_1",
+        user_id="user_1",
+        job_id="job_create_beta",
+        title="t",
+        description="d",
+        job_type=JobType.SCHEDULED,
+        trigger_config=tc,
+        payload="p",
+        instance_id="ins_create_beta",
+        notification_method="inbox",
+        next_run_time=datetime(2026, 5, 2, 0, 0, 0, tzinfo=dt_tz.utc),
+        next_run_at_local="2026-05-02T08:00:00",
+        next_run_tz="Asia/Shanghai",
+    )
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_create_beta"})
+    assert row["next_run_at_local"] == "2026-05-02T08:00:00"
+    assert row["next_run_tz"] == "Asia/Shanghai"
+
+
+@pytest.mark.asyncio
 async def test_clear_next_run_nulls_all_three(db_client):
     repo = JobRepository(db_client)
     await db_client.insert("instance_jobs", {
