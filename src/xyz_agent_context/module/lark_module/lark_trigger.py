@@ -197,6 +197,28 @@ class LarkTrigger:
         desired = self._base_workers + sub_count * self.WORKERS_PER_SUBSCRIBER
         return min(desired, self.MAX_WORKERS)
 
+    def _prune_dead_workers(self) -> int:
+        """Drop workers whose task has finished (success or error).
+
+        H-4: `_worker` catches per-message exceptions, but a bug in the
+        outer poll (e.g. `asyncio.wait_for(queue.get())` oddity, a
+        cancellation leaking out) could end the task. If we never
+        prune, `_adjust_workers` stops scheduling new workers because
+        it thinks the pool is already at target size — queue then
+        grows unbounded with no consumer.
+
+        Called from the watcher loop. Returns the number pruned.
+        """
+        alive = [w for w in self._workers if not w.done()]
+        pruned = len(self._workers) - len(alive)
+        if pruned:
+            logger.warning(
+                f"LarkTrigger: pruned {pruned} dead worker task(s); "
+                f"_adjust_workers will re-create them on the next tick"
+            )
+        self._workers = alive
+        return pruned
+
     def _adjust_workers(self, target: int) -> None:
         """Scale workers up or down to match target count."""
         current = len(self._workers)
@@ -284,7 +306,10 @@ class LarkTrigger:
                                     f"LarkConfig panel to fix."
                                 )
 
-                # Adjust worker pool based on active subscriber count
+                # Replace any worker tasks that died (H-4) before computing
+                # the desired size; otherwise a dead-but-still-counted worker
+                # keeps the pool at target and no fresh worker is scheduled.
+                self._prune_dead_workers()
                 self._adjust_workers(self._desired_worker_count())
 
             except Exception as e:
