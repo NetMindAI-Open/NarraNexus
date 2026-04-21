@@ -329,12 +329,15 @@ async def _get_job_info_for_analysis(instance, get_job_by_instance_id) -> Dict[s
         trigger_info = {}
         if job.trigger_config:
             trigger_info = {
+                "timezone": job.trigger_config.timezone,
                 "end_condition": job.trigger_config.end_condition,
                 "interval_seconds": job.trigger_config.interval_seconds,
                 "max_iterations": job.trigger_config.max_iterations,
                 "cron": job.trigger_config.cron,
             }
 
+        # v2 timezone protocol: expose only beta fields (user-local + tz) to
+        # the analysis prompt. UTC alpha never goes near the LLM.
         return {
             "job_id": job.job_id,
             "job_type": job.job_type.value if job.job_type else None,
@@ -345,9 +348,11 @@ async def _get_job_info_for_analysis(instance, get_job_by_instance_id) -> Dict[s
             "iteration_count": job.iteration_count or 0,
             "process": job.process or [],
             "status": job.status.value if job.status else None,
-            "last_run_time": job.last_run_time.strftime("%Y-%m-%dT%H:%M:%SZ") if job.last_run_time else None,
-            "next_run_time": job.next_run_time.strftime("%Y-%m-%dT%H:%M:%SZ") if job.next_run_time else None,
-            "created_at": job.created_at.strftime("%Y-%m-%dT%H:%M:%SZ") if job.created_at else None,
+            "last_run_at_local": job.last_run_at_local,
+            "last_run_tz": job.last_run_tz,
+            "next_run_at_local": job.next_run_at_local,
+            "next_run_tz": job.next_run_tz,
+            "created_at": job.created_at.strftime("%Y-%m-%dT%H:%M:%S") if job.created_at else None,
         }
     except Exception as e:
         logger.error(f"Failed to get job info for analysis: {e}")

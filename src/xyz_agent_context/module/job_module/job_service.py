@@ -618,8 +618,9 @@ class JobInstanceService:
                 {"append_to_payload": "Emphasize after-sales service advantages"}
             )
 
-            # Type B: Execute immediately
-            await service.update_job(job_id, {"next_run_time": utc_now()})
+            # Type B: Execute immediately — do NOT set "next_run_time" here alone;
+            # that bypasses the atomic alpha+beta invariant (v2 timezone protocol).
+            # Use JobRepository.update_next_run(job_id, NextRunTuple(...)) instead.
 
             # Type C: Pause
             await service.update_job(job_id, {"status": JobStatus.PAUSED})

@@ -579,11 +579,9 @@ class JobRepository(BaseRepository[JobModel]):
                 updates={"payload": "Original instruction\n\n## Supervisor supplement\nEmphasize after-sales service advantages"}
             )
 
-            # Type B: Execute immediately
-            await repo.update_job_fields(
-                job_id="job_abc",
-                updates={"next_run_time": utc_now()}
-            )
+            # Type B: Execute immediately — use update_next_run (atomic alpha+beta),
+            # NOT update_job_fields with {"next_run_time": ...} alone. That would
+            # leave next_run_at_local and next_run_tz stale and break display.
 
             # Type C: Pause
             await repo.update_job_fields(
