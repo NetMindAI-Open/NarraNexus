@@ -1,201 +1,211 @@
-/* Google Fonts Import - MUST be at the top before other @import */
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Manrope:wght@300;400;500;600;700&family=Victor+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+/* Fonts are loaded via <link> in index.html (preconnect + preload) —
+   no @import here, which would add a second render-blocking roundtrip. */
 
 @import 'tailwindcss';
 
 /* ============================================================================
-   Design System: Bioluminescent Terminal
+   Design System: Nordic Archive
    ============================================================================
-   A deep-sea inspired aesthetic with organic bioluminescent glows.
-   Think: Advanced AI control center in an underwater research station.
+   Cold grayscale · no accents · 1px rules · flat right-angle surfaces.
+   Feels like a carefully typeset internal document, not a consumer product.
+   Space Grotesk (display) + Barlow (body) + DM Mono (labels / data).
+   Typography aligned with internal.netmind.foundation.
    ============================================================================ */
 
 @theme {
-  /* Font System - unique font combination */
-  --font-display: 'Syne', system-ui, sans-serif;
-  --font-sans: 'Manrope', system-ui, sans-serif;
-  --font-mono: 'Victor Mono', 'Cascadia Code', monospace;
+  /* Font System */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-sans: 'Barlow', 'Inter', system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'JetBrains Mono', monospace;
 
   /* ---------------------------------------------------------------
-   * Primitive palette (mirrors netmind-xyz-website)
-   * Semantic tokens below reference these by name so brand-level
-   * color tweaks only need to change the primitives.
+   * Cold grayscale palette — single tonal family, no warm tones.
+   * Drives the entire archive aesthetic.
    * ---------------------------------------------------------------*/
-  --color-gray-50:  #F6F5F5;
-  --color-gray-100: #EDEBE9;
-  --color-gray-200: #E2E0DD;
-  --color-gray-300: #D0CECB;
-  --color-gray-400: #9F9C9B;
-  --color-gray-500: #787675;
-  --color-gray-600: #575655;
-  --color-gray-700: #414140;
-  --color-gray-800: #2C2C2B;
-  --color-gray-900: #20201F;
-  --color-gray-950: #191918;
+  --color-paper:   #e8eaed;
+  --color-paper-2: #dde0e4;
+  --color-paper-3: #d2d5da;
+  --color-paper-4: #c5c9cf;
+  --color-ink:     #111214;
+  --color-ink-2:   #1d1f22;
+  --color-ink-3:   #2a2d31;
+  --color-muted:   #60656f;
+  --color-muted-2: #3d4149;
+  --color-muted-3: #8a8f99;
 
-  --color-sky-blue-50:  #EFFAFF;
-  --color-sky-blue-100: #DFF5FF;
-  --color-sky-blue-200: #B8E7FF;
-  --color-sky-blue-300: #78D1FF;
-  --color-sky-blue-400: #37B9FF;
-  --color-sky-blue-500: #00A3FF;
-  --color-sky-blue-600: #008EE0;
-  --color-sky-blue-700: #006EB0;
-  --color-sky-blue-800: #02568A;
-  --color-sky-blue-900: #04426B;
+  /* Tailwind gray scale — remapped to cold archive grays so any
+     existing `bg-gray-*` / `text-gray-*` class lands on-palette. */
+  --color-gray-50:  #f3f4f6;
+  --color-gray-100: #e8eaed;
+  --color-gray-200: #dde0e4;
+  --color-gray-300: #c5c9cf;
+  --color-gray-400: #a3a8b0;
+  --color-gray-500: #8a8f99;
+  --color-gray-600: #60656f;
+  --color-gray-700: #3d4149;
+  --color-gray-800: #2a2d31;
+  --color-gray-900: #1d1f22;
+  --color-gray-950: #111214;
 
-  --color-red-500:    #F93546;
-  --color-red-400:    #FF5D62;
-  --color-yellow-500: #FFC30A;
-  --color-yellow-400: #FFD220;
-  --color-green-500:  #409B3F;
-  --color-green-400:  #69C068;
-  --color-purple-500: #6F61FF;
-  --color-pink-500:   #F83CE9;
+  /* Status palette — editorial, saturated enough to scan at small sizes but
+   * still feels printed (not neon). Tuned for use on both paper (#e8eaed)
+   * and ink (#0f1012) backgrounds. */
+  --color-red-500:    #b4232c;  /* oxblood · "error / failed" */
+  --color-red-400:    #c94a52;  /* lighter, for dark-bg readability */
+  --color-yellow-500: #b8781a;  /* burnt ochre · "warning / running" */
+  --color-yellow-400: #d0942f;  /* lighter */
+  --color-green-500:  #2e7d3a;  /* forest · "success / online / completed" */
+  --color-green-400:  #4a9956;  /* lighter */
+  --color-blue-500:   #1f5b8f;  /* slate blue · "info / active-neutral" */
+  --color-blue-400:   #366f9e;
 
-  /* Legacy aliases — kept for any component still referencing them.
-   * Prefer the semantic tokens (--accent-primary etc.) for new code. */
-  --color-cyan: var(--color-sky-blue-500);
-  --color-cyan-dim: var(--color-sky-blue-700);
-  --color-sky: var(--color-sky-blue-400);
-  --color-sky-bright: var(--color-sky-blue-300);
-  --color-magenta: var(--color-pink-500);
   --color-success: var(--color-green-500);
   --color-warning: var(--color-yellow-500);
-  --color-error: var(--color-red-500);
+  --color-error:   var(--color-red-500);
+  --color-info:    var(--color-blue-500);
 
-  /* Animation Keyframes — functional only */
+  /* Animation Keyframes — intentionally restrained */
   @keyframes slide-up-fade {
-    from { opacity: 0; transform: translateY(24px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
 
   @keyframes slide-in-right {
-    from { opacity: 0; transform: translateX(24px); }
-    to { opacity: 1; transform: translateX(0); }
+    from { opacity: 0; transform: translateX(8px); }
+    to   { opacity: 1; transform: translateX(0); }
   }
 
   @keyframes slide-in-left {
-    from { opacity: 0; transform: translateX(-24px); }
-    to { opacity: 1; transform: translateX(0); }
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
   }
 
   @keyframes fade-in {
     from { opacity: 0; }
-    to { opacity: 1; }
+    to   { opacity: 1; }
   }
 
   @keyframes scale-in {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+    from { opacity: 0; transform: scale(0.98); }
+    to   { opacity: 1; transform: scale(1); }
   }
 
   @keyframes shimmer {
-    0% { background-position: -200% 0; }
+    0%   { background-position: -200% 0; }
     100% { background-position: 200% 0; }
   }
 
   @keyframes typing-blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
+    0%, 50%    { opacity: 1; }
+    51%, 100%  { opacity: 0; }
   }
 }
 
 /* ============================================================================
-   Light Mode - clean light theme
+   Light Mode — the canonical archive palette
    ============================================================================ */
 :root {
-  /* Background layers — mapped to netmind gray palette */
-  --bg-deep: var(--color-gray-50);
-  --bg-primary: #ffffff;
-  --bg-secondary: var(--color-gray-50);
-  --bg-tertiary: var(--color-gray-100);
-  --bg-elevated: #ffffff;
-  --bg-sunken: var(--color-gray-100);
+  /* Background layers */
+  --bg-deep:      var(--color-paper);
+  --bg-primary:   var(--color-paper);
+  --bg-secondary: var(--color-paper-2);
+  --bg-tertiary:  var(--color-paper-3);
+  --bg-elevated:  #f1f3f5;
+  --bg-sunken:    var(--color-paper-2);
 
   /* Text hierarchy */
-  --text-primary: var(--color-gray-900);
-  --text-secondary: var(--color-gray-600);
-  --text-tertiary: var(--color-gray-500);
-  --text-inverse: #ffffff;
+  --text-primary:   var(--color-ink);
+  --text-secondary: var(--color-muted-2);
+  --text-tertiary:  var(--color-muted);
+  --text-inverse:   #ffffff;
 
-  --border-subtle: rgba(0, 0, 0, 0.05);
-  --border-default: rgba(0, 0, 0, 0.1);
-  --border-strong: rgba(0, 0, 0, 0.2);
+  /* Rules — hairline 1px, no glow */
+  --border-subtle: rgba(17, 18, 20, 0.08);
+  --border-default: rgba(17, 18, 20, 0.14);
+  --border-strong: rgba(17, 18, 20, 0.28);
+  --rule: rgba(17, 18, 20, 0.1);
 
-  /* Brand accents — NetMind sky-blue */
-  --accent-primary: var(--color-sky-blue-500);
-  --accent-secondary: var(--color-sky-blue-400);
-  --accent-glow: rgba(0, 163, 255, 0.15);
+  /* "Accent" is just ink — no colored highlight in the archive. */
+  --accent-primary:   var(--color-ink);
+  --accent-secondary: var(--color-muted-2);
+  --accent-glow:      rgba(17, 18, 20, 0.06);
 
-  --glass-bg: rgba(255, 255, 255, 0.85);
-  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-bg:     rgba(232, 234, 237, 0.92);
+  --glass-border: rgba(17, 18, 20, 0.12);
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.05), 0 2px 6px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
-  --shadow-glow: 0 0 40px rgba(0, 163, 255, 0.14);
-  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.04);
+  /* Shadows — minimal; most surfaces use borders, not depth. */
+  --shadow-sm:    0 0 0 1px rgba(17, 18, 20, 0.04);
+  --shadow-md:    0 0 0 1px rgba(17, 18, 20, 0.08);
+  --shadow-lg:    0 0 0 1px rgba(17, 18, 20, 0.12);
+  --shadow-glow:  none;
+  --shadow-inset: inset 0 0 0 1px rgba(17, 18, 20, 0.06);
 
-  --gradient-primary: linear-gradient(135deg, var(--color-sky-blue-500) 0%, var(--color-sky-blue-400) 100%);
-  --gradient-subtle: linear-gradient(180deg, rgba(0, 163, 255, 0.05) 0%, transparent 100%);
-  --gradient-card: linear-gradient(180deg, #ffffff 0%, var(--color-gray-50) 100%);
+  /* Gradients reduced to flat fills. */
+  --gradient-primary: var(--color-ink);
+  --gradient-subtle:  transparent;
+  --gradient-card:    var(--color-paper-2);
 
-  --code-bg: var(--color-gray-100);
-  --code-border: var(--color-gray-200);
+  --code-bg:     var(--color-paper-2);
+  --code-border: rgba(17, 18, 20, 0.14);
+
+  /* Paper grid — 72px cold grid overlay */
+  --paper-grid-color: rgba(17, 18, 20, 0.04);
+  --paper-grid-size: 72px;
 }
 
 /* ============================================================================
-   Dark Mode - deep-sea bioluminescent theme
+   Dark Mode — inverted archive (black paper, gray ink)
    ============================================================================ */
 .dark {
-  /* Background layers — netmind gray-900/950 family */
-  --bg-deep: #0f0f10;
-  --bg-primary: var(--color-gray-950);
-  --bg-secondary: var(--color-gray-900);
-  --bg-tertiary: var(--color-gray-800);
-  --bg-elevated: var(--color-gray-800);
-  --bg-sunken: #13131a;
+  --bg-deep:      #0b0c0d;
+  --bg-primary:   #0f1012;
+  --bg-secondary: #141619;
+  --bg-tertiary:  #1a1c20;
+  --bg-elevated:  #1d1f23;
+  --bg-sunken:    #0f1012;
 
-  /* Text hierarchy — soft whites */
-  --text-primary: var(--color-gray-50);
-  --text-secondary: var(--color-gray-300);
-  --text-tertiary: var(--color-gray-400);
-  --text-inverse: var(--color-gray-950);
+  --text-primary:   #e8eaed;
+  --text-secondary: #a3a8b0;
+  --text-tertiary:  #70747c;
+  --text-inverse:   #111214;
 
-  --border-subtle: rgba(55, 185, 255, 0.1);
-  --border-default: rgba(55, 185, 255, 0.2);
-  --border-strong: rgba(55, 185, 255, 0.35);
+  --border-subtle: rgba(232, 234, 237, 0.08);
+  --border-default: rgba(232, 234, 237, 0.14);
+  --border-strong: rgba(232, 234, 237, 0.3);
+  --rule: rgba(232, 234, 237, 0.12);
 
-  /* Brand accents — sky-blue shifted lighter for dark bg contrast */
-  --accent-primary: var(--color-sky-blue-400);
-  --accent-secondary: var(--color-sky-blue-300);
-  --accent-glow: rgba(55, 185, 255, 0.2);
+  --accent-primary:   #e8eaed;
+  --accent-secondary: #a3a8b0;
+  --accent-glow:      rgba(232, 234, 237, 0.05);
 
-  --glass-bg: rgba(32, 32, 31, 0.85);
-  --glass-border: rgba(55, 185, 255, 0.25);
+  --glass-bg:     rgba(20, 22, 25, 0.9);
+  --glass-border: rgba(232, 234, 237, 0.12);
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
-  --shadow-glow: 0 0 60px rgba(55, 185, 255, 0.25), 0 0 100px rgba(120, 209, 255, 0.12);
-  --shadow-inset: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-sm:    0 0 0 1px rgba(255, 255, 255, 0.04);
+  --shadow-md:    0 0 0 1px rgba(255, 255, 255, 0.08);
+  --shadow-lg:    0 0 0 1px rgba(255, 255, 255, 0.12);
+  --shadow-glow:  none;
+  --shadow-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 
-  --gradient-primary: linear-gradient(135deg, var(--color-sky-blue-400) 0%, var(--color-sky-blue-300) 100%);
-  --gradient-subtle: linear-gradient(180deg, rgba(55, 185, 255, 0.08) 0%, transparent 100%);
-  --gradient-card: linear-gradient(180deg, var(--color-gray-800) 0%, var(--color-gray-900) 100%);
+  --gradient-primary: #e8eaed;
+  --gradient-subtle:  transparent;
+  --gradient-card:    #141619;
 
-  --code-bg: var(--color-gray-900);
-  --code-border: rgba(55, 185, 255, 0.18);
+  --code-bg:     #141619;
+  --code-border: rgba(232, 234, 237, 0.14);
 
-  /* Brighter status colors for dark mode visibility */
+  --paper-grid-color: rgba(232, 234, 237, 0.04);
+
+  /* Status colors re-mapped to their lighter siblings in dark mode —
+   * the 500-values are too low-contrast on a near-black background. */
   --color-success: var(--color-green-400);
   --color-warning: var(--color-yellow-400);
-  --color-error: var(--color-red-400);
+  --color-error:   var(--color-red-400);
+  --color-info:    var(--color-blue-400);
 }
 
 /* ============================================================================
-   Base Styles
+   Base
    ============================================================================ */
 * {
   box-sizing: border-box;
@@ -204,11 +214,11 @@
 html {
   font-family: var(--font-sans);
   font-size: 15px;
+  font-weight: 300;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
 }
 
 body {
@@ -217,10 +227,15 @@ body {
   background-color: var(--bg-deep);
   color: var(--text-primary);
   min-height: 100vh;
-  transition: background-color 0.5s ease, color 0.5s ease;
   overflow-x: hidden;
+  /* Paper grid — faint 72px grid on the page background */
+  background-image:
+    linear-gradient(var(--paper-grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--paper-grid-color) 1px, transparent 1px);
+  background-size: var(--paper-grid-size) var(--paper-grid-size);
+  background-attachment: fixed;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
-
 
 #root {
   min-height: 100vh;
@@ -228,53 +243,116 @@ body {
   flex-direction: column;
 }
 
+/* Archive style is 100% right-angles.
+   Override Tailwind's radius scale at the theme level so
+   rounded-sm / rounded-md / rounded-lg / rounded-xl / rounded-2xl / rounded-3xl
+   all resolve to 0 without a cascade of !important rules. */
+@theme {
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
+  --radius-2xl: 0;
+  --radius-3xl: 0;
+  --radius-4xl: 0;
+}
+
+/* `rounded-full` is kept as an opt-in for true circles (avatars, dots, pulse
+   indicators). Use the .allow-circle escape hatch only when you explicitly need one. */
+.allow-circle,
+.avatar-circle {
+  border-radius: 9999px;
+}
+
 /* ============================================================================
-   Typography
+   Typography — Space Grotesk for display, Barlow for body, DM Mono for labels
+   (Space Grotesk tops out at weight 700 and is wider than Syne at the same size,
+    so letter-spacing is slightly less negative and h1 uses 700 instead of 800.)
    ============================================================================ */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  line-height: 1.1;
+  letter-spacing: -0.015em;
   color: var(--text-primary);
   margin: 0;
 }
 
-h1 { font-size: 2.5rem; font-weight: 800; }
-h2 { font-size: 2rem; }
+h1 {
+  font-size: clamp(2.25rem, 5.5vw, 4rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+h2 { font-size: clamp(1.5rem, 3.5vw, 2.375rem); letter-spacing: -0.02em; }
 h3 { font-size: 1.5rem; }
 h4 { font-size: 1.25rem; }
-h5 { font-size: 1.1rem; }
-h6 { font-size: 1rem; }
+h5 { font-size: 1.0625rem; }
+h6 { font-size: 0.95rem; }
 
+/* <p> defaults to zero margin — Tailwind-project convention. Margins for
+   prose paragraphs are re-added under `.markdown-content p`. This prevents
+   UI labels written as <p> from silently adding 1rem bottom margin when
+   placed inside flex/grid layouts. */
 p {
-  margin: 0 0 1rem;
-  line-height: 1.75;
+  margin: 0;
+  line-height: 1.7;
+  font-weight: 300;
 }
 
-/* Monospace - data display font */
-.font-mono, code, pre, kbd {
+strong, b { font-weight: 600; }
+
+/* Monospace — DM Mono carries the archive/data feel */
+.font-mono, code, pre, kbd, samp {
   font-family: var(--font-mono) !important;
-  font-size: 0.9em;
-  font-feature-settings: 'liga' on, 'calt' on;
+  font-feature-settings: 'liga' off, 'calt' off;
 }
 
-/* Display font */
 .font-display {
   font-family: var(--font-display) !important;
 }
 
-/* Text sizes */
-.text-xs { font-size: 0.8rem; line-height: 1.5; }
-.text-sm { font-size: 0.9rem; line-height: 1.5; }
-.text-base { font-size: 1rem; line-height: 1.6; }
-.text-lg { font-size: 1.125rem; line-height: 1.5; }
+.text-xs { font-size: 0.75rem; line-height: 1.5; }
+.text-sm { font-size: 0.85rem; line-height: 1.55; }
+.text-base { font-size: 0.95rem; line-height: 1.6; }
+.text-lg { font-size: 1.0625rem; line-height: 1.5; }
 .text-xl { font-size: 1.25rem; line-height: 1.4; }
-.text-2xl { font-size: 1.5rem; line-height: 1.3; }
-.text-3xl { font-size: 2rem; line-height: 1.2; }
+.text-2xl { font-size: 1.5rem; line-height: 1.25; }
+.text-3xl { font-size: 2rem; line-height: 1.15; }
+
+/* Archive-specific utility classes */
+.archive-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-tertiary);
+}
+
+.archive-heading {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.archive-rule {
+  border: none;
+  border-top: 1px solid var(--rule);
+  height: 0;
+  margin: 1.5rem 0;
+}
+
+.archive-rule-thick {
+  border: none;
+  border-top: 2px solid var(--color-ink);
+  height: 0;
+  margin: 1.5rem 0;
+}
 
 /* ============================================================================
-   Scrollbar - refined scrollbar styles
+   Scrollbar — hairline
    ============================================================================ */
 ::-webkit-scrollbar {
   width: 6px;
@@ -287,106 +365,132 @@ p {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-default);
-  border-radius: 3px;
   transition: background 0.2s;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-primary);
+  background: var(--color-ink);
 }
 
-/* Firefox */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-default) transparent;
 }
 
 /* ============================================================================
-   Glass & Effects
+   Glass — reduced to a flat tinted surface, no blur
+   (archive style doesn't use translucency; removing backdrop-filter
+    saves paint cost on scroll, especially on low-end hardware)
    ============================================================================ */
 .glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  background: var(--bg-primary);
   border: 1px solid var(--glass-border);
 }
 
 /* ============================================================================
-   Animation Classes — functional transitions only
+   Animations — very restrained
    ============================================================================ */
 .animate-slide-up {
   animation: slide-up-fade 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
 .animate-slide-in-right {
-  animation: slide-in-right 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
 .animate-slide-in-left {
-  animation: slide-in-left 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
 .animate-fade-in {
-  animation: fade-in 0.4s ease-out forwards;
+  animation: fade-in 0.3s ease-out forwards;
 }
-
 .animate-scale-in {
-  animation: scale-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
 .animate-shimmer {
   background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
 }
-
 .animate-typing-cursor::after {
   content: '|';
   color: var(--accent-primary);
   animation: typing-blink 1s step-end infinite;
 }
 
-/* Hover effects */
+/* Hover effects — no lift, just subtle tonal shift */
 .hover-lift {
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 .hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-}
-
-.hover-scale {
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.hover-scale:hover {
-  transform: scale(1.02);
-}
-
-/* ============================================================================
-   Card Styles
-   ============================================================================ */
-.card {
-  background: var(--gradient-card);
-  border: 1px solid var(--border-default);
-  border-radius: 20px;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-}
-
-.card:hover {
-  box-shadow: var(--shadow-md);
+  background: var(--bg-elevated);
   border-color: var(--border-strong);
 }
 
+.hover-scale {
+  transition: background-color 0.15s ease;
+}
+.hover-scale:hover {
+  background: var(--bg-elevated);
+}
+
 /* ============================================================================
-   Markdown Styles
+   Card surface — flat, 1px ruled, no gradient
+   ============================================================================ */
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--rule);
+
+  box-shadow: none;
+  transition: border-color 0.2s ease;
+  position: relative;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+  box-shadow: none;
+}
+
+/* ============================================================================
+   Archive boxes
+   ============================================================================ */
+
+/* Thesis box — left-rule accent, pale fill */
+.archive-thesis {
+  border-left: 2px solid var(--color-ink);
+  background: var(--bg-secondary);
+  padding: 1rem 1.25rem;
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* Summary box — the single high-contrast moment in the whole design */
+.archive-summary {
+  background: var(--color-ink);
+  color: #ffffff;
+  padding: 1.5rem 1.75rem;
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 1.5;
+  border: 1px solid var(--color-ink);
+}
+.archive-summary .caveat {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  font-family: var(--font-sans);
+  font-weight: 300;
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ============================================================================
+   Markdown — typographic, no color accents
    ============================================================================ */
 .markdown-content {
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.95rem;
   line-height: 1.8;
+  font-weight: 300;
   color: var(--text-primary);
 }
 
@@ -400,6 +504,7 @@ p {
   margin-top: 1.5em;
   margin-bottom: 0.75em;
   font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .markdown-content h1:first-child,
@@ -410,79 +515,81 @@ p {
 
 .markdown-content h1 {
   font-size: 1.75rem;
-  border-bottom: 2px solid var(--border-default);
+  border-bottom: 2px solid var(--color-ink);
   padding-bottom: 0.5em;
 }
 .markdown-content h2 {
-  font-size: 1.5rem;
-  border-bottom: 1px solid var(--border-subtle);
+  font-size: 1.375rem;
+  border-bottom: 1px solid var(--rule);
   padding-bottom: 0.3em;
 }
-.markdown-content h3 { font-size: 1.25rem; }
-.markdown-content h4 { font-size: 1.125rem; }
+.markdown-content h3 { font-size: 1.15rem; }
+.markdown-content h4 { font-size: 1rem; }
 
 .markdown-content p {
   margin: 1em 0;
 }
 
 .markdown-content a {
-  color: var(--accent-primary);
+  color: var(--text-primary);
   text-decoration: none;
   font-weight: 500;
-  transition: all 0.2s ease;
-  border-bottom: 1px solid transparent;
+  border-bottom: 1px solid var(--color-ink);
+  transition: background-color 0.15s ease;
 }
 
 .markdown-content a:hover {
-  border-bottom-color: var(--accent-primary);
+  background: var(--color-ink);
+  color: #ffffff;
 }
 
 .markdown-content ul,
 .markdown-content ol {
   margin: 1em 0;
-  padding-left: 1.75em;
+  padding-left: 1.5em;
 }
 
 .markdown-content li {
-  margin: 0.5em 0;
+  margin: 0.35em 0;
 }
 
 .markdown-content li::marker {
-  color: var(--accent-primary);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 .markdown-content blockquote {
   margin: 1.5em 0;
-  padding: 1em 1.5em;
-  border-left: 3px solid var(--accent-primary);
-  background: var(--accent-glow);
-  border-radius: 0 12px 12px 0;
-  font-style: italic;
+  padding: 0.75em 1.25em;
+  border-left: 2px solid var(--color-ink);
+  background: var(--bg-secondary);
+  border-radius: 0;
   color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-style: normal;
 }
 
 .markdown-content code {
   font-family: var(--font-mono) !important;
-  font-size: 0.9em;
-  padding: 0.2em 0.5em;
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 6px;
-  color: var(--accent-primary);
+  border-radius: 0;
+  color: var(--text-primary);
 }
 
 .markdown-content pre {
   margin: 1.5em 0;
-  padding: 1.25em;
+  padding: 1.15em;
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 12px;
+  border-radius: 0;
   overflow-x: auto;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   line-height: 1.6;
-  position: relative;
 }
-
 
 .markdown-content pre code {
   padding: 0;
@@ -496,12 +603,13 @@ p {
   width: 100%;
   margin: 1.5em 0;
   border-collapse: collapse;
+  font-size: 0.9rem;
 }
 
 .markdown-content th,
 .markdown-content td {
-  padding: 0.75em 1em;
-  border: 1px solid var(--border-default);
+  padding: 0.65em 0.9em;
+  border: 1px solid var(--rule);
   text-align: left;
 }
 
@@ -509,6 +617,9 @@ p {
   background: var(--bg-secondary);
   font-weight: 600;
   font-family: var(--font-display);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .markdown-content tr:nth-child(even) {
@@ -519,73 +630,56 @@ p {
   margin: 2em 0;
   border: none;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border-default), transparent);
+  background: var(--rule);
 }
 
 .markdown-content strong {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-primary);
 }
 
 .markdown-content img {
   max-width: 100%;
-  border-radius: 12px;
+  border-radius: 0;
   margin: 1em 0;
+  border: 1px solid var(--rule);
 }
 
 /* ============================================================================
-   Status Colors
+   Status
    ============================================================================ */
-.status-pending {
-  color: var(--text-tertiary);
-}
-
-.status-running {
-  color: var(--accent-primary);
-}
-
-.status-completed {
-  color: var(--color-success);
-}
-
-.status-failed {
-  color: var(--color-error);
-}
+.status-pending   { color: var(--text-tertiary); }
+.status-running   { color: var(--color-ink); }
+.status-completed { color: var(--color-success); }
+.status-failed    { color: var(--color-error); }
 
 /* ============================================================================
-   Focus & Selection
+   Focus / Selection
    ============================================================================ */
 *:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 1px solid var(--color-ink);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: var(--accent-glow);
-  color: var(--text-primary);
+  background: var(--color-ink);
+  color: #ffffff;
 }
 
 .dark ::selection {
-  background: rgba(0, 255, 213, 0.3);
+  background: #e8eaed;
+  color: var(--color-ink);
 }
 
 /* ============================================================================
    Transitions
    ============================================================================ */
-.transition-all {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.transition-fast {
-  transition: all 0.15s ease-out;
-}
-
-.transition-smooth {
-  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-}
+.transition-all     { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.transition-fast    { transition: all 0.12s ease-out; }
+.transition-smooth  { transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
 
 /* ============================================================================
-   Login Page Specific
+   Login / Auth card — archive document, not glassmorphism
    ============================================================================ */
 .login-container {
   min-height: 100vh;
@@ -598,144 +692,158 @@ p {
 }
 
 .login-card {
-  background: var(--glass-bg);
-  backdrop-filter: blur(32px) saturate(180%);
-  -webkit-backdrop-filter: blur(32px) saturate(180%);
-  border: 1px solid var(--glass-border);
-  border-radius: 28px;
+  background: var(--bg-primary);
+  border: 1px solid var(--color-ink);
+
   padding: 3rem;
   width: 100%;
   max-width: 440px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: none;
   position: relative;
   z-index: 1;
 }
 
 /* ============================================================================
-   Agent Item Styles
+   Agent item — list row with left-rule active state
    ============================================================================ */
 .agent-item {
-  padding: 1rem;
-  border-radius: 16px;
+  padding: 0.9rem 1rem;
+
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
   border: 1px solid transparent;
+  border-bottom: 1px solid var(--rule);
   position: relative;
-  overflow: hidden;
 }
 
 .agent-item:hover {
   background: var(--bg-secondary);
-  border-color: var(--border-default);
 }
 
 .agent-item.active {
   background: var(--bg-elevated);
-  border-color: var(--accent-primary);
+  border-color: transparent;
+  border-bottom-color: var(--rule);
 }
 
-.agent-item.active::after {
+.agent-item.active::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 50%;
-  background: var(--accent-primary);
-  border-radius: 0 3px 3px 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-ink);
 }
 
 /* ============================================================================
-   Message Bubble Styles
+   Message bubbles — flat rectangles, no gradient
    ============================================================================ */
+/*
+ * User-bubble color variables: `--on-bubble` is the primary foreground
+ * on top of the inverted bubble background. Descendants use alpha
+ * modifiers via color-mix to get /70 /50 /10 etc without hardcoding
+ * white/black — so the bubble auto-inverts in dark mode.
+ */
 .message-user {
-  background: var(--gradient-primary);
-  color: var(--text-inverse);
-  border-radius: 20px 20px 4px 20px;
-  box-shadow: var(--shadow-md);
+  --on-bubble: #ffffff;
+  --on-bubble-bg: var(--color-ink);
+  background: var(--on-bubble-bg);
+  color: var(--on-bubble);
+  border: 1px solid var(--on-bubble-bg);
+  box-shadow: none;
 }
 
 .dark .message-user {
-  color: var(--bg-deep);
+  --on-bubble: var(--color-ink);
+  --on-bubble-bg: #e8eaed;
 }
 
 .message-assistant {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 20px 20px 20px 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--rule);
+
+  color: var(--text-primary);
   position: relative;
 }
 
-
 /* ============================================================================
-   Data Display Components
+   Data labels — DM Mono archive tags
    ============================================================================ */
 .data-label {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 500;
+  font-size: 0.6875rem;
+  font-weight: 400;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   color: var(--text-tertiary);
 }
 
 .data-value {
   font-family: var(--font-mono);
-  color: var(--accent-primary);
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .data-card {
-  background: var(--bg-sunken);
-  border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--rule);
+
   padding: 1rem;
   position: relative;
 }
 
-
 /* ============================================================================
-   Tab Styles
+   Tabs — underline-only, no pills
    ============================================================================ */
 .tab-button {
   position: relative;
-  padding: 0.5rem 1rem;
-  border-radius: 10px;
-  font-weight: 500;
-  transition: all 0.2s;
-  overflow: hidden;
+  padding: 0.5rem 0.9rem;
+
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-tertiary);
+  background: transparent;
+  transition: color 0.15s ease;
 }
 
 .tab-button::before {
   content: '';
   position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: -1px;
+  left: 0;
   width: 0;
   height: 2px;
-  background: var(--accent-primary);
-  transition: width 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  background: var(--color-ink);
+  transition: width 0.2s ease;
 }
 
-.tab-button.active::before {
-  width: 60%;
+.tab-button:hover {
+  color: var(--text-primary);
 }
 
 .tab-button.active {
-  color: var(--accent-primary);
-  background: var(--accent-glow);
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.tab-button.active::before {
+  width: 100%;
 }
 
 /* ============================================================================
-   Input Enhancement
+   Input focus — no colored glow
    ============================================================================ */
 .input-glow:focus {
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  outline: none;
+  box-shadow: inset 0 -2px 0 0 var(--color-ink);
 }
 
 /* ============================================================================
-   Loading States
+   Loading skeleton
    ============================================================================ */
 .skeleton {
   background: linear-gradient(
@@ -746,6 +854,13 @@ p {
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
-  border-radius: 8px;
+
 }
 
+/* ============================================================================
+   Global element defaults
+   ============================================================================ */
+button, input, select, textarea {
+  font-family: inherit;
+  border-radius: 0;
+}
