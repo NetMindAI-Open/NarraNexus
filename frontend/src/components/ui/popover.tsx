@@ -1,32 +1,16 @@
 /**
  * @file_name: popover.tsx
- * @author: Bin Liang
- * @date: 2025-01-15
- * @description: Popover component - based on Radix UI popover primitive
+ * @description: Radix popover — Nordic archive style (flat, 1px ink border)
  */
 
 import * as React from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
 import { cn } from '../../lib/utils';
 
-/**
- * Popover root component
- */
 const Popover = PopoverPrimitive.Root;
-
-/**
- * PopoverTrigger - trigger element
- */
 const PopoverTrigger = PopoverPrimitive.Trigger;
-
-/**
- * PopoverAnchor - anchor element
- */
 const PopoverAnchor = PopoverPrimitive.Anchor;
 
-/**
- * PopoverContent - popover content area
- */
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
@@ -37,18 +21,18 @@ const PopoverContent = React.forwardRef<
       align={align}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 w-72 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-4 shadow-lg',
+        'z-50 w-72 border border-[var(--text-primary)] bg-[var(--bg-primary)] p-4',
         'text-[var(--text-primary)]',
         'outline-none',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-        'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-        'data-[side=bottom]:slide-in-from-top-2',
-        'data-[side=left]:slide-in-from-right-2',
-        'data-[side=right]:slide-in-from-left-2',
-        'data-[side=top]:slide-in-from-bottom-2',
+        'data-[side=bottom]:slide-in-from-top-1',
+        'data-[side=left]:slide-in-from-right-1',
+        'data-[side=right]:slide-in-from-left-1',
+        'data-[side=top]:slide-in-from-bottom-1',
         className
       )}
+      style={{ borderRadius: 0 }}
       {...props}
     />
   </PopoverPrimitive.Portal>

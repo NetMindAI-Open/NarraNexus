@@ -1,32 +1,16 @@
 /**
  * @file_name: tooltip.tsx
- * @author: Bin Liang
- * @date: 2025-01-15
- * @description: Tooltip component - based on Radix UI tooltip primitive
+ * @description: Radix tooltip — Nordic archive style (flat ink block, DM Mono)
  */
 
 import * as React from 'react';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { cn } from '../../lib/utils';
 
-/**
- * TooltipProvider - global provider
- */
 const TooltipProvider = TooltipPrimitive.Provider;
-
-/**
- * Tooltip root component
- */
 const Tooltip = TooltipPrimitive.Root;
-
-/**
- * TooltipTrigger - trigger element
- */
 const TooltipTrigger = TooltipPrimitive.Trigger;
 
-/**
- * TooltipContent - tooltip content
- */
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
@@ -36,16 +20,13 @@ const TooltipContent = React.forwardRef<
       ref={ref}
       sideOffset={sideOffset}
       className={cn(
-        'z-50 overflow-hidden rounded-md bg-[var(--text-primary)] px-3 py-1.5',
-        'text-xs text-[var(--text-inverse)]',
-        'animate-in fade-in-0 zoom-in-95',
-        'data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
-        'data-[side=bottom]:slide-in-from-top-2',
-        'data-[side=left]:slide-in-from-right-2',
-        'data-[side=right]:slide-in-from-left-2',
-        'data-[side=top]:slide-in-from-bottom-2',
+        'z-50 bg-[var(--text-primary)] px-2.5 py-1',
+        'text-[10px] text-[var(--text-inverse)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]',
+        'animate-in fade-in-0',
+        'data-[state=closed]:animate-out data-[state=closed]:fade-out-0',
         className
       )}
+      style={{ borderRadius: 0 }}
       {...props}
     />
   </TooltipPrimitive.Portal>

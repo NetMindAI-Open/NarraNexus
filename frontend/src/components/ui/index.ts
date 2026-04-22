@@ -1,5 +1,5 @@
 /**
- * UI components index - Bioluminescent Terminal Design System
+ * UI components — Nordic Archive Design System
  */
 
 export { Button } from './Button';
@@ -12,3 +12,5 @@ export { Markdown, MarkdownPreview } from './Markdown';
 export { Dialog, DialogContent, DialogFooter } from './Dialog';
 export { KPICard } from './KPICard';
 export type { KPIColor } from './KPICard';
+export { StatStrip } from './StatStrip';
+export type { StatItem, StatTone } from './StatStrip';

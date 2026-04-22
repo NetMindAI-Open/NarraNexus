@@ -1,43 +1,16 @@
 /**
- * KPICard - Reusable metric display card
- *
- * Used across AwarenessPanel and JobsPanel for
- * displaying key performance indicators.
+ * KPICard — Nordic archive style
+ * Flat rectangle, DM Mono label, Space Grotesk numeric value. No color chip, no glow.
  */
 
 import { cn } from '@/lib/utils';
 
 const colorMap = {
-  accent: {
-    bg: 'bg-[var(--accent-glow)]',
-    icon: 'text-[var(--accent-primary)]',
-    value: 'text-[var(--accent-primary)]',
-    glow: 'shadow-[0_0_15px_var(--accent-glow)]',
-  },
-  success: {
-    bg: 'bg-[var(--color-success)]/10',
-    icon: 'text-[var(--color-success)]',
-    value: 'text-[var(--color-success)]',
-    glow: 'shadow-[0_0_15px_rgba(34,197,94,0.2)]',
-  },
-  warning: {
-    bg: 'bg-[var(--color-warning)]/10',
-    icon: 'text-[var(--color-warning)]',
-    value: 'text-[var(--color-warning)]',
-    glow: 'shadow-[0_0_15px_rgba(234,179,8,0.2)]',
-  },
-  error: {
-    bg: 'bg-[var(--color-error)]/10',
-    icon: 'text-[var(--color-error)]',
-    value: 'text-[var(--color-error)]',
-    glow: 'shadow-[0_0_15px_rgba(239,68,68,0.2)]',
-  },
-  secondary: {
-    bg: 'bg-[var(--accent-secondary)]/10',
-    icon: 'text-[var(--accent-secondary)]',
-    value: 'text-[var(--accent-secondary)]',
-    glow: 'shadow-[0_0_15px_rgba(192,132,252,0.2)]',
-  },
+  accent:    { icon: 'text-[var(--text-primary)]', value: 'text-[var(--text-primary)]' },
+  success:   { icon: 'text-[var(--color-green-500)]', value: 'text-[var(--color-green-500)]' },
+  warning:   { icon: 'text-[var(--color-yellow-500)]', value: 'text-[var(--color-yellow-500)]' },
+  error:     { icon: 'text-[var(--color-red-500)]', value: 'text-[var(--color-red-500)]' },
+  secondary: { icon: 'text-[var(--text-secondary)]', value: 'text-[var(--text-secondary)]' },
 };
 
 export type KPIColor = keyof typeof colorMap;
@@ -64,19 +37,32 @@ export function KPICard({
   return (
     <div
       className={cn(
-        'p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]',
-        'transition-all duration-300 hover:border-[var(--accent-primary)]/30',
-        pulse && colors.glow
+        'p-3 border border-[var(--rule)] bg-[var(--bg-primary)]',
+        'transition-colors duration-150 hover:border-[var(--border-strong)]'
       )}
+      style={{ borderRadius: 0 }}
     >
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className={cn('w-6 h-6 rounded-lg flex items-center justify-center', colors.bg)}>
-          <Icon className={cn('w-3 h-3', colors.icon, pulse && 'animate-pulse')} />
-        </div>
-        <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider font-medium">{label}</span>
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className={cn('w-3.5 h-3.5', colors.icon, pulse && 'animate-pulse')} />
+        <span
+          className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-normal font-[family-name:var(--font-mono)]"
+        >
+          {label}
+        </span>
       </div>
-      <div className={cn('text-lg font-bold font-mono', colors.value)}>{value}</div>
-      {subtext && <div className="text-[8px] text-[var(--text-tertiary)] mt-0.5 font-mono truncate">{subtext}</div>}
+      <div
+        className={cn(
+          'text-xl font-semibold font-[family-name:var(--font-display)] tracking-tight',
+          colors.value
+        )}
+      >
+        {value}
+      </div>
+      {subtext && (
+        <div className="text-[10px] text-[var(--text-tertiary)] mt-1 font-[family-name:var(--font-mono)] truncate">
+          {subtext}
+        </div>
+      )}
     </div>
   );
 }

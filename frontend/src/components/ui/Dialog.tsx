@@ -1,6 +1,6 @@
 /**
- * Dialog Component - Bioluminescent Terminal style
- * Modal dialog with backdrop and animations
+ * Dialog — Nordic archive style
+ * Flat modal, 1px ink border, DM Mono header, no glow.
  */
 
 import { useEffect, useCallback, type ReactNode } from 'react';
@@ -19,7 +19,6 @@ interface DialogProps {
 }
 
 export function Dialog({ isOpen, onClose, title, children, className, size = 'md' }: DialogProps) {
-  // Handle escape key
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       onClose();
@@ -51,12 +50,11 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
     '6xl': 'max-w-6xl',
   };
 
-  // Portal to document.body to avoid fixed positioning offset caused by parent element transform
   return createPortal(
     <div className="fixed inset-0 z-50">
-      {/* Backdrop */}
+      {/* Backdrop — flat ink, no blur (cheap to paint, archival) */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+        className="fixed inset-0 bg-[rgba(17,18,20,0.6)] animate-fade-in"
         onClick={onClose}
       />
 
@@ -65,37 +63,34 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
         <div className="flex min-h-full items-center justify-center p-4">
           <div
             className={cn(
-              'relative w-full rounded-2xl',
-              'bg-[var(--bg-elevated)] border border-[var(--border-default)]',
-              'shadow-2xl shadow-black/40',
-              'animate-slide-up transition-[max-width] duration-300 ease-out',
+              'relative w-full',
+              'bg-[var(--bg-primary)]',
+              'border border-[var(--text-primary)]',
+              'animate-slide-up',
               sizeClasses[size],
               className
             )}
             onClick={(e) => e.stopPropagation()}
+            style={{ borderRadius: 0 }}
           >
-            {/* Glow effect */}
-            <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[var(--accent-primary)]/20 to-transparent opacity-50 blur-sm pointer-events-none" />
-
-            {/* Content wrapper */}
             <div className="relative">
-              {/* Header */}
               {title && (
-                <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
-                  <h2 className="text-lg font-semibold text-[var(--text-primary)]">{title}</h2>
+                <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--rule)]">
+                  <h2 className="text-[11px] font-medium uppercase font-[family-name:var(--font-mono)] tracking-[0.18em] text-[var(--text-primary)]">
+                    {title}
+                  </h2>
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={onClose}
-                    className="w-8 h-8 hover:bg-[var(--bg-tertiary)]"
+                    className="w-7 h-7"
                   >
                     <X className="w-4 h-4" />
                   </Button>
                 </div>
               )}
 
-              {/* Body */}
-              <div className={cn(!title && 'pt-4')}>
+              <div className={cn(!title && 'pt-2')}>
                 {children}
               </div>
             </div>
@@ -107,10 +102,9 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
   );
 }
 
-// Dialog sub-components for flexibility
 export function DialogContent({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('p-4', className)}>
+    <div className={cn('p-5', className)}>
       {children}
     </div>
   );
@@ -118,7 +112,7 @@ export function DialogContent({ children, className }: { children: ReactNode; cl
 
 export function DialogFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-end gap-3 p-4 border-t border-[var(--border-subtle)]', className)}>
+    <div className={cn('flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--rule)]', className)}>
       {children}
     </div>
   );

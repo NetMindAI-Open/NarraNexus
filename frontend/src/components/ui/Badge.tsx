@@ -1,6 +1,6 @@
 /**
- * Badge component - Bioluminescent Terminal style
- * Status badge with glow effects
+ * Badge — Nordic archive style
+ * Flat rectangle, DM Mono, uppercase, no fill (border only by default).
  */
 
 import { forwardRef, type HTMLAttributes } from 'react';
@@ -14,76 +14,72 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ className, variant = 'default', size = 'md', pulse = false, glow = false, children, ...props }, ref) => {
+  ({ className, variant = 'default', size = 'md', pulse = false, children, ...props }, ref) => {
     return (
       <span
         ref={ref}
         className={cn(
-          // Base styles
-          'relative inline-flex items-center justify-center',
-          'font-medium font-[family-name:var(--font-mono)]',
-          'rounded-full',
-          'transition-all duration-200',
+          'relative inline-flex items-center justify-center gap-1.5',
+          'font-[family-name:var(--font-mono)] font-normal',
+          'uppercase tracking-[0.12em]',
+          'whitespace-nowrap',
+          'transition-colors duration-150',
 
-          // Variants
           variant === 'default' && [
-            'bg-[var(--bg-tertiary)]',
+            'bg-transparent',
             'text-[var(--text-secondary)]',
-            'border border-[var(--border-default)]',
+            'border border-[var(--rule)]',
           ],
           variant === 'accent' && [
-            'bg-[var(--accent-glow)]',
-            'text-[var(--accent-primary)]',
-            'border border-[var(--accent-primary)]/30',
+            'bg-[var(--text-primary)]',
+            'text-[var(--text-inverse)]',
+            'border border-[var(--text-primary)]',
           ],
           variant === 'success' && [
-            'bg-[var(--color-success)]/10',
-            'text-[var(--color-success)]',
-            'border border-[var(--color-success)]/30',
+            'bg-transparent',
+            'text-[var(--color-green-500)]',
+            'border border-[var(--color-green-500)]',
           ],
           variant === 'warning' && [
-            'bg-[var(--color-warning)]/10',
-            'text-[var(--color-warning)]',
-            'border border-[var(--color-warning)]/30',
+            'bg-transparent',
+            'text-[var(--color-yellow-500)]',
+            'border border-[var(--color-yellow-500)]',
           ],
           variant === 'error' && [
-            'bg-[var(--color-error)]/10',
-            'text-[var(--color-error)]',
-            'border border-[var(--color-error)]/30',
+            'bg-transparent',
+            'text-[var(--color-red-500)]',
+            'border border-[var(--color-red-500)]',
           ],
           variant === 'outline' && [
             'bg-transparent',
             'text-[var(--text-secondary)]',
-            'border border-[var(--border-default)]',
+            'border border-[var(--border-strong)]',
           ],
 
-          // Sizes
-          size === 'sm' && 'h-5 px-2 text-[10px]',
-          size === 'md' && 'h-6 px-2.5 text-xs',
-          size === 'lg' && 'h-7 px-3 text-sm',
+          size === 'sm' && 'h-5 px-1.5 text-[9px]',
+          size === 'md' && 'h-6 px-2 text-[10px]',
+          size === 'lg' && 'h-7 px-2.5 text-[11px]',
 
           className
         )}
+        style={{ borderRadius: 0 }}
         {...props}
       >
-        {/* Pulse indicator */}
         {pulse && (
-          <span className="absolute -left-px flex h-full items-center">
-            <span className={cn(
-              'h-2 w-2 rounded-full',
-              variant === 'accent' && 'bg-[var(--accent-primary)]',
-              variant === 'success' && 'bg-[var(--color-success)]',
-              variant === 'warning' && 'bg-[var(--color-warning)]',
-              variant === 'error' && 'bg-[var(--color-error)]',
+          <span
+            className={cn(
+              'h-1.5 w-1.5',
+              variant === 'accent' && 'bg-[var(--text-inverse)]',
+              variant === 'success' && 'bg-[var(--color-green-500)]',
+              variant === 'warning' && 'bg-[var(--color-yellow-500)]',
+              variant === 'error' && 'bg-[var(--color-red-500)]',
               variant === 'default' && 'bg-[var(--text-tertiary)]',
+              variant === 'outline' && 'bg-[var(--text-tertiary)]',
               'animate-pulse'
-            )} />
-          </span>
+            )}
+          />
         )}
-
-        <span className={cn(pulse && 'ml-3')}>
-          {children}
-        </span>
+        <span>{children}</span>
       </span>
     );
   }
