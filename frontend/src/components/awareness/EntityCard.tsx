@@ -1,14 +1,17 @@
 /**
- * EntityCard - Social network entity display card
- * Shows contact info, communication style, related jobs, expertise, and relationship strength
+ * EntityCard — a single contact row in the social-network list.
+ *
+ * Nordic-archive style: flat row separated from siblings by a hairline
+ * bottom rule, no border-box. Expanded detail is a series of label/value
+ * pairs divided by thin rules — no nested colored tinted cards.
  */
 
 import { useState } from 'react';
 import {
   User, Tag, Clock, ChevronDown, ChevronRight, Mail, Phone,
-  Building, Activity, Briefcase, UserCircle, Star, Link,
+  Building, Briefcase, Star, Link,
 } from 'lucide-react';
-import { Badge, Markdown } from '@/components/ui';
+import { Markdown } from '@/components/ui';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import type { SocialNetworkEntity } from '@/types';
 
@@ -18,239 +21,201 @@ interface EntityCardProps {
   actualChatCount: number;
 }
 
+type StrengthLevel = 'high' | 'medium' | 'low';
+
+const strengthLabel: Record<StrengthLevel, string> = {
+  high: 'Strong',
+  medium: 'Medium',
+  low: 'Weak',
+};
+
+const strengthText: Record<StrengthLevel, string> = {
+  high: 'text-[var(--color-green-500)]',
+  medium: 'text-[var(--color-yellow-500)]',
+  low: 'text-[var(--text-tertiary)]',
+};
+
 export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCardProps) {
   const [isExpanded, setIsExpanded] = useState(isCurrentUser);
 
-  // Calculate strength level for visual indicator
-  const strengthLevel = entity.relationship_strength >= 0.7 ? 'high' : entity.relationship_strength >= 0.4 ? 'medium' : 'low';
+  const strengthLevel: StrengthLevel =
+    entity.relationship_strength >= 0.7 ? 'high'
+    : entity.relationship_strength >= 0.4 ? 'medium'
+    : 'low';
 
   return (
     <div
       className={cn(
-        'rounded-xl border overflow-hidden transition-all duration-300',
-        isCurrentUser
-          ? 'border-[var(--accent-primary)]/30 bg-[var(--accent-glow)] shadow-[0_0_20px_var(--accent-glow)]'
-          : isExpanded
-            ? 'border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-lg'
-            : 'border-[var(--border-subtle)] bg-[var(--bg-sunken)] hover:border-[var(--border-default)] hover:bg-[var(--bg-elevated)]'
+        'border-b border-[var(--rule)] last:border-b-0 transition-colors duration-150',
+        isCurrentUser && 'bg-[var(--bg-secondary)]'
       )}
     >
-      {/* Header - always visible */}
+      {/* Collapsed header — always visible */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full p-3 flex items-center gap-3 text-left transition-all duration-300 group"
+        className="w-full py-2.5 flex items-center gap-3 text-left group"
       >
-        <span className={cn(
-          'transition-all duration-300',
-          isExpanded ? 'text-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'
-        )}>
-          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />}
+        <span className="w-3.5 text-[var(--text-tertiary)] group-hover:text-[var(--text-primary)] transition-colors">
+          {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
         </span>
 
-        <div className={cn(
-          'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300',
-          isCurrentUser
-            ? 'bg-[var(--accent-primary)] shadow-[0_0_15px_var(--accent-primary)]'
-            : 'bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] group-hover:border-[var(--accent-primary)]/30'
-        )}>
-          <User className={cn(
-            'w-4 h-4 transition-colors',
-            isCurrentUser ? 'text-[var(--bg-deep)]' : 'text-[var(--text-secondary)]'
-          )} />
+        <div
+          className={cn(
+            'w-8 h-8 flex items-center justify-center shrink-0',
+            isCurrentUser
+              ? 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
+              : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]'
+          )}
+        >
+          <User className="w-3.5 h-3.5" />
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)] transition-colors">
+            <span className="text-sm text-[var(--text-primary)] truncate">
               {entity.entity_name || entity.entity_id}
             </span>
             {isCurrentUser && (
-              <span className="text-[9px] px-2 py-0.5 rounded-full bg-[var(--accent-primary)] text-[var(--bg-deep)] font-medium uppercase tracking-wider">
+              <span className="text-[9px] px-1.5 py-[1px] bg-[var(--text-primary)] text-[var(--text-inverse)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]">
                 You
               </span>
             )}
           </div>
-          <div className="text-[10px] text-[var(--text-tertiary)] font-mono truncate mt-0.5 flex items-center gap-2">
-            <span>{entity.entity_type}</span>
-            <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)]" />
+          <div className="mt-0.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] flex items-center gap-2">
+            <span className="truncate">{entity.entity_type}</span>
+            <span className="opacity-40">·</span>
             <span>{actualChatCount} chats</span>
             {entity.familiarity && (
               <>
-                <span className="w-1 h-1 rounded-full bg-[var(--text-tertiary)]" />
-                <span className={cn(
-                  'px-1.5 py-0 rounded-full text-[8px] font-medium uppercase tracking-wider',
-                  entity.familiarity === 'direct'
-                    ? 'bg-[var(--color-success)]/15 text-[var(--color-success)] border border-[var(--color-success)]/30'
-                    : 'bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)]'
-                )}>
-                  {entity.familiarity === 'direct' ? 'Direct' : 'Known of'}
-                </span>
+                <span className="opacity-40">·</span>
+                <span>{entity.familiarity === 'direct' ? 'Direct' : 'Known of'}</span>
               </>
             )}
           </div>
         </div>
 
-        {/* Strength indicator */}
-        <div className="flex items-center gap-2">
-          {strengthLevel === 'high' && (
-            <Badge variant="success" size="sm" glow>Strong</Badge>
+        {/* Strength label */}
+        <span
+          className={cn(
+            'text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]',
+            strengthText[strengthLevel]
           )}
-          {strengthLevel === 'medium' && (
-            <Badge variant="warning" size="sm">Medium</Badge>
-          )}
-        </div>
+        >
+          {strengthLabel[strengthLevel]}
+        </span>
       </button>
 
-      {/* Expanded content */}
+      {/* Expanded content — flat label/value strip */}
       {isExpanded && (
-        <div className="border-t border-[var(--border-subtle)] p-3 space-y-3 bg-[var(--bg-sunken)]/50 animate-fade-in">
-          {/* Persona - Communication Style */}
-          {entity.persona && (
-            <div className="p-3 bg-[var(--accent-primary)]/5 rounded-lg border border-[var(--accent-primary)]/20">
-              <div className="text-[9px] text-[var(--accent-primary)] font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                <UserCircle className="w-3 h-3" />
-                Communication Style
-              </div>
-              <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                {entity.persona}
-              </div>
-            </div>
-          )}
+        <div className="pb-3 pl-[calc(0.875rem+2rem+0.75rem)] pr-1 space-y-3 animate-fade-in">
+          <Detail
+            icon={User}
+            label="Communication Style"
+            show={!!entity.persona}
+          >
+            <p className="leading-relaxed">{entity.persona}</p>
+          </Detail>
 
-          {/* Related Jobs */}
-          {entity.related_job_ids && entity.related_job_ids.length > 0 && (
-            <div className="p-3 bg-[var(--color-warning)]/5 rounded-lg border border-[var(--color-warning)]/20">
-              <div className="text-[9px] text-[var(--color-warning)] font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
-                <Briefcase className="w-3 h-3" />
-                Related Jobs ({entity.related_job_ids.length})
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {entity.related_job_ids.map((jobId, index) => (
-                  <span
-                    key={index}
-                    className="inline-flex items-center px-2 py-1 text-[9px] rounded-lg bg-[var(--color-warning)]/10 text-[var(--color-warning)] border border-[var(--color-warning)]/20 font-mono"
-                    title={jobId}
-                  >
-                    {jobId.length > 12 ? `${jobId.slice(0, 12)}...` : jobId}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Expertise Domains */}
-          {entity.expertise_domains && entity.expertise_domains.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {entity.expertise_domains.map((domain, index) => (
+          <Detail
+            icon={Briefcase}
+            label={`Related Jobs (${entity.related_job_ids?.length ?? 0})`}
+            show={!!(entity.related_job_ids && entity.related_job_ids.length > 0)}
+          >
+            <div className="flex flex-wrap gap-1.5 font-[family-name:var(--font-mono)] text-[11px]">
+              {entity.related_job_ids?.map((jobId, i) => (
                 <span
-                  key={index}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-[9px] rounded-lg bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/20 font-mono"
+                  key={i}
+                  title={jobId}
+                  className="border border-[var(--rule)] px-1.5 py-[1px] text-[var(--text-secondary)]"
                 >
-                  <Star className="w-2.5 h-2.5" />
-                  {domain}
+                  {jobId.length > 12 ? `${jobId.slice(0, 12)}…` : jobId}
                 </span>
               ))}
             </div>
-          )}
+          </Detail>
 
-          {/* Description */}
+          <Detail
+            icon={Star}
+            label="Expertise"
+            show={!!(entity.expertise_domains && entity.expertise_domains.length > 0)}
+          >
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              {entity.expertise_domains?.map((d, i) => (
+                <span
+                  key={i}
+                  className="border border-[var(--rule)] px-1.5 py-[1px] text-[var(--text-secondary)]"
+                >
+                  {d}
+                </span>
+              ))}
+            </div>
+          </Detail>
+
           {entity.entity_description && (
-            <div className="text-xs text-[var(--text-secondary)] leading-relaxed p-3 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-subtle)]">
-              <Markdown content={entity.entity_description} />
-            </div>
+            <Detail label="Description" show>
+              <div className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
+                <Markdown content={entity.entity_description} />
+              </div>
+            </Detail>
           )}
 
-          {/* Aliases */}
-          {entity.aliases && entity.aliases.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {entity.aliases.map((alias, index) => (
-                <span
-                  key={index}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-[9px] rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border border-[var(--border-subtle)] font-mono"
-                >
-                  <Link className="w-2.5 h-2.5" />
-                  {alias}
+          <Detail
+            icon={Link}
+            label="Aliases"
+            show={!!(entity.aliases && entity.aliases.length > 0)}
+          >
+            <div className="flex flex-wrap gap-1.5 text-[11px] font-[family-name:var(--font-mono)]">
+              {entity.aliases?.map((alias, i) => (
+                <span key={i} className="text-[var(--text-tertiary)]">
+                  {alias}{i < (entity.aliases?.length ?? 0) - 1 && <span className="opacity-40"> · </span>}
                 </span>
               ))}
             </div>
-          )}
+          </Detail>
 
-          {/* Tags / Keywords */}
-          {entity.tags && entity.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {entity.tags.map((tag, index) => (
-                <span
-                  key={index}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-[9px] rounded-lg bg-[var(--accent-secondary)]/10 text-[var(--accent-secondary)] border border-[var(--accent-secondary)]/20 font-mono"
-                >
-                  <Tag className="w-2.5 h-2.5" />
-                  {tag}
+          <Detail
+            icon={Tag}
+            label="Tags"
+            show={!!(entity.tags && entity.tags.length > 0)}
+          >
+            <div className="flex flex-wrap gap-1.5 text-[11px] font-[family-name:var(--font-mono)]">
+              {entity.tags?.map((t, i) => (
+                <span key={i} className="text-[var(--text-tertiary)]">
+                  #{t}
                 </span>
               ))}
             </div>
-          )}
+          </Detail>
 
-          {/* Identity Info */}
-          {entity.identity_info && Object.keys(entity.identity_info).length > 0 && (
-            <div className="space-y-2 p-3 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-subtle)]">
-              <div className="text-[9px] text-[var(--accent-primary)] font-medium uppercase tracking-wider flex items-center gap-1.5">
-                <Building className="w-3 h-3" />
-                Identity
-              </div>
-              <div className="grid grid-cols-1 gap-1 text-[10px] font-mono">
-                {Object.entries(entity.identity_info).map(([key, value]) => (
-                  <div key={key} className="flex items-start gap-2">
-                    <span className="text-[var(--text-tertiary)] capitalize min-w-[60px]">{key}:</span>
-                    <span className="text-[var(--text-secondary)] break-all">
-                      {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <KvGroup
+            icon={Building}
+            label="Identity"
+            entries={entity.identity_info}
+          />
 
-          {/* Contact Info */}
-          {entity.contact_info && Object.keys(entity.contact_info).length > 0 && (
-            <div className="space-y-2 p-3 bg-[var(--bg-elevated)] rounded-lg border border-[var(--border-subtle)]">
-              <div className="text-[9px] text-[var(--color-success)] font-medium uppercase tracking-wider flex items-center gap-1.5">
-                <Mail className="w-3 h-3" />
-                Contact
-              </div>
-              <div className="grid grid-cols-1 gap-1 text-[10px] font-mono">
-                {Object.entries(entity.contact_info).map(([key, value]) => (
-                  <div key={key} className="flex items-center gap-2">
-                    {key === 'email' && <Mail className="w-3 h-3 text-[var(--text-tertiary)]" />}
-                    {key === 'phone' && <Phone className="w-3 h-3 text-[var(--text-tertiary)]" />}
-                    {!['email', 'phone'].includes(key) && <span className="text-[var(--text-tertiary)] capitalize min-w-[60px]">{key}:</span>}
-                    <span className="text-[var(--text-secondary)] truncate">
-                      {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <KvGroup
+            icon={Mail}
+            label="Contact"
+            entries={entity.contact_info}
+            iconOverride={(key) =>
+              key === 'email' ? <Mail className="w-3 h-3 text-[var(--text-tertiary)]" /> :
+              key === 'phone' ? <Phone className="w-3 h-3 text-[var(--text-tertiary)]" /> :
+              null
+            }
+          />
 
-          {/* Stats */}
-          <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)] text-[9px] font-mono">
-            <div className="flex items-center gap-2 text-[var(--text-tertiary)]">
-              <Activity className="w-3 h-3 text-[var(--accent-primary)]" />
-              <span>Strength:</span>
-              <span className={cn(
-                'font-medium',
-                strengthLevel === 'high' && 'text-[var(--color-success)]',
-                strengthLevel === 'medium' && 'text-[var(--color-warning)]',
-                strengthLevel === 'low' && 'text-[var(--text-tertiary)]'
-              )}>
+          <div className="flex items-center justify-between pt-2 border-t border-[var(--rule)] text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
+            <span className="flex items-center gap-1.5">
+              Strength
+              <span className={cn('tabular-nums', strengthText[strengthLevel])}>
                 {(entity.relationship_strength * 100).toFixed(0)}%
               </span>
-            </div>
+            </span>
             {entity.last_interaction_time && (
-              <div className="flex items-center gap-1.5 text-[var(--text-tertiary)]">
+              <span className="flex items-center gap-1.5">
                 <Clock className="w-3 h-3" />
                 {formatRelativeTime(entity.last_interaction_time)}
-              </div>
+              </span>
             )}
           </div>
         </div>
@@ -258,3 +223,56 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
     </div>
   );
 }
+
+/* ─────────────────────────────────────────────── helpers ──────────── */
+
+interface DetailProps {
+  icon?: React.ElementType;
+  label: string;
+  show?: boolean;
+  children: React.ReactNode;
+}
+
+function Detail({ icon: Icon, label, show = true, children }: DetailProps) {
+  if (!show) return null;
+  return (
+    <div>
+      <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] flex items-center gap-1.5 mb-1.5">
+        {Icon && <Icon className="w-3 h-3" />}
+        {label}
+      </div>
+      <div className="text-[13px] text-[var(--text-secondary)]">{children}</div>
+    </div>
+  );
+}
+
+interface KvGroupProps {
+  icon: React.ElementType;
+  label: string;
+  entries?: Record<string, unknown>;
+  iconOverride?: (key: string) => React.ReactNode;
+}
+
+function KvGroup({ icon: Icon, label, entries, iconOverride }: KvGroupProps) {
+  if (!entries || Object.keys(entries).length === 0) return null;
+  return (
+    <Detail icon={Icon} label={label}>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-[11px] font-[family-name:var(--font-mono)]">
+        {Object.entries(entries).map(([k, v]) => (
+          <Fragment key={k}>
+            <dt className="text-[var(--text-tertiary)] uppercase tracking-[0.08em] flex items-center gap-1">
+              {iconOverride?.(k) ?? null}
+              {k}
+            </dt>
+            <dd className="text-[var(--text-primary)] break-all">
+              {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+            </dd>
+          </Fragment>
+        ))}
+      </dl>
+    </Detail>
+  );
+}
+
+// Fragment wrapper so we don't need to import it
+import { Fragment } from 'react';

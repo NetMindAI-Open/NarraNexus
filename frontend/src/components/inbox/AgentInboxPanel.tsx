@@ -11,76 +11,13 @@ import {
   MailOpen, RefreshCw, Inbox, ChevronRight, ChevronDown,
   Sparkles, Users, Hash,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, StatStrip } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { InboxRoom } from '@/types/api';
 
-// KPI Card Component
-function KPICard({
-  label,
-  value,
-  icon: Icon,
-  color = 'accent',
-  subtext,
-  pulse,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ElementType;
-  color?: 'accent' | 'success' | 'warning' | 'secondary';
-  subtext?: string;
-  pulse?: boolean;
-}) {
-  const colorMap = {
-    accent: {
-      bg: 'bg-[var(--accent-glow)]',
-      icon: 'text-[var(--accent-primary)]',
-      value: 'text-[var(--accent-primary)]',
-      glow: 'shadow-[0_0_15px_var(--accent-glow)]',
-    },
-    success: {
-      bg: 'bg-[var(--color-success)]/10',
-      icon: 'text-[var(--color-success)]',
-      value: 'text-[var(--color-success)]',
-      glow: 'shadow-[0_0_15px_rgba(34,197,94,0.2)]',
-    },
-    warning: {
-      bg: 'bg-[var(--color-warning)]/10',
-      icon: 'text-[var(--color-warning)]',
-      value: 'text-[var(--color-warning)]',
-      glow: 'shadow-[0_0_15px_rgba(234,179,8,0.2)]',
-    },
-    secondary: {
-      bg: 'bg-[var(--accent-secondary)]/10',
-      icon: 'text-[var(--accent-secondary)]',
-      value: 'text-[var(--accent-secondary)]',
-      glow: 'shadow-[0_0_15px_rgba(192,132,252,0.2)]',
-    },
-  };
-
-  const colors = colorMap[color];
-
-  return (
-    <div
-      className={cn(
-        'p-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)]',
-        'transition-all duration-300 hover:border-[var(--accent-primary)]/30',
-        pulse && colors.glow
-      )}
-    >
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className={cn('w-6 h-6 rounded-lg flex items-center justify-center', colors.bg)}>
-          <Icon className={cn('w-3 h-3', colors.icon, pulse && 'animate-pulse')} />
-        </div>
-        <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider font-medium">{label}</span>
-      </div>
-      <div className={cn('text-lg font-bold font-mono', colors.value)}>{value}</div>
-      {subtext && <div className="text-[8px] text-[var(--text-tertiary)] mt-0.5 font-mono truncate">{subtext}</div>}
-    </div>
-  );
-}
+// Local KPI card was removed — this panel now uses the shared <StatStrip />.
 
 export function AgentInboxPanel() {
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
@@ -152,20 +89,18 @@ export function AgentInboxPanel() {
   }, [rooms]);
 
   return (
-    <Card variant="glass" className="flex flex-col h-full">
+    <Card className="flex flex-col h-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[var(--accent-primary)]/10 flex items-center justify-center">
-            <Inbox className="w-4 h-4 text-[var(--accent-primary)]" />
-          </div>
-          <span>Agent Inbox</span>
-        </CardTitle>
-        <div className="flex items-center gap-2">
+        <CardTitle>
+          <Inbox />
+          Agent Inbox
           {unreadCount > 0 && (
-            <Badge variant="accent" pulse glow className="font-mono">
-              {unreadCount}
-            </Badge>
+            <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
+              · {unreadCount}
+            </span>
           )}
+        </CardTitle>
+        <div className="flex items-center gap-1">
           {!loadedAll && rooms.length > 0 && (
             <Button
               variant="ghost"
@@ -173,7 +108,6 @@ export function AgentInboxPanel() {
               onClick={handleLoadAll}
               disabled={loading}
               title="Load all messages"
-              className="hover:bg-[var(--accent-glow)] text-[10px] px-2"
             >
               Load all
             </Button>
@@ -184,41 +118,20 @@ export function AgentInboxPanel() {
             onClick={handleRefresh}
             disabled={loading}
             title="Refresh"
-            className="hover:bg-[var(--accent-glow)]"
           >
             <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
           </Button>
         </div>
       </CardHeader>
 
-      {/* Dashboard KPI Section */}
       {rooms.length > 0 && (
-        <div className="px-4 pb-3 space-y-3">
-          <div className="grid grid-cols-3 gap-2">
-            <KPICard
-              label="Unread"
-              value={unreadCount}
-              icon={Sparkles}
-              color="accent"
-              pulse={unreadCount > 0}
-              subtext="New messages"
-            />
-            <KPICard
-              label="Rooms"
-              value={rooms.length}
-              icon={Hash}
-              color="secondary"
-              subtext="Channels"
-            />
-            <KPICard
-              label="Read"
-              value={`${metrics.readRate}%`}
-              icon={MailOpen}
-              color="success"
-              subtext="Rate"
-            />
-          </div>
-        </div>
+        <StatStrip
+          items={[
+            { label: 'Unread', value: unreadCount, icon: Sparkles, tone: 'warning', pulse: unreadCount > 0, subtext: 'New' },
+            { label: 'Rooms', value: rooms.length, icon: Hash, tone: 'secondary', subtext: 'Channels' },
+            { label: 'Read', value: `${metrics.readRate}%`, icon: MailOpen, tone: 'success', subtext: 'Rate' },
+          ]}
+        />
       )}
 
       <CardContent className="flex-1 overflow-y-auto space-y-2 min-h-0 py-2">

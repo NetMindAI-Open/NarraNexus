@@ -61,22 +61,19 @@ function MemoryItem({ events, isExpanded, onToggle }: MemoryItemProps) {
           )}
         </span>
 
-        <div className="w-7 h-7 rounded-lg bg-[var(--color-success)]/10 border border-[var(--color-success)]/20 flex items-center justify-center shrink-0">
-          <Database className="w-3.5 h-3.5 text-[var(--color-success)]" />
-        </div>
+        <Database className="w-3.5 h-3.5 text-[var(--text-tertiary)] shrink-0" />
 
-        <span className="text-xs font-medium text-[var(--text-primary)] font-mono tracking-wide">Memory</span>
+        <span className="text-xs text-[var(--text-primary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]">Memory</span>
 
-        <Badge variant={isExpanded ? 'success' : 'default'} size="sm" className="ml-auto" glow={isExpanded}>
-          <MessageSquare className="w-3 h-3 mr-1" />
-          {events.length}
-        </Badge>
+        <span className="ml-auto text-[10px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] tabular-nums">
+          · {events.length}
+        </span>
       </button>
 
       {isExpanded && (
-        <div className="mt-3 ml-4 space-y-2 animate-fade-in">
+        <div className="mt-2 ml-4 space-y-1.5 animate-fade-in">
           {events.length === 0 ? (
-            <div className="text-xs text-[var(--text-tertiary)] text-center py-6 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)]">
+            <div className="text-xs text-[var(--text-tertiary)] text-center py-4">
               No events in memory
             </div>
           ) : (
@@ -116,10 +113,10 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
       <button
         onClick={onToggle}
         className={cn(
-          'w-full p-2.5 flex items-center gap-2.5 text-left transition-all duration-300 rounded-xl group',
+          'w-full py-2 px-2.5 flex items-center gap-2.5 text-left transition-colors duration-150 group',
           isExpanded
-            ? 'bg-[var(--bg-elevated)] shadow-[0_0_20px_var(--accent-glow)] border border-[var(--accent-primary)]/20'
-            : 'hover:bg-[var(--bg-elevated)] hover:shadow-md'
+            ? 'bg-[var(--bg-secondary)]'
+            : 'hover:bg-[var(--bg-secondary)]'
         )}
       >
         <span className={cn(

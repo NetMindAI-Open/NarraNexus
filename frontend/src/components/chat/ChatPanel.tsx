@@ -436,35 +436,31 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   // ── Render ──────────────────────────────────────────
   return (
-    <Card className="flex flex-col h-full overflow-hidden" glow={isStreaming}>
-      {/* Header */}
-      <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-secondary)]/30">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className={cn(
-              'w-2.5 h-2.5 rounded-full transition-colors',
+    <Card className="flex flex-col h-full overflow-hidden">
+      {/* Header — archive document caption */}
+      <div className="px-5 flex items-center justify-between border-b border-[var(--rule)] min-h-[48px]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span
+            className={cn(
+              'w-1.5 h-1.5 rounded-full allow-circle shrink-0 transition-colors',
               isStreaming
-                ? 'bg-[var(--accent-primary)] animate-pulse'
-                : agentId ? 'bg-[var(--color-success)]' : 'bg-[var(--text-tertiary)]'
-            )} />
-          </div>
-          <div>
-            <h3 className="text-sm font-semibold font-[family-name:var(--font-display)] text-[var(--text-primary)]">
-              Agent Interaction
-            </h3>
-            <span className="text-[10px] text-[var(--text-tertiary)] font-mono tracking-wider">
-              {agentId || 'No agent selected'}
-            </span>
-          </div>
+                ? 'bg-[var(--color-yellow-500)] animate-pulse'
+                : agentId ? 'bg-[var(--color-green-500)]' : 'bg-[var(--text-tertiary)]'
+            )}
+          />
+          <span className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em] text-[var(--text-primary)]">
+            Interaction
+          </span>
+          <span className="text-[11px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] truncate">
+            · {agentId || 'no agent'}
+          </span>
         </div>
 
         {isStreaming && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--accent-glow)] border border-[var(--accent-primary)]/30">
-            <Sparkles className="w-3 h-3 text-[var(--accent-primary)] animate-pulse" />
-            <span className="text-[10px] font-medium text-[var(--accent-primary)] uppercase tracking-wider">
-              Processing
-            </span>
-          </div>
+          <span className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--color-yellow-500)]">
+            <Sparkles className="w-3 h-3 animate-pulse" />
+            Processing
+          </span>
         )}
       </div>
 
@@ -504,19 +500,14 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         {/* Empty state */}
         {showEmptyState && (
           <div className="h-full flex flex-col items-center justify-center text-center px-8">
-            <div className="relative mb-6">
-              <div className="w-20 h-20 rounded-2xl bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--border-default)]">
-                <MessageSquare className="w-10 h-10 text-[var(--text-tertiary)]" />
-              </div>
-              <div className="absolute -inset-2 rounded-3xl bg-[var(--accent-primary)] opacity-5 blur-xl" />
-            </div>
-            <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
+            <MessageSquare className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mb-4" />
+            <p className="text-[var(--text-primary)] text-sm mb-1.5">
               {!agentId ? 'Select an agent to start' : 'Start a conversation'}
             </p>
-            <p className="text-[var(--text-tertiary)] text-xs max-w-[240px]">
+            <p className="text-[var(--text-tertiary)] text-xs max-w-[260px] leading-relaxed">
               {!agentId
-                ? 'Choose an agent from the sidebar to begin your interaction'
-                : 'Send a message to interact with the AI agent'}
+                ? 'Choose an agent from the sidebar to begin your interaction.'
+                : 'Send a message to interact with the AI agent.'}
             </p>
           </div>
         )}
@@ -665,8 +656,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       </div>
 
       {/* Input area */}
-      <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/20">
-        <div className="flex gap-3 items-end">
+      <div className="px-5 py-4 border-t border-[var(--rule)]">
+        <div className="flex gap-2.5 items-stretch">
           <div className="flex-1 relative">
             <Textarea
               value={input}
@@ -675,11 +666,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               onCompositionStart={handleCompositionStart}
               onCompositionUpdate={handleCompositionUpdate}
               onCompositionEnd={handleCompositionEnd}
-              placeholder={!agentId ? 'Select an agent first...' : 'Type your message...'}
+              placeholder={!agentId ? 'Select an agent first…' : 'Type your message…'}
               disabled={isLoading || !agentId}
               className={cn(
-                'min-h-[52px] max-h-[160px] pr-4 resize-none',
-                'text-[var(--text-primary)]',
+                // Flatten to a fixed 52px row by default; multi-line growth
+                // is handled by rows auto-expanding rather than min/max.
+                'h-[52px] min-h-[52px] max-h-[160px] py-[15px] leading-[22px] resize-none',
                 isLoading && 'opacity-60'
               )}
               rows={1}
@@ -687,10 +679,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
           {isStreaming ? (
             <Button
-              variant="accent"
+              variant="danger"
               size="icon"
               onClick={() => agentId && stop(agentId)}
-              className="shrink-0 h-[52px] w-[52px] rounded-xl bg-[var(--color-error)] hover:bg-[var(--color-error)]/80 border-[var(--color-error)]"
+              className="shrink-0 h-[52px] w-[52px]"
               title="Stop generation"
             >
               <Square className="w-4 h-4 fill-current" />
@@ -701,14 +693,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               size="icon"
               onClick={handleSubmit}
               disabled={!input.trim() || isLoading || !agentId}
-              className="shrink-0 h-[52px] w-[52px] rounded-xl"
+              className="shrink-0 h-[52px] w-[52px]"
+              title="Send"
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4" />
             </Button>
           )}
         </div>
-        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] text-center">
-          Press <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] font-mono text-[9px]">Enter</kbd> to send, <kbd className="px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-default)] font-mono text-[9px]">Shift + Enter</kbd> for new line
+        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-center">
+          <kbd className="font-[family-name:var(--font-mono)]">Enter</kbd> to send
+          <span className="opacity-40 mx-2">·</span>
+          <kbd className="font-[family-name:var(--font-mono)]">Shift + Enter</kbd> new line
         </p>
       </div>
     </Card>

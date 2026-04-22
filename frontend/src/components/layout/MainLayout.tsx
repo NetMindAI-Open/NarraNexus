@@ -35,22 +35,24 @@ export function ChatView() {
   const { refreshAll } = useAutoRefresh({ agentId, userId });
 
   return (
-    <main className="flex-1 flex min-w-0 p-4 gap-4 overflow-hidden relative z-10">
-      {/* Chat Panel - Main area, takes up more space */}
-      <div className="flex-[3] min-w-[400px] animate-fade-in">
+    <main className="flex-1 flex min-w-0 p-5 gap-5 overflow-hidden relative z-10">
+      {/* Chat column — outer border gives the column a single frame */}
+      <div className="flex-[3] min-w-[400px] animate-fade-in border border-[var(--rule)] bg-[var(--bg-primary)] overflow-hidden">
         <ChatPanel onAgentComplete={refreshAll} />
       </div>
 
-      {/* Context Panel - Right side panel */}
-      <div className="flex-[2] min-w-[320px] flex flex-col animate-slide-in-right" style={{ animationDelay: '0.1s' }}>
-        {/* Tab Header + User Inbox Bell */}
+      {/* Context column */}
+      <div
+        className="flex-[2] min-w-[320px] flex flex-col animate-slide-in-right"
+        style={{ animationDelay: '0.1s' }}
+      >
         <ContextPanelHeader
           activeTab={contextTab}
           onTabChange={setContextTab}
         />
-
-        {/* Tab Content */}
-        <ContextPanelContent activeTab={contextTab} />
+        <div className="flex-1 min-h-0 border border-[var(--rule)] bg-[var(--bg-primary)] overflow-hidden">
+          <ContextPanelContent activeTab={contextTab} />
+        </div>
       </div>
     </main>
   );

@@ -26,28 +26,28 @@ function formatFileSize(bytes: number): string {
 function getStatusIcon(status: RAGFileInfo['upload_status']) {
   switch (status) {
     case 'completed':
-      return <CheckCircle className="w-3.5 h-3.5 text-green-500" />;
+      return <CheckCircle className="w-3.5 h-3.5 text-[var(--color-green-500)]" />;
     case 'failed':
-      return <AlertCircle className="w-3.5 h-3.5 text-red-500" />;
+      return <AlertCircle className="w-3.5 h-3.5 text-[var(--color-red-500)]" />;
     case 'uploading':
-      return <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />;
+      return <Loader2 className="w-3.5 h-3.5 text-[var(--color-blue-500)] animate-spin" />;
     case 'pending':
     default:
-      return <Loader2 className="w-3.5 h-3.5 text-yellow-500" />;
+      return <Loader2 className="w-3.5 h-3.5 text-[var(--color-yellow-500)]" />;
   }
 }
 
 function getStatusColor(status: RAGFileInfo['upload_status']) {
   switch (status) {
     case 'completed':
-      return 'bg-green-500/20 border-green-500/30';
+      return 'border-[var(--color-green-500)]';
     case 'failed':
-      return 'bg-red-500/20 border-red-500/30';
+      return 'border-[var(--color-red-500)]';
     case 'uploading':
-      return 'bg-blue-500/20 border-blue-500/30';
+      return 'border-[var(--color-blue-500)]';
     case 'pending':
     default:
-      return 'bg-yellow-500/20 border-yellow-500/30';
+      return 'border-[var(--color-yellow-500)]';
   }
 }
 
@@ -328,8 +328,8 @@ export function RAGUpload() {
 
       {/* Text Input Modal */}
       {showTextModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(17,18,20,0.6)]">
+          <div className="bg-[var(--bg-primary)] border border-[var(--text-primary)] w-full max-w-lg mx-4 overflow-hidden">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
               <div className="flex items-center gap-2">
@@ -416,7 +416,7 @@ export function RAGUpload() {
 
       {/* Error Message */}
       {(error || ragFilesError) && (
-        <div className="text-xs text-[var(--color-error)] p-2 bg-red-500/10 rounded">
+        <div className="text-xs text-[var(--color-red-500)] p-2 border border-[var(--color-red-500)]">
           {error || ragFilesError}
         </div>
       )}
@@ -449,7 +449,7 @@ export function RAGUpload() {
                 <div className="flex items-center gap-2 text-[9px] text-[var(--text-tertiary)]">
                   <span>{formatFileSize(file.size)}</span>
                   {file.error_message && (
-                    <span className="text-red-400 truncate" title={file.error_message}>
+                    <span className="text-[var(--color-red-500)] truncate" title={file.error_message}>
                       {file.error_message}
                     </span>
                   )}

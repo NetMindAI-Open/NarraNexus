@@ -121,19 +121,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* Avatar */}
+      {/* Avatar — flat archive square */}
       <div
         className={cn(
-          'w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all duration-300',
+          'w-8 h-8 flex items-center justify-center shrink-0 transition-colors duration-150',
           isUser
-            ? 'bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[var(--text-secondary)]'
-            : 'bg-[var(--gradient-primary)] shadow-[0_0_15px_var(--accent-glow)]'
+            ? 'bg-[var(--bg-tertiary)] border border-[var(--rule)] text-[var(--text-secondary)]'
+            // Bot avatar uses text-primary → bg-inverse so it inverts automatically.
+            : 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
         )}
       >
         {isUser ? (
-          <User className="w-4 h-4" />
+          <User className="w-3.5 h-3.5" />
         ) : (
-          <Bot className="w-4 h-4 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
+          <Bot className="w-3.5 h-3.5" />
         )}
       </div>
 
@@ -142,29 +143,21 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
         <div
           className={cn(
             'inline-block max-w-[85%] text-left',
-            'px-4 py-3 rounded-2xl',
-            'transition-all duration-300',
+            'px-4 py-3',
+            'transition-colors duration-150',
             isUser
               ? [
                   'message-user',
-                  'bg-[var(--gradient-primary)]',
-                  'text-[var(--text-inverse)] dark:text-[var(--bg-deep)]',
-                  'rounded-tr-md',
                 ]
               : message.isError
                 ? [
                     'message-assistant',
-                    'bg-red-950/30',
-                    'text-red-400',
-                    'border border-red-500/40',
-                    'rounded-tl-md',
+                    'bg-[var(--bg-primary)]',
+                    'text-[var(--color-red-500)]',
+                    'border border-[var(--color-red-500)]',
                   ]
                 : [
                     'message-assistant',
-                    'bg-[var(--bg-elevated)]',
-                    'text-[var(--text-primary)]',
-                    'border border-[var(--border-default)]',
-                    'rounded-tl-md',
                   ]
           )}
         >
@@ -176,8 +169,8 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                 className={cn(
                   'flex items-center gap-1.5 text-xs transition-colors',
                   isUser
-                    ? 'text-white/70 hover:text-white'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]'
+                    ? 'opacity-70 hover:opacity-100'
+                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
                 )}
               >
                 {showThinking ? (
@@ -196,10 +189,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                   </div>
                 ) : thinking ? (
                   <div className={cn(
-                    'mt-2 p-3 rounded-xl text-xs font-mono whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto',
+                    'mt-2 p-3 text-xs font-mono whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto',
                     isUser
-                      ? 'bg-white/10 text-white/80'
-                      : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
+                      ? 'bg-[rgb(255_255_255_/_0.1)] opacity-80 dark:bg-[rgb(17_18_20_/_0.08)]'
+                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--rule)]'
                   )}>
                     {thinking}
                   </div>
@@ -216,8 +209,8 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                 className={cn(
                   'flex items-center gap-1.5 text-xs transition-colors',
                   isUser
-                    ? 'text-white/70 hover:text-white'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]'
+                    ? 'opacity-70 hover:opacity-100'
+                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
                 )}
               >
                 {showTools ? (
@@ -279,7 +272,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
           {/* Message content */}
           <div className={cn(
             'text-sm break-words leading-relaxed',
-            message.isError && 'text-red-400'
+            message.isError && 'text-[var(--color-red-500)]'
           )}>
             {isUser ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
@@ -295,9 +288,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
 
           {/* Non-fatal warnings */}
           {message.warnings && message.warnings.length > 0 && (
-            <div className="mt-2 pt-2 border-t border-amber-500/20">
+            <div className="mt-2 pt-2 border-t border-[var(--rule)]">
               {message.warnings.map((warning, i) => (
-                <div key={i} className="flex items-start gap-1.5 text-xs text-amber-500">
+                <div key={i} className="flex items-start gap-1.5 text-xs text-[var(--color-yellow-500)]">
                   <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
                   <span>{warning}</span>
                 </div>
@@ -357,24 +350,26 @@ function ToolCallItem({ tool, isUser }: { tool: { tool_name: string; tool_input:
   return (
     <div
       className={cn(
-        'p-3 rounded-xl text-xs font-mono',
+        'p-3 text-xs font-mono',
+        // Inside a user bubble: subtle inset using currentColor so we auto-invert in dark mode.
+        // Outside: normal secondary background.
         isUser
-          ? 'bg-white/10'
-          : 'bg-[var(--bg-sunken)] border border-[var(--border-subtle)]'
+          ? 'bg-[color-mix(in_srgb,currentColor_10%,transparent)]'
+          : 'bg-[var(--bg-secondary)] border border-[var(--rule)]'
       )}
     >
       <div className={cn(
         'font-semibold flex items-center gap-1.5',
-        isUser ? 'text-white' : 'text-[var(--accent-primary)]'
+        isUser ? '' : 'text-[var(--text-primary)]'
       )}>
-        <span className="w-1.5 h-1.5 rounded-full bg-current" />
+        <span className="w-1.5 h-1.5 rounded-full allow-circle bg-current" />
         {tool.tool_name}
       </div>
 
       {/* Input */}
       <div className={cn(
         'mt-1.5',
-        isUser ? 'text-white/60' : 'text-[var(--text-tertiary)]'
+        isUser ? 'opacity-60' : 'text-[var(--text-tertiary)]'
       )}>
         {expanded || !isLong ? (
           <pre className="whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
@@ -387,8 +382,8 @@ function ToolCallItem({ tool, isUser }: { tool: { tool_name: string; tool_input:
           <button
             onClick={() => setExpanded((prev) => !prev)}
             className={cn(
-              'mt-1 text-[10px] underline opacity-60 hover:opacity-100',
-              isUser ? 'text-white/70' : 'text-[var(--accent-primary)]'
+              'mt-1 text-[10px] underline hover:no-underline',
+              isUser ? 'opacity-80 hover:opacity-100' : 'text-[var(--text-primary)]'
             )}
           >
             {expanded ? 'Collapse' : 'Expand'}
@@ -415,33 +410,27 @@ function ToolCallOutput({ output, isUser }: { output: string; isUser: boolean })
   return (
     <div className={cn(
       'mt-2 pt-2 border-t',
-      isUser ? 'border-white/10' : 'border-[var(--border-subtle)]'
+      isUser ? 'border-[color-mix(in_srgb,currentColor_15%,transparent)]' : 'border-[var(--rule)]'
     )}>
       <div className={cn(
         'text-[10px] font-semibold mb-1',
-        isUser ? 'text-white/50' : 'text-[var(--text-tertiary)]'
+        isUser ? 'opacity-50' : 'text-[var(--text-tertiary)]'
       )}>
         Output
       </div>
       <div className={cn(
         'whitespace-pre-wrap break-all',
-        isUser ? 'text-white/50' : 'text-[var(--text-tertiary)]',
+        isUser ? 'opacity-50' : 'text-[var(--text-tertiary)]',
         !expanded && isLong && 'max-h-[60px] overflow-hidden relative'
       )}>
         {expanded || !isLong ? output : output.slice(0, 200) + '...'}
-        {!expanded && isLong && (
-          <div className={cn(
-            'absolute bottom-0 left-0 right-0 h-6',
-            isUser ? 'bg-gradient-to-t from-white/10' : 'bg-gradient-to-t from-[var(--bg-sunken)]'
-          )} />
-        )}
       </div>
       {isLong && (
         <button
           onClick={() => setExpanded((prev) => !prev)}
           className={cn(
-            'mt-1 text-[10px] underline opacity-60 hover:opacity-100',
-            isUser ? 'text-white/70' : 'text-[var(--accent-primary)]'
+            'mt-1 text-[10px] underline hover:no-underline',
+            isUser ? 'opacity-80 hover:opacity-100' : 'text-[var(--text-primary)]'
           )}
         >
           {expanded ? 'Collapse' : 'Show full output'}

@@ -90,7 +90,7 @@ export function DashboardPage() {
     <div className="p-6 space-y-4">
       <h1 className="text-xl font-semibold">Agent Dashboard</h1>
       {error && (
-        <div className="p-3 rounded bg-red-500/10 border border-red-500/30 text-sm">
+        <div className="p-3 border border-[var(--color-red-500)] text-sm">
           {error}
         </div>
       )}

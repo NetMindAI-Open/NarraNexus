@@ -47,29 +47,27 @@ export function InboxPanel() {
   return (
     <Card className="flex flex-col h-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Mail className="w-4 h-4 text-[var(--color-accent)]" />
+        <CardTitle>
+          <Mail />
           Agent Inbox
-        </CardTitle>
-        <div className="flex items-center gap-2">
           {agentUnreadCount > 0 && (
-            <Badge variant="accent" pulse>
-              {agentUnreadCount}
-            </Badge>
+            <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
+              · {agentUnreadCount}
+            </span>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRefresh}
-            disabled={loading}
-            title="Refresh"
-          >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          </Button>
-        </div>
+        </CardTitle>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRefresh}
+          disabled={loading}
+          title="Refresh"
+        >
+          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+        </Button>
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-y-auto space-y-2 min-h-0">
+      <CardContent className="flex-1 overflow-y-auto min-h-0 !p-0">
         {agentRooms.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-[var(--text-tertiary)] text-sm">No messages</p>
@@ -82,11 +80,8 @@ export function InboxPanel() {
               <div
                 key={room.room_id}
                 className={cn(
-                  'rounded-lg border transition-all',
-                  isRoomExpanded
-                    ? 'border-[var(--color-accent)]/30 ring-1 ring-[var(--color-accent)]'
-                    : 'border-[var(--border-default)] hover:border-[var(--color-accent)]/50',
-                  room.unread_count > 0 && !isRoomExpanded && 'bg-[var(--accent-10)]'
+                  'border-b border-[var(--rule)] transition-colors',
+                  room.unread_count > 0 && !isRoomExpanded && 'bg-[var(--bg-secondary)]'
                 )}
               >
                 {/* Room Header */}

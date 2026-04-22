@@ -95,32 +95,33 @@ export function LoginPage() {
           </button>
         )}
 
-        {/* Logo / Header */}
-        <div className="text-center mb-10">
-          <div className="relative inline-block mb-5">
-            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center overflow-hidden shadow-[var(--shadow-glow)]">
-              <img
-                src="/logo.png"
-                alt="NetMind.AI"
-                className="w-14 h-14 object-contain"
-              />
-              {isCloudMode && (
-                <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[var(--bg-primary)] border-2 border-[var(--accent-primary)] flex items-center justify-center">
-                  <Cloud className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-                </div>
-              )}
-            </div>
+        {/* Document header — archive style */}
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-6 h-6 bg-[var(--text-primary)]" />
+            <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.22em] text-[var(--text-tertiary)]">
+              NetMind · Access
+            </span>
           </div>
-
-          <h1 className="text-3xl font-bold font-[family-name:var(--font-display)] text-[var(--text-primary)] mb-2 tracking-tight">
-            Narra<span className="text-[var(--accent-primary)]">Nexus</span>
+          <h1
+            className="font-[family-name:var(--font-display)] font-bold text-[var(--text-primary)] mb-3"
+            style={{ fontSize: 'clamp(2rem, 6vw, 2.75rem)', lineHeight: 1.02, letterSpacing: '-0.025em' }}
+          >
+            NarraNexus
           </h1>
-          <p className="text-[var(--text-secondary)] text-sm">
-            {isCloudMode ? 'Cloud Platform' : 'Intelligent Agent Platform'}
+          <hr className="archive-rule-thick" style={{ margin: '0 0 1rem 0' }} />
+          <p className="text-[var(--text-secondary)] text-sm font-light">
+            {isCloudMode ? 'Cloud platform · ' : 'Intelligent agent platform · '}
+            <span className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">
+              {isCloudMode ? '01 · Sign in' : '01 · Credentials'}
+            </span>
           </p>
-          <p className="text-[10px] text-[var(--text-tertiary)] font-mono tracking-[0.2em] uppercase mt-1">
-            {isCloudMode ? 'Sign in to your account' : 'Enter credentials to continue'}
-          </p>
+          {isCloudMode && (
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--text-tertiary)] border border-[var(--rule)] px-2 py-1">
+              <Cloud className="w-3 h-3" />
+              Cloud mode
+            </div>
+          )}
         </div>
 
         {/* Login Form */}
@@ -221,10 +222,13 @@ export function LoginPage() {
         </div>
 
         {/* Footer */}
-        <div className="mt-10 pt-6 border-t border-[var(--border-subtle)]">
-          <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-tertiary)]">
-            <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-            <span>Powered by NetMind.AI</span>
+        <div className="mt-10 pt-5 border-t border-[var(--rule)]">
+          <div className="flex items-center justify-between text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)]">
+            <span className="flex items-center gap-1.5">
+              <Sparkles className="w-3 h-3" />
+              NetMind.AI
+            </span>
+            <span>v1.0.0</span>
           </div>
         </div>
       </div>

@@ -22,9 +22,9 @@ interface JobExecutionTimelineProps {
 const statusColorClasses: Record<JobNodeStatus, string> = {
   pending: 'bg-gray-300',
   active: 'bg-blue-400',
-  running: 'bg-yellow-400 animate-pulse',
+  running: 'bg-[var(--color-yellow-500)] animate-pulse',
   completed: 'bg-green-500',
-  failed: 'bg-red-500',
+  failed: 'bg-[var(--color-red-500)]',
   cancelled: 'bg-gray-400',
 };
 
@@ -216,13 +216,13 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
           <div className="w-3 h-3 rounded bg-blue-400" /> Active
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-yellow-400" /> Running
+          <div className="w-3 h-3 rounded bg-[var(--color-yellow-500)]" /> Running
         </span>
         <span className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-green-500" /> Completed
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-red-500" /> Failed
+          <div className="w-3 h-3 rounded bg-[var(--color-red-500)]" /> Failed
         </span>
       </div>
     </div>

@@ -28,7 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, KPICard } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, StatStrip } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -158,106 +158,85 @@ export function JobsPanel() {
   };
 
   return (
-    <Card variant="glass" className="flex flex-col h-full">
+    <Card className="flex flex-col h-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[var(--color-warning)]/10 flex items-center justify-center">
-            <Calendar className="w-4 h-4 text-[var(--color-warning)]" />
-          </div>
-          <span>Jobs</span>
+        <CardTitle>
+          <Calendar />
+          Jobs
+          <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
+            · {allJobs.length}
+          </span>
         </CardTitle>
-        <div className="flex items-center gap-2">
-          <Badge variant={allJobs.length > 0 ? 'accent' : 'default'} className="font-mono">
-            {allJobs.length}
-          </Badge>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleRefresh}
-            disabled={loading}
-            title="Refresh"
-            className="hover:bg-[var(--accent-glow)]"
-          >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRefresh}
+          disabled={loading}
+          title="Refresh"
+        >
+          <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+        </Button>
       </CardHeader>
 
-      {/* Dashboard KPI Section */}
+      {/* Stat strip */}
       {allJobs.length > 0 && (
-        <div className="px-4 pb-3 space-y-3">
-          <div className="grid grid-cols-4 gap-2">
-            <KPICard
-              label="Active"
-              value={jobMetrics.running}
-              icon={Zap}
-              color="warning"
-              pulse={jobMetrics.running > 0}
-              subtext="In progress"
-            />
-            <KPICard
-              label="Success"
-              value={jobMetrics.completed}
-              icon={CheckCircle}
-              color="success"
-              subtext="Completed"
-            />
-            <KPICard
-              label="Failed"
-              value={jobMetrics.failed}
-              icon={AlertCircle}
-              color={jobMetrics.failed > 0 ? 'error' : 'secondary'}
-              subtext="Errors"
-            />
-            <KPICard
-              label="Rate"
-              value={`${jobMetrics.successRate}%`}
-              icon={TrendingUp}
-              color="accent"
-              subtext="Success rate"
-            />
+        <>
+          <StatStrip
+            items={[
+              { label: 'Active', value: jobMetrics.running, icon: Zap, tone: 'warning', pulse: jobMetrics.running > 0 },
+              { label: 'Success', value: jobMetrics.completed, icon: CheckCircle, tone: 'success' },
+              { label: 'Failed', value: jobMetrics.failed, icon: AlertCircle, tone: jobMetrics.failed > 0 ? 'error' : 'secondary' },
+              { label: 'Rate', value: `${jobMetrics.successRate}%`, icon: TrendingUp },
+            ]}
+          />
+          <div className="px-5 py-3">
+            <StatusDistributionBar jobs={allJobs} />
           </div>
-          <StatusDistributionBar jobs={allJobs} />
-        </div>
+        </>
       )}
 
-      {/* View Mode Tabs */}
-      <div className="px-4 pb-3 flex gap-1 border-b border-[var(--border-subtle)]">
-        {[
-          { mode: 'list' as const, icon: List, label: 'List' },
-          { mode: 'graph' as const, icon: GitBranch, label: 'Graph' },
-          { mode: 'timeline' as const, icon: GanttChartSquare, label: 'Timeline' },
-        ].map(({ mode, icon: Icon, label }) => (
-          <button
-            key={mode}
-            onClick={() => setViewMode(mode)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-2 text-xs rounded-xl transition-all duration-300 font-medium',
-              viewMode === mode
-                ? 'bg-[var(--accent-primary)] text-[var(--bg-deep)] shadow-[0_0_15px_var(--accent-glow)]'
-                : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-            )}
-          >
-            <Icon className="w-3.5 h-3.5" />
-            {label}
-          </button>
-        ))}
+      {/* View mode + status filter — one compact row of underline tabs */}
+      <div className="px-5 pt-2 pb-0 flex items-center gap-4 border-t border-[var(--rule)]">
+        <div className="flex gap-4">
+          {[
+            { mode: 'list' as const, icon: List, label: 'List' },
+            { mode: 'graph' as const, icon: GitBranch, label: 'Graph' },
+            { mode: 'timeline' as const, icon: GanttChartSquare, label: 'Timeline' },
+          ].map(({ mode, icon: Icon, label }) => (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              className={cn(
+                'flex items-center gap-1.5 py-2 text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]',
+                'border-b-2 -mb-px transition-colors duration-150',
+                viewMode === mode
+                  ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
+                  : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
+              )}
+            >
+              <Icon className="w-3 h-3" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Status Filter (only for list view) */}
+      {/* Status filter — thin filter row, only in list view */}
       {viewMode === 'list' && (
-        <div className="px-4 py-2 flex gap-1.5 overflow-x-auto">
+        <div className="px-5 py-2 flex gap-1 overflow-x-auto border-t border-[var(--rule)]">
           {(['all', 'active', 'running', 'paused', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
             const config = status !== 'all' ? statusConfig[status] : null;
+            const isActive = statusFilter === status;
             return (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
                 className={cn(
-                  'px-3 py-1.5 text-[10px] rounded-lg transition-all duration-300 whitespace-nowrap font-mono uppercase tracking-wider',
-                  statusFilter === status
-                    ? 'bg-[var(--accent-glow)] text-[var(--accent-primary)] border border-[var(--accent-primary)]/30'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)] border border-transparent'
+                  'px-2 py-1 text-[10px] whitespace-nowrap font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]',
+                  'transition-colors duration-150',
+                  isActive
+                    ? 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
+                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
                 )}
               >
                 {status === 'all' ? 'All' : config?.label}

@@ -6,7 +6,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Brain, Clock, Users, Sparkles, Edit3, Save, X, MessageSquare, Network, TrendingUp, Search, Loader2 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, KPICard } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip } from '@/components/ui';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -157,13 +157,11 @@ export function AwarenessPanel() {
 
   return (
     <>
-      <Card variant="glass" className="flex flex-col h-full">
+      <Card className="flex flex-col h-full">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-[var(--accent-secondary)]/10 flex items-center justify-center">
-              <Brain className="w-4 h-4 text-[var(--accent-secondary)]" />
-            </div>
-            <span>Context</span>
+          <CardTitle>
+            <Brain />
+            Context
           </CardTitle>
           <Button
             variant="ghost"
@@ -171,42 +169,25 @@ export function AwarenessPanel() {
             onClick={handleRefresh}
             disabled={isLoading}
             title="Refresh"
-            className="hover:bg-[var(--accent-glow)]"
           >
             <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
           </Button>
         </CardHeader>
 
-        <CardContent className="flex-1 overflow-y-auto space-y-4 min-h-0">
-          {/* Dashboard KPI Section */}
-          <div className="grid grid-cols-3 gap-2">
-            <KPICard
-              label="Contacts"
-              value={socialNetworkList.length}
-              icon={Users}
-              color="accent"
-              subtext="In network"
-            />
-            <KPICard
-              label="Chats"
-              value={networkMetrics.totalChats}
-              icon={MessageSquare}
-              color="secondary"
-              subtext="Total interactions"
-            />
-            <KPICard
-              label="Strong"
-              value={networkMetrics.strongConnections}
-              icon={TrendingUp}
-              color="success"
-              subtext={`${networkMetrics.avgStrength}% avg`}
-            />
-          </div>
+        {/* Stat strip — rule-separated, no nested boxes */}
+        <StatStrip
+          items={[
+            { label: 'Contacts', value: socialNetworkList.length, icon: Users },
+            { label: 'Chats', value: networkMetrics.totalChats, icon: MessageSquare, tone: 'secondary' },
+            { label: 'Strong', value: networkMetrics.strongConnections, icon: TrendingUp, tone: 'success', subtext: `${networkMetrics.avgStrength}% avg` },
+          ]}
+        />
 
-          {/* Agent Awareness Section */}
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-[10px] text-[var(--accent-secondary)] font-medium uppercase tracking-wider">
+        <CardContent className="flex-1 overflow-y-auto min-h-0 !p-0">
+          {/* ── Section: Agent Awareness ── */}
+          <section className="px-5 pt-5 pb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em]">
                 <Sparkles className="w-3 h-3" />
                 Agent Awareness
               </div>
@@ -215,7 +196,7 @@ export function AwarenessPanel() {
                 size="sm"
                 onClick={handleOpenEditModal}
                 disabled={awarenessLoading}
-                className="h-7 px-2 text-[10px] hover:bg-[var(--accent-glow)] hover:text-[var(--accent-primary)]"
+                className="h-6 px-1.5"
               >
                 <Edit3 className="w-3 h-3 mr-1" />
                 Edit
@@ -223,75 +204,73 @@ export function AwarenessPanel() {
             </div>
 
             {awarenessLoading ? (
-              <div className="animate-pulse rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-4">
-                <div className="space-y-2">
-                  <div className="h-3 bg-[var(--bg-tertiary)] rounded w-3/4" />
-                  <div className="h-3 bg-[var(--bg-tertiary)] rounded w-1/2" />
-                  <div className="h-3 bg-[var(--bg-tertiary)] rounded w-2/3" />
-                </div>
+              <div className="animate-pulse space-y-2">
+                <div className="h-3 bg-[var(--bg-tertiary)] w-3/4" />
+                <div className="h-3 bg-[var(--bg-tertiary)] w-1/2" />
+                <div className="h-3 bg-[var(--bg-tertiary)] w-2/3" />
               </div>
             ) : awarenessError ? (
-              <div className="text-xs text-[var(--color-error)] p-3 bg-[var(--color-error)]/10 rounded-xl border border-[var(--color-error)]/20">
+              <div className="text-xs text-[var(--color-red-500)] py-2 font-[family-name:var(--font-mono)]">
                 {awarenessError}
               </div>
             ) : awareness ? (
-              <div className="p-3 bg-[var(--bg-elevated)] rounded-xl border border-[var(--border-subtle)] space-y-2 relative overflow-hidden">
-                {/* Subtle glow effect */}
-                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[var(--accent-secondary)]/20 to-transparent" />
-                <div className="text-xs max-h-[150px] overflow-y-auto text-[var(--text-secondary)] leading-relaxed">
+              // Framed thesis block: 2px ink on the left as emphasis,
+              // hairline rules on the other three sides so the block
+              // reads as a contained quote in both light and dark modes.
+              <div
+                className="pl-4 pr-4 py-3 border-t border-r border-b border-[var(--rule)]"
+                style={{ borderLeft: '2px solid var(--text-primary)' }}
+              >
+                <div className="text-[13px] max-h-[180px] overflow-y-auto text-[var(--text-secondary)] leading-relaxed">
                   <Markdown content={awareness} />
                 </div>
                 {awarenessUpdateTime && (
-                  <div className="text-[9px] text-[var(--text-tertiary)] font-mono flex items-center gap-1.5 pt-2 border-t border-[var(--border-subtle)]">
-                    <Clock className="w-3 h-3 text-[var(--accent-secondary)]" />
+                  <div className="mt-3 pt-3 border-t border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] flex items-center gap-1.5">
+                    <Clock className="w-3 h-3" />
                     Updated {formatRelativeTime(awarenessUpdateTime)}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="text-xs text-[var(--text-tertiary)] p-6 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)] text-center">
-                <Brain className="w-6 h-6 mx-auto mb-2 opacity-30" />
+              <div className="text-xs text-[var(--text-tertiary)] py-6 text-center">
+                <Brain className="w-5 h-5 mx-auto mb-2 opacity-30" />
                 No awareness data
               </div>
             )}
           </section>
 
-          {/* Divider with glow */}
-          <div className="relative">
-            <div className="border-t border-[var(--border-subtle)]" />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-px bg-gradient-to-r from-transparent via-[var(--accent-primary)]/30 to-transparent" />
-          </div>
-
-          {/* Social Network Section */}
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-[10px] text-[var(--accent-primary)] font-medium uppercase tracking-wider">
+          {/* ── Section: Social Network ── */}
+          <section className="px-5 pt-5 pb-6 border-t border-[var(--rule)]">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em]">
                 <Network className="w-3 h-3" />
                 Social Network
               </div>
-              <Badge variant="default" size="sm" className="font-mono">{socialNetworkList.length}</Badge>
+              <span className="text-[10px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] tabular-nums">
+                {socialNetworkList.length}
+              </span>
             </div>
 
-            {/* Semantic search box */}
-            <div className="space-y-2">
+            {/* Search input + type toggle */}
+            <div className="space-y-2 mb-3">
               <div className="flex gap-2">
                 <div className="flex-1 relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                   <Input
                     type="text"
-                    placeholder="Search contacts..."
+                    placeholder="Search contacts…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleSearchKeyDown}
-                    className="pl-9 pr-3 h-9 text-xs bg-[var(--bg-elevated)] border-[var(--border-subtle)] focus:border-[var(--accent-primary)]/50"
+                    className="pl-8 h-8 text-[13px]"
                   />
                 </div>
                 <Button
                   variant="ghost"
-                  size="sm"
+                  size="icon"
                   onClick={handleSearch}
                   disabled={isSearching || !searchQuery.trim()}
-                  className="h-9 px-3 hover:bg-[var(--accent-glow)]"
+                  className="h-8 w-8"
                 >
                   {isSearching ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -300,16 +279,14 @@ export function AwarenessPanel() {
                   )}
                 </Button>
               </div>
-
-              {/* Search type toggle */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 text-[10px] font-[family-name:var(--font-mono)]">
                 <button
                   onClick={() => setSearchType('semantic')}
                   className={cn(
-                    'px-2 py-1 text-[9px] rounded-lg transition-all duration-200 font-mono',
+                    'px-1.5 py-0.5 uppercase tracking-[0.1em] transition-colors',
                     searchType === 'semantic'
-                      ? 'bg-[var(--accent-primary)] text-[var(--bg-deep)]'
-                      : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                      ? 'text-[var(--text-primary)] border-b border-[var(--text-primary)]'
+                      : 'text-[var(--text-tertiary)] border-b border-transparent hover:text-[var(--text-primary)]'
                   )}
                 >
                   Semantic
@@ -317,10 +294,10 @@ export function AwarenessPanel() {
                 <button
                   onClick={() => setSearchType('keyword')}
                   className={cn(
-                    'px-2 py-1 text-[9px] rounded-lg transition-all duration-200 font-mono',
+                    'px-1.5 py-0.5 uppercase tracking-[0.1em] transition-colors',
                     searchType === 'keyword'
-                      ? 'bg-[var(--accent-primary)] text-[var(--bg-deep)]'
-                      : 'bg-[var(--bg-elevated)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                      ? 'text-[var(--text-primary)] border-b border-[var(--text-primary)]'
+                      : 'text-[var(--text-tertiary)] border-b border-transparent hover:text-[var(--text-primary)]'
                   )}
                 >
                   Keyword
@@ -328,7 +305,7 @@ export function AwarenessPanel() {
                 {hasSearched && (
                   <button
                     onClick={handleClearSearch}
-                    className="ml-auto px-2 py-1 text-[9px] rounded-lg bg-[var(--bg-elevated)] text-[var(--text-tertiary)] hover:text-[var(--color-error)] transition-colors font-mono"
+                    className="ml-auto px-1.5 py-0.5 uppercase tracking-[0.1em] text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
                   >
                     Clear
                   </button>
@@ -338,12 +315,12 @@ export function AwarenessPanel() {
 
             {/* Search results */}
             {hasSearched && (
-              <div className="space-y-2">
-                <div className="text-[9px] text-[var(--text-tertiary)] font-mono">
-                  {isSearching ? 'Searching...' : `${searchResults.length} results found`}
+              <div className="mb-3">
+                <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] mb-2">
+                  {isSearching ? 'Searching…' : `${searchResults.length} results`}
                 </div>
                 {searchResults.length > 0 && (
-                  <div className="space-y-2 p-2 bg-[var(--accent-glow)] rounded-xl border border-[var(--accent-primary)]/20">
+                  <div className="space-y-1.5">
                     {searchResults.map((entity) => (
                       <EntityCard
                         key={`search-${entity.entity_id}`}
@@ -357,29 +334,29 @@ export function AwarenessPanel() {
               </div>
             )}
 
-            {/* Original list (hidden during search) */}
+            {/* Original list */}
             {!hasSearched && (
               socialNetworkLoading ? (
                 <div className="space-y-2">
                   {[1, 2].map((i) => (
-                    <div key={i} className="animate-pulse rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                    <div key={i} className="animate-pulse py-3 border-b border-[var(--rule)] last:border-b-0">
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-[var(--bg-tertiary)]" />
+                        <div className="w-8 h-8 bg-[var(--bg-tertiary)]" />
                         <div className="flex-1 space-y-2">
-                          <div className="h-3 bg-[var(--bg-tertiary)] rounded w-2/3" />
-                          <div className="h-2 bg-[var(--bg-tertiary)] rounded w-1/3" />
+                          <div className="h-3 bg-[var(--bg-tertiary)] w-2/3" />
+                          <div className="h-2 bg-[var(--bg-tertiary)] w-1/3" />
                         </div>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : sortedEntities.length === 0 ? (
-                <div className="text-xs text-[var(--text-tertiary)] p-6 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)] text-center">
-                  <Users className="w-6 h-6 mx-auto mb-2 opacity-30" />
+                <div className="text-xs text-[var(--text-tertiary)] py-6 text-center">
+                  <Users className="w-5 h-5 mx-auto mb-2 opacity-30" />
                   No contacts yet
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {sortedEntities.map((entity) => (
                     <EntityCard
                       key={entity.entity_id}
@@ -393,31 +370,20 @@ export function AwarenessPanel() {
             )}
           </section>
 
-          {/* Divider with glow */}
-          <div className="relative">
-            <div className="border-t border-[var(--border-subtle)]" />
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-16 h-px bg-gradient-to-r from-transparent via-[var(--color-success)]/30 to-transparent" />
-          </div>
+          {/* ── Section: File Upload ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <FileUpload />
+          </section>
 
-          {/* RAG Upload Section removed — Gemini RAG deprecated */}
+          {/* ── Section: MCP ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <MCPManager />
+          </section>
 
-          {/* Divider */}
-          <div className="border-t border-[var(--border-subtle)]" />
-
-          {/* File Upload Section */}
-          <FileUpload />
-
-          {/* Divider */}
-          <div className="border-t border-[var(--border-subtle)]" />
-
-          {/* MCP Manager Section */}
-          <MCPManager />
-
-          {/* Divider */}
-          <div className="border-t border-[var(--border-subtle)]" />
-
-          {/* Lark / Feishu Integration */}
-          <LarkConfig />
+          {/* ── Section: Lark ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <LarkConfig />
+          </section>
         </CardContent>
       </Card>
 

@@ -53,12 +53,12 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-[var(--bg-deep)]/80 backdrop-blur-md"
+        className="absolute inset-0 bg-[rgba(17,18,20,0.6)]"
         onClick={() => !loading && onClose()}
       />
 
       {/* Dialog */}
-      <div className="relative bg-[var(--glass-bg)] backdrop-blur-xl border border-[var(--glass-border)] rounded-3xl shadow-[var(--shadow-lg),0_0_60px_var(--accent-glow)] w-full max-w-md p-7 animate-scale-in">
+      <div className="relative bg-[var(--bg-primary)] border border-[var(--text-primary)] w-full max-w-md p-7 animate-scale-in">
         {/* Top glow line */}
         <div className="absolute top-0 left-1/4 right-1/4 h-px bg-gradient-to-r from-transparent via-[var(--accent-primary)] to-transparent" />
 

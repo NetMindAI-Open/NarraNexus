@@ -212,7 +212,7 @@ export function LarkConfig() {
       </CardHeader>
       <CardContent className="space-y-3">
         {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-red-400 bg-red-400/10 p-2 rounded">
+          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
             <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
             {error}
           </div>
@@ -305,14 +305,14 @@ export function LarkConfig() {
                   ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-green-400">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> Bot Connected
               </span>
             </div>
 
             {credential.owner_name && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
-                <CheckCircle className="w-3 h-3 text-green-400 flex-shrink-0" aria-hidden="true" />
+                <CheckCircle className="w-3 h-3 text-[var(--color-green-500)] flex-shrink-0" aria-hidden="true" />
                 Linked as: <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
               </div>
             )}
@@ -321,7 +321,7 @@ export function LarkConfig() {
               App ID: {credential.app_id}
             </div>
 
-            <div className="text-xs text-[var(--text-secondary)] bg-yellow-400/10 p-2 rounded">
+            <div className="text-xs text-[var(--text-secondary)] border border-[var(--color-yellow-500)] p-2">
               Complete OAuth to unlock search features (contacts by name, messages, documents)
             </div>
 
@@ -342,7 +342,7 @@ export function LarkConfig() {
               </Button>
             )}
 
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-red-400 hover:text-red-300">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
               <Unlink className="w-4 h-4 mr-2" /> Unbind
             </Button>
           </div>
@@ -360,14 +360,14 @@ export function LarkConfig() {
                   ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
                 </span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-green-400">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
                 <CheckCircle className="w-3 h-3" aria-hidden="true" /> Fully Connected
               </span>
             </div>
 
             {credential.owner_name && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
-                <CheckCircle className="w-3 h-3 text-green-400 flex-shrink-0" aria-hidden="true" />
+                <CheckCircle className="w-3 h-3 text-[var(--color-green-500)] flex-shrink-0" aria-hidden="true" />
                 Linked as: <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
               </div>
             )}
@@ -376,7 +376,7 @@ export function LarkConfig() {
               App ID: {credential.app_id}
             </div>
 
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-red-400 hover:text-red-300">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
               <Unlink className="w-4 h-4 mr-2" /> Unbind
             </Button>
           </div>
@@ -390,12 +390,12 @@ export function LarkConfig() {
                 <span className="text-[var(--text-primary)]">{credential.app_id}</span>
                 <span className="text-[var(--text-secondary)] ml-2">({credential.brand})</span>
               </div>
-              <span className="flex items-center gap-1 text-xs text-yellow-400">
+              <span className="flex items-center gap-1 text-xs text-[var(--color-yellow-500)]">
                 <AlertCircle className="w-3 h-3" aria-hidden="true" /> {credential.auth_status === 'expired' ? 'Expired' : 'Not active'}
               </span>
             </div>
 
-            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-red-400 hover:text-red-300">
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
               <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind
             </Button>
           </div>

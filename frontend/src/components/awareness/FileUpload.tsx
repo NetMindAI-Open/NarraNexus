@@ -197,7 +197,7 @@ export function FileUpload() {
 
       {/* Error Message */}
       {error && (
-        <div className="text-xs text-[var(--color-error)] p-2 bg-red-500/10 rounded">
+        <div className="text-xs text-[var(--color-error)] p-2 border border-[var(--color-red-500)]">
           {error}
         </div>
       )}

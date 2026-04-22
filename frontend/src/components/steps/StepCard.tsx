@@ -94,17 +94,17 @@ function ChangesSummary({ changes }: { changes: { added?: string[]; removed?: st
   return (
     <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-mono">
       {changes.added && changes.added.length > 0 && (
-        <span className="px-2 py-0.5 rounded-full bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/30">
+        <span className="px-1.5 py-0.5 border border-[var(--color-green-500)] text-[var(--color-green-500)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
           +{changes.added.length} added
         </span>
       )}
       {changes.removed && changes.removed.length > 0 && (
-        <span className="px-2 py-0.5 rounded-full bg-[var(--color-error)]/10 text-[var(--color-error)] border border-[var(--color-error)]/30">
-          -{changes.removed.length} removed
+        <span className="px-1.5 py-0.5 border border-[var(--color-red-500)] text-[var(--color-red-500)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+          −{changes.removed.length} removed
         </span>
       )}
       {changes.updated && changes.updated.length > 0 && (
-        <span className="px-2 py-0.5 rounded-full bg-[var(--color-warning)]/10 text-[var(--color-warning)] border border-[var(--color-warning)]/30">
+        <span className="px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
           ~{changes.updated.length} updated
         </span>
       )}
@@ -122,21 +122,21 @@ export function StepCard({ step, isLast }: StepCardProps) {
   }[step.status];
 
   const statusColor = {
-    running: 'text-[var(--accent-primary)]',
-    completed: 'text-[var(--color-success)]',
-    failed: 'text-[var(--color-error)]',
+    running: 'text-[var(--color-yellow-500)]',
+    completed: 'text-[var(--color-green-500)]',
+    failed: 'text-[var(--color-red-500)]',
   }[step.status];
 
   const borderColor = {
-    running: 'border-l-[var(--accent-primary)]',
-    completed: 'border-l-[var(--color-success)]',
-    failed: 'border-l-[var(--color-error)]',
+    running: 'border-l-[var(--color-yellow-500)]',
+    completed: 'border-l-[var(--color-green-500)]',
+    failed: 'border-l-[var(--color-red-500)]',
   }[step.status];
 
   const bgColor = {
-    running: 'bg-[var(--accent-glow)]',
+    running: 'bg-[var(--bg-secondary)]',
     completed: 'bg-transparent',
-    failed: 'bg-[var(--color-error)]/5',
+    failed: 'bg-transparent',
   }[step.status];
 
   // Extract user-friendly display data from details
@@ -162,18 +162,17 @@ export function StepCard({ step, isLast }: StepCardProps) {
   return (
     <div
       className={cn(
-        'relative pl-4 border-l-2 transition-all duration-300',
+        'relative pl-4 pr-1 py-2 border-l-2 transition-colors duration-200',
         borderColor,
         bgColor,
-        step.status === 'running' && '-ml-2 pl-6 py-3 rounded-xl border border-[var(--accent-primary)]/20',
         step.status === 'completed' && 'opacity-80 hover:opacity-100'
       )}
     >
       {/* Connector line */}
       {!isLast && (
         <div className={cn(
-          "absolute left-[-1px] top-full w-0.5 h-4 transition-all duration-500",
-          step.status === 'completed' ? 'bg-[var(--color-success)]/50' : 'bg-[var(--border-default)]'
+          'absolute left-[-1px] top-full w-[2px] h-3 transition-colors duration-200',
+          step.status === 'completed' ? 'bg-[var(--color-green-500)]/40' : 'bg-[var(--rule)]'
         )} />
       )}
 
@@ -194,26 +193,23 @@ export function StepCard({ step, isLast }: StepCardProps) {
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono text-[var(--accent-primary)] bg-[var(--accent-glow)] px-1.5 py-0.5 rounded">
-              {step.step}
+            <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)] tabular-nums">
+              {step.step.padStart(2, '0')}
             </span>
-            <span className={cn(
-              'text-sm font-medium truncate transition-colors',
-              step.status === 'running' ? 'text-[var(--accent-primary)]' : 'text-[var(--text-primary)]'
-            )}>
+            <span className="text-sm truncate text-[var(--text-primary)]">
               {step.title}
             </span>
           </div>
-          <p className="text-xs text-[var(--text-secondary)] mt-1 line-clamp-1">
+          <p className="text-xs text-[var(--text-tertiary)] mt-0.5 line-clamp-1 leading-relaxed">
             {step.description}
           </p>
         </div>
 
         {hasExpandableContent && (
           <span className={cn(
-            'text-[var(--text-tertiary)] transition-all duration-200',
-            'group-hover:text-[var(--accent-primary)]',
-            expanded && 'text-[var(--accent-primary)]'
+            'text-[var(--text-tertiary)] transition-colors duration-150',
+            'group-hover:text-[var(--text-primary)]',
+            expanded && 'text-[var(--text-primary)]'
           )}>
             {expanded ? (
               <ChevronDown className="w-4 h-4" />

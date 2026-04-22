@@ -247,74 +247,56 @@ export function SkillsPanel() {
   const isInstalling = installGithub.isPending || installZip.isPending;
 
   return (
-    <Card variant="glass" className="flex flex-col h-full">
+    <Card className="flex flex-col h-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-[var(--accent-secondary)]/10 flex items-center justify-center">
-            <Puzzle className="w-4 h-4 text-[var(--accent-secondary)]" />
-          </div>
-          <span>Skills</span>
+        <CardTitle>
+          <Puzzle />
+          Skills
+          <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
+            · {skills.length}
+          </span>
         </CardTitle>
-        <div className="flex items-center gap-2">
-          <Badge variant={skills.length > 0 ? 'accent' : 'default'} className="font-mono">
-            {skills.length}
-          </Badge>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => refetch()}
-            disabled={isLoading}
-            title="Refresh"
-            className="hover:bg-[var(--accent-glow)]"
-          >
-            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => refetch()}
+          disabled={isLoading}
+          title="Refresh"
+        >
+          <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
+        </Button>
       </CardHeader>
 
       {/* Action bar */}
-      <div className="px-4 pb-3 flex items-center justify-between gap-2">
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setInstallMode('github')}
-            className="text-xs"
-          >
-            <Github className="w-3.5 h-3.5 mr-1.5" />
-            From GitHub
+      <div className="px-5 py-2.5 flex items-center justify-between gap-2 border-b border-[var(--rule)]">
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setInstallMode('github')}>
+            <Github className="w-3 h-3 mr-1.5" />
+            GitHub
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setInstallMode('zip')}
-            className="text-xs"
-          >
-            <FileArchive className="w-3.5 h-3.5 mr-1.5" />
-            From Zip
+          <Button variant="ghost" size="sm" onClick={() => setInstallMode('zip')}>
+            <FileArchive className="w-3 h-3 mr-1.5" />
+            Zip
           </Button>
         </div>
 
-        <label className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] cursor-pointer">
+        <label className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)] cursor-pointer select-none">
           <input
             type="checkbox"
             checked={showDisabled}
             onChange={(e) => setShowDisabled(e.target.checked)}
-            className="rounded border-[var(--border-default)]"
           />
           Show disabled
         </label>
       </div>
 
-      <CardContent className="flex-1 overflow-hidden min-h-0">
+      <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
         {error ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center p-8">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--color-error)]/10 mx-auto mb-4 flex items-center justify-center">
-                <AlertCircle className="w-7 h-7 text-[var(--color-error)]" />
-              </div>
-              <p className="text-[var(--color-error)] text-sm font-medium mb-1">Error</p>
-              <p className="text-[var(--text-tertiary)] text-xs">
+          <div className="h-full flex items-center justify-center px-8 py-12">
+            <div className="text-center">
+              <AlertCircle className="w-8 h-8 text-[var(--color-red-500)] mx-auto mb-4 opacity-60" />
+              <p className="text-[var(--color-red-500)] text-sm mb-1.5">Error</p>
+              <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
                 {error instanceof Error ? error.message : 'Failed to load skills'}
               </p>
               <Button variant="ghost" size="sm" onClick={() => refetch()} className="mt-4">
@@ -325,18 +307,16 @@ export function SkillsPanel() {
           </div>
         ) : isLoading ? (
           <div className="h-full flex items-center justify-center">
-            <Loader2 className="w-8 h-8 text-[var(--accent-primary)] animate-spin" />
+            <Loader2 className="w-5 h-5 text-[var(--text-tertiary)] animate-spin" />
           </div>
         ) : skills.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center p-8">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--accent-secondary)]/10 mx-auto mb-4 flex items-center justify-center">
-                <Puzzle className="w-7 h-7 text-[var(--accent-secondary)]" />
-              </div>
-              <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
+          <div className="h-full flex items-center justify-center px-8 py-12">
+            <div className="text-center">
+              <Puzzle className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mx-auto mb-4" />
+              <p className="text-[var(--text-primary)] text-sm mb-1.5">
                 No skills installed
               </p>
-              <p className="text-[var(--text-tertiary)] text-xs">
+              <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
                 Install skills from GitHub or upload a zip file
               </p>
             </div>

@@ -105,7 +105,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+        className="fixed inset-0 bg-[rgba(17,18,20,0.6)] animate-fade-in"
         onClick={onClose}
       />
 
@@ -113,16 +113,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       <div className="fixed inset-0 flex items-center justify-center p-6">
         <div
           className={cn(
-            'relative w-full max-w-4xl h-[85vh] rounded-2xl overflow-hidden',
-            'bg-[var(--bg-elevated)] border border-[var(--border-default)]',
-            'shadow-2xl shadow-black/40',
+            'relative w-full max-w-4xl h-[85vh] overflow-hidden',
+            'bg-[var(--bg-primary)] border border-[var(--text-primary)]',
             'animate-slide-up',
             'flex flex-col',
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Glow effect */}
-          <div className="absolute -inset-px rounded-2xl bg-gradient-to-b from-[var(--accent-primary)]/20 to-transparent opacity-50 blur-sm pointer-events-none" />
 
           {/* ─── Header ─── */}
           <div className="relative flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] shrink-0">
