@@ -132,6 +132,8 @@ jobs:
           retention-days: 14
 
       # Only attach to GitHub Release on tag push (skip on branch test runs).
+      # Tag-triggered releases are published immediately and marked Latest so
+      # users see the most recent build front-and-center on the Releases page.
       - name: Upload DMG to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -144,7 +146,8 @@ jobs:
           body: |
             Signed and notarized macOS build for Apple Silicon.
             Drag NarraNexus.app to /Applications and double-click — no Gatekeeper bypass needed.
-          draft: true
+          draft: false
           prerelease: false
+          make_latest: 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
