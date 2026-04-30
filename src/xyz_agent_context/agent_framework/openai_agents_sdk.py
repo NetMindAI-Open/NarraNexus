@@ -20,6 +20,7 @@ from openai import AsyncOpenAI
 
 from xyz_agent_context.agent_framework.api_config import openai_config
 from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
+from xyz_agent_context.utils.logging import timed
 
 
 def _extract_json_from_llm_output(text: str) -> Optional[str]:
@@ -101,6 +102,7 @@ class OpenAIAgentsSDK:
     async def agent_loop(self) -> AsyncGenerator[str, None]:
         pass
 
+    @timed("llm.openai.llm_function", slow_threshold_ms=10000)
     async def llm_function(
         self,
         instructions: str,

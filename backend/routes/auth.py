@@ -116,7 +116,7 @@ async def login(request: LoginRequest):
             )
 
     except Exception as e:
-        logger.error(f"Error during login: {e}")
+        logger.exception(f"Error during login: {e}")
         return LoginResponse(success=False, error=str(e))
 
 
@@ -189,7 +189,7 @@ async def register(request: RegisterRequest, http_request: Request):
             try:
                 quota_row = await quota_service.init_for_user(request.user_id)
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"register: failed to init quota for {request.user_id}: {e}"
                 )
 
@@ -207,7 +207,7 @@ async def register(request: RegisterRequest, http_request: Request):
         )
 
     except Exception as e:
-        logger.error(f"Error during registration: {e}")
+        logger.exception(f"Error during registration: {e}")
         return RegisterResponse(success=False, error=str(e))
 
 
@@ -222,7 +222,7 @@ async def get_agents(
     - Agents created by the user (created_by = user_id)
     - Agents set as public (is_public = 1)
     """
-    logger.info(f"Getting agents list for user: {user_id}")
+    logger.debug(f"Getting agents list for user: {user_id}")
 
     try:
         db_client = await get_db_client()
@@ -267,7 +267,7 @@ async def get_agents(
             )
             agents.append(agent_info)
 
-        logger.info(f"Found {len(agents)} agents for user {user_id}")
+        logger.debug(f"Found {len(agents)} agents for user {user_id}")
 
         return AgentListResponse(
             success=True,
@@ -276,7 +276,7 @@ async def get_agents(
         )
 
     except Exception as e:
-        logger.error(f"Error getting agents: {e}")
+        logger.exception(f"Error getting agents: {e}")
         return AgentListResponse(
             success=False,
             error=str(e)
@@ -363,7 +363,7 @@ async def create_agent(request: CreateAgentRequest):
         )
 
     except Exception as e:
-        logger.error(f"Error creating agent: {e}")
+        logger.exception(f"Error creating agent: {e}")
         return CreateAgentResponse(
             success=False,
             error=str(e)
@@ -441,7 +441,7 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
             )
 
     except Exception as e:
-        logger.error(f"Error updating agent: {e}")
+        logger.exception(f"Error updating agent: {e}")
         return UpdateAgentResponse(
             success=False,
             error=str(e)
@@ -737,7 +737,7 @@ async def delete_agent(
         )
 
     except Exception as e:
-        logger.error(f"Error deleting agent {agent_id}: {e}")
+        logger.exception(f"Error deleting agent {agent_id}: {e}")
         return DeleteAgentResponse(
             success=False,
             agent_id=agent_id,
@@ -783,7 +783,7 @@ async def create_user(request: CreateUserRequest):
         )
 
     except Exception as e:
-        logger.error(f"Error creating user: {e}")
+        logger.exception(f"Error creating user: {e}")
         return CreateUserResponse(
             success=False,
             error=str(e)
@@ -838,7 +838,7 @@ async def update_timezone(request: UpdateTimezoneRequest):
         )
 
     except Exception as e:
-        logger.error(f"Error updating timezone: {e}")
+        logger.exception(f"Error updating timezone: {e}")
         return UpdateTimezoneResponse(
             success=False,
             error=str(e)

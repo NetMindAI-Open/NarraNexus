@@ -32,7 +32,7 @@ function Bar({
 }) {
   const p = pct(used, total)
   const fill =
-    accent === 'warn' ? 'var(--accent-error)' : 'var(--accent-primary)'
+    accent === 'warn' ? 'var(--color-error)' : 'var(--accent-primary)'
   return (
     <div className="mb-2 last:mb-0">
       <div className="flex justify-between text-xs text-[var(--text-secondary)] mb-1">
@@ -41,7 +41,7 @@ function Bar({
           {used.toLocaleString()} / {total.toLocaleString()}
         </span>
       </div>
-      <div className="h-1.5 rounded-full bg-[var(--surface-muted)] overflow-hidden">
+      <div className="h-1.5 rounded-full bg-[var(--bg-sunken)] overflow-hidden">
         <div
           className="h-full rounded-full"
           style={{ width: `${p}%`, backgroundColor: fill }}
@@ -85,7 +85,7 @@ export function QuotaPanel() {
 
   if (data.status === 'uninitialized') {
     return (
-      <div className="rounded-md border border-[var(--border-muted)] bg-[var(--surface-1)] p-3 text-sm text-[var(--text-secondary)]">
+      <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm text-[var(--text-secondary)]">
         System free-tier quota is not set up for your account yet.
         Please contact an administrator, or configure your own provider
         below to continue.
@@ -95,8 +95,8 @@ export function QuotaPanel() {
 
   const exhausted = data.status === 'exhausted'
   const borderCls = exhausted
-    ? 'border-[var(--accent-error)]'
-    : 'border-[var(--border-muted)]'
+    ? 'border-[var(--color-error)]'
+    : 'border-[var(--border-default)]'
   const inputTotal = data.initial_input_tokens + data.granted_input_tokens
   const outputTotal = data.initial_output_tokens + data.granted_output_tokens
   const preferSystem = data.prefer_system_override
@@ -112,13 +112,13 @@ export function QuotaPanel() {
 
   return (
     <div
-      className={`rounded-md border ${borderCls} bg-[var(--surface-1)] p-3`}
+      className={`rounded-md border ${borderCls} bg-[var(--bg-primary)] p-3`}
     >
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-sm font-medium text-[var(--text-primary)]">
           System Free-Tier Quota
           {exhausted && (
-            <span className="ml-2 text-xs text-[var(--accent-error)]">
+            <span className="ml-2 text-xs text-[var(--color-error)]">
               (exhausted)
             </span>
           )}
@@ -139,7 +139,7 @@ export function QuotaPanel() {
         total={outputTotal}
         accent={exhausted ? 'warn' : 'ok'}
       />
-      <div className="mt-3 pt-3 border-t border-[var(--border-muted)]">
+      <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
         <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text-secondary)]">
           <input
             type="checkbox"
@@ -159,7 +159,7 @@ export function QuotaPanel() {
         </div>
       </div>
       {exhausted && (
-        <div className="mt-2 text-xs text-[var(--accent-error)]">
+        <div className="mt-2 text-xs text-[var(--color-error)]">
           Free tier consumed. Add your own provider below, or uncheck
           the toggle above to route through your existing provider.
         </div>

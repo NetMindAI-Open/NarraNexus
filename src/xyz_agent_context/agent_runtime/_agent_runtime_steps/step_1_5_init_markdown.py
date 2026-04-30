@@ -13,11 +13,14 @@ import copy
 from typing import TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 if TYPE_CHECKING:
     from .context import RunContext
     from xyz_agent_context.narrative import NarrativeMarkdownManager
 
+
+@timed("step.1_5_init_markdown")
 
 async def step_1_5_init_markdown(
     ctx: "RunContext",
@@ -47,7 +50,7 @@ async def step_1_5_init_markdown(
         # Read markdown history (for Instance decision-making)
         ctx.markdown_history = await markdown_manager.read_markdown(main_narrative.id)
 
-        logger.info(f"📖 Markdown history loaded: {len(ctx.markdown_history)} chars")
+        logger.info(f"Markdown history loaded: {len(ctx.markdown_history)} chars")
         ctx.substeps_1_5.append(
             f"[1.5.1] ✓ Markdown history loaded: {ctx.markdown_history}"
         )

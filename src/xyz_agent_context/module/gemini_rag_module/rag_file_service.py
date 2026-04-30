@@ -176,7 +176,7 @@ class RAGFileService:
             with open(status_file, "w", encoding="utf-8") as f:
                 json.dump(status, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save RAG status: {e}")
+            logger.exception(f"Failed to save RAG status: {e}")
 
     @staticmethod
     def update_file_status(
@@ -399,7 +399,7 @@ class RAGFileService:
                 logger.error(f"RAG file upload failed: {filename}, error: {result.get('error')}")
 
         except Exception as e:
-            logger.error(f"Error in background upload task: {e}")
+            logger.exception(f"Error in background upload task: {e}")
             RAGFileService.update_file_status(
                 agent_id, user_id, filename, "failed",
                 error=str(e)

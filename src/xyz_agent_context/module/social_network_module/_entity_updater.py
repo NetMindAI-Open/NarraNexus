@@ -290,7 +290,7 @@ Summary (one line only):"""
         return summary
 
     except Exception as e:
-        logger.error(f"Error summarizing entity info: {e}")
+        logger.exception(f"Error summarizing entity info: {e}")
         return ""
 
 
@@ -325,7 +325,7 @@ async def append_to_entity_description(
         logger.info(f"Appended to entity_description: {new_info[:50]}...")
 
     except Exception as e:
-        logger.error(f"Error appending to entity_description: {e}")
+        logger.exception(f"Error appending to entity_description: {e}")
 
 
 async def update_entity_embedding(
@@ -368,7 +368,7 @@ async def update_entity_embedding(
         logger.info(f"Updated embedding for entity {entity_id} (dim={len(embedding)})")
 
     except Exception as e:
-        logger.error(f"Error updating entity embedding: {e}")
+        logger.exception(f"Error updating entity embedding: {e}")
 
 
 async def compress_description(long_description: str) -> str:
@@ -388,7 +388,7 @@ Compressed summary:"""
         return output.compressed_summary.strip()
 
     except Exception as e:
-        logger.error(f"Error compressing description: {e}")
+        logger.exception(f"Error compressing description: {e}")
         return long_description[:1000] + "..."
 
 
@@ -401,7 +401,7 @@ async def update_interaction_stats(
     try:
         await repo.increment_interaction(entity_id=entity_id, instance_id=instance_id)
     except Exception as e:
-        logger.error(f"Error updating interaction stats: {e}")
+        logger.exception(f"Error updating interaction stats: {e}")
 
 
 # ── Persona Pipeline ─────────────────────────────────────────────────────────
@@ -487,7 +487,7 @@ async def infer_persona(
             return entity.persona or ""
 
     except Exception as e:
-        logger.error(f"            Error inferring persona: {e}")
+        logger.exception(f"            Error inferring persona: {e}")
         return entity.persona or ""
 
 
@@ -506,4 +506,4 @@ async def update_entity_persona(
         )
         logger.info("            Entity persona updated")
     except Exception as e:
-        logger.error(f"            Error updating persona: {e}")
+        logger.exception(f"            Error updating persona: {e}")

@@ -9,7 +9,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { MOCK_ENABLED } from '@/lib/mock';
-import type { RuntimeMessage } from '@/types';
+import type { Attachment, RuntimeMessage } from '@/types';
 
 interface ConnectionEntry {
   ws: WebSocket;
@@ -30,6 +30,7 @@ class WebSocketManager {
     options?: {
       onComplete?: OnCompleteCallback;
       agentName?: string;
+      attachments?: Attachment[];
     },
   ): void {
     // Close existing connection for this agent if any
@@ -71,6 +72,9 @@ class WebSocketManager {
         input_content: inputContent,
         working_source: 'chat',
         token: token || undefined,
+        attachments: options?.attachments && options.attachments.length > 0
+          ? options.attachments
+          : undefined,
       }));
     };
 

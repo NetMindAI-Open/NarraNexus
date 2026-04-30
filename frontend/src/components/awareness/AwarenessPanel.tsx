@@ -6,7 +6,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Brain, Clock, Users, Sparkles, Edit3, Save, X, MessageSquare, Network, TrendingUp, Search, Loader2 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip, ScrollArea } from '@/components/ui';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -183,7 +183,8 @@ export function AwarenessPanel() {
           ]}
         />
 
-        <CardContent className="flex-1 overflow-y-auto min-h-0 !p-0">
+        <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+        <ScrollArea className="h-full">
           {/* ── Section: Agent Awareness ── */}
           <section className="px-5 pt-5 pb-6">
             <div className="flex items-center justify-between mb-3">
@@ -221,9 +222,9 @@ export function AwarenessPanel() {
                 className="pl-4 pr-4 py-3 border-t border-r border-b border-[var(--rule)]"
                 style={{ borderLeft: '2px solid var(--text-primary)' }}
               >
-                <div className="text-[13px] max-h-[180px] overflow-y-auto text-[var(--text-secondary)] leading-relaxed">
+                <ScrollArea className="max-h-[180px] text-[13px] text-[var(--text-secondary)] leading-relaxed">
                   <Markdown content={awareness} />
-                </div>
+                </ScrollArea>
                 {awarenessUpdateTime && (
                   <div className="mt-3 pt-3 border-t border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />
@@ -384,6 +385,7 @@ export function AwarenessPanel() {
           <section className="border-t border-[var(--rule)] px-5 py-5">
             <LarkConfig />
           </section>
+        </ScrollArea>
         </CardContent>
       </Card>
 

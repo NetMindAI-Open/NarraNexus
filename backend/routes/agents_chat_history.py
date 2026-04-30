@@ -100,7 +100,7 @@ async def get_chat_history(
     supplements via ChatModule instance lookup. This ensures chat history is
     returned even if Narrative actors are set incorrectly.
     """
-    logger.info(f"Getting chat history for agent: {agent_id}, user: {user_id}")
+    logger.debug(f"Getting chat history for agent: {agent_id}, user: {user_id}")
 
     try:
         db_client = await get_db_client()
@@ -117,7 +117,7 @@ async def get_chat_history(
                 include_public=False
             )
             chat_instances = [inst for inst in all_instances if inst.module_class == "ChatModule"]
-            logger.info(f"Found {len(chat_instances)} ChatModule instances for user={user_id}")
+            logger.debug(f"Found {len(chat_instances)} ChatModule instances for user={user_id}")
 
             for inst in chat_instances:
                 links = await db_client.get(
@@ -275,7 +275,7 @@ async def get_chat_history(
         )
 
     except Exception as e:
-        logger.error(f"Error getting chat history: {e}")
+        logger.exception(f"Error getting chat history: {e}")
         return ChatHistoryResponse(success=False, error=str(e))
 
 
@@ -406,7 +406,7 @@ async def clear_conversation_history(
         )
 
     except Exception as e:
-        logger.error(f"Error clearing history: {e}")
+        logger.exception(f"Error clearing history: {e}")
         return ClearHistoryResponse(success=False, error=str(e))
 
 
@@ -423,7 +423,7 @@ async def get_simple_chat_history(
     Queries directly from ChatModule instances, without relying on Narratives.
     Finds all ChatModule instances via agent_id + user_id to retrieve chat records.
     """
-    logger.info(f"Getting simple chat history for agent: {agent_id}, user: {user_id}, limit: {limit}")
+    logger.debug(f"Getting simple chat history for agent: {agent_id}, user: {user_id}, limit: {limit}")
 
     try:
         db_client = await get_db_client()
@@ -442,7 +442,7 @@ async def get_simple_chat_history(
             and inst.status not in ("cancelled", "archived")
         ]
 
-        logger.info(f"Found {len(chat_instances)} active ChatModule instances for agent={agent_id}, user={user_id}")
+        logger.debug(f"Found {len(chat_instances)} active ChatModule instances for agent={agent_id}, user={user_id}")
 
         for instance in chat_instances:
             try:
@@ -484,6 +484,7 @@ async def get_simple_chat_history(
                             "working_source": working_source,
                             "message_type": message_type,
                             "event_id": meta_data.get("event_id"),
+                            "attachments": msg.get("attachments"),
                             "_sort_key": timestamp or ""
                         })
 
@@ -520,11 +521,12 @@ async def get_simple_chat_history(
                 working_source=msg.get("working_source"),
                 message_type=msg.get("message_type"),
                 event_id=msg.get("event_id"),
+                attachments=msg.get("attachments"),
             )
             for msg in all_messages
         ]
 
-        logger.info(f"Returning {len(response_messages)} messages (total: {total_count})")
+        logger.debug(f"Returning {len(response_messages)} messages (total: {total_count})")
 
         return SimpleChatHistoryResponse(
             success=True,
@@ -533,7 +535,7 @@ async def get_simple_chat_history(
         )
 
     except Exception as e:
-        logger.error(f"Error getting simple chat history: {e}")
+        logger.exception(f"Error getting simple chat history: {e}")
         import traceback
         traceback.print_exc()
         return SimpleChatHistoryResponse(success=False, error=str(e))
@@ -548,7 +550,7 @@ async def get_event_log_detail(agent_id: str, event_id: str):
     for historical chat messages. The event_log is already stored in the
     events table during Step 4 of the pipeline.
     """
-    logger.info(f"Getting event log detail: agent_id={agent_id}, event_id={event_id}")
+    logger.debug(f"Getting event log detail: agent_id={agent_id}, event_id={event_id}")
 
     try:
         db_client = await get_db_client()
@@ -627,5 +629,5 @@ async def get_event_log_detail(agent_id: str, event_id: str):
         )
 
     except Exception as e:
-        logger.error(f"Error getting event log detail: {e}")
+        logger.exception(f"Error getting event log detail: {e}")
         return EventLogResponse(success=False, event_id=event_id, error=str(e))

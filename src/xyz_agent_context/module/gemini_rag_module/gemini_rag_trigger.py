@@ -122,13 +122,13 @@ class GeminiRAGTrigger:
             return result
 
         except FileNotFoundError as e:
-            logger.error(f"[GeminiRAGTrigger] File not found: {file_path}")
+            logger.exception(f"[GeminiRAGTrigger] File not found: {file_path}")
             return {
                 "success": False,
                 "error": str(e)
             }
         except Exception as e:
-            logger.error(f"[GeminiRAGTrigger] Upload failed: {e}")
+            logger.exception(f"[GeminiRAGTrigger] Upload failed: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -185,7 +185,7 @@ class GeminiRAGTrigger:
             return result
 
         except Exception as e:
-            logger.error(f"[GeminiRAGTrigger] Text upload failed: {e}")
+            logger.exception(f"[GeminiRAGTrigger] Text upload failed: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -301,7 +301,7 @@ class GeminiRAGTrigger:
             return chunks
 
         except Exception as e:
-            logger.error(f"[GeminiRAGTrigger] Query failed: {e}")
+            logger.exception(f"[GeminiRAGTrigger] Query failed: {e}")
             return []
 
     # =========================================================================

@@ -153,7 +153,7 @@ async def list_jobs(
 
     Retrieves data from instance_jobs table and dependency relationships from module_instances table
     """
-    logger.info(f"Listing jobs for agent: {agent_id}, user: {user_id}, status: {status}")
+    logger.debug(f"Listing jobs for agent: {agent_id}, user: {user_id}, status: {status}")
 
     try:
         db_client = await get_db_client()
@@ -214,7 +214,7 @@ async def list_jobs(
             depends_on = instance_deps_map.get(instance_id, [])
             job_responses.append(job_row_to_response(row, depends_on))
 
-        logger.info(f"Found {len(job_responses)} jobs")
+        logger.debug(f"Found {len(job_responses)} jobs")
 
         return JobListResponse(
             success=True,
@@ -223,7 +223,7 @@ async def list_jobs(
         )
 
     except Exception as e:
-        logger.error(f"Error listing jobs: {e}")
+        logger.exception(f"Error listing jobs: {e}")
         return JobListResponse(
             success=False,
             error=str(e)
@@ -260,7 +260,7 @@ async def get_job_details(job_id: str):
             )
 
     except Exception as e:
-        logger.error(f"Error getting job details: {e}")
+        logger.exception(f"Error getting job details: {e}")
         return JobDetailResponse(
             success=False,
             error=str(e)
@@ -313,7 +313,7 @@ async def cancel_job(job_id: str):
         )
 
     except Exception as e:
-        logger.error(f"Error cancelling job: {e}")
+        logger.exception(f"Error cancelling job: {e}")
         return CancelJobResponse(
             success=False,
             error=str(e)
@@ -403,7 +403,7 @@ async def create_job_complex(request: CreateJobComplexRequest):
         )
 
     except Exception as e:
-        logger.error(f"Error creating Job Complex: {e}")
+        logger.exception(f"Error creating Job Complex: {e}")
         return CreateJobComplexResponse(
             success=False,
             error=str(e)

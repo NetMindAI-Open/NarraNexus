@@ -71,13 +71,13 @@ async def poll_message_bus(
                     total_processed += 1
 
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"Failed to deliver message {msg.message_id} "
                         f"to {agent_id}: {e}"
                     )
                     await bus.record_failure(msg.message_id, agent_id, str(e))
 
         except Exception as e:
-            logger.error(f"MessageBus poll error for agent {agent_id}: {e}")
+            logger.exception(f"MessageBus poll error for agent {agent_id}: {e}")
 
     return total_processed

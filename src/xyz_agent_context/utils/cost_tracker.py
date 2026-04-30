@@ -159,7 +159,7 @@ async def record_cost(
         )
     except Exception as e:
         # Cost tracking failure should never block the main flow
-        logger.error(f"Failed to record cost: {e}")
+        logger.exception(f"Failed to record cost: {e}")
 
     # --- System-default quota deduct hook ---
     # Fires only when the request was routed through the system free-tier
@@ -185,7 +185,7 @@ async def record_cost(
                     try:
                         await svc.deduct(uid, input_tokens, output_tokens)
                     except Exception as e:
-                        logger.error(f"quota deduct hook failed for {uid}: {e}")
+                        logger.exception(f"quota deduct hook failed for {uid}: {e}")
     except Exception:
         # Defensive: imports/ContextVar reads must never break cost_tracker.
         pass

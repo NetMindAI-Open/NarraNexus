@@ -162,6 +162,7 @@ export interface SimpleChatMessage {
   working_source?: string;  // "chat" | "job" | "lark" | etc.
   message_type?: string;    // "chat" (default) | "activity"
   event_id?: string;        // Associated Event ID (for loading event_log on demand)
+  attachments?: import('./messages').Attachment[];  // User uploads attached to this message
 }
 
 export interface SimpleChatHistoryResponse extends ApiResponse {

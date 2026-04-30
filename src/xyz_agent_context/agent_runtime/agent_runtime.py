@@ -12,14 +12,20 @@ Architecture:
 - Specific work is delegated to injected services:
     - ExecutionState: State management
     - ResponseProcessor: Response processing
-    - LoggingService: Log management
+- File logging is owned by utils.logging.setup_logging(), called once
+  per process at startup. AgentRuntime does NOT manage per-run sinks
+  any more — the previous LoggingService leaked file descriptors on
+  EC2 (see M4 / T15 in the log-system overhaul) and was removed.
 - The concrete implementation of each Step is in the _agent_runtime_steps/ directory
 """
 
+from contextlib import ExitStack
 from typing import Any, AsyncGenerator, Dict, Optional, Union
+from uuid import uuid4
 from loguru import logger
 
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
+from xyz_agent_context.utils.logging import bind_event
 
 # Type alias for database client
 DatabaseClientType = Union["DatabaseClient", "AsyncDatabaseClient"]
@@ -46,7 +52,6 @@ from xyz_agent_context.module import HookManager
 
 # Extracted services
 from xyz_agent_context.agent_runtime.response_processor import ResponseProcessor
-from xyz_agent_context.agent_runtime.logging_service import LoggingService
 
 # Step functions
 from xyz_agent_context.agent_runtime._agent_runtime_steps import (
@@ -78,7 +83,6 @@ class AgentRuntime:
 
         # Using custom services (for testing or special configuration)
         >>> runtime = AgentRuntime(
-        ...     logging_service=LoggingService(log_dir="./custom_logs"),
         ...     response_processor=CustomResponseProcessor(),
         ... )
 
@@ -92,7 +96,6 @@ class AgentRuntime:
     def __init__(
         self,
         database_client: Optional[DatabaseClientType] = None,
-        logging_service: Optional[LoggingService] = None,
         response_processor: Optional[ResponseProcessor] = None,
         hook_manager: Optional[HookManager] = None,
         use_async_db: bool = True,
@@ -103,13 +106,11 @@ class AgentRuntime:
         Args:
             database_client: Database client (DatabaseClient or AsyncDatabaseClient).
                             If None, the type is determined by the use_async_db parameter.
-            logging_service: Logging service, creates a new instance by default.
             response_processor: Response processor, creates a new instance by default.
             hook_manager: Hook manager, creates a new instance by default.
             use_async_db: Whether to use AsyncDatabaseClient (default True).
                             Only takes effect when database_client is None.
         """
-        logger.info("="*80)
         logger.info("Initializing AgentRuntime")
 
         # Database client (may require lazy initialization)
@@ -118,13 +119,11 @@ class AgentRuntime:
         self._owns_db_client = database_client is None  # Flag indicating whether we need to close it ourselves
 
         # Injected services (dependency injection, optional parameters)
-        self._logging_service = logging_service or LoggingService()
         self._response_processor = response_processor or ResponseProcessor()
         self.hook_manager = hook_manager or HookManager()
 
         # Managers created at runtime
         self.agent_hooks = []
-        self._log_handler_id = None  # Used to store the log file handler ID
 
         # The three major Managers will be created in the run() method based on agent_id/user_id
         self.event_service = None
@@ -136,8 +135,6 @@ class AgentRuntime:
         self._current_user_id = None
 
         logger.info("AgentRuntime initialized successfully")
-        logger.info("="*80)
-
     async def run(
         self,
         agent_id: str,
@@ -204,488 +201,497 @@ class AgentRuntime:
         # =============================================================================
         # Initialization
         # =============================================================================
-        self._logging_service.setup(agent_id)
+        # ------------- Trace context injection (M1/T4) -------------
+        # Generate a short run_id for THIS invocation and bind run-wide
+        # fields (run_id / agent_id / user_id / optional trigger_id) onto
+        # loguru's contextvar so every downstream log line can be linked
+        # to one user message. event_id is bound below once Step 0 has
+        # created the Event row.
+        run_id = f"run_{uuid4().hex[:8]}"
+        _trigger_id = (trigger_extra_data or {}).get("trigger_id")
+        _bind_kwargs: dict[str, str] = {
+            "run_id": run_id,
+            "agent_id": str(agent_id),
+            "user_id": str(user_id),
+        }
+        if _trigger_id is not None:
+            _bind_kwargs["trigger_id"] = str(_trigger_id)
+        with ExitStack() as _trace_stack:
+            _trace_stack.enter_context(bind_event(**_bind_kwargs))
 
-        # Ensure database client is initialized (lazy-load AsyncDatabaseClient)
-        db_client = await self._ensure_database_client()
+            # Ensure database client is initialized (lazy-load AsyncDatabaseClient)
+            db_client = await self._ensure_database_client()
 
-        # Override user_id with agent's creator — all triggers share a single workspace
-        # so that Lark conversations, Job triggers, etc. see the same narratives/jobs.
-        from xyz_agent_context.repository.agent_repository import AgentRepository
-        _agent = await AgentRepository(db_client).get_agent(agent_id)
-        if _agent and _agent.created_by:
-            original_user_id = user_id
-            user_id = _agent.created_by
-            if original_user_id != user_id:
-                logger.info(f"user_id overridden: {original_user_id} -> {user_id} (agent creator)")
+            # Override user_id with agent's creator — all triggers share a single workspace
+            # so that Lark conversations, Job triggers, etc. see the same narratives/jobs.
+            from xyz_agent_context.repository.agent_repository import AgentRepository
+            _agent = await AgentRepository(db_client).get_agent(agent_id)
+            if _agent and _agent.created_by:
+                original_user_id = user_id
+                user_id = _agent.created_by
+                if original_user_id != user_id:
+                    logger.info(f"user_id overridden: {original_user_id} -> {user_id} (agent creator)")
 
-        # Save current running agent_id and user_id (used for callbacks)
-        self._current_agent_id = agent_id
-        self._current_user_id = user_id
+            # Save current running agent_id and user_id (used for callbacks)
+            self._current_agent_id = agent_id
+            self._current_user_id = user_id
 
-        # Set global cost tracking context so ALL LLM calls (narrative, job, social
-        # network, module decisions, etc.) automatically record costs without needing
-        # explicit agent_id/db parameters at each call site.
-        from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
-        set_cost_context(agent_id, db_client)
+            # Set global cost tracking context so ALL LLM calls (narrative, job, social
+            # network, module decisions, etc.) automatically record costs without needing
+            # explicit agent_id/db parameters at each call site.
+            from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
+            set_cost_context(agent_id, db_client)
 
-        # Initialize the three major Services
-        self.session_service = SessionService()
-        self.event_service = EventService(agent_id)
-        self.narrative_service = NarrativeService(agent_id)
-        # Inject EventService into NarrativeService (used for generating summaries during updates)
-        self.narrative_service.set_event_service(self.event_service)
+            # Initialize the three major Services
+            self.session_service = SessionService()
+            self.event_service = EventService(agent_id)
+            self.narrative_service = NarrativeService(agent_id)
+            # Inject EventService into NarrativeService (used for generating summaries during updates)
+            self.narrative_service.set_event_service(self.event_service)
 
-        # Initialize Markdown and Trajectory managers
-        from xyz_agent_context.narrative import NarrativeMarkdownManager, TrajectoryRecorder
-        self.markdown_manager = NarrativeMarkdownManager(agent_id, user_id)
-        self.trajectory_recorder = TrajectoryRecorder(agent_id, user_id)
+            # Initialize Markdown and Trajectory managers
+            from xyz_agent_context.narrative import NarrativeMarkdownManager, TrajectoryRecorder
+            self.markdown_manager = NarrativeMarkdownManager(agent_id, user_id)
+            self.trajectory_recorder = TrajectoryRecorder(agent_id, user_id)
 
-        logger.info("\n" + "="*80)
-        logger.info("🚀 AgentRuntime.run() started")
-        logger.info(f"📋 Parameters: agent_id={agent_id}, user_id={user_id}")
-        logger.info(f"💬 Input content: {input_content}")
-        logger.info("="*80)
+            logger.info("AgentRuntime.run() started")
+            logger.info(f"Parameters: agent_id={agent_id}, user_id={user_id}")
+            logger.info(f"Input content: {input_content}")
+            # =============================================================================
+            # Create run context
+            # =============================================================================
+            # Use a no-op token if none provided (avoids None checks everywhere)
+            if cancellation is None:
+                cancellation = CancellationToken()
 
-        # =============================================================================
-        # Create run context
-        # =============================================================================
-        # Use a no-op token if none provided (avoids None checks everywhere)
-        if cancellation is None:
-            cancellation = CancellationToken()
-
-        ctx = RunContext(
-            agent_id=agent_id,
-            user_id=user_id,
-            input_content=input_content,
-            working_source=working_source,
-            pass_mcp_urls=pass_mcp_urls,
-            job_instance_id=job_instance_id,
-            forced_narrative_id=forced_narrative_id,
-            trigger_extra_data=trigger_extra_data or {},
-            cancellation=cancellation,
-        )
-
-        # =============================================================================
-        # Step 0: Initialization
-        # =============================================================================
-        # [Function] Execute all initialization work
-        #
-        # [Internal Logic]
-        #   0.1 Get Agent configuration (load from database)
-        #   0.2 Initialize ModuleService (prepare module loader)
-        #   0.3 Create Event record (carrier for this conversation)
-        #   0.4 Get/Create Session (manage session continuity)
-        #
-        # [Output]
-        #   - ctx.agent_data: Agent configuration info
-        #   - ctx.module_service: ModuleService instance
-        #   - ctx.event: Event record
-        #   - ctx.session: Session object
-        #   - ctx.awareness: Agent self-awareness content
-        # =============================================================================
-        async for msg in step_0_initialize(
-            ctx, db_client, self.event_service, self.session_service
-        ):
-            yield msg
-
-        # Load LLM config based on the AGENT OWNER (not user_id).
-        #
-        # user_id passed here may be: the chat user, a sender agent_id from
-        # bus_trigger, a related_entity_id from job_trigger, etc. — it's used
-        # for narrative/context identity, NOT for LLM billing.
-        #
-        # LLM API keys always come from the agent's owner (agents.created_by).
-        # This lookup + set_user_config() uses ContextVar, so concurrent
-        # agent turns from different owners are isolated from each other.
-        #
-        # Fail fast: if the owner has not configured all required slots,
-        # raise immediately so the user sees a clear error instead of the
-        # turn silently running with wrong credentials or failing later
-        # with a cryptic Claude/OpenAI error.
-        from xyz_agent_context.agent_framework.api_config import (
-            get_agent_owner_llm_configs,
-            set_user_config,
-            LLMResolverError,
-        )
-        try:
-            owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
-            set_user_config(owner_claude, owner_openai, owner_embedding)
-        except LLMResolverError as e:
-            logger.error(
-                f"LLM config resolution failed for agent {agent_id}: "
-                f"{type(e).__name__}: {e}"
+            ctx = RunContext(
+                agent_id=agent_id,
+                user_id=user_id,
+                input_content=input_content,
+                working_source=working_source,
+                pass_mcp_urls=pass_mcp_urls,
+                job_instance_id=job_instance_id,
+                forced_narrative_id=forced_narrative_id,
+                trigger_extra_data=trigger_extra_data or {},
+                cancellation=cancellation,
             )
 
-            # Bug 18 — persist the error as event.final_output so the DB
-            # record is complete. Without this the Event row sits with
-            # final_output=None forever (Step 4 is skipped on the early
-            # return below), which makes the failed turn invisible to
-            # audits and to UIs that render history from the events
-            # table. The user's input_content is already saved by Step 0
-            # in `events.env_context.input`, so writing the error here
-            # closes the loop.
-            error_marker = f"[ERROR:{type(e).__name__}] {e}"
-            try:
-                if ctx.event and ctx.event.id:
-                    await self.event_service.update_event_in_db(
-                        event_id=ctx.event.id,
-                        final_output=error_marker,
-                        generate_embedding=False,
-                    )
-                    ctx.event.final_output = error_marker
-            except Exception as persist_err:  # noqa: BLE001 — best-effort
-                logger.warning(
-                    f"Failed to persist error marker on event "
-                    f"{getattr(ctx.event, 'id', '?')}: {persist_err}"
-                )
+            # =============================================================================
+            # Step 0: Initialization
+            # =============================================================================
+            # [Function] Execute all initialization work
+            #
+            # [Internal Logic]
+            #   0.1 Get Agent configuration (load from database)
+            #   0.2 Initialize ModuleService (prepare module loader)
+            #   0.3 Create Event record (carrier for this conversation)
+            #   0.4 Get/Create Session (manage session continuity)
+            #
+            # [Output]
+            #   - ctx.agent_data: Agent configuration info
+            #   - ctx.module_service: ModuleService instance
+            #   - ctx.event: Event record
+            #   - ctx.session: Session object
+            #   - ctx.awareness: Agent self-awareness content
+            # =============================================================================
+            async for msg in step_0_initialize(
+                ctx, db_client, self.event_service, self.session_service
+            ):
+                yield msg
 
-            # Surface the error to every consumer (WS route / LarkTrigger /
-            # JobTrigger / MessageBusTrigger / ChatTrigger A2A) as a
-            # structured ErrorMessage. The error_type string preserves the
-            # concrete subclass name so consumers can pick UX per type
-            # (e.g. "quota exhausted" vs "user hasn't configured own
-            # provider yet"). Silent drop by consumers = Bug 2 — each
-            # consumer uses ``collect_run`` + its own error display path.
-            from xyz_agent_context.schema import ErrorMessage
-            yield ErrorMessage(
-                error_message=str(e),
-                error_type=type(e).__name__,
+            # Bind event_id once Step 0 has created the Event row, so that
+            # every log line emitted by Steps 1-5 carries it.
+            if ctx.event is not None:
+                _trace_stack.enter_context(bind_event(event_id=str(ctx.event.id)))
+
+            # Load LLM config based on the AGENT OWNER (not user_id).
+            #
+            # user_id passed here may be: the chat user, a sender agent_id from
+            # bus_trigger, a related_entity_id from job_trigger, etc. — it's used
+            # for narrative/context identity, NOT for LLM billing.
+            #
+            # LLM API keys always come from the agent's owner (agents.created_by).
+            # This lookup + set_user_config() uses ContextVar, so concurrent
+            # agent turns from different owners are isolated from each other.
+            #
+            # Fail fast: if the owner has not configured all required slots,
+            # raise immediately so the user sees a clear error instead of the
+            # turn silently running with wrong credentials or failing later
+            # with a cryptic Claude/OpenAI error.
+            from xyz_agent_context.agent_framework.api_config import (
+                get_agent_owner_llm_configs,
+                set_user_config,
+                LLMResolverError,
             )
-            return
-
-        # =============================================================================
-        # Launch EverMemOS episode search in parallel (decoupled from narrative selection)
-        # Runs concurrently with Steps 1, 1.5, 2. Awaited before Step 3.2.
-        # =============================================================================
-        import asyncio
-        import time as _time
-
-        async def _fetch_evermemos_episodes():
-            from xyz_agent_context.narrative import config as narrative_config
-            if not narrative_config.EVERMEMOS_ENABLED:
-                return []
             try:
-                from xyz_agent_context.utils.evermemos import get_evermemos_client
-                _start = _time.monotonic()
-                client = get_evermemos_client(agent_id, user_id)
-                episodes = await client.search_episodes(query=input_content, top_k=20)
-                elapsed = _time.monotonic() - _start
-                logger.info(f"[EverMemOS-Search] {len(episodes)} episodes retrieved in {elapsed:.1f}s")
-                return episodes
-            except Exception as e:
-                logger.warning(f"[EverMemOS-Search] Failed (non-fatal): {e}")
-                return []
+                owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
+                set_user_config(owner_claude, owner_openai, owner_embedding)
+            except LLMResolverError as e:
+                logger.exception(
+                    f"LLM config resolution failed for agent {agent_id}: "
+                    f"{type(e).__name__}: {e}"
+                )
 
-        ctx.evermemos_task = asyncio.create_task(_fetch_evermemos_episodes())
-
-        # =============================================================================
-        # Step 1: Select Narrative
-        # =============================================================================
-        # [Function] Retrieve or create the corresponding Narrative (storyline/topic)
-        #
-        # [Internal Logic]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  1. Detect Narrative ownership (ContinuityDetector)     │
-        #   │     - Compare current Query with session.last_query     │
-        #   │     - Load current Narrative info (name, desc, summary, │
-        #   │       keywords)                                         │
-        #   │     - Use LLM to determine if it belongs to current     │
-        #   │       Narrative                                         │
-        #   │     - Note: conversation continuity != same Narrative   │
-        #   │                                                         │
-        #   │  2. Branch based on ownership result:                   │
-        #   │     ├─ Belongs to current Narrative -> reuse            │
-        #   │     │  session.current_narrative_id                     │
-        #   │     │                                                   │
-        #   │     └─ Does not belong -> search for matching Narrative │
-        #   │        a. Generate Query embedding                      │
-        #   │        b. Vector search for similar Narratives          │
-        #   │        c. Score > threshold -> reuse existing Narrative │
-        #   │        d. Score < threshold -> create new Narrative     │
-        #   │                                                         │
-        #   │  3. Update Session.current_narrative_id                 │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Output]
-        #   - ctx.narrative_list: List[Narrative] (may match multiple)
-        #   - ctx.main_narrative: Narrative (the primary one)
-        # =============================================================================
-        async for msg in step_1_select_narrative(
-            ctx, self.narrative_service, self.session_service
-        ):
-            yield msg
-
-        # =============================================================================
-        # Step 1.5: Initialize/Read Markdown History
-        # =============================================================================
-        # [Function] Read the Markdown file corresponding to the Narrative, get historical context
-        #
-        # [Internal Logic]
-        #   1. Build file path based on narrative_id
-        #   2. If file exists -> read content
-        #   3. If not exists -> create empty file
-        #   4. Parse historical conversations and Instance info from Markdown
-        #
-        # [Output] ctx.markdown_history: str
-        #   - Contains historical conversation records
-        #   - Contains Instance state information
-        #   - Will be used as part of the LLM context
-        # =============================================================================
-        await step_1_5_init_markdown(ctx, self.markdown_manager)
-
-        # =============================================================================
-        # Step 2: Load Modules and decide execution path -- Core Step
-        # =============================================================================
-        # [Function] Use LLM to intelligently decide which Module Instances are needed,
-        #            and the execution path
-        #
-        # [Internal Logic]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  1. Collect context information                         │
-        #   │     - user_input: User input                            │
-        #   │     - current_instances: Narrative's active_instances   │
-        #   │     - narrative_summary: Narrative summary              │
-        #   │     - markdown_history: Historical conversations        │
-        #   │                                                         │
-        #   │  2. Call llm_decide_instances()                         │
-        #   │     - Build Prompt (with Module metadata and rules)     │
-        #   │     - Call LLM (using Structured Output)                │
-        #   │     - Parse returned InstanceDecisionOutput             │
-        #   │                                                         │
-        #   │  3. Instantiate Modules based on decision results       │
-        #   │     - Iterate over active_instances                     │
-        #   │     - Create corresponding Module object for each inst  │
-        #   │     - Bind instance.module = Module instance            │
-        #   │                                                         │
-        #   │  4. Start MCP Servers (if Module requires)              │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Execution Path Decision]
-        #   - AGENT_LOOP (99%): Normal conversation/Q&A/needs LLM reasoning
-        #   - DIRECT_TRIGGER (1%): Explicit API call (e.g., "send message to XX")
-        #
-        # [Output]
-        #   - ctx.load_result: ModuleLoadResult
-        #     - execution_path: "agent_loop" | "direct_trigger"
-        #     - active_instances: List[ModuleInstance]
-        #     - direct_trigger: DirectTriggerConfig (if applicable)
-        #     - relationship_graph: str (Mermaid format)
-        #   - ctx.active_instances: List[ModuleInstance]
-        #   - ctx.module_list: List[Module] (instantiated Module objects)
-        # =============================================================================
-        async for msg in step_2_load_modules(ctx):
-            yield msg
-
-        # ---- Cancellation checkpoint (before expensive Step 2.5) ----
-        cancellation.raise_if_cancelled()
-
-        # =============================================================================
-        # Step 2.5: Sync Instance Changes
-        # =============================================================================
-        # [Function] Update Markdown and sync Instances to database
-        #
-        # [Internal Logic]
-        #   2.5.1 Update Markdown (Instances and relationship graph)
-        #   2.5.2 Sync Instance changes to database
-        #         - Added Instances: establish associations
-        #         - Removed Instances: remove associations
-        #         - Updated Instances: update status
-        #
-        # [Output] Update Markdown and database
-        # =============================================================================
-        async for msg in step_2_5_sync_instances(
-            ctx, self.narrative_service, self.markdown_manager
-        ):
-            yield msg
-
-        # ---- Cancellation checkpoint (before the main LLM call) ----
-        cancellation.raise_if_cancelled()
-
-        # =============================================================================
-        # Step 3: Execute different paths based on execution_path -- Core Step
-        # =============================================================================
-        # [Function] Based on Step 2 decision, execute AGENT_LOOP or DIRECT_TRIGGER
-        #
-        # [Internal Logic - AGENT_LOOP Path]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  1. Data gathering phase (hook_data_gathering)          │
-        #   │     - Iterate all active Modules                        │
-        #   │     - Call each Module's hook_data_gathering()           │
-        #   │     - Collect each Module's ctx_data (e.g. SocialNet)   │
-        #   │                                                         │
-        #   │  2. Context merging phase                               │
-        #   │     - Merge all Module Instructions                     │
-        #   │     - Collect all Module MCP Server URLs                │
-        #   │     - Merge ctx_data into unified context               │
-        #   │                                                         │
-        #   │  3. Agent Loop execution                                │
-        #   │     - Build System Prompt (Agent Config + Instructions) │
-        #   │     - Connect MCP Servers                               │
-        #   │     - Call LLM (supports multi-turn Tool calls)         │
-        #   │     - Stream output AgentTextDelta                      │
-        #   │                                                         │
-        #   │  4. Result processing                                   │
-        #   │     - Collect final_output                              │
-        #   │     - Record execution_steps                            │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Internal Logic - DIRECT_TRIGGER Path]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  1. Parse direct_trigger config                         │
-        #   │     - module_class: Target Module                       │
-        #   │     - trigger_name: MCP Tool name                       │
-        #   │     - params: Call parameters                           │
-        #   │                                                         │
-        #   │  2. Find corresponding Module's MCP Server URL          │
-        #   │                                                         │
-        #   │  3. Directly call MCP Tool (skip LLM)                   │
-        #   │                                                         │
-        #   │  4. Return execution result                             │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Output] ctx.execution_result: PathExecutionResult
-        #   - final_output: Final output content
-        #   - execution_steps: List of execution steps
-        #   - agent_loop_response: Raw response from Agent Loop
-        # =============================================================================
-        async for msg in step_3_execute_path(ctx, db_client, self._response_processor):
-            yield msg
-            # Check cancellation after each streamed message from the agent loop
-            if cancellation.is_cancelled:
-                logger.info("Cancellation detected during Step 3 (agent loop), breaking")
-                break
-
-        # ---- Cancellation checkpoint (before persistence) ----
-        cancellation.raise_if_cancelled()
-
-        # =============================================================================
-        # Step 4: Persist Execution Results
-        # =============================================================================
-        # [Function] Save execution results to various storages
-        #
-        # [Internal Logic]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  4.1 Record Trajectory (execution trace file)           │
-        #   │                                                         │
-        #   │  4.2 Update Markdown statistics                         │
-        #   │                                                         │
-        #   │  4.3 Update Event                                       │
-        #   │     - Set final_output                                  │
-        #   │     - Set event_log (execution log)                     │
-        #   │     - Set module_instances                              │
-        #   │                                                         │
-        #   │  4.4 Update Narratives                                  │
-        #   │     - Add event_id to event_ids list                    │
-        #   │     - Update dynamic_summary (LLM-generated summary)   │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Output] Update files and database
-        # =============================================================================
-        async for msg in step_4_persist_results(
-            ctx,
-            self.event_service,
-            self.narrative_service,
-            self.markdown_manager,
-            self.trajectory_recorder,
-            self.session_service
-        ):
-            yield msg
-
-        # =============================================================================
-        # Step 5: Execute Hooks
-        # =============================================================================
-        # [Function] Call each Module's hook_after_event_execution
-        #
-        # [Internal Logic]
-        #   ┌─────────────────────────────────────────────────────────┐
-        #   │  1. Build HookAfterExecutionParams                      │
-        #   │     - execution_ctx: event_id, agent_id, user_id        │
-        #   │     - io_data: input_content, final_output              │
-        #   │     - trace: event_log, agent_loop_response             │
-        #   │                                                         │
-        #   │  2. Iterate all active Modules                          │
-        #   │     - Call module.hook_after_event_execution(params)     │
-        #   │     - E.g.: SocialNetworkModule updates entity info     │
-        #   │                                                         │
-        #   │  3. Collect callback requests                           │
-        #   │     - Check for Instance state changes                  │
-        #   │     - Record dependent Instances that need triggering   │
-        #   └─────────────────────────────────────────────────────────┘
-        #
-        # [Output] hook_callback_results: callback requests for subsequent processing
-        # =============================================================================
-        # =============================================================================
-        # Steps 5 + 6: Execute Hooks & Process Callbacks (BACKGROUND)
-        # =============================================================================
-        # Move to background so the WebSocket can close immediately after Step 4.
-        # The user already saw the full response during Step 3; Steps 5-6 are
-        # post-processing (entity extraction, memory writes, job analysis, etc.)
-        # that should not block the UI.
-        #
-        # Safety: Step 4.3 already persisted ctx.event.final_output, so hooks
-        # have access to the response text. Modules use the global shared DB
-        # client from db_factory (not the runtime's own client), so DB access
-        # survives after AgentRuntime.__aexit__ closes its connection.
-        # =============================================================================
-        import asyncio
-        import time as _time
-
-        _bg_start = _time.monotonic()
-        _agent_id = ctx.agent_id
-        _logging_service = self._logging_service  # capture ref for background task
-
-        async def _run_hooks_background():
-            """Run Step 5 hooks + Step 6 callbacks in background."""
-            try:
-                hook_callback_results = None
-                async for msg in step_5_execute_hooks(ctx, self.hook_manager):
-                    if isinstance(msg, ProgressMessage):
-                        pass  # No WebSocket to send to; just skip progress messages
-                    else:
-                        hook_callback_results = msg
-
-                # Step 6: Process Hook Callbacks
-                if hook_callback_results:
-                    await self.hook_manager.hook_callback_results(
-                        hook_callback_results=hook_callback_results,
-                        narrative=ctx.main_narrative,
-                        narrative_service=self.narrative_service,
-                        execute_callback_instance=self._execute_callback_instance
+                # Bug 18 — persist the error as event.final_output so the DB
+                # record is complete. Without this the Event row sits with
+                # final_output=None forever (Step 4 is skipped on the early
+                # return below), which makes the failed turn invisible to
+                # audits and to UIs that render history from the events
+                # table. The user's input_content is already saved by Step 0
+                # in `events.env_context.input`, so writing the error here
+                # closes the loop.
+                error_marker = f"[ERROR:{type(e).__name__}] {e}"
+                try:
+                    if ctx.event and ctx.event.id:
+                        await self.event_service.update_event_in_db(
+                            event_id=ctx.event.id,
+                            final_output=error_marker,
+                            generate_embedding=False,
+                        )
+                        ctx.event.final_output = error_marker
+                except Exception as persist_err:  # noqa: BLE001 — best-effort
+                    logger.warning(
+                        f"Failed to persist error marker on event "
+                        f"{getattr(ctx.event, 'id', '?')}: {persist_err}"
                     )
 
-                elapsed = _time.monotonic() - _bg_start
-                logger.info(
-                    f"[BG] Steps 5-6 completed for {_agent_id} in {elapsed:.1f}s"
+                # Surface the error to every consumer (WS route / LarkTrigger /
+                # JobTrigger / MessageBusTrigger / ChatTrigger A2A) as a
+                # structured ErrorMessage. The error_type string preserves the
+                # concrete subclass name so consumers can pick UX per type
+                # (e.g. "quota exhausted" vs "user hasn't configured own
+                # provider yet"). Silent drop by consumers = Bug 2 — each
+                # consumer uses ``collect_run`` + its own error display path.
+                from xyz_agent_context.schema import ErrorMessage
+                yield ErrorMessage(
+                    error_message=str(e),
+                    error_type=type(e).__name__,
                 )
-            except Exception as e:
-                elapsed = _time.monotonic() - _bg_start
-                logger.error(
-                    f"[BG] Steps 5-6 failed for {_agent_id} after {elapsed:.1f}s: {e}"
-                )
-            finally:
-                clear_cost_context()
-                # Clean up the agent log file handler AFTER background work finishes,
-                # so all [BG] log lines are captured in the agent's .log file.
-                # Use async_cleanup() to flush the enqueue buffer before removing.
-                await _logging_service.async_cleanup()
+                return
 
-        asyncio.create_task(_run_hooks_background())
-        logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
+            # =============================================================================
+            # Launch EverMemOS episode search in parallel (decoupled from narrative selection)
+            # Runs concurrently with Steps 1, 1.5, 2. Awaited before Step 3.2.
+            # =============================================================================
+            import asyncio
+            import time as _time
 
-        # Yield a completed Step 5 progress message so the frontend sidebar
-        # shows "Post-processing (background) ✓" without actually waiting.
-        yield ProgressMessage(
-            step="5",
-            title="Post-processing (background)",
-            description="✓ Module hooks dispatched to background",
-            status=ProgressStatus.COMPLETED,
-            substeps=["Entity extraction, memory writes, job analysis running in background"],
-        )
+            async def _fetch_evermemos_episodes():
+                from xyz_agent_context.narrative import config as narrative_config
+                if not narrative_config.EVERMEMOS_ENABLED:
+                    return []
+                try:
+                    from xyz_agent_context.utils.evermemos import get_evermemos_client
+                    _start = _time.monotonic()
+                    client = get_evermemos_client(agent_id, user_id)
+                    episodes = await client.search_episodes(query=input_content, top_k=20)
+                    elapsed = _time.monotonic() - _start
+                    logger.info(f"[EverMemOS-Search] {len(episodes)} episodes retrieved in {elapsed:.1f}s")
+                    return episodes
+                except Exception as e:
+                    logger.warning(f"[EverMemOS-Search] Failed (non-fatal): {e}")
+                    return []
 
-        # NOTE: Do NOT call self._logging_service.cleanup() here.
-        # The background task owns the cleanup — it will remove the log
-        # handler after hooks finish so that [BG] lines go to the agent's log file.
+            ctx.evermemos_task = asyncio.create_task(_fetch_evermemos_episodes())
+
+            # =============================================================================
+            # Step 1: Select Narrative
+            # =============================================================================
+            # [Function] Retrieve or create the corresponding Narrative (storyline/topic)
+            #
+            # [Internal Logic]
+            #   ┌─────────────────────────────────────────────────────────┐
+            #   │  1. Detect Narrative ownership (ContinuityDetector)     │
+            #   │     - Compare current Query with session.last_query     │
+            #   │     - Load current Narrative info (name, desc, summary, │
+            #   │       keywords)                                         │
+            #   │     - Use LLM to determine if it belongs to current     │
+            #   │       Narrative                                         │
+            #   │     - Note: conversation continuity != same Narrative   │
+            #   │                                                         │
+            #   │  2. Branch based on ownership result:                   │
+            #   │     ├─ Belongs to current Narrative -> reuse            │
+            #   │     │  session.current_narrative_id                     │
+            #   │     │                                                   │
+            #   │     └─ Does not belong -> search for matching Narrative │
+            #   │        a. Generate Query embedding                      │
+            #   │        b. Vector search for similar Narratives          │
+            #   │        c. Score > threshold -> reuse existing Narrative │
+            #   │        d. Score < threshold -> create new Narrative     │
+            #   │                                                         │
+            #   │  3. Update Session.current_narrative_id                 │
+            #   └─────────────────────────────────────────────────────────┘
+            #
+            # [Output]
+            #   - ctx.narrative_list: List[Narrative] (may match multiple)
+            #   - ctx.main_narrative: Narrative (the primary one)
+            # =============================================================================
+            async for msg in step_1_select_narrative(
+                ctx, self.narrative_service, self.session_service
+            ):
+                yield msg
+
+            # =============================================================================
+            # Step 1.5: Initialize/Read Markdown History
+            # =============================================================================
+            # [Function] Read the Markdown file corresponding to the Narrative, get historical context
+            #
+            # [Internal Logic]
+            #   1. Build file path based on narrative_id
+            #   2. If file exists -> read content
+            #   3. If not exists -> create empty file
+            #   4. Parse historical conversations and Instance info from Markdown
+            #
+            # [Output] ctx.markdown_history: str
+            #   - Contains historical conversation records
+            #   - Contains Instance state information
+            #   - Will be used as part of the LLM context
+            # =============================================================================
+            await step_1_5_init_markdown(ctx, self.markdown_manager)
+
+            # =============================================================================
+            # Step 2: Load Modules and decide execution path -- Core Step
+            # =============================================================================
+            # [Function] Use LLM to intelligently decide which Module Instances are needed,
+            #            and the execution path
+            #
+            # [Internal Logic]
+            #   ┌─────────────────────────────────────────────────────────┐
+            #   │  1. Collect context information                         │
+            #   │     - user_input: User input                            │
+            #   │     - current_instances: Narrative's active_instances   │
+            #   │     - narrative_summary: Narrative summary              │
+            #   │     - markdown_history: Historical conversations        │
+            #   │                                                         │
+            #   │  2. Call llm_decide_instances()                         │
+            #   │     - Build Prompt (with Module metadata and rules)     │
+            #   │     - Call LLM (using Structured Output)                │
+            #   │     - Parse returned InstanceDecisionOutput             │
+            #   │                                                         │
+            #   │  3. Instantiate Modules based on decision results       │
+            #   │     - Iterate over active_instances                     │
+            #   │     - Create corresponding Module object for each inst  │
+            #   │     - Bind instance.module = Module instance            │
+            #   │                                                         │
+            #   │  4. Start MCP Servers (if Module requires)              │
+            #   └─────────────────────────────────────────────────────────┘
+            #
+            # [Execution Path Decision]
+            #   - AGENT_LOOP (99%): Normal conversation/Q&A/needs LLM reasoning
+            #   - DIRECT_TRIGGER (1%): Explicit API call (e.g., "send message to XX")
+            #
+            # [Output]
+            #   - ctx.load_result: ModuleLoadResult
+            #     - execution_path: "agent_loop" | "direct_trigger"
+            #     - active_instances: List[ModuleInstance]
+            #     - direct_trigger: DirectTriggerConfig (if applicable)
+            #     - relationship_graph: str (Mermaid format)
+            #   - ctx.active_instances: List[ModuleInstance]
+            #   - ctx.module_list: List[Module] (instantiated Module objects)
+            # =============================================================================
+            async for msg in step_2_load_modules(ctx):
+                yield msg
+
+            # ---- Cancellation checkpoint (before expensive Step 2.5) ----
+            cancellation.raise_if_cancelled()
+
+            # =============================================================================
+            # Step 2.5: Sync Instance Changes
+            # =============================================================================
+            # [Function] Update Markdown and sync Instances to database
+            #
+            # [Internal Logic]
+            #   2.5.1 Update Markdown (Instances and relationship graph)
+            #   2.5.2 Sync Instance changes to database
+            #         - Added Instances: establish associations
+            #         - Removed Instances: remove associations
+            #         - Updated Instances: update status
+            #
+            # [Output] Update Markdown and database
+            # =============================================================================
+            async for msg in step_2_5_sync_instances(
+                ctx, self.narrative_service, self.markdown_manager
+            ):
+                yield msg
+
+            # ---- Cancellation checkpoint (before the main LLM call) ----
+            cancellation.raise_if_cancelled()
+
+            # =============================================================================
+            # Step 3: Execute different paths based on execution_path -- Core Step
+            # =============================================================================
+            # [Function] Based on Step 2 decision, execute AGENT_LOOP or DIRECT_TRIGGER
+            #
+            # [Internal Logic - AGENT_LOOP Path]
+            #   ┌─────────────────────────────────────────────────────────┐
+            #   │  1. Data gathering phase (hook_data_gathering)          │
+            #   │     - Iterate all active Modules                        │
+            #   │     - Call each Module's hook_data_gathering()           │
+            #   │     - Collect each Module's ctx_data (e.g. SocialNet)   │
+            #   │                                                         │
+            #   │  2. Context merging phase                               │
+            #   │     - Merge all Module Instructions                     │
+            #   │     - Collect all Module MCP Server URLs                │
+            #   │     - Merge ctx_data into unified context               │
+            #   │                                                         │
+            #   │  3. Agent Loop execution                                │
+            #   │     - Build System Prompt (Agent Config + Instructions) │
+            #   │     - Connect MCP Servers                               │
+            #   │     - Call LLM (supports multi-turn Tool calls)         │
+            #   │     - Stream output AgentTextDelta                      │
+            #   │                                                         │
+            #   │  4. Result processing                                   │
+            #   │     - Collect final_output                              │
+            #   │     - Record execution_steps                            │
+            #   └─────────────────────────────────────────────────────────┘
+            #
+            # [Internal Logic - DIRECT_TRIGGER Path]
+            #   ┌─────────────────────────────────────────────────────────┐
+            #   │  1. Parse direct_trigger config                         │
+            #   │     - module_class: Target Module                       │
+            #   │     - trigger_name: MCP Tool name                       │
+            #   │     - params: Call parameters                           │
+            #   │                                                         │
+            #   │  2. Find corresponding Module's MCP Server URL          │
+            #   │                                                         │
+            #   │  3. Directly call MCP Tool (skip LLM)                   │
+            #   │                                                         │
+            #   │  4. Return execution result                             │
+            #   └─────────────────────────────────────────────────────────┘
+            #
+            # [Output] ctx.execution_result: PathExecutionResult
+            #   - final_output: Final output content
+            #   - execution_steps: List of execution steps
+            #   - agent_loop_response: Raw response from Agent Loop
+            # =============================================================================
+            async for msg in step_3_execute_path(ctx, db_client, self._response_processor):
+                yield msg
+                # Check cancellation after each streamed message from the agent loop
+                if cancellation.is_cancelled:
+                    logger.info("Cancellation detected during Step 3 (agent loop), breaking")
+                    break
+
+            # ---- Cancellation checkpoint (before persistence) ----
+            cancellation.raise_if_cancelled()
+
+            # =============================================================================
+            # Step 4: Persist Execution Results
+            # =============================================================================
+            # [Function] Save execution results to various storages
+            #
+            # [Internal Logic]
+            #   ┌─────────────────────────────────────────────────────────┐
+            #   │  4.1 Record Trajectory (execution trace file)           │
+            #   │                                                         │
+            #   │  4.2 Update Markdown statistics                         │
+            #   │                                                         │
+            #   │  4.3 Update Event                                       │
+            #   │     - Set final_output                                  │
+            #   │     - Set event_log (execution log)                     │
+            #   │     - Set module_instances                              │
+            #   │                                                         │
+            #   │  4.4 Update Narratives                                  │
+            #   │     - Add event_id to event_ids list                    │
+            #   │     - Update dynamic_summary (LLM-generated summary)   │
+            #   └─────────────────────────────────────────────────────────┘
+            #
+            # [Output] Update files and database
+            # =============================================================================
+            async for msg in step_4_persist_results(
+                ctx,
+                self.event_service,
+                self.narrative_service,
+                self.markdown_manager,
+                self.trajectory_recorder,
+                self.session_service
+            ):
+                yield msg
+
+            # =============================================================================
+            # Step 5: Execute Hooks
+            # =============================================================================
+            # [Function] Call each Module's hook_after_event_execution
+            #
+            # [Internal Logic]
+            #   ┌─────────────────────────────────────────────────────────┐
+            #   │  1. Build HookAfterExecutionParams                      │
+            #   │     - execution_ctx: event_id, agent_id, user_id        │
+            #   │     - io_data: input_content, final_output              │
+            #   │     - trace: event_log, agent_loop_response             │
+            #   │                                                         │
+            #   │  2. Iterate all active Modules                          │
+            #   │     - Call module.hook_after_event_execution(params)     │
+            #   │     - E.g.: SocialNetworkModule updates entity info     │
+            #   │                                                         │
+            #   │  3. Collect callback requests                           │
+            #   │     - Check for Instance state changes                  │
+            #   │     - Record dependent Instances that need triggering   │
+            #   └─────────────────────────────────────────────────────────┘
+            #
+            # [Output] hook_callback_results: callback requests for subsequent processing
+            # =============================================================================
+            # =============================================================================
+            # Steps 5 + 6: Execute Hooks & Process Callbacks (BACKGROUND)
+            # =============================================================================
+            # Move to background so the WebSocket can close immediately after Step 4.
+            # The user already saw the full response during Step 3; Steps 5-6 are
+            # post-processing (entity extraction, memory writes, job analysis, etc.)
+            # that should not block the UI.
+            #
+            # Safety: Step 4.3 already persisted ctx.event.final_output, so hooks
+            # have access to the response text. Modules use the global shared DB
+            # client from db_factory (not the runtime's own client), so DB access
+            # survives after AgentRuntime.__aexit__ closes its connection.
+            # =============================================================================
+            import asyncio
+            import time as _time
+
+            _bg_start = _time.monotonic()
+            _agent_id = ctx.agent_id
+
+            async def _run_hooks_background():
+                """Run Step 5 hooks + Step 6 callbacks in background."""
+                try:
+                    hook_callback_results = None
+                    async for msg in step_5_execute_hooks(ctx, self.hook_manager):
+                        if isinstance(msg, ProgressMessage):
+                            pass  # No WebSocket to send to; just skip progress messages
+                        else:
+                            hook_callback_results = msg
+
+                    # Step 6: Process Hook Callbacks
+                    if hook_callback_results:
+                        await self.hook_manager.hook_callback_results(
+                            hook_callback_results=hook_callback_results,
+                            narrative=ctx.main_narrative,
+                            narrative_service=self.narrative_service,
+                            execute_callback_instance=self._execute_callback_instance
+                        )
+
+                    elapsed = _time.monotonic() - _bg_start
+                    logger.info(
+                        f"[BG] Steps 5-6 completed for {_agent_id} in {elapsed:.1f}s"
+                    )
+                except Exception as e:
+                    elapsed = _time.monotonic() - _bg_start
+                    logger.exception(
+                        f"[BG] Steps 5-6 failed for {_agent_id} after {elapsed:.1f}s: {e}"
+                    )
+                finally:
+                    clear_cost_context()
+
+            asyncio.create_task(_run_hooks_background())
+            logger.info(f"[BG] Steps 5-6 dispatched to background for {_agent_id}")
+
+            # Yield a completed Step 5 progress message so the frontend sidebar
+            # shows "Post-processing (background) ✓" without actually waiting.
+            yield ProgressMessage(
+                step="5",
+                title="Post-processing (background)",
+                description="✓ Module hooks dispatched to background",
+                status=ProgressStatus.COMPLETED,
+                substeps=["Entity extraction, memory writes, job analysis running in background"],
+            )
 
     async def _execute_callback_instance(
         self,
@@ -713,10 +719,10 @@ class AgentRuntime:
         effective_user_id = user_id or self._current_user_id
 
         if not effective_agent_id:
-            logger.error(f"❌ [Background] No agent_id available for instance: {instance_id}")
+            logger.error(f"[Background] No agent_id available for instance: {instance_id}")
             return
 
-        logger.info(f"🔄 [Background] Executing callback instance: {instance_id}")
+        logger.info(f"[Background] Executing callback instance: {instance_id}")
 
         try:
             # Build input content for the Callback Trigger
@@ -735,10 +741,10 @@ class AgentRuntime:
                 if hasattr(msg, 'title'):
                     logger.debug(f"  [Background] {msg.title}")
 
-            logger.info(f"✅ [Background] Instance {instance_id} execution completed")
+            logger.info(f"[Background] Instance {instance_id} execution completed")
 
         except Exception as e:
-            logger.error(f"❌ [Background] Instance {instance_id} execution failed: {e}")
+            logger.exception(f"[Background] Instance {instance_id} execution failed: {e}")
             # Can record the error to database or send notifications here
 
     async def _ensure_database_client(self) -> DatabaseClientType:

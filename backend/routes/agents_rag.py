@@ -35,7 +35,7 @@ async def list_rag_files(
     user_id: str = Query(..., description="User ID"),
 ):
     """List all RAG files and upload status for Agent-User pair"""
-    logger.info(f"Listing RAG files for agent: {agent_id}, user: {user_id}")
+    logger.debug(f"Listing RAG files for agent: {agent_id}, user: {user_id}")
 
     try:
         files_data = RAGFileService.list_files(agent_id, user_id)
@@ -52,7 +52,7 @@ async def list_rag_files(
         )
 
     except Exception as e:
-        logger.error(f"Error listing RAG files: {e}")
+        logger.exception(f"Error listing RAG files: {e}")
         return RAGFileListResponse(success=False, error=str(e))
 
 
@@ -101,7 +101,7 @@ async def upload_rag_file(
         logger.warning(f"Rejected RAG upload for agent={agent_id}, user={user_id}: {e}")
         return RAGFileUploadResponse(success=False, error=str(e))
     except Exception as e:
-        logger.error(f"Error uploading RAG file: {e}")
+        logger.exception(f"Error uploading RAG file: {e}")
         return RAGFileUploadResponse(success=False, error=str(e))
 
 
@@ -133,5 +133,5 @@ async def delete_rag_file(
     except ValueError as e:
         return RAGFileDeleteResponse(success=False, error=str(e))
     except Exception as e:
-        logger.error(f"Error deleting RAG file: {e}")
+        logger.exception(f"Error deleting RAG file: {e}")
         return RAGFileDeleteResponse(success=False, error=str(e))

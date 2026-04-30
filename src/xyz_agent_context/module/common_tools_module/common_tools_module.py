@@ -45,6 +45,73 @@ Use it whenever you need up-to-date information that is not in your context:
   whole answer.
 - The search engine is DuckDuckGo — no API key required, but it is
   rate-limited, so avoid hammering it with dozens of queries in a row.
+
+#### Reading User-Uploaded Files
+
+When the user attaches a file (image, PDF, document, code, data — anything),
+two things happen:
+
+1. The conversation message itself carries a marker like
+   `[User uploaded <kind>: name=..., path=/abs/path/..., mime=... — use Read tool to view]`.
+2. If the upload happened on the *current* turn, this instruction gains a
+   `## Files attached to the current message` block listing the same paths.
+
+To act on an attachment, call the built-in `Read` tool with the absolute
+path. Read is multimodal — its return shape depends on the file's type:
+
+- **Text / code / data files** (`.md`, `.txt`, `.py`, `.ts`, `.json`,
+  `.csv`, `.yaml`, ...) — returned as line-numbered text content. Every
+  model can read this, regardless of vision support.
+- **PDFs and rich documents** — returned as document content blocks
+  (extracted text + page renders). Text extraction works on every model;
+  page-level visual interpretation requires a vision-capable model.
+- **Images** (`.jpg`, `.png`, `.gif`, `.webp`) — returned as a visual
+  content block. Vision-capable models perceive the picture directly;
+  text-only models receive opaque bytes and CANNOT see the image.
+
+You do NOT need any custom `load_image` / `read_attachment` tool; Read
+covers everything.
+
+Rules:
+- **Read each attachment AT MOST ONCE per turn.** Reading the same file
+  again returns the exact same bytes — repeating it never helps and
+  burns tokens.
+
+- **Vision self-check applies ONLY to image attachments.** For text /
+  code / data / document files, Read the file and proceed normally —
+  there is no self-check, no model-capability concern, just answer the
+  user using the file's contents. For images specifically, before you
+  say a single word about what is in the picture, you MUST first write
+  a short self-check listing THREE concrete, verifiable visual specifics:
+    1. The dominant color of the top-left quadrant in plain words
+       (e.g. "warm orange", "near-black", "pale blue").
+    2. Any text visible in the image, transcribed verbatim — or
+       "no text visible".
+    3. A count of distinct foreground objects with brief positions
+       (e.g. "2 people, both in the lower half").
+  If you cannot produce any of these three with grounded specifics —
+  if your candidate answer feels like a guess based on the filename or
+  the conversation rather than something you literally see — then your
+  underlying model does NOT support vision. The image content either
+  reached you as opaque bytes (a long base64-looking string in the Read
+  result) or was stripped before reaching you. This is a model
+  capability limit, not a tool failure; calling Read again or scanning
+  with Bash / Glob / Task will not change the outcome.
+  In that case, STOP. Do NOT describe the image. Send the user a single
+  message that:
+    1. Confirms the file uploaded successfully.
+    2. Plainly states that the current model is text-only and cannot
+       read images — non-image attachments would still work.
+    3. Suggests opening the agent's Settings and switching to a
+       vision-capable model — any Claude family model (Opus / Sonnet /
+       Haiku) supports image input.
+  Do not pretend to see the picture; do not invent contents.
+
+- If the marker says `path=<unavailable>`, the file is no longer on disk.
+  Acknowledge the upload but tell the user you cannot view it; do not
+  fabricate content.
+- Do NOT modify or delete user-uploaded files unless the user explicitly
+  asks you to.
 """
 
 
@@ -76,7 +143,35 @@ class CommonToolsModule(XYZBaseModule):
         return ctx_data
 
     async def get_instructions(self, ctx_data: ContextData) -> str:
-        return self.instructions
+        """Return the static base instruction plus a dynamic block listing
+        the absolute paths of files attached to the *current* turn.
+
+        The dynamic block is built from `ctx_data.extra_data["attachments"]`,
+        which the trigger layer (WebSocket / Lark / Job / ...) populates
+        with the user's upload metadata for this run. Path resolution
+        lives in `xyz_agent_context.utils.attachment_storage`.
+        """
+        from xyz_agent_context.utils.attachment_storage import (
+            format_attachments_for_system_prompt,
+        )
+
+        attachments = []
+        if ctx_data.extra_data:
+            raw = ctx_data.extra_data.get("attachments")
+            if isinstance(raw, list):
+                attachments = raw
+
+        if not attachments:
+            return self.instructions
+
+        appendix = format_attachments_for_system_prompt(
+            attachments,
+            agent_id=self.agent_id,
+            user_id=self.user_id or "",
+        )
+        if not appendix:
+            return self.instructions
+        return f"{self.instructions}\n\n{appendix}"
 
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(

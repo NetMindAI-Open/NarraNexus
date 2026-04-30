@@ -100,7 +100,7 @@ class MessageBusModule(XYZBaseModule):
             logger.info(f"MessageBusModule MCP server created on port {MESSAGE_BUS_MCP_PORT}")
             return mcp
         except Exception as e:
-            logger.error(f"Failed to create MessageBusModule MCP server: {e}")
+            logger.exception(f"Failed to create MessageBusModule MCP server: {e}")
             return None
 
     # =========================================================================
@@ -341,7 +341,7 @@ class MessageBusModule(XYZBaseModule):
                 logger.debug(f"Failed to inject source tag: {e}")
 
         except Exception as e:
-            logger.error(f"MessageBusModule hook_data_gathering failed: {e}")
+            logger.exception(f"MessageBusModule hook_data_gathering failed: {e}")
         return ctx_data
 
     async def hook_after_event_execution(
@@ -426,7 +426,7 @@ class MessageBusModule(XYZBaseModule):
                     f"{replied_channels} but no matching unread messages to mark"
                 )
         except Exception as e:
-            logger.error(f"MessageBusModule hook_after_event_execution failed: {e}")
+            logger.exception(f"MessageBusModule hook_after_event_execution failed: {e}")
 
 
 # =============================================================================
@@ -466,7 +466,7 @@ async def _get_default_bus_async():
         logger.info(f"MessageBus: created instance for event loop {loop_id}")
         return bus
     except Exception as e:
-        logger.error(f"Failed to initialize default MessageBus: {e}")
+        logger.exception(f"Failed to initialize default MessageBus: {e}")
         return None
 
 

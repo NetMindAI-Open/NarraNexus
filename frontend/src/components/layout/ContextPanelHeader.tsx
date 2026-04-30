@@ -14,6 +14,7 @@
 
 import { Activity, Settings, Inbox, ListTodo, Puzzle } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn } from '@/lib/utils';
@@ -40,12 +41,10 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
 
   return (
     <div className="flex items-end justify-between gap-2 min-w-0">
-      {/* Tab row — scrolls horizontally when too narrow, hidden scrollbar */}
-      <div
-        className="flex-1 min-w-0 overflow-x-auto"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-      >
-        <style>{`.ctx-tabs::-webkit-scrollbar { display: none; }`}</style>
+      {/* Tab row — scrolls horizontally when too narrow, hidden scrollbar.
+          Uses ScrollArea (hideScrollbar) so the row scrolls but no track
+          appears, even on macOS "always show scrollbars". */}
+      <ScrollArea horizontal hideScrollbar className="flex-1 min-w-0">
         <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as ContextTab)}>
           <TabsList className="ctx-tabs flex w-max gap-0">
             {tabs.map((tab) => {
@@ -84,7 +83,7 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
             })}
           </TabsList>
         </Tabs>
-      </div>
+      </ScrollArea>
 
       {/* Cost indicator — always pinned to the right, pr-1 leaves room for
           its -right-1 unread-badge overhang without clipping. */}

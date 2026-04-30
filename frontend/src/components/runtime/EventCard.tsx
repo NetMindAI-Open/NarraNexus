@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, Zap, Clock, Bot, User, Terminal, FileText } from 'lucide-react';
-import { Badge, Markdown } from '@/components/ui';
+import { Badge, Markdown, ScrollArea } from '@/components/ui';
 import type { ChatHistoryEvent } from '@/types';
 import { cn, formatTime, truncate } from '@/lib/utils';
 
@@ -111,13 +111,15 @@ export function EventCard({ event, index, total }: EventCardProps) {
               <Bot className="w-3 h-3" />
               Agent Response
             </div>
-            <div className="text-xs max-h-[200px] overflow-y-auto p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
+            <ScrollArea className="max-h-[200px] bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]" viewportClassName="p-3">
+              <div className="text-xs">
               {event.final_output ? (
                 <Markdown content={event.final_output} />
               ) : (
                 <span className="text-[var(--text-tertiary)] italic">No response</span>
               )}
-            </div>
+              </div>
+            </ScrollArea>
           </div>
 
           {/* Event Log Section */}
@@ -127,11 +129,13 @@ export function EventCard({ event, index, total }: EventCardProps) {
                 <Terminal className="w-3 h-3" />
                 Event Log
               </div>
-              <div className="space-y-1.5 max-h-[200px] overflow-y-auto">
+              <ScrollArea className="max-h-[200px]">
+                <div className="space-y-1.5">
                 {displayLogs.map((entry, i) => (
                   <EventLogEntry key={i} entry={entry} />
                 ))}
-              </div>
+                </div>
+              </ScrollArea>
             </div>
           )}
 
@@ -244,9 +248,11 @@ function EventLogEntry({ entry }: EventLogEntryProps) {
                 )}
               </button>
               {isExpanded && (
-                <pre className="mt-2 text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap break-all bg-[var(--bg-sunken)] p-3 rounded-lg border border-[var(--border-subtle)] max-h-[150px] overflow-y-auto font-mono">
-                  {contentStr}
-                </pre>
+                <ScrollArea className="mt-2 max-h-[150px] bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]" viewportClassName="p-3">
+                  <pre className="text-[10px] text-[var(--text-secondary)] whitespace-pre-wrap break-all font-mono">
+                    {contentStr}
+                  </pre>
+                </ScrollArea>
               )}
             </div>
           ) : (

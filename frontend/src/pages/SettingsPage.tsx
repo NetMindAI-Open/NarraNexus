@@ -10,10 +10,12 @@
 
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
+import { ScrollArea } from '@/components/ui';
 
 export default function SettingsPage() {
   return (
-    <div className="h-full overflow-y-auto p-6 space-y-6">
+    <ScrollArea className="h-full" viewportClassName="p-6">
+      <div className="space-y-6">
       {/* LLM Provider Configuration — uses existing component that calls /api/providers */}
       <section>
         <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
@@ -29,6 +31,7 @@ export default function SettingsPage() {
         </h2>
         <EmbeddingStatus />
       </section>
-    </div>
+      </div>
+    </ScrollArea>
   );
 }

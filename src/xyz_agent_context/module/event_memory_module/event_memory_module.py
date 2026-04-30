@@ -167,7 +167,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.info(f"EventMemoryModule: created table {table_name} successfully")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to create table {table_name}: {e}")
+            logger.exception(f"EventMemoryModule: failed to create table {table_name}: {e}")
             return False
 
     async def ensure_json_format_table(self, module_name: str) -> bool:
@@ -229,7 +229,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.debug(f"EventMemoryModule: saved {module_name} Memory successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to save {module_name} Memory: {e}")
+            logger.exception(f"EventMemoryModule: failed to save {module_name} Memory: {e}")
             return False
 
     async def search_json_format_memory(
@@ -268,7 +268,7 @@ class EventMemoryModule(XYZBaseModule):
             return None
 
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to query {module_name} Memory: {e}")
+            logger.exception(f"EventMemoryModule: failed to query {module_name} Memory: {e}")
             return None
 
     async def delete_json_format_memory(
@@ -302,7 +302,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.debug(f"EventMemoryModule: deleted {module_name} Memory successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to delete {module_name} Memory: {e}")
+            logger.exception(f"EventMemoryModule: failed to delete {module_name} Memory: {e}")
             return False
 
     def _get_json_format_table_name(self, module_name: str) -> str:
@@ -402,7 +402,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.info(f"EventMemoryModule: created table {table_name} successfully")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to create table {table_name}: {e}")
+            logger.exception(f"EventMemoryModule: failed to create table {table_name}: {e}")
             return False
 
     async def update_report_memory(
@@ -453,7 +453,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.debug(f"EventMemoryModule: updated {module_name} status report successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to update {module_name} status report: {e}")
+            logger.exception(f"EventMemoryModule: failed to update {module_name} status report: {e}")
             return False
 
     async def get_report_memory(
@@ -500,7 +500,7 @@ class EventMemoryModule(XYZBaseModule):
             return {row["module_name"]: row["report_memory"] for row in result}
 
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to get status report: {e}")
+            logger.exception(f"EventMemoryModule: failed to get status report: {e}")
             return None
 
     async def delete_report_memory(
@@ -539,7 +539,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.debug(f"EventMemoryModule: deleted status report successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to delete status report: {e}")
+            logger.exception(f"EventMemoryModule: failed to delete status report: {e}")
             return False
 
     # ================================================================================================
@@ -616,7 +616,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.info(f"EventMemoryModule: created table {table_name} successfully")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to create table {table_name}: {e}")
+            logger.exception(f"EventMemoryModule: failed to create table {table_name}: {e}")
             return False
 
     async def ensure_instance_json_format_table(self, module_name: str) -> bool:
@@ -677,7 +677,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.debug(f"EventMemoryModule: saved {module_name} Instance Memory successfully, instance_id={instance_id}")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to save {module_name} Instance Memory: {e}")
+            logger.exception(f"EventMemoryModule: failed to save {module_name} Instance Memory: {e}")
             return False
 
     async def search_instance_json_format_memory(
@@ -716,7 +716,7 @@ class EventMemoryModule(XYZBaseModule):
             return None
 
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to query {module_name} Instance Memory: {e}")
+            logger.exception(f"EventMemoryModule: failed to query {module_name} Instance Memory: {e}")
             return None
 
     async def delete_instance_json_format_memory(
@@ -750,7 +750,7 @@ class EventMemoryModule(XYZBaseModule):
             logger.debug(f"EventMemoryModule: deleted {module_name} Instance Memory successfully, instance_id={instance_id}")
             return True
         except Exception as e:
-            logger.error(f"EventMemoryModule: failed to delete {module_name} Instance Memory: {e}")
+            logger.exception(f"EventMemoryModule: failed to delete {module_name} Instance Memory: {e}")
             return False
 
     def _get_instance_json_format_table_name(self, module_name: str) -> str:

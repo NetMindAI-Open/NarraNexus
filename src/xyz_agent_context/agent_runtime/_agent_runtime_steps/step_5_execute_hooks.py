@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 from xyz_agent_context.schema import (
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from .context import RunContext
     from xyz_agent_context.module import HookManager
 
+
+@timed("step.5_execute_hooks")
 
 async def step_5_execute_hooks(
     ctx: "RunContext",
@@ -59,8 +62,6 @@ async def step_5_execute_hooks(
         status=ProgressStatus.RUNNING,
         substeps=ctx.substeps_5
     )
-
-    logger.info("🪝 Step 5: Hooking after event execution")
 
     execution_result = ctx.execution_result
 
@@ -114,7 +115,7 @@ async def step_5_execute_hooks(
         )
         logger.info(f"  ✓ Instance found: {current_instance.instance_id}, status={status_value}")
     else:
-        logger.warning(f"  ⚠ No instance found for working_source={ctx.working_source}")
+        logger.warning(f"No instance found for working_source={ctx.working_source}")
 
     # Build structured Hook parameters
     hook_params = HookAfterExecutionParams(
@@ -157,7 +158,7 @@ async def step_5_execute_hooks(
     for i, hook_name in enumerate(hooks_to_execute):
         substeps_5_completed.append(f"[5.{i+1}] ✓ {hook_name} execution completed")
 
-    logger.success("✅ Hooking after event execution completed")
+    logger.info("Hooking after event execution completed")
 
     yield ProgressMessage(
         step="5",

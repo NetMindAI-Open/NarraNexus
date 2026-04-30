@@ -13,6 +13,7 @@ from google import genai
 
 from xyz_agent_context.agent_framework.api_config import gemini_config
 from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
+from xyz_agent_context.utils.logging import timed
 
 
 class GeminiAPISDK:
@@ -21,6 +22,7 @@ class GeminiAPISDK:
         self.client = genai.Client(api_key=gemini_config.api_key)
         self.model = model or gemini_config.model
 
+    @timed("llm.gemini.llm_function", slow_threshold_ms=10000)
     async def llm_function(
         self,
         instructions: str,

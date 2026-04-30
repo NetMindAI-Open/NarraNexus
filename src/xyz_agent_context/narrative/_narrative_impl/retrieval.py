@@ -28,6 +28,7 @@ from .default_narratives import (
     build_default_narrative_id_pattern,
 )
 from xyz_agent_context.utils.evermemos import get_evermemos_client
+from xyz_agent_context.utils.logging import timed
 
 # Use common utilities from utils
 from xyz_agent_context.agent_framework.llm_api.embedding import (
@@ -212,29 +213,36 @@ class NarrativeRetrieval:
         logger.info(f"Retrieving Top-{top_k} Narratives: query='{query[:50]}...'")
 
         # Step 0: Ensure default Narratives exist
-        await self._ensure_default_narratives(agent_id, user_id)
+        with timed("narrative.retrieve.ensure_defaults"):
+            await self._ensure_default_narratives(agent_id, user_id)
 
         # Step 0.5 (P0-4): Query Narratives where user is a PARTICIPANT
         # Replaces the previous _get_narratives_by_entity_jobs(), queries directly via actors
-        participant_narratives = await self._get_participant_narratives(
-            user_id=user_id,
-            agent_id=agent_id
-        )
+        with timed("narrative.retrieve.participant_query"):
+            participant_narratives = await self._get_participant_narratives(
+                user_id=user_id,
+                agent_id=agent_id
+            )
         has_participant_narratives = len(participant_narratives) > 0
         if has_participant_narratives:
             logger.info(f"P0-4: User is a PARTICIPANT in {len(participant_narratives)} Narratives")
 
-        # Step 1: Generate Query embedding
-        query_embedding = await get_embedding(query)
+        # Step 1: Generate Query embedding (this is a second embedding
+        # call — the service-level one above embedded input_content for
+        # continuity; this one re-embeds the same query for retrieval.
+        # The embedding cache should make this near-zero on a cache hit.)
+        with timed("narrative.retrieve.embed_query"):
+            query_embedding = await get_embedding(query)
         logger.debug(f"Generated Query embedding (dim={len(query_embedding)})")
 
         # Step 2: Search for similar Narratives (VectorStore only — EverMemOS decoupled)
-        search_results = await self._vector_search(
-            query_embedding=query_embedding,
-            user_id=user_id,
-            agent_id=agent_id,
-            top_k=max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
-        )
+        with timed("narrative.retrieve.vector_search"):
+            search_results = await self._vector_search(
+                query_embedding=query_embedding,
+                user_id=user_id,
+                agent_id=agent_id,
+                top_k=max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
+            )
         retrieval_method = "vector"
         logger.info(f"[NarrativeSelect] VectorStore search returned {len(search_results)} candidates")
 
@@ -285,10 +293,11 @@ class NarrativeRetrieval:
 
         # Step 3: Enhance scores using recent Events
         if search_results:
-            search_results = await self._enhance_with_events(
-                search_results=search_results,
-                query_embedding=query_embedding
-            )
+            with timed("narrative.retrieve.enhance_events"):
+                search_results = await self._enhance_with_events(
+                    search_results=search_results,
+                    query_embedding=query_embedding
+                )
 
         # Step 4: Two-tier threshold judgment
         best_score = search_results[0].similarity_score if search_results else None
@@ -326,18 +335,22 @@ class NarrativeRetrieval:
 
         if config.NARRATIVE_MATCH_USE_LLM:
             # Call unified LLM judgment (considers search results, default Narratives, and PARTICIPANT Narratives)
-            return await self._llm_unified_match(
-                query=query,
-                search_results=search_results[:3] if search_results else [],
-                agent_id=agent_id,
-                user_id=user_id,
-                top_k=top_k,
-                query_embedding=query_embedding,
-                narrative_type=narrative_type,
-                best_score=best_score,
-                participant_narratives=participant_narratives,  # P0-4: Pass PARTICIPANT Narratives
-                retrieval_method=retrieval_method  # Pass retrieval method
-            )
+            # This is the slow path — wrap in timed() so the dual cost
+            # (LLM call + extra DB loads inside _llm_unified_match) is
+            # visible separately from the vector_search above.
+            with timed("narrative.retrieve.llm_unified_match"):
+                return await self._llm_unified_match(
+                    query=query,
+                    search_results=search_results[:3] if search_results else [],
+                    agent_id=agent_id,
+                    user_id=user_id,
+                    top_k=top_k,
+                    query_embedding=query_embedding,
+                    narrative_type=narrative_type,
+                    best_score=best_score,
+                    participant_narratives=participant_narratives,  # P0-4: Pass PARTICIPANT Narratives
+                    retrieval_method=retrieval_method  # Pass retrieval method
+                )
 
         # LLM not enabled - Create new Narrative directly
         else:
@@ -493,7 +506,7 @@ class NarrativeRetrieval:
                 f"for Agent {agent_id} + User {user_id}"
             )
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"Failed to create default Narratives (agent={agent_id}, user={user_id}): {e}"
             )
             # Do not raise exception, allow continued execution (default Narrative creation failure should not block main flow)
@@ -594,7 +607,7 @@ class NarrativeRetrieval:
                         # EverMemOS returned empty results, data may still be processing
                         logger.info("[EverMemOS] Returned 0 results, falling back to native vector retrieval (data may still be processing)")
                 except Exception as e:
-                    logger.error(f"EverMemOS retrieval failed, falling back to native vector retrieval: {e}")
+                    logger.exception(f"EverMemOS retrieval failed, falling back to native vector retrieval: {e}")
 
         # Native vector retrieval mode (default / fallback)
         db_client = await get_db_client()
@@ -618,7 +631,29 @@ class NarrativeRetrieval:
         search_results: List[NarrativeSearchResult],
         query_embedding: List[float]
     ) -> List[NarrativeSearchResult]:
-        """Enhance scores using recent Events"""
+        """Enhance scores using recent Events.
+
+        Performance: previously this re-embedded every recent event's input
+        text by calling the embedding API one-at-a-time, which dominated
+        step.1 latency (4-7s on a real run). We now bulk-read pre-computed
+        vectors from `embeddings_store` (which is dual-written every time
+        an event is persisted in step 4) and only fall back to the API
+        for the rare case where the active embedding model has no stored
+        vector for a given event yet — typically because the operator just
+        switched embedding models. Those fallbacks write through to the
+        store so the next call is a hit.
+
+        Cross-model safety: `get_stored_embeddings_batch` is keyed by
+        `(entity_type, entity_id, model)`, so a deployment that has used
+        text-embedding-3-small in the past and switches to -3-large will
+        re-embed only the events whose -large vectors are missing — no
+        risk of cosine'ing across mismatched dimensions.
+        """
+        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
+            get_stored_embeddings_batch,
+            store_embedding,
+        )
+
         weight = config.RECENT_EVENTS_WEIGHT
         max_events = config.MATCH_RECENT_EVENTS_COUNT
 
@@ -633,21 +668,59 @@ class NarrativeRetrieval:
 
                 if narrative and narrative.event_ids and self._event_service:
                     recent_event_ids = narrative.event_ids[-max_events:]
-                    events = await self._event_service.load_events_from_db(recent_event_ids)
 
-                    # Collect query texts and generate embeddings
-                    event_embeddings = []
-                    for event in events:
-                        if event and event.env_context:
+                    # Fast path: batch read from embeddings_store. One DB
+                    # round-trip for the whole batch under the active
+                    # embedding model.
+                    stored = await get_stored_embeddings_batch(
+                        "event", recent_event_ids
+                    )
+
+                    event_embeddings: list[list[float]] = []
+                    missing_event_ids = [
+                        eid for eid in recent_event_ids if eid not in stored
+                    ]
+
+                    # Pull vectors that were already stored (the common
+                    # case after the first turn under each model).
+                    for eid in recent_event_ids:
+                        vec = stored.get(eid)
+                        if vec and len(vec) == len(query_embedding):
+                            event_embeddings.append(vec)
+
+                    # Slow path: re-embed only the events that have no
+                    # vector under the current model yet, and write
+                    # through so we don't pay this cost again next turn.
+                    if missing_event_ids:
+                        missing_events = await self._event_service.load_events_from_db(
+                            missing_event_ids
+                        )
+                        for event in missing_events:
+                            if not event or not event.env_context:
+                                continue
                             input_text = event.env_context.get("input", "")
-                            if input_text:
-                                try:
-                                    emb = await get_embedding(input_text)
+                            if not input_text:
+                                continue
+                            try:
+                                emb = await get_embedding(input_text)
+                                if len(emb) == len(query_embedding):
                                     event_embeddings.append(emb)
-                                except Exception:
-                                    pass
+                                # Persist for future turns even if the
+                                # cosine path skipped it (a different
+                                # query dim wouldn't make this vector
+                                # unusable for *other* future queries).
+                                await store_embedding(
+                                    "event",
+                                    event.id,
+                                    emb,
+                                    source_text=input_text,
+                                )
+                            except Exception as exc:
+                                logger.debug(
+                                    f"Re-embed fallback failed for event "
+                                    f"{event.id}: {exc}"
+                                )
 
-                    # Calculate enhanced score
                     if event_embeddings:
                         avg_embedding = compute_average_embedding(event_embeddings)
                         events_score = cosine_similarity(query_embedding, avg_embedding)
@@ -957,7 +1030,7 @@ class NarrativeRetrieval:
             return narratives
 
         except Exception as e:
-            logger.error(f"PARTICIPANT Narratives: Query failed: {e}")
+            logger.exception(f"PARTICIPANT Narratives: Query failed: {e}")
             return []
 
     async def _create_with_embedding(

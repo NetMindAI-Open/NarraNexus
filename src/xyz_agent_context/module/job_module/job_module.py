@@ -497,7 +497,7 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
                 return "\n\n".join(jobs_info)
 
         except Exception as e:
-            logger.error(f"          ❌ Error loading related jobs context: {e}")
+            logger.exception(f"Error loading related jobs context: {e}")
 
         return None
 
@@ -628,7 +628,7 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
             return []
 
         except Exception as e:
-            logger.error(f"Error in get_instance_object_candidates: {e}")
+            logger.exception(f"Error in get_instance_object_candidates: {e}")
             return []
         
     async def get_job_instance_object_by_id(self, agent_id: str, instance_id: str) -> Any:
@@ -655,7 +655,7 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
             return None
 
         except Exception as e:
-            logger.error(f"Error in get_job_instance_object_by_id: {e}")
+            logger.exception(f"Error in get_job_instance_object_by_id: {e}")
             return None
             
     

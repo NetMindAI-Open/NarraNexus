@@ -158,7 +158,7 @@ async def search_social_network_entities(
         )
 
     except Exception as e:
-        logger.error(f"Error searching social network entities: {e}")
+        logger.exception(f"Error searching social network entities: {e}")
         return SocialNetworkSearchResponse(
             success=False, error=str(e), search_type=search_type
         )
@@ -220,7 +220,7 @@ async def get_user_social_network_info(agent_id: str, user_id: str):
             )
 
     except Exception as e:
-        logger.error(f"Error getting social network info: {e}")
+        logger.exception(f"Error getting social network info: {e}")
         return SocialNetworkResponse(success=False, error=str(e))
 
 
@@ -231,7 +231,7 @@ async def get_all_social_network_entities(agent_id: str):
 
     Queries data from instance_social_entities table (via SocialNetworkModule's instance_id).
     """
-    logger.info(f"Getting all social network entities for agent: {agent_id}")
+    logger.debug(f"Getting all social network entities for agent: {agent_id}")
 
     try:
         db_client = await get_db_client()
@@ -284,7 +284,7 @@ async def get_all_social_network_entities(agent_id: str):
         )
 
     except Exception as e:
-        logger.error(f"Error getting social network entities: {e}")
+        logger.exception(f"Error getting social network entities: {e}")
         return SocialNetworkListResponse(success=False, error=str(e))
 
 

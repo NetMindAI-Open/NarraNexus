@@ -58,7 +58,7 @@ def with_mcp_timeout(
                     "The tool is temporarily unavailable — try a different "
                     "approach or retry later."
                 )
-                logger.error(f"[MCP timeout] {msg}")
+                logger.exception(f"[MCP timeout] {msg}")
                 return f"[tool_error] {msg}"
 
         return _wrapper

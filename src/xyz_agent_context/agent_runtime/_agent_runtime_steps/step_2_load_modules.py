@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, Union, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus, ErrorMessage
 from xyz_agent_context.module.memory_module import get_memory_module
@@ -23,6 +24,8 @@ from .step_display import (
 if TYPE_CHECKING:
     from .context import RunContext
 
+
+@timed("step.2_load_modules")
 
 async def step_2_load_modules(
     ctx: "RunContext"
@@ -46,8 +49,6 @@ async def step_2_load_modules(
         status=ProgressStatus.RUNNING,
         substeps=ctx.substeps_2
     )
-
-    logger.info("🔌 Step 2: Loading Modules and Decision")
 
     # Use ModuleService to load modules and decide execution path
     # Default to Instance intelligent decision mode (LLM-driven)
@@ -88,10 +89,10 @@ async def step_2_load_modules(
     # MemoryModule: responsible for EverMemOS writing and other memory management tasks
     memory_module = get_memory_module(ctx.agent_id, ctx.user_id)
     ctx.module_list.append(memory_module)
-    logger.debug("  📝 Added MemoryModule to module_list")
+    logger.debug("Added MemoryModule to module_list")
 
-    logger.success(
-        f"✅ Instances loaded: count={len(active_instances)}, "
+    logger.info(
+        f"Instances loaded: count={len(active_instances)}, "
         f"execution_type={execution_type.value}"
     )
 

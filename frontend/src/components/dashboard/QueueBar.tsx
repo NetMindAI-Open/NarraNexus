@@ -1,9 +1,9 @@
 /**
  * @file_name: QueueBar.tsx
- * @description: v2.1.1 — stacked bar + counts for all 6 live job states.
- * Compact mode (inline in collapsed card) shows just the bar + total + the
- * top 2 worrying states (failed/blocked first). Full mode shows all states
- * with labels.
+ * @description: v2.3 — stacked bar + counts for all 6 live job states.
+ * Compact mode (inline in collapsed card) shows bar + total + the
+ * worrying states (failed/blocked) labeled in plain English. Full mode
+ * shows all states with labels under the bar.
  */
 import type { QueueCounts } from '@/types';
 
@@ -31,18 +31,16 @@ const LABEL_SHORT: Record<keyof Omit<QueueCounts, 'total'>, string> = {
 
 export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compact?: boolean }) {
   if (!queue || queue.total === 0) {
-    // Don't render at all when empty — was visual noise before.
     return null;
   }
 
   if (compact) {
-    // Inline strip: tiny bar + total + only states that need attention
     return (
-      <div className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-secondary)]">
-        <span>Q</span>
+      <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)] tabular-nums">
         <div
           data-testid="queue-bar"
-          className="flex h-1.5 w-16 overflow-hidden rounded-full bg-[var(--bg-tertiary)]"
+          className="flex h-1.5 w-20 overflow-hidden rounded-full bg-[var(--bg-tertiary)]"
+          title={`${queue.total} jobs in queue`}
         >
           {ORDER.map((key) => {
             const count = queue[key];
@@ -59,22 +57,38 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
             );
           })}
         </div>
-        <span>{queue.total}</span>
+        <span>
+          <span className="text-[var(--text-primary)] font-medium">{queue.total}</span>
+          <span className="ml-1 text-[10px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)]">
+            jobs
+          </span>
+        </span>
         {queue.failed > 0 && (
-          <span className="text-[var(--color-red-500)]" title={`${queue.failed} failed`}>· 🔴 {queue.failed}</span>
+          <span
+            className="text-[var(--color-red-500)] font-medium"
+            title={`${queue.failed} failed`}
+          >
+            {queue.failed} failed
+          </span>
         )}
         {queue.blocked > 0 && (
-          <span className="text-[var(--color-yellow-500)]" title={`${queue.blocked} blocked`}>· 🟠 {queue.blocked}</span>
+          <span
+            className="text-[var(--color-yellow-500)] font-medium"
+            title={`${queue.blocked} blocked`}
+          >
+            {queue.blocked} blocked
+          </span>
         )}
       </div>
     );
   }
 
-  // Full (in expanded section)
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <span className="text-xs text-[var(--text-secondary)]">Queue</span>
+        <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)]">
+          Queue
+        </span>
         <div
           data-testid="queue-bar"
           className="flex h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--bg-tertiary)]"
@@ -94,16 +108,17 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
             );
           })}
         </div>
-        <span className="text-xs font-mono text-[var(--text-secondary)]">{queue.total}</span>
+        <span className="text-xs font-medium text-[var(--text-primary)] tabular-nums">{queue.total}</span>
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] font-mono text-[var(--text-secondary)]">
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-secondary)] tabular-nums">
         {ORDER.map((key) => {
           const count = queue[key];
           if (count === 0) return null;
           return (
-            <span key={key} className="flex items-center gap-1">
+            <span key={key} className="inline-flex items-center gap-1">
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${SEGMENT_CLS[key]}`} />
-              {count} {LABEL_SHORT[key]}
+              <span className="text-[var(--text-primary)] font-medium">{count}</span>
+              <span className="text-[var(--text-tertiary)]">{LABEL_SHORT[key]}</span>
             </span>
           );
         })}

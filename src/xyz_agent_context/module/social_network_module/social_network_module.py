@@ -255,7 +255,7 @@ Adapt your communication style according to this persona."""
             logger.debug("          ← SocialNetworkModule.hook_data_gathering() completed")
 
         except Exception as e:
-            logger.error(f"            ❌ Error in hook_data_gathering: {e}")
+            logger.exception(f"Error in hook_data_gathering: {e}")
             logger.exception(e)
             # Set error state value to ensure get_instructions doesn't fail due to missing fields
             # Also clearly indicate an error occurred for debugging
@@ -311,7 +311,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 user_id = self.user_id
 
             if not user_id:
-                logger.warning("            ⚠ No user_id found, skipping hook")
+                logger.warning("No user_id found, skipping hook")
                 return
 
             logger.debug(f"            Processing hook for user_id: {user_id}, instance_id: {instance_id}")
@@ -337,7 +337,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     logger.info(f"            ✓ Created minimal entity for {user_id}")
                     entity = await repo.get_entity(entity_id=user_id, instance_id=instance_id)
                 except Exception as e:
-                    logger.error(f"            ❌ Failed to create entity: {e}")
+                    logger.exception(f"Failed to create entity: {e}")
                     return
 
             primary_name = entity.entity_name or user_id if entity else user_id
@@ -387,7 +387,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 if new_persona:
                     await update_entity_persona(repo, user_id, instance_id, new_persona)
 
-            logger.success(f"            ✅ Entity updated for {user_id}")
+            logger.info(f"Entity updated for {user_id}")
 
             # 5. Process mentioned entities (dedup pipeline)
             try:
@@ -396,7 +396,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 logger.warning(f"            Batch entity extraction failed (non-critical): {e}")
 
         except Exception as e:
-            logger.error(f"            ❌ Error in hook_after_event_execution: {e}")
+            logger.exception(f"Error in hook_after_event_execution: {e}")
             logger.exception(e)
 
         logger.debug("          ← SocialNetworkModule.hook_after_event_execution() completed")
@@ -846,7 +846,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             ]
 
         except Exception as e:
-            logger.error(f"Error getting agent stats: {e}")
+            logger.exception(f"Error getting agent stats: {e}")
             return []
 
     # ============================================================================= Public API (for MCP Server)
@@ -973,7 +973,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 }
 
         except Exception as e:
-            logger.error(f"Error in extract_and_update_entity_info: {e}")
+            logger.exception(f"Error in extract_and_update_entity_info: {e}")
             return {
                 "success": False,
                 "message": f"Error: {str(e)}",
@@ -1010,7 +1010,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                 }
 
         except Exception as e:
-            logger.error(f"Error in recall_entity_info: {e}")
+            logger.exception(f"Error in recall_entity_info: {e}")
             return {
                 "success": False,
                 "message": f"Error: {str(e)}"
@@ -1055,7 +1055,7 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             }
 
         except Exception as e:
-            logger.error(f"Error in search_network: {e}")
+            logger.exception(f"Error in search_network: {e}")
             return {
                 "success": False,
                 "message": f"Error: {str(e)}",

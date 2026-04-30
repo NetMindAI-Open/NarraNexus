@@ -84,7 +84,7 @@ export function ModeSelectPage() {
       <div className="text-center space-y-3 animate-fade-in">
         <div className="flex items-center justify-center gap-3 mb-2">
           <div className="w-10 h-10 rounded-xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)] overflow-hidden">
-            <img src={isDark ? '/logo-dark.png' : '/logo-light.png'} alt="NarraNexus" className="w-7 h-7 object-contain" />
+            <img src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'} alt="NarraNexus" className="w-7 h-7 object-contain" />
           </div>
         </div>
         <h1 className="text-3xl font-bold text-[var(--text-primary)] font-[family-name:var(--font-display)] tracking-tight">

@@ -59,9 +59,6 @@ export function CreateUserDialog({ onClose, onCreated }: CreateUserDialogProps) 
 
       {/* Dialog */}
       <div className="relative bg-[var(--bg-primary)] border border-[var(--text-primary)] w-full max-w-md p-7 animate-scale-in">
-        {/* Top glow line */}
-        <div className="absolute top-0 left-1/4 right-1/4 h-px bg-gradient-to-r from-transparent via-[var(--accent-primary)] to-transparent" />
-
         {/* Close Button */}
         <button
           onClick={() => !loading && onClose()}

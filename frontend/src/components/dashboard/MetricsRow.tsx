@@ -1,11 +1,12 @@
 /**
  * @file_name: MetricsRow.tsx
- * @description: v2.1 — today's counts at the card footer. Missing data
+ * @description: v2.3 — labeled stat strip. Every number is paired with a
+ * lowercase label so users can scan without decoding icons. Missing data
  * (token_cost_cents) renders as em-dash, not 0.
  */
 import type { MetricsToday } from '@/types';
 
-const EM_DASH = '\u2014';
+const EM_DASH = '—';
 
 function formatCost(cents: number | null): string {
   if (cents === null || cents === undefined) return EM_DASH;
@@ -22,24 +23,80 @@ function formatAvg(ms: number | null): string {
 }
 
 const TREND_ARROW = {
-  up: '↑', down: '↓', flat: '·', unknown: '',
+  up: '↑',
+  down: '↓',
+  flat: '·',
+  unknown: '',
 } as const;
 
+const TREND_TITLE = {
+  up: 'slower than yesterday',
+  down: 'faster than yesterday',
+  flat: 'same as yesterday',
+  unknown: '',
+} as const;
+
+function Stat({
+  label,
+  value,
+  tone = 'default',
+  hint,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: 'default' | 'success' | 'danger';
+  hint?: string;
+}) {
+  const valueCls =
+    tone === 'success'
+      ? 'text-[var(--color-green-500)]'
+      : tone === 'danger'
+        ? 'text-[var(--color-red-500)]'
+        : 'text-[var(--text-primary)]';
+  return (
+    <span
+      className="inline-flex items-baseline gap-1 tabular-nums"
+      title={hint}
+    >
+      <span className={`text-[12px] font-medium ${valueCls}`}>{value}</span>
+      <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)]">
+        {label}
+      </span>
+    </span>
+  );
+}
+
 export function MetricsRow({ metrics }: { metrics: MetricsToday }) {
-  const errorCls = metrics.errors > 0
-    ? 'text-[var(--color-red-500)] font-semibold'
-    : 'text-[var(--text-secondary)]';
   return (
     <div
       data-testid="metrics-row"
-      className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-mono text-[var(--text-secondary)]"
+      className="flex flex-wrap items-baseline gap-x-4 gap-y-1"
     >
-      <span className="text-[var(--color-green-500)]">✓ {metrics.runs_ok}</span>
-      <span className={errorCls}>⚠ {metrics.errors}</span>
-      <span>
-        ⏱ {formatAvg(metrics.avg_duration_ms)} {TREND_ARROW[metrics.avg_duration_trend]}
-      </span>
-      <span>{formatCost(metrics.token_cost_cents)}</span>
+      <Stat label="ok" value={metrics.runs_ok} tone="success" hint="Runs completed today" />
+      <Stat
+        label="errors"
+        value={metrics.errors}
+        tone={metrics.errors > 0 ? 'danger' : 'default'}
+        hint="Errors today"
+      />
+      <Stat
+        label="avg"
+        value={
+          <>
+            {formatAvg(metrics.avg_duration_ms)}
+            {metrics.avg_duration_trend !== 'unknown' && (
+              <span
+                className="ml-0.5 text-[var(--text-tertiary)]"
+                title={TREND_TITLE[metrics.avg_duration_trend]}
+              >
+                {TREND_ARROW[metrics.avg_duration_trend]}
+              </span>
+            )}
+          </>
+        }
+        hint="Average run duration today"
+      />
+      <Stat label="cost" value={formatCost(metrics.token_cost_cents)} hint="Token spend today" />
     </div>
   );
 }

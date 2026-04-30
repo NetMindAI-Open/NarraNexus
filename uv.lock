@@ -2317,7 +2317,7 @@ wheels = [
 
 [[package]]
 name = "xyz-agent-context"
-version = "1.1.0"
+version = "1.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiomysql" },

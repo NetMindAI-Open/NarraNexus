@@ -126,7 +126,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
                 <span
                   key={i}
                   title={jobId}
-                  className="border border-[var(--rule)] px-1.5 py-[1px] text-[var(--text-secondary)]"
+                  className="border border-[var(--border-subtle)] px-1.5 py-[1px] text-[var(--text-secondary)]"
                 >
                   {jobId.length > 12 ? `${jobId.slice(0, 12)}…` : jobId}
                 </span>
@@ -143,7 +143,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
               {entity.expertise_domains?.map((d, i) => (
                 <span
                   key={i}
-                  className="border border-[var(--rule)] px-1.5 py-[1px] text-[var(--text-secondary)]"
+                  className="border border-[var(--border-subtle)] px-1.5 py-[1px] text-[var(--text-secondary)]"
                 >
                   {d}
                 </span>

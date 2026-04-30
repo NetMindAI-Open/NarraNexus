@@ -19,7 +19,7 @@ import {
   KeyRound,
   CircleAlert,
 } from 'lucide-react';
-import { Button, Markdown } from '@/components/ui';
+import { Button, Markdown, ScrollArea } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import type { SkillInfo } from '@/types/skills';
 
@@ -48,11 +48,11 @@ export function SkillCard({
   return (
     <div
       className={cn(
-        'p-4 rounded-xl transition-all duration-300',
+        'p-4 rounded-xl transition-colors duration-150',
         'border bg-[var(--bg-elevated)]',
         skill.disabled
           ? 'border-[var(--border-subtle)] opacity-60'
-          : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg'
+          : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)]'
       )}
     >
       <div className="flex items-start gap-3">
@@ -81,7 +81,7 @@ export function SkillCard({
           )}
 
           {skill.version && (
-            <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
+            <span className="text-[10px] font-mono font-medium text-[var(--text-tertiary)]">
               v{skill.version}
             </span>
           )}
@@ -93,7 +93,7 @@ export function SkillCard({
               onClick={() => onConfigure(skill)}
             >
               <CircleAlert className="w-3 h-3 text-[var(--color-warning)]" />
-              <span className="text-xs text-[var(--color-warning)]">
+              <span className="text-xs font-medium text-[var(--color-warning)]">
                 Needs config: {skill.requires_env.join(', ')}
               </span>
             </div>
@@ -103,7 +103,7 @@ export function SkillCard({
           {studying && (
             <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg bg-[var(--accent-primary)]/5 border border-[var(--accent-primary)]/10">
               <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-              <span className="text-xs text-[var(--accent-primary)]">Studying...</span>
+              <span className="text-xs font-medium text-[var(--accent-primary)]">Studying...</span>
             </div>
           )}
 
@@ -111,7 +111,7 @@ export function SkillCard({
           {skill.study_status === 'failed' && skill.study_error && (
             <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg bg-[var(--color-error)]/5 border border-[var(--color-error)]/10">
               <AlertCircle className="w-3 h-3 text-[var(--color-error)]" />
-              <span className="text-xs text-[var(--color-error)] truncate">{skill.study_error}</span>
+              <span className="text-xs font-medium text-[var(--color-error)] truncate">{skill.study_error}</span>
             </div>
           )}
 
@@ -131,9 +131,11 @@ export function SkillCard({
                 Study Result
               </button>
               {showResult && (
-                <div className="mt-1.5 p-2.5 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] max-h-48 overflow-y-auto [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                  <Markdown content={skill.study_result!} />
-                </div>
+                <ScrollArea className="mt-1.5 max-h-48 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)]" viewportClassName="p-2.5">
+                  <div className="text-xs text-[var(--text-secondary)] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                    <Markdown content={skill.study_result!} />
+                  </div>
+                </ScrollArea>
               )}
             </div>
           )}

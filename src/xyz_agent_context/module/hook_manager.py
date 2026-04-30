@@ -23,6 +23,7 @@ from typing import List, Optional, Dict, Callable, TYPE_CHECKING
 from loguru import logger
 
 from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.utils.logging import timed
 from xyz_agent_context.schema import ContextData, HookAfterExecutionParams
 from xyz_agent_context.schema.module_schema import HookCallbackResult
 from xyz_agent_context.utils.exceptions import (
@@ -88,7 +89,8 @@ class HookManager:
             module_name = module.config.name
             logger.debug(f"          [{i+1}/{len(module_list)}] {module_name}")
             try:
-                ctx_data = await module.hook_data_gathering(ctx_data)
+                with timed(f"hook.{module_name}.data_gathering", slow_threshold_ms=500):
+                    ctx_data = await module.hook_data_gathering(ctx_data)
             except Exception as e:
                 # Use structured exception to log the error, but continue executing other modules
                 error = DataGatheringError(
@@ -97,7 +99,7 @@ class HookManager:
                     cause=e,
                     agent_id=ctx_data.agent_id,
                 )
-                logger.error(
+                logger.exception(
                     f"Module {module_name} data gathering failed, continuing with other modules",
                     extra=error.to_dict(),
                 )
@@ -128,7 +130,9 @@ class HookManager:
             """Execute a single module's data_gathering"""
             # Each module receives an independent copy, without mutual interference
             local_ctx = ctx_data.model_copy(deep=True)
-            return await module.hook_data_gathering(local_ctx)
+            module_name = module.config.name
+            with timed(f"hook.{module_name}.data_gathering", slow_threshold_ms=500):
+                return await module.hook_data_gathering(local_ctx)
 
         results = await asyncio.gather(
             *[gather_one(module) for module in module_list],
@@ -189,8 +193,10 @@ class HookManager:
         # Execute all modules' post-processing hooks in parallel
         async def execute_one(module: XYZBaseModule) -> tuple[Optional[HookCallbackResult], Optional[HookExecutionError]]:
             """Execute a single module's post-processing hook, returns (callback_result, error)"""
+            module_name = module.config.name
             try:
-                result = await module.hook_after_event_execution(params)
+                with timed(f"hook.{module_name}.after_event_execution", slow_threshold_ms=2000):
+                    result = await module.hook_after_event_execution(params)
                 return (result, None)
             except Exception as e:
                 # Return structured error
@@ -227,7 +233,7 @@ class HookManager:
 
             # Collect callback results
             if callback_result is not None and callback_result.trigger_callback:
-                logger.info(f"          ✅ Callback triggered by {module_list[i].config.name}")
+                logger.info(f"Callback triggered by {module_list[i].config.name}")
                 callback_results.append(callback_result)
 
         return callback_results
@@ -256,7 +262,7 @@ class HookManager:
         if not hook_callback_results:
             return
 
-        logger.info(f"🔄 Processing {len(hook_callback_results)} hook callback(s)")
+        logger.info(f"Processing {len(hook_callback_results)} hook callback(s)")
 
         for callback in hook_callback_results:
             logger.info(
@@ -266,7 +272,7 @@ class HookManager:
             logger.info(f"      notification={callback.notification_message}")
 
             if not narrative:
-                logger.warning("      ⚠ No narrative available, skipping dependency check")
+                logger.warning("No narrative available, skipping dependency check")
                 continue
 
             # 1. Handle instance completion, check dependencies and activate new instances
@@ -277,13 +283,13 @@ class HookManager:
             )
 
             logger.info(
-                f"      ✅ Dependencies checked, {len(newly_activated)} instances activated"
+                f"Dependencies checked, {len(newly_activated)} instances activated"
             )
 
             # 2. For each newly activated instance, trigger background execution
             for activated_instance_id in newly_activated:
                 logger.info(
-                    f"      🚀 Triggering background execution for: {activated_instance_id}"
+                    f"Triggering background execution for: {activated_instance_id}"
                 )
 
                 # Execute newly activated instance in background (non-blocking main flow)

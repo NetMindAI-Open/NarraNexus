@@ -3,7 +3,7 @@
  */
 
 import { X, Clock, PlayCircle, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { Badge, Button } from '@/components/ui';
+import { Badge, Button, ScrollArea } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/utils';
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
 
@@ -112,11 +112,13 @@ export function JobDetailPanel({ job, onClose }: JobDetailPanelProps) {
         )}
 
         {job.output && (
-          <div className="pt-2 border-t border-[var(--border-muted)]">
+          <div className="pt-2 border-t border-[var(--border-subtle)]">
             <span className="text-[var(--text-tertiary)] block mb-1">Output:</span>
-            <div className="p-2 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs whitespace-pre-wrap max-h-32 overflow-y-auto">
-              {job.output}
-            </div>
+            <ScrollArea className="max-h-32 rounded bg-[var(--bg-tertiary)]" viewportClassName="p-2">
+              <div className="text-[var(--text-secondary)] text-xs whitespace-pre-wrap">
+                {job.output}
+              </div>
+            </ScrollArea>
           </div>
         )}
       </div>

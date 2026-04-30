@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-04-10
+last_verified: 2026-04-29
 stub: false
 ---
 
@@ -23,6 +23,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 **JWT injection via localStorage, not store import.** `getAuthHeaders` reads `localStorage.getItem('narra-nexus-config')` directly rather than importing `useConfigStore`. This breaks the circular dependency: `configStore → api → configStore`. The downside is brittleness to the Zustand persist key name (`narra-nexus-config`) and the state shape (`state.token`). If either changes, `getAuthHeaders` must be updated manually.
 
 **`FormData` calls bypass `request<T>`.** `uploadFile`, `uploadRAGFile`, `installSkillFromGithub`, and `installSkillFromZip` call `fetch` directly because `Content-Type` must be omitted for `FormData` (the browser sets the boundary automatically). These calls use `getApiBaseUrl()` directly and call `this.getAuthHeaders()` for auth injection.
+
+**Binary-response calls bypass `request<T>`.** `fetchAttachmentBlob` returns `response.blob()` instead of `response.json()`. Used by `useAttachmentBlobUrl` to feed `<img>` / `<a>` elements that can't carry an `Authorization` header themselves. There is no longer a public `attachmentRawUrl` builder — issuing the URL without doing the authed fetch in the same step would invite the 401-loop bug that motivated the hook.
 
 **`request<T>` throws on non-2xx.** The error message is `"API error: ${status} ${statusText}"`. Callers that need to distinguish error types must do so via the returned `success: false` payload rather than via exception. Exceptions only happen for network failures or non-2xx responses — not for business logic errors.
 

@@ -1,8 +1,36 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-04-21
+last_verified: 2026-04-28
 stub: false
 ---
+
+## 2026-04-28 addition — unified logging + access middleware + admin logs router
+
+`lifespan()` now calls `setup_logging("backend")` as its very first
+action so every line emitted from FastAPI startup, schema migration,
+quota wiring, and route handlers flows through the same loguru sinks
+(stderr + `~/.narranexus/logs/backend/backend_YYYYMMDD.log`). At
+shutdown an `await logger.complete()` flushes the multiprocessing
+queue used by `enqueue=True` so the final lines describing the
+shutdown actually survive.
+
+The custom `logger.remove()` + `logger.add(sys.stderr, ...)` block at
+module top is gone; that responsibility now lives entirely inside
+`setup_logging`. See `src/xyz_agent_context/utils/logging/` for the
+public surface.
+
+A new HTTP middleware is registered alongside `auth_middleware`:
+`backend.middleware.access_log.access_log_middleware`. Order matters
+— FastAPI runs middleware LIFO, so we register `auth_middleware`
+FIRST and `access_log_middleware` SECOND, which means access_log
+wraps auth and 401 / 402 responses still produce one access line.
+
+A new admin-only router is mounted at `/api/admin/logs` (see
+`backend.routes.admin_logs`). It surfaces the on-disk
+`~/.narranexus/logs/<service>/` tree over HTTP so cloud operators
+can tail / download / event-grep without ssh. The prefix already sits
+under `QUOTA_BYPASS_PREFIXES` in `auth.py`, so it is unauthenticated
+in local mode and JWT-gated in cloud mode.
 
 ## 2026-04-16 addition — system-default quota wiring
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xyz-agent-context"
-version = "1.2.3"
+version = "1.3.1"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
 license = {text = "CC-BY-NC-4.0"}

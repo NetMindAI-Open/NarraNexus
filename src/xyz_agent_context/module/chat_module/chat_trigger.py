@@ -443,7 +443,7 @@ class A2AServer:
                     "Invalid JSON"
                 )
             except Exception as e:
-                logger.error(f"JSON-RPC handler error: {e}")
+                logger.exception(f"JSON-RPC handler error: {e}")
                 return self._error_response(
                     body.get("id") if isinstance(body, dict) else None,
                     A2AErrorCodes.INTERNAL_ERROR,
@@ -507,7 +507,7 @@ class A2AServer:
                 result = await handler(request_id, params)
                 return self._success_response(request_id, result)
         except Exception as e:
-            logger.error(f"Method {method} error: {e}")
+            logger.exception(f"Method {method} error: {e}")
             return self._error_response(
                 request_id,
                 A2AErrorCodes.INTERNAL_ERROR,
@@ -608,6 +608,7 @@ class A2AServer:
                 user_id=user_id,
                 input_content=user_input,
                 working_source=WorkingSource.CHAT,
+                trigger_extra_data={"trigger_id": f"a2a_{task.id}"},
             )
 
             # Error path (Bug 2): previously this trigger collected on
@@ -652,7 +653,7 @@ class A2AServer:
             task.update_status(TaskState.COMPLETED, message=agent_message)
 
         except Exception as e:
-            logger.error(f"Agent execution error: {e}")
+            logger.exception(f"Agent execution error: {e}")
             error_message = A2AMessage.create_agent_message(
                 text=f"Execution error: {str(e)}",
                 task_id=task.id,
@@ -743,7 +744,8 @@ class A2AServer:
                 async for response in agent_runtime.run(
                     agent_id=agent_id,
                     user_id=user_id,
-                    input_content=user_input
+                    input_content=user_input,
+                    trigger_extra_data={"trigger_id": f"a2a_sse_{task.id}"},
                 ):
                     # Process text increments
                     if hasattr(response, 'delta'):
@@ -843,7 +845,7 @@ class A2AServer:
                 }
 
             except Exception as e:
-                logger.error(f"Stream execution error: {e}")
+                logger.exception(f"Stream execution error: {e}")
 
                 # Update to failed status
                 error_message = A2AMessage.create_agent_message(
@@ -1032,8 +1034,7 @@ class A2AServer:
         """
         import uvicorn
 
-        logger.info("=" * 80)
-        logger.info("🚀 Starting A2A Protocol Server")
+        logger.info("Starting A2A Protocol Server")
         logger.info(f"   Agent: {self.agent_card.name}")
         logger.info(f"   Version: {self.agent_card.version}")
         logger.info(f"   Protocol: A2A/{self.agent_card.protocolVersion}")
@@ -1046,14 +1047,12 @@ class A2AServer:
         logger.info("   GET  /health                  Health Check")
         logger.info("   GET  /docs                    Swagger UI")
         logger.info("")
-        logger.info("🔧 Supported Methods:")
+        logger.info("Supported Methods:")
         logger.info("   - agentCard/get")
         logger.info("   - tasks/send")
         logger.info("   - tasks/sendSubscribe")
         logger.info("   - tasks/get")
         logger.info("   - tasks/cancel")
-        logger.info("=" * 80)
-
         uvicorn.run(self.app, host=self.host, port=self.port)
 
 

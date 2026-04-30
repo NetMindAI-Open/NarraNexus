@@ -4,7 +4,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Upload, File, Trash2, RefreshCw, FolderOpen } from 'lucide-react';
-import { Button, Badge, useConfirm } from '@/components/ui';
+import { Button, Badge, ScrollArea, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -169,14 +169,14 @@ export function FileUpload() {
           'relative border-2 border-dashed rounded-lg p-4 transition-all',
           'flex flex-col items-center justify-center gap-2',
           isDragging
-            ? 'border-[var(--color-accent)] bg-[var(--accent-10)]'
-            : 'border-[var(--border-muted)] hover:border-[var(--border-default)]',
+            ? 'border-[var(--accent-primary)] bg-[var(--bg-elevated)]'
+            : 'border-[var(--border-default)] hover:border-[var(--border-strong)]',
           uploading && 'opacity-50 pointer-events-none'
         )}
       >
         <Upload className={cn(
           'w-6 h-6',
-          isDragging ? 'text-[var(--color-accent)]' : 'text-[var(--text-tertiary)]'
+          isDragging ? 'text-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'
         )} />
         <div className="text-center">
           <p className="text-xs text-[var(--text-secondary)]">
@@ -184,7 +184,7 @@ export function FileUpload() {
           </p>
           {!isDragging && (
             <label className="cursor-pointer">
-              <span className="text-xs text-[var(--color-accent)] hover:underline">
+              <span className="text-xs text-[var(--accent-primary)] hover:underline">
                 browse
               </span>
               <input
@@ -198,7 +198,7 @@ export function FileUpload() {
         </div>
         {uploading && (
           <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]/50 rounded-lg">
-            <RefreshCw className="w-5 h-5 text-[var(--color-accent)] animate-spin" />
+            <RefreshCw className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
           </div>
         )}
       </div>
@@ -221,7 +221,8 @@ export function FileUpload() {
           No files uploaded yet
         </div>
       ) : (
-        <div className="space-y-1 max-h-[150px] overflow-y-auto">
+        <ScrollArea className="max-h-[150px]">
+          <div className="space-y-1">
           {files.map((file) => (
             <div
               key={file.filename}
@@ -247,7 +248,8 @@ export function FileUpload() {
               </Button>
             </div>
           ))}
-        </div>
+          </div>
+        </ScrollArea>
       )}
     </section>
   );

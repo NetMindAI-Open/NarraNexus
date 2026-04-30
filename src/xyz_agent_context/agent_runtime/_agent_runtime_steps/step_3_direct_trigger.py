@@ -13,12 +13,14 @@ from __future__ import annotations
 from typing import List, Dict, Any, TYPE_CHECKING
 
 from xyz_agent_context.schema import PathExecutionResult
+from xyz_agent_context.utils.logging import timed
 from xyz_agent_context.utils.mcp_executor import mcp_tool_executor
 
 if TYPE_CHECKING:
     pass
 
 
+@timed("step.3_direct_trigger")
 async def step_3_direct_trigger(
     active_instances: List[Any],
     module_class: str,

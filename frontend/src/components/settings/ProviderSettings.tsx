@@ -29,6 +29,7 @@ import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { QuotaPanel } from './QuotaPanel'
+import { api } from '@/lib/api'
 
 /** fetch wrapper that injects JWT auth header when available (cloud mode) */
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -239,7 +240,7 @@ function ModelBubbleInput({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
         {models.map((m) => (
-          <span key={m} className="inline-flex items-center gap-1.5 px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--rule)] whitespace-nowrap">
+          <span key={m} className="inline-flex items-center gap-1.5 px-2 py-1 text-[12px] font-[family-name:var(--font-mono)] bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--border-subtle)] whitespace-nowrap">
             {m}
             <button
               onClick={() => onChange(models.filter((x) => x !== m))}
@@ -387,6 +388,10 @@ export function ProviderSettings() {
   const [selectedPreset, setSelectedPreset] = useState<string>(PRESET_PROVIDERS[0].id)
   const [presetKey, setPresetKey] = useState('')
   const [presetAdding, setPresetAdding] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  // Inline summary line for the sync-defaults action: success / error / null.
+  // Cleared whenever the user re-runs the sync so the UI never lies.
+  const [syncResult, setSyncResult] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
   // Protocol form
   const [showForm, setShowForm] = useState<'anthropic' | 'openai' | null>(null)
@@ -513,6 +518,33 @@ export function ProviderSettings() {
       return next
     })
     await refreshConfig()
+  }
+
+  const handleSyncDefaults = async () => {
+    if (!userId || syncing) return
+    setSyncing(true)
+    setSyncResult(null)
+    try {
+      const resp = await api.syncProviderDefaults(userId)
+      if (!resp.success) {
+        setSyncResult({ kind: 'err', text: 'Sync failed.' })
+        return
+      }
+      if (resp.providers_updated === 0) {
+        setSyncResult({ kind: 'ok', text: 'All providers already have the latest models — nothing to add.' })
+        return
+      }
+      const lines = resp.updates.map(u => `${u.name}: +${u.added.length} (${u.added.join(', ')})`)
+      setSyncResult({
+        kind: 'ok',
+        text: `Updated ${resp.providers_updated} provider(s), added ${resp.total_models_added} model(s).\n${lines.join('\n')}`,
+      })
+      await refreshConfig()
+    } catch (e) {
+      setSyncResult({ kind: 'err', text: `Sync failed: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setSyncing(false)
+    }
   }
 
   const openEditModels = (prov: ProviderSummary) => {
@@ -812,6 +844,43 @@ export function ProviderSettings() {
                   {presetAdding ? 'Adding...' : addedPresets.has(selectedPreset) ? 'Update' : 'Add'}
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* ---- Sync available models ---- */}
+          {/*
+            One-click backfill: takes the current default model list out of
+            `model_catalog._DEFAULT_MODELS` for every preset source and
+            appends any missing entries onto the user's already-configured
+            providers. Useful when we ship new models — the user keeps
+            their existing slot assignments and provider IDs while picking
+            up the additions. Quick Add would re-create + lose those bonds.
+          */}
+          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Update Available Models</h4>
+            <p className="text-sm text-[var(--text-tertiary)] mb-3">
+              Pull the latest default model list into your existing preset providers (NetMind, Claude Code, Yunwu, OpenRouter). Existing entries are kept; only missing models are appended.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSyncDefaults}
+                disabled={syncing || !userId}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors"
+              >
+                {syncing ? 'Syncing...' : 'Update available models'}
+              </button>
+              {syncResult && (
+                <span
+                  className={cn(
+                    'text-xs whitespace-pre-wrap leading-relaxed',
+                    syncResult.kind === 'ok'
+                      ? 'text-[var(--text-secondary)]'
+                      : 'text-[var(--color-red-500)]'
+                  )}
+                >
+                  {syncResult.text}
+                </span>
+              )}
             </div>
           </div>
 

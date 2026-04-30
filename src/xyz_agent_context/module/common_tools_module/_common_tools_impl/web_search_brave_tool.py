@@ -132,7 +132,7 @@ async def _search_many_brave(
                 timeout=_OVERALL_TIMEOUT_S,
             )
         except asyncio.TimeoutError:
-            logger.error(
+            logger.exception(
                 f"brave _search_many overall timeout after {_OVERALL_TIMEOUT_S}s "
                 f"(per-query wrapper should have caught this — investigate)"
             )
@@ -201,7 +201,7 @@ def register(mcp: FastMCP, api_key: str) -> None:
         try:
             bundles = await _search_with_retry(queries, max_results_per_query, api_key)
         except RuntimeError as e:
-            logger.error(f"CommonToolsMCP: brave web_search gave up: {e}")
+            logger.exception(f"CommonToolsMCP: brave web_search gave up: {e}")
             return f"web_search failed: {e}"
 
         logger.info(

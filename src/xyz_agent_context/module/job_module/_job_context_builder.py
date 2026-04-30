@@ -113,7 +113,7 @@ async def get_dependency_outputs(
                 })
 
             except Exception as e:
-                logger.error(f"Error fetching dependency output for {dep_id}: {e}")
+                logger.exception(f"Error fetching dependency output for {dep_id}: {e}")
                 outputs.append({
                     'instance_id': dep_id,
                     'title': dep_id,
@@ -122,7 +122,7 @@ async def get_dependency_outputs(
                 })
 
     except Exception as e:
-        logger.error(f"Error getting dependency outputs: {e}")
+        logger.exception(f"Error getting dependency outputs: {e}")
 
     return outputs
 
@@ -199,13 +199,13 @@ async def load_social_network_context(
                 else:
                     logger.warning(f"Entity {entity_id} not found")
             except Exception as e:
-                logger.error(f"Failed to load entity {entity_id}: {e}")
+                logger.exception(f"Failed to load entity {entity_id}: {e}")
 
         logger.info(f"Loaded {len(entities_info)} entities for job context")
         return entities_info
 
     except Exception as e:
-        logger.error(f"Failed to load social network context: {e}")
+        logger.exception(f"Failed to load social network context: {e}")
         return []
 
 
@@ -249,7 +249,7 @@ async def load_narrative_summary(
             return ""
 
     except Exception as e:
-        logger.error(f"Failed to load narrative summary for {narrative_id}: {e}")
+        logger.exception(f"Failed to load narrative summary for {narrative_id}: {e}")
         return ""
 
 

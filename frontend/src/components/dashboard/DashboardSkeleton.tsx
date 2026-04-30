@@ -15,7 +15,7 @@ export function DashboardSkeleton() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="h-28 rounded-2xl border border-[var(--rule)] bg-[var(--bg-elevated)]"
+            className="h-28 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-elevated)]"
           />
         ))}
       </div>

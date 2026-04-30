@@ -15,6 +15,8 @@ from claude_agent_sdk._internal import message_parser as _message_parser_module
 from claude_agent_sdk.types import SystemMessage
 from typing import Any, AsyncGenerator
 
+from xyz_agent_context.utils.logging import timed
+
 # Handle both relative import (when used as module) and absolute import (when run as script)
 try:
     from .output_transfer import output_transfer
@@ -50,6 +52,7 @@ class ClaudeAgentSDK:
         self.working_path = working_path
     
     # TODO: Input is not ideal; should use a pydantic model for validation. Store it in src/xyz_agent_context/agent_framework/schema.py.
+    @timed("llm.claude.agent_loop", slow_threshold_ms=15000)
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
@@ -155,8 +158,8 @@ class ClaudeAgentSDK:
             f"auth_type={claude_config.auth_type}, "
             f"tool_search={'auto' if _is_claude_native else 'disabled (non-Claude model)'}"
         )
-        logger.info(f"  [FULL_SYSTEM_PROMPT]\n{system_prompt}")
-        logger.info(f"  [USER_PROMPT]\n{this_turn_user_message}")
+        logger.trace("[FULL_SYSTEM_PROMPT]\n{}", system_prompt)
+        logger.trace("[USER_PROMPT]\n{}", this_turn_user_message)
 
         # stderr 回调：将 Claude Code CLI 的错误输出记录到日志
         # SDK 默认会静默丢弃 stderr，导致认证失败、进程崩溃等问题完全不可见
@@ -290,12 +293,12 @@ class ClaudeAgentSDK:
                 except StopAsyncIteration:
                     break  # Stream ended normally
                 except asyncio.TimeoutError:
-                    logger.error(
+                    logger.exception(
                         f"[ClaudeAgentSDK] ⚠️ No response from Claude Code CLI for {IDLE_TIMEOUT_SECONDS}s. "
                         f"Aborting agent loop. Messages received so far: {message_count}"
                     )
                     if cli_stderr_lines:
-                        logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
+                        logger.exception("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
                     raise TimeoutError(
                         f"Claude Code CLI did not respond for {IDLE_TIMEOUT_SECONDS} seconds. "
                         f"The service may be overloaded or unresponsive. Please try again."
@@ -360,9 +363,9 @@ class ClaudeAgentSDK:
         except GeneratorExit:
             logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
         except Exception as e:
-            logger.error(f"Error in agent_loop: {e}")
+            logger.exception(f"Error in agent_loop: {e}")
             if cli_stderr_lines:
-                logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
             raise
         finally:
             if client is not None:

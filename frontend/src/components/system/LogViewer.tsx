@@ -9,8 +9,8 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowDownToLine } from 'lucide-react';
-import { Card, CardHeader, CardTitle, Button } from '@/components/ui';
+import { ArrowDownToLine, Search } from 'lucide-react';
+import { Card, CardHeader, CardTitle, Button, ScrollArea } from '@/components/ui';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import type { LogEntry } from '@/types/platform';
@@ -52,6 +52,9 @@ export function LogViewer({
     initialFilter ?? null,
   );
   const [autoScroll, setAutoScroll] = useState(true);
+  // Free-text search across the message column. Used to grep for
+  // event_id=evt_..., run_id=run_..., trigger_id=lark_om_..., etc.
+  const [searchQuery, setSearchQuery] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -70,11 +73,15 @@ export function LogViewer({
     if (activeFilter) {
       filtered = logs.filter((l) => l.serviceId === activeFilter);
     }
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter((l) => l.message.toLowerCase().includes(q));
+    }
     if (filtered.length > maxEntries) {
       filtered = filtered.slice(filtered.length - maxEntries);
     }
     return filtered;
-  }, [logs, activeFilter, maxEntries]);
+  }, [logs, activeFilter, maxEntries, searchQuery]);
 
   // Auto-scroll on new entries
   useEffect(() => {
@@ -112,33 +119,46 @@ export function LogViewer({
         </div>
       </CardHeader>
 
-      {/* Service filter tabs */}
-      {serviceIds.length > 0 && (
-        <div className="px-4 pt-3">
-          <Tabs
-            value={activeFilter ?? '__all__'}
-            onValueChange={(v) =>
-              setActiveFilter(v === '__all__' ? null : v)
-            }
-          >
-            <TabsList>
-              <TabsTrigger value="__all__">All</TabsTrigger>
-              {serviceIds.map((id) => (
-                <TabsTrigger key={id} value={id}>
-                  {id}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+      {/* Service filter tabs + free-text search box */}
+      {(serviceIds.length > 0 || logs.length > 0) && (
+        <div className="px-4 pt-3 flex flex-wrap items-center gap-3">
+          {serviceIds.length > 0 && (
+            <Tabs
+              value={activeFilter ?? '__all__'}
+              onValueChange={(v) =>
+                setActiveFilter(v === '__all__' ? null : v)
+              }
+            >
+              <TabsList>
+                <TabsTrigger value="__all__">All</TabsTrigger>
+                {serviceIds.map((id) => (
+                  <TabsTrigger key={id} value={id}>
+                    {id}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
+          )}
+          <div className="relative flex-1 min-w-[160px]">
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)] pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="search event_id / run_id / trigger_id…"
+              className="w-full pl-7 pr-2 py-1 rounded text-xs bg-[var(--bg-secondary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
+            />
+          </div>
         </div>
       )}
 
       {/* Log content */}
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="h-72 overflow-y-auto p-4 font-mono text-xs leading-relaxed"
-      >
+      <ScrollArea
+        className="h-72"
+        viewportRef={containerRef}
+        onViewportScroll={handleScroll}
+        viewportClassName="p-4 font-mono text-xs leading-relaxed"
+      ><div>
         {visibleLogs.length === 0 ? (
           <p className="text-[var(--text-tertiary)] text-center py-8">
             No log entries
@@ -171,7 +191,7 @@ export function LogViewer({
           ))
         )}
         <div ref={bottomRef} />
-      </div>
+      </div></ScrollArea>
     </Card>
   );
 }

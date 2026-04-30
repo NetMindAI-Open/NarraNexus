@@ -94,7 +94,7 @@ def create_rag_mcp_server(port: int, module_cls) -> FastMCP:
             }
 
         except Exception as e:
-            logger.error(f"rag_query execution error: {e}")
+            logger.exception(f"rag_query execution error: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -155,7 +155,7 @@ def create_rag_mcp_server(port: int, module_cls) -> FastMCP:
                 "error": str(e)
             }
         except Exception as e:
-            logger.error(f"rag_upload_file execution error: {e}")
+            logger.exception(f"rag_upload_file execution error: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -219,7 +219,7 @@ def create_rag_mcp_server(port: int, module_cls) -> FastMCP:
             return result
 
         except Exception as e:
-            logger.error(f"rag_upload_text execution error: {e}")
+            logger.exception(f"rag_upload_text execution error: {e}")
             return {
                 "success": False,
                 "error": str(e)

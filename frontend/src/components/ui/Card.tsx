@@ -31,22 +31,26 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
           // Use this for every top-level panel that lives inside MainLayout.
           variant === 'default' && 'bg-[var(--bg-primary)]',
 
-          // Explicit bordered variant for cards that float on their own
+          // Explicit bordered variant for cards that float on their own.
+          // Uses border-default — the project-wide weight for "this is a
+          // bounded container," visibly heavier than internal dividers.
           variant === 'bordered' && [
             'bg-[var(--bg-primary)]',
-            'border border-[var(--rule)]',
+            'border border-[var(--border-default)]',
           ],
-          // Kept for back-compat; behaves like bordered without blur
-          variant === 'glass' && [
-            'bg-[var(--bg-primary)]',
-            'border border-[var(--glass-border)]',
-          ],
+          // Glass = a transparent shell that fills its parent slot.
+          // The parent (MainLayout's column wrapper) already supplies the
+          // bg + border, so any panel using <Card variant="glass"> would
+          // otherwise paint a second same-color rectangle inside the first
+          // one — that "double frame" is what makes JobsPanel/SkillsPanel
+          // look like they have an internal shadow.
+          variant === 'glass' && [],
           variant === 'elevated' && [
             'bg-[var(--bg-elevated)]',
-            'border border-[var(--rule)]',
+            'border border-[var(--border-default)]',
           ],
           variant === 'sunken' && [
-            'bg-[var(--bg-secondary)]',
+            'bg-[var(--bg-sunken)]',
           ],
 
           className
@@ -109,7 +113,10 @@ export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadi
       ref={ref}
       className={cn(
         'flex items-center gap-2',
-        'text-[13px] font-medium uppercase leading-none',
+        // Panel header — semibold so it reads with authority above the
+        // hairline divider. medium (500) was getting visually outweighed
+        // by neighbouring weight-600 card titles inside the panel body.
+        'text-[13px] font-semibold uppercase leading-none',
         'font-[family-name:var(--font-mono)]',
         'tracking-[0.14em]',
         'text-[var(--text-primary)]',

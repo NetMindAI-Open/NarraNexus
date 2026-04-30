@@ -208,7 +208,7 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)] pt-2 border-t border-[var(--border-muted)]">
+      <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)] pt-2 border-t border-[var(--border-subtle)]">
         <span className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-gray-300" /> Pending
         </span>

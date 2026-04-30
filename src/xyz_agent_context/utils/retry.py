@@ -131,7 +131,7 @@ def with_retry(
 
                         await asyncio.sleep(wait_time)
                     else:
-                        logger.error(
+                        logger.exception(
                             f"All {max_attempts} attempts failed for {func.__name__}: {e}"
                         )
 
@@ -161,7 +161,7 @@ def with_retry(
 
                         time.sleep(wait_time)
                     else:
-                        logger.error(
+                        logger.exception(
                             f"All {max_attempts} attempts failed for {func.__name__}: {e}"
                         )
 

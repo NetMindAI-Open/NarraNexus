@@ -120,7 +120,7 @@ class ContextRuntime:
         logger.info("    │ Step 1-1: Extracting Narrative data (Event selection disabled)")
         messages = []
         selected_events = []
-        logger.success("    │ ✅ Narrative data extracted (Event selection disabled, using ChatModule for history)")
+        logger.info("    │ ✅ Narrative data extracted (Event selection disabled, using ChatModule for history)")
 
         # Step 2: Gather data from Modules (executed for each instance)
         logger.info("    │ Step 1-2: Gathering information from Module Instances")
@@ -131,7 +131,7 @@ class ContextRuntime:
         # Get chat_history from chat_module. Since Chat Module may not be loaded, there will be no interaction history if it is not loaded.
         messages = ctx_data.chat_history or []
 
-        logger.success(f"    │ ✅ Information gathered from {len(module_list)} Module Instances")
+        logger.info(f"    │ ✅ Information gathered from {len(module_list)} Module Instances")
 
         # Step 3: Build Module instructions (deduplicated by module_class)
         logger.info("    │ Step 1-3: Building Module instructions (deduped by module_class)")
@@ -145,7 +145,7 @@ class ContextRuntime:
                 seen_module_classes.add(inst.module_class)
                 logger.debug(f"    │   Built instructions for {inst.module_class} ({inst.instance_id})")
 
-        logger.success(f"    │ ✅ Built {len(module_instructions_list)} Module instructions (deduped from {len(active_instances)} instances)")
+        logger.info(f"    │ ✅ Built {len(module_instructions_list)} Module instructions (deduped from {len(active_instances)} instances)")
 
         # Step 4: Build the complete System Prompt (including Narrative + Relevant Memory + Modules)
         logger.info("    │ Step 1-4: Building Complete System Prompt")
@@ -156,14 +156,14 @@ class ContextRuntime:
             ctx_data=ctx_data,
             relevant_episodes=relevant_episodes,
         )
-        logger.success(f"    │ ✅ System Prompt built: {len(system_prompt)} characters")
+        logger.info(f"    │ ✅ System Prompt built: {len(system_prompt)} characters")
 
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
         messages, mcp_urls = await self.build_input_for_framework(
             messages, system_prompt, active_instances, ctx_data
         )
-        logger.success(f"    │ ✅ Framework input built: {len(messages)} messages, {len(mcp_urls)} MCP servers")
+        logger.info(f"    │ ✅ Framework input built: {len(messages)} messages, {len(mcp_urls)} MCP servers")
 
         logger.info("    └─ ContextRuntime.run() completed")
         return ContextRuntimeOutput(messages=messages, mcp_urls=mcp_urls, ctx_data=ctx_data)

@@ -140,7 +140,7 @@ def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             }
 
         except json.JSONDecodeError as e:
-            logger.error(f"ChatModule.get_chat_history: JSON parsing failed - {e}")
+            logger.exception(f"ChatModule.get_chat_history: JSON parsing failed - {e}")
             return {
                 "success": False,
                 "instance_id": instance_id,
@@ -149,7 +149,7 @@ def create_chat_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                 "messages": []
             }
         except Exception as e:
-            logger.error(f"ChatModule.get_chat_history: Query failed - {e}")
+            logger.exception(f"ChatModule.get_chat_history: Query failed - {e}")
             return {
                 "success": False,
                 "instance_id": instance_id,

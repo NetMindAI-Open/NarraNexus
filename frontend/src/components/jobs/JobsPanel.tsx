@@ -28,7 +28,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, StatStrip, useConfirm } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, StatStrip, ScrollArea, useConfirm } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -222,7 +222,7 @@ export function JobsPanel() {
               key={mode}
               onClick={() => setViewMode(mode)}
               className={cn(
-                'flex items-center gap-1.5 py-2 text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]',
+                'flex items-center gap-1.5 py-2 text-[11px] font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]',
                 'border-b-2 -mb-px transition-colors duration-150',
                 viewMode === mode
                   ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
@@ -236,9 +236,12 @@ export function JobsPanel() {
         </div>
       </div>
 
-      {/* Status filter — thin filter row, only in list view */}
+      {/* Status filter — thin filter row, only in list view.
+          Horizontal overflow uses ScrollArea (hideScrollbar) so the row
+          stays scrollable on narrow widths without showing a track. */}
       {viewMode === 'list' && (
-        <div className="px-5 py-2 flex gap-1 overflow-x-auto border-t border-[var(--rule)]">
+        <ScrollArea horizontal hideScrollbar className="border-t border-[var(--rule)]">
+        <div className="px-5 py-2 flex gap-1">
           {(['all', 'active', 'running', 'paused', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
             const config = status !== 'all' ? statusConfig[status] : null;
             const isActive = statusFilter === status;
@@ -247,7 +250,7 @@ export function JobsPanel() {
                 key={status}
                 onClick={() => setStatusFilter(status)}
                 className={cn(
-                  'px-2 py-1 text-[10px] whitespace-nowrap font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]',
+                  'px-2 py-1 text-[10px] whitespace-nowrap font-medium font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]',
                   'transition-colors duration-150',
                   isActive
                     ? 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
@@ -259,12 +262,13 @@ export function JobsPanel() {
             );
           })}
         </div>
+        </ScrollArea>
       )}
 
       <CardContent className="flex-1 overflow-hidden min-h-0">
         {/* List View */}
         {viewMode === 'list' && (
-          <div className="h-full overflow-y-auto space-y-3 py-2">
+          <ScrollArea className="h-full" viewportClassName="py-2"><div className="space-y-3">
             {jobs.length === 0 ? (
               <div className="h-full flex items-center justify-center">
                 <div className="text-center p-8">
@@ -293,12 +297,17 @@ export function JobsPanel() {
                       key={job.job_id}
                       onClick={() => setExpandedId(isExpanded ? null : job.job_id)}
                       className={cn(
-                        'w-full text-left p-4 rounded-xl transition-all duration-300 group cursor-pointer',
+                        'w-full text-left p-4 transition-colors duration-150 group cursor-pointer',
+                        /* Nested card pattern: parent panel sits on bg-primary,
+                           so each row lifts to bg-elevated and uses a hairline
+                           border-subtle. Same-color nesting (primary on primary)
+                           made the 1px border read as a heavy "double frame".
+                           Hover/expand escalates to border-strong only — no
+                           glow, no status-tinted frames. */
                         'border bg-[var(--bg-elevated)]',
                         isExpanded
-                          ? 'border-[var(--accent-primary)]/30 shadow-[0_0_20px_var(--accent-glow)]'
-                          : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20 hover:shadow-lg',
-                        job.status === 'running' && 'bg-[var(--color-warning)]/5 border-[var(--color-warning)]/30',
+                          ? 'border-[var(--border-strong)]'
+                          : 'border-[var(--border-subtle)] hover:border-[var(--border-strong)]',
                         job.status === 'cancelled' && 'opacity-60'
                       )}
                     >
@@ -396,7 +405,7 @@ export function JobsPanel() {
                 );
               })()
             )}
-          </div>
+          </div></ScrollArea>
         )}
 
         {/* Graph View */}
@@ -451,13 +460,13 @@ export function JobsPanel() {
               </div>
             ) : (
               <>
-                <div className="flex-1 overflow-y-auto p-2">
+                <ScrollArea className="flex-1" viewportClassName="p-2">
                   <JobExecutionTimeline
                     jobs={jobNodes}
                     onJobClick={setSelectedJobId}
                     selectedJobId={selectedJobId}
                   />
-                </div>
+                </ScrollArea>
                 {selectedJob && (
                   <div className="border-t border-[var(--border-subtle)] mt-2">
                     <JobDetailPanel

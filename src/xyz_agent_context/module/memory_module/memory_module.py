@@ -288,4 +288,4 @@ class MemoryModule(XYZBaseModule):
                 logger.warning(f"[EverMemOS-Write] Failed: event={event.id}")
 
         except Exception as e:
-            logger.error(f"[EverMemOS-Write] Exception: {type(e).__name__}: {e}")
+            logger.exception(f"[EverMemOS-Write] Exception: {type(e).__name__}: {e}")

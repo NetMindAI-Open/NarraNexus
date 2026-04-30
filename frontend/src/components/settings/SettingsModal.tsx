@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Cpu, Database, Info } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui';
+import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from './ProviderSettings';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 
@@ -161,7 +161,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </nav>
 
             {/* Content area */}
-            <div className="flex-1 overflow-y-auto p-6">
+            <ScrollArea className="flex-1" viewportClassName="p-6">
+            <div>
               {/* ─── LLM Providers Section ─── */}
               {activeSection === 'providers' && (
                 <div className="space-y-6 max-w-2xl">
@@ -230,6 +231,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
             </div>
+            </ScrollArea>
           </div>
         </div>
       </div>

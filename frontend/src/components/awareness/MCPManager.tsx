@@ -22,7 +22,7 @@ import {
   Power,
   AlertCircle,
 } from 'lucide-react';
-import { Button, Badge, useConfirm } from '@/components/ui';
+import { Button, Badge, ScrollArea, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -145,7 +145,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
         placeholder="MCP Name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--color-accent)]"
+        className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)]"
         autoFocus
       />
       <input
@@ -153,7 +153,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
         placeholder="SSE URL (e.g., http://localhost:3001/sse)"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
-        className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--color-accent)] font-mono"
+        className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)] font-mono"
       />
       <div className="flex items-center gap-2 pt-1">
         <Button
@@ -432,13 +432,14 @@ export function MCPManager() {
           No MCP servers configured
           <button
             onClick={() => setShowAddForm(true)}
-            className="block mx-auto mt-1 text-[var(--color-accent)] hover:underline"
+            className="block mx-auto mt-1 text-[var(--accent-primary)] hover:underline"
           >
             Add your first MCP
           </button>
         </div>
       ) : (
-        <div className="space-y-1 max-h-[200px] overflow-y-auto">
+        <ScrollArea className="max-h-[200px]">
+          <div className="space-y-1">
           {mcps.map((mcp) => (
             <MCPItem
               key={mcp.mcp_id}
@@ -449,7 +450,8 @@ export function MCPManager() {
               validating={validatingIds.has(mcp.mcp_id)}
             />
           ))}
-        </div>
+          </div>
+        </ScrollArea>
       )}
 
       {/* Legend */}

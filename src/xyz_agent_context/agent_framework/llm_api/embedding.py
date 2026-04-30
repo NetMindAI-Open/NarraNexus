@@ -94,6 +94,26 @@ CACHE_SIZE = 1000
 
 
 # =============================================================================
+# Module-level embedding cache
+# =============================================================================
+#
+# Why module-level instead of per-EmbeddingClient instance:
+# `get_embedding()` constructs a fresh EmbeddingClient on every call (see
+# `_make_client()` below — done so each call picks up the current task's
+# ContextVar config for multi-tenant safety). Before this refactor the
+# cache lived on each instance, so it was always empty: cache miss 100%.
+#
+# Why this is still safe across users / providers:
+# The cache key is `md5(f"{model}:{text}")`. Two requests with different
+# models hash to different keys, so a tenant on text-embedding-3-large
+# never reads a vector produced by text-embedding-3-small. The vector
+# itself is a deterministic function of (model, text) — no per-tenant
+# leakage exists. API keys / base_urls only matter for *producing* a
+# new vector, not for serving a cached one.
+_GLOBAL_EMBEDDING_CACHE: Dict[str, List[float]] = {}
+
+
+# =============================================================================
 # Embedding Client
 # =============================================================================
 
@@ -157,14 +177,22 @@ class EmbeddingClient:
             client_kwargs["base_url"] = embedding_config.base_url
         self._client = AsyncOpenAI(**client_kwargs)
 
-        # In-memory cache: hash(text) -> embedding
-        self._cache: Dict[str, List[float]] = {}
+        # Cache is module-level (`_GLOBAL_EMBEDDING_CACHE`); the instance
+        # used to own its own dict, but `_make_client()` builds a fresh
+        # client per call so the per-instance cache was a no-op. Keeping
+        # the sharing module-wide is safe — see the comment on
+        # _GLOBAL_EMBEDDING_CACHE for why.
 
         # Cost tracking context (set via set_cost_context before calls)
         self._cost_agent_id: Optional[str] = None
         self._cost_db = None
 
-        logger.info(
+        # __init__ runs every time someone constructs an Embedding client,
+        # which happens 10+ times per narrative retrieval. Demoted from
+        # INFO to DEBUG so the steady-state agent turn doesn't drown its
+        # own trace under repeated init banners. The actual embedding
+        # call site already emits a [TIMED] line.
+        logger.debug(
             f"[Embedding] Initialized: model={self.model}, "
             f"base_url={embedding_config.base_url or '(official)'}, "
             f"dims={self.dimensions}"
@@ -253,30 +281,36 @@ class EmbeddingClient:
         Note:
             This method includes automatic retry for transient network failures.
         """
-        # Check cache first
+        # Check cache first — emit a cache-hit timing line so a per-event
+        # grep can count how many calls were saved by the cache. Cheap.
         if self.enable_cache:
             cache_key = self._get_cache_key(text)
-            if cache_key in self._cache:
-                logger.debug(f"Embedding cache hit for text: {text[:50]}...")
-                return self._cache[cache_key]
+            if cache_key in _GLOBAL_EMBEDDING_CACHE:
+                logger.debug("[TIMED] llm.embedding.embed (cache hit) elapsed_ms=0")
+                return _GLOBAL_EMBEDDING_CACHE[cache_key]
 
+        # Network round-trip — use timed() so a single embedding call
+        # shows up alongside the surrounding step.1 / retrieval timings.
+        # slow_threshold_ms is set above OpenAI's typical p99 (~600ms);
+        # anything above 1.5s warrants attention.
+        from xyz_agent_context.utils.logging import timed
         try:
-            # Use retry-enabled method for API call
-            embedding = await self._make_embedding_request(text)
+            with timed("llm.embedding.embed", slow_threshold_ms=1500):
+                embedding = await self._make_embedding_request(text)
 
             # Cache the result
             if self.enable_cache:
-                if len(self._cache) >= CACHE_SIZE:
+                if len(_GLOBAL_EMBEDDING_CACHE) >= CACHE_SIZE:
                     # Simple cache eviction: remove oldest half
-                    keys_to_remove = list(self._cache.keys())[:CACHE_SIZE // 2]
+                    keys_to_remove = list(_GLOBAL_EMBEDDING_CACHE.keys())[:CACHE_SIZE // 2]
                     for key in keys_to_remove:
-                        del self._cache[key]
-                self._cache[cache_key] = embedding
+                        del _GLOBAL_EMBEDDING_CACHE[key]
+                _GLOBAL_EMBEDDING_CACHE[cache_key] = embedding
 
             return embedding
 
         except Exception as e:
-            logger.error(f"Error generating embedding: {e}")
+            logger.exception(f"Error generating embedding: {e}")
             raise
 
     async def embed_batch(
@@ -312,8 +346,8 @@ class EmbeddingClient:
         if self.enable_cache:
             for i, text in enumerate(texts):
                 cache_key = self._get_cache_key(text)
-                if cache_key in self._cache:
-                    results[i] = self._cache[cache_key]
+                if cache_key in _GLOBAL_EMBEDDING_CACHE:
+                    results[i] = _GLOBAL_EMBEDDING_CACHE[cache_key]
                 else:
                     texts_to_embed.append((i, text))
         else:
@@ -342,13 +376,13 @@ class EmbeddingClient:
                     # Cache the result
                     if self.enable_cache:
                         cache_key = self._get_cache_key(text)
-                        self._cache[cache_key] = embedding
+                        _GLOBAL_EMBEDDING_CACHE[cache_key] = embedding
 
             # Filter out None values (shouldn't happen, but safety check)
             return [r for r in results if r is not None]
 
         except Exception as e:
-            logger.error(f"Error generating batch embeddings: {e}")
+            logger.exception(f"Error generating batch embeddings: {e}")
             raise
 
     @with_retry(
@@ -372,13 +406,13 @@ class EmbeddingClient:
 
     def clear_cache(self) -> None:
         """Clear the embedding cache."""
-        self._cache.clear()
+        _GLOBAL_EMBEDDING_CACHE.clear()
         logger.debug("Embedding cache cleared")
 
     @property
     def cache_size(self) -> int:
         """Get current cache size."""
-        return len(self._cache)
+        return len(_GLOBAL_EMBEDDING_CACHE)
 
 
 # =============================================================================

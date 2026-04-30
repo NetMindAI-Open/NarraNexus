@@ -288,7 +288,7 @@ Note: Your query should combine the user's question with the existing keywords a
             logger.debug("          ← GeminiRAGModule.hook_data_gathering() completed")
 
         except Exception as e:
-            logger.error(f"Error in GeminiRAGModule.hook_data_gathering: {e}")
+            logger.exception(f"Error in GeminiRAGModule.hook_data_gathering: {e}")
             # Use default instructions on error
             self.instructions = self.instructions_template.replace(
                 "{rag_keywords}",
@@ -339,7 +339,7 @@ Note: Your query should combine the user's question with the existing keywords a
             with open(GeminiRAGModule.STORE_MAP_FILE, "w", encoding="utf-8") as f:
                 json.dump(store_map, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save store mapping: {e}")
+            logger.exception(f"Failed to save store mapping: {e}")
 
     @staticmethod
     def _get_display_name(agent_id: str) -> str:

@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from xyz_agent_context.agent_framework.model_catalog import (
     get_all_known_models,
+    get_default_models,
     get_suggested_models,
     get_known_embedding_models,
     OFFICIAL_BASE_URLS,
@@ -157,7 +158,7 @@ async def add_provider(req: AddProviderRequest, request: Request, user_id: Optio
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"[add_provider] Error: {e}", exc_info=True)
+        logger.exception(f"[add_provider] Error: {e}", exc_info=True)
         return {"success": False, "detail": str(e)}
 
 
@@ -178,6 +179,53 @@ async def test_provider(provider_id: str, request: Request, user_id: Optional[st
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
     return {"success": success, "message": message}
+
+
+@router.post("/sync-defaults")
+async def sync_default_models(request: Request, user_id: Optional[str] = Query(None)):
+    """Backfill the latest default model list from `model_catalog` into every
+    one of this user's providers whose (source, protocol) pair has defaults.
+
+    Idempotent — providers already in sync return zero added entries.
+    Existing user-curated entries are preserved; only missing defaults are
+    appended at the end.
+    """
+    uid = _get_user_id(request, user_id)
+    service = await _get_service()
+    config = await service.get_user_config(uid)
+
+    updates: list[dict] = []
+    for prov_id, prov in config.providers.items():
+        # Only sync preset providers (netmind, yunwu, openrouter, claude_oauth, ...).
+        # `source="user"` means a custom provider where the user picked the model
+        # list themselves — auto-injecting "official" suggestion lists there
+        # would dump OpenAI/Anthropic-only models into proxies that may not
+        # support them.
+        if prov.source.value == "user":
+            continue
+        defaults = list(get_default_models(prov.source.value, prov.protocol.value))
+        if not defaults:
+            continue  # no canonical default list registered for this combo
+        existing = list(prov.models or [])
+        missing = [m for m in defaults if m not in existing]
+        if not missing:
+            continue
+        new_models = existing + missing
+        await service.update_models(uid, prov_id, new_models)
+        updates.append({
+            "provider_id": prov_id,
+            "name": prov.name,
+            "source": prov.source.value,
+            "protocol": prov.protocol.value,
+            "added": missing,
+        })
+
+    return {
+        "success": True,
+        "updates": updates,
+        "providers_updated": len(updates),
+        "total_models_added": sum(len(u["added"]) for u in updates),
+    }
 
 
 @router.put("/{provider_id}/models")

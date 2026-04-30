@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Upload, Trash2, RefreshCw, Database, CheckCircle, AlertCircle, Loader2, FileText, X } from 'lucide-react';
-import { Button, Badge, useConfirm } from '@/components/ui';
+import { Button, Badge, ScrollArea, useConfirm } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -440,7 +440,8 @@ export function RAGUpload() {
           No RAG files uploaded yet
         </div>
       ) : (
-        <div className="space-y-1 max-h-[200px] overflow-y-auto">
+        <ScrollArea className="max-h-[200px]">
+          <div className="space-y-1">
           {ragFiles.map((file) => (
             <div
               key={file.filename}
@@ -474,7 +475,8 @@ export function RAGUpload() {
               </Button>
             </div>
           ))}
-        </div>
+          </div>
+        </ScrollArea>
       )}
 
       {/* Status Summary */}

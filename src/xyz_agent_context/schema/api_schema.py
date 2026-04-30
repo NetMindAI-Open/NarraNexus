@@ -275,6 +275,10 @@ class SimpleChatMessage(BaseModel):
     working_source: Optional[str] = None  # "chat" | "job" | "lark" | etc.
     message_type: Optional[str] = None  # "chat" (default) | "activity"
     event_id: Optional[str] = None  # Associated Event ID (for loading event_log on demand)
+    # User-uploaded attachments referenced by this message (kept as plain
+    # dicts to match the JSON shape stored in instance_json_format_memory_chat
+    # — the frontend types this as Attachment[]).
+    attachments: Optional[List[dict]] = None
 
 
 class SimpleChatHistoryResponse(BaseModel):

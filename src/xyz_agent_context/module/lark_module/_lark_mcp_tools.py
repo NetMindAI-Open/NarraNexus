@@ -191,7 +191,7 @@ async def _finalize_setup(
         try:
             config = _json.loads(config_path.read_text())
         except _json.JSONDecodeError as e:
-            logger.error(f"lark_setup: {agent_id} malformed config.json: {e}")
+            logger.exception(f"lark_setup: {agent_id} malformed config.json: {e}")
             db = await XYZBaseModule.get_mcp_db_client()
             await LarkCredentialManager(db).delete_credential(agent_id)
             return
@@ -250,7 +250,7 @@ async def _finalize_setup(
             logger.warning(f"lark_setup: {agent_id} bot_name lookup failed: {e}")
 
     except Exception as e:
-        logger.error(f"lark_setup: {agent_id} _finalize_setup unexpected error: {e}")
+        logger.exception(f"lark_setup: {agent_id} _finalize_setup unexpected error: {e}")
         try:
             db = await XYZBaseModule.get_mcp_db_client()
             await LarkCredentialManager(db).delete_credential(agent_id)

@@ -2,14 +2,88 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/favicon.png" />
+    <script>
+      // Favicon follows OS color scheme. Source logos are 1360x840 with transparent
+      // padding; rendering them raw makes the favicon look stretched/tiny. We crop
+      // to the alpha bounding box, then contain-fit (preserving aspect ratio) onto
+      // a square transparent canvas before handing the data URL to <link rel="icon">.
+      (function () {
+        var SIZE = 128;
+        var cache = {};
+        var mq = window.matchMedia('(prefers-color-scheme: dark)');
+
+        function alphaBBox(ctx, w, h) {
+          var data = ctx.getImageData(0, 0, w, h).data;
+          var minX = w, minY = h, maxX = -1, maxY = -1;
+          for (var y = 0; y < h; y++) {
+            for (var x = 0; x < w; x++) {
+              if (data[(y * w + x) * 4 + 3] !== 0) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+              }
+            }
+          }
+          if (maxX < 0) return { x: 0, y: 0, w: w, h: h };
+          return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+        }
+
+        function build(src, cb) {
+          if (cache[src]) { cb(cache[src]); return; }
+          var img = new Image();
+          img.onload = function () {
+            var probe = document.createElement('canvas');
+            probe.width = img.width;
+            probe.height = img.height;
+            var pctx = probe.getContext('2d');
+            pctx.drawImage(img, 0, 0);
+            var box = alphaBBox(pctx, img.width, img.height);
+
+            var canvas = document.createElement('canvas');
+            canvas.width = SIZE;
+            canvas.height = SIZE;
+            var ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            var scale = Math.min(SIZE / box.w, SIZE / box.h);
+            var dw = box.w * scale;
+            var dh = box.h * scale;
+            ctx.drawImage(img, box.x, box.y, box.w, box.h, (SIZE - dw) / 2, (SIZE - dh) / 2, dw, dh);
+            cache[src] = canvas.toDataURL('image/png');
+            cb(cache[src]);
+          };
+          img.onerror = function () { cb(src); };
+          img.src = src;
+        }
+
+        function apply(isDark) {
+          var src = isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png';
+          build(src, function (href) {
+            var head = document.head;
+            var existing = head.querySelector("link[rel~='icon'][data-runtime]");
+            if (existing) head.removeChild(existing);
+            var link = document.createElement('link');
+            link.rel = 'icon';
+            link.type = 'image/png';
+            link.href = href;
+            link.setAttribute('data-runtime', '1');
+            head.appendChild(link);
+          });
+        }
+
+        apply(mq.matches);
+        mq.addEventListener ? mq.addEventListener('change', function (e) { apply(e.matches); })
+                            : mq.addListener(function (e) { apply(e.matches); });
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NarraNexus · NetMind.AI</title>
     <!-- Fonts — Space Grotesk (display 500/700) + Barlow (body 300/500/600) + DM Mono (labels 400)
          Aligned with internal.netmind.foundation brand; font-display=swap keeps render unblocked. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Barlow:wght@300;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Barlow:wght@300;500;600&family=DM+Mono:wght@400;500&family=Inter:wght@500&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>

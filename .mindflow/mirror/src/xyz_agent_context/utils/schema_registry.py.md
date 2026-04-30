@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-04-21
+last_verified: 2026-04-28
 stub: false
 ---
+
+## 2026-04-28 addition — chat_message_embeddings folded in
+
+Registered `chat_message_embeddings` here alongside the other
+`_register(TableDef(...))` calls. This was the last table in the
+codebase still living under the legacy "one create script per table"
+model in `utils/database_table_management/`. The script was orphaned —
+nothing in the codebase imported it, so every fresh local DB was
+missing the table, every ChatModule hook was failing silently with
+`no such table: chat_message_embeddings`, and `ChatModule` was
+burning embedding API calls every turn for nothing (Bug #1).
+
+The orphan script `create_chat_message_embeddings_table.py` is gone;
+new deployments build the table via `auto_migrate()` like every other
+table. The whole `utils/database_table_management/` folder no longer
+exists.
+
+Reader side stays empty for now: nothing reads from the table yet —
+the intended Part B retrieval surface for ChatModule history was
+never wired up. Letting the writer succeed silently lets embeddings
+accumulate for whatever surface gets built later.
 
 # schema_registry.py
 

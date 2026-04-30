@@ -316,12 +316,9 @@ class ModuleRunner:
         user = user_id or agent_id
         processes = []
 
-        logger.info("=" * 80)
         logger.info("Starting MCP Servers")
         logger.info(f"   Agent ID: {agent_id}")
         logger.info(f"   User ID: {user}")
-        logger.info("=" * 80)
-
         for i, module_class in enumerate(module_classes):
             module_name = module_class.__name__
             port = MODULE_PORTS.get(module_name, 7800 + i)
@@ -336,12 +333,10 @@ class ModuleRunner:
             processes.append((module_name, process, port))
             logger.info(f"  {module_name} started (PID: {process.pid})")
 
-        logger.info("=" * 80)
         logger.info(f"{len(module_classes)} MCP servers started")
         logger.info("MCP Server Endpoints:")
         for name, _, port in processes:
             logger.info(f"   - {name}: http://localhost:{port}/sse")
-        logger.info("=" * 80)
         logger.info("Press Ctrl+C to stop all servers")
 
         try:
@@ -399,12 +394,9 @@ class ModuleRunner:
         await auto_migrate(db._backend)
         logger.info("Schema auto-migration complete")
 
-        logger.info("=" * 60)
-        logger.info("🚀 Starting MCP Servers (async mode)")
+        logger.info("Starting MCP Servers (async mode)")
         logger.info(f"   Agent ID: {agent_id}")
         logger.info(f"   User ID: {user}")
-        logger.info("=" * 60)
-
         # Create module instances
         instances = []
         for module_class in module_classes:
@@ -412,9 +404,9 @@ class ModuleRunner:
             mcp_server = module.create_mcp_server()
             if mcp_server:
                 instances.append((module_class.__name__, mcp_server))
-                logger.info(f"  ✅ {module_class.__name__} ready")
+                logger.info(f"{module_class.__name__} ready")
             else:
-                logger.warning(f"  ⚠️ {module_class.__name__} has no MCP server")
+                logger.warning(f"{module_class.__name__} has no MCP server")
 
         if not instances:
             logger.error("No MCP servers to run")
@@ -434,7 +426,7 @@ class ModuleRunner:
         coros = []
         for module_name, mcp_server in instances:
             port = MODULE_PORTS.get(module_name, 7800 + len(coros))
-            logger.info(f"  🚀 {module_name} → http://0.0.0.0:{port}/sse")
+            logger.info(f"{module_name} → http://0.0.0.0:{port}/sse")
             coros.append(self._serve_one_mcp(mcp_server, module_name, port))
 
         logger.info(
@@ -473,7 +465,7 @@ class ModuleRunner:
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"MCP server {module_name} crashed: {e}")
+            logger.exception(f"MCP server {module_name} crashed: {e}")
             raise
 
     # ============================================================================= A2A API Server
@@ -514,14 +506,11 @@ class ModuleRunner:
         """
         from xyz_agent_context.module.chat_module.chat_trigger import A2AServer
 
-        logger.info("=" * 80)
         logger.info("Starting A2A Protocol API Server...")
         logger.info(f"   Agent: {agent_name}")
         logger.info(f"   Host: {host}")
         logger.info(f"   Port: {port}")
         logger.info("   Protocol: A2A/0.3 (Google Agent-to-Agent)")
-        logger.info("=" * 80)
-
         server = A2AServer(
             host=host,
             port=port,
@@ -569,13 +558,10 @@ class ModuleRunner:
 
         processes = []
 
-        logger.info("=" * 80)
         logger.info("Starting XYZ Agent Context - Full Deployment")
         logger.info("   Protocol: A2A/0.3 (Google Agent-to-Agent)")
         logger.info(f"   Agent ID: {agent_id}")
         logger.info(f"   User ID: {user}")
-        logger.info("=" * 80)
-
         # 启动 A2A API Server
         logger.info("Starting A2A Protocol API Server...")
         logger.info(f"   Endpoint: http://{api_host}:{api_port}")
@@ -602,7 +588,6 @@ class ModuleRunner:
             processes.append((module_name, process, port))
             logger.info(f"   {module_name} started (PID: {process.pid})")
 
-        logger.info("=" * 80)
         logger.info("Deployment Complete!")
         logger.info("A2A API Endpoints:")
         logger.info(f"   GET  http://{api_host}:{api_port}/.well-known/agent.json")
@@ -613,7 +598,6 @@ class ModuleRunner:
             module_name = module_class.__name__
             port = MODULE_PORTS.get(module_name, 7800 + i)
             logger.info(f"   - {module_name}: http://localhost:{port}/sse")
-        logger.info("=" * 80)
         logger.info("Press Ctrl+C to stop all services")
 
         try:
@@ -658,8 +642,8 @@ def _is_sqlite_mode() -> bool:
 
 if __name__ == "__main__":
     import sys
-    from xyz_agent_context.utils.service_logger import setup_service_logger
-    setup_service_logger("mcp")
+    from xyz_agent_context.utils.logging import setup_logging
+    setup_logging("mcp")
 
     runner = ModuleRunner()
 

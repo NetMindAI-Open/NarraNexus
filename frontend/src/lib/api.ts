@@ -334,6 +334,56 @@ class ApiClient {
     return response.json();
   }
 
+  async uploadAttachment(
+    agentId: string,
+    userId: string,
+    file: File,
+  ): Promise<{
+    success: boolean;
+    file_id?: string;
+    mime_type?: string;
+    original_name?: string;
+    size_bytes?: number;
+    category?: 'image' | 'document' | 'code' | 'data' | 'media' | 'other';
+    error?: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments?user_id=${encodeURIComponent(userId)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: this.getAuthHeaders(),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Fetch a JWT-protected attachment as a Blob.
+   *
+   * Used by `useAttachmentBlobUrl` to build a browser-local `blob:` URL
+   * that <img>/<a> can consume without sending an Authorization header
+   * (which the HTML elements can't attach themselves). Bypasses the
+   * shared `request<T>` because the response body is binary.
+   */
+  async fetchAttachmentBlob(agentId: string, userId: string, fileId: string): Promise<Blob> {
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments/${encodeURIComponent(fileId)}/raw?user_id=${encodeURIComponent(userId)}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.blob();
+  }
+
   async deleteFile(agentId: string, userId: string, filename: string): Promise<FileDeleteResponse> {
     return this.request<FileDeleteResponse>(
       `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}?user_id=${encodeURIComponent(userId)}`,
@@ -623,6 +673,23 @@ class ApiClient {
       `/api/providers/embeddings/rebuild${qs}`,
       { method: 'POST' },
     );
+  }
+
+  /** Backfill the latest default models from the catalog into existing providers. */
+  async syncProviderDefaults(userId: string): Promise<{
+    success: boolean;
+    updates: Array<{
+      provider_id: string;
+      name: string;
+      source: string;
+      protocol: string;
+      added: string[];
+    }>;
+    providers_updated: number;
+    total_models_added: number;
+  }> {
+    const qs = `?user_id=${encodeURIComponent(userId)}`;
+    return this.request(`/api/providers/sync-defaults${qs}`, { method: 'POST' });
   }
 
   /**

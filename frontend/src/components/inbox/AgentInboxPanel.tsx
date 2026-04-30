@@ -11,7 +11,7 @@ import {
   MailOpen, RefreshCw, Inbox, ChevronRight, ChevronDown,
   Sparkles, Users, Hash,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, StatStrip } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, StatStrip, ScrollArea } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -134,7 +134,9 @@ export function AgentInboxPanel() {
         />
       )}
 
-      <CardContent className="flex-1 overflow-y-auto space-y-2 min-h-0 py-2">
+      <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+        <ScrollArea className="h-full" viewportClassName="py-2">
+        <div className="space-y-2">
         {rooms.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center p-8">
@@ -250,6 +252,8 @@ export function AgentInboxPanel() {
             );
           })
         )}
+        </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   );

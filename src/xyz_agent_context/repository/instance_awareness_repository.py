@@ -99,9 +99,9 @@ class InstanceAwarenessRepository(BaseRepository[InstanceAwareness]):
                 logger.info(f"      → insert_id: {insert_id}")
             return True
         except Exception as e:
-            logger.error(f"Failed to upsert awareness: {e}")
+            logger.exception(f"Failed to upsert awareness: {e}")
             import traceback
-            logger.error(traceback.format_exc())
+            logger.exception(traceback.format_exc())
             return False
 
     async def update_awareness(self, instance_id: str, awareness: str) -> int:

@@ -100,7 +100,7 @@ export function LoginPage() {
         {/* Document header — archive style */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-6">
-            <img src={isDark ? '/logo-dark.png' : '/logo-light.png'} alt="NarraNexus" className="h-8 w-auto object-contain" />
+            <img src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'} alt="NarraNexus" className="h-8 w-auto object-contain" />
             <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.22em] text-[var(--text-tertiary)]">
               NetMind · Access
             </span>
@@ -119,7 +119,7 @@ export function LoginPage() {
             </span>
           </p>
           {isCloudMode && (
-            <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--text-tertiary)] border border-[var(--rule)] px-2 py-1">
+            <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--text-tertiary)] border border-[var(--border-subtle)] px-2 py-1">
               <Cloud className="w-3 h-3" />
               Cloud mode
             </div>

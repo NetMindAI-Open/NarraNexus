@@ -288,7 +288,7 @@ class JobInstanceService:
                     logger.info(f"Synced job {job_id} to entity {related_entity_id}")
                 except Exception as e:
                     # Don't interrupt creation flow, only log the error
-                    logger.error(f"Failed to sync job to entities: {e}")
+                    logger.exception(f"Failed to sync job to entities: {e}")
 
             # 11. Add related_entity_id as PARTICIPANT to Narrative actors (2026-01-21)
             if related_entity_id and narrative_id:
@@ -302,7 +302,7 @@ class JobInstanceService:
                     )
                 except Exception as e:
                     # Don't interrupt creation flow, only log the error
-                    logger.error(f"Failed to add participant to narrative: {e}")
+                    logger.exception(f"Failed to add participant to narrative: {e}")
 
             return {
                 "success": True,
@@ -312,7 +312,7 @@ class JobInstanceService:
             }
 
         except Exception as e:
-            logger.error(f"Error creating job: {e}")
+            logger.exception(f"Error creating job: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -490,12 +490,12 @@ class JobInstanceService:
                 )
                 logger.debug(f"Synced job {job_id} to entity {entity_id}")
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"Failed to sync job {job_id} to entity {entity_id}: {e}"
                 )
 
         except Exception as e:
-            logger.error(f"Failed to sync job to entity: {e}")
+            logger.exception(f"Failed to sync job to entity: {e}")
             # Don't raise exception, allow Job creation to succeed even if sync fails
 
     async def _get_social_network_instance_id(self, agent_id: str) -> Optional[str]:
@@ -687,7 +687,7 @@ class JobInstanceService:
             }
 
         except Exception as e:
-            logger.error(f"Failed to update job {job_id}: {e}")
+            logger.exception(f"Failed to update job {job_id}: {e}")
             return {
                 "success": False,
                 "job_id": job_id,
@@ -783,7 +783,7 @@ class JobInstanceService:
                     )
                     logger.debug(f"Removed job {job_id} from entity {old_entity_id}")
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"Failed to remove job {job_id} from entity {old_entity_id}: {e}"
                     )
 
@@ -797,9 +797,9 @@ class JobInstanceService:
                     )
                     logger.debug(f"Added job {job_id} to entity {new_entity_id}")
                 except Exception as e:
-                    logger.error(
+                    logger.exception(
                         f"Failed to add job {job_id} to entity {new_entity_id}: {e}"
                     )
 
         except Exception as e:
-            logger.error(f"Failed to diff sync entity: {e}")
+            logger.exception(f"Failed to diff sync entity: {e}")

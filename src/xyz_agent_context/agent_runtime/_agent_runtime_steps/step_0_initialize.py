@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 from xyz_agent_context.repository import AgentRepository, InstanceRepository, InstanceAwarenessRepository
@@ -27,6 +28,8 @@ if TYPE_CHECKING:
     from xyz_agent_context.utils import DatabaseClient
     from xyz_agent_context.narrative import EventService, SessionService
 
+
+@timed("step.0_initialize")
 
 async def step_0_initialize(
     ctx: "RunContext",
@@ -64,12 +67,10 @@ async def step_0_initialize(
     # =========================================================================
     # 0.1 Get Agent configuration
     # =========================================================================
-    logger.info("🔍 Step 0.1: Fetching agent data from database")
-
     agent_repo = AgentRepository(db_client)
     agent = await agent_repo.get_agent(ctx.agent_id)
     if agent is None:
-        logger.error(f"❌ Agent {ctx.agent_id} not found in database")
+        logger.error(f"Agent {ctx.agent_id} not found in database")
         raise ValueError(f"Agent {ctx.agent_id} not found")
 
     ctx.agent_data = {
@@ -83,40 +84,34 @@ async def step_0_initialize(
     ctx.substeps_0.append(
         f"[0.1] ✓ Agent: {agent.agent_name or 'Unknown'} ({agent.agent_type or 'Unknown'})"
     )
-    logger.success(f"✅ Agent data fetched: {agent.agent_name}")
+    logger.info(f"Agent data fetched: {agent.agent_name}")
 
     # =========================================================================
     # 0.2 Initialize ModuleService
     # =========================================================================
-    logger.info("🔧 Step 0.2: Initializing ModuleService")
-
     ctx.module_service = ModuleService(ctx.agent_id, ctx.user_id, db_client)
     ctx.substeps_0.append("[0.2] ✓ ModuleService ready")
-    logger.success("✅ ModuleService initialized")
+    logger.debug("ModuleService initialized")
 
     # =========================================================================
     # 0.3 Create Event record
     # =========================================================================
-    logger.info("📝 Step 0.3: Creating Event")
-
     event = await event_service.create_event(
         ctx.agent_id, ctx.user_id, ctx.input_content
     )
     ctx.event = event
     ctx.substeps_0.append(f"[0.3] ✓ Event: {event.id}")
-    logger.success(f"✅ Event created: event_id={event.id}")
+    logger.info(f"Event created: event_id={event.id}")
 
     # =========================================================================
     # 0.4 Get/Create Session
     # =========================================================================
-    logger.info("📋 Step 0.4: Getting/Creating Session")
-
     session = await session_service.get_or_create_session(
         ctx.user_id, ctx.agent_id
     )
     ctx.session = session
     ctx.substeps_0.append(f"[0.4] ✓ Session: {session.session_id} (queries: {session.query_count})")
-    logger.success(f"✅ Session ready: {session.session_id}")
+    logger.info(f"Session ready: {session.session_id}")
 
     # =========================================================================
     # 0.5 Get Agent Awareness
@@ -125,8 +120,6 @@ async def step_0_initialize(
     #       reads from database twice.
     #       Future optimization: pass ctx.awareness to ContextRuntime to avoid AwarenessModule querying again.
     # =========================================================================
-    logger.info("🧠 Step 0.5: Getting Agent Awareness")
-
     awareness = ""
     try:
         # Find the AwarenessModule instance_id via agent_id + module_class
@@ -149,7 +142,7 @@ async def step_0_initialize(
 
     ctx.awareness = awareness
     ctx.substeps_0.append(f"[0.5] ✓ Awareness: {'loaded' if awareness else '(empty)'}")
-    logger.success(f"✅ Awareness ready: {'loaded' if awareness else 'empty'}")
+    logger.info(f"Awareness ready: {'loaded' if awareness else 'empty'}")
 
     # =========================================================================
     # Complete

@@ -37,7 +37,7 @@ export function ChatView() {
   return (
     <main className="flex-1 flex min-w-0 p-5 gap-5 overflow-hidden relative z-10">
       {/* Chat column — outer border gives the column a single frame */}
-      <div className="flex-[3] min-w-[400px] animate-fade-in border border-[var(--rule)] bg-[var(--bg-primary)] overflow-hidden">
+      <div className="flex-[3] min-w-[400px] animate-fade-in border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
         <ChatPanel onAgentComplete={refreshAll} />
       </div>
 
@@ -50,7 +50,7 @@ export function ChatView() {
           activeTab={contextTab}
           onTabChange={setContextTab}
         />
-        <div className="flex-1 min-h-0 flex flex-col border border-[var(--rule)] bg-[var(--bg-primary)] overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
           <ContextPanelContent activeTab={contextTab} />
         </div>
       </div>

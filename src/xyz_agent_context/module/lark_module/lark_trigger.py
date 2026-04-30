@@ -32,7 +32,6 @@ from xyz_agent_context.module.lark_module._lark_credential_manager import (
 from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
 from xyz_agent_context.module.lark_module.lark_context_builder import LarkContextBuilder
 from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.agent_runtime.logging_service import LoggingService
 from xyz_agent_context.agent_runtime.run_collector import (
     RunError,
     collect_run,
@@ -744,7 +743,7 @@ class LarkTrigger:
                     current=backoff, ran_seconds=ran_seconds,
                     max_backoff=max_backoff,
                 )
-                logger.error(
+                logger.exception(
                     f"LarkTrigger SDK error for {cred.profile_name} "
                     f"after {ran_seconds:.1f}s (next backoff {backoff}s): {e}"
                 )
@@ -1061,7 +1060,7 @@ class LarkTrigger:
                     event.get("message_id", "")
                     if isinstance(event, dict) else ""
                 )
-                logger.error(
+                logger.exception(
                     f"LarkTrigger worker {worker_id} message {message_id!r} "
                     f"exceeded {self.PROCESS_MESSAGE_TIMEOUT_SECONDS}s "
                     f"— cancelling"
@@ -1078,7 +1077,7 @@ class LarkTrigger:
                     },
                 )
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"LarkTrigger worker {worker_id} error: {e}",
                     exc_info=True,
                 )
@@ -1323,14 +1322,17 @@ class LarkTrigger:
         agent_row = await self._db.get_one("agents", {"agent_id": cred.agent_id})
         owner_user_id = (agent_row or {}).get("created_by", "") or cred.agent_id
 
-        runtime = AgentRuntime(logging_service=LoggingService(enabled=False))
+        runtime = AgentRuntime()
         result = await collect_run(
             runtime,
             agent_id=cred.agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=WorkingSource.LARK,
-            trigger_extra_data={"channel_tag": channel_tag.to_dict()},
+            trigger_extra_data={
+                "channel_tag": channel_tag.to_dict(),
+                "trigger_id": f"lark_{message_id}" if message_id else "lark_unknown",
+            },
         )
 
         # Error path (Bug 2): the old loop ignored MessageType.ERROR so

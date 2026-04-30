@@ -405,7 +405,7 @@ class EmbeddingMigrationService:
             )
         except Exception as e:
             progress.error = str(e)
-            logger.error(
+            logger.exception(
                 f"[EmbeddingMigration] user={self.user_id}: failed: {e}"
             )
         finally:

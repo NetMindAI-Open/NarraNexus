@@ -62,17 +62,24 @@ function PublicCard({ agent }: { agent: AgentStatus }) {
   return (
     <div
       data-testid={`agent-card-${agent.agent_id}`}
-      className="group flex overflow-hidden rounded-xl border border-[var(--rule)] bg-[var(--bg-elevated)]"
+      className="group flex overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-primary)]"
     >
       <div className={`w-1 shrink-0 ${colors.rail}`} aria-hidden />
       <div className="flex-1 p-3 min-w-0">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <span className="truncate font-semibold text-sm">{agent.name}</span>
             <StatusBadge kind={agent.status.kind} />
             <ConcurrencyBadge agent={agent} />
           </div>
-          <DurationDisplay startedAt={agent.status.started_at} />
+          <div className="shrink-0 flex items-baseline gap-1 text-[11px] text-[var(--text-tertiary)] tabular-nums">
+            <span className="uppercase tracking-[0.08em] font-[family-name:var(--font-mono)]">
+              {agent.status.kind === 'idle' ? 'idle' : 'active'}
+            </span>
+            <span className="text-[var(--text-secondary)] font-medium">
+              <DurationDisplay startedAt={agent.status.started_at} />
+            </span>
+          </div>
         </div>
         {agent.description && (
           <div className="mt-1 text-xs text-[var(--text-secondary)] italic truncate">
@@ -132,7 +139,7 @@ function OwnedCard({
           onToggleExpand();
         }
       }}
-      className={`group relative flex overflow-hidden border border-[var(--rule)] bg-[var(--bg-primary)] hover:border-[var(--border-strong)] transition-colors duration-150 cursor-pointer ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
+      className={`group relative flex overflow-hidden border border-[var(--border-default)] bg-[var(--bg-primary)] hover:border-[var(--border-strong)] transition-colors duration-150 cursor-pointer ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
     >
       {/* Status rail with optional ack-dot (v2.2 G2 + G4) */}
       <div className="relative shrink-0">
@@ -151,36 +158,39 @@ function OwnedCard({
         )}
       </div>
 
-      <div className="flex-1 p-3.5 min-w-0">
-        {/* Header — name + kind pill + stale badge + duration */}
-        <div className="flex items-center justify-between gap-2">
+      <div className="flex-1 p-4 min-w-0">
+        {/* Header — name + kind pill + stale badge + "active 30m" */}
+        <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
             <span className="truncate text-[15px] font-semibold tracking-tight text-[var(--text-primary)]">
               {agent.name}
             </span>
-            <span
-              className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] ${colors.text}`}
-            >
-              <StatusBadge kind={agent.status.kind} />
-            </span>
+            <StatusBadge kind={agent.status.kind} />
             {staleInstances.length > 0 && (
               <span
                 data-testid="stale-badge"
                 title={`${staleInstances.length} zombie instance(s): ${staleInstances.map((s) => s.module_class).join(', ')}`}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] text-[var(--text-tertiary)] border border-[var(--rule)]"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.08em] text-[var(--text-tertiary)] border border-[var(--border-subtle)] rounded"
               >
                 <span className="h-1 w-1 rounded-full allow-circle bg-[var(--text-tertiary)]" aria-hidden />
                 {staleInstances.length} stale
               </span>
             )}
           </div>
-          <DurationDisplay startedAt={agent.status.started_at} />
+          <div className="shrink-0 flex items-baseline gap-1 text-[11px] text-[var(--text-tertiary)] tabular-nums">
+            <span className="uppercase tracking-[0.08em] font-[family-name:var(--font-mono)]">
+              {agent.status.kind === 'idle' ? 'idle' : 'active'}
+            </span>
+            <span className="text-[var(--text-secondary)] font-medium">
+              <DurationDisplay startedAt={agent.status.started_at} />
+            </span>
+          </div>
         </div>
 
-        {/* Verb line (always — primary narrative) */}
+        {/* Verb line — the one-sentence story of what this agent is doing */}
         {verbLine && (
           <div
-            className={`mt-1.5 text-[13px] leading-snug ${colors.text}`}
+            className={`mt-2 text-[13px] leading-snug ${colors.text}`}
             data-testid="verb-line"
           >
             {verbLine}
@@ -190,14 +200,23 @@ function OwnedCard({
         {/* Banners (each dismissible individually) */}
         <AttentionBanners agentId={agent.agent_id} banners={banners} />
 
-        {/* Inline summary row — visible in both collapsed + expanded modes */}
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 tabular-nums">
-          <QueueBar queue={agent.queue} compact />
-          <MetricsRow metrics={agent.metrics_today} />
-          <span className="ml-auto text-[11px] text-[var(--text-secondary)] group-hover:text-[var(--accent-primary)] group-hover:translate-y-px transition-all duration-150">
-            {expanded ? '▴ less' : '▾ more'}
-          </span>
-        </div>
+        {/* Stats — queue first (workload), metrics second (today's totals) */}
+        {(agent.queue.total > 0 || agent.metrics_today.runs_ok > 0 || agent.metrics_today.errors > 0) && (
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+            <QueueBar queue={agent.queue} compact />
+            <MetricsRow metrics={agent.metrics_today} />
+            <span className="ml-auto text-[11px] text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors duration-150 font-[family-name:var(--font-mono)] uppercase tracking-[0.08em]">
+              {expanded ? '▴ less' : '▾ details'}
+            </span>
+          </div>
+        )}
+        {agent.queue.total === 0 && agent.metrics_today.runs_ok === 0 && agent.metrics_today.errors === 0 && (
+          <div className="mt-3 flex justify-end">
+            <span className="text-[11px] text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors duration-150 font-[family-name:var(--font-mono)] uppercase tracking-[0.08em]">
+              {expanded ? '▴ less' : '▾ details'}
+            </span>
+          </div>
+        )}
 
         {/* Expanded sections — grid 0fr→1fr animation (v2.2 G4) */}
         <div

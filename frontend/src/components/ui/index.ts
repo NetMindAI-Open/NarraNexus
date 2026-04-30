@@ -16,3 +16,4 @@ export { KPICard } from './KPICard';
 export type { KPIColor } from './KPICard';
 export { StatStrip } from './StatStrip';
 export type { StatItem, StatTone } from './StatStrip';
+export { ScrollArea, ScrollBar } from './scroll-area';

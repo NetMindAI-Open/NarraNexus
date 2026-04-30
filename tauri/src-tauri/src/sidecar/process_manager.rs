@@ -1,9 +1,12 @@
+use chrono::Local;
 use log;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex};
-use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::fs::OpenOptions;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 
 use crate::state::{resolve_bundled_node_bins, ServiceDef};
@@ -278,14 +281,46 @@ impl ProcessManager {
     }
 }
 
+/// Resolve the on-disk log directory we share with the Python side.
+/// Mirrors the layout used by setup_logging() in
+/// src/xyz_agent_context/utils/logging/_setup.py — namely
+/// ``$NEXUS_LOG_DIR/<service>/<service>_YYYYMMDD.log``. When neither
+/// the env var nor a HOME directory is available we fall back to
+/// `<tempdir>/narranexus-logs` so Tauri-only desktop runs still get
+/// a stable location.
+fn resolve_log_dir(service_id: &str) -> PathBuf {
+    if let Ok(env_dir) = std::env::var("NEXUS_LOG_DIR") {
+        if !env_dir.is_empty() {
+            return PathBuf::from(env_dir).join(service_id);
+        }
+    }
+    let base = dirs::home_dir().unwrap_or_else(|| std::env::temp_dir());
+    base.join(".narranexus").join("logs").join(service_id)
+}
+
+fn current_log_path(service_id: &str) -> PathBuf {
+    let date = Local::now().format("%Y%m%d").to_string();
+    resolve_log_dir(service_id).join(format!("{service_id}_{date}.log"))
+}
+
 /// Spawn a detached tokio task that reads one line at a time from a child's
-/// piped stdout/stderr and appends it to the shared log buffer.
+/// piped stdout/stderr and appends it to the shared log buffer AND to the
+/// rotating file under ~/.narranexus/logs/<service>/.
 ///
 /// Why this exists: `tokio::process::Command` with `Stdio::piped()` creates
 /// an OS pipe that MUST be drained. If nothing reads the parent end, the
 /// kernel buffer fills up (~16KB on macOS) and the child's next write to
 /// that fd blocks — deadlocking the Python sidecars mid-execution and
 /// making the frontend agent loop look "stuck" for no visible reason.
+///
+/// Why we also write to disk: the in-memory ring buffer is capped at 500
+/// entries per service and is wiped when the desktop app exits. After the
+/// log-system overhaul (M5/T18) the desktop app must place files in the
+/// same `~/.narranexus/logs/` tree as the headless `bash run.sh` path so
+/// either runtime is debuggable post-mortem (ironclad rule #7: dual run
+/// modes aligned). The file path is recomputed per line so the daily
+/// rollover happens implicitly when midnight crosses; we just append to
+/// whatever YYYYMMDD file is current at that moment.
 ///
 /// The task terminates naturally when the child closes its fd (EOF on the
 /// pipe), so there's no explicit cleanup needed; child.kill_on_drop in
@@ -300,6 +335,26 @@ fn spawn_log_drainer<R>(
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
+        // Ensure the per-service directory exists once at startup; later
+        // writes can rely on it. Failure here only suppresses file
+        // logging — the in-memory buffer still works.
+        let log_dir = resolve_log_dir(&service_id);
+        let dir_ready = match tokio::fs::create_dir_all(&log_dir).await {
+            Ok(_) => true,
+            Err(e) => {
+                log::warn!(
+                    "Could not create log dir {:?} for {}: {}",
+                    log_dir,
+                    service_id,
+                    e
+                );
+                false
+            }
+        };
+
+        let mut current_file_date = String::new();
+        let mut current_file: Option<tokio::fs::File> = None;
+
         let mut lines = BufReader::new(reader).lines();
         loop {
             match lines.next_line().await {
@@ -312,13 +367,59 @@ fn spawn_log_drainer<R>(
                         service_id: service_id.clone(),
                         timestamp,
                         stream: stream.to_string(),
-                        message: line,
+                        message: line.clone(),
                     };
                     if let Ok(mut buf) = logs.lock() {
                         if buf.len() >= max_logs {
                             buf.pop_front();
                         }
                         buf.push_back(entry);
+                    }
+
+                    if dir_ready {
+                        let now_date = Local::now().format("%Y%m%d").to_string();
+                        if now_date != current_file_date {
+                            // Day rolled over (or first line) — open the new file.
+                            let path = current_log_path(&service_id);
+                            match OpenOptions::new()
+                                .create(true)
+                                .append(true)
+                                .open(&path)
+                                .await
+                            {
+                                Ok(f) => {
+                                    current_file = Some(f);
+                                    current_file_date = now_date;
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "Could not open log file {:?}: {}",
+                                        path,
+                                        e
+                                    );
+                                    current_file = None;
+                                }
+                            }
+                        }
+                        if let Some(file) = current_file.as_mut() {
+                            // Format mirrors the Python text format so a
+                            // grep against either source produces the
+                            // same shape: "<HH:MM:SS> [stream] <line>".
+                            let ts_str = Local::now().format("%H:%M:%S").to_string();
+                            let written = file
+                                .write_all(
+                                    format!("{ts_str} [{stream}] {line}\n").as_bytes(),
+                                )
+                                .await;
+                            if let Err(e) = written {
+                                log::warn!(
+                                    "Failed writing to log file for {}: {}",
+                                    service_id,
+                                    e
+                                );
+                                current_file = None;
+                            }
+                        }
                     }
                 }
                 Ok(None) => break, // EOF: child closed the pipe

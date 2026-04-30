@@ -169,7 +169,7 @@ class BasicInfoModule(XYZBaseModule):
                 ctx_data.creator_id = "Unknown"
 
         except Exception as e:
-            logger.error(f"            Failed to load agent info: {e}")
+            logger.exception(f"            Failed to load agent info: {e}")
             ctx_data.is_creator = False
             ctx_data.user_role = "User/Customer"
             ctx_data.agent_name = "Unknown Agent"

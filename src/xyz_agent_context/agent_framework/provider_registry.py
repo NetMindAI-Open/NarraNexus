@@ -311,7 +311,7 @@ class ProviderRegistry:
             raw = json.loads(self._config_path.read_text(encoding="utf-8"))
             return LLMConfig.model_validate(raw)
         except Exception as e:
-            logger.error(f"Failed to load LLM config from {self._config_path}: {e}")
+            logger.exception(f"Failed to load LLM config from {self._config_path}: {e}")
             return None
 
     def save(self, config: LLMConfig) -> None:

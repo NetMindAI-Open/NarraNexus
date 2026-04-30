@@ -312,7 +312,7 @@ async def ensure_default_narratives(
                 result[narrative_name] = new_narrative
                 created_count += 1
             except Exception as create_error:
-                logger.error(f"Failed to create default Narrative {narrative_name}: {create_error}")
+                logger.exception(f"Failed to create default Narrative {narrative_name}: {create_error}")
                 raise
 
     logger.info(

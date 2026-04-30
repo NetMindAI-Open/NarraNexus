@@ -58,8 +58,38 @@ class TauriBridge implements PlatformBridge {
     throw new Error('Tauri runtime not available');
   }
 
-  async getLogs(_serviceId?: string): Promise<LogEntry[]> {
-    throw new Error('Tauri runtime not available');
+  async getLogs(serviceId?: string): Promise<LogEntry[]> {
+    // Wired to the Rust command in tauri/src-tauri/src/commands/health.rs
+    // (registered as `get_logs` in lib.rs's invoke_handler).
+    // @tauri-apps/api is a desktop-only optional runtime dep, intentionally
+    // not declared in package.json. This branch only runs when
+    // window.__TAURI__ is present (i.e. inside the Tauri webview); the cloud
+    // `tsc -b && vite build` skips type resolution (@ts-expect-error) and
+    // static bundling (@vite-ignore).
+    type TauriCore = {
+      invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+    };
+    // Indirect through a variable so Rollup can't statically resolve the
+    // module (combined with @vite-ignore to silence Vite's plugin warning).
+    const tauriCorePath = '@tauri-apps/api/core';
+    const { invoke } = (await import(/* @vite-ignore */ tauriCorePath)) as TauriCore;
+    type RustLogEntry = {
+      service_id: string;
+      timestamp: number;
+      stream: string;
+      message: string;
+    };
+    const raw = await invoke<RustLogEntry[]>('get_logs', {
+      serviceId: serviceId ?? null,
+    });
+    return raw.map((e) => ({
+      serviceId: e.service_id,
+      timestamp: e.timestamp,
+      stream: (e.stream === 'stderr' ? 'stderr' : 'stdout') as
+        | 'stdout'
+        | 'stderr',
+      message: e.message,
+    }));
   }
 
   onHealthUpdate(_cb: (health: OverallHealth) => void): () => void {
@@ -109,8 +139,60 @@ class WebBridge implements PlatformBridge {
     throw new Error('Not available in web mode');
   }
 
-  async getLogs(_serviceId?: string): Promise<LogEntry[]> {
-    throw new Error('Not available in web mode');
+  async getLogs(serviceId?: string): Promise<LogEntry[]> {
+    // In web/cloud mode the operator-facing log endpoints proxy
+    // ~/.narranexus/logs/<service>/. If no service is specified we
+    // pick the first one returned by /services so the SystemPage at
+    // least shows something instead of throwing.
+    const base = import.meta.env.VITE_API_BASE_URL || '';
+    const headers = await this._authHeaders();
+
+    let target = serviceId;
+    if (!target) {
+      const listRes = await fetch(`${base}/api/admin/logs/services`, {
+        headers,
+      });
+      if (!listRes.ok) {
+        throw new Error(
+          `failed to list services: ${listRes.status} ${listRes.statusText}`,
+        );
+      }
+      const listJson: { services: { name: string }[] } = await listRes.json();
+      target = listJson.services[0]?.name;
+      if (!target) return [];
+    }
+
+    const tailRes = await fetch(
+      `${base}/api/admin/logs/${encodeURIComponent(target)}/tail?n=500`,
+      { headers },
+    );
+    if (!tailRes.ok) {
+      throw new Error(
+        `failed to read log: ${tailRes.status} ${tailRes.statusText}`,
+      );
+    }
+    const tailJson: { lines: string[] } = await tailRes.json();
+    return tailJson.lines.map((line, idx) => ({
+      serviceId: target!,
+      // No reliable per-line timestamp without parsing; ordinal index
+      // is enough for stable React keys + display ordering.
+      timestamp: idx,
+      stream: 'stdout',
+      message: line,
+    }));
+  }
+
+  // Inline auth header builder. Tokens are stored alongside other auth
+  // state by useAuth; if the page is rendered before login (or in
+  // local mode where there's no token) we just send nothing — the
+  // server already permits unauthenticated /api/admin/logs in local
+  // mode and rejects with 401 in cloud mode.
+  private async _authHeaders(): Promise<HeadersInit> {
+    const token =
+      typeof localStorage !== 'undefined'
+        ? localStorage.getItem('auth_token')
+        : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
   onHealthUpdate(_cb: (health: OverallHealth) => void): () => void {

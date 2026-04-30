@@ -16,6 +16,7 @@ import asyncio
 from typing import AsyncGenerator, Dict, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
 
 
@@ -143,6 +144,8 @@ async def _ensure_user_chat_instance(
     return new_instance_id
 
 
+@timed("step.1_select_narrative")
+
 async def step_1_select_narrative(
     ctx: "RunContext",
     narrative_service: "NarrativeService",
@@ -170,8 +173,6 @@ async def step_1_select_narrative(
         substeps=[]
     )
 
-    logger.info("🎯 Step 1: Selecting Narratives")
-
     # Cancellation checkpoint — abort before any work if already cancelled
     if ctx.cancellation:
         ctx.cancellation.raise_if_cancelled()
@@ -191,9 +192,9 @@ async def step_1_select_narrative(
             selection_method = "forced"
             retrieval_method = "forced"  # Forced, no retrieval
             is_new = False  # Forced Narrative is not newly created
-            logger.success(f"✅ Successfully loaded forced Narrative: {forced_narrative.id}")
+            logger.info(f"Successfully loaded forced Narrative: {forced_narrative.id}")
         else:
-            logger.warning(f"⚠️ Forced Narrative {ctx.forced_narrative_id} does not exist, falling back to normal selection")
+            logger.warning(f"Forced Narrative {ctx.forced_narrative_id} does not exist, falling back to normal selection")
             # Fall back to normal selection flow
             fallback_coro = narrative_service.select(
                 ctx.agent_id, ctx.user_id, ctx.input_content,
@@ -236,8 +237,8 @@ async def step_1_select_narrative(
     ctx.narrative_list = narrative_list
     ctx.query_embedding = query_embedding
 
-    logger.success(
-        f"✅ Narratives selected: count={len(narrative_list)}, "
+    logger.info(
+        f"Narratives selected: count={len(narrative_list)}, "
         f"method={selection_method}, reason={selection_reason[:50]}..."
     )
 
@@ -263,7 +264,7 @@ async def step_1_select_narrative(
             if narrative.narrative_info.current_summary
             else 'None'
         )
-        logger.info(f"  📖 Narrative[{i}]: id={narrative.id}, summary={summary_preview}...")
+        logger.info(f"Narrative[{i}]: id={narrative.id}, summary={summary_preview}...")
         ctx.substeps_1.append(f"[1.{i+1}] ✓ {narrative.narrative_info.name}")
 
     # Ensure the current user has a ChatModule instance in each selected Narrative
@@ -284,7 +285,7 @@ async def step_1_select_narrative(
 
     # Persist Session update
     await session_service.save_session(ctx.session)
-    logger.debug(f"✅ Session persisted: {ctx.session.session_id}")
+    logger.debug(f"Session persisted: {ctx.session.session_id}")
 
     # Send Completed status
     yield ProgressMessage(

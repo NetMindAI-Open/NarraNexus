@@ -11,16 +11,15 @@ need to guard.
 """
 from __future__ import annotations
 
-import logging
 from typing import Awaitable, Callable, Optional
+
+from loguru import logger
 
 from xyz_agent_context.schema.quota_schema import Quota
 from xyz_agent_context.repository.quota_repository import QuotaRepository
 from xyz_agent_context.agent_framework.system_provider_service import (
     SystemProviderService,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class QuotaService:
@@ -79,7 +78,7 @@ class QuotaService:
         try:
             return await repo.create(user_id, inp, out)
         except Exception as e:
-            logger.error(f"init_for_user failed for {user_id}: {e}")
+            logger.exception(f"init_for_user failed for {user_id}: {e}")
             return None
 
     async def check(self, user_id: str) -> bool:
@@ -89,7 +88,7 @@ class QuotaService:
         try:
             q = await repo.get_by_user_id(user_id)
         except Exception as e:
-            logger.error(f"quota check db error for {user_id}: {e}")
+            logger.exception(f"quota check db error for {user_id}: {e}")
             return False
         return q is not None and q.has_budget()
 
@@ -104,7 +103,7 @@ class QuotaService:
         try:
             await repo.atomic_deduct(user_id, input_tokens, output_tokens)
         except Exception as e:
-            logger.error(f"quota deduct failed for {user_id}: {e}")
+            logger.exception(f"quota deduct failed for {user_id}: {e}")
 
     async def get(self, user_id: str) -> Optional[Quota]:
         repo = await self._get_repo()

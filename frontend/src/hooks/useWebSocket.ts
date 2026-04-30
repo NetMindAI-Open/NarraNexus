@@ -8,6 +8,7 @@
 import { useCallback } from 'react';
 import { wsManager } from '@/services/wsManager';
 import { useChatStore } from '@/stores/chatStore';
+import type { Attachment } from '@/types';
 
 interface UseAgentWebSocketOptions {
   onComplete?: (agentId: string) => void;
@@ -17,10 +18,17 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
   const isStreaming = useChatStore((s) => s.isStreaming);
 
   const run = useCallback(
-    (agentId: string, userId: string, inputContent: string, agentName?: string) => {
+    (
+      agentId: string,
+      userId: string,
+      inputContent: string,
+      agentName?: string,
+      attachments?: Attachment[],
+    ) => {
       wsManager.run(agentId, userId, inputContent, {
         onComplete: options.onComplete,
         agentName,
+        attachments,
       });
     },
     [options.onComplete]

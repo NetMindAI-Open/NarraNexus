@@ -52,14 +52,22 @@ def _register(*models: ModelMeta) -> None:
 
 
 # --- NetMind models ---
+# `max_output_tokens` left None for newer entries whose official limits
+# we have not yet verified — callers fall back to the provider's own cap.
 _register(
     ModelMeta("minimax/minimax-m2.7", "MiniMax M2.7", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-pro-preview", "Gemini 3.1 Pro", max_output_tokens=58982),
     ModelMeta("google/gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash Lite", max_output_tokens=58982),
     ModelMeta("moonshotai/Kimi-K2.5", "Kimi K2.5", max_output_tokens=58981),
+    ModelMeta("moonshotai/Kimi-K2.6", "Kimi K2.6"),
     ModelMeta("zai-org/GLM-5", "GLM-5", max_output_tokens=117964),
     ModelMeta("zai-org/GLM-5.1", "GLM-5.1", max_output_tokens=117964),
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
+    ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
+    ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash"),
+    ModelMeta("Qwen/Qwen3.6-Plus", "Qwen3.6 Plus"),
+    ModelMeta("Qwen/Qwen3.6-Flash", "Qwen3.6 Flash"),
+    ModelMeta("Qwen/Qwen3.6-35B-A3B", "Qwen3.6 35B-A3B"),
     ModelMeta("BAAI/bge-m3", "BGE-M3 (Multilingual)", dimensions=1024),
     ModelMeta("nvidia/NV-Embed-v2", "NV-Embed-v2", dimensions=4096),
     ModelMeta("dunzhang/stella_en_1.5B_v5", "Stella EN 1.5B v5", dimensions=1024),
@@ -103,6 +111,11 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     # NetMind Anthropic protocol → agent models
     ("netmind", "anthropic"): [
         "minimax/minimax-m2.7",
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Flash",
+        "Qwen/Qwen3.6-Plus",
+        "Qwen/Qwen3.6-Flash",
+        "zai-org/GLM-5.1",
     ],
     # NetMind OpenAI protocol → helper_llm + embedding models
     ("netmind", "openai"): [
@@ -110,9 +123,15 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "google/gemini-3.1-pro-preview",
         "google/gemini-3.1-flash-lite-preview",
         "moonshotai/Kimi-K2.5",
+        "moonshotai/Kimi-K2.6",
         "zai-org/GLM-5",
         "zai-org/GLM-5.1",
         "deepseek-ai/DeepSeek-V3",
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Flash",
+        "Qwen/Qwen3.6-Plus",
+        "Qwen/Qwen3.6-Flash",
+        "Qwen/Qwen3.6-35B-A3B",
         "BAAI/bge-m3",
         "nvidia/NV-Embed-v2",
         "dunzhang/stella_en_1.5B_v5",

@@ -130,7 +130,7 @@ export function RegisterPage() {
           <div className="relative inline-block mb-5">
             <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center overflow-hidden shadow-[var(--shadow-glow)]">
               <img
-                src={isDark ? '/logo-dark.png' : '/logo-light.png'}
+                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
                 alt="NarraNexus"
                 className="w-14 h-14 object-contain"
               />
@@ -220,7 +220,7 @@ export function RegisterPage() {
           )}
 
           {welcomeQuota && (
-            <div className="rounded-md border border-[var(--accent-primary)] bg-[var(--surface-1)] p-3 animate-slide-up">
+            <div className="rounded-md border border-[var(--accent-primary)] bg-[var(--bg-primary)] p-3 animate-slide-up">
               <div className="text-sm font-medium text-[var(--text-primary)] mb-1">
                 Welcome! You've got starter credits.
               </div>

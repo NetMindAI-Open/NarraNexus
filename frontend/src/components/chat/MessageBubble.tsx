@@ -7,13 +7,15 @@
  * 2. History: lazy-loaded via event_id → GET /event-log/{event_id} (on-demand)
  */
 
-import { User, Bot, ChevronDown, ChevronRight, Wrench, Sparkles, AlertTriangle, Copy, Download, Check, Loader2 } from 'lucide-react';
+import { User, Bot, ChevronDown, ChevronRight, Wrench, Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
 import { useState, useCallback, useRef } from 'react';
-import type { ChatMessage } from '@/types';
+import type { Attachment, ChatMessage } from '@/types';
 import type { EventLogToolCall, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
-import { Markdown } from '@/components/ui';
+import { Markdown, ScrollArea } from '@/components/ui';
 import { api } from '@/lib/api';
+import { useConfigStore } from '@/stores';
+import { AttachmentImage } from './AttachmentImage';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -26,6 +28,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
   const [showThinking, setShowThinking] = useState(false);
   const [showTools, setShowTools] = useState(false);
   const [copied, setCopied] = useState(false);
+  const userId = useConfigStore((s) => s.userId);
   const isUser = message.role === 'user';
 
   // Lazy-loaded event log state
@@ -126,7 +129,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
         className={cn(
           'w-8 h-8 flex items-center justify-center shrink-0 transition-colors duration-150',
           isUser
-            ? 'bg-[var(--bg-tertiary)] border border-[var(--rule)] text-[var(--text-secondary)]'
+            ? 'bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-secondary)]'
             // Bot avatar uses text-primary → bg-inverse so it inverts automatically.
             : 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
         )}
@@ -188,14 +191,16 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                     <span>Loading...</span>
                   </div>
                 ) : thinking ? (
-                  <div className={cn(
-                    'mt-2 p-3 text-xs font-mono whitespace-pre-wrap leading-relaxed max-h-[300px] overflow-y-auto',
+                  <ScrollArea className={cn(
+                    'mt-2 max-h-[300px]',
                     isUser
                       ? 'bg-[rgb(255_255_255_/_0.1)] opacity-80 dark:bg-[rgb(17_18_20_/_0.08)]'
-                      : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--rule)]'
-                  )}>
-                    {thinking}
-                  </div>
+                      : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
+                  )} viewportClassName="p-3">
+                    <div className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
+                      {thinking}
+                    </div>
+                  </ScrollArea>
                 ) : null
               )}
             </div>
@@ -266,6 +271,52 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                   {eventLogLoading ? 'Loading details...' : 'View reasoning & tools'}
                 </span>
               </button>
+            </div>
+          )}
+
+          {/* Attachments — rendered above text content. Image attachments
+              are loaded via the /raw endpoint through an authed fetch +
+              blob URL (see AttachmentImage); non-image attachments show
+              a file chip so the user sees what was uploaded even though
+              the agent currently cannot read it. */}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {message.attachments.map((att: Attachment) => {
+                const isImage = att.category === 'image' && !!agentId && !!userId;
+                if (isImage) {
+                  return (
+                    <AttachmentImage
+                      key={att.file_id}
+                      agentId={agentId!}
+                      userId={userId!}
+                      fileId={att.file_id}
+                      alt={att.original_name}
+                      className="max-h-48 max-w-[280px] rounded border border-[var(--rule)] object-cover"
+                      zoomable
+                    />
+                  );
+                }
+                return (
+                  <div
+                    key={att.file_id}
+                    className="flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/40 px-2 py-1.5 max-w-[280px]"
+                  >
+                    <div className="w-8 h-8 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
+                      {att.category === 'image' ? (
+                        <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                      ) : (
+                        <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                      )}
+                    </div>
+                    <div className="min-w-0 leading-tight">
+                      <div className="text-xs truncate">{att.original_name}</div>
+                      <div className="text-[10px] text-[var(--text-tertiary)] font-mono uppercase tracking-[0.1em]">
+                        {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -355,7 +406,7 @@ function ToolCallItem({ tool, isUser }: { tool: { tool_name: string; tool_input:
         // Outside: normal secondary background.
         isUser
           ? 'bg-[color-mix(in_srgb,currentColor_10%,transparent)]'
-          : 'bg-[var(--bg-secondary)] border border-[var(--rule)]'
+          : 'bg-[var(--bg-sunken)] border border-[var(--border-subtle)]'
       )}
     >
       <div className={cn(
@@ -372,9 +423,11 @@ function ToolCallItem({ tool, isUser }: { tool: { tool_name: string; tool_input:
         isUser ? 'opacity-60' : 'text-[var(--text-tertiary)]'
       )}>
         {expanded || !isLong ? (
-          <pre className="whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
-            {JSON.stringify(tool.tool_input, null, 2)}
-          </pre>
+          <ScrollArea className="max-h-[200px]">
+            <pre className="whitespace-pre-wrap break-all">
+              {JSON.stringify(tool.tool_input, null, 2)}
+            </pre>
+          </ScrollArea>
         ) : (
           <span className="truncate block">{inputStr.slice(0, 120)}...</span>
         )}

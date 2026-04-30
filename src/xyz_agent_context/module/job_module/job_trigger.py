@@ -188,19 +188,16 @@ class JobTrigger:
         )
         await bootstrap_quota_subsystem(self._db)
 
-        logger.info("=" * 60)
-        logger.info("🚀 JobTrigger starting (Worker Pool mode)...")
+        logger.info("JobTrigger starting (Worker Pool mode)...")
         logger.info(f"   Poll interval: {self.poll_interval} seconds")
         logger.info(f"   Max workers: {self.max_workers}")
         logger.info(f"   Job timeout: {self.job_timeout_minutes} minutes")
-        logger.info("=" * 60)
-
         # Startup recovery: when new process starts, recover all running jobs to schedulable state
         # Because after old process was killed, execution of these jobs must have been interrupted
         repo = self._get_job_repo()
         recovered = await repo.recover_all_running_jobs()
         if recovered > 0:
-            logger.warning(f"🔄 Startup recovery: recovered {recovered} stuck running jobs")
+            logger.warning(f"Startup recovery: recovered {recovered} stuck running jobs")
 
         self.running = True
 
@@ -280,7 +277,7 @@ class JobTrigger:
                 logger.debug("Poller cancelled")
                 break
             except Exception as e:
-                logger.error(f"Poller error: {e}")
+                logger.exception(f"Poller error: {e}")
                 await asyncio.sleep(self.poll_interval)
 
     async def _worker(self, worker_id: int) -> None:
@@ -310,7 +307,7 @@ class JobTrigger:
                 logger.debug(f"Worker {worker_id} cancelled")
                 break
             except Exception as e:
-                logger.error(f"[Worker {worker_id}] Unexpected error: {e}")
+                logger.exception(f"[Worker {worker_id}] Unexpected error: {e}")
 
     async def _poll_and_enqueue(self) -> None:
         """
@@ -353,7 +350,7 @@ class JobTrigger:
                 logger.info(f"Enqueued {enqueued} jobs (queue size: {self._job_queue.qsize()})")
 
         except Exception as e:
-            logger.error(f"Error in poll_and_enqueue: {e}")
+            logger.exception(f"Error in poll_and_enqueue: {e}")
 
     async def _get_due_jobs(self) -> List[JobModel]:
         """
@@ -369,7 +366,7 @@ class JobTrigger:
         try:
             return await self._get_job_repo().get_due_jobs()
         except Exception as e:
-            logger.error(f"Error getting due jobs: {e}")
+            logger.exception(f"Error getting due jobs: {e}")
             return []
 
     # =========================================================================
@@ -423,7 +420,7 @@ class JobTrigger:
             await self.db.execute(query, (instance_id,))
             logger.debug(f"Updated instance {instance_id} for execution (status=in_progress)")
         except Exception as e:
-            logger.error(f"Error updating instance {instance_id} for execution: {e}")
+            logger.exception(f"Error updating instance {instance_id} for execution: {e}")
 
     async def _update_instance_completed(self, instance_id: str) -> None:
         """
@@ -448,7 +445,7 @@ class JobTrigger:
             await self.db.execute(query, (instance_id,))
             logger.debug(f"Updated instance {instance_id} to completed")
         except Exception as e:
-            logger.error(f"Error updating instance {instance_id} to completed: {e}")
+            logger.exception(f"Error updating instance {instance_id} to completed: {e}")
 
     async def _update_instance_failed(self, instance_id: str) -> None:
         """
@@ -468,7 +465,7 @@ class JobTrigger:
             await self.db.execute(query, (instance_id,))
             logger.debug(f"Updated instance {instance_id} to failed")
         except Exception as e:
-            logger.error(f"Error updating instance {instance_id} to failed: {e}")
+            logger.exception(f"Error updating instance {instance_id} to failed: {e}")
 
     async def _execute_job(self, job: JobModel) -> None:
         """
@@ -518,7 +515,7 @@ class JobTrigger:
             logger.info(f"Job {job.job_id} executed successfully")
 
         except Exception as e:
-            logger.error(f"Error executing job {job.job_id}: {e}")
+            logger.exception(f"Error executing job {job.job_id}: {e}")
             await self._handle_job_failure(job, str(e))
 
     async def _run_agent(self, job: JobModel, prompt: str) -> Dict[str, Any]:
@@ -541,24 +538,19 @@ class JobTrigger:
         try:
             # Import AgentRuntime lazily to avoid circular imports
             from xyz_agent_context.agent_runtime import AgentRuntime
-            from xyz_agent_context.agent_runtime.logging_service import LoggingService
 
             logger.info(f"[JobTrigger] Starting AgentRuntime for job {job.job_id}")
 
-            # Disable per-agent file logging in the JobTrigger process to match
-            # the convention already established by lark_trigger and
-            # message_bus_trigger. Trigger processes run AgentRuntime in a
-            # tight loop (high-frequency cron jobs spawn dozens of runs per
-            # hour), and `LoggingService.setup()` allocates a loguru handler
-            # backed by `multiprocessing.SimpleQueue` (enqueue=True) per run.
-            # Cleanup is owned by the background hook task; if `setup()` ever
-            # raises (e.g. fd exhaustion) or the BG task is killed, the queue
-            # leaks 2-3 fd. On EC2 this saturated the jobs container at
-            # 1021/1024 fd in 3 days and left every subsequent run failing
-            # with `OSError: [Errno 24] Too many open files` from
-            # logging_service.py:128. stdout loguru output is preserved, so
-            # `docker logs narranexus-jobs` still has full traces.
-            runtime = AgentRuntime(logging_service=LoggingService(enabled=False))
+            # File logging is now owned by setup_logging("job_trigger") at
+            # process startup, not per-run by AgentRuntime. The fd leak
+            # described in earlier comments — multiprocessing.SimpleQueue
+            # backing each enqueue=True file sink, leaking 2-3 fd per
+            # uncleaned run, saturating the EC2 jobs container at 1021/1024
+            # fd in 3 days — is gone by construction: AgentRuntime no
+            # longer adds/removes file handlers. Each line still carries
+            # event_id / run_id via contextvars so per-run trace is
+            # recoverable by `grep event_id=...` (M4 / T15).
+            runtime = AgentRuntime()
 
             # Execution identity: use related_entity_id (if available) as user_id, otherwise use job.user_id
             # This way Job executes in the target user's context, loading their Narrative and related info
@@ -576,6 +568,7 @@ class JobTrigger:
                 working_source=WorkingSource.JOB,
                 job_instance_id=job.instance_id,
                 forced_narrative_id=job.narrative_id,
+                trigger_extra_data={"trigger_id": f"job_{job.job_id}"},
             )
 
             # Error path (Bug 2): previously the trigger swallowed the
@@ -795,7 +788,7 @@ The task was executed but produced no text output.
                     )
 
         except Exception as e:
-            logger.error(f"Error finalizing job {job.job_id}: {e}")
+            logger.exception(f"Error finalizing job {job.job_id}: {e}")
 
     async def _handle_job_failure(self, job: JobModel, error: str) -> None:
         """
@@ -823,7 +816,7 @@ The task was executed but produced no text output.
             logger.warning(f"Job {job.job_id} failed: {error}")
 
         except Exception as e:
-            logger.error(f"Error handling job failure for {job.job_id}: {e}")
+            logger.exception(f"Error handling job failure for {job.job_id}: {e}")
 
 
 # =============================================================================
@@ -904,22 +897,16 @@ Examples:
 
     args = parser.parse_args()
 
-    # Configure logging level
-    if args.debug:
-        import sys
-        logger.remove()
-        logger.add(sys.stderr, level="DEBUG")
+    from xyz_agent_context.utils.logging import setup_logging
+    setup_logging(
+        "job_trigger",
+        level="DEBUG" if args.debug else None,
+    )
 
-    from xyz_agent_context.utils.service_logger import setup_service_logger
-    setup_service_logger("job_trigger")
-
-    logger.info("=" * 60)
     logger.info("JobTrigger - Background Task Executor (Worker Pool)")
-    logger.info("=" * 60)
     logger.info(f"   Poll interval: {args.interval}s")
     logger.info(f"   Max workers: {args.workers}")
     logger.info(f"   Mode: {'Single run' if args.once else 'Continuous'}")
-    logger.info("=" * 60)
     logger.info("Press Ctrl+C to stop")
 
     if args.once:

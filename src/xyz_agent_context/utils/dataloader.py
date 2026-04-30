@@ -236,7 +236,7 @@ class DataLoader(Generic[K, V]):
 
         except Exception as e:
             # Propagate error to all waiters
-            logger.error(f"DataLoader batch load failed: {e}")
+            logger.exception(f"DataLoader batch load failed: {e}")
             for key in keys:
                 if key in self._futures:
                     future = self._futures.pop(key)

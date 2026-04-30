@@ -140,12 +140,12 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                   className={cn(
                     'p-4 border rounded-lg text-left transition-all',
                     'border-[var(--border-default)]',
-                    'hover:border-[var(--color-accent)] hover:shadow-sm'
+                    'hover:border-[var(--accent-primary)] hover:shadow-sm'
                   )}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="p-2 rounded-lg bg-[var(--accent-10)]">
-                      <Icon className="w-5 h-5 text-[var(--color-accent)]" />
+                    <div className="p-2 rounded-lg bg-[var(--bg-elevated)]">
+                      <Icon className="w-5 h-5 text-[var(--accent-primary)]" />
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between">
@@ -194,7 +194,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                       className={cn(
                         'w-full px-3 py-2 rounded-md border text-sm',
                         'border-[var(--border-default)] bg-[var(--bg-secondary)]',
-                        'focus:border-[var(--color-accent)] focus:outline-none'
+                        'focus:border-[var(--accent-primary)] focus:outline-none'
                       )}
                     >
                       <option value="">Select...</option>
@@ -221,7 +221,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
               <h3 className="text-sm font-medium text-[var(--text-secondary)]">
                 Dependency Preview
               </h3>
-              <div className="h-64 border border-[var(--border-muted)] rounded-lg overflow-hidden">
+              <div className="h-64 border border-[var(--border-default)] rounded-lg overflow-hidden">
                 <JobDependencyGraph jobs={previewNodes} />
               </div>
             </div>
@@ -234,7 +234,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
             )}
 
             {/* Action buttons */}
-            <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--border-muted)]">
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--border-subtle)]">
               <Button variant="ghost" onClick={handleBack}>
                 Back
               </Button>

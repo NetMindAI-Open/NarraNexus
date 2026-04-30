@@ -26,7 +26,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           className={cn(
             'w-full',
             'bg-[var(--bg-primary)]',
-            'border border-[var(--rule)]',
+            'border border-[var(--border-default)]',
             'px-3 py-2',
             'text-sm text-[var(--text-primary)]',
             'placeholder:text-[var(--text-tertiary)] placeholder:font-light',

@@ -266,7 +266,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             }
 
         except Exception as e:
-            logger.error(f"Error in job_retrieval_semantic: {e}")
+            logger.exception(f"Error in job_retrieval_semantic: {e}")
             return {"success": False, "error": str(e)}
 
     # -----------------------------------------------------------------
@@ -320,7 +320,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             }
 
         except Exception as e:
-            logger.error(f"Error in job_retrieval_by_id: {e}")
+            logger.exception(f"Error in job_retrieval_by_id: {e}")
             return {"success": False, "error": str(e)}
 
     # -----------------------------------------------------------------
@@ -391,7 +391,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             }
 
         except Exception as e:
-            logger.error(f"Error in job_retrieval_by_keywords: {e}")
+            logger.exception(f"Error in job_retrieval_by_keywords: {e}")
             return {"success": False, "error": str(e)}
 
     # -----------------------------------------------------------------
@@ -618,7 +618,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             return await service.update_job(job_id=job_id, updates=updates, agent_id=agent_id)
 
         except Exception as e:
-            logger.error(f"Error in job_update: {e}")
+            logger.exception(f"Error in job_update: {e}")
             return {"success": False, "error": str(e)}
 
     # -----------------------------------------------------------------
@@ -670,7 +670,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             }
 
         except Exception as e:
-            logger.error(f"Error in job_pause: {e}")
+            logger.exception(f"Error in job_pause: {e}")
             return {"success": False, "error": str(e)}
 
     # -----------------------------------------------------------------
@@ -733,7 +733,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
                             job_ids=[job_id]
                         )
                     except Exception as e:
-                        logger.error(f"Failed to remove job {job_id} from entity {job.related_entity_id}: {e}")
+                        logger.exception(f"Failed to remove job {job_id} from entity {job.related_entity_id}: {e}")
 
             return {
                 "success": updated_rows > 0,
@@ -743,7 +743,7 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             }
 
         except Exception as e:
-            logger.error(f"Error in job_cancel: {e}")
+            logger.exception(f"Error in job_cancel: {e}")
             return {"success": False, "error": str(e)}
 
     return mcp

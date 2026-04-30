@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, Any, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ExecutionPath, PathExecutionResult
 
@@ -21,6 +22,8 @@ from .step_3_direct_trigger import step_3_direct_trigger
 if TYPE_CHECKING:
     from .context import RunContext
 
+
+@timed("step.3_execute_path")
 
 async def step_3_execute_path(
     ctx: "RunContext",
@@ -79,4 +82,4 @@ async def step_3_execute_path(
     # Ensure execution_result is not empty
     assert ctx.execution_result is not None, "Execution result is not found"
 
-    logger.info(f"✅ Step 3 completed: execution_type={execution_type.value}")
+    logger.info(f"Step 3 completed: execution_type={execution_type.value}")

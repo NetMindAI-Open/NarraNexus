@@ -178,7 +178,7 @@ async def get_db_client() -> "AsyncDatabaseClient":
 
         client = await _build_client_for_current_loop()
         _clients_by_loop[loop_id] = client
-        logger.success(
+        logger.info(
             f"AsyncDatabaseClient created for loop id={loop_id} "
             f"(active loops: {len(_clients_by_loop)})"
         )
@@ -285,7 +285,7 @@ def get_db_client_sync() -> "AsyncDatabaseClient":
     logger.info("Creating AsyncDatabaseClient instance (sync bootstrap)")
     client = asyncio.run(AsyncDatabaseClient.create())
     _clients_by_loop[SYNC_KEY] = client
-    logger.success("AsyncDatabaseClient created (sync bootstrap)")
+    logger.info("AsyncDatabaseClient created (sync bootstrap)")
     return client
 
 

@@ -1,33 +1,37 @@
 /**
  * @file_name: AttentionBanners.tsx
- * @description: v2.1 — per-card banners (error / warning / info) stacked
+ * @description: v2.3 — per-card banners (error / warning / info) stacked
  * above the main card content. Surfaces failed/blocked/paused jobs without
  * forcing the user to read the queue bar.
+ *
+ * v2.3: emoji replaced with lucide icons for consistent stroke + sizing.
  *
  * v2.1.1: dismissible. User clicks [×] → banner is hidden in sessionStorage
  * keyed by `${agentId}:banner:${kind}:${signature}`. Signature includes the
  * `message` (which carries the count), so when the underlying count changes
  * (e.g. another job fails: "1 failed" → "2 failed") the new banner re-shows.
- * When the user clears all failures (count → 0) the banner is naturally
- * removed by the backend; sessionStorage entries become inert.
  */
 import type { AttentionBanner } from '@/types';
 import { useExpanded, bannerKey } from './expandState';
+import { AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 
-const LEVEL_STYLE: Record<AttentionBanner['level'], { wrap: string; icon: string; accent: string }> = {
+const LEVEL_STYLE: Record<
+  AttentionBanner['level'],
+  { wrap: string; Icon: typeof AlertCircle; accent: string }
+> = {
   error: {
-    wrap: 'border-[var(--color-red-500)] bg-[var(--color-red-500)]/10',
-    icon: '🔴',
+    wrap: 'border-[var(--color-red-500)]/60 bg-[var(--color-red-500)]/8',
+    Icon: AlertCircle,
     accent: 'text-[var(--color-red-500)]',
   },
   warning: {
-    wrap: 'border-[var(--color-yellow-500)] bg-[var(--color-yellow-500)]/10',
-    icon: '🟠',
+    wrap: 'border-[var(--color-yellow-500)]/60 bg-[var(--color-yellow-500)]/8',
+    Icon: AlertTriangle,
     accent: 'text-[var(--color-yellow-500)]',
   },
   info: {
-    wrap: 'border-sky-500/40 bg-sky-500/10',
-    icon: 'ℹ️',
+    wrap: 'border-sky-500/40 bg-sky-500/8',
+    Icon: Info,
     accent: 'text-sky-600 dark:text-sky-400',
   },
 };
@@ -50,30 +54,29 @@ export function AttentionBanners({
 }
 
 function BannerRow({ agentId, banner }: { agentId: string; banner: AttentionBanner }) {
-  // Signature embeds the message (which contains the live count). When the
-  // underlying count changes the signature changes → banner re-appears.
-  // v2.1.2: keep the key format in sync with `bannerKey()` so AgentCard can
-  // derive rail dimming from the same storage entries.
   const key = bannerKey(agentId, banner.kind, banner.message);
-  // useExpanded stores `true` when expanded. We invert to "dismissed".
   const { expanded: dismissed, set } = useExpanded(key, false);
   if (dismissed) return null;
   const s = LEVEL_STYLE[banner.level];
+  const Icon = s.Icon;
   return (
     <div
       data-testid={`banner-${banner.kind}`}
-      className={`flex items-center gap-2 rounded-md border px-2 py-1 text-xs ${s.wrap}`}
+      className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs ${s.wrap}`}
     >
-      <span aria-hidden>{s.icon}</span>
-      <span className={`flex-1 ${s.accent}`}>{banner.message}</span>
+      <Icon className={`w-3.5 h-3.5 shrink-0 ${s.accent}`} aria-hidden />
+      <span className={`flex-1 leading-snug ${s.accent}`}>{banner.message}</span>
       <button
         type="button"
-        onClick={(e) => { e.stopPropagation(); set(true); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          set(true);
+        }}
         aria-label="Dismiss banner"
         title="Dismiss (re-appears if state changes)"
-        className={`shrink-0 rounded px-1 hover:bg-black/10 dark:hover:bg-white/10 ${s.accent}`}
+        className={`shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${s.accent}`}
       >
-        ×
+        <X className="w-3 h-3" aria-hidden />
       </button>
     </div>
   );

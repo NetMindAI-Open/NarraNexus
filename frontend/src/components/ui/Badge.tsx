@@ -28,7 +28,7 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
           variant === 'default' && [
             'bg-transparent',
             'text-[var(--text-secondary)]',
-            'border border-[var(--rule)]',
+            'border border-[var(--border-subtle)]',
           ],
           variant === 'accent' && [
             'bg-[var(--text-primary)]',

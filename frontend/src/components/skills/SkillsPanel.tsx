@@ -24,7 +24,7 @@ import {
   KeyRound,
   CircleAlert,
 } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, useConfirm } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, ScrollArea, useConfirm } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
@@ -296,7 +296,7 @@ export function SkillsPanel() {
         </label>
       </div>
 
-      <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+      <CardContent className="flex-1 overflow-hidden min-h-0">
         {error ? (
           <div className="h-full flex items-center justify-center px-8 py-12">
             <div className="text-center">
@@ -328,7 +328,8 @@ export function SkillsPanel() {
             </div>
           </div>
         ) : (
-          <div className="h-full overflow-y-auto space-y-2 py-2">
+          <ScrollArea className="h-full" viewportClassName="py-2">
+            <div className="space-y-2">
             {skills.map((skill: SkillInfo) => (
               <SkillCard
                 key={skill.name}
@@ -342,7 +343,8 @@ export function SkillsPanel() {
                 isStudying={activeStudying === skill.name}
               />
             ))}
-          </div>
+            </div>
+          </ScrollArea>
         )}
       </CardContent>
 

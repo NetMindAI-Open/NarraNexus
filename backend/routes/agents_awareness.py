@@ -65,7 +65,7 @@ async def get_agent_awareness(agent_id: str):
     Queries data from instance_awareness table (via AwarenessModule's instance_id).
     Creates an AwarenessModule instance automatically if none exists.
     """
-    logger.info(f"Getting awareness for agent: {agent_id}")
+    logger.debug(f"Getting awareness for agent: {agent_id}")
 
     try:
         db_client = await get_db_client()
@@ -90,7 +90,7 @@ async def get_agent_awareness(agent_id: str):
             )
 
     except Exception as e:
-        logger.error(f"Error getting awareness: {e}")
+        logger.exception(f"Error getting awareness: {e}")
         return AwarenessResponse(success=False, error=str(e))
 
 
@@ -135,7 +135,7 @@ async def update_agent_awareness(agent_id: str, request: AwarenessUpdateRequest)
             return AwarenessResponse(success=False, error="Failed to update awareness")
 
     except Exception as e:
-        logger.error(f"Error updating awareness: {e}")
+        logger.exception(f"Error updating awareness: {e}")
         import traceback
-        logger.error(traceback.format_exc())
+        logger.exception(traceback.format_exc())
         return AwarenessResponse(success=False, error=str(e))

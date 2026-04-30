@@ -20,10 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from loguru import logger
 
-# Configure loguru stderr level from LOG_LEVEL env var (default: INFO)
-logger.remove()
-logger.add(sys.stderr, level=os.environ.get("LOG_LEVEL", "INFO").upper())
-
+from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
 from backend.config import settings
 from backend.auth import _is_cloud_mode
@@ -91,6 +88,7 @@ async def lifespan(app: FastAPI):
     - Shutdown: Close database connections
     """
     # Startup
+    setup_logging("backend")
     logger.info("Starting FastAPI application...")
 
     # Dashboard v2 TDR-12: fail-fast if local mode is not bound to loopback
@@ -161,6 +159,11 @@ async def lifespan(app: FastAPI):
     await close_db_client()
     logger.info("Database connections closed")
 
+    # Flush any enqueue=True records still in the multiprocessing queue
+    # before the interpreter exits — otherwise the last few lines (the
+    # ones describing the actual shutdown) get dropped.
+    await logger.complete()
+
 
 # Create FastAPI application
 app = FastAPI(
@@ -178,9 +181,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# JWT auth middleware (only enforced in cloud/MySQL mode)
+# Middleware order is LIFO when registered via decorator/explicit call:
+# the LAST registration runs FIRST per request. We want access_log to
+# wrap auth (so 401/402 responses still produce an access line) — so
+# auth is registered first, then access_log wraps it. (CORSMiddleware
+# was added via add_middleware above and runs at a different stage.)
 from backend.auth import auth_middleware
+from backend.middleware.access_log import access_log_middleware
 app.middleware("http")(auth_middleware)
+app.middleware("http")(access_log_middleware)
 
 
 # Import and include routers
@@ -195,6 +204,7 @@ from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
 from backend.routes.quota import router as quota_router
 from backend.routes.admin_quota import router as admin_quota_router
+from backend.routes.admin_logs import router as admin_logs_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -207,6 +217,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(quota_router, tags=["Quota"])
 app.include_router(admin_quota_router, tags=["AdminQuota"])
+app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
 
 
 @app.get("/health")

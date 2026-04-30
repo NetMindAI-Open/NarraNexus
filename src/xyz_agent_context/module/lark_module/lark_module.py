@@ -366,7 +366,7 @@ class LarkModule(XYZBaseModule):
             logger.info(f"LarkModule MCP server created on port {LARK_MCP_PORT}")
             return mcp
         except Exception as e:
-            logger.error(f"Failed to create LarkModule MCP server: {e}")
+            logger.exception(f"Failed to create LarkModule MCP server: {e}")
             return None
 
     # =========================================================================

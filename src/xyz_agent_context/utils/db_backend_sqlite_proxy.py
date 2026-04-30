@@ -74,7 +74,7 @@ class SQLiteProxyBackend(DatabaseBackend):
             try:
                 resp = await self._client.get("/health")
                 if resp.status_code == 200:
-                    logger.success(f"Connected to SQLite Proxy at {self._proxy_url}")
+                    logger.info(f"Connected to SQLite Proxy at {self._proxy_url}")
                     return
             except (httpx.ConnectError, httpx.ReadError):
                 pass

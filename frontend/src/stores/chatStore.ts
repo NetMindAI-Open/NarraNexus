@@ -95,7 +95,11 @@ interface ChatState {
 
   // Actions (all accept agentId)
   setActiveAgent: (agentId: string) => void;
-  addUserMessage: (agentId: string, content: string) => string;
+  addUserMessage: (
+    agentId: string,
+    content: string,
+    attachments?: import('@/types').Attachment[],
+  ) => string;
   startStreaming: (agentId: string) => void;
   stopStreaming: (agentId: string, agentName?: string) => void;
   processMessage: (agentId: string, message: RuntimeMessage) => void;
@@ -190,13 +194,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
     },
 
     // Add user message to a specific agent's session
-    addUserMessage: (agentId: string, content: string) => {
+    addUserMessage: (
+      agentId: string,
+      content: string,
+      attachments?: import('@/types').Attachment[],
+    ) => {
       const id = generateId();
       const message: ChatMessage = {
         id,
         role: 'user',
         content,
         timestamp: Date.now(),
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
       };
       set((state) => ({
         agentSessions: updateSession(state.agentSessions, agentId, (s) => ({

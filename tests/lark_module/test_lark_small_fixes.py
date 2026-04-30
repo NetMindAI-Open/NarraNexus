@@ -1,12 +1,16 @@
 """
 @file_name: test_lark_small_fixes.py
 @author: Bin Liang
-@date: 2026-04-21
-@description: Phase 3 — small fixes (M-9 / L-12 / L-13).
+@date: 2026-04-21 (M-9 / L-12 / L-13); 2026-04-28 (M-9 rewritten for H-6)
+@description: Phase 3 small-fix tests.
 
-  - M-9: the global `lark_oapi.ws.client.loop` patch in `_subscribe_loop`
-    is now serialised via a threading.Lock so two concurrent
-    reconnects cannot stomp on each other.
+  - M-9 / H-6: the global `lark_oapi.ws.client.loop` was originally
+    serialised across concurrent reconnects via a module-level
+    `_WS_LOOP_PATCH_LOCK` (M-9). H-6 (2026-04-27) replaced that lock
+    with a `_ThreadLocalLoopProxy` installed on the SDK module so
+    every Client method resolves the loop attribute against the
+    calling thread's own asyncio loop. The test now verifies the
+    proxy is installed and that re-installing is a no-op.
   - L-12: `_sanitize_display_name` strips control characters and
     collapses newlines so a malicious Lark nickname can't smuggle
     prompt-injection bait through the channel tag.
@@ -17,25 +21,35 @@
 """
 from __future__ import annotations
 
-import threading
-
 from xyz_agent_context.module.lark_module.lark_trigger import (
     LarkTrigger,
-    _WS_LOOP_PATCH_LOCK,
+    _ThreadLocalLoopProxy,
+    _install_lark_oapi_loop_proxy,
 )
 
 
-# --- M-9 ------------------------------------------------------------------
+# --- M-9 / H-6 ------------------------------------------------------------
 
-def test_ws_loop_patch_lock_is_a_threading_lock():
-    """Module-level lock exists so _subscribe_loop can serialise the
-    lark_oapi.ws.client.loop mutation across concurrent reconnects."""
-    # Attempt to acquire / release — proves it behaves like a Lock
-    assert _WS_LOOP_PATCH_LOCK.acquire(blocking=False)
-    _WS_LOOP_PATCH_LOCK.release()
-    # Class check tolerates both _thread.lock and threading.Lock wrappers
-    assert hasattr(_WS_LOOP_PATCH_LOCK, "acquire")
-    assert hasattr(_WS_LOOP_PATCH_LOCK, "release")
+def test_lark_oapi_loop_is_thread_local_proxy():
+    """The SDK's module-level `loop` must be replaced by our proxy so
+    each Client thread resolves its own asyncio loop."""
+    import lark_oapi.ws.client as ws_client_mod
+
+    assert isinstance(ws_client_mod.loop, _ThreadLocalLoopProxy), (
+        "lark_oapi.ws.client.loop should be a _ThreadLocalLoopProxy "
+        "(installed at module import time by lark_trigger.py)"
+    )
+
+
+def test_install_proxy_is_idempotent():
+    """Re-installing must not stack proxies / reset state — protects
+    against accidental duplicate installs during test reload."""
+    import lark_oapi.ws.client as ws_client_mod
+
+    first = ws_client_mod.loop
+    _install_lark_oapi_loop_proxy()
+    _install_lark_oapi_loop_proxy()
+    assert ws_client_mod.loop is first
 
 
 # --- L-12 -----------------------------------------------------------------

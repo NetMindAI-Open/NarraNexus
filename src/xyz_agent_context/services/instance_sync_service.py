@@ -114,7 +114,7 @@ class InstanceSyncService:
         # Step 4: Set initial status (set to blocked if there are dependencies)
         self._set_initial_status(instances)
 
-        logger.success(f"InstanceSyncService: Processing complete, mapping={key_to_id}")
+        logger.info(f"InstanceSyncService: Processing complete, mapping={key_to_id}")
         return instances, key_to_id
 
     async def create_jobs_for_instances(
@@ -332,7 +332,7 @@ class InstanceSyncService:
                         )
 
             except Exception as e:
-                logger.error(f"  Failed to create Job: {e}")
+                logger.exception(f"  Failed to create Job: {e}")
 
         return created_job_ids
 
@@ -656,7 +656,7 @@ class InstanceSyncService:
             logger.info(f"  Synced Job {job_id} to Entity {entity_id}'s related_job_ids")
 
         except Exception as e:
-            logger.error(f"  Failed to sync Job to Entity: {e}")
+            logger.exception(f"  Failed to sync Job to Entity: {e}")
             import traceback
             traceback.print_exc()
             # Do not raise exception, allow Job creation to succeed even if sync fails
@@ -711,9 +711,9 @@ class InstanceSyncService:
             # Save updates
             await narrative_repo.save(narrative)
             logger.info(
-                f"  ✅ Added PARTICIPANT {participant_id} to Narrative {narrative_id}"
+                f"Added PARTICIPANT {participant_id} to Narrative {narrative_id}"
             )
 
         except Exception as e:
-            logger.error(f"  ❌ Failed to add participant to narrative: {e}")
+            logger.exception(f"Failed to add participant to narrative: {e}")
             # Do not raise exception, allow Job creation to succeed even if PARTICIPANT addition fails

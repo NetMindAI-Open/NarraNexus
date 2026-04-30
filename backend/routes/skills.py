@@ -237,8 +237,8 @@ async def _run_skill_study(
             logger.warning(f"Skill study for '{skill_name}': agent did not call skill_save_study_summary")
 
     except Exception as e:
-        logger.error(f"Skill study failed for '{skill_name}': {e}")
-        logger.error(traceback.format_exc())
+        logger.exception(f"Skill study failed for '{skill_name}': {e}")
+        logger.exception(traceback.format_exc())
         skill_module.set_study_status(skill_name, "failed", error=str(e))
 
 
@@ -262,7 +262,7 @@ async def list_skills(
         return SkillListResponse(skills=skills, total=len(skills))
 
     except Exception as e:
-        logger.error(f"Failed to list skills: {e}")
+        logger.exception(f"Failed to list skills: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -334,7 +334,7 @@ async def install_skill(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to install skill: {e}")
+        logger.exception(f"Failed to install skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -362,7 +362,7 @@ async def remove_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to remove skill: {e}")
+        logger.exception(f"Failed to remove skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -393,7 +393,7 @@ async def disable_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to disable skill: {e}")
+        logger.exception(f"Failed to disable skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -424,7 +424,7 @@ async def enable_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to enable skill: {e}")
+        logger.exception(f"Failed to enable skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -486,7 +486,7 @@ async def study_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to start skill study: {e}")
+        logger.exception(f"Failed to start skill study: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -508,7 +508,7 @@ async def get_study_status(
         )
 
     except Exception as e:
-        logger.error(f"Failed to get study status: {e}")
+        logger.exception(f"Failed to get study status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -543,7 +543,7 @@ async def get_skill_env(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get skill env config: {e}")
+        logger.exception(f"Failed to get skill env config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -582,7 +582,7 @@ async def set_skill_env(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to set skill env config: {e}")
+        logger.exception(f"Failed to set skill env config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -607,5 +607,5 @@ async def get_skill(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get skill: {e}")
+        logger.exception(f"Failed to get skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))

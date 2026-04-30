@@ -163,7 +163,7 @@ def register(mcp: FastMCP) -> None:
         try:
             bundles = await _web_search_with_retry(queries, max_results_per_query)
         except RuntimeError as e:
-            logger.error(f"CommonToolsMCP: web_search gave up: {e}")
+            logger.exception(f"CommonToolsMCP: web_search gave up: {e}")
             return f"web_search failed: {e}"
 
         logger.info(

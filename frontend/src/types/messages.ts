@@ -91,6 +91,23 @@ export type RuntimeMessage =
   | HeartbeatMessage
   | CancelledMessage;
 
+// Attachment metadata (mirrors backend xyz_agent_context.schema.Attachment)
+export type AttachmentCategory =
+  | 'image'
+  | 'document'
+  | 'code'
+  | 'data'
+  | 'media'
+  | 'other';
+
+export interface Attachment {
+  file_id: string;
+  mime_type: string;
+  original_name: string;
+  size_bytes: number;
+  category: AttachmentCategory;
+}
+
 // Chat message for display
 export interface ChatMessage {
   id: string;
@@ -101,6 +118,7 @@ export interface ChatMessage {
   toolCalls?: AgentToolCall[];
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
+  attachments?: Attachment[];  // User-uploaded files referenced by this message
 }
 
 // Step for display in StepsPanel

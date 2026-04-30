@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import AsyncGenerator, List, Set, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
     from xyz_agent_context.narrative import NarrativeService, NarrativeMarkdownManager
     from xyz_agent_context.schema.module_schema import ModuleInstance
 
+
+@timed("step.2_5_sync_instances")
 
 async def step_2_5_sync_instances(
     ctx: "RunContext",
@@ -64,8 +67,6 @@ async def step_2_5_sync_instances(
     # 2.5.1 Update Markdown
     # =========================================================================
     if main_narrative and hasattr(load_result, 'active_instances') and load_result.active_instances:
-        logger.info("📝 Step 2.5.1: Updating Markdown with Instances")
-
         await markdown_manager.update_instances(
             narrative=main_narrative,
             instances=load_result.active_instances,
@@ -74,7 +75,7 @@ async def step_2_5_sync_instances(
         )
 
         ctx.substeps_2_5.append("[2.5.1] ✓ Markdown updated")
-        logger.success("✅ Markdown updated")
+        logger.debug("markdown updated")
     else:
         ctx.substeps_2_5.append("[2.5.1] ✖ No Narrative, skipping Markdown update")
 
@@ -91,8 +92,6 @@ async def step_2_5_sync_instances(
             substeps=ctx.substeps_2_5
         )
         return
-
-    logger.info("💾 Step 2.5.2: Syncing Instances to database")
 
     # Get database client and Repository
     from xyz_agent_context.utils.db_factory import get_db_client
@@ -257,8 +256,8 @@ async def step_2_5_sync_instances(
     # Save Narrative
     await narrative_service.save_narrative_to_db(main_narrative)
 
-    logger.success(
-        f"✅ Instance sync complete: +{len(added_ids)} -{len(removed_ids)} ~{updated_count}, "
+    logger.info(
+        f"Instance sync complete: +{len(added_ids)} -{len(removed_ids)} ~{updated_count}, "
         f"total {len(new_instances)}"
     )
 
@@ -270,25 +269,22 @@ async def step_2_5_sync_instances(
     # Check if raw_instances exist
     has_raw_instances = hasattr(load_result, 'raw_instances')
     raw_instances_count = len(load_result.raw_instances) if has_raw_instances else 0
-    logger.info(
-        f"📋 Step 2.5.3: Checking raw_instances - "
-        f"has_attr={has_raw_instances}, count={raw_instances_count}"
+    logger.debug(
+        f"step_2_5.3 raw_instances has_attr={has_raw_instances} count={raw_instances_count}"
     )
 
     if has_raw_instances and load_result.raw_instances:
         # Only create Jobs for newly added JobModule Instances
         from xyz_agent_context.services import InstanceSyncService
 
-        # Debug logs (using INFO level to ensure visibility)
-        logger.info("📋 Step 2.5.3: Checking Job creation conditions")
-        logger.info(f"  - added_ids = {added_ids}")
-        logger.info(f"  - key_to_id = {load_result.key_to_id}")
-        logger.info(f"  - raw_instances count = {len(load_result.raw_instances)}")
+        logger.debug(f"step_2_5 added_ids={added_ids}")
+        logger.debug(f"step_2_5 key_to_id={load_result.key_to_id}")
+        logger.debug(f"step_2_5 raw_instances_count={len(load_result.raw_instances)}")
 
         for inst in load_result.raw_instances:
-            logger.info(
-                f"  - Instance: module_class={inst.module_class}, "
-                f"task_key='{inst.task_key}', instance_id='{inst.instance_id}'"
+            logger.debug(
+                f"step_2_5 instance module_class={inst.module_class} "
+                f"task_key='{inst.task_key}' instance_id='{inst.instance_id}'"
             )
             if inst.module_class == "JobModule":
                 resolved_id = load_result.key_to_id.get(inst.task_key, inst.instance_id)
@@ -300,9 +296,9 @@ async def step_2_5_sync_instances(
                         "cron": getattr(inst.job_config, 'cron', None),
                         "payload": inst.job_config.payload[:50] if inst.job_config.payload else None
                     }
-                logger.info(
-                    f"    📌 JobModule details: resolved_id={resolved_id}, "
-                    f"in_added_ids={resolved_id in added_ids}, "
+                logger.debug(
+                    f"step_2_5 JobModule details resolved_id={resolved_id} "
+                    f"in_added_ids={resolved_id in added_ids} "
                     f"job_config={job_config_info}"
                 )
 
@@ -313,10 +309,9 @@ async def step_2_5_sync_instances(
             and load_result.key_to_id.get(inst.task_key, inst.instance_id) in added_ids
         ]
 
-        logger.info(f"  - Qualifying JobModule count = {len(job_instances)}")
+        logger.debug(f"step_2_5 qualifying_jobmodule_count={len(job_instances)}")
 
         if job_instances:
-            logger.info(f"📋 Step 2.5.3: Creating Job records for {len(job_instances)} JobModules")
             sync_service = InstanceSyncService(db_client)
             created_job_ids = await sync_service.create_jobs_for_instances(
                 instances=job_instances,
@@ -327,7 +322,7 @@ async def step_2_5_sync_instances(
             )
             if created_job_ids:
                 ctx.substeps_2_5.append(f"[2.5.3] ✓ Created {len(created_job_ids)} Job records")
-                logger.success(f"✅ Created {len(created_job_ids)} Job records: {created_job_ids}")
+                logger.info(f"Created {len(created_job_ids)} Job records: {created_job_ids}")
                 # Save to RunContext for subsequent Context Runtime use
                 ctx.created_job_ids = created_job_ids
 

@@ -15,6 +15,14 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
 from mcp import types
 
+from xyz_agent_context.utils.logging import redact, timed
+
+
+# Max chars from a tool's stringified args / result that we put into a
+# log line. Larger payloads are summarised by length only — the full
+# bodies belong in TRACE / DEBUG, not INFO.
+_PREVIEW_LIMIT = 200
+
 
 def _get_mcp_client(mcp_server_url: str):
     """
@@ -67,42 +75,69 @@ async def mcp_tool_executor(mcp_server_url: str, mcp_tool_name: str, args: dict)
         ValueError: When the tool name does not exist or URL scheme is unsupported
         ConnectionError: When unable to connect to the MCP server
     """
-    # 1. Select appropriate transport method based on URL
-    client_context = _get_mcp_client(mcp_server_url)
+    # Pre-call observability: full args body at DEBUG (with redaction),
+    # one-line summary at INFO. The summary is what an operator scanning
+    # the log file will see by default; the body is only there when DEBUG
+    # is active.
+    safe_args = redact(args) if isinstance(args, dict) else args
+    args_repr = repr(safe_args)
+    logger.info(
+        "mcp.call tool={tool} url={url} args_size={size}",
+        tool=mcp_tool_name,
+        url=mcp_server_url,
+        size=len(args_repr),
+    )
+    # The args body is at DEBUG; loguru itself filters on sink level so
+    # the `repr` cost is acceptable but the redacted full text only ever
+    # reaches a sink configured to accept DEBUG.
+    logger.debug(
+        "mcp.call.args tool={tool} args={args_preview}",
+        tool=mcp_tool_name,
+        args_preview=args_repr[:_PREVIEW_LIMIT],
+    )
 
-    # 2. Connect to MCP server and execute tool
-    async with client_context as (read_stream, write_stream, *_):
-        async with ClientSession(read_stream, write_stream) as session:
-            # Initialize connection
-            await session.initialize()
+    with timed(f"mcp.{mcp_tool_name}", slow_threshold_ms=2000):
+        client_context = _get_mcp_client(mcp_server_url)
+        async with client_context as (read_stream, write_stream, *_):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
 
-            # 3. Get available tools list and verify tool exists
-            tools_response = await session.list_tools()
-            available_tools = {tool.name: tool for tool in tools_response.tools}
+                tools_response = await session.list_tools()
+                available_tools = {tool.name: tool for tool in tools_response.tools}
 
-            if mcp_tool_name not in available_tools:
-                available_names = list(available_tools.keys())
-                raise ValueError(
-                    f"Tool '{mcp_tool_name}' does not exist. Available tools: {available_names}"
-                )
+                if mcp_tool_name not in available_tools:
+                    available_names = list(available_tools.keys())
+                    raise ValueError(
+                        f"Tool '{mcp_tool_name}' does not exist. "
+                        f"Available tools: {available_names}"
+                    )
 
-            # 4. Call the specified tool
-            result = await session.call_tool(mcp_tool_name, arguments=args)
+                result = await session.call_tool(mcp_tool_name, arguments=args)
 
-            # 5. Parse and return results
-            if result.content:
-                # Extract text content
-                text_parts = []
-                for content_block in result.content:
-                    if isinstance(content_block, types.TextContent):
-                        text_parts.append(content_block.text)
-                    elif isinstance(content_block, types.ImageContent):
-                        text_parts.append(f"[Image: {content_block.mimeType}]")
-                    elif isinstance(content_block, types.EmbeddedResource):
-                        text_parts.append(f"[Embedded resource: {content_block.resource}]")
-                return "\n".join(text_parts) if text_parts else ""
+                if result.content:
+                    text_parts: list[str] = []
+                    for content_block in result.content:
+                        if isinstance(content_block, types.TextContent):
+                            text_parts.append(content_block.text)
+                        elif isinstance(content_block, types.ImageContent):
+                            text_parts.append(f"[Image: {content_block.mimeType}]")
+                        elif isinstance(content_block, types.EmbeddedResource):
+                            text_parts.append(
+                                f"[Embedded resource: {content_block.resource}]"
+                            )
+                    payload = "\n".join(text_parts) if text_parts else ""
+                    logger.debug(
+                        "mcp.call.result tool={tool} result_size={size} preview={preview}",
+                        tool=mcp_tool_name,
+                        size=len(payload),
+                        preview=payload[:_PREVIEW_LIMIT],
+                    )
+                    return payload
 
-            return result
+                # Fallback: non-content result; preserve old behavior of
+                # returning the raw result object so existing callers do
+                # not break.
+                return result  # type: ignore[return-value]
 
 
 async def list_mcp_tools(mcp_server_url: str) -> list[dict]:

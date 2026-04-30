@@ -330,11 +330,13 @@ export function AgentList({ collapsed }: AgentListProps) {
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
                   'w-full text-left p-3 transition-colors duration-150 cursor-pointer',
-                  'group relative border border-transparent',
-                  'animate-slide-up',
+                  'group relative animate-slide-up',
+                  /* Selected state expressed by left rail + bg shift only.
+                     No extra 1px border — that doubled the visual weight
+                     against neighbouring (non-selected) cards. */
                   isSelected
-                    ? 'bg-[var(--bg-elevated)] border-[var(--rule)]'
-                    : 'hover:bg-[var(--bg-secondary)]'
+                    ? 'bg-[var(--bg-elevated)]'
+                    : 'hover:bg-[var(--bg-elevated)]'
                 )}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
@@ -347,9 +349,10 @@ export function AgentList({ collapsed }: AgentListProps) {
                   <div
                     className={cn(
                       'w-10 h-10 flex items-center justify-center shrink-0 transition-colors duration-150 relative border',
-                      isSelected
-                        ? 'bg-[var(--bg-tertiary)] border-[var(--border-strong)]'
-                        : 'bg-[var(--bg-tertiary)] border-[var(--rule)] group-hover:border-[var(--border-strong)]'
+                      /* Avatar chip border stays at the same weight in all states.
+                         The chip itself doesn't need to signal selection — the
+                         parent row's left rail + bg shift already does that. */
+                      'bg-[var(--bg-tertiary)] border-[var(--border-subtle)]'
                     )}
                   >
                     {renderAgentStatusIcon(agent.agent_id, isSelected)}

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 from xyz_agent_context.narrative import EventLogEntry
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
         SessionService,
     )
 
+
+@timed("step.4_persist_results")
 
 async def step_4_persist_results(
     ctx: "RunContext",
@@ -86,8 +89,6 @@ async def step_4_persist_results(
     # =========================================================================
     # 4.1 Record Trajectory
     # =========================================================================
-    logger.info("📊 Step 4.1: Recording Trajectory")
-
     # Round counter increment
     main_narrative.round_counter += 1
     current_round = main_narrative.round_counter
@@ -138,13 +139,11 @@ async def step_4_persist_results(
     )
 
     ctx.substeps_4.append(f"[4.1] ✓ Trajectory recorded (Round {current_round})")
-    logger.success(f"✅ Trajectory recorded: Round {current_round}")
+    logger.info(f"Trajectory recorded: Round {current_round}")
 
     # =========================================================================
     # 4.2 Update Markdown statistics
     # =========================================================================
-    logger.info("📊 Step 4.2: Updating Markdown Statistics")
-
     # Calculate statistics
     total_rounds = main_narrative.round_counter
     total_toolcalls = sum(
@@ -194,13 +193,11 @@ async def step_4_persist_results(
     )
 
     ctx.substeps_4.append("[4.2] ✓ Markdown statistics updated")
-    logger.success("✅ Markdown statistics updated")
+    logger.debug("markdown statistics updated")
 
     # =========================================================================
     # 4.3 Update Event
     # =========================================================================
-    logger.info("💾 Step 4.3: Updating Event in database")
-
     # Build event log entries
     event_log_entries = []
     for step in execution_result.execution_steps:
@@ -225,13 +222,11 @@ async def step_4_persist_results(
     ctx.event.final_output = execution_result.final_output
 
     ctx.substeps_4.append(f"[4.3] ✓ Event updated: {ctx.event.id}")
-    logger.success(f"✅ Event updated: event_id={ctx.event.id}")
+    logger.info(f"Event updated: event_id={ctx.event.id}")
 
     # =========================================================================
     # 4.4 Update Narratives
     # =========================================================================
-    logger.info("💾 Step 4.4: Updating Narratives with Event")
-
     for i, narrative in enumerate(ctx.narrative_list):
         # Determine Narrative type
         is_default = narrative.is_special == "default"
@@ -244,7 +239,7 @@ async def step_4_persist_results(
         else:
             update_type = "auxiliary"
         
-        logger.info(f"    Updating Narrative[{i}] ({update_type}): id={narrative.id}")
+        logger.debug(f"updating narrative[{i}] ({update_type}) id={narrative.id}")
 
         if i == 0:
             # First Narrative: use the original Event
@@ -267,7 +262,7 @@ async def step_4_persist_results(
             is_default_narrative=is_default
         )
         ctx.substeps_4.append(f"[4.4.{i+1}] ✓ Narrative: {narrative.narrative_info.name} ({update_type})")
-        logger.success(f"    ✅ Narrative[{i}] ({update_type}) updated with event {current_event.id}")
+        logger.info(f"Narrative[{i}] ({update_type}) updated with event {current_event.id}")
 
     # =========================================================================
     # 4.5 Update Session (add last_response and persist)
@@ -280,7 +275,7 @@ async def step_4_persist_results(
         # Persist Session (including last_response)
         await session_service.save_session(ctx.session)
         ctx.substeps_4.append("[4.5] ✓ Session persisted (including last_response)")
-        logger.success(f"✅ Session persisted: {ctx.session.session_id}")
+        logger.debug(f"session persisted session_id={ctx.session.session_id}")
 
     # =========================================================================
     # 4.6 Record LLM cost (fire-and-forget, never blocks the pipeline)
@@ -324,6 +319,3 @@ async def step_4_persist_results(
         substeps=ctx.substeps_4
     )
 
-    logger.info("="*80)
-    logger.success("🎉 AgentRuntime.run() completed successfully")
-    logger.info("="*80 + "\n")

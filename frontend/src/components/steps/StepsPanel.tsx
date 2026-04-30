@@ -2,7 +2,7 @@
  * Steps Panel - Real-time execution progress
  */
 
-import { Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Badge, ScrollArea } from '@/components/ui';
 import { useChatStore } from '@/stores';
 import { StepCard } from './StepCard';
 
@@ -21,7 +21,7 @@ export function StepsPanel() {
     <Card className="flex flex-col h-full">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <span className="font-mono text-[var(--color-accent)]">//</span>
+          <span className="font-mono text-[var(--accent-primary)]">//</span>
           Execution
         </CardTitle>
         {totalCount > 0 && (
@@ -31,7 +31,9 @@ export function StepsPanel() {
         )}
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-y-auto space-y-3 min-h-0">
+      <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+        <ScrollArea className="h-full" viewportClassName="p-5">
+          <div className="space-y-3">
         {currentSteps.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-[var(--text-tertiary)] text-sm text-center">
@@ -47,6 +49,8 @@ export function StepsPanel() {
             />
           ))
         )}
+          </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   );

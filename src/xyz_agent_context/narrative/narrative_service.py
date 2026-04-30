@@ -140,11 +140,15 @@ class NarrativeService:
         """
         from .config import config
         from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
+        from xyz_agent_context.utils.logging import timed
 
         max_narratives = max_narratives or config.MAX_NARRATIVES_IN_CONTEXT
         logger.info("NarrativeService.select() started")
 
-        # Continuity detection
+        # Continuity detection — wrapped in timed() so its LLM call (and
+        # any embedding fetch the detector does internally) is visible
+        # as a discrete slice of step.1 instead of getting lumped into
+        # the "everything else" bucket.
         is_continuous = False
         continuity_reason = ""
         if session and session.last_query:
@@ -156,22 +160,24 @@ class NarrativeService:
                     if session.current_narrative_id:
                         current_narrative = await self._crud.load_by_id(session.current_narrative_id)
 
-                    result = await detector.detect(
-                        current_query=input_content,
-                        session=session,
-                        current_narrative=current_narrative,
-                        awareness=awareness
-                    )
+                    with timed("narrative.continuity_detect"):
+                        result = await detector.detect(
+                            current_query=input_content,
+                            session=session,
+                            current_narrative=current_narrative,
+                            awareness=awareness
+                        )
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous
                     continuity_reason = result.reason
             except Exception as e:
                 logger.warning(f"Continuity detection failed: {e}")
 
-        # Generate query embedding
+        # Generate query embedding for the input
         query_embedding = None
         try:
-            query_embedding = await get_embedding(input_content)
+            with timed("narrative.query_embedding"):
+                query_embedding = await get_embedding(input_content)
         except Exception:
             pass
 
@@ -193,12 +199,13 @@ class NarrativeService:
                 # Retrieve Top-K Narratives (don't exclude main Narrative, let it participate in ranking naturally)
                 if query_embedding:
                     # Retrieve Top-K+1 candidates (since main Narrative may not be in Top-K)
-                    search_results = await self._retrieval.retrieve_top_k_by_embedding(
-                        query_embedding=query_embedding,
-                        user_id=user_id,
-                        agent_id=agent_id,
-                        top_k=max_narratives + 1
-                    )
+                    with timed("narrative.retrieve_top_k_by_embedding"):
+                        search_results = await self._retrieval.retrieve_top_k_by_embedding(
+                            query_embedding=query_embedding,
+                            user_id=user_id,
+                            agent_id=agent_id,
+                            top_k=max_narratives + 1
+                        )
 
                     if search_results:
                         # Load Narratives (prioritize including main Narrative)
@@ -231,12 +238,13 @@ class NarrativeService:
 
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
-            retrieval_result = await self._retrieval.retrieve_top_k(
-                query=input_content,
-                user_id=user_id,
-                agent_id=agent_id,
-                top_k=max_narratives
-            )
+            with timed("narrative.retrieve_top_k"):
+                retrieval_result = await self._retrieval.retrieve_top_k(
+                    query=input_content,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    top_k=max_narratives
+                )
             narratives = retrieval_result.narratives
             query_embedding = retrieval_result.query_embedding
             selection_reason = retrieval_result.selection_reason

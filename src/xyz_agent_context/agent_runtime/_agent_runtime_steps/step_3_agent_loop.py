@@ -14,6 +14,7 @@ import os
 from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
 
 from loguru import logger
+from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import (
     ProgressMessage,
@@ -28,6 +29,8 @@ from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 if TYPE_CHECKING:
     from .context import RunContext
 
+
+@timed("step.3_agent_loop")
 
 async def step_3_agent_loop(
     ctx: "RunContext",
@@ -70,13 +73,10 @@ async def step_3_agent_loop(
         substeps=substeps
     )
 
-    logger.info("🚀 Step 3: Narrative Smart Agent Loop (CASE1: AGENT_LOOP)")
-
     # ------------- 3.1: Initialize ContextRuntime -------------
-    logger.info("  ⚙️  Step 3.1: Initializing ContextRuntime")
     context_runtime = ContextRuntime(ctx.agent_id, ctx.user_id, db_client)
     substeps.append("[3.1] ✓ ContextRuntime initialization complete")
-    logger.success("  ✅ ContextRuntime initialized")
+    logger.debug("ContextRuntime initialized")
 
     yield ProgressMessage(
         step="3",
@@ -87,7 +87,6 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.2: Run ContextRuntime -------------
-    logger.info("  🏃 Step 3.2: Running ContextRuntime")
     # Await EverMemOS episodes (launched in parallel at Step 0)
     relevant_episodes = await ctx.evermemos_task if hasattr(ctx, 'evermemos_task') and ctx.evermemos_task else []
     logger.info(f"  [EverMemOS-Search] Awaited: {len(relevant_episodes)} episodes ready for context")
@@ -106,7 +105,7 @@ async def step_3_agent_loop(
         f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "
         f"{len(context.mcp_urls)} MCP servers"
     )
-    logger.success("  ✅ ContextRuntime execution completed")
+    logger.debug("ContextRuntime execution completed")
 
     yield ProgressMessage(
         step="3",
@@ -117,16 +116,13 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.3: Extract messages and MCP URLs -------------
-    logger.info("  📤 Step 3.3: Extracting messages and MCP URLs")
     messages = context.messages
     ctx.mcp_urls.update(context.mcp_urls)
     substeps.append(
         f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_urls)} MCP servers"
     )
-    logger.info(f"    Messages count: {len(messages)}")
-    logger.info(f"    MCP URLs: {list(ctx.mcp_urls.keys())}")
-    logger.success("  ✅ Messages and MCP URLs extracted")
-
+    logger.debug(f"context.messages count={len(messages)}")
+    logger.debug(f"context.mcp_urls={list(ctx.mcp_urls.keys())}")
     yield ProgressMessage(
         step="3",
         title="Execute Agent Loop",
@@ -136,7 +132,6 @@ async def step_3_agent_loop(
     )
 
     # ------------- 3.4: Run Agent Loop -------------
-    logger.info("  🤖 Step 3.4: Starting Agent Loop (ClaudeAgentSDK)")
     substeps.append("[3.4] ⏳ Agent Loop running...")
 
     yield ProgressMessage(
@@ -183,7 +178,7 @@ async def step_3_agent_loop(
         # had succeeded — see Bug 8.
         error_str = str(e)
         error_type = type(e).__name__
-        logger.error(f"  ❌ Agent loop error ({error_type}): {error_str}")
+        logger.exception(f"Agent loop error ({error_type}): {error_str}")
         error_msg = ErrorMessage(
             error_message=f"Agent execution error: {error_str}",
             error_type=error_type,
@@ -199,8 +194,8 @@ async def step_3_agent_loop(
         f"[3.4] ✓ Agent Loop complete: {state.response_count} responses, "
         f"{len(state.final_output)} chars output"
     )
-    logger.success(f"  ✅ Agent Loop completed: {state.response_count} responses received")
-    logger.info(f"    Final output length: {len(state.final_output)} characters")
+    logger.info(f"Agent Loop completed: {state.response_count} responses received")
+    logger.debug(f"agent_loop.final_output_chars={len(state.final_output)}")
 
     # ------------- 3.5: Agent's final thinking for this round -------------
     final_output_preview = (
@@ -234,8 +229,6 @@ async def step_3_agent_loop(
         },
         substeps=substeps
     )
-
-    logger.success("✅ Step 3: Narrative Smart Agent Loop completed")
 
     # Return unified execution result
     yield PathExecutionResult(

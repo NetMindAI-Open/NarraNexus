@@ -268,7 +268,7 @@ class NarrativeUpdater:
             if update_output:
                 # Apply updates
                 await self._apply_llm_update(narrative, update_output, event)
-                logger.success(f"LLM Narrative update completed: {narrative.id}")
+                logger.info(f"LLM Narrative update completed: {narrative.id}")
 
                 # After LLM update, trigger embedding update if needed
                 # At this point name + current_summary are already up to date
@@ -279,7 +279,7 @@ class NarrativeUpdater:
                 logger.warning(f"LLM update failed, skipping: {narrative.id}")
 
         except Exception as e:
-            logger.error(f"LLM Narrative update exception: {narrative.id}, error={e}")
+            logger.exception(f"LLM Narrative update exception: {narrative.id}, error={e}")
 
     async def _build_update_context(self, narrative: Narrative, event: Event) -> str:
         """Build context for LLM update"""
@@ -336,7 +336,7 @@ class NarrativeUpdater:
             return result.final_output
 
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.exception(f"LLM call failed: {e}")
             return None
 
     async def _apply_llm_update(

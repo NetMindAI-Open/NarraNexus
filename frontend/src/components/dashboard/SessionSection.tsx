@@ -131,7 +131,7 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
         <span className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {expanded && (
-        <div className="ml-7 mt-1 rounded border border-[var(--rule)] bg-[var(--bg-tertiary)] p-2 space-y-1">
+        <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1">
           {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
           {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}
           {detail !== null && (

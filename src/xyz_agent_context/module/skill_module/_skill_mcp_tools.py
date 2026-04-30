@@ -76,7 +76,7 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             return f"Successfully saved {env_key} for skill '{skill_name}'. It will be injected at runtime."
 
         except Exception as e:
-            logger.error(f"SkillMCP: Failed to save env config: {e}")
+            logger.exception(f"SkillMCP: Failed to save env config: {e}")
             return f"Failed to save config: {str(e)}"
 
     @mcp.tool()
@@ -118,7 +118,7 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             return "\n".join(lines)
 
         except Exception as e:
-            logger.error(f"SkillMCP: Failed to list required env: {e}")
+            logger.exception(f"SkillMCP: Failed to list required env: {e}")
             return f"Failed to query: {str(e)}"
 
     @mcp.tool()
@@ -162,7 +162,7 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             return f"Study summary saved for skill '{skill_name}'."
 
         except Exception as e:
-            logger.error(f"SkillMCP: Failed to save study summary: {e}")
+            logger.exception(f"SkillMCP: Failed to save study summary: {e}")
             return f"Failed to save summary: {str(e)}"
 
     return mcp

@@ -121,12 +121,12 @@ async def lifespan(app: FastAPI):
 
     _backend = SQLiteBackend(db_path)
     await _backend.initialize()
-    logger.success("SQLite backend initialized")
+    logger.info("SQLite backend initialized")
 
     # Run schema migration
     from xyz_agent_context.utils.schema_registry import auto_migrate
     await auto_migrate(_backend)
-    logger.success("Schema auto-migration complete")
+    logger.info("Schema auto-migration complete")
 
     yield
 
@@ -172,7 +172,7 @@ async def execute(req: ExecuteRequest):
         rows = await backend.execute(query, params)
         return ProxyResponse(success=True, data=_serialize_rows(rows))
     except Exception as e:
-        logger.error(f"execute error: {e}")
+        logger.exception(f"execute error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -185,7 +185,7 @@ async def execute_write(req: ExecuteRequest):
         affected = await backend.execute_write(query, params)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
-        logger.error(f"execute_write error: {e}")
+        logger.exception(f"execute_write error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -207,7 +207,7 @@ async def get(req: GetRequest):
         )
         return ProxyResponse(success=True, data=_serialize_rows(rows))
     except Exception as e:
-        logger.error(f"get error: {e}")
+        logger.exception(f"get error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -218,7 +218,7 @@ async def get_one(req: GetOneRequest):
         row = await backend.get_one(req.table, req.filters)
         return ProxyResponse(success=True, data=_serialize_row(row) if row else None)
     except Exception as e:
-        logger.error(f"get_one error: {e}")
+        logger.exception(f"get_one error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -232,7 +232,7 @@ async def get_by_ids(req: GetByIdsRequest):
             data=[_serialize_row(r) if r else None for r in rows],
         )
     except Exception as e:
-        logger.error(f"get_by_ids error: {e}")
+        logger.exception(f"get_by_ids error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -243,7 +243,7 @@ async def insert(req: InsertRequest):
         lastrowid = await backend.insert(req.table, req.data)
         return ProxyResponse(success=True, data=lastrowid)
     except Exception as e:
-        logger.error(f"insert error: {e}")
+        logger.exception(f"insert error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -254,7 +254,7 @@ async def update(req: UpdateRequest):
         affected = await backend.update(req.table, req.filters, req.data)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
-        logger.error(f"update error: {e}")
+        logger.exception(f"update error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -265,7 +265,7 @@ async def delete(req: DeleteRequest):
         affected = await backend.delete(req.table, req.filters)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
-        logger.error(f"delete error: {e}")
+        logger.exception(f"delete error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 
@@ -276,7 +276,7 @@ async def upsert(req: UpsertRequest):
         affected = await backend.upsert(req.table, req.data, req.id_field)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
-        logger.error(f"upsert error: {e}")
+        logger.exception(f"upsert error: {e}")
         return ProxyResponse(success=False, error=str(e))
 
 

@@ -192,7 +192,7 @@ class ContinuityDetector:
                 awareness=awareness
             )
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.exception(f"LLM call failed: {e}")
             return ContinuityResult(
                 is_continuous=False,
                 confidence=0.5,

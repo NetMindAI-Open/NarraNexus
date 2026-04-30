@@ -90,7 +90,7 @@ class ResponseProcessor:
         Returns:
             ProcessedResponse: Processing result
         """
-        logger.debug(f"  📨 Response[{state.response_count + 1}]: {response}")
+        logger.debug(f"Response[{state.response_count + 1}]: {response}")
 
         if not isinstance(response, dict):
             return ProcessedResponse(
@@ -161,7 +161,7 @@ class ResponseProcessor:
                     type=ResponseType.OTHER,
                     message=None
                 )
-            logger.debug(f"  💬 Text delta: {len(delta)} chars")
+            logger.debug(f"Text delta: {len(delta)} chars")
             return ProcessedResponse(
                 type=ResponseType.TEXT_DELTA,
                 message=AgentTextDelta(delta=delta),
@@ -172,7 +172,7 @@ class ResponseProcessor:
             # API error (rate limit, auth failure, quota exhaustion, etc.)
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
-            logger.error(f"  ❌ API error ({error_type}): {error_message}")
+            logger.error(f"API error ({error_type}): {error_message}")
             return ProcessedResponse(
                 type=ResponseType.ERROR,
                 message=ErrorMessage(
@@ -193,7 +193,7 @@ class ResponseProcessor:
             total_cost_usd = data.get("total_cost_usd")  # SDK-calculated cost
             stop_reason = data.get("stop_reason", "unknown")
             logger.info(
-                f"  ✅ Agent done: {stop_reason} model={model or '(sdk)'} "
+                f"Agent done: {stop_reason} model={model or '(sdk)'} "
                 f"(tokens: {input_tokens}+{output_tokens}"
                 f"{f', sdk_cost=${total_cost_usd:.6f}' if total_cost_usd else ''})"
             )
@@ -234,7 +234,7 @@ class ResponseProcessor:
             tool_call_id = item.get("tool_call_id", "")
             arguments = item.get("arguments", {})
             tool_count = state.tool_call_count + 1  # Next tool sequence number
-            logger.info(f"  🔧 Tool call: {tool_name}")
+            logger.info(f"Tool call: {tool_name}")
 
             # User-friendly display
             tool_display = format_tool_call_for_display(
@@ -273,7 +273,7 @@ class ResponseProcessor:
             # tool_call_count 已经递增到最终值，与第一个 output 的序号不匹配。
             output = item.get("output", "")
             tool_output_num = state.tool_output_count + 1
-            logger.info(f"  ✅ Tool output #{tool_output_num} received: {len(output)} chars")
+            logger.info(f"Tool output #{tool_output_num} received: {len(output)} chars")
 
             # 查找对应的 tool_call 信息用于展示
             # tool_output 按顺序到达，第 N 个 output 对应第 N 个 call

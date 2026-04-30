@@ -137,13 +137,13 @@ class EverMemOSClient:
                         success = False
 
                 except httpx.ConnectError:
-                    logger.error(f"Cannot connect to EverMemOS: {self.base_url}")
+                    logger.warning(f"Cannot connect to EverMemOS (degraded): {self.base_url}")
                     success = False
                 except httpx.TimeoutException:
-                    logger.error(f"EverMemOS write timed out: {self.timeout}s")
+                    logger.warning(f"EverMemOS write timed out (degraded): {self.timeout}s")
                     success = False
                 except Exception as e:
-                    logger.error(f"EverMemOS write exception: {type(e).__name__}: {e}")
+                    logger.exception(f"EverMemOS write exception: {type(e).__name__}: {e}")
                     success = False
 
         return success
@@ -339,13 +339,13 @@ class EverMemOSClient:
                 return results
 
         except httpx.ConnectError:
-            logger.error(f"Cannot connect to EverMemOS: {self.base_url}")
+            logger.exception(f"Cannot connect to EverMemOS: {self.base_url}")
             return []
         except httpx.TimeoutException:
-            logger.error(f"EverMemOS retrieval timed out: {self.timeout}s")
+            logger.warning(f"EverMemOS retrieval timed out (degraded): {self.timeout}s")
             return []
         except Exception as e:
-            logger.error(f"EverMemOS retrieval exception: {type(e).__name__}: {e}")
+            logger.exception(f"EverMemOS retrieval exception: {type(e).__name__}: {e}")
             return []
 
     async def search_episodes(
@@ -413,13 +413,13 @@ class EverMemOSClient:
                 return episodes
 
         except httpx.ConnectError:
-            logger.error(f"[EverMemOS-Search] Cannot connect to EverMemOS: {self.base_url}")
+            logger.warning(f"[EverMemOS-Search] Cannot connect (degraded): {self.base_url}")
             return []
         except httpx.TimeoutException:
-            logger.error(f"[EverMemOS-Search] Timed out: {self.timeout}s")
+            logger.warning(f"[EverMemOS-Search] Timed out (degraded): {self.timeout}s")
             return []
         except Exception as e:
-            logger.error(f"[EverMemOS-Search] Exception: {type(e).__name__}: {e}")
+            logger.exception(f"[EverMemOS-Search] Exception: {type(e).__name__}: {e}")
             return []
 
     def _parse_flat_episodes(

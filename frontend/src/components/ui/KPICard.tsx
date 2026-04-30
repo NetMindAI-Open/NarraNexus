@@ -37,7 +37,7 @@ export function KPICard({
   return (
     <div
       className={cn(
-        'p-3 border border-[var(--rule)] bg-[var(--bg-primary)]',
+        'p-3 border border-[var(--border-default)] bg-[var(--bg-primary)]',
         'transition-colors duration-150 hover:border-[var(--border-strong)]'
       )}
       style={{ borderRadius: 0 }}

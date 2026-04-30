@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Mail, RefreshCw, Hash, Users, ChevronRight, ChevronDown } from 'lucide-react';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, ScrollArea } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -67,7 +67,8 @@ export function InboxPanel() {
         </Button>
       </CardHeader>
 
-      <CardContent className="flex-1 overflow-y-auto min-h-0 !p-0">
+      <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+        <ScrollArea className="h-full">
         {agentRooms.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-[var(--text-tertiary)] text-sm">No messages</p>
@@ -91,7 +92,7 @@ export function InboxPanel() {
                 >
                   <Hash className={cn(
                     'w-4 h-4 shrink-0',
-                    room.unread_count > 0 ? 'text-[var(--color-accent)]' : 'text-[var(--text-tertiary)]'
+                    room.unread_count > 0 ? 'text-[var(--accent-primary)]' : 'text-[var(--text-tertiary)]'
                   )} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -144,7 +145,7 @@ export function InboxPanel() {
                     {room.messages.map((msg) => (
                       <div key={msg.message_id} className="px-1 py-1">
                         <div className="flex items-baseline gap-2">
-                          <span className="text-xs font-medium text-[var(--color-accent)] shrink-0">
+                          <span className="text-xs font-medium text-[var(--accent-primary)] shrink-0">
                             {msg.sender_name}
                           </span>
                           <span className="text-[10px] text-[var(--text-tertiary)] font-mono shrink-0">
@@ -162,6 +163,7 @@ export function InboxPanel() {
             );
           })
         )}
+        </ScrollArea>
       </CardContent>
     </Card>
   );

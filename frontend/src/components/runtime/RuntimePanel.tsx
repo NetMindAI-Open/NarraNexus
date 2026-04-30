@@ -11,7 +11,7 @@
 
 import { useMemo, useState } from 'react';
 import { Play, BookOpen, RefreshCw, Activity, CheckCircle2, Zap, TrendingUp, Layers, Clock } from 'lucide-react';
-import { Card, CardContent, Button, StatStrip } from '@/components/ui';
+import { Card, CardContent, Button, StatStrip, ScrollArea } from '@/components/ui';
 import { useChatStore, usePreloadStore, useConfigStore } from '@/stores';
 import { StepCard } from '@/components/steps/StepCard';
 import { NarrativeList } from './NarrativeList';
@@ -111,10 +111,14 @@ export function RuntimePanel() {
               )}
             </div>
             {/* Step list */}
-            <CardContent className="flex-1 overflow-y-auto min-h-0 !px-5 !py-3 space-y-2">
+            <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+              <ScrollArea className="h-full" viewportClassName="px-5 py-3">
+                <div className="space-y-2">
               {mainSteps.map((step, index) => (
                 <StepCard key={step.id} step={step} isLast={index === mainSteps.length - 1} />
               ))}
+                </div>
+              </ScrollArea>
             </CardContent>
           </>
         )
@@ -130,8 +134,10 @@ export function RuntimePanel() {
               ]}
             />
           )}
-          <CardContent className="flex-1 overflow-y-auto min-h-0 !p-0">
-            <NarrativeList />
+          <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+            <ScrollArea className="h-full">
+              <NarrativeList />
+            </ScrollArea>
           </CardContent>
         </>
       )}

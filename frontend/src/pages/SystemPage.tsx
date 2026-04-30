@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Play, Square, ServerCrash } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, ScrollArea } from '@/components/ui';
 import { ServiceCard } from '@/components/system/ServiceCard';
 import { HealthStatusBar } from '@/components/system/HealthStatusBar';
 import { LogViewer } from '@/components/system/LogViewer';
@@ -157,7 +157,8 @@ export function SystemPage() {
   );
 
   return (
-    <div className="h-full flex flex-col gap-4 p-6 overflow-y-auto">
+    <ScrollArea className="h-full" viewportClassName="p-6">
+      <div className="flex flex-col gap-4">
       {/* Health status bar */}
       <HealthStatusBar health={health} isLoading={isLoading} />
 
@@ -195,7 +196,8 @@ export function SystemPage() {
 
       {/* Log viewer */}
       <LogViewer logs={logs} />
-    </div>
+      </div>
+    </ScrollArea>
   );
 }
 

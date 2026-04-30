@@ -341,7 +341,7 @@ class ModuleLoader:
             logger.warning("Unable to parse changes_explanation JSON, using empty dict")
             changes_explanation_dict = {}
 
-        logger.success(
+        logger.info(
             f"ModuleLoader: Instance decision complete, path={execution_type.value}, "
             f"Instances: {active_instances}"
         )
@@ -386,7 +386,7 @@ class ModuleLoader:
         # Create Module objects and bind
         active_instances = self._create_module_objects(all_instances)
 
-        logger.success(
+        logger.info(
             f"ModuleLoader: Fast-path complete (LLM skipped), "
             f"loaded {len(active_instances)} instances"
         )
@@ -534,7 +534,7 @@ class ModuleLoader:
             module = module_class(self.agent_id, self.user_id, self.database_client)
             module_list.append(module)
 
-        logger.success(f"ModuleLoader: Successfully loaded {len(module_list)} modules")
+        logger.info(f"ModuleLoader: Successfully loaded {len(module_list)} modules")
 
         return ModuleLoadResult(
             module_list=module_list,

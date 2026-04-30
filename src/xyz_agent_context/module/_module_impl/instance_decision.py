@@ -219,11 +219,11 @@ async def llm_decide_instances(
 
         # result is RunResult, get the parsed Pydantic object via .final_output
         output: InstanceDecisionOutput = result.final_output
-        logger.success(f"Instance Decision: LLM decision complete, path={output.execution_path}")
+        logger.info(f"Instance Decision: LLM decision complete, path={output.execution_path}")
         return output
 
     except Exception as e:
-        logger.error(f"Instance Decision: LLM call failed: {e}")
+        logger.exception(f"Instance Decision: LLM call failed: {e}")
         raise
 
 

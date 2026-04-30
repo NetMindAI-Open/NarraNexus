@@ -12,7 +12,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Settings, ArrowRight, SkipForward } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import { useConfigStore } from '@/stores';
 import { getBaseUrl } from '@/lib/api';
@@ -63,11 +63,11 @@ export function SetupPage() {
       </div>
 
       {/* Provider Settings */}
-      <div className="flex-1 overflow-y-auto">
+      <ScrollArea className="flex-1">
         <div className="max-w-2xl mx-auto px-4 animate-fade-in" style={{ animationDelay: '0.05s' }}>
           <ProviderSettings />
         </div>
-      </div>
+      </ScrollArea>
 
       {/* Footer actions */}
       <div className="flex items-center justify-center gap-4 py-6 border-t border-[var(--border-default)]">

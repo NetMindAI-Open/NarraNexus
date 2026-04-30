@@ -11,6 +11,8 @@ import asyncio
 
 from loguru import logger
 
+from xyz_agent_context.utils.logging import setup_logging
+
 
 async def main():
     from xyz_agent_context.utils.db_factory import get_db_client
@@ -39,5 +41,10 @@ async def main():
 
 
 if __name__ == "__main__":
+    setup_logging("lark_trigger")
     logger.info("Starting Lark Trigger...")
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    finally:
+        # Flush enqueue=True records so the last shutdown lines survive.
+        asyncio.run(logger.complete())

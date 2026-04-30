@@ -127,7 +127,7 @@ async def search_many(queries: list[str], max_results_per_query: int) -> list[di
             timeout=OVERALL_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
-        logger.error(
+        logger.exception(
             f"web_search overall timeout fired after {OVERALL_TIMEOUT_S}s "
             f"(per-query wrapper should have caught this earlier — investigate)"
         )

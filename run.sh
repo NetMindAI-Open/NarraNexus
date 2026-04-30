@@ -13,7 +13,9 @@
 #    bash run.sh          Start all services (backend + frontend)
 #    bash run.sh stop     Stop all NarraNexus processes
 #    bash run.sh status   Show service status
-#    bash run.sh build    Build desktop app (DMG)
+#
+#  Desktop DMG builds are produced by the GitHub Actions release
+#  workflow on tag push (see .github/workflows/), not by this script.
 #
 # ============================================================================
 
@@ -67,15 +69,65 @@ stop_all() {
 }
 
 check_deps() {
-  local missing=()
-  command -v uv  &>/dev/null || missing+=("uv")
-  command -v node &>/dev/null || missing+=("node")
-  if [ ${#missing[@]} -gt 0 ]; then
-    echo -e "${RED}Missing required dependencies: ${missing[*]}${R}"
+  # uv: auto-install if missing.
+  # The official installer is a curl-piped shell script that drops the
+  # binary at ~/.local/bin/uv — strictly user-level, no sudo. We add
+  # ~/.local/bin to the current shell's PATH so the rest of this run
+  # can find it; a one-line export hint covers future sessions.
+  if ! command -v uv &>/dev/null; then
+    echo -e "${Y}uv not found — installing automatically (user-level, no sudo)...${R}"
+    if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+      echo -e "${RED}uv installer failed.${R}"
+      echo "  Manual install: curl -LsSf https://astral.sh/uv/install.sh | sh"
+      exit 1
+    fi
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v uv &>/dev/null; then
+      echo -e "${RED}uv installed but not on \$PATH.${R}"
+      echo "  Add this line to your shell rc (~/.zshrc or ~/.bashrc):"
+      echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+      echo "  Then restart the shell and re-run: bash run.sh"
+      exit 1
+    fi
+    echo -e "${G}uv installed.${R}"
+  fi
+
+  # node: ask the user to install it. Cross-platform sudo handling
+  # for Node is too risky to do silently, so we just print the right
+  # one-liner for the detected platform and exit.
+  if ! command -v node &>/dev/null; then
+    echo -e "${RED}Node.js not found.${R}"
     echo ""
-    echo "  Install uv:   curl -LsSf https://astral.sh/uv/install.sh | sh"
-    echo "  Install node:  https://nodejs.org/"
+    echo "  Install command for your platform:"
+    case "$(uname -s)" in
+      Linux*)
+        if grep -qi microsoft /proc/version 2>/dev/null; then
+          echo -e "    ${C}sudo apt-get update && sudo apt-get install -y nodejs npm${R}  (WSL2)"
+        elif command -v apt-get &>/dev/null; then
+          echo -e "    ${C}sudo apt-get update && sudo apt-get install -y nodejs npm${R}  (Debian / Ubuntu)"
+        elif command -v dnf &>/dev/null; then
+          echo -e "    ${C}sudo dnf install -y nodejs npm${R}  (Fedora)"
+        elif command -v pacman &>/dev/null; then
+          echo -e "    ${C}sudo pacman -S --noconfirm nodejs npm${R}  (Arch)"
+        else
+          echo -e "    Use your distro's package manager, or install nvm:"
+          echo -e "    ${C}curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash && nvm install 20${R}"
+        fi
+        ;;
+      Darwin*)
+        if command -v brew &>/dev/null; then
+          echo -e "    ${C}brew install node${R}  (macOS, Homebrew)"
+        else
+          echo -e "    Install Homebrew first (https://brew.sh/), then:"
+          echo -e "    ${C}brew install node${R}"
+        fi
+        ;;
+      *)
+        echo "    Download from https://nodejs.org/"
+        ;;
+    esac
     echo ""
+    echo "  Then re-run: bash run.sh"
     exit 1
   fi
 
@@ -272,9 +324,6 @@ case "${1:-}" in
     ;;
   status)
     status
-    ;;
-  build)
-    exec "$SCRIPT_DIR/scripts/build-desktop.sh"
     ;;
   *)
     check_deps

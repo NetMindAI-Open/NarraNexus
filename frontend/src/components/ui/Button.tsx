@@ -29,7 +29,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           // Variants
           variant === 'default' && [
             'bg-[var(--bg-elevated)] text-[var(--text-primary)]',
-            'border border-[var(--rule)]',
+            'border border-[var(--border-default)]',
             'hover:bg-[var(--bg-secondary)] hover:border-[var(--border-strong)]',
             'active:bg-[var(--bg-tertiary)]',
           ],

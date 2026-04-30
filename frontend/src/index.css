@@ -22,30 +22,34 @@
    * Cold grayscale palette — single tonal family, no warm tones.
    * Drives the entire archive aesthetic.
    * ---------------------------------------------------------------*/
-  --color-paper:   #e8eaed;
-  --color-paper-2: #dde0e4;
-  --color-paper-3: #d2d5da;
-  --color-paper-4: #c5c9cf;
-  --color-ink:     #111214;
-  --color-ink-2:   #1d1f22;
-  --color-ink-3:   #2a2d31;
-  --color-muted:   #60656f;
-  --color-muted-2: #3d4149;
-  --color-muted-3: #8a8f99;
+  --color-paper:   #f1f3f5;
+  --color-paper-2: #e8eaed;
+  --color-paper-3: #dde0e4;
+  --color-paper-4: #d2d5da;
+  /* Pure black ink — the primary text colour in light mode reads as
+     absolute black on the cool paper, giving titles maximum authority. */
+  --color-ink:     #000000;
+  --color-ink-2:   #15171a;
+  --color-ink-3:   #22252a;
+  /* Muted ramp deepened so secondary/tertiary text stays clearly readable
+     against the lighter background ramp (no more washed-out 60656f). */
+  --color-muted:   #4a4e57;
+  --color-muted-2: #1f2126;
+  --color-muted-3: #6b707a;
 
   /* Tailwind gray scale — remapped to cold archive grays so any
      existing `bg-gray-*` / `text-gray-*` class lands on-palette. */
-  --color-gray-50:  #f3f4f6;
-  --color-gray-100: #e8eaed;
-  --color-gray-200: #dde0e4;
-  --color-gray-300: #c5c9cf;
-  --color-gray-400: #a3a8b0;
-  --color-gray-500: #8a8f99;
-  --color-gray-600: #60656f;
-  --color-gray-700: #3d4149;
-  --color-gray-800: #2a2d31;
-  --color-gray-900: #1d1f22;
-  --color-gray-950: #111214;
+  --color-gray-50:  #fbfcfd;
+  --color-gray-100: #f1f3f5;
+  --color-gray-200: #e8eaed;
+  --color-gray-300: #d2d5da;
+  --color-gray-400: #9aa0aa;
+  --color-gray-500: #6b707a;
+  --color-gray-600: #4a4e57;
+  --color-gray-700: #2a2d33;
+  --color-gray-800: #1f2126;
+  --color-gray-900: #15171a;
+  --color-gray-950: #000000;
 
   /* Status palette — editorial, saturated enough to scan at small sizes but
    * still feels printed (not neon). Tuned for use on both paper (#e8eaed)
@@ -105,51 +109,79 @@
    Light Mode — the canonical archive palette
    ============================================================================ */
 :root {
-  /* Background layers */
-  --bg-deep:      var(--color-paper);
-  --bg-primary:   var(--color-paper);
-  --bg-secondary: var(--color-paper-2);
-  --bg-tertiary:  var(--color-paper-3);
-  --bg-elevated:  #f1f3f5;
-  --bg-sunken:    var(--color-paper-2);
+  /* ---------------------------------------------------------------
+   * Background elevation ramp — strictly monotonic.
+   * Every step is ~6–8 points of lightness, so nested surfaces are
+   * visually distinguishable but never break the cold archive look.
+   *
+   *   sunken    ← code, tool output, thesis quote  (recessed into card)
+   *   deep      ← page / viewport background       (the page itself)
+   *   secondary ← sidebar / second-tier panels     (next to the page)
+   *   primary   ← cards, message bubbles           (the work surface)
+   *   elevated  ← hover / active state             (lifts above primary)
+   *   tertiary  ← top bar, modal sheets            (highest plane)
+   *
+   * Lightness order:  sunken < deep < secondary < primary < elevated < tertiary
+   * --------------------------------------------------------------- */
+  --bg-sunken:    #e6e8eb;
+  --bg-deep:      #edeff2;
+  --bg-secondary: #f1f3f5;
+  --bg-primary:   #f7f8fa;
+  --bg-elevated:  #fcfcfd;
+  --bg-tertiary:  #ffffff;
 
-  /* Text hierarchy */
+  /* Text hierarchy — every step deepened to maximise on-paper contrast.
+     primary  → pure black (21:1 AAA on bg-primary)
+     secondary→ near-black (14:1 AAA) — body and subheads
+     tertiary → mid-deep gray (~8:1 AAA) — captions/metadata still legible */
   --text-primary:   var(--color-ink);
   --text-secondary: var(--color-muted-2);
   --text-tertiary:  var(--color-muted);
   --text-inverse:   #ffffff;
 
-  /* Rules — hairline 1px, no glow */
-  --border-subtle: rgba(17, 18, 20, 0.08);
-  --border-default: rgba(17, 18, 20, 0.14);
-  --border-strong: rgba(17, 18, 20, 0.28);
-  --rule: rgba(17, 18, 20, 0.1);
+  /* ---------------------------------------------------------------
+   * Rule hierarchy — three weights, each visibly different from the next.
+   *   rule          → finest internal divider (table rows, list separators).
+   *                   Should optically *retreat* — it's structure, not edge.
+   *   border-subtle → embedded block outline (code, tool output, thesis).
+   *                   Just enough to outline a recessed surface.
+   *   border-default→ standard container/card edge. Reads as "this is a
+   *                   bounded element," obvious without being heavy.
+   *   border-strong → hover/active/selected. The "I'm interactive" signal.
+   * --------------------------------------------------------------- */
+  /* Alphas use pure black (now that --color-ink = #000) so rule weights
+     scale the same way against any of the lifted bg-* tokens. */
+  --rule:           rgba(0, 0, 0, 0.08);
+  --border-subtle:  rgba(0, 0, 0, 0.14);
+  --border-default: rgba(0, 0, 0, 0.22);
+  --border-strong:  rgba(0, 0, 0, 0.42);
 
   /* "Accent" is just ink — no colored highlight in the archive. */
   --accent-primary:   var(--color-ink);
   --accent-secondary: var(--color-muted-2);
-  --accent-glow:      rgba(17, 18, 20, 0.06);
+  --accent-glow:      rgba(0, 0, 0, 0.06);
 
-  --glass-bg:     rgba(232, 234, 237, 0.92);
-  --glass-border: rgba(17, 18, 20, 0.12);
+  --glass-bg:     var(--bg-elevated);
+  --glass-border: var(--border-default);
 
   /* Shadows — minimal; most surfaces use borders, not depth. */
-  --shadow-sm:    0 0 0 1px rgba(17, 18, 20, 0.04);
-  --shadow-md:    0 0 0 1px rgba(17, 18, 20, 0.08);
-  --shadow-lg:    0 0 0 1px rgba(17, 18, 20, 0.12);
+  --shadow-sm:    0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-md:    0 0 0 1px rgba(0, 0, 0, 0.08);
+  --shadow-lg:    0 0 0 1px rgba(0, 0, 0, 0.12);
   --shadow-glow:  none;
-  --shadow-inset: inset 0 0 0 1px rgba(17, 18, 20, 0.06);
+  --shadow-inset: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
 
   /* Gradients reduced to flat fills. */
   --gradient-primary: var(--color-ink);
   --gradient-subtle:  transparent;
-  --gradient-card:    var(--color-paper-2);
+  --gradient-card:    var(--bg-primary);
 
-  --code-bg:     var(--color-paper-2);
-  --code-border: rgba(17, 18, 20, 0.14);
+  --code-bg:     var(--bg-sunken);
+  --code-border: var(--border-subtle);
 
-  /* Paper grid — 72px cold grid overlay */
-  --paper-grid-color: rgba(17, 18, 20, 0.04);
+  /* Paper grid — 72px cold grid overlay (faint; backgrounds-only,
+     never sits behind body text containers thanks to the lifted bg-primary) */
+  --paper-grid-color: rgba(0, 0, 0, 0.04);
   --paper-grid-size: 72px;
 }
 
@@ -157,29 +189,41 @@
    Dark Mode — inverted archive (black paper, gray ink)
    ============================================================================ */
 .dark {
-  --bg-deep:      #0b0c0d;
-  --bg-primary:   #0f1012;
-  --bg-secondary: #141619;
-  --bg-tertiary:  #1a1c20;
-  --bg-elevated:  #1d1f23;
-  --bg-sunken:    #0f1012;
+  /* ---------------------------------------------------------------
+   * Dark elevation ramp — pushed deeper at the page level, lifted at
+   * the working surface. The wider gap between page and primary lets
+   * lightened text colours read with maximum contrast.
+   *
+   * Lightness order:  sunken < deep < secondary < primary < elevated < tertiary
+   * --------------------------------------------------------------- */
+  --bg-sunken:    #050608;
+  --bg-deep:      #0a0b0d;
+  --bg-secondary: #111316;
+  --bg-primary:   #16181c;
+  --bg-elevated:  #1f2126;
+  --bg-tertiary:  #282b31;
 
-  --text-primary:   #e8eaed;
-  --text-secondary: #a3a8b0;
-  --text-tertiary:  #70747c;
-  --text-inverse:   #111214;
+  /* Text hierarchy — pure white primary, lifted ramp for secondary/tertiary
+     so every step on dark mode reads at AAA against bg-primary (#16181c):
+       primary  → pure white (~18.5:1)
+       secondary→ #d4d6dc (~10.5:1)
+       tertiary → #9aa0aa (~6.4:1) */
+  --text-primary:   #ffffff;
+  --text-secondary: #d4d6dc;
+  --text-tertiary:  #9aa0aa;
+  --text-inverse:   #000000;
 
-  --border-subtle: rgba(232, 234, 237, 0.08);
-  --border-default: rgba(232, 234, 237, 0.14);
-  --border-strong: rgba(232, 234, 237, 0.3);
-  --rule: rgba(232, 234, 237, 0.12);
+  --rule:           rgba(255, 255, 255, 0.09);
+  --border-subtle:  rgba(255, 255, 255, 0.18);
+  --border-default: rgba(255, 255, 255, 0.28);
+  --border-strong:  rgba(255, 255, 255, 0.48);
 
-  --accent-primary:   #e8eaed;
-  --accent-secondary: #a3a8b0;
-  --accent-glow:      rgba(232, 234, 237, 0.05);
+  --accent-primary:   #ffffff;
+  --accent-secondary: #b4b8bf;
+  --accent-glow:      rgba(255, 255, 255, 0.06);
 
-  --glass-bg:     rgba(20, 22, 25, 0.9);
-  --glass-border: rgba(232, 234, 237, 0.12);
+  --glass-bg:     var(--bg-elevated);
+  --glass-border: var(--border-default);
 
   --shadow-sm:    0 0 0 1px rgba(255, 255, 255, 0.04);
   --shadow-md:    0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -187,12 +231,12 @@
   --shadow-glow:  none;
   --shadow-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 
-  --gradient-primary: #e8eaed;
+  --gradient-primary: var(--text-primary);
   --gradient-subtle:  transparent;
-  --gradient-card:    #141619;
+  --gradient-card:    var(--bg-primary);
 
-  --code-bg:     #141619;
-  --code-border: rgba(232, 234, 237, 0.14);
+  --code-bg:     var(--bg-sunken);
+  --code-border: var(--border-subtle);
 
   --paper-grid-color: rgba(232, 234, 237, 0.04);
 
@@ -213,12 +257,17 @@
 
 html {
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: 15.5px;
+  /* Barlow ships only 300/500/600 — picking 400 silently fell back to 500,
+     which collapsed the gap between body and <strong>. We use 300 (light)
+     for body and rely on subpixel-AA + 600 for emphasis to keep the
+     hierarchy crisp without making prose feel heavy. */
   font-weight: 300;
   line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
   text-rendering: optimizeLegibility;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
 }
 
 body {
@@ -300,6 +349,9 @@ p {
   font-weight: 300;
 }
 
+/* Bumped from 600 → 700-equivalent (display font fallback handles 700;
+   Barlow only ships up to 600, but the 300→600 jump is now wide enough
+   to read as clearly bold against light body text). */
 strong, b { font-weight: 600; }
 
 /* Monospace — DM Mono carries the archive/data feel */
@@ -312,9 +364,14 @@ strong, b { font-weight: 600; }
   font-family: var(--font-display) !important;
 }
 
-.text-xs { font-size: 0.75rem; line-height: 1.5; }
-.text-sm { font-size: 0.85rem; line-height: 1.55; }
-.text-base { font-size: 0.95rem; line-height: 1.6; }
+/* Compact UI scale — sizes only. Weight inherits the html default (300)
+   so prose/descriptions written with text-xs read as a softer body, not
+   a bold label. Genuinely "small mono uppercase labels" pick up weight
+   via dedicated classes (.archive-label, .data-label, .tab-button) or
+   inline `font-medium` at the call site, not from this scale rule. */
+.text-xs { font-size: 0.75rem; line-height: 1.55; }
+.text-sm { font-size: 0.85rem; line-height: 1.6; }
+.text-base { font-size: 0.95rem; line-height: 1.65; }
 .text-lg { font-size: 1.0625rem; line-height: 1.5; }
 .text-xl { font-size: 1.25rem; line-height: 1.4; }
 .text-2xl { font-size: 1.5rem; line-height: 1.25; }
@@ -324,9 +381,9 @@ strong, b { font-weight: 600; }
 .archive-label {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  font-weight: 400;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   color: var(--text-tertiary);
 }
 
@@ -353,28 +410,86 @@ strong, b { font-weight: 600; }
 
 /* ============================================================================
    Scrollbar — hairline
+   ----------------------------------------------------------------------------
+   IMPORTANT — macOS "Always show scroll bars" caveat
+   --------------------------------------------------
+   When a macOS user has System Settings → Appearance → Show scroll bars set
+   to **Always**, WebKit/WKWebView falls back to AppKit's NSScroller for
+   every native overflow scroller. NSScroller COMPLETELY bypasses
+   `::-webkit-scrollbar` rules — no amount of CSS, !important, or
+   `-webkit-appearance: none` can override it.
+   The only way to keep a consistent dark-archive scrollbar in that mode is
+   to stop using native scroll containers and use the Radix-based
+   <ScrollArea> component (see `components/ui/scroll-area.tsx`) — it uses
+   `overflow:hidden` + a JS-rendered thumb that the OS can never hijack.
+   The rules below STILL apply as a fallback for users in "Automatic" or
+   "When scrolling" mode, and for the few native scrollers we choose not to
+   wrap (Markdown code blocks, top-level `<html>`/`<body>`).
    ============================================================================ */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
   background: var(--border-default);
+  border-radius: 0;
   transition: background 0.2s;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-ink);
+  /* `--text-primary` flips with the theme, so hover is dark on light bg and
+     light on dark bg. The previous hardcoded `--color-ink` stayed near-black
+     in both modes — invisible on dark scrollbar tracks. */
+  background: var(--text-primary);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-default) transparent;
+}
+
+/* ----------------------------------------------------------------------------
+ * Textarea scrollbar — Nordic archive style
+ *
+ * The chat composer's <textarea> is a fixed 52px row. WebKit on macOS allocates
+ * a scroll gutter whenever subpixel rounding pushes the content height even 1px
+ * above the box height — exposing a system scrollbar on an empty field.
+ *
+ * Fix: keep the textarea's scrollbar custom-styled (so it never falls back to
+ * the wide AppKit scrollbar even in "always-show" mode), AND keep the thumb
+ * transparent until hover/focus so empty fields never show a chrome.
+ * ---------------------------------------------------------------------------*/
+textarea.nx-textarea {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+textarea.nx-textarea::-webkit-scrollbar {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 6px;
+  height: 6px;
+  background: transparent;
+}
+textarea.nx-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+textarea.nx-textarea::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+textarea.nx-textarea:hover,
+textarea.nx-textarea:focus {
+  scrollbar-color: var(--border-default) transparent;
+}
+textarea.nx-textarea:hover::-webkit-scrollbar-thumb,
+textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
+  background: var(--border-default);
 }
 
 /* ============================================================================
@@ -383,8 +498,8 @@ strong, b { font-weight: 600; }
     saves paint cost on scroll, especially on low-end hardware)
    ============================================================================ */
 .glass {
-  background: var(--bg-primary);
-  border: 1px solid var(--glass-border);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
 }
 
 /* ============================================================================
@@ -437,7 +552,9 @@ strong, b { font-weight: 600; }
    ============================================================================ */
 .card {
   background: var(--bg-primary);
-  border: 1px solid var(--rule);
+  /* Card edge uses border-default so it reads as a bounded container —
+     not the same hairline weight as internal table dividers (--rule). */
+  border: 1px solid var(--border-default);
 
   box-shadow: none;
   transition: border-color 0.2s ease;
@@ -453,10 +570,11 @@ strong, b { font-weight: 600; }
    Archive boxes
    ============================================================================ */
 
-/* Thesis box — left-rule accent, pale fill */
+/* Thesis box — left-rule accent, recessed fill (sunken below the surrounding
+   primary surface, so it reads as an embedded quote). */
 .archive-thesis {
   border-left: 2px solid var(--color-ink);
-  background: var(--bg-secondary);
+  background: var(--bg-sunken);
   padding: 1rem 1.25rem;
   font-family: var(--font-display);
   font-weight: 500;
@@ -476,11 +594,11 @@ strong, b { font-weight: 600; }
 .archive-summary .caveat {
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.24);
   font-family: var(--font-sans);
   font-weight: 300;
   font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 /* ============================================================================
@@ -489,7 +607,7 @@ strong, b { font-weight: 600; }
 .markdown-content {
   font-family: var(--font-sans);
   font-size: 0.95rem;
-  line-height: 1.8;
+  line-height: 1.75;
   font-weight: 300;
   color: var(--text-primary);
 }
@@ -562,7 +680,7 @@ strong, b { font-weight: 600; }
   margin: 1.5em 0;
   padding: 0.75em 1.25em;
   border-left: 2px solid var(--color-ink);
-  background: var(--bg-secondary);
+  background: var(--bg-sunken);
   border-radius: 0;
   color: var(--text-secondary);
   font-family: var(--font-display);
@@ -614,7 +732,7 @@ strong, b { font-weight: 600; }
 }
 
 .markdown-content th {
-  background: var(--bg-secondary);
+  background: var(--bg-sunken);
   font-weight: 600;
   font-family: var(--font-display);
   font-size: 0.75rem;
@@ -623,7 +741,7 @@ strong, b { font-weight: 600; }
 }
 
 .markdown-content tr:nth-child(even) {
-  background: var(--bg-secondary);
+  background: var(--bg-sunken);
 }
 
 .markdown-content hr {
@@ -642,7 +760,7 @@ strong, b { font-weight: 600; }
   max-width: 100%;
   border-radius: 0;
   margin: 1em 0;
-  border: 1px solid var(--rule);
+  border: 1px solid var(--border-subtle);
 }
 
 /* ============================================================================
@@ -667,8 +785,8 @@ strong, b { font-weight: 600; }
 }
 
 .dark ::selection {
-  background: #e8eaed;
-  color: var(--color-ink);
+  background: var(--text-primary);
+  color: var(--bg-deep);
 }
 
 /* ============================================================================
@@ -712,12 +830,14 @@ strong, b { font-weight: 600; }
   cursor: pointer;
   transition: background-color 0.15s ease, border-color 0.15s ease;
   border: 1px solid transparent;
+  /* Internal panel-section divider — same weight as the sidebar's other
+     section dividers (logo/user/nav/logout). */
   border-bottom: 1px solid var(--rule);
   position: relative;
 }
 
 .agent-item:hover {
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
 }
 
 .agent-item.active {
@@ -755,14 +875,15 @@ strong, b { font-weight: 600; }
 }
 
 .dark .message-user {
-  --on-bubble: var(--color-ink);
-  --on-bubble-bg: #e8eaed;
+  --on-bubble: var(--bg-deep);
+  --on-bubble-bg: var(--text-primary);
 }
 
 .message-assistant {
   background: var(--bg-primary);
-  border: 1px solid var(--rule);
-
+  /* Assistant bubble is a bounded container — uses default weight,
+     not the hairline rule reserved for internal dividers. */
+  border: 1px solid var(--border-default);
   color: var(--text-primary);
   position: relative;
 }
@@ -773,9 +894,9 @@ strong, b { font-weight: 600; }
 .data-label {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  font-weight: 400;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   color: var(--text-tertiary);
 }
 
@@ -787,8 +908,7 @@ strong, b { font-weight: 600; }
 
 .data-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--rule);
-
+  border: 1px solid var(--border-subtle);
   padding: 1rem;
   position: relative;
 }
@@ -802,9 +922,9 @@ strong, b { font-weight: 600; }
 
   font-family: var(--font-mono);
   font-size: 0.72rem;
-  font-weight: 400;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.10em;
   color: var(--text-tertiary);
   background: transparent;
   transition: color 0.15s ease;

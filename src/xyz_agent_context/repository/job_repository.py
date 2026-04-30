@@ -543,7 +543,7 @@ class JobRepository(BaseRepository[JobModel]):
             try:
                 jobs.append(self._row_to_entity(row))
             except Exception as e:
-                logger.error(f"Failed to parse job row: {e}")
+                logger.exception(f"Failed to parse job row: {e}")
                 continue
 
         logger.debug(f"    → Found {len(jobs)} jobs for entity_id={entity_id}")

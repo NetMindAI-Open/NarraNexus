@@ -180,12 +180,9 @@ class ModulePoller:
         await auto_migrate(self._db._backend)
         logger.info("Schema auto-migration complete")
 
-        logger.info("=" * 60)
-        logger.info("🔄 ModulePoller starting (Worker Pool mode)...")
+        logger.info("ModulePoller starting (Worker Pool mode)...")
         logger.info(f"   Poll interval: {self.poll_interval} seconds")
         logger.info(f"   Max workers: {self.max_workers}")
-        logger.info("=" * 60)
-
         self.running = True
 
         # Start Workers
@@ -264,7 +261,7 @@ class ModulePoller:
                 logger.debug("Poller cancelled")
                 break
             except Exception as e:
-                logger.error(f"Poller error: {e}")
+                logger.exception(f"Poller error: {e}")
                 await asyncio.sleep(self.poll_interval)
 
     async def _worker(self, worker_id: int) -> None:
@@ -294,7 +291,7 @@ class ModulePoller:
                 logger.debug(f"Worker {worker_id} cancelled")
                 break
             except Exception as e:
-                logger.error(f"[Worker {worker_id}] Unexpected error: {e}")
+                logger.exception(f"[Worker {worker_id}] Unexpected error: {e}")
 
     async def _poll_and_enqueue(self) -> None:
         """
@@ -329,7 +326,7 @@ class ModulePoller:
                 logger.info(f"Enqueued {enqueued} instances (queue size: {self._task_queue.qsize()})")
 
         except Exception as e:
-            logger.error(f"Error in poll_and_enqueue: {e}")
+            logger.exception(f"Error in poll_and_enqueue: {e}")
 
     async def _find_completed_instances(self) -> List[CompletedInstanceInfo]:
         """
@@ -378,7 +375,7 @@ class ModulePoller:
                 ))
 
         except Exception as e:
-            logger.error(f"Error finding completed instances: {e}")
+            logger.exception(f"Error finding completed instances: {e}")
 
         return result
 
@@ -441,10 +438,10 @@ class ModulePoller:
             # 4. Update callback_processed and last_polled_status
             await self._mark_callback_processed(info.instance_id, status_str)
 
-            logger.success(f"Instance {info.instance_id} processed successfully")
+            logger.info(f"Instance {info.instance_id} processed successfully")
 
         except Exception as e:
-            logger.error(f"Error processing instance {info.instance_id}: {e}")
+            logger.exception(f"Error processing instance {info.instance_id}: {e}")
             # Mark as processed even on error to avoid infinite retries
             try:
                 await self._mark_callback_processed(info.instance_id, "error")
@@ -492,10 +489,10 @@ class ModulePoller:
                 user_id=user_id or "system",
             )
 
-            logger.success(f"Callback executed for instance: {instance_id}")
+            logger.info(f"Callback executed for instance: {instance_id}")
 
         except Exception as e:
-            logger.error(f"Error executing callback for {instance_id}: {e}")
+            logger.exception(f"Error executing callback for {instance_id}: {e}")
 
     async def _mark_callback_processed(self, instance_id: str, current_status: str) -> None:
         """
@@ -516,7 +513,7 @@ class ModulePoller:
             await self.db.execute(query, (current_status, instance_id))
             logger.debug(f"Marked callback processed: {instance_id}")
         except Exception as e:
-            logger.error(f"Error marking callback processed for {instance_id}: {e}")
+            logger.exception(f"Error marking callback processed for {instance_id}: {e}")
 
 
 # =============================================================================
@@ -593,22 +590,16 @@ Examples:
 
     args = parser.parse_args()
 
-    # Configure logging level
-    if args.debug:
-        import sys
-        logger.remove()
-        logger.add(sys.stderr, level="DEBUG")
+    from xyz_agent_context.utils.logging import setup_logging
+    setup_logging(
+        "module_poller",
+        level="DEBUG" if args.debug else None,
+    )
 
-    from xyz_agent_context.utils.service_logger import setup_service_logger
-    setup_service_logger("module_poller")
-
-    logger.info("=" * 60)
     logger.info("ModulePoller - Module Callback Detection Service")
-    logger.info("=" * 60)
     logger.info(f"   Poll interval: {args.interval}s")
     logger.info(f"   Max workers: {args.workers}")
     logger.info(f"   Mode: {'Single run' if args.once else 'Continuous'}")
-    logger.info("=" * 60)
     logger.info("\n💡 Press Ctrl+C to stop\n")
 
     if args.once:

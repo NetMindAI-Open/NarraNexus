@@ -1,7 +1,46 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-04-23
+last_verified: 2026-04-28
 ---
+
+## 2026-04-28 changes — half-finished features parked
+
+Two writer paths in `hook_after_event_execution` were exercising
+features whose reader half was never built. Cleaned up to stop the
+ongoing waste and the noise floor they were creating.
+
+**Part B embeddings (`_embed_message_pair`)** — now actually works.
+The `chat_message_embeddings` table is no longer missing from the
+schema (it was the only legacy "one create script per table" leftover;
+`schema_registry.py` now owns it). Each turn writes one
+`(user, assistant)` embedded pair as before, and the writes finally
+land. No reader yet — when Part B retrieval is built, it'll find a
+populated table to query against. **Cost note:** every turn still
+spends one embedding API call on data nobody reads yet. If embeddings
+are expensive enough to matter before the reader lands, switch this
+back off — but on a per-turn basis the cost is small (~one `get_embedding`
+call) so we left it on as future-data investment.
+
+**ChatModule status report (`update_report_memory`)** — disabled.
+The block that built a one-line "Conversation rounds: N | Latest …"
+report and called `event_memory_module.update_report_memory(...)` is
+commented out (in place, with explanation) inside
+`hook_after_event_execution`. Two reasons stacked:
+  1. The reader half (`get_report_memory`) has zero callers anywhere
+     — no Narrative orchestration code consumes the reports.
+  2. The writer was failing in production anyway because the live
+     `module_report_memory` table still has a legacy
+     `instance_id NOT NULL` column from an older schema, and the
+     current INSERT (narrative_id / module_name / report_memory) does
+     not fill it. After T12's `error → exception` sweep the failure
+     started printing a full SQLite stack to logs every turn, which
+     is what surfaced the bug.
+
+The block stays as commented code (not deleted) so reviving the
+feature is a one-block-toggle once a `get_report_memory` consumer
+lands. Don't uncomment without first reconciling the
+`module_report_memory` schema — see
+`.mindflow/mirror/.../event_memory_module.py.md`.
 
 ## 2026-04-23 update — 持久化 Agent reasoning 以跨 turn
 

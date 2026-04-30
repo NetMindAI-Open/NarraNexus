@@ -150,7 +150,7 @@ async def handle_job_execution_result(
                 # TODO: Call Inbox module to send notification
 
         except Exception as e:
-            logger.error(f"            Failed to update job {job_id}: {e}")
+            logger.exception(f"            Failed to update job {job_id}: {e}")
 
     # Return callback for terminal states (dependency chain trigger)
     is_terminal = result.status in [JobStatus.COMPLETED, JobStatus.FAILED]
@@ -303,7 +303,7 @@ async def update_ongoing_jobs_from_chat(
             logger.info(f"            Job {job.job_id} updated: {list(updates.keys())}")
 
         except Exception as e:
-            logger.error(f"            Error processing job instance {instance_id}: {e}")
+            logger.exception(f"            Error processing job instance {instance_id}: {e}")
             continue
 
 
@@ -355,5 +355,5 @@ async def _get_job_info_for_analysis(instance, get_job_by_instance_id) -> Dict[s
             "created_at": job.created_at.strftime("%Y-%m-%dT%H:%M:%S") if job.created_at else None,
         }
     except Exception as e:
-        logger.error(f"Failed to get job info for analysis: {e}")
+        logger.exception(f"Failed to get job info for analysis: {e}")
         return {}

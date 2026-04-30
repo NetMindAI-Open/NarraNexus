@@ -1,7 +1,42 @@
 ---
 code_file: src/xyz_agent_context/module/event_memory_module/event_memory_module.py
-last_verified: 2026-04-10
+last_verified: 2026-04-28
 ---
+
+## 2026-04-28 status — `update_report_memory` / `get_report_memory` 现处于"无人读"待醒状态
+
+设计意图保留：每个 Module 在 `hook_after_event_execution` 调
+`update_report_memory(narrative_id, module_name, report_memory)` 把
+自己的最新状态报给 Narrative；Narrative 编排层调
+`get_report_memory(narrative_id, module_name?)` 读这些报告决定要不要
+激活某个 Module。
+
+实际现状（2026-04-28 全仓盘点）：
+- **`get_report_memory` 无任何调用方** —— Narrative 编排层从来没接通这条
+  消费路径
+- **`update_report_memory` 唯一调用方** 是 `chat_module.py:725-746`，
+  那一段 2026-04-28 已注释（见 `chat_module.py.md` 的当日 entry）
+- **底层表 `module_report_memory` schema 漂移**：实际 SQLite/MySQL 表
+  里还留着一个早期设计的 `instance_id NOT NULL` 列。当时表按
+  `instance_id` 索引（每个 module instance 一条 report）。后来重设计成
+  `(narrative_id, module_name)` 唯一索引，`schema_registry.py` 注册的是
+  新版列；`auto_migrate()` 不删旧列（铁律 #6 数据库不做危险变更），所以
+  `instance_id NOT NULL` 还在。当前 INSERT 不填它，写入必然报
+  `NOT NULL constraint failed: module_report_memory.instance_id`。
+
+恢复这条特性时要做的：
+1. 解决 schema 漂移 —— 写 one-shot migration（仿
+   `utils/one_shot_migrations.py` 套路）：SQLite 走"create new + copy +
+   drop + rename"；MySQL `ALTER TABLE DROP COLUMN`。注意
+   `module_report_memory` 是缓存性的（每次 hook 重写），数据丢了不心疼；
+   要紧的是清掉旧列。
+2. 把 `chat_module.py:725` 的那段 commented block 翻回来。
+3. 在 Narrative 编排层接通 `get_report_memory` 的消费方。
+
+未做以上三步前，方法本身留着是为了**接口契约不破裂** —— 其他 Module
+（如果哪天 SocialNetworkModule / JobModule 也想报状态）写代码时还能
+import 到 `update_report_memory`。但调一次就报错 + log 噪音，所以现在
+全部不调用维持。
 
 # event_memory_module.py — Narrative 级别存储服务
 

@@ -18,7 +18,7 @@ import {
   RotateCcw,
   LayoutDashboard,
 } from 'lucide-react';
-import { Button, ThemeToggle, useConfirm } from '@/components/ui';
+import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -153,19 +153,21 @@ export function Sidebar() {
     >
       {confirmDialog}
 
-      {/* Gradient edge glow */}
-      <div className="absolute top-0 right-0 bottom-0 w-px bg-gradient-to-b from-transparent via-[var(--accent-primary)]/20 to-transparent" />
-
       {/* Header — full-width logo replaces the old icon-tile + wordmark stack.
           Collapsed state hides the logo and keeps only the toggle button. */}
       <div className="p-4 border-b border-[var(--rule)]">
         <div className="flex items-center justify-between gap-2">
           {!collapsed && (
-            <img
-              src={isDark ? '/logo-dark.png' : '/logo-light.png'}
-              alt="NarraNexus"
-              className="h-12 w-auto object-contain animate-fade-in"
-            />
+            <div className="flex items-center gap-0 animate-fade-in min-w-0">
+              <img
+                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+                alt="NarraNexus"
+                className="h-12 w-auto object-contain shrink-0"
+              />
+              <span className="text-[16px] font-medium leading-none text-[var(--text-primary)] font-[family-name:Inter,system-ui,sans-serif] tracking-[0.02em] truncate">
+                NarraNexus
+              </span>
+            </div>
           )}
           <Button
             variant="ghost"
@@ -189,7 +191,7 @@ export function Sidebar() {
       {!collapsed && (
         <div className="px-4 py-3 border-b border-[var(--rule)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 shrink-0 bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--rule)]">
+            <div className="w-10 h-10 shrink-0 bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--border-subtle)]">
               <User className="w-4 h-4 text-[var(--text-secondary)]" />
             </div>
             {/* Name + status stacked inside a 40px column matching the avatar,
@@ -211,9 +213,9 @@ export function Sidebar() {
       )}
 
       {/* Agents List */}
-      <div className="flex-1 overflow-y-auto">
+      <ScrollArea className="flex-1">
         <AgentList collapsed={collapsed} />
-      </div>
+      </ScrollArea>
 
       {/* Navigation Items */}
       <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">

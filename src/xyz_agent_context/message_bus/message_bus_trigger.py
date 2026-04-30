@@ -93,7 +93,7 @@ class MessageBusTrigger:
                         POLL_MAX_INTERVAL,
                     )
             except Exception as e:
-                logger.error(f"MessageBusTrigger poll cycle error: {e}")
+                logger.exception(f"MessageBusTrigger poll cycle error: {e}")
 
             await asyncio.sleep(self._current_interval)
 
@@ -228,7 +228,7 @@ class MessageBusTrigger:
 
                 return handled_any
             except Exception as e:
-                logger.error(
+                logger.exception(
                     f"MessageBusTrigger: error processing agent {agent_id}: {e}"
                 )
                 return False
@@ -276,6 +276,7 @@ class MessageBusTrigger:
                 sender_agent_id=trigger_message.from_agent,
                 prompt=prompt,
                 channel_id=channel_id,
+                trigger_message_id=trigger_message.message_id,
             )
 
             # On success: advance cursor
@@ -297,7 +298,7 @@ class MessageBusTrigger:
                 )
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"MessageBusTrigger: failed to process channel {channel_id} "
                 f"for agent {agent_id}: {e}"
             )
@@ -387,6 +388,7 @@ class MessageBusTrigger:
         sender_agent_id: str,
         prompt: str,
         channel_id: str,
+        trigger_message_id: str = "",
     ) -> str:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -398,7 +400,6 @@ class MessageBusTrigger:
         """
         try:
             from xyz_agent_context.agent_runtime import AgentRuntime
-            from xyz_agent_context.agent_runtime.logging_service import LoggingService
             from xyz_agent_context.agent_runtime.run_collector import collect_run
             from xyz_agent_context.schema import WorkingSource
         except ImportError as e:
@@ -406,14 +407,21 @@ class MessageBusTrigger:
                 f"Cannot import AgentRuntime dependencies: {e}"
             ) from e
 
-        runtime = AgentRuntime(logging_service=LoggingService(enabled=False))
+        runtime = AgentRuntime()
         collection = await collect_run(
             runtime,
             agent_id=agent_id,
             user_id=sender_agent_id,
             input_content=prompt,
             working_source=WorkingSource.MESSAGE_BUS,
-            trigger_extra_data={"bus_channel_id": channel_id},
+            trigger_extra_data={
+                "bus_channel_id": channel_id,
+                "trigger_id": (
+                    f"bus_{trigger_message_id}"
+                    if trigger_message_id
+                    else f"bus_chan_{channel_id}"
+                ),
+            },
         )
 
         # Error path (Bug 2): previously the loop only checked
@@ -511,4 +519,9 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from xyz_agent_context.utils.logging import setup_logging
+    setup_logging("message_bus_trigger")
+    try:
+        asyncio.run(main())
+    finally:
+        asyncio.run(logger.complete())

@@ -148,7 +148,7 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
         <span className={`ml-auto transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
       </button>
       {expanded && (
-        <div className="ml-7 mt-1 rounded border border-[var(--rule)] bg-[var(--bg-tertiary)] p-2 space-y-1.5">
+        <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1.5">
           {subtitle && <div className="text-[var(--text-secondary)]">{subtitle}</div>}
           {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
           {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}

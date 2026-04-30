@@ -78,6 +78,16 @@ from .hook_schema import (
 # ===== Channel Tag Schema =====
 from .channel_tag import ChannelTag
 
+# ===== Attachment Schema (user uploads in chat) =====
+from .attachment_schema import (
+    Attachment,
+    AttachmentCategory,
+    SUPPORTED_IMAGE_MIME_TYPES,
+    FILE_ID_PREFIX,
+    FILE_ID_REGEX,
+    derive_category_from_mime,
+)
+
 # ===== RAG Store Schema =====
 from .rag_store_schema import (
     RAGStoreModel,
@@ -286,6 +296,14 @@ __all__ = [
 
     # Channel Tag Schema
     "ChannelTag",
+
+    # Attachment Schema
+    "Attachment",
+    "AttachmentCategory",
+    "SUPPORTED_IMAGE_MIME_TYPES",
+    "FILE_ID_PREFIX",
+    "FILE_ID_REGEX",
+    "derive_category_from_mime",
 
     # RAG Store Schema
     "RAGStoreModel",

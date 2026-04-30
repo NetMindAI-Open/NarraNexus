@@ -579,6 +579,33 @@ _register(
     )
 )
 
+# 18. chat_message_embeddings (Part B: per-message embedding cache for
+# ChatModule history. Writer: chat_module._embed_message_pair() in
+# hook_after_event_execution. Reader: not yet implemented — table exists
+# so the writer can succeed silently and the embeddings accumulate for
+# whatever Part B retrieval surface is built later.)
+_register(
+    TableDef(
+        name="chat_message_embeddings",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("instance_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("message_index", "INTEGER", "INT", nullable=False),
+            Column("role", "TEXT", "VARCHAR(16)", nullable=False, default="'pair'"),
+            Column("content", "TEXT", "TEXT", nullable=False),
+            Column("embedding", "TEXT", "JSON"),
+            Column("source_text", "TEXT", "VARCHAR(512)"),
+            Column("event_id", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("uk_instance_msg", ["instance_id", "message_index"], unique=True),
+            Index("idx_chat_emb_instance", ["instance_id"]),
+            Index("idx_chat_emb_event", ["event_id"]),
+        ],
+    )
+)
+
 # 20. bus_channels (text primary key, no auto-increment)
 _register(
     TableDef(

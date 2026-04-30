@@ -46,7 +46,7 @@ async def list_workspace_files(
     user_id: str = Query(..., description="User ID")
 ):
     """List all files in Agent workspace"""
-    logger.info(f"Listing files for agent: {agent_id}, user: {user_id}")
+    logger.debug(f"Listing files for agent: {agent_id}, user: {user_id}")
 
     try:
         workspace_path = _get_workspace_path(agent_id, user_id)
@@ -72,7 +72,7 @@ async def list_workspace_files(
         )
 
     except Exception as e:
-        logger.error(f"Error listing files: {e}")
+        logger.exception(f"Error listing files: {e}")
         return FileListResponse(success=False, error=str(e))
 
 
@@ -115,7 +115,7 @@ async def upload_file(
     except ValueError as e:
         return FileUploadResponse(success=False, error=str(e))
     except Exception as e:
-        logger.error(f"Error uploading file: {e}")
+        logger.exception(f"Error uploading file: {e}")
         return FileUploadResponse(success=False, error=str(e))
 
 
@@ -147,5 +147,5 @@ async def delete_file(
     except ValueError as e:
         return FileDeleteResponse(success=False, error=str(e))
     except Exception as e:
-        logger.error(f"Error deleting file: {e}")
+        logger.exception(f"Error deleting file: {e}")
         return FileDeleteResponse(success=False, error=str(e))

@@ -62,7 +62,7 @@ async def list_mcps(
     user_id: str = Query(..., description="User ID"),
 ):
     """List all MCP URLs for Agent+User"""
-    logger.info(f"Listing MCPs for agent: {agent_id}, user: {user_id}")
+    logger.debug(f"Listing MCPs for agent: {agent_id}, user: {user_id}")
 
     try:
         db_client = await get_db_client()
@@ -73,7 +73,7 @@ async def list_mcps(
         return MCPListResponse(success=True, mcps=mcp_list, count=len(mcp_list))
 
     except Exception as e:
-        logger.error(f"Error listing MCPs: {e}")
+        logger.exception(f"Error listing MCPs: {e}")
         return MCPListResponse(success=False, error=str(e))
 
 
@@ -117,7 +117,7 @@ async def create_mcp(
         )
 
     except Exception as e:
-        logger.error(f"Error creating MCP: {e}")
+        logger.exception(f"Error creating MCP: {e}")
         return MCPResponse(success=False, error=str(e))
 
 
@@ -161,7 +161,7 @@ async def update_mcp_endpoint(
         )
 
     except Exception as e:
-        logger.error(f"Error updating MCP: {e}")
+        logger.exception(f"Error updating MCP: {e}")
         return MCPResponse(success=False, error=str(e))
 
 
@@ -190,7 +190,7 @@ async def delete_mcp_endpoint(
         return MCPResponse(success=True, mcp=_mcp_to_info(existing_mcp))
 
     except Exception as e:
-        logger.error(f"Error deleting MCP: {e}")
+        logger.exception(f"Error deleting MCP: {e}")
         return MCPResponse(success=False, error=str(e))
 
 
@@ -230,7 +230,7 @@ async def validate_mcp_endpoint(
         )
 
     except Exception as e:
-        logger.error(f"Error validating MCP: {e}")
+        logger.exception(f"Error validating MCP: {e}")
         return MCPValidateResponse(
             success=False, mcp_id=mcp_id, connected=False, error=str(e)
         )
@@ -279,5 +279,5 @@ async def validate_all_mcps_endpoint(
         )
 
     except Exception as e:
-        logger.error(f"Error validating all MCPs: {e}")
+        logger.exception(f"Error validating all MCPs: {e}")
         return MCPValidateAllResponse(success=False, error=str(e))

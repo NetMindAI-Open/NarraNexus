@@ -454,7 +454,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             }
 
         except Exception as e:
-            logger.error(f"Error merging entities: {e}")
+            logger.exception(f"Error merging entities: {e}")
             return {"success": False, "message": f"Error: {str(e)}"}
 
     @mcp.tool()
@@ -509,7 +509,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             }
 
         except Exception as e:
-            logger.error(f"Error deleting entity: {e}")
+            logger.exception(f"Error deleting entity: {e}")
             return {"success": False, "message": f"Error: {str(e)}"}
 
     @mcp.tool()
@@ -617,7 +617,7 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
             }
 
         except Exception as e:
-            logger.error(f"Error creating agent: {e}")
+            logger.exception(f"Error creating agent: {e}")
             return {"success": False, "message": f"Error: {str(e)}"}
 
     return mcp

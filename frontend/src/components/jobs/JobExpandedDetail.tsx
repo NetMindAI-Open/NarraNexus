@@ -16,7 +16,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { Button, Badge } from '@/components/ui';
+import { Button, Badge, ScrollArea } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/utils';
 import type { Job } from '@/types/api';
 
@@ -242,7 +242,8 @@ export function JobExpandedDetail({
       {job.process && job.process.length > 0 && (
         <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
           <SectionLabel>Process Log ({job.process.length} entries)</SectionLabel>
-          <div className="max-h-32 overflow-y-auto space-y-0.5 scrollbar-thin">
+          <ScrollArea className="max-h-32">
+            <div className="space-y-0.5">
             {job.process.map((entry, idx) => (
               <div
                 key={idx}
@@ -252,7 +253,8 @@ export function JobExpandedDetail({
                 {entry}
               </div>
             ))}
-          </div>
+            </div>
+          </ScrollArea>
         </div>
       )}
 

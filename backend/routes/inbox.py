@@ -190,7 +190,7 @@ async def get_agent_inbox(
         }
 
     except Exception as e:
-        logger.error(f"[get_agent_inbox] Error: {e}", exc_info=True)
+        logger.exception(f"[get_agent_inbox] Error: {e}", exc_info=True)
         return {"success": False, "rooms": [], "total_unread": 0, "error": str(e)}
 
 
@@ -224,5 +224,5 @@ async def mark_message_read(message_id: str, agent_id: str = Query(...)):
         return {"success": True, "marked_count": 1}
 
     except Exception as e:
-        logger.error(f"[mark_message_read] Error: {e}", exc_info=True)
+        logger.exception(f"[mark_message_read] Error: {e}", exc_info=True)
         return {"success": False, "error": str(e), "marked_count": 0}
