@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api } from '@/lib/api';
+import { useTeamsStore } from './teamsStore';
 import type { AgentInfo } from '@/types';
 
 export type { AgentInfo };
@@ -47,22 +48,43 @@ export const useConfigStore = create<ConfigState>()(
       awarenessUpdatedAgents: [],
 
       // Actions
-      login: (userId, token?, role?) => set({
-        isLoggedIn: true,
-        userId,
-        token: token || '',
-        role: role || '',
-      }),
+      login: (userId, token?, role?) => {
+        const prevUserId = get().userId;
+        set({
+          isLoggedIn: true,
+          userId,
+          token: token || '',
+          role: role || '',
+        });
+        // If we just switched accounts (or just logged in fresh after a
+        // logout), wipe per-user persisted caches so the next consumer
+        // refetches against the right identity. teamsStore is the only
+        // store currently using zustand persist for per-user data — see
+        // its frontmatter and `partialize: { teams, loaded }`. Without
+        // this reset, TeamFilterBar's `if (!loaded) refresh()` guard
+        // (TeamFilterBar.tsx:28-30) keeps showing the previous user's
+        // team chips because `loaded` survives in localStorage.
+        if (prevUserId !== userId) {
+          useTeamsStore.setState({ teams: [], loaded: false });
+        }
+      },
 
-      logout: () => set({
-        isLoggedIn: false,
-        userId: '',
-        token: '',
-        role: '',
-        agentId: '',
-        agents: [],
-        awarenessUpdatedAgents: [],
-      }),
+      logout: () => {
+        set({
+          isLoggedIn: false,
+          userId: '',
+          token: '',
+          role: '',
+          agentId: '',
+          agents: [],
+          awarenessUpdatedAgents: [],
+        });
+        // Symmetric reset — see comment in login(). Logging out and back
+        // in as the same user still benefits from this (we cleared
+        // anyway, refresh will repopulate); logging in as a different
+        // user is the actual bug this prevents.
+        useTeamsStore.setState({ teams: [], loaded: false });
+      },
 
       setAgentId: (id) => set({ agentId: id }),
 

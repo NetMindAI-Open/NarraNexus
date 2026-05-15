@@ -62,10 +62,17 @@ class SQLiteProxyBackend(DatabaseBackend):
 
         Retries connection to the proxy with exponential backoff.
         """
+        # trust_env=False: ignore HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars.
+        # The proxy is on loopback (127.0.0.1:8100). Users running VPN clients
+        # (clash, v2ray, etc.) typically set http_proxy=127.0.0.1:7897 for
+        # outbound traffic — that local SOCKS/HTTP proxy refuses loopback
+        # destinations, so without trust_env=False the backend dies trying to
+        # tunnel its own DB calls through the user's VPN.
         self._client = httpx.AsyncClient(
             base_url=self._proxy_url,
             timeout=self._timeout,
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            trust_env=False,
         )
 
         # Wait for proxy to be ready with retries
@@ -100,11 +107,13 @@ class SQLiteProxyBackend(DatabaseBackend):
 
     def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None:
-            # Lazy initialization: create client on first use if initialize() wasn't called
+            # Lazy initialization: create client on first use if initialize() wasn't called.
+            # See initialize() for the trust_env=False rationale (VPN proxy + loopback).
             self._client = httpx.AsyncClient(
                 base_url=self._proxy_url,
                 timeout=self._timeout,
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+                trust_env=False,
             )
         return self._client
 

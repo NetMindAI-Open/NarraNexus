@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-04-10
+last_verified: 2026-05-06
 stub: false
 ---
 
@@ -22,7 +22,7 @@ Narrative 检索、连续性判断、embedding 更新是计算密集型操作，
 
 `NARRATIVE_LLM_UPDATE_INTERVAL` 这个参数**不在这里**，而是在 `xyz_agent_context/config.py`（全局 config）里——因为它控制的是 LLM API 调用频率，是运营成本相关的全局参数，不是 Narrative 内部的行为参数。这个分工容易让新人找错地方。
 
-`EVERMEMOS_ENABLED = True` 是默认开启 EverMemOS 的。如果 EverMemOS 服务没有启动，retrieval 会失败并 fallback 到纯向量检索（retrieval.py 里有 try/except 保护）。但如果网络超时设置过长（`EVERMEMOS_TIMEOUT = 30`），每次 select() 都会等待 30 秒才 fallback，严重影响响应速度。开发环境如果不需要 EverMemOS，应该把 `EVERMEMOS_ENABLED` 设为 `False`。
+`EVERMEMOS_ENABLED = False` 现在是默认值——云端部署目前没有运行 EverMemOS 服务，开着会让 backend 在每次 hook 写入时打 ConnectError。打开前先确保 EverMemOS 服务已经跑起来；retrieval.py 在禁用时直接走纯向量检索路径，不会触碰 HTTP 客户端。配套的 belt-and-suspenders 在 `utils/evermemos/client.py:get_evermemos_client` 里——禁用时返回 no-op stub，覆盖那些没显式 gate 的调用方。
 
 `ENABLE_HIERARCHICAL_STRUCTURE = False` 和 `ENABLE_AUTO_SPLIT = False` 是 Phase 2 预留的功能开关，目前代码里没有对应实现，改成 True 没有效果。
 

@@ -152,6 +152,27 @@ _register(
             Column("user_id", "TEXT", "VARCHAR(128)"),
             Column("event_embedding", "TEXT", "MEDIUMTEXT"),
             Column("embedding_text", "TEXT", "TEXT"),
+            # --- Agent Runtime Lifecycle (Phase C, 2026-05-13) ---
+            # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-
+            # and-stream-resilience-design.md §4.1
+            #
+            # `state` describes the live status of the agent run associated
+            # with this event. Old rows default to 'completed' (they finished
+            # before this feature shipped — reconcile MUST NOT mistake them
+            # for stale running runs).
+            #
+            # `state` values:
+            #   running   — BackgroundRun task is alive in some backend process
+            #   completed — finished normally
+            #   cancelled — user pressed Stop
+            #   failed    — fatal error (timeout, SDK crash, backend restart)
+            Column("state", "TEXT", "VARCHAR(32)", nullable=False, default="'completed'"),
+            Column("started_at", "TEXT", "DATETIME(6)"),
+            Column("last_event_at", "TEXT", "DATETIME(6)"),
+            Column("finished_at", "TEXT", "DATETIME(6)"),
+            Column("tool_call_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("current_stage", "TEXT", "VARCHAR(64)"),
+            Column("error_message", "TEXT", "TEXT"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -163,6 +184,9 @@ _register(
             Index("idx_events_trigger", ["trigger"]),
             Index("idx_events_created_at", ["created_at"]),
             Index("idx_events_agent_created", ["agent_id", "created_at"]),
+            # Phase C: filter running rows for reconcile + active_run lookup
+            Index("idx_events_state", ["state"]),
+            Index("idx_events_agent_state", ["agent_id", "state"]),
         ],
     )
 )
@@ -703,12 +727,31 @@ _register(
             # forward proxies. auto_migrate() will add this column to
             # pre-existing tables with the default value.
             Column("supports_anthropic_server_tools", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            # --- Provider Unification (2026-05-13) — see spec
+            # reference/self_notebook/specs/2026-05-13-provider-unification-design.md
+            #
+            # driver_type    : key into agent_framework.provider_driver.DRIVER_REGISTRY.
+            #                  null on existing rows; backfilled at startup via
+            #                  derive_driver_type(source, auth_type, protocol).
+            # owner_user_id  : null = system-shared card (cloud only); otherwise
+            #                  equals user_id. Local mode always self-owned.
+            # billing_policy : 'user_pays' (default) | 'system_quota' (cloud
+            #                  system row) | 'external_oauth' (Claude OAuth).
+            # auth_ref       : where to find the credential when api_key alone
+            #                  isn't enough — e.g. for OAuth this points at
+            #                  ~/.claude/.credentials.json on the host.
+            Column("driver_type", "TEXT", "VARCHAR(32)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("billing_policy", "TEXT", "VARCHAR(32)", default="'user_pays'"),
+            Column("auth_ref", "TEXT", "VARCHAR(512)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_up_user_provider", ["user_id", "provider_id"], unique=True),
             Index("idx_up_user_id", ["user_id"]),
+            Index("idx_up_driver_type", ["driver_type"]),
+            Index("idx_up_owner", ["owner_user_id"]),
         ],
     )
 )
@@ -723,6 +766,11 @@ _register(
             Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
             Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
             Column("model", "TEXT", "VARCHAR(128)", nullable=False),
+            # Set by self_heal_if_broken() when a slot.model that no longer
+            # exists in its provider.models array is auto-repaired to the
+            # default. Used as a 24h debounce so a misbehaving slot doesn't
+            # write a notification on every LLM call.
+            Column("last_auto_repaired_at", "TEXT", "DATETIME(6)"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -778,6 +826,78 @@ _register(
 )
 
 
+# --- 27b. channel_slack_credentials -----------------------------------------
+# Phase 3: per-agent Slack bot binding (Bot Token + App-Level Token).
+# Tokens are stored as base64-encoded text (matching the lark_credentials
+# convention: trivially reversible, NOT encryption — production deployments
+# should swap in real KMS-backed crypto).
+_register(
+    TableDef(
+        name="channel_slack_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("app_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("team_id", "TEXT", "VARCHAR(64)"),
+            Column("team_name", "TEXT", "VARCHAR(255)"),
+            # Owner identity — populated at bind via users.lookupByEmail when
+            # owner_email is supplied. Drives is_owner_interacting trust
+            # signal (sender_id == owner_user_id).
+            Column("owner_email", "TEXT", "VARCHAR(254)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_slack_cred_agent_id", ["agent_id"], unique=True),
+            # Same Slack bot in same workspace can be bound to AT MOST one
+            # agent. Two agents sharing a bot would race on the single
+            # Socket Mode WebSocket slot Slack issues per app_token, and
+            # the trust signal would flip-flop between agents' owner_user_ids.
+            Index("idx_slack_cred_bot_identity", ["team_id", "bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
+# --- 27c. channel_telegram_credentials -------------------------------------
+# Phase 4: per-agent Telegram bot binding (single Bot Token from @BotFather).
+# Telegram has no team/workspace concept — bot_user_id alone is the identity
+# for the uniqueness check.
+_register(
+    TableDef(
+        name="channel_telegram_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            # Telegram bot identity (from getMe). bot_user_id is int64 stored as string.
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("bot_username", "TEXT", "VARCHAR(128)"),
+            # Owner — populated at bind via getChat("@handle"). user_id is the
+            # immutable identity (username can change).
+            Column("owner_username", "TEXT", "VARCHAR(64)"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_tg_cred_agent_id", ["agent_id"], unique=True),
+            # Same Telegram bot can be bound to AT MOST one agent. Two agents
+            # racing on long-poll for the same token would flip-flop trust
+            # signal + drop events arbitrarily.
+            Index("idx_tg_cred_bot_identity", ["bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(
@@ -802,6 +922,94 @@ _register(
         ],
         indexes=[
             Index("idx_user_quotas_user", ["user_id"], unique=True),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# 29. user_notifications — out-of-band messages to surface in UI
+#
+# Introduced by the Provider Unification work (spec
+# reference/self_notebook/specs/2026-05-13-provider-unification-design.md).
+# The first producer is the self-heal mechanism: when a slot.model is no
+# longer in the provider.models array, the resolver auto-swaps to a safe
+# default and writes a `slot_auto_repaired` row here so the user finds
+# out at the next time they open the app.
+#
+# Kept intentionally minimal — kind+payload+severity is enough for
+# Settings-page bell + future system messages. payload is JSON text so
+# producers don't need a schema migration per new notification kind.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="user_notifications",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("kind", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("payload", "TEXT", "MEDIUMTEXT"),
+            Column("severity", "TEXT", "VARCHAR(16)", nullable=False, default="'info'"),
+            Column("read_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_un_user_unread", ["user_id", "read_at"]),
+            Index("idx_un_user_created", ["user_id", "created_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# 30. event_stream — per-stream-chunk persistence for live agent runs.
+#
+# Introduced by the Agent Runtime Lifecycle work (spec
+# reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-
+# stream-resilience-design.md §4.1.2).
+#
+# Why we need it
+#   The user requirement is "重连等于没关过一样" — closing a browser tab
+#   mid-run and reopening it later must restore the full thinking / tool
+#   trace, not just the final reply. The events table only persists
+#   final_output (per-turn granularity); the streaming events themselves
+#   live on the WebSocket and disappear when the WS drops. This table
+#   captures every stream-level chunk so replay-on-reconnect works.
+#
+# Granularity decision (組合 B)
+#   Thinking is grouped into SEGMENTS — a segment is the contiguous
+#   stretch between two type switches (tool_call / tool_output / etc.).
+#   When a non-thinking event arrives or the run ends, the buffered
+#   segment is flushed as ONE row here. Tool_call and tool_output get
+#   one row each. Decision driver: 4408 raw thinking chunks per Xiong-
+#   style run collapse to ~50 segment rows; total row count per run is
+#   bounded by `2 × tool_call_count + small constant` rather than by
+#   token granularity.
+#
+# Layout
+#   * (event_id, seq) is the natural primary key but we keep a synthetic
+#     auto-increment `id` to make MySQL row inserts cheaper.
+#   * `kind` is small and bounded — VARCHAR(32) is plenty.
+#   * `payload` is JSON or plain text. For `thinking_segment` it is the
+#     raw concatenated text; for `tool_call` / `tool_output` it is a
+#     JSON object so the consumer can pull `tool_name` / `arguments` /
+#     `output` without a separate column per attribute.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="event_stream",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("event_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("seq", "INTEGER", "INT", nullable=False),
+            Column("kind", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("payload", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # Replay-on-reconnect: SELECT ... WHERE event_id=? ORDER BY seq ASC
+            Index("idx_event_stream_event_seq", ["event_id", "seq"], unique=True),
+            Index("idx_event_stream_event_id", ["event_id"]),
         ],
     )
 )
@@ -873,6 +1081,210 @@ _register(
         ],
     )
 )
+
+
+# Subproject 1: Team Membership (from main)
+_register(
+    TableDef(
+        name="teams",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("color", "TEXT", "VARCHAR(16)"),
+            Column("source", "TEXT", "VARCHAR(64)", nullable=False, default="'user'"),
+            Column("intro_md", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_teams_team_id", ["team_id"], unique=True),
+            Index("idx_teams_owner_user_id", ["owner_user_id"]),
+        ],
+    )
+)
+
+# ----------------------------------------------------------------------------
+# channel_seen_messages — multi-channel durable dedup (Phase 1 / IM abstraction)
+#
+# Same INSERT-or-UNIQUE atomicity as `lark_seen_messages`, but namespaced by
+# channel so Lark + Slack + Telegram dedup independently. The composite UNIQUE
+# `(channel, message_id)` lets the same `om_xxx` (or whatever the platform
+# emits) appear in multiple channels without colliding.
+#
+# `lark_seen_messages` is intentionally NOT migrated here — iron rule #6
+# forbids destructive DB changes. Phase 2 will switch the Lark trigger to
+# point at this generic table, double-write for one release, then drop the
+# old table in a separate cleanup PR once data has aged out.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_seen_messages",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("seen_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_channel_seen_messages_unique", ["channel", "message_id"], unique=True),
+            Index("idx_channel_seen_messages_seen_at", ["seen_at"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="team_members",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("joined_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_members_team_agent", ["team_id", "agent_id"], unique=True),
+            Index("idx_team_members_agent_id", ["agent_id"]),
+            Index("idx_team_members_team_id", ["team_id"]),
+        ],
+    )
+)
+
+# Subproject 2: Bundle Import — preflight session storage (cross-process / crash-safe)
+_register(
+    TableDef(
+        name="bundle_preflight_sessions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("token", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("work_dir", "TEXT", "VARCHAR(1024)", nullable=False),
+            Column("manifest_json", "TEXT", "MEDIUMTEXT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_bps_token", ["token"], unique=True),
+            Index("idx_bps_created", ["created_at"]),
+        ],
+    )
+)
+
+# Subproject 2: Bundle Export/Import — skill archive registry
+_register(
+    TableDef(
+        name="skill_archives",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("skill_name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("source_type", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("source_url", "TEXT", "VARCHAR(1024)"),
+            Column("archive_path", "TEXT", "VARCHAR(1024)"),
+            Column("sha256", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_skill_arch_user_name", ["user_id", "skill_name"], unique=True),
+            Index("idx_skill_arch_user_id", ["user_id"]),
+        ],
+    )
+)
+
+# ----------------------------------------------------------------------------
+# channel_trigger_audit — multi-channel lifecycle audit (Phase 1 / IM abstraction)
+#
+# Generic version of `lark_trigger_audit` with an additional `channel` column
+# so all IM triggers write to one observable table. `details` stays JSON so
+# new fields can be added without migrations. 30-day retention matches Lark.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="channel_trigger_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("channel", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("event_time", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("message_id", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(128)"),
+            Column("app_id", "TEXT", "VARCHAR(128)"),
+            Column("chat_id", "TEXT", "VARCHAR(128)"),
+            Column("sender_id", "TEXT", "VARCHAR(128)"),
+            Column("details", "TEXT", "MEDIUMTEXT"),
+        ],
+        indexes=[
+            Index("idx_channel_trigger_audit_event_time", ["event_time"]),
+            Index("idx_channel_trigger_audit_channel_event_type", ["channel", "event_type"]),
+            Index("idx_channel_trigger_audit_agent_id", ["agent_id"]),
+            Index("idx_channel_trigger_audit_message_id", ["message_id"]),
+        ],
+    )
+)
+
+
+# ── Artifacts (agent visual outputs) ─────────────────────────────────────
+# Pointer model (2026-05-14): an artifact is a pointer to an entry file the
+# agent wrote inside its own workspace. `file_path` is the entry file relative
+# to settings.base_working_path; the entry file's directory is the artifact
+# root and is served wholesale (multi-file HTML apps + sibling assets).
+_register(
+    TableDef(
+        name="instance_artifacts",
+        columns=[
+            Column("artifact_id",    "TEXT",    "VARCHAR(32)",  nullable=False, primary_key=True),
+            Column("agent_id",       "TEXT",    "VARCHAR(128)", nullable=False),
+            Column("user_id",        "TEXT",    "VARCHAR(128)", nullable=False),
+            Column("session_id",     "TEXT",    "VARCHAR(64)"),
+            Column("original_session_id", "TEXT", "VARCHAR(64)"),    # remembers session_id at pin time so unpin can restore it
+            Column("title",          "TEXT",    "VARCHAR(200)", nullable=False),
+            Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),
+            Column("description",    "TEXT",    "TEXT"),
+            Column("pinned",         "INTEGER", "TINYINT(1)",   nullable=False, default="0"),
+            # Pointer-model columns. file_path = entry file relative to
+            # base_working_path; size_bytes = recursive size of the artifact
+            # root directory. Nullable so auto_migrate can add them to existing
+            # DBs without a backfill — old (versioned) rows keep file_path NULL
+            # and are hand-migrated per the cleanup TODO.
+            Column("file_path",      "TEXT",    "VARCHAR(512)"),
+            Column("size_bytes",     "INTEGER", "BIGINT",       nullable=False, default="0"),
+            # DEPRECATED (2026-05-14): versioning was dropped with the pointer
+            # model. Column kept so auto_migrate keeps provisioning it and
+            # colleagues can hand-migrate old rows. No code reads/writes it.
+            # Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+            Column("latest_version", "INTEGER", "INT",          nullable=False, default="1"),
+            Column("created_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
+            Column("updated_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
+            Index("idx_artifact_agent_pinned",  ["agent_id", "pinned"]),
+            Index("idx_artifact_agent_id",      ["agent_id"]),  # for total_bytes_for_agent
+        ],
+    )
+)
+
+# DEPRECATED (2026-05-14): the pointer model dropped per-version content rows.
+# This table is kept registered so auto_migrate keeps provisioning it and
+# colleagues with old saved HTML can hand-migrate from these rows. No code
+# reads or writes it anymore.
+# Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+_register(
+    TableDef(
+        name="instance_artifact_versions",
+        columns=[
+            Column("id",          "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("artifact_id", "TEXT",    "VARCHAR(32)",     nullable=False),
+            Column("version",     "INTEGER", "INT",             nullable=False),
+            Column("file_path",   "TEXT",    "VARCHAR(512)",    nullable=False),
+            Column("size_bytes",  "INTEGER", "BIGINT",          nullable=False),
+            Column("created_at",  "TEXT",    "DATETIME(6)",     nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
+    )
+)
+
 
 
 # ============================================================================
@@ -1159,3 +1571,107 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
         f"{indexes_created} indexes created "
         f"(total {len(TABLES)} tables in registry)"
     )
+
+    # Post-migration self-heal (2026-05-13). The CREATE / ALTER / INDEX
+    # loop above is supposed to be idempotent and leave every registered
+    # table in place, but field reports show it can quietly fail to
+    # create some tables (older backend booting on even-older DB, write
+    # lock contention, DDL generator edge case, half-applied migration
+    # from a previous abrupt shutdown, …). For non-technical users
+    # running ``bash run.sh`` or a packaged dmg, a missing table later
+    # surfaces as "click button, nothing happens" — they have no way to
+    # diagnose, no way to manually recover.
+    #
+    # So we explicitly re-verify, and if anything is missing we run
+    # CREATE TABLE for those entries one more time, with per-table
+    # error tolerance. If a table is STILL missing after the second
+    # attempt we log loudly but DO NOT raise — the rest of the app keeps
+    # working, only operations on that specific table will fail, which
+    # is strictly less bad than a backend that won't start.
+    await _self_heal_missing_tables(backend, dialect)
+
+
+async def _self_heal_missing_tables(
+    backend: "DatabaseBackend", dialect: str
+) -> None:
+    """Detect and re-create tables that the registry expects but the DB
+    is missing. Idempotent; safe to call multiple times.
+
+    The whole point is to let a non-technical user simply restart the
+    app (or even the same launch) and get a working DB without ever
+    having to look at logs or run SQL. If self-heal can't fix it on a
+    given boot, we still log loudly and keep going.
+    """
+    missing = await _verify_all_tables_present(backend, dialect)
+    if not missing:
+        logger.info(
+            f"Schema integrity verified: all {len(TABLES)} registered tables present"
+        )
+        return
+
+    logger.warning(
+        f"Schema self-heal: {len(missing)} table(s) missing after migrate — "
+        f"re-attempting CREATE for: {missing}"
+    )
+
+    for table_name in missing:
+        table_def = TABLES.get(table_name)
+        if table_def is None:
+            # Should be impossible — `missing` came from iterating TABLES — but
+            # be defensive.
+            continue
+        try:
+            ddl_stmts = generate_create_table_sql(table_def, dialect)
+            for stmt in ddl_stmts:
+                await backend.execute_write(stmt)
+            logger.info(f"Schema self-heal: re-created table `{table_name}`")
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                f"Schema self-heal: re-create of `{table_name}` failed: {e}. "
+                f"Routes touching this table will return 5xx until the next "
+                f"successful boot."
+            )
+
+    # Final verification.
+    still_missing = await _verify_all_tables_present(backend, dialect)
+    if still_missing:
+        # Don't raise — degrade gracefully. The user might be able to
+        # use the app's other features while this gets diagnosed.
+        logger.error(
+            f"Schema self-heal could NOT recover tables: {still_missing}. "
+            f"The backend will continue but operations on those tables "
+            f"will fail. Run `make db-doctor` to inspect, or stop the "
+            f"backend and rm the SQLite file if you want a clean reset "
+            f"(local mode only — you'll lose data)."
+        )
+    else:
+        logger.info(
+            f"Schema self-heal complete: all {len(TABLES)} tables present"
+        )
+
+
+async def _verify_all_tables_present(
+    backend: "DatabaseBackend", dialect: str
+) -> list[str]:
+    """Return the list of TABLES entries that don't actually exist in the
+    backend. Empty list means everything's fine.
+
+    Exposed as a module-level helper so `make db-doctor` (or any other
+    diagnostic CLI) can call it without re-running migration.
+    """
+    missing: list[str] = []
+    for table_name in TABLES.keys():
+        if dialect == "sqlite":
+            rows = await backend.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+        else:
+            rows = await backend.execute(
+                "SELECT TABLE_NAME FROM information_schema.tables "
+                "WHERE table_schema=DATABASE() AND table_name=%s",
+                (table_name,),
+            )
+        if not rows:
+            missing.append(table_name)
+    return missing

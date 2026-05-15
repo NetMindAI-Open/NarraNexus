@@ -220,13 +220,50 @@ impl ProcessManager {
         Ok(())
     }
 
+    /// Stop a service gracefully:
+    ///   1. SIGTERM — gives the Python child a chance to run its
+    ///      `try/except KeyboardInterrupt` / `finally` blocks, await
+    ///      `trigger.stop()`, flush loguru's enqueue=True buffers,
+    ///      release DB connections, close sockets cleanly. Without
+    ///      this, ports often linger in TIME_WAIT and the next launch
+    ///      hits "address already in use" even though our own state
+    ///      thinks everything is stopped.
+    ///   2. Wait up to 3s for the child to exit on its own.
+    ///   3. SIGKILL fallback if the child ignored SIGTERM. tokio's
+    ///      `Child::kill` is SIGKILL on Unix.
     pub async fn stop_service(&mut self, service_id: &str) -> Result<(), String> {
         if let Some(mut child) = self.processes.remove(service_id) {
             log::info!("Stopping service: {}", service_id);
-            child
-                .kill()
-                .await
-                .map_err(|e| format!("Failed to stop {}: {}", service_id, e))?;
+
+            #[cfg(unix)]
+            {
+                if let Some(pid) = child.id() {
+                    // Cast to i32 (libc::pid_t alias). Safety: kill() is
+                    // safe to call with any pid; an invalid one just
+                    // returns ESRCH which we ignore — child may already
+                    // have exited between our remove() and this kill().
+                    unsafe {
+                        libc::kill(pid as i32, libc::SIGTERM);
+                    }
+                }
+            }
+
+            let graceful = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                child.wait(),
+            )
+            .await;
+
+            if graceful.is_err() {
+                log::warn!(
+                    "Service {} did not exit within 3s of SIGTERM — falling back to SIGKILL",
+                    service_id
+                );
+                if let Err(e) = child.kill().await {
+                    return Err(format!("Failed to SIGKILL {}: {}", service_id, e));
+                }
+            }
+
             if let Some(info) = self.status.get_mut(service_id) {
                 info.status = ServiceStatus::Stopped;
                 info.pid = None;

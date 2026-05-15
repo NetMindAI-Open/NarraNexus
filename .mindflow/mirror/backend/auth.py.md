@@ -1,8 +1,45 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-04-16
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Local 模式多用户支持（X-User-Id header）
+
+之前 `get_local_user_id()` 用 `db.get_one("users", {})` 拿"users 表
+第一行"作为 local 模式唯一用户——TDR-12 当时假设 local 模式只跑单
+用户。但本地版实际上是有 user 登录系统的多用户场景：两个真实用户
+在同一台机器上登录、各自管理自己的 agent / team / dashboard。原
+singleton 行为让所有人共享同一个 `local-default` 身份 → teams /
+dashboard / agents_cost / bundle 全部串号。
+
+修复思路：让 cloud 和 local 走**同一条 identity 通路** ——
+`request.state.user_id` 是统一出口。差异只在 middleware 内：
+
+- cloud 模式（原有）：JWT Bearer → 验签 → 写 state.user_id
+- local 模式（新）：`X-User-Id` HTTP header（前端从 configStore
+  注入）→ 直接信任 → 写 state.user_id。没 header 时 fallback 到
+  `get_local_user_id()` 的 singleton（bootstrap / 老前端兼容）
+
+新 helper `resolve_current_user_id(request)` 是路由层唯一入口。
+所有 route handler 调它就行，**不再有 `if _is_cloud_mode()` 分支**——
+这是关键合规点：cloud 多租户隔离逻辑和 local 多用户隔离逻辑跑同
+一份下游代码，行为完全一致。
+
+local 模式 middleware 现在也调
+`set_current_user_id(request.state.user_id)` ContextVar——之前只有
+cloud 调，导致 local 模式 cost_tracker 归属丢失（bonus 修复，
+跟主目标无关但顺手）。
+
+**安全模型**：
+- cloud：JWT 签名保证身份不可伪造
+- local：OS user 就是 security boundary（在你机器上跑 backend
+  的人本来就能读你所有数据），X-User-Id 不需要签名；spoofing 也
+  spoof 不到任何 cloud 用户（cloud middleware 走 JWT 路径完全不读
+  这个 header）
+
+`get_local_user_id()` 保留——middleware 在 header 缺失时仍调用它做
+fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 ## 2026-04-16 addition — system-default quota routing
 

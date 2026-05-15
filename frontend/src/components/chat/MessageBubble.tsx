@@ -2,20 +2,27 @@
  * Message Bubble component - Bioluminescent Terminal style
  * Distinctive message bubbles with dramatic visual effects
  *
- * Supports two data sources for thinking/tool calls:
- * 1. Real-time: via message.thinking / message.toolCalls (from WebSocket streaming)
- * 2. History: lazy-loaded via event_id → GET /event-log/{event_id} (on-demand)
+ * History display now matches the live streaming UX: thinking +
+ * tool_call + tool_output are rendered inline through TurnTimeline in
+ * their original chronological order, not grouped into "Reasoning" /
+ * "Tool calls" sections that lost time information and forced double
+ * scrolling. Data sources, in preference order:
+ *   1. eventLogTimeline (new /event-log endpoint, time-ordered)
+ *   2. message.thinking + message.toolCalls (live stream just finished)
+ *   3. eventLogThinking + eventLogToolCalls (older backend; grouped)
  */
 
-import { User, Bot, ChevronDown, ChevronRight, Wrench, Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
-import { useState, useCallback, useRef } from 'react';
-import type { Attachment, ChatMessage } from '@/types';
-import type { EventLogToolCall, EventLogResponse } from '@/types';
+import { User, Bot, Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
+import { useState, useCallback, useRef, useMemo } from 'react';
+import type { Attachment, ChatMessage, TurnEvent } from '@/types';
+import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
-import { Markdown, ScrollArea } from '@/components/ui';
+import { Markdown } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
+import { VoiceTranscript } from './VoiceTranscript';
+import { TurnTimeline } from './TurnTimeline';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -25,8 +32,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isStreaming = false, eventId, agentId }: MessageBubbleProps) {
-  const [showThinking, setShowThinking] = useState(false);
-  const [showTools, setShowTools] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
   const isUser = message.role === 'user';
@@ -35,14 +41,96 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
   const [eventLogLoading, setEventLogLoading] = useState(false);
   const [eventLogThinking, setEventLogThinking] = useState<string | null>(null);
   const [eventLogToolCalls, setEventLogToolCalls] = useState<EventLogToolCall[] | null>(null);
+  const [eventLogTimeline, setEventLogTimeline] = useState<EventLogTimelineEntry[] | null>(null);
   const eventLogCacheRef = useRef<Map<string, EventLogResponse>>(new Map());
 
-  // Determine data source: real-time (message fields) or history (event log)
-  const thinking = message.thinking || eventLogThinking;
-  const toolCalls = message.toolCalls || eventLogToolCalls;
+  // Build a unified TurnEvent[] for inline rendering. We deliberately
+  // skip "reply" events here — the user-facing reply text lives in
+  // message.content and is already rendered as Markdown below, so
+  // duplicating it inside the timeline would print the reply twice.
+  const inlineEvents: TurnEvent[] = useMemo(() => {
+    if (isUser) return [];
+
+    // Path 0 — preferred for just-finished turns: the message was
+    // persisted with its live-stream timeline attached (chatStore
+    // stopStreaming). Use it as-is so the collapsed bubble for the
+    // most-recent assistant turn shows exactly what the user just
+    // watched stream, no fetch round trip needed.
+    if (message.timeline && message.timeline.length > 0) {
+      return message.timeline.filter((e) => e.type !== 'reply');
+    }
+
+    const events: TurnEvent[] = [];
+
+    // Path 1 — historical: the backend gave us a time-ordered timeline.
+    if (eventLogTimeline && eventLogTimeline.length > 0) {
+      eventLogTimeline.forEach((entry, idx) => {
+        const id = `tl-${idx}`;
+        const ts = idx;
+        switch (entry.type) {
+          case 'thinking':
+            if (entry.content) events.push({ id, ts, type: 'thinking', content: entry.content });
+            break;
+          case 'tool_call':
+            events.push({
+              id, ts, type: 'tool_call',
+              tool_name: entry.tool_name || 'unknown',
+              tool_input: entry.tool_input || {},
+              reply_via: entry.reply_via,
+            });
+            break;
+          case 'tool_output':
+            events.push({
+              id, ts, type: 'tool_output',
+              tool_name: entry.tool_name || 'unknown',
+              output: entry.tool_output || '',
+            });
+            break;
+          case 'native_output':
+            if (entry.content) events.push({ id, ts, type: 'native_output', content: entry.content });
+            break;
+          // 'reply' intentionally skipped — see comment above.
+        }
+      });
+      return events;
+    }
+
+    // Path 2 — live stream: message.thinking + message.toolCalls came
+    // in via WebSocket. We don't have per-event ts here, so we put
+    // thinking first then the tool calls in array order; this matches
+    // the legacy MessageBubble's "all thinking on top" layout but at
+    // least removes the separate scrollable inner section.
+    // Path 3 (older backend lazy-load) falls into the same shape via
+    // eventLogThinking / eventLogToolCalls.
+    const t = message.thinking || eventLogThinking;
+    const calls = message.toolCalls || eventLogToolCalls;
+    let i = 0;
+    if (t) {
+      events.push({ id: `t-${i}`, ts: i++, type: 'thinking', content: t });
+    }
+    if (calls) {
+      calls.forEach((tc) => {
+        events.push({
+          id: `tc-${i}`, ts: i++, type: 'tool_call',
+          tool_name: tc.tool_name,
+          tool_input: tc.tool_input,
+        });
+        if (tc.tool_output) {
+          events.push({
+            id: `to-${i}`, ts: i++, type: 'tool_output',
+            tool_name: tc.tool_name,
+            output: tc.tool_output,
+          });
+        }
+      });
+    }
+    return events;
+  }, [isUser, message.timeline, eventLogTimeline, message.thinking, message.toolCalls, eventLogThinking, eventLogToolCalls]);
+
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
-  const hasEventLogData = eventLogThinking !== null || eventLogToolCalls !== null;
+  const hasEventLogData =
+    eventLogTimeline !== null || eventLogThinking !== null || eventLogToolCalls !== null;
 
   const loadEventLog = useCallback(async () => {
     if (!eventId || !agentId || eventLogLoading) return;
@@ -52,6 +140,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
     if (cached) {
       setEventLogThinking(cached.thinking || null);
       setEventLogToolCalls(cached.tool_calls.length > 0 ? cached.tool_calls : null);
+      setEventLogTimeline(cached.timeline && cached.timeline.length > 0 ? cached.timeline : null);
       return;
     }
 
@@ -62,6 +151,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
         eventLogCacheRef.current.set(eventId, response);
         setEventLogThinking(response.thinking || null);
         setEventLogToolCalls(response.tool_calls.length > 0 ? response.tool_calls : null);
+        setEventLogTimeline(
+          response.timeline && response.timeline.length > 0 ? response.timeline : null
+        );
       }
     } catch (error) {
       console.error('Failed to load event log:', error);
@@ -70,19 +162,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
     }
   }, [eventId, agentId, eventLogLoading]);
 
-  const handleToggleThinking = useCallback(() => {
-    if (!thinking && canLoadEventLog && !hasEventLogData) {
+  const handleToggleDetails = useCallback(() => {
+    if (inlineEvents.length === 0 && canLoadEventLog && !hasEventLogData) {
       loadEventLog();
     }
-    setShowThinking((prev) => !prev);
-  }, [thinking, canLoadEventLog, hasEventLogData, loadEventLog]);
-
-  const handleToggleTools = useCallback(() => {
-    if (!toolCalls && canLoadEventLog && !hasEventLogData) {
-      loadEventLog();
-    }
-    setShowTools((prev) => !prev);
-  }, [toolCalls, canLoadEventLog, hasEventLogData, loadEventLog]);
+    setShowDetails((prev) => !prev);
+  }, [inlineEvents.length, canLoadEventLog, hasEventLogData, loadEventLog]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -113,9 +198,6 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }, [message.content, message.timestamp]);
-
-  // Whether to show the "Load details" button for history messages
-  const showLoadDetailsButton = canLoadEventLog && !hasEventLogData;
 
   return (
     <div
@@ -164,102 +246,24 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                   ]
           )}
         >
-          {/* Thinking section (real-time or lazy-loaded) */}
-          {(thinking || (showThinking && canLoadEventLog)) && (
+          {/* Inline timeline (reasoning + tool calls + tool output)
+              for assistant messages. Renders only when expanded; the
+              user clicks the affordance below to reveal. Two cases:
+                - Real-time data already present → ready to render
+                - Historical message → fetch event log first then render
+              Either way the result flows through TurnTimeline so a
+              "think → tool → think → tool" rhythm survives history,
+              matching the live streaming UX. No inner ScrollArea —
+              long content pushes the bubble taller and scrolls with
+              the main message list (no double-scroll). */}
+          {(inlineEvents.length > 0 || canLoadEventLog) && (
             <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
               <button
-                onClick={handleToggleThinking}
-                className={cn(
-                  'flex items-center gap-1.5 text-xs transition-colors',
-                  isUser
-                    ? 'opacity-70 hover:opacity-100'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-                )}
-              >
-                {showThinking ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
-                <Sparkles className="w-3 h-3" />
-                <span className="font-medium">Reasoning</span>
-              </button>
-              {showThinking && (
-                eventLogLoading ? (
-                  <div className="mt-2 flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Loading...</span>
-                  </div>
-                ) : thinking ? (
-                  <ScrollArea className={cn(
-                    'mt-2 max-h-[300px]',
-                    isUser
-                      ? 'bg-[rgb(255_255_255_/_0.1)] opacity-80 dark:bg-[rgb(17_18_20_/_0.08)]'
-                      : 'bg-[var(--bg-sunken)] text-[var(--text-secondary)] border border-[var(--border-subtle)]'
-                  )} viewportClassName="p-3">
-                    <div className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
-                      {thinking}
-                    </div>
-                  </ScrollArea>
-                ) : null
-              )}
-            </div>
-          )}
-
-          {/* Tool calls section (real-time or lazy-loaded) */}
-          {(toolCalls && toolCalls.length > 0 || (showTools && canLoadEventLog)) && (
-            <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
-              <button
-                onClick={handleToggleTools}
-                className={cn(
-                  'flex items-center gap-1.5 text-xs transition-colors',
-                  isUser
-                    ? 'opacity-70 hover:opacity-100'
-                    : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
-                )}
-              >
-                {showTools ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
-                <Wrench className="w-3 h-3" />
-                <span className="font-medium">
-                  {toolCalls && toolCalls.length > 0
-                    ? `${toolCalls.length} tool call${toolCalls.length > 1 ? 's' : ''}`
-                    : 'Tool calls'}
-                </span>
-              </button>
-              {showTools && (
-                eventLogLoading ? (
-                  <div className="mt-2 flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    <span>Loading...</span>
-                  </div>
-                ) : toolCalls && toolCalls.length > 0 ? (
-                  <div className="mt-2 space-y-2">
-                    {toolCalls.map((tool, i) => (
-                      <ToolCallItem key={i} tool={tool} isUser={isUser} />
-                    ))}
-                  </div>
-                ) : null
-              )}
-            </div>
-          )}
-
-          {/* "Load details" button for history messages without data yet */}
-          {showLoadDetailsButton && (
-            <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
-              <button
-                onClick={() => {
-                  loadEventLog();
-                  setShowThinking(true);
-                  setShowTools(true);
-                }}
+                onClick={handleToggleDetails}
                 disabled={eventLogLoading}
                 className={cn(
                   'flex items-center gap-1.5 text-xs transition-colors',
-                  'text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]'
+                  'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
                 )}
               >
                 {eventLogLoading ? (
@@ -268,21 +272,48 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
                   <Sparkles className="w-3 h-3" />
                 )}
                 <span className="font-medium">
-                  {eventLogLoading ? 'Loading details...' : 'View reasoning & tools'}
+                  {eventLogLoading
+                    ? 'Loading details...'
+                    : showDetails
+                      ? 'Hide reasoning & tools'
+                      : 'View reasoning & tools'}
                 </span>
               </button>
+              {showDetails && inlineEvents.length > 0 && (
+                <div className="mt-3">
+                  <TurnTimeline events={inlineEvents} />
+                </div>
+              )}
             </div>
           )}
 
-          {/* Attachments — rendered above text content. Image attachments
-              are loaded via the /raw endpoint through an authed fetch +
-              blob URL (see AttachmentImage); non-image attachments show
-              a file chip so the user sees what was uploaded even though
-              the agent currently cannot read it. */}
+          {/* Attachments — rendered above text content. Three render
+              paths, picked in priority order:
+                1. Voice memo (att.source === 'recording'): VoiceTranscript
+                   renders the transcribed text only — no audio playback.
+                   The transcript itself IS the message; the audio bytes
+                   are kept on disk for storage but never re-surfaced.
+                2. Image (category=image): AttachmentImage loads via the
+                   /raw endpoint through an authed fetch + blob URL.
+                3. Everything else (including audio FILE uploads via
+                   Paperclip / drag-drop, even when transcribed):
+                   a generic file chip — the user shared a file with
+                   the agent, the transcript still flows to the agent
+                   via the system prompt but is not surfaced in the UI. */}
           {message.attachments && message.attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
               {message.attachments.map((att: Attachment) => {
-                const isImage = att.category === 'image' && !!agentId && !!userId;
+                const haveCreds = !!agentId && !!userId;
+                const isVoiceMemo = att.source === 'recording';
+                const isImage = att.category === 'image' && haveCreds;
+                if (isVoiceMemo) {
+                  return (
+                    <VoiceTranscript
+                      key={att.file_id}
+                      transcript={att.transcript}
+                    />
+                  );
+                }
                 if (isImage) {
                   return (
                     <AttachmentImage
@@ -389,106 +420,3 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
 }
 
 
-/**
- * Tool call display item - supports both real-time AgentToolCall and history EventLogToolCall
- * Shows tool name + truncated input, with expandable full view
- */
-function ToolCallItem({ tool, isUser }: { tool: { tool_name: string; tool_input: Record<string, unknown>; tool_output?: string | null }; isUser: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const inputStr = JSON.stringify(tool.tool_input);
-  const isLong = inputStr.length > 120;
-
-  return (
-    <div
-      className={cn(
-        'p-3 text-xs font-mono',
-        // Inside a user bubble: subtle inset using currentColor so we auto-invert in dark mode.
-        // Outside: normal secondary background.
-        isUser
-          ? 'bg-[color-mix(in_srgb,currentColor_10%,transparent)]'
-          : 'bg-[var(--bg-sunken)] border border-[var(--border-subtle)]'
-      )}
-    >
-      <div className={cn(
-        'font-semibold flex items-center gap-1.5',
-        isUser ? '' : 'text-[var(--text-primary)]'
-      )}>
-        <span className="w-1.5 h-1.5 rounded-full allow-circle bg-current" />
-        {tool.tool_name}
-      </div>
-
-      {/* Input */}
-      <div className={cn(
-        'mt-1.5',
-        isUser ? 'opacity-60' : 'text-[var(--text-tertiary)]'
-      )}>
-        {expanded || !isLong ? (
-          <ScrollArea className="max-h-[200px]">
-            <pre className="whitespace-pre-wrap break-all">
-              {JSON.stringify(tool.tool_input, null, 2)}
-            </pre>
-          </ScrollArea>
-        ) : (
-          <span className="truncate block">{inputStr.slice(0, 120)}...</span>
-        )}
-        {isLong && (
-          <button
-            onClick={() => setExpanded((prev) => !prev)}
-            className={cn(
-              'mt-1 text-[10px] underline hover:no-underline',
-              isUser ? 'opacity-80 hover:opacity-100' : 'text-[var(--text-primary)]'
-            )}
-          >
-            {expanded ? 'Collapse' : 'Expand'}
-          </button>
-        )}
-      </div>
-
-      {/* Output (only available for history event log tool calls) */}
-      {tool.tool_output && (
-        <ToolCallOutput output={tool.tool_output} isUser={isUser} />
-      )}
-    </div>
-  );
-}
-
-
-/**
- * Tool call output - truncated by default, expandable
- */
-function ToolCallOutput({ output, isUser }: { output: string; isUser: boolean }) {
-  const [expanded, setExpanded] = useState(false);
-  const isLong = output.length > 200;
-
-  return (
-    <div className={cn(
-      'mt-2 pt-2 border-t',
-      isUser ? 'border-[color-mix(in_srgb,currentColor_15%,transparent)]' : 'border-[var(--rule)]'
-    )}>
-      <div className={cn(
-        'text-[10px] font-semibold mb-1',
-        isUser ? 'opacity-50' : 'text-[var(--text-tertiary)]'
-      )}>
-        Output
-      </div>
-      <div className={cn(
-        'whitespace-pre-wrap break-all',
-        isUser ? 'opacity-50' : 'text-[var(--text-tertiary)]',
-        !expanded && isLong && 'max-h-[60px] overflow-hidden relative'
-      )}>
-        {expanded || !isLong ? output : output.slice(0, 200) + '...'}
-      </div>
-      {isLong && (
-        <button
-          onClick={() => setExpanded((prev) => !prev)}
-          className={cn(
-            'mt-1 text-[10px] underline hover:no-underline',
-            isUser ? 'opacity-80 hover:opacity-100' : 'text-[var(--text-primary)]'
-          )}
-        >
-          {expanded ? 'Collapse' : 'Show full output'}
-        </button>
-      )}
-    </div>
-  );
-}

@@ -229,7 +229,17 @@ class ErrorMessage(BaseRuntimeMessage):
     Attributes:
         error_message: Human-readable error description
         error_type: Error category (e.g., "rate_limit", "api_error", "execution_error")
+        severity:
+          - "fatal": framework-level (SDK crash, CLI timeout, auth failure) —
+            the turn cannot recover. ChatModule writes this as a failed
+            user-only row and skips the assistant side.
+          - "recoverable": surfaced as information for the agent to react to
+            (transient rate-limit blip, single 5xx, etc.) — the agent loop
+            keeps yielding and we DON'T tear the whole turn down. Default is
+            "fatal" to preserve historical behaviour; new error sites should
+            mark themselves explicitly.
     """
     message_type: Literal[MessageType.ERROR] = MessageType.ERROR
     error_message: str
     error_type: str = "api_error"
+    severity: Literal["fatal", "recoverable"] = "fatal"

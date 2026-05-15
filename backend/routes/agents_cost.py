@@ -9,7 +9,8 @@ Provides endpoints for:
 
 Per-viewer tenancy:
 - Cloud mode: viewer_id from request.state.user_id (JWT middleware populated).
-- Local mode: viewer_id from backend.auth.get_local_user_id().
+- Local mode: viewer_id from request.state.user_id (X-User-Id header populated
+  by auth_middleware; falls back to singleton "first user" for legacy clients).
 - Never trust ?user_id= query param (TDR-12 impersonation vector).
 - Cost rows are scoped to agents the viewer OWNS (agents.created_by = viewer_id).
   Public agents that the viewer can merely SEE do NOT contribute to their cost
@@ -19,7 +20,7 @@ Per-viewer tenancy:
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
-from backend.auth import _is_cloud_mode, get_local_user_id
+from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.schema import (
     CostResponse,
@@ -34,18 +35,23 @@ router = APIRouter()
 
 
 async def _resolve_viewer_id(request: Request) -> str:
-    """Resolve viewer_id from session, never from query param."""
+    """Resolve viewer_id from the session — never from a query param.
+
+    Identity is populated by ``auth_middleware``:
+    - cloud: from the verified JWT Bearer token
+    - local: from the ``X-User-Id`` header set by the frontend
+             (fallback to singleton "first user" if header is missing)
+
+    The query-param rejection below is defensive: even if some legacy
+    caller passes ``?user_id=...`` we refuse, to avoid ambiguity over
+    which identity wins.
+    """
     if "user_id" in request.query_params:
         raise HTTPException(
             status_code=400,
             detail="user_id query param not accepted; viewer identified by session",
         )
-    if _is_cloud_mode():
-        viewer_id = getattr(request.state, "user_id", None)
-        if not viewer_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
-        return viewer_id
-    return await get_local_user_id()
+    return await resolve_current_user_id(request)
 
 
 @router.get("/{agent_id}/costs", response_model=CostResponse)

@@ -231,24 +231,68 @@ Adapt your communication style according to this persona."""
                     Social network features are available when interacting with identified users."""
 
             # 2. Load known agent entities for cross-module use (e.g. MessageBusModule)
+            #    Subproject 1: also union team-derived agents (same-team members get auto-known)
             try:
                 agent_entities = await self._get_repo().get_all_entities(
                     instance_id=instance_id,
                     entity_type="agent",
                     limit=50,
                 )
-                if agent_entities:
-                    ctx_data.extra_data["known_agent_entities"] = [
-                        {
-                            "entity_id": e.entity_id,
-                            "entity_name": e.entity_name,
-                            "entity_description": e.entity_description or "",
-                            "keywords": e.keywords or [],
-                            "contact_info": e.contact_info or {},
-                        }
-                        for e in agent_entities
-                    ]
-                    logger.info(f"            ✓ Loaded {len(agent_entities)} known agent entities to extra_data")
+
+                # Build merged dict keyed by entity_id; declared first.
+                merged: dict[str, dict] = {}
+                for e in agent_entities:
+                    merged[e.entity_id] = {
+                        "entity_id": e.entity_id,
+                        "entity_name": e.entity_name,
+                        "entity_description": e.entity_description or "",
+                        "keywords": e.keywords or [],
+                        "contact_info": e.contact_info or {},
+                        "team_membership": [],
+                        "source": "declared",
+                    }
+
+                # Derived: team-mates of the current agent.
+                try:
+                    from xyz_agent_context.repository import TeamMemberRepository, AgentRepository
+                    from xyz_agent_context.utils.db_factory import get_db_client
+                    db = await get_db_client()
+                    member_repo = TeamMemberRepository(db)
+                    agent_repo = AgentRepository(db)
+                    self_agent_id = ctx_data.agent_id if hasattr(ctx_data, "agent_id") else None
+                    if self_agent_id:
+                        mates = await member_repo.list_team_mates(self_agent_id)
+                        for m in mates:
+                            mate_id = m["agent_id"]
+                            mate_team = m["team_id"]
+                            if mate_id in merged:
+                                if mate_team not in merged[mate_id]["team_membership"]:
+                                    merged[mate_id]["team_membership"].append(mate_team)
+                                if merged[mate_id]["source"] == "declared":
+                                    merged[mate_id]["source"] = "both"
+                            else:
+                                mate_agent = await agent_repo.get_agent(mate_id)
+                                if not mate_agent:
+                                    continue
+                                merged[mate_id] = {
+                                    "entity_id": mate_id,
+                                    "entity_name": mate_agent.agent_name,
+                                    "entity_description": mate_agent.agent_description or "",
+                                    "keywords": [],
+                                    "contact_info": {},
+                                    "team_membership": [mate_team],
+                                    "source": "derived",
+                                }
+                except Exception as derive_exc:
+                    logger.warning(f"            Failed to derive team-mates: {derive_exc}")
+
+                if merged:
+                    # Cap to 50; declared entries (registered earlier) take priority.
+                    ctx_data.extra_data["known_agent_entities"] = list(merged.values())[:50]
+                    logger.info(
+                        f"            ✓ Loaded {len(merged)} known agent entities "
+                        f"(declared + derived merged) to extra_data"
+                    )
             except Exception as exc:
                 logger.warning(f"            Failed to load known agent entities: {exc}")
 

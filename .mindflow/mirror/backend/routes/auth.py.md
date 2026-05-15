@@ -1,8 +1,22 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-04-16
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — `/api/auth/agents` 返回 active_run 字段（Phase C）
+
+GET 端点为每个 agent 附带 `active_run: ActiveRunInfo | null`——前端
+据此显示 Agent 卡片上的"Running"徽章（复用 Jobs status badge 的视觉
+pattern）。
+
+实现：在 agents 主 SELECT 之后再做一次 SELECT 把所有 `agent_id IN
+(...)` 且 `state='running'` 的 events 行一次性查出来（IN-列表合并避
+免 N+1），按 agent_id 索引到 dict，再 zip 进 AgentInfo。失败仅
+warn-log，不阻塞 list 返回——active_run 是增强而非核心。
+
+新加的 `ActiveRunInfo` Pydantic 模型在 `schema/api_schema.py`，导出在
+`schema/__init__.py`。Spec: `2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md` §4.1.8
 
 ## 2026-04-16 addition — quota seeding on register
 

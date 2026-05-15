@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/attachment_schema.py
-last_verified: 2026-04-29
+last_verified: 2026-05-06
 stub: false
 ---
 
@@ -58,10 +58,16 @@ built.
 `derive_category_from_mime` keeps frontend and backend in lockstep: a
 new mime type only needs to be classified once and every layer benefits.
 
-**`caption` and `transcript` are reserved fields, not implemented.** They
-exist now so we don't have to change the JSON shape stored in chat
-history later — Phase 2 (vision-LLM caption) and the future audio/video
-transcription module just populate them.
+**`transcript` is now actively populated for audio uploads.** Set by
+`backend/routes/agents_attachments.py` via
+`xyz_agent_context.utils.audio_transcription.transcribe_audio` when the
+upload's MIME starts with `audio/` AND the user has an OpenAI-protocol
+provider configured. `synthesize_marker` checks this field and, when
+present, appends `transcript=<text>` to the marker so the agent reads
+the spoken content without a separate Read step. `caption` remains a
+reserved field — kept on the model so the JSON memory shape doesn't
+need a migration when vision-LLM caption synthesis (Phase 2 of vision
+support) lands.
 
 ## Gotchas
 

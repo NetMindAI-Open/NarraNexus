@@ -89,6 +89,7 @@ async def llm_confirm(query: str, candidates: List[dict]) -> dict:
             user_input=user_input,
             output_type=NarrativeMatchOutput,
             model=config.NARRATIVE_JUDGE_LLM_MODEL,
+            reasoning_effort=config.NARRATIVE_JUDGE_LLM_REASONING_EFFORT or None,
         )
         output: NarrativeMatchOutput = result.final_output
 
@@ -182,6 +183,7 @@ async def llm_judge_unified(
             user_input=user_input,
             output_type=UnifiedMatchOutput,
             model=config.NARRATIVE_JUDGE_LLM_MODEL,
+            reasoning_effort=config.NARRATIVE_JUDGE_LLM_REASONING_EFFORT or None,
         )
         output: UnifiedMatchOutput = result.final_output
 

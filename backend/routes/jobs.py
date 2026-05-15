@@ -138,6 +138,9 @@ def job_row_to_response(row: dict, depends_on: List[str] = None) -> JobResponse:
         # New fields
         instance_id=row.get("instance_id"),
         depends_on=depends_on or [],
+        # Surface narrative_id so the bundle export wizard (P7) can group
+        # jobs under their parent narrative for visual selection.
+        narrative_id=row.get("narrative_id"),
     )
 
 

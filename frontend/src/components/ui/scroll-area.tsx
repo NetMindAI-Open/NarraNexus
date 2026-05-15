@@ -80,7 +80,16 @@ const ScrollArea = React.forwardRef<
         onScroll={onViewportScroll}
         // `display: block` on Viewport is critical: Radix sets it to `table`
         // by default which breaks `flex-1` parents and `min-h-0` chains.
-        className={cn('h-full w-full [&>div]:!block', viewportClassName)}
+        //
+        // `overscroll-contain` is the default for nested-scroll correctness:
+        // when an inner ScrollArea sits inside another ScrollArea (workspace
+        // tree inside AwarenessPanel; awareness markdown inside the same
+        // panel), the wheel event reaches the inner first AND, on reaching
+        // its boundary, no longer chains to the outer — preventing the
+        // "panel jumps past the inner viewport before the inner has scrolled
+        // at all" perceived bug. Doesn't affect top-level ScrollAreas where
+        // no parent scroller exists.
+        className={cn('h-full w-full overscroll-contain [&>div]:!block', viewportClassName)}
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

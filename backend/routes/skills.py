@@ -299,8 +299,17 @@ async def install_skill(
         skill_module = _get_skill_module(agent_id, user_id)
         skill_info: SkillInfo
 
+        from xyz_agent_context.bundle.skill_backup import backup_after_api_install
+
         if source == "github":
             skill_info = skill_module.install_from_github(url=url, branch=branch)
+            await backup_after_api_install(
+                user_id=user_id,
+                skill_name=skill_info.name,
+                source_type="github",
+                source_url=url,
+                branch=branch,
+            )
         else:
             # Save uploaded file to temporary directory
             temp_dir = Path(tempfile.mkdtemp())
@@ -321,6 +330,14 @@ async def install_skill(
                     f.write(content)
 
                 skill_info = skill_module.install_skill(zip_file_path=zip_path)
+                # Auto-archive immediately so future bundle export can offer Zip method.
+                await backup_after_api_install(
+                    user_id=user_id,
+                    skill_name=skill_info.name,
+                    source_type="zip",
+                    source_url=None,
+                    original_zip_path=zip_path,
+                )
             finally:
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir)

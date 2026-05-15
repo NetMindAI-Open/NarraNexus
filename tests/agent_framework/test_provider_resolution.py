@@ -149,9 +149,20 @@ async def _seed_quota(db, user_id: str, *, opted_in: bool, input_budget: int, ou
 
 
 async def _seed_full_own_providers(db, user_id: str):
-    """Give user A/ helper / embedding slots + matching active providers."""
+    """Give user A/ helper / embedding slots + matching active providers.
+
+    Provider models arrays include the slot model so the Phase 0
+    reverse-validation self-heal (provider_driver.self_heal) does NOT
+    rewrite the slot at resolve time. Without those entries, self_heal
+    sees ``claude-fake NOT IN provider.models`` and auto-swaps to the
+    catalog default — which breaks these assertions.
+    """
     now = "2026-04-20T00:00:00"
     import json as _json
+    provider_models = {
+        "prov_agent": ["claude-fake"],
+        "prov_openai": ["gpt-fake", "text-embedding-fake"],
+    }
     for pid, proto in [
         ("prov_agent", "anthropic"),
         ("prov_openai", "openai"),
@@ -167,7 +178,7 @@ async def _seed_full_own_providers(db, user_id: str):
                 "auth_type": "api_key",
                 "api_key": "sk-fake",
                 "base_url": "",
-                "models": _json.dumps([]),
+                "models": _json.dumps(provider_models[pid]),
                 "linked_group": "",
                 "is_active": 1,
                 "supports_anthropic_server_tools": 0,

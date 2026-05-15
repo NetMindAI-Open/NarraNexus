@@ -38,13 +38,21 @@ async def main():
             await asyncio.sleep(1)
     except (KeyboardInterrupt, asyncio.CancelledError):
         await trigger.stop()
+    finally:
+        # Drain loguru's enqueue=True async sinks BEFORE asyncio.run()
+        # tears down the loop. The previous version did
+        # `asyncio.run(logger.complete())` in the outer __main__ block,
+        # which spun up a brand-new loop and tripped
+        # `ValueError: a coroutine was expected` on shutdown — loguru's
+        # AsyncSink had already been bound to the now-closed loop. By
+        # keeping complete() inside the same run_forever scope we just
+        # await it normally.
+        flush = logger.complete()
+        if hasattr(flush, "__await__"):
+            await flush
 
 
 if __name__ == "__main__":
     setup_logging("lark_trigger")
     logger.info("Starting Lark Trigger...")
-    try:
-        asyncio.run(main())
-    finally:
-        # Flush enqueue=True records so the last shutdown lines survive.
-        asyncio.run(logger.complete())
+    asyncio.run(main())

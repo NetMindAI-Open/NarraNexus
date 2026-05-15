@@ -13,14 +13,16 @@ import { api } from '@/lib/api';
 
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
-import { MCPManager } from './MCPManager';
-import { LarkConfig } from './LarkConfig';
+import { IMChannelsSection } from './IMChannelsSection';
 import type { SocialNetworkEntity } from '@/types';
 
 export function AwarenessPanel() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editedAwareness, setEditedAwareness] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  // Error banners are user-facing — DevTools console.error was the bug.
+  const [saveError, setSaveError] = useState('');
+  const [searchError, setSearchError] = useState('');
 
   // Search-related state
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,6 +69,7 @@ export function AwarenessPanel() {
     if (!agentId) return;
 
     setIsSaving(true);
+    setSaveError('');
 
     try {
       const response = await api.updateAwareness(agentId, editedAwareness);
@@ -75,10 +78,10 @@ export function AwarenessPanel() {
         await refreshAwareness(agentId);
         setIsEditModalOpen(false);
       } else {
-        console.error('[AwarenessPanel] Failed to update awareness:', response.error);
+        setSaveError(response.error || 'Failed to save awareness — try again.');
       }
     } catch (error) {
-      console.error('[AwarenessPanel] Error updating awareness:', error);
+      setSaveError(error instanceof Error ? error.message : 'Failed to save awareness — try again.');
     } finally {
       setIsSaving(false);
     }
@@ -90,17 +93,18 @@ export function AwarenessPanel() {
 
     setIsSearching(true);
     setHasSearched(true);
+    setSearchError('');
 
     try {
       const response = await api.searchSocialNetwork(agentId, searchQuery.trim(), searchType, 10);
       if (response.success) {
         setSearchResults(response.entities);
       } else {
-        console.error('Search failed:', response.error);
+        setSearchError(response.error || 'Search failed — try again.');
         setSearchResults([]);
       }
     } catch (error) {
-      console.error('Search error:', error);
+      setSearchError(error instanceof Error ? error.message : 'Search failed — try again.');
       setSearchResults([]);
     } finally {
       setIsSearching(false);
@@ -222,7 +226,19 @@ export function AwarenessPanel() {
                 className="pl-4 pr-4 py-3 border-t border-r border-b border-[var(--rule)]"
                 style={{ borderLeft: '2px solid var(--text-primary)' }}
               >
-                <ScrollArea className="max-h-[180px] text-[13px] text-[var(--text-secondary)] leading-relaxed">
+                {/*
+                 * `type="auto"` reveals the scrollbar whenever the markdown
+                 * overflows; default `hover` made the inner-scroll feature
+                 * invisible and the wheel chained to the outer panel.
+                 * overscroll-contain (default in ./ui/scroll-area.tsx) keeps
+                 * the wheel inside the inner viewport until its boundary.
+                 * max-h-[40vh] roughly doubles the previous 180 px cap so the
+                 * thesis quote stays readable without forcing immediate scroll.
+                 */}
+                <ScrollArea
+                  type="auto"
+                  className="max-h-[40vh] text-[13px] text-[var(--text-secondary)] leading-relaxed"
+                >
                   <Markdown content={awareness} />
                 </ScrollArea>
                 {awarenessUpdateTime && (
@@ -238,6 +254,16 @@ export function AwarenessPanel() {
                 No awareness data
               </div>
             )}
+          </section>
+
+          {/* ── Section: Workspace ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <FileUpload />
+          </section>
+
+          {/* ── Section: IM Channels (Lark / Slack / Telegram) ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <IMChannelsSection />
           </section>
 
           {/* ── Section: Social Network ── */}
@@ -320,6 +346,14 @@ export function AwarenessPanel() {
                 <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] mb-2">
                   {isSearching ? 'Searching…' : `${searchResults.length} results`}
                 </div>
+                {searchError && (
+                  <div
+                    role="alert"
+                    className="text-xs text-[var(--color-red-500)] border border-[var(--color-red-500)] px-2 py-1.5 mb-2"
+                  >
+                    {searchError}
+                  </div>
+                )}
                 {searchResults.length > 0 && (
                   <div className="space-y-1.5">
                     {searchResults.map((entity) => (
@@ -371,20 +405,6 @@ export function AwarenessPanel() {
             )}
           </section>
 
-          {/* ── Section: File Upload ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <FileUpload />
-          </section>
-
-          {/* ── Section: MCP ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <MCPManager />
-          </section>
-
-          {/* ── Section: Lark ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <LarkConfig />
-          </section>
         </ScrollArea>
         </CardContent>
       </Card>
@@ -408,6 +428,14 @@ export function AwarenessPanel() {
               rows={12}
               className="font-mono text-sm resize-none"
             />
+            {saveError && (
+              <div
+                role="alert"
+                className="text-xs text-[var(--color-red-500)] border border-[var(--color-red-500)] px-2 py-1.5"
+              >
+                {saveError}
+              </div>
+            )}
           </div>
         </DialogContent>
         <DialogFooter>

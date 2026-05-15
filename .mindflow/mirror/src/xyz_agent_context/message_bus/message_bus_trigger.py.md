@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-04-20
+last_verified: 2026-05-12
 stub: false
 ---
 
@@ -11,6 +11,14 @@ stub: false
 process your message right now (error_type). error_message"` string so
 the sender agent sees the failure inline instead of receiving an empty
 reply.
+
+## 2026-05-12 — IM channel skip extended to telegram_ / slack_
+
+`_process_agent()` already skipped `lark_` channels (written by `ChannelInboxWriter`
+for frontend Inbox display). The same skip was missing for `telegram_` and `slack_`,
+causing `MessageBusTrigger` to re-consume those messages and fire `AgentRuntime` a
+second time — producing duplicate replies to the IM sender. Fixed by checking all
+three prefixes together via `channel_id.startswith(("lark_", "telegram_", "slack_"))`.
 
 # message_bus_trigger.py — MessageBus 事件驱动轮询引擎
 

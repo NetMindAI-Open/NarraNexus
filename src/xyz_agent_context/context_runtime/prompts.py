@@ -56,17 +56,22 @@ to tools, use the user's timezone above. For tools that require a separate
 """
 
 SHORT_TERM_MEMORY_HEADER = """
-## Short-Term Memory (Recent Other Topics)
+## Recent Direct Dialogue Across Other Narratives
 
-The following are conversation snippets from **other topics you discussed with the user recently**. These may provide useful context but are not necessarily directly related to the current topic.
+The following are real user↔agent exchanges from this user's other recent
+conversations with you. They are the **most recent dialogue context** —
+treat them as immediate conversational background, especially for:
 
-### Usage Guidelines
-- **Prioritize conversation history (long-term memory)** to answer questions about the current topic
-- Short-term memory is used for:
-  - Understanding content the user just mentioned (even in other topics)
-  - Maintaining conversation coherence (e.g., when the user says "like I just said...")
-  - Avoiding repeatedly asking for information the user has already provided
-- If information in short-term memory is unrelated to the current topic, it can be ignored
+- Resolving pronouns ("it", "this", "that") in the current message
+- Interpreting short follow-up replies ("ok", "好", "go on", "yes") —
+  they are typically continuing a topic just shown below
+- Picking up in-progress tasks or commitments the user is following up on
+- Avoiding asking for information the user already provided
 
-### Recent Conversation Snippets
+Each entry is annotated with its source (NarraNexus UI, Lark group, etc.)
+so you can tell whether it was a direct UI conversation or came in via
+another channel. Source labels are factual context, not relevance hints —
+recent dialogue is recent dialogue regardless of channel.
+
+### Recent Dialogue
 """

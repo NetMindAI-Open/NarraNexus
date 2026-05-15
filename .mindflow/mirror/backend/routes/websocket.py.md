@@ -1,8 +1,114 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-04-21
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Reconnect 协议带回用户输入（dedup-safe）
+
+`_handle_reconnect` 在推 `run_reconnect` 元数据帧时多带两个字段：
+
+- `input_content` — 从 `events.env_context` JSON 里取 `input` 键。
+  这个 JSON 在 `EventService.create_event` 步骤 0 时写入，shape
+  是 `{"input": <user 文本>, "timestamp": <iso>}`。已经是落库的
+  数据，不需要 schema 改动。
+- `input_timestamp` — `events.created_at` 的 ISO（用
+  `_format_dt`）。
+
+**为什么是 `created_at` 而不是 `started_at`**：
+`ChatModule.hook_after_event_execution` 把 user 这条持久化进
+`agent_messages` 时用的 `user_ts = params.event.created_at.isoformat()`
+（chat_module.py:786）。前端 ChatPanel 的 dedup 走 `role:content`
++ ±300_000ms 窗口（SAME_MESSAGE_WINDOW_MS），如果时间戳基准不一致，
+即便差几秒也只是窗口在兜底——但用同一个字段作基准让"reconnect 注入
+的 user bubble"和"run 结束后从 agent_messages 拉回来的 user 行"
+匹配精度最高（只差 DB INSERT 时 SQL `datetime('now')` 与 Python
+`utc_now()` 之间的几个毫秒），不会出现双重 user 气泡。
+
+env_context 解析失败（JSON 损坏、列空）走 `suppress + warn-log`：
+reconnect 仍然继续，只是前端那一帧拿不到 input_content，user 气泡
+那一行就缺一下——比把整个 reconnect 路径搞挂好。
+
+## 2026-05-13 — Phase D backend: force_stop 协议
+
+`_listen_for_stop` 增加 `{"action":"force_stop"}` 分支——前端在用户点
+graceful stop 后 10 秒没看到 cancelled 时弹"强制结束"，确认后发这条。
+后端立即推 `{"type":"stopping","stage":"received","force":true}` ACK，
+然后 cancel token；SIGKILL 实际由 Phase A C2 在 xyz_claude_agent_sdk
+disconnect 5 秒超时后的 `process.kill()` 完成。
+
+注意：force_stop 仍**走 finally / events-row 持久化**，state 写入
+`cancelled` + reason='User force-stopped (escalation)'。我们不绕过
+BackgroundRun 的清理路径——bypass 会留下 stale 内存对象 / 缺失的
+events terminal 行。"force" 在协议层指"用户提速 + UI 显示 force
+状态"，不是"硬杀 Python 内部状态"。
+
+## 2026-05-13 — Phase C: agent 跟 WS 解耦 + reconnect 支持
+
+websocket_agent_run 大重构：
+
+**L1 — WS 断不杀 agent**
+
+`_listen_for_stop` 在 `WebSocketDisconnect` 时仅 log，**不再**调
+`cancellation.cancel()`。WS 断只代表"用户关 tab"，agent 该继续跑。
+Only path that cancels is explicit `{"action":"stop"}` from a live WS.
+
+**L2 — agent_runtime 跑成 BackgroundRun task**
+
+Fresh run 模式不再 `async for message in runtime.run(...)`，改成：
+1. 创建 BackgroundRun + cancellation
+2. `asyncio.create_task(bg.drive(...))` —— task 自己 own AgentRuntime
+3. `await bg.ready_event.wait()` 等到 step 0 yield 出 event_id、
+   BackgroundRun 完成自我注册
+4. 推 `{type: run_started, run_id: ...}` 给前端
+5. subscribe broadcaster + `async for event in subscriber: ws.send_json`
+6. WS 断 → `bg.broadcaster.unsubscribe()`；**不 cancel bg.task**
+
+**Reconnect 模式 (新增)**
+
+`AgentRunRequest.run_id` 字段设了即触发 reconnect 分支
+`_handle_reconnect()`：
+1. SELECT events row by event_id；user_id 必须匹配（防越权）
+2. 推 `{type: run_reconnect, run_id, state, started_at, ...}` 元数据
+3. SELECT event_stream rows ORDER BY seq ASC，逐条推
+   `{type: replay, kind, seq, payload}`
+4. state != running → 推 `{type: run_ended, final_output}` 关闭 WS
+5. state == running + active_runs 有该 run → subscribe broadcaster + 
+   forward live events
+6. state == running 但本进程 active_runs 没有（在另一台 backend
+   instance）→ 推 `reconnect_warning`、关 WS
+
+**协议变化**
+
+新增 ws inbound 字段：`run_id`（Optional，触发 reconnect 模式）
+新增 ws outbound type：
+- `run_started` —— fresh run 启动后立即推 run_id
+- `run_reconnect` —— reconnect 模式入口
+- `replay` —— history 回放
+- `run_ended` —— terminal state + final_output
+- `reconnect_warning` —— run 在其他 backend 实例上活着，本连接拿不到 live stream
+- 之前已有：`stopping`, `cancelled`, `error`, `heartbeat`, `complete`, ...
+
+## 2026-05-13 — Stop 三段 ACK 协议（Phase A C3）
+
+用户点 Stop 后到 agent 真停的延迟可能从亚秒到几秒（取决于此时在 LLM
+stream / tool call / cleanup 哪个阶段）。之前 UI 在这段时间是哑的——
+按了等回应，体验=卡死。
+
+加入三段 stopping 消息协议：
+
+1. `{"type":"stopping","stage":"received"}` —— `_listen_for_stop` 收到 stop action
+   立即推。给前端"我们听到了"的瞬时反馈
+2. `{"type":"stopping","stage":"cleanup"}` —— `websocket_agent_run` catch
+   `CancelledByUser` 时推。语义：cleanup（disconnect Claude CLI 等）已经完成
+3. `{"type":"stopping","stage":"complete"}` —— 紧跟 cleanup 推。终止
+   终态信号
+
+也保留旧的 `{"type":"cancelled","message":...}` 给老前端兼容。
+
+stage 2 和 3 实际上在代码层面是同步发出的（CancelledByUser propagate
+到这层时 finally 已经跑完）—— 但保留三段是为了前端状态机干净，未来若
+加 async post-cancel 工作也不需要改协议。
 
 ## 2026-04-21 更新 — WS 中途挂掉 + disconnect 诊断（Bug 32）
 

@@ -15,6 +15,41 @@ NODE_DIR="$RESOURCES_DIR/nodejs"
 # Override via env if you need to test a different version.
 NODE_VERSION="${NODE_VERSION:-v22.11.0}"
 
+# ────────────────────────────────────────────────────────────────────────
+# CLI flags
+# ────────────────────────────────────────────────────────────────────────
+SKIP_SIGNING="${SKIP_SIGNING:-0}"
+
+for arg in "$@"; do
+    case "$arg" in
+        --skip-signing)
+            SKIP_SIGNING=1
+            ;;
+        --help|-h)
+            echo "Usage: bash scripts/build-desktop.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --skip-signing    Skip code signing and notarization (ad-hoc only)."
+            echo "                    Produces an unsigned DMG for local testing."
+            echo "                    Equivalent to: SKIP_SIGNING=1"
+            echo ""
+            echo "Environment variables:"
+            echo "  SKIP_SIGNING=1              Same as --skip-signing"
+            echo "  SKIP_LARK_SKILLS=1          Skip bundling Lark skill pack"
+            echo "  APPLE_SIGNING_IDENTITY=...  Developer ID for real signing"
+            echo "  NODE_VERSION=v22.x.x        Override bundled Node.js version"
+            exit 0
+            ;;
+    esac
+done
+
+if [ "$SKIP_SIGNING" = "1" ]; then
+    # Force ad-hoc signing; clear notarization credentials so step 8 is skipped.
+    export APPLE_SIGNING_IDENTITY='-'
+    unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID 2>/dev/null || true
+    echo "*** --skip-signing: ad-hoc sign only, no notarization ***"
+fi
+
 echo "=== NarraNexus Desktop Build ==="
 echo "Project root: $PROJECT_ROOT"
 echo ""
@@ -666,7 +701,35 @@ mkdir -p "$DMG_LAYOUT"
 ditto --noextattr --noqtn "$STAGE_APP" "$DMG_LAYOUT/NarraNexus.app"
 ln -s /Applications "$DMG_LAYOUT/Applications"
 
-hdiutil create -volname NarraNexus -srcfolder "$DMG_LAYOUT" -ov -format UDZO "$STAGE_DMG"
+# hdiutil flakes on CI with "Resource busy" when a stale diskimages-help
+# process or a previously-mounted /Volumes/NarraNexus is still around
+# (we hit this on the v1.4.1 release build — exit 1 with no retry, no
+# release artifact). Belt-and-suspenders: detach any stale mount, then
+# retry the create up to 3 times with a sleep between attempts.
+if [ -d "/Volumes/NarraNexus" ]; then
+    echo "  Stale /Volumes/NarraNexus mount detected — detaching."
+    hdiutil detach "/Volumes/NarraNexus" -force 2>/dev/null || true
+fi
+
+DMG_OK=""
+for attempt in 1 2 3; do
+    if hdiutil create -volname NarraNexus -srcfolder "$DMG_LAYOUT" -ov -format UDZO "$STAGE_DMG"; then
+        DMG_OK="yes"
+        break
+    fi
+    echo "  hdiutil create attempt ${attempt}/3 failed — sleeping 10s before retry."
+    # Detach again in case the failed run left a partial mount behind.
+    if [ -d "/Volumes/NarraNexus" ]; then
+        hdiutil detach "/Volumes/NarraNexus" -force 2>/dev/null || true
+    fi
+    sleep 10
+done
+
+if [ -z "$DMG_OK" ]; then
+    echo "  Build aborted: hdiutil create failed after 3 attempts."
+    exit 1
+fi
+
 # Copy the finished DMG back under the project tree
 cp "$STAGE_DMG" "$DMG_PATH"
 echo "DMG created: $DMG_PATH"

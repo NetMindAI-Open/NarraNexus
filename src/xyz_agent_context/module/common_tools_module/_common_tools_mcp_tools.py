@@ -83,4 +83,8 @@ def create_common_tools_mcp_server(port: int) -> FastMCP:
             "CommonTools MCP: web_search backend = DDGS (no BRAVE_API_KEY)"
         )
 
+    from ._common_tools_impl import artifact_tool
+    artifact_tool.register(mcp)
+    logger.info("CommonTools MCP: artifact tools registered")
+
     return mcp

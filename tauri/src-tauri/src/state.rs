@@ -300,6 +300,34 @@ impl ServiceDef {
                 order: 6,
                 startup_delay_ms: None,
             },
+            ServiceDef {
+                id: "slack_trigger".to_string(),
+                label: "Slack Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.slack_module.run_slack_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 7,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "telegram_trigger".to_string(),
+                label: "Telegram Trigger".to_string(),
+                command: python_path.to_string(),
+                args: vec![
+                    "-m".to_string(),
+                    "xyz_agent_context.module.telegram_module.run_telegram_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 8,
+                startup_delay_ms: None,
+            },
         ]
     }
 
@@ -428,6 +456,38 @@ impl ServiceDef {
                 order: 6,
                 startup_delay_ms: None,
             },
+            ServiceDef {
+                id: "slack_trigger".to_string(),
+                label: "Slack Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.slack_module.run_slack_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 7,
+                startup_delay_ms: None,
+            },
+            ServiceDef {
+                id: "telegram_trigger".to_string(),
+                label: "Telegram Trigger".to_string(),
+                command: "uv".to_string(),
+                args: vec![
+                    "run".to_string(),
+                    "python".to_string(),
+                    "-m".to_string(),
+                    "xyz_agent_context.module.telegram_module.run_telegram_trigger".to_string(),
+                ],
+                cwd: Some(project_root.to_string()),
+                port: None,
+                health_url: None,
+                order: 8,
+                startup_delay_ms: None,
+            },
         ]
     }
 }
@@ -443,6 +503,14 @@ pub struct AppState {
     /// std::sync::Mutex (not tokio) because tray ops are sync + do not span
     /// await boundaries. Set once at startup, rarely modified after.
     pub tray_handle: Arc<StdMutex<Option<TrayIcon>>>,
+    /// PID of the in-flight `claude auth login` child, if any.
+    ///
+    /// Written by `commands::auth::trigger_claude_login` right after spawn,
+    /// cleared in its `finally` path. Read by `cancel_claude_login` so the
+    /// frontend's 600s countdown (or a future explicit Cancel button) can
+    /// SIGTERM the child without holding the Child handle across awaits.
+    /// `None` means no login flow is currently running.
+    pub claude_login_pid: Arc<StdMutex<Option<u32>>>,
 }
 
 impl Default for AppState {
@@ -464,6 +532,7 @@ impl Default for AppState {
             health_monitor: Arc::new(HealthMonitor::new()),
             service_defs: ServiceDef::default_services(&project_root_str, &python_path_str, bundled),
             tray_handle: Arc::new(StdMutex::new(None)),
+            claude_login_pid: Arc::new(StdMutex::new(None)),
         }
     }
 }

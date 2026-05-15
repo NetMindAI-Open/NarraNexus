@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/cancellation.py
-last_verified: 2026-04-10
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — `await_cancelled()` 加入（Phase A spec §4.2 C1）
+
+新增 `CancellationToken.await_cancelled()`，本质是 `asyncio.Event.wait()`
+的薄包装。用途是给 `xyz_claude_agent_sdk.agent_loop` 做 race-with-cancel：
+
+以前 receive loop 用 `await asyncio.wait_for(__anext__(), 600)`，在 Bash
+工具运行期间没有消息到达，即便 cancel 已经 set 也要等 tool 返回才被检测。
+新模式 `asyncio.wait([message_task, cancel_task], FIRST_COMPLETED)` 同时
+等"下一个 message"和"cancel 触发"，先到的赢——cancel 响应延迟从"tool
+完成"降到 sub-100ms。
+
+实现规则：`await_cancelled()` 返回时不带 reason，调用方需要紧接着读
+`is_cancelled` / `reason` 拿语义。已 set 的 token 立即返回（同
+`asyncio.Event.wait()` 语义）。
+
 # cancellation.py — 协作式取消令牌
 
 ## 为什么存在

@@ -33,12 +33,14 @@ fi
 # Always clean up orphan processes from a previous run
 pkill -f "sqlite_proxy_server" 2>/dev/null || true
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-pkill -f "module_runner.py mcp" 2>/dev/null || true
+pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
 pkill -f "module_poller" 2>/dev/null || true
 pkill -f "job_trigger" 2>/dev/null || true
 pkill -f "message_bus_trigger" 2>/dev/null || true
 pkill -f "run_lark_trigger" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
+pkill -f "run_slack_trigger" 2>/dev/null || true
+pkill -f "run_telegram_trigger" 2>/dev/null || true
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -75,8 +77,26 @@ fi
 
 # --- Common env ---
 SQLITE_PROXY_PORT="${SQLITE_PROXY_PORT:-8100}"
-SQLITE_PROXY_URL="http://localhost:${SQLITE_PROXY_PORT}"
-ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; cd '$PROJECT_ROOT'"
+# Use 127.0.0.1 explicitly, not localhost. On macOS `localhost` resolves to
+# IPv6 ::1 first, but uvicorn binds 127.0.0.1 (IPv4 only) by default —
+# httpx connects to ::1, gets ECONNREFUSED, and never falls back. This bit
+# every macOS contributor on a fresh checkout.
+SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:${SQLITE_PROXY_PORT}}"
+# Forward narrative-related env vars set in the parent shell into each
+# tmux pane. Useful for A/B experiments — set NARRATIVE_JUDGE_MODEL /
+# NARRATIVE_CONTINUITY_MODEL / NARRATIVE_UPDATE_MODEL etc. before
+# `bash run.sh` and they reach the backend/poller/jobs/bus workers.
+NARRATIVE_ENV=""
+for var in NARRATIVE_JUDGE_MODEL NARRATIVE_JUDGE_EFFORT \
+           NARRATIVE_CONTINUITY_MODEL NARRATIVE_CONTINUITY_EFFORT \
+           NARRATIVE_UPDATE_MODEL NARRATIVE_UPDATE_EFFORT; do
+  value="${!var-}"
+  if [ -n "$value" ]; then
+    NARRATIVE_ENV+="export $var='$value'; "
+  fi
+done
+
+ENV_CMD="export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; ${NARRATIVE_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
@@ -132,11 +152,13 @@ draw_panel() {
   status_line "DB Proxy      :8100" "lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null || ss -tlnp 2>/dev/null | grep -q ':8100 '"
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
-  status_line "MCP Server"          "pgrep -f 'module_runner.py mcp' >/dev/null"
+  status_line "MCP Server"          "pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null"
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
   status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
+  status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
+  status_line "Telegram Trigger"    "pgrep -f 'run_telegram_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -157,18 +179,20 @@ while true; do
       # tmux kill-session sends SIGHUP but some processes may ignore it.
       pkill -f "sqlite_proxy_server" 2>/dev/null || true
       pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-      pkill -f "module_runner.py mcp" 2>/dev/null || true
+      pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
       pkill -f "module_poller" 2>/dev/null || true
       pkill -f "job_trigger" 2>/dev/null || true
       pkill -f "message_bus_trigger" 2>/dev/null || true
       pkill -f "run_lark_trigger" 2>/dev/null || true
+      pkill -f "run_slack_trigger" 2>/dev/null || true
+      pkill -f "run_telegram_trigger" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7830; do
+      for port in 8100 8000 5173 5174 7801 7830 7831 7832; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"
@@ -202,29 +226,45 @@ for _i in $(seq 1 20); do
   sleep 1
 done
 
+# Use the venv's interpreter / uvicorn directly instead of `uv run`. `uv run`
+# re-resolves the project + may rebuild the env, which can clobber the
+# editable install (uv sync does not always re-create the .pth on every
+# Python build). Using `.venv/bin/...` directly is faster AND immune to that
+# clobbering behavior. See run.sh for the editable-install setup.
+VENV_PY="$PROJECT_ROOT/.venv/bin/python3"
+VENV_UVI="$PROJECT_ROOT/.venv/bin/uvicorn"
+
 # --- Backend ---
 tmux new-window -t "$SESSION" -n "Backend" \
-  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 uv run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60; echo 'Backend stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Backend API :8000 ==='; DASHBOARD_BIND_HOST=127.0.0.1 '$VENV_UVI' backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60; echo 'Backend stopped. Press Enter to close.'; read"
 
 # --- MCP Server ---
 tmux new-window -t "$SESSION" -n "MCP" \
-  "$ENV_CMD; echo '=== MCP Server ==='; uv run python src/xyz_agent_context/module/module_runner.py mcp; echo 'MCP stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m xyz_agent_context.module.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
 # --- Module Poller ---
 tmux new-window -t "$SESSION" -n "Poller" \
-  "$ENV_CMD; echo '=== Module Poller ==='; uv run python -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Module Poller ==='; '$VENV_PY' -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
 
 # --- Job Trigger ---
 tmux new-window -t "$SESSION" -n "Jobs" \
-  "$ENV_CMD; echo '=== Job Trigger ==='; uv run python src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Job Trigger ==='; '$VENV_PY' src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
 
 # --- Bus Trigger ---
 tmux new-window -t "$SESSION" -n "BusTrigger" \
-  "$ENV_CMD; echo '=== Bus Trigger ==='; uv run python -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Bus Trigger ==='; '$VENV_PY' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
 
 # --- Lark Trigger ---
 tmux new-window -t "$SESSION" -n "LarkTrigger" \
-  "$ENV_CMD; echo '=== Lark Trigger ==='; uv run python -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Lark Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
+
+# --- Slack Trigger ---
+tmux new-window -t "$SESSION" -n "SlackTrigger" \
+  "$ENV_CMD; echo '=== Slack Trigger ==='; uv run python -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
+
+# --- Telegram Trigger ---
+tmux new-window -t "$SESSION" -n "TelegramTrigger" \
+  "$ENV_CMD; echo '=== Telegram Trigger ==='; uv run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

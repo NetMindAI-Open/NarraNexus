@@ -65,6 +65,13 @@ _register(
     ModelMeta("deepseek-ai/DeepSeek-V3", "DeepSeek V3", max_output_tokens=7200),
     ModelMeta("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
     ModelMeta("deepseek-ai/DeepSeek-V4-Flash", "DeepSeek V4 Flash"),
+    # Anthropic Claude routed via NetMind's anthropic-protocol endpoint.
+    # NetMind prefixes the upstream model id with "anthropic/", which is
+    # how its inference router dispatches; the prefix is part of the
+    # model id, not a separate provider. max_output_tokens matches the
+    # native Claude limits because NetMind is a transparent proxy here.
+    ModelMeta("anthropic/claude-opus-4-7", "Claude Opus 4.7 (NetMind)", max_output_tokens=115200),
+    ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)", max_output_tokens=115200),
     ModelMeta("Qwen/Qwen3.6-Plus", "Qwen3.6 Plus"),
     ModelMeta("Qwen/Qwen3.6-Flash", "Qwen3.6 Flash"),
     ModelMeta("Qwen/Qwen3.6-35B-A3B", "Qwen3.6 35B-A3B"),
@@ -108,8 +115,13 @@ _register(
 
 # Key: (source, protocol) → list of default model IDs
 _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
-    # NetMind Anthropic protocol → agent models
+    # NetMind Anthropic protocol → agent models.
+    # claude-opus-4-7 and claude-sonnet-4-6 sit at the top: when a new
+    # user adds a NetMind provider we want Claude available out of the
+    # box, since the free-tier agent model defaults to Sonnet 4.6.
     ("netmind", "anthropic"): [
+        "anthropic/claude-opus-4-7",
+        "anthropic/claude-sonnet-4-6",
         "minimax/minimax-m2.7",
         "deepseek-ai/DeepSeek-V4-Pro",
         "deepseek-ai/DeepSeek-V4-Flash",

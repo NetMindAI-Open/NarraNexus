@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/hooks/useWebSocket.ts
-last_verified: 2026-04-10
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase C: 增加 reconnect 回调
+
+hook 现在导出三个动作：`run / reconnect / stop`（外加 `close` 和
+`isLoading`）。`reconnect(agentId, userId, runId, agentName?)` 转发
+到 `wsManager.reconnect`——本身依然是 thin shim，没有业务逻辑。
+
+新行为：ChatPanel mount 时若检测到 `currentAgent.active_run.run_id`
+非空且本地 `isLoading` 为 false，就调一次 `reconnect`——这是 Phase C
+全恢复语义的前端入口。具体 useEffect 在 ChatPanel.tsx 里。
 
 # useWebSocket.ts — React adapter for wsManager
 

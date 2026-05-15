@@ -2,10 +2,19 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
+import { readFileSync } from 'fs'
+
+// Read version from package.json at build time so the sidebar footer always
+// reflects the actual release. Avoids the previous footgun of a hardcoded
+// "v1.0.0" that drifted away from the real Tauri/Cargo/pyproject versions.
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -21,6 +30,8 @@ export default defineConfig({
           'vendor-reactflow': ['reactflow'],
           // Markdown rendering (used by multiple panels, but not required for initial load)
           'vendor-markdown': ['react-markdown', 'remark-gfm', 'rehype-raw'],
+          // ECharts (only loaded when an echarts artifact tab is opened, ~700 KB)
+          'vendor-echarts': ['echarts'],
           // Radix UI component library
           'vendor-radix': [
             '@radix-ui/react-popover',

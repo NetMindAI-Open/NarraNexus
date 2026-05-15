@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-04-22
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase A C1+C2 (race-with-cancel + SIGKILL fallback)
+
+### Race-with-cancel receive loop
+
+Receive loop 从 `asyncio.wait_for(__anext__(), IDLE_TIMEOUT_SECONDS)`
+改成 `asyncio.wait([message_task, cancel_task], FIRST_COMPLETED, timeout=IDLE_TIMEOUT_SECONDS)`。
+
+- 两个 awaitable：`response_iter.__anext__()` 和 `cancellation.await_cancelled()`
+- 先完成的赢；未完成的在 finally 里强制 `task.cancel()` 避免悬挂
+- 如果 cancel 赢了 → `is_cancelled` 是 True → break
+- 如果都没在 timeout 内完成 → 旧的 idle-timeout 兜底（认为 CLI 卡死，raise TimeoutError）
+- 如果 message 赢了 → 正常 `.result()` 取出（包括 StopAsyncIteration 自然结束）
+
+**关键修复 effect**：cancel 在 tool call 进行中（没有 message 流出）也能即时
+检测到。Xiong 那种 13min run 中途 stop 不再被 receive loop 卡住。
+
+### SIGKILL fallback in disconnect
+
+`finally: await client.disconnect()` 改成 `await asyncio.wait_for(client.disconnect(), 5.0)`，
+TimeoutError 时通过 `client._transport._process.kill()` 直接 SIGKILL Claude CLI 子进程。
+
+原因：claude_agent_sdk transport.close() 内部 `terminate()` + 无限 `wait()` —
+如果 Claude CLI 忽略 SIGTERM 或卡 cleanup 永远不返回。代价是 reach into 第三方
+SDK 的私有属性（transport._process），但这是唯一保证 finite-time 子进程回收的
+方式。
 
 # xyz_claude_agent_sdk.py — Claude Code CLI 主 Agent Loop 适配层
 

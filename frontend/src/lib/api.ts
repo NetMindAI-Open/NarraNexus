@@ -53,6 +53,20 @@ import type {
   LarkBindResponse,
   LarkAuthLoginResponse,
   LarkAuthCompleteResponse,
+  TeamListResponse,
+  TeamOperationResponse,
+  BundleExportRequest,
+  BundlePreflightResponse,
+  BundleConfirmResponse,
+  BundleArtifactPreview,
+  BundleMcpPreview,
+  SkillArchiveRecord,
+  SlackCredentialResponse,
+  SlackBindResponse,
+  SlackTestResponse,
+  TelegramCredentialResponse,
+  TelegramBindResponse,
+  TelegramTestResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -63,18 +77,37 @@ import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 class ApiClient {
   private getAuthHeaders(): Record<string, string> {
-    // Read JWT token from configStore (localStorage)
+    // Read identity from configStore (localStorage).
+    //
+    // Two headers, mutually compatible:
+    //   - Authorization: Bearer <jwt>  — cloud mode, signed identity
+    //   - X-User-Id: <user_id>         — local mode, unsigned identity
+    //
+    // We send both whenever they're available; backend auth_middleware
+    // decides which one to trust:
+    //   - cloud mode: only JWT, X-User-Id is ignored (defence in depth)
+    //   - local mode: only X-User-Id; JWT is irrelevant (no signing key)
+    //
+    // The single ApiClient is mode-agnostic for the same reason — the
+    // mode switch happens server-side in auth_middleware, not here.
+    const headers: Record<string, string> = {};
     try {
       const raw = localStorage.getItem('narra-nexus-config');
       if (raw) {
         const config = JSON.parse(raw);
         const token = config?.state?.token;
+        const userId = config?.state?.userId;
         if (token) {
-          return { 'Authorization': `Bearer ${token}` };
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        if (userId) {
+          headers['X-User-Id'] = userId;
         }
       }
-    } catch {}
-    return {};
+    } catch {
+      /* localStorage may be unavailable / disabled — fall through */
+    }
+    return headers;
   }
 
   private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
@@ -82,16 +115,31 @@ class ApiClient {
     // take effect immediately without requiring a page reload.
     const baseUrl = getApiBaseUrl();
     const url = `${baseUrl}${endpoint}`;
+    const authHeaders = this.getAuthHeaders();
     const response = await fetch(url, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...this.getAuthHeaders(),
+        ...authHeaders,
         ...options?.headers,
       },
     });
 
     if (!response.ok) {
+      // Stale/expired JWT: backend says 401 even though we attached a token.
+      // Tell the app to clear auth state and bounce to /login. We skip when
+      // no token was attached (anonymous probe) and on auth endpoints
+      // themselves (wrong-credentials login should surface in the form, not
+      // log the user out of a session they never had). Decoupled via event
+      // to avoid a circular import with @/stores/configStore.
+      if (response.status === 401 && authHeaders.Authorization) {
+        const isAuthEndpoint =
+          endpoint.startsWith('/api/auth/login') ||
+          endpoint.startsWith('/api/auth/register');
+        if (!isAuthEndpoint) {
+          window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
+        }
+      }
       // System free-tier quota exhausted: dispatch a global event so
       // any listener (App shell, dedicated toast, etc.) can surface it.
       // Using CustomEvent keeps api.ts UI-framework-agnostic.
@@ -109,7 +157,25 @@ class ApiClient {
           // ignore parse errors; still throw below
         }
       }
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      // Extract the FastAPI HTTPException `detail` field so callers get
+      // an actionable message ("Cannot add another user's agent") instead
+      // of just "API error: 403 Forbidden". Falls back to the status
+      // line if the body is missing / not JSON / has no `detail`.
+      let detail = '';
+      try {
+        const body = await response.clone().json();
+        if (typeof body?.detail === 'string') {
+          detail = body.detail;
+        } else if (body?.detail) {
+          detail = JSON.stringify(body.detail);
+        }
+      } catch {
+        /* not JSON — fall through to status line */
+      }
+      const label = detail
+        ? `API error ${response.status}: ${detail}`
+        : `API error: ${response.status} ${response.statusText}`;
+      throw new Error(label);
     }
 
     return response.json();
@@ -334,10 +400,48 @@ class ApiClient {
     return response.json();
   }
 
+  /**
+   * Pre-flight check used by ChatPanel to decide whether the mic button
+   * records on click or pops a "configure a provider" dialog. Walks the
+   * same resolver chain the upload route uses, so a true here means
+   * the very next upload will run Whisper (barring a race where the
+   * user deletes their provider between mount and click).
+   *
+   * Returns:
+   *   available: whether ANY transcription candidate exists.
+   *   reason:    one of "has_openai" | "has_netmind" | "has_other"
+   *              | "system_free_tier" | "none". Used to vary the
+   *              dialog wording (e.g. free-tier users get "no setup
+   *              required" copy) and for analytics.
+   */
+  async getTranscriptionAvailability(
+    userId: string,
+  ): Promise<{ available: boolean; reason: string }> {
+    const url = `${getApiBaseUrl()}/api/transcription/availability?user_id=${encodeURIComponent(userId)}`;
+    const response = await fetch(url, { headers: this.getAuthHeaders() });
+    if (!response.ok) {
+      // Don't block the chat UI on a probe failure — fall back to
+      // "available" so the existing post-upload banner takes over.
+      return { available: true, reason: 'unknown' };
+    }
+    return response.json();
+  }
+
   async uploadAttachment(
     agentId: string,
     userId: string,
     file: File,
+    options?: {
+      /**
+       * 'recording' tells the backend the file came from the in-browser
+       * AudioRecorder and should be Whisper-transcribed. Anything else
+       * (default) means a regular file upload — Paperclip, drag-drop,
+       * paste — and the backend skips Whisper even for audio MIME
+       * types. This separates "I'm dictating a message" from "here's
+       * an audio file I want to share with the agent".
+       */
+      source?: 'recording' | 'upload';
+    },
   ): Promise<{
     success: boolean;
     file_id?: string;
@@ -345,12 +449,30 @@ class ApiClient {
     original_name?: string;
     size_bytes?: number;
     category?: 'image' | 'document' | 'code' | 'data' | 'media' | 'other';
+    // Echoed-back source: 'recording' for in-browser voice memos,
+    // 'upload' for everything else (Paperclip / drag-drop / paste,
+    // including regular audio file uploads). Used by the UI to choose
+    // between VoiceTranscript and the standard file chip.
+    source?: 'recording' | 'upload' | null;
+    // Whisper output for audio/* uploads regardless of source — the
+    // backend transcribes both voice memos and uploaded audio files
+    // so the agent always receives the spoken content via the system
+    // prompt. The frontend uses `source` (not `transcript` presence)
+    // to decide rendering: voice memos surface the transcript inline,
+    // file uploads keep it hidden behind the file chip.
+    transcript?: string | null;
+    // Per-user capability check — false means no OpenAI-compatible
+    // provider configured. The UI surfaces a "voice unavailable"
+    // notice only when this is false on a recording-source upload.
+    transcription_available?: boolean | null;
     error?: string;
   }> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments?user_id=${encodeURIComponent(userId)}`;
+    const params = new URLSearchParams({ user_id: userId });
+    if (options?.source) params.set('source', options.source);
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments?${params.toString()}`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
@@ -384,11 +506,40 @@ class ApiClient {
     return response.blob();
   }
 
-  async deleteFile(agentId: string, userId: string, filename: string): Promise<FileDeleteResponse> {
+  async deleteFile(agentId: string, userId: string, path: string): Promise<FileDeleteResponse> {
+    // Path may contain slashes (nested workspace path). encodeURI preserves
+    // them while still encoding spaces / unicode. The `{path:path}` route
+    // pattern on the backend accepts the full sub-path as one segment.
     return this.request<FileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURI(path)}?user_id=${encodeURIComponent(userId)}`,
       { method: 'DELETE' }
     );
+  }
+
+  /**
+   * Build a download / preview URL for a workspace file. Returns a string so
+   * callers can hand it to <a href download> or fetch it for inline preview.
+   * The route is JWT-authed via the global middleware; <a> elements load it
+   * with the page's cookie / no auth (in cloud mode that means it relies on
+   * the middleware exempting <a download> behaviour — currently it does not,
+   * so cloud-mode downloads need a fetch + blob flow if direct <a download>
+   * proves unauthenticated. For local mode the <a download> works directly).
+   */
+  workspaceFileRawUrl(agentId: string, userId: string, path: string): string {
+    return `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files/raw?user_id=${encodeURIComponent(userId)}&path=${encodeURIComponent(path)}`;
+  }
+
+  /**
+   * Fetch a workspace file's bytes as a Blob (JWT attached). Use for inline
+   * preview or for cloud-mode downloads where <a download> can't carry auth.
+   */
+  async fetchWorkspaceFileBlob(agentId: string, userId: string, path: string): Promise<Blob> {
+    const url = this.workspaceFileRawUrl(agentId, userId, path);
+    const response = await fetch(url, { headers: this.getAuthHeaders() });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.blob();
   }
 
   // MCP Management API
@@ -770,7 +921,77 @@ class ApiClient {
 
   async unbindLarkBot(agentId: string): Promise<ApiResponse> {
     return this.request<ApiResponse>('/api/lark/unbind', {
-      method: 'DELETE',
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Slack Integration API
+  async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
+    return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindSlackBot(
+    agentId: string,
+    botToken: string,
+    appToken: string,
+    ownerEmail: string = '',
+  ): Promise<SlackBindResponse> {
+    return this.request<SlackBindResponse>('/api/slack/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        app_token: appToken,
+        owner_email: ownerEmail,
+      }),
+    });
+  }
+
+  async testSlackConnection(agentId: string): Promise<SlackTestResponse> {
+    return this.request<SlackTestResponse>('/api/slack/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindSlackBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/slack/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Telegram Integration API
+  async getTelegramCredential(agentId: string): Promise<TelegramCredentialResponse> {
+    return this.request<TelegramCredentialResponse>(`/api/telegram/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindTelegramBot(
+    agentId: string,
+    botToken: string,
+    ownerUsername: string = '',
+  ): Promise<TelegramBindResponse> {
+    return this.request<TelegramBindResponse>('/api/telegram/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        owner_username: ownerUsername,
+      }),
+    });
+  }
+
+  async testTelegramConnection(agentId: string): Promise<TelegramTestResponse> {
+    return this.request<TelegramTestResponse>('/api/telegram/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindTelegramBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/telegram/unbind', {
+      method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
     });
   }
@@ -785,6 +1006,159 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
     });
+  }
+
+  // =========================================================================
+  // Subproject 1: Teams
+  // =========================================================================
+
+  async listTeams(): Promise<TeamListResponse> {
+    return this.request<TeamListResponse>('/api/teams');
+  }
+
+  async createTeam(payload: { name: string; description?: string; color?: string }): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>('/api/teams', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async updateTeam(teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string }): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  }
+
+  async deleteTeam(teamId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async addTeamMember(teamId: string, agentId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async removeTeamMember(teamId: string, agentId: string): Promise<TeamOperationResponse> {
+    return this.request<TeamOperationResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  // =========================================================================
+  // Subproject 2: Bundle export/import
+  // =========================================================================
+
+  async exportBundle(payload: BundleExportRequest): Promise<{ blob: Blob; filename: string; warningsCount: number; externalEdgesDropped: number }> {
+    const baseUrl = getApiBaseUrl();
+    const authHeaders = this.getAuthHeaders();
+    const resp = await fetch(`${baseUrl}/api/bundle/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      // Try to parse a structured error so callers can act on it (B6 sensitive zip flow)
+      let detail: any = null;
+      try { detail = (await resp.json()).detail; } catch {}
+      const err: any = new Error(
+        detail?.message || `Export failed: ${resp.status}`
+      );
+      if (detail?.error_code) err.code = detail.error_code;
+      if (detail?.hits) err.hits = detail.hits;
+      err.status = resp.status;
+      throw err;
+    }
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = /filename="([^"]+)"/.exec(cd);
+    const filename = m ? m[1] : `bundle-${Date.now()}.nxbundle`;
+    const warningsCount = parseInt(resp.headers.get('X-Bundle-Warnings-Count') || '0');
+    const externalEdgesDropped = parseInt(resp.headers.get('X-Bundle-External-Edges-Dropped') || '0');
+    const blob = await resp.blob();
+    return { blob, filename, warningsCount, externalEdgesDropped };
+  }
+
+  async importBundlePreflight(file: File): Promise<BundlePreflightResponse> {
+    const baseUrl = getApiBaseUrl();
+    const authHeaders = this.getAuthHeaders();
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch(`${baseUrl}/api/bundle/import/preflight`, {
+      method: 'POST',
+      headers: { ...authHeaders },
+      body: fd,
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(text || `Preflight failed: ${resp.status}`);
+    }
+    return resp.json();
+  }
+
+  async importBundleConfirm(preflightToken: string): Promise<BundleConfirmResponse> {
+    return this.request<BundleConfirmResponse>('/api/bundle/import/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ preflight_token: preflightToken }),
+    });
+  }
+
+  async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{
+    channel_id: string;
+    name: string;
+    channel_type: string;
+    in_closure_member_ids: string[];
+    all_member_ids: string[];
+    message_count: number;
+    created_at?: string | null;
+  }> }> {
+    return this.request('/api/bundle/export/preview/bus-channels', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
+  async previewArtifacts(agentIds: string[]): Promise<{
+    agents: Record<string, BundleArtifactPreview[]>;
+  }> {
+    return this.request('/api/bundle/export/preview/artifacts', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
+  async previewMcps(agentIds: string[]): Promise<{
+    agents: Record<string, BundleMcpPreview[]>;
+  }> {
+    return this.request('/api/bundle/export/preview/mcps', {
+      method: 'POST',
+      body: JSON.stringify({ agent_ids: agentIds }),
+    });
+  }
+
+  async listSkillArchives(): Promise<{ archives: SkillArchiveRecord[] }> {
+    return this.request<{ archives: SkillArchiveRecord[] }>('/api/bundle/skills/archives');
+  }
+
+  async uploadSkillArchive(payload: { skillName: string; sourceType: 'github' | 'zip'; sourceUrl?: string; file?: File }): Promise<{ success: boolean; skill_name: string }> {
+    const baseUrl = getApiBaseUrl();
+    const authHeaders = this.getAuthHeaders();
+    const fd = new FormData();
+    fd.append('skill_name', payload.skillName);
+    fd.append('source_type', payload.sourceType);
+    if (payload.sourceUrl) fd.append('source_url', payload.sourceUrl);
+    if (payload.file) fd.append('file', payload.file);
+    const resp = await fetch(`${baseUrl}/api/bundle/skills/archives/upload`, {
+      method: 'POST',
+      headers: { ...authHeaders },
+      body: fd,
+    });
+    if (!resp.ok) throw new Error(`Upload archive failed: ${resp.status}`);
+    return resp.json();
   }
 }
 

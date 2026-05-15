@@ -1,10 +1,17 @@
 ---
 code_file: frontend/src/components/layout/ContextPanelHeader.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-14
 stub: false
 ---
 
 # ContextPanelHeader.tsx — Right-panel tab strip with notification indicators
+
+## 2026-05-14 — "Skills" tab renamed to "Skill & MCP"
+
+The `id: 'skills'` tab's `label` is now `"Skill & MCP"` — `[[SkillsPanel]]`
+absorbed `[[MCPManager]]`. The `ContextTab` id stays `'skills'` (same as the
+"Config"/`'awareness'` label↔id mismatch noted below — labels are display
+strings, ids are stable).
 
 ## 为什么存在
 

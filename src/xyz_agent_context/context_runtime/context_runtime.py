@@ -613,13 +613,28 @@ class ContextRuntime:
         ]
         logger.debug(f"        Added system prompt: {len(enhanced_system_prompt)} chars")
 
-        # Add long-term memory historical messages (only add role and content, strip extra fields)
+        # Add long-term memory historical messages with a per-source
+        # prefix so the LLM can tell whether each row was a direct UI
+        # conversation, a Lark exchange, an inter-agent bus message, etc.
+        # See MessageSourceHandler / Registry — each WorkingSource
+        # supplies its own prefix template (default for unregistered
+        # sources falls back to `[NarraNexus UI · user=...]`).
+        from xyz_agent_context.channel.message_source_handler import (
+            MessageSourceRegistry,
+        )
         for msg in long_term_messages:
+            ws = (msg.get("meta_data") or {}).get("working_source", "chat")
+            handler = MessageSourceRegistry.get(ws)
+            prefix = handler.format_row_prefix(msg)
+            raw_content = msg.get("content", "") or ""
             final_messages.append({
                 "role": msg.get("role", "user"),
-                "content": msg.get("content", "")
+                "content": f"{prefix} {raw_content}" if prefix else raw_content,
             })
-        logger.debug(f"        Added {len(long_term_messages)} long-term messages from {history_source}")
+        logger.info(
+            f"[CHAT-CTX] build_input_for_framework: long_term={len(long_term_messages)} "
+            f"short_term={len(short_term_messages)} source={history_source}"
+        )
 
         # Add current user input
         final_messages.append({
@@ -723,17 +738,20 @@ class ContextRuntime:
                 except Exception:
                     time_ago = "Recently"
 
-            # Build source label from channel_tag if available
-            source_label = ""
-            for msg in msgs:
-                ct = msg.get("meta_data", {}).get("channel_tag")
-                if ct and isinstance(ct, dict):
-                    ch = ct.get("channel", "").capitalize()
-                    name = ct.get("sender_name", "")
-                    source_label = f" via {ch}" + (f" ({name})" if name else "")
-                    break
+            # Build source label from the first message's MessageSource
+            # handler. All msgs in this group share an instance_id, so they
+            # all came from the same WorkingSource — pick the first.
+            from xyz_agent_context.channel.message_source_handler import (
+                MessageSourceRegistry,
+            )
+            head_ws = (
+                (msgs[0].get("meta_data") or {}).get("working_source", "chat")
+                if msgs else "chat"
+            )
+            head_handler = MessageSourceRegistry.get(head_ws)
+            source_label = head_handler.format_row_prefix(msgs[0]) if msgs else ""
 
-            section = f"\n**[{time_ago}{source_label}]**\n"
+            section = f"\n**[{time_ago}]** {source_label}\n"
 
             for msg in msgs:
                 if budget <= 0:

@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/stores/configStore.ts
-last_verified: 2026-04-10
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — login/logout 清掉 teamsStore（local 多用户 fix 收尾）
+
+backend identity 那波修完后还有一个前端缓存洞：`teamsStore` 用
+zustand persist 把 `teams + loaded` 持久化到 localStorage，而
+`TeamFilterBar.tsx:28-30` 看到 `loaded=true` 就跳过 refresh。
+两个用户在同一浏览器轮流登录会出现：bob 看到 alice 缓存的 team
+chips（因为 `loaded` 在 localStorage 里活着 → 没人触发重新拉）。
+
+修法：`login()` 检测 prevUserId !== userId 时调
+`useTeamsStore.setState({ teams: [], loaded: false })`；`logout()`
+对称清一遍。下次 TeamFilterBar mount 时 `loaded=false` 触发 refresh
+→ 拿到新身份对应的 teams。
+
+为什么 import teamsStore 没循环：teamsStore 只 import 自 `@/lib/api`，
+而 api.ts 直接读 localStorage（不 import configStore），所以
+configStore→teamsStore→api 是链式无环。
+
+其他 persisted store 排查过：themeStore（全局）、runtimeStore（mode
+state）、configStore 自己（logout 已自清）——只有 teamsStore 是
+per-user persisted 且有"loaded gate"模式，所以这一次只清它。
+artifactStore / chatStore 没用 persist 中间件，自然不受影响。
 
 # configStore.ts — Auth, agent selection, and awareness notification state
 

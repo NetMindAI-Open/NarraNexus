@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/agents_cost.py
-last_verified: 2026-04-26
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — local 多用户隔离修复
+
+`_resolve_viewer_id` 改走统一 helper
+`backend.auth.resolve_current_user_id`——cloud / local 共享同一个
+identity 通路。query-param 拒绝逻辑保留（防御 TDR-12 spoof）。
 
 # agents_cost.py — LLM 调用费用统计路由
 

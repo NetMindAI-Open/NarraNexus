@@ -31,7 +31,7 @@ const tabs: { id: ContextTab; icon: typeof Activity; label: string }[] = [
   { id: 'awareness', icon: Settings, label: 'Config' },
   { id: 'inbox', icon: Inbox, label: 'Inbox' },
   { id: 'jobs', icon: ListTodo, label: 'Jobs' },
-  { id: 'skills', icon: Puzzle, label: 'Skills' },
+  { id: 'skills', icon: Puzzle, label: 'Skill & MCP' },
 ];
 
 export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeaderProps) {

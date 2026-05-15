@@ -307,10 +307,10 @@ class TaskStatus(BaseModel):
 
 
 # =============================================================================
-# Artifact
+# A2AArtifact
 # =============================================================================
 
-class Artifact(BaseModel):
+class A2AArtifact(BaseModel):
     """
     Task artifact
 
@@ -394,7 +394,7 @@ class Task(BaseModel):
         default_factory=lambda: TaskStatus(state=TaskState.SUBMITTED),
         description="Task status"
     )
-    artifacts: List[Artifact] = Field(
+    artifacts: List[A2AArtifact] = Field(
         default_factory=list,
         description="Task artifacts"
     )
@@ -417,7 +417,7 @@ class Task(BaseModel):
         """
         self.status = TaskStatus(state=state, message=message)
 
-    def add_artifact(self, artifact: Artifact) -> None:
+    def add_artifact(self, artifact: A2AArtifact) -> None:
         """Add an artifact"""
         self.artifacts.append(artifact)
 
@@ -822,7 +822,7 @@ class TaskArtifactUpdateEvent(BaseModel):
         append: Whether to append to existing content (for streaming text)
     """
     taskId: str = Field(..., description="Task ID")
-    artifact: Artifact = Field(..., description="Artifact")
+    artifact: A2AArtifact = Field(..., description="Artifact")
     append: bool = Field(
         default=False,
         description="Whether to append to existing content"
@@ -873,7 +873,7 @@ __all__ = [
     # Core Objects
     "Message",
     "TaskStatus",
-    "Artifact",
+    "A2AArtifact",
     "Task",
 
     # Agent Card

@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/a2a_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-05-08
 stub: false
 ---
 
@@ -35,5 +35,6 @@ The `AgentCard` is special — it answers the `GET /.well-known/agent.json` endp
 ## New-joiner traps
 
 - The `Message` model here is completely unrelated to `AgentMessage` in `agent_message_schema.py` and `InboxMessage` in `inbox_schema.py`. They share no inheritance. `Message` here is A2A protocol vocabulary; the others are internal persistence models.
+- The A2A artifact model was renamed from `Artifact` to `A2AArtifact` (2026-05-08) to free the clean `Artifact` name for the new domain model in `artifact_schema.py`. The class is exported from `__init__.py` as `A2AArtifact`, matching the `A2AMessage` naming convention.
 - `TaskSendConfiguration.blocking=False` by default. For `tasks/sendSubscribe` (streaming) this field is ignored entirely.
 - `A2AErrorCodes` is a plain class with integer class attributes, not an Enum. You cannot iterate over it.

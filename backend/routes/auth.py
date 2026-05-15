@@ -26,6 +26,7 @@ from xyz_agent_context.schema import (
     LoginResponse,
     RegisterRequest,
     RegisterResponse,
+    ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
     CreateAgentRequest,
@@ -242,6 +243,38 @@ async def get_agents(
         """
         rows = await db_client.execute(query, (user_id,))
 
+        # Phase C: bulk-fetch any active runs in one SELECT so we don't
+        # do N+1 queries when the user has many agents.
+        agent_ids = [row['agent_id'] for row in rows]
+        active_runs_by_agent: dict[str, dict] = {}
+        if agent_ids:
+            placeholders = ",".join(["%s"] * len(agent_ids))
+            try:
+                run_rows = await db_client.execute(
+                    f"""
+                    SELECT event_id, agent_id, state, started_at, last_event_at,
+                           tool_call_count, current_stage
+                    FROM events
+                    WHERE state = 'running' AND user_id = %s
+                      AND agent_id IN ({placeholders})
+                    """,
+                    (user_id, *agent_ids),
+                )
+                # Keep the latest started_at per agent if there are
+                # somehow multiple (should not happen but defensive).
+                for r in run_rows or []:
+                    aid = r.get('agent_id')
+                    if not aid:
+                        continue
+                    existing = active_runs_by_agent.get(aid)
+                    if existing is None or (r.get('started_at') or "") > (existing.get('started_at') or ""):
+                        active_runs_by_agent[aid] = r
+            except Exception as e:  # noqa: BLE001
+                # Don't fail the whole listing because the active-run
+                # enrichment broke — log and continue with no active_run
+                # info attached.
+                logger.warning(f"[/api/auth/agents] active_run enrichment failed: {e}")
+
         agents = []
         for row in rows:
             description = row.get('agent_description')
@@ -255,6 +288,19 @@ async def get_agents(
                     "Bootstrap.md"
                 )
                 bootstrap_active = os.path.isfile(bootstrap_path)
+
+            active_run = None
+            ar_row = active_runs_by_agent.get(row['agent_id'])
+            if ar_row:
+                active_run = ActiveRunInfo(
+                    run_id=ar_row.get('event_id') or "",
+                    state=ar_row.get('state') or "running",
+                    started_at=format_for_api(ar_row.get('started_at')),
+                    last_event_at=format_for_api(ar_row.get('last_event_at')),
+                    tool_call_count=int(ar_row.get('tool_call_count') or 0),
+                    current_stage=ar_row.get('current_stage') or None,
+                )
+
             agent_info = AgentInfo(
                 agent_id=row['agent_id'],
                 name=row.get('agent_name') or row['agent_id'],
@@ -264,6 +310,7 @@ async def get_agents(
                 is_public=bool(row.get('is_public', 0)),
                 created_by=created_by,
                 bootstrap_active=bootstrap_active,
+                active_run=active_run,
             )
             agents.append(agent_info)
 
@@ -371,9 +418,17 @@ async def create_agent(request: CreateAgentRequest):
 
 
 @router.put("/agents/{agent_id}", response_model=UpdateAgentResponse)
-async def update_agent(agent_id: str, request: UpdateAgentRequest):
+async def update_agent(
+    agent_id: str,
+    body: UpdateAgentRequest,
+    http_request: Request,
+):
     """
     Update agent information (name, description)
+
+    Ownership: in cloud mode (JWT-bound user_id on ``request.state``),
+    only the creator may update. Local mode (no auth middleware) lets
+    everything through — same model as the Slack/Telegram bind routes.
     """
     logger.info(f"Updating agent: {agent_id}")
 
@@ -388,6 +443,19 @@ async def update_agent(agent_id: str, request: UpdateAgentRequest):
                 success=False,
                 error=f"Agent {agent_id} not found"
             )
+
+        # Ownership check: parallel to DELETE /agents/{agent_id} below
+        # and to ``_verify_agent_ownership`` in the IM routes. Mutating
+        # someone else's agent name from inside the same workspace was
+        # the actual gap — DELETE was guarded, PUT was not.
+        user_id = getattr(http_request.state, "user_id", None) or None
+        if user_id and agent.created_by != user_id:
+            return UpdateAgentResponse(
+                success=False,
+                error="Permission denied: only the creator can update this agent.",
+            )
+
+        request = body  # preserve old local var name in body below
 
         # Build update data
         update_data = {}
@@ -595,6 +663,15 @@ async def delete_agent(
             "instance_rag_store",
             "instance_module_report_memory",
             "instance_json_format_memory",
+            # Was missing — separate single-row-per-instance memory table
+            # used by the chat-format memory writer.
+            "instance_json_format_memory_chat",
+            # `module_report_memory` is also keyed by instance_id (per-instance
+            # report blob, distinct from instance_module_report_memory).
+            "module_report_memory",
+            # Embedding tables: chat_message_embeddings is keyed by instance_id;
+            # leaving them creates orphan vectors that pollute RAG retrieval.
+            "chat_message_embeddings",
         ]
         if instance_ids:
             ph = ", ".join(["%s"] * len(instance_ids))
@@ -680,42 +757,180 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"Workspace cleanup failed (non-critical): {e}")
 
-        # 14. Lark credentials + CLI profile + workspace + inbox data
+        # 14. Channel cleanups — registry-driven walk over every
+        # ChannelModuleBase subclass in MODULE_MAP. Each subclass owns
+        # its own cleanup_for_agent (default: credential row + inbox
+        # channels by channel_id prefix; Lark overrides to also drop
+        # CLI profile + workspace dir). Adding a new IM channel requires
+        # zero edits here.
         try:
-            lark_cred = await db_client.get_one("lark_credentials", {"agent_id": agent_id})
-            if lark_cred:
-                # Remove CLI profile via the shared client — it handles HOME
-                # override and keychain cleanup regardless of which bind path
-                # created this credential.
-                from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
-                from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
-                try:
-                    await LarkCLIClient().profile_remove(agent_id)
-                except Exception as e:
-                    logger.debug(f"profile_remove best-effort failed for {agent_id}: {e}")
-                # Blow away the workspace directory (idempotent)
-                cleanup_workspace(agent_id)
+            from xyz_agent_context.channel.channel_module_base import (
+                ChannelModuleBase,
+            )
+            from xyz_agent_context.module import MODULE_MAP
 
-                # Clean up lark inbox channels
-                all_members = await db_client.get("bus_channel_members", {"agent_id": agent_id})
-                for m in all_members:
-                    cid = m.get("channel_id", "")
-                    if cid.startswith("lark_"):
-                        await db_client.delete("bus_channel_members", {"channel_id": cid, "agent_id": agent_id})
-                        remaining = await db_client.get("bus_channel_members", {"channel_id": cid})
-                        if not remaining:
-                            await db_client.delete("bus_messages", {"channel_id": cid})
-                            await db_client.delete("bus_channels", {"channel_id": cid})
-                # Delete credential
-                result = await db_client.execute(
-                    "DELETE FROM lark_credentials WHERE agent_id = %s",
-                    (agent_id,), fetch=False,
-                )
-                cnt = result if isinstance(result, int) else 0
-                if cnt > 0:
-                    stats["lark_credentials"] = cnt
+            for module_name, cls in MODULE_MAP.items():
+                if not (isinstance(cls, type) and issubclass(cls, ChannelModuleBase)):
+                    continue
+                try:
+                    mod = cls(
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        database_client=db_client,
+                    )
+                    result_stats = await mod.cleanup_for_agent(agent_id, db_client)
+                    stats.update(result_stats)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"Channel cleanup for {module_name} failed (non-critical): {e}"
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Channel cleanup walk failed (non-critical): {e}")
+
+        # 14b. team_members (subproject 1) — drop this agent from every team it's a member of.
+        # Without this, the team panel keeps showing the deleted agent_id as a ghost member.
+        try:
+            result = await db_client.execute(
+                "DELETE FROM team_members WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            cnt = result if isinstance(result, int) else 0
+            if cnt > 0:
+                stats["team_members"] = cnt
         except Exception as e:
-            logger.warning(f"Lark cleanup failed (non-critical): {e}")
+            logger.warning(f"team_members cleanup failed: {e}")
+
+        # 14c. Full message-bus cascade (the existing block only cleaned `lark_*` channels).
+        # Strategy:
+        #   - Pull every channel where this agent is a member (any prefix).
+        #   - Remove this agent's membership.
+        #   - For channels created_by this agent, OR channels whose membership is
+        #     now empty, blow away the channel + its messages.
+        #   - Drop diagnostic / registry rows for this agent.
+        try:
+            members_for_self = await db_client.get("bus_channel_members", {"agent_id": agent_id})
+            channels_touched = {m.get("channel_id") for m in members_for_self if m.get("channel_id")}
+
+            # Remove this agent's membership rows
+            mres = await db_client.execute(
+                "DELETE FROM bus_channel_members WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            mcnt = mres if isinstance(mres, int) else 0
+            if mcnt > 0:
+                stats["bus_channel_members"] = mcnt
+
+            # For each touched channel: if no members remain OR the agent created it, delete the channel + messages
+            killed_channels: list[str] = []
+            for cid in channels_touched:
+                ch_row = await db_client.get_one("bus_channels", {"channel_id": cid})
+                remaining = await db_client.get("bus_channel_members", {"channel_id": cid})
+                creator_match = ch_row and ch_row.get("created_by") == agent_id
+                if not remaining or creator_match:
+                    killed_channels.append(cid)
+
+            if killed_channels:
+                ph = ", ".join(["%s"] * len(killed_channels))
+                msgs_res = await db_client.execute(
+                    f"DELETE FROM bus_messages WHERE channel_id IN ({ph})",
+                    tuple(killed_channels), fetch=False,
+                )
+                msgs_cnt = msgs_res if isinstance(msgs_res, int) else 0
+                if msgs_cnt > 0:
+                    stats["bus_messages"] = stats.get("bus_messages", 0) + msgs_cnt
+
+                # Also drop their remaining members (if any) — channel is gone
+                others_res = await db_client.execute(
+                    f"DELETE FROM bus_channel_members WHERE channel_id IN ({ph})",
+                    tuple(killed_channels), fetch=False,
+                )
+                others_cnt = others_res if isinstance(others_res, int) else 0
+                if others_cnt > 0:
+                    stats["bus_channel_members"] = stats.get("bus_channel_members", 0) + others_cnt
+
+                ch_res = await db_client.execute(
+                    f"DELETE FROM bus_channels WHERE channel_id IN ({ph})",
+                    tuple(killed_channels), fetch=False,
+                )
+                ch_cnt = ch_res if isinstance(ch_res, int) else 0
+                if ch_cnt > 0:
+                    stats["bus_channels"] = ch_cnt
+
+            # Registry: agent's "I'm alive" advertisement on the bus
+            reg_res = await db_client.execute(
+                "DELETE FROM bus_agent_registry WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            reg_cnt = reg_res if isinstance(reg_res, int) else 0
+            if reg_cnt > 0:
+                stats["bus_agent_registry"] = reg_cnt
+
+            # Diagnostic: per-(message, agent) failure log
+            mf_res = await db_client.execute(
+                "DELETE FROM bus_message_failures WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            mf_cnt = mf_res if isinstance(mf_res, int) else 0
+            if mf_cnt > 0:
+                stats["bus_message_failures"] = mf_cnt
+        except Exception as e:
+            logger.warning(f"bus cascade cleanup failed (non-critical): {e}")
+
+        # 14d. Embeddings store rows for entities this agent owned.
+        # entity_type is 'event' / 'narrative' / 'rag' depending on what was embedded.
+        # We deleted the underlying events / narratives / rag rows above, leaving
+        # vector blobs behind that pollute RAG/semantic search. Sweep them now.
+        try:
+            event_ids = []  # collected from events we just deleted? we only have agent_id
+            # Easiest: delete by entity_type + the parent rows we already wiped.
+            # Because we already cascaded events/narratives/rag, any vectors keyed
+            # to an entity_id that no longer exists is orphaned. We can't trivially
+            # match on agent_id (embeddings_store has no agent_id col), so we sweep
+            # by joining against the deleted parent IDs we still have in memory:
+            #
+            # `nar_rows` and `inst_rows` already collected the IDs above; events
+            # we don't have a list of (we just DELETE'd by agent_id). Cheap option:
+            # use a NOT EXISTS sweep against current parent tables.
+            for entity_type, parent_table, parent_pk in (
+                ("event", "events", "event_id"),
+                ("narrative", "narratives", "narrative_id"),
+                ("rag", "instance_rag_store", "id"),
+            ):
+                if is_sqlite:
+                    sweep_sql = (
+                        f"DELETE FROM embeddings_store WHERE entity_type = ? "
+                        f"AND entity_id NOT IN (SELECT {parent_pk} FROM {parent_table})"
+                    )
+                else:
+                    sweep_sql = (
+                        f"DELETE FROM embeddings_store WHERE entity_type = %s "
+                        f"AND entity_id NOT IN (SELECT {parent_pk} FROM {parent_table})"
+                    )
+                e_res = await db_client.execute(sweep_sql, (entity_type,), fetch=False)
+                e_cnt = e_res if isinstance(e_res, int) else 0
+                if e_cnt > 0:
+                    stats[f"embeddings_store({entity_type})"] = e_cnt
+        except Exception as e:
+            logger.warning(f"embeddings_store sweep failed (non-critical): {e}")
+
+        # 14e. Orphan inbox entries pointing at deleted events
+        try:
+            if is_sqlite:
+                ib_sql = (
+                    "DELETE FROM inbox_table WHERE event_id IS NOT NULL "
+                    "AND event_id NOT IN (SELECT event_id FROM events)"
+                )
+            else:
+                ib_sql = (
+                    "DELETE FROM inbox_table WHERE event_id IS NOT NULL "
+                    "AND event_id NOT IN (SELECT event_id FROM events)"
+                )
+            ib_res = await db_client.execute(ib_sql, (), fetch=False)
+            ib_cnt = ib_res if isinstance(ib_res, int) else 0
+            if ib_cnt > 0:
+                stats["inbox_table_orphans"] = ib_cnt
+        except Exception as e:
+            logger.warning(f"inbox orphan sweep failed (non-critical): {e}")
 
         # 15. The Agent itself
         result = await db_client.execute(

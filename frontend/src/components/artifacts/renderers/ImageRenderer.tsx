@@ -1,0 +1,67 @@
+/**
+ * @file_name: ImageRenderer.tsx
+ * @description: Lazy-loaded renderer for image artifacts (image/png, image/jpeg).
+ *
+ * Pointer model: bytes are fetched from a token-protected public URL minted
+ * via `useArtifactRawUrl`; no Authorization header is needed. The blob URL
+ * is handed to <img> because native <img src=...> cannot attach headers (the
+ * old reason was JWT; with token-in-URL it would now work, but the blob URL
+ * approach avoids re-fetching when the same image renders in multiple cards).
+ */
+
+import { useEffect, useState } from 'react';
+import type { Artifact } from '@/types/artifact';
+import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
+import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+
+interface Props {
+  artifact: Artifact;
+}
+
+export default function ImageRenderer({ artifact }: Props) {
+  const { url, error: urlError } = useArtifactRawUrl(
+    artifact.agent_id,
+    artifact.artifact_id,
+    artifact.updated_at,
+  );
+  const [src, setSrc] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+    let createdUrl: string | null = null;
+    (async () => {
+      setError(null);
+      try {
+        const blobUrl = await fetchArtifactBlobUrl(url);
+        if (cancelled) {
+          URL.revokeObjectURL(blobUrl);
+          return;
+        }
+        createdUrl = blobUrl;
+        setSrc(blobUrl);
+      } catch (e) {
+        if (!cancelled) setError(String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [url]);
+
+  if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
+  if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
+  if (!src) return <div className="p-4 opacity-60">Loading…</div>;
+
+  return (
+    <div className="w-full h-full flex items-center justify-center bg-[var(--bg-deep)] p-4">
+      <img
+        src={src}
+        alt={artifact.title}
+        className="max-w-full max-h-full object-contain"
+      />
+    </div>
+  );
+}

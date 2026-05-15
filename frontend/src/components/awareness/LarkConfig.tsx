@@ -14,10 +14,12 @@ import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import type { LarkCredentialData } from '@/types';
 
+import type { ChannelConfigProps } from './IMChannelsSection';
+
 const POLLING_INTERVAL_MS = 3000;
 const POLLING_TIMEOUT_MS = 5 * 60 * 1000;
 
-export function LarkConfig() {
+export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<LarkCredentialData | null>(null);
@@ -95,6 +97,7 @@ export function LarkConfig() {
         setAppSecret('');
         setOwnerEmail('');
         await fetchCredential();
+        onBindStateChange?.();
       } else {
         setError(res.error || 'Failed to bind bot');
       }
@@ -151,6 +154,7 @@ export function LarkConfig() {
           setPolling(false);
           setAuthUrl('');
           await fetchCredential();
+          onBindStateChange?.();
         }
       } catch {
         // Keep polling — auth not complete yet
@@ -182,6 +186,7 @@ export function LarkConfig() {
       if (!mountedRef.current) return;
       if (res.success) {
         setCredential(null);
+        onBindStateChange?.();
       } else {
         setError(res.error || 'Failed to unbind');
       }

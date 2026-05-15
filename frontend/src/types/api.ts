@@ -177,10 +177,27 @@ export interface EventLogToolCall {
   tool_output?: string;
 }
 
+// One step in the time-ordered timeline of a historical turn.
+// Mirrors backend EventLogTimelineEntry. Preserved as a discriminated
+// union of literal-typed entries so the frontend can switch on `type`
+// without runtime checks.
+export interface EventLogTimelineEntry {
+  type: 'thinking' | 'tool_call' | 'tool_output' | 'native_output' | 'reply';
+  content?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_output?: string;
+  reply_via?: string;
+}
+
 export interface EventLogResponse extends ApiResponse {
   event_id: string;
   thinking?: string;
   tool_calls: EventLogToolCall[];
+  // Ordered, time-preserving view; the UI prefers this when present and
+  // falls back to (thinking, tool_calls) only for old backends that
+  // haven't been redeployed yet.
+  timeline?: EventLogTimelineEntry[];
 }
 
 export interface ChatHistoryEvent {
@@ -232,6 +249,22 @@ export interface CreateAgentRequest {
   created_by: string;
 }
 
+/**
+ * Phase C: summary of an agent's currently running run, if any.
+ * Returned alongside AgentInfo when GET /api/auth/agents fires. The
+ * UI renders this to surface "this agent is still working" even
+ * across browser tabs / sessions — see iron rule #14 (agent runs are
+ * first-class and outlive any single WebSocket).
+ */
+export interface ActiveRunInfo {
+  run_id: string;
+  state: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+  started_at?: string;
+  last_event_at?: string;
+  tool_call_count: number;
+  current_stage?: string;
+}
+
 export interface AgentInfo {
   agent_id: string;
   name?: string;
@@ -241,6 +274,11 @@ export interface AgentInfo {
   is_public?: boolean;
   created_by?: string;
   bootstrap_active?: boolean;
+  /**
+   * Set when the backend has a BackgroundRun task in the running state
+   * for this agent + the current user. Null means "not currently running".
+   */
+  active_run?: ActiveRunInfo | null;
 }
 
 // Auth types
@@ -315,15 +353,22 @@ export interface DeleteAgentResponse extends ApiResponse {
   deleted_counts?: Record<string, number>;
 }
 
-// File Management types
+// File Management types — recursive workspace directory tree (2026-05-14).
 export interface FileInfo {
-  filename: string;
+  /** Basename, e.g. "index.html". */
+  name: string;
+  /** Workspace-relative path, e.g. "report/index.html". */
+  path: string;
+  is_dir: boolean;
+  /** 0 for directories. */
   size: number;
   modified_at: string;
+  /** Populated when `is_dir` is true; `null` for regular files. */
+  children?: FileInfo[] | null;
 }
 
 export interface FileListResponse extends ApiResponse {
-  files: FileInfo[];
+  tree: FileInfo[];
   workspace_path: string;
 }
 
@@ -334,7 +379,7 @@ export interface FileUploadResponse extends ApiResponse {
 }
 
 export interface FileDeleteResponse extends ApiResponse {
-  filename?: string;
+  path?: string;
 }
 
 // MCP Management types
@@ -721,4 +766,83 @@ export interface LarkAuthLoginResponse extends ApiResponse {
 
 export interface LarkAuthCompleteResponse extends ApiResponse {
   data?: Record<string, unknown>;
+}
+
+// Slack Integration types
+//
+// Note: bot_token / app_token are NEVER returned by the API. The backend
+// responds only with this sanitised view, which is everything the UI
+// needs to render binding state.
+export interface SlackCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  team_id: string;
+  team_name: string;
+  owner_email: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SlackCredentialResponse extends ApiResponse {
+  data: SlackCredentialData | null;
+}
+
+export interface SlackBindResponse extends ApiResponse {
+  data?: {
+    team_id: string;
+    team_name: string;
+    bot_user_id: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface SlackTestResponse extends ApiResponse {
+  data?: {
+    team_id: string;
+    team_name: string;
+    bot_user_id: string;
+    bot_name?: string;
+  };
+}
+
+// Telegram Integration types
+//
+// Note: bot_token is NEVER returned by the API. The backend returns only
+// this sanitised view, which is everything the UI needs to render binding
+// state.
+export interface TelegramCredentialData {
+  agent_id: string;
+  bot_user_id: string;
+  bot_username: string;
+  owner_username: string;
+  owner_user_id: string;
+  owner_name: string;
+  enabled: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface TelegramCredentialResponse extends ApiResponse {
+  data: TelegramCredentialData | null;
+}
+
+export interface TelegramBindResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    owner_user_id: string;
+    owner_name: string;
+  };
+}
+
+export interface TelegramTestResponse extends ApiResponse {
+  data?: {
+    bot_user_id: string;
+    bot_username: string;
+    first_name?: string;
+  };
 }

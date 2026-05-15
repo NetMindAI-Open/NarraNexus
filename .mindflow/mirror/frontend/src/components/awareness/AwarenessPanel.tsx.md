@@ -1,18 +1,33 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-15
 stub: false
 ---
 
-# AwarenessPanel.tsx — Agent configuration hub (awareness + social network + files + MCP)
+## 2026-05-15 — awareness markdown inner-scroll discoverability
+
+Awareness thesis block's inner `<ScrollArea>` now uses `type="auto"` (always-visible scrollbar when overflow exists) and `max-h-[40vh]` instead of the original hover-only `max-h-[180px]`. Combined with `overscroll-contain` becoming a default in `ui/scroll-area.tsx`, the markdown content stays scrollable inside its own viewport without chaining to the outer panel's ScrollArea. Same fix was applied to `FileUpload.tsx`'s workspace tree — both inner-scrolls were invisible for the same reason and shipped together.
+
+# AwarenessPanel.tsx — Agent configuration hub (awareness + workspace + IM + social network)
 
 ## 为什么存在
 
-The "Config" tab gives operators visibility into and control over the agent's current state: what it knows about itself (awareness text), who it knows (social network), what files it can access, and which external MCP servers are connected.
+The "Config" tab gives operators visibility into and control over the agent's current state: what it knows about itself (awareness text), what files it can access (workspace), which IM channels it's bound to, and who it knows (social network).
+
+## 2026-05-14 — Section reorder + MCP moved out
+
+Section order changed (user request) to a top-down "agent identity → tools → social" flow:
+
+1. **Agent Awareness** (unchanged, first, no border-t)
+2. **Workspace** (`FileUpload`) — moved up from 3rd
+3. **IM Channels** (`IMChannelsSection`) — moved up from 5th
+4. **Social Network** — moved down from 2nd to last
+
+`MCPManager` was **removed entirely** from this panel and relocated into `[[SkillsPanel]]` (the "Skill & MCP" tab) — MCP servers are a tool/capability concern, not an awareness concern, so they belong next to Skills.
 
 ## 上下游关系
 - **被谁用**: `ContextPanelContent` (lazy-loaded when 'awareness' tab is active).
-- **依赖谁**: `EntityCard`, `FileUpload`, `MCPManager`, `usePreloadStore`, `useConfigStore`, `api`.
+- **依赖谁**: `EntityCard`, `FileUpload`, `IMChannelsSection`, `usePreloadStore`, `useConfigStore`, `api`.
 
 ## 设计决策
 

@@ -12,6 +12,7 @@ Supports two modes:
 
 import json
 import re
+from contextvars import ContextVar
 from typing import AsyncGenerator, Optional, Type
 
 from loguru import logger
@@ -21,6 +22,38 @@ from openai import AsyncOpenAI
 from xyz_agent_context.agent_framework.api_config import openai_config
 from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
 from xyz_agent_context.utils.logging import timed
+
+
+# Per-async-task scratchpad so an outer `with timed(...) as t` can read
+# back which model + structured-output mode the inner SDK call ended up
+# using. Set by llm_function / llm_stream after model resolution; read
+# (and optionally tag) by the caller right after the await returns.
+# Contextvars propagate across `await` within the same task without
+# leaking across tasks, which matches our usage exactly.
+_last_llm_call_info: ContextVar[Optional[dict]] = ContextVar(
+    "_last_llm_call_info", default=None
+)
+
+
+def get_last_llm_call_info() -> Optional[dict]:
+    """Return ``{model, structured}`` for the most recent llm_function /
+    llm_stream call on this async task, or None if none has run.
+
+    ``structured`` values:
+      - ``"agents_sdk"`` — happy path, response_format honored
+      - ``"fallback_first_fail"`` — caller asked for output_type, model
+        rejected it on its first call, we added to blocklist and
+        fell back to JSON-in-prompt parse (this call cost 2 LLM hops)
+      - ``"fallback_blocklisted"`` — model already known to reject
+        response_format, skipped straight to fallback (1 LLM hop)
+      - ``"no_schema"`` — caller didn't pass output_type, no structured
+        output attempted in the first place
+      - ``"stream"`` — llm_stream call (always non-structured)
+
+    Read this right after an SDK call to avoid being overwritten by any
+    subsequent SDK call further down the same task.
+    """
+    return _last_llm_call_info.get()
 
 
 def _extract_json_from_llm_output(text: str) -> Optional[str]:
@@ -111,6 +144,7 @@ class OpenAIAgentsSDK:
         model: str = None,
         agent_id: Optional[str] = None,
         db=None,
+        reasoning_effort: Optional[str] = None,
     ):
         """
         Call an LLM with instructions and user input.
@@ -119,6 +153,12 @@ class OpenAIAgentsSDK:
         Agents SDK first. If that fails (e.g., model doesn't support
         response_format), the model is added to a blocklist and all
         subsequent calls skip straight to the fallback path.
+
+        reasoning_effort: optional per-call reasoning budget for
+        reasoning-capable models (gpt-5*, o-series). Valid values:
+        "none" / "low" / "medium" / "high" / "xhigh". Non-reasoning
+        models will reject this parameter — caller is responsible for
+        only passing it when the model supports it.
         """
         model_name = self._resolve_model(model)
 
@@ -136,19 +176,26 @@ class OpenAIAgentsSDK:
         logger.debug(
             f"[HelperLLM] Calling: model={model_name}, "
             f"base_url={openai_config.base_url or '(official)'}, "
-            f"max_tokens={max_tokens}, output_type={output_type.__name__ if output_type else 'None'}"
+            f"max_tokens={max_tokens}, reasoning_effort={reasoning_effort}, "
+            f"output_type={output_type.__name__ if output_type else 'None'}"
         )
 
         # Try Agents SDK structured output (skip if model is blocklisted)
+        first_attempt_failed = False
         if output_type and model_name not in _structured_output_blocklist:
             try:
                 result = await self._try_agents_sdk(
-                    openai_client, model_name, instructions, user_input, output_type, max_tokens
+                    openai_client, model_name, instructions, user_input,
+                    output_type, max_tokens, reasoning_effort,
                 )
                 await self._record_cost(result, model_name, agent_id, db)
+                _last_llm_call_info.set(
+                    {"model": model_name, "structured": "agents_sdk"}
+                )
                 return result
             except Exception as e:
                 _structured_output_blocklist.add(model_name)
+                first_attempt_failed = True
                 logger.info(
                     f"Model '{model_name}' does not support structured output, "
                     f"added to blocklist (will use fallback from now on): {e}"
@@ -156,17 +203,153 @@ class OpenAIAgentsSDK:
 
         # Fallback: direct chat completion + manual JSON parsing
         result = await self._fallback_chat_completion(
-            openai_client, model_name, instructions, user_input, output_type, max_tokens
+            openai_client, model_name, instructions, user_input,
+            output_type, max_tokens, reasoning_effort,
+        )
+        if not output_type:
+            structured_mode = "no_schema"
+        elif first_attempt_failed:
+            structured_mode = "fallback_first_fail"
+        else:
+            structured_mode = "fallback_blocklisted"
+        _last_llm_call_info.set(
+            {"model": model_name, "structured": structured_mode}
         )
         return result
 
+    @timed("llm.openai.llm_stream", slow_threshold_ms=10000)
+    async def llm_stream(
+        self,
+        instructions: str,
+        user_input: str,
+        model: str = None,
+        reasoning_effort: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Stream a helper_llm response delta-by-delta as plain text.
+
+        Used by the chat fallback path (agent finished without calling
+        send_message_to_user_directly): we ask the helper_llm to produce
+        a real reply for the user based on the agent's reasoning, and
+        yield each token-delta so the websocket can push it to the
+        frontend exactly like a normal agent reply.
+
+        No structured output, no schema enforcement — this is for plain
+        user-facing text. Cost is logged on stream completion.
+
+        Yields:
+            str: each content delta from the underlying chat completion.
+        """
+        model_name = self._resolve_model(model)
+        _last_llm_call_info.set({"model": model_name, "structured": "stream"})
+        from xyz_agent_context.agent_framework.model_catalog import get_max_output_tokens
+        max_tokens = get_max_output_tokens(model_name)
+
+        client_kwargs: dict = {"api_key": openai_config.api_key}
+        if openai_config.base_url:
+            client_kwargs["base_url"] = openai_config.base_url
+        openai_client = AsyncOpenAI(**client_kwargs)
+
+        messages = [
+            {"role": "system", "content": instructions},
+            {"role": "user", "content": user_input},
+        ]
+
+        # Mirror llm_function's max_tokens guards: try max_completion_tokens
+        # first, fall back to max_tokens for older providers.
+        async def _open_stream():
+            primary_kwargs = {}
+            if max_tokens is not None:
+                primary_kwargs["max_completion_tokens"] = max_tokens
+            if reasoning_effort:
+                primary_kwargs["reasoning_effort"] = reasoning_effort
+            try:
+                return await openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    stream=True,
+                    **primary_kwargs,
+                )
+            except Exception as primary_err:
+                logger.debug(
+                    f"[HelperLLM-Stream] max_completion_tokens path failed "
+                    f"({primary_err}); retrying with max_tokens"
+                )
+                fallback_kwargs = (
+                    {"max_tokens": max_tokens} if max_tokens is not None else {}
+                )
+                if reasoning_effort:
+                    fallback_kwargs["reasoning_effort"] = reasoning_effort
+                return await openai_client.chat.completions.create(
+                    model=model_name,
+                    messages=messages,
+                    stream=True,
+                    **fallback_kwargs,
+                )
+
+        stream = await _open_stream()
+        input_tokens = 0
+        output_tokens = 0
+        char_count = 0
+
+        async for chunk in stream:
+            try:
+                choices = chunk.choices or []
+            except Exception:
+                choices = []
+            if not choices:
+                continue
+            delta = getattr(choices[0].delta, "content", None) or ""
+            if delta:
+                char_count += len(delta)
+                yield delta
+            usage = getattr(chunk, "usage", None)
+            if usage:
+                input_tokens = (
+                    getattr(usage, "prompt_tokens", input_tokens) or input_tokens
+                )
+                output_tokens = (
+                    getattr(usage, "completion_tokens", output_tokens)
+                    or output_tokens
+                )
+
+        logger.info(
+            f"[HelperLLM-Stream] completed: model={model_name} "
+            f"chars={char_count} input_tokens={input_tokens} "
+            f"output_tokens={output_tokens}"
+        )
+
+        _agent_id, _db = self._resolve_cost_context(None, None)
+        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
+            try:
+                await record_cost(
+                    db=_db,
+                    agent_id=_agent_id,
+                    event_id=None,
+                    call_type="llm_stream",
+                    model=model_name,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            except Exception as e:
+                logger.warning(f"[HelperLLM-Stream] failed to record cost: {e}")
+
     async def _try_agents_sdk(
-        self, client, model_name, instructions, user_input, output_type, max_tokens: Optional[int]
+        self, client, model_name, instructions, user_input, output_type,
+        max_tokens: Optional[int], reasoning_effort: Optional[str] = None,
     ):
         """Attempt structured output via OpenAI Agents SDK"""
         from agents import Agent, Runner, OpenAIChatCompletionsModel, ModelSettings
 
-        settings = ModelSettings(max_tokens=max_tokens) if max_tokens else ModelSettings()
+        settings_kwargs: dict = {}
+        if max_tokens:
+            settings_kwargs["max_tokens"] = max_tokens
+        if reasoning_effort:
+            # Reasoning models (gpt-5*, o-series) accept reasoning.effort
+            # via ModelSettings.reasoning. Non-reasoning models will raise
+            # — caller controls whether to pass this.
+            from openai.types.shared import Reasoning
+            settings_kwargs["reasoning"] = Reasoning(effort=reasoning_effort)
+        settings = ModelSettings(**settings_kwargs)
         agent = Agent(
             name="LLMFunction",
             instructions=instructions,
@@ -185,6 +368,7 @@ class OpenAIAgentsSDK:
         instructions: str, user_input: str,
         output_type: Optional[Type[BaseModel]] = None,
         max_tokens: Optional[int] = None,
+        reasoning_effort: Optional[str] = None,
     ):
         """
         Direct chat completion with prompt-guided JSON extraction.
@@ -213,6 +397,10 @@ class OpenAIAgentsSDK:
         token_kwargs = {}
         if max_tokens is not None:
             token_kwargs["max_completion_tokens"] = max_tokens
+        if reasoning_effort:
+            # chat.completions API accepts reasoning_effort as a top-level
+            # string for reasoning-capable models (gpt-5*, o-series).
+            token_kwargs["reasoning_effort"] = reasoning_effort
 
         try:
             resp = await client.chat.completions.create(
@@ -223,6 +411,8 @@ class OpenAIAgentsSDK:
         except Exception:
             # Fallback: some older providers only support max_tokens
             fallback_kwargs = {"max_tokens": max_tokens} if max_tokens is not None else {}
+            if reasoning_effort:
+                fallback_kwargs["reasoning_effort"] = reasoning_effort
             resp = await client.chat.completions.create(
                 model=model_name,
                 messages=messages,

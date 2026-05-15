@@ -119,6 +119,153 @@ class WebSocketManager {
   }
 
   /**
+   * Reconnect to an existing in-flight (or just-finished) agent run.
+   *
+   * Phase C protocol: the backend keeps the BackgroundRun task alive
+   * independently of any single WebSocket (iron rule #14). When the
+   * client reconnects with ``run_id``, the server replays every
+   * event_stream row in seq order then — if the run is still alive —
+   * subscribes the WS to the live Broadcaster for continuation.
+   *
+   * From the user's perspective this is "open the tab, see everything
+   * the agent did while I was away, then keep seeing whatever it
+   * does next" — the user-experience equivalent of "never having
+   * closed the tab".
+   *
+   * Server-side messages we translate here:
+   *   - run_reconnect             metadata (state, started_at, etc.)
+   *   - thinking_partial_replay   current_thinking_buffer snapshot
+   *   - replay (kind, seq, payload)  history events in seq ASC order
+   *   - run_ended                 terminal frame (state, final_output)
+   *   - and the usual live frames (agent_thinking / agent_response /
+   *     progress / error / stopping / cancelled / heartbeat / complete)
+   *
+   * The translation layer below maps each replay payload back into
+   * the same RuntimeMessage shape live frames carry, so chatStore
+   * processMessage doesn't need to know history-vs-live.
+   */
+  reconnect(
+    agentId: string,
+    userId: string,
+    runId: string,
+    options?: {
+      onComplete?: OnCompleteCallback;
+      agentName?: string;
+    },
+  ): void {
+    // Close any existing connection for this agent first — the same
+    // contract as run() so we never have two WS open per agent.
+    this.close(agentId);
+
+    if (options?.onComplete) {
+      this.onCompleteCallbacks.set(agentId, options.onComplete);
+    }
+
+    const agentName = options?.agentName;
+
+    if (MOCK_ENABLED) {
+      // Mock mode has no persistent BackgroundRun to subscribe to;
+      // we just no-op reconnect.
+      console.info('[wsManager] mock mode — reconnect is a no-op');
+      return;
+    }
+
+    const wsUrl = `${getWsBaseUrl()}/ws/agent/run`;
+    const ws = new WebSocket(wsUrl);
+
+    const entry: ConnectionEntry = { ws, completed: false };
+    this.connections.set(agentId, entry);
+
+    const store = useChatStore.getState;
+
+    ws.onopen = () => {
+      const token = useConfigStore.getState().token;
+      ws.send(JSON.stringify({
+        run_id: runId,
+        user_id: userId,
+        token: token || undefined,
+      }));
+      // Mark the local session as streaming so AgentList spinner and
+      // any in-flight UI cues stay consistent through the replay.
+      store().startStreaming(agentId);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const raw = JSON.parse(event.data);
+
+        if (raw.type === 'heartbeat') return;
+
+        // Phase C: inject the user message that triggered this run
+        // BEFORE any replay frames render. Backend hands us
+        // ``input_content`` (from events.env_context.input) and
+        // ``input_timestamp`` (events.created_at). The timestamp is
+        // the same value ChatModule.hook_after_event_execution
+        // eventually writes into agent_messages.user_ts, so once the
+        // turn completes and history reloads, ChatPanel's existing
+        // role:content + 60s timestamp-proximity dedup collapses
+        // the injected bubble with the persisted history row — no
+        // duplicate "user said X" rendering.
+        //
+        // We deliberately do this only once per reconnect (run_reconnect
+        // is the first frame the server sends for a reconnect WS), so
+        // there's no idempotency state to keep.
+        if (raw.type === 'run_reconnect') {
+          const inputContent = (raw.input_content as string | null | undefined) ?? '';
+          if (inputContent) {
+            const tsStr = raw.input_timestamp as string | null | undefined;
+            const tsMs = tsStr ? Date.parse(tsStr) : NaN;
+            store().addUserMessage(
+              agentId,
+              inputContent,
+              undefined,
+              Number.isFinite(tsMs) ? tsMs : undefined,
+            );
+          }
+          // Record the run id (and backfill it onto the user message just
+          // added) so the reconnected turn's messages dedup against the
+          // persisted history rows by exact (role, event_id). The fresh-run
+          // path does this via the `run_started` frame in chatStore; the
+          // reconnect protocol absorbs `run_reconnect` before processMessage
+          // (translateReconnectFrame returns null), so we set it here.
+          store().setCurrentRunId(agentId, runId);
+        }
+
+        // Translate Phase C reconnect-mode frames into RuntimeMessage
+        // shapes the existing chatStore.processMessage already knows
+        // how to render. live frames pass through untouched.
+        const translated = translateReconnectFrame(raw);
+        if (translated === null) return;
+
+        store().processMessage(agentId, translated as RuntimeMessage);
+
+        if (raw.type === 'run_ended' || raw.type === 'complete') {
+          entry.completed = true;
+          const cb = this.onCompleteCallbacks.get(agentId);
+          cb?.(agentId);
+          this.onCompleteCallbacks.delete(agentId);
+        }
+      } catch (e) {
+        console.error(`[wsManager] Failed to parse reconnect message for ${agentId}:`, e);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error(`[wsManager] reconnect WS error for ${agentId}:`, error);
+    };
+
+    ws.onclose = () => {
+      if (this.connections.get(agentId) === entry) {
+        this.connections.delete(agentId);
+      }
+      if (!entry.completed) {
+        console.warn(`[wsManager] reconnect WS closed unexpectedly for ${agentId}`);
+        store().stopStreaming(agentId, agentName);
+      }
+    };
+  }
+
+  /**
    * Send a stop signal to gracefully cancel the running agent loop.
    *
    * The backend's dual-task WebSocket handler listens for this message
@@ -205,3 +352,137 @@ class WebSocketManager {
 }
 
 export const wsManager = new WebSocketManager();
+
+
+/**
+ * Map a Phase C reconnect-mode frame back to a RuntimeMessage that
+ * chatStore.processMessage already knows. Returns null when the frame
+ * is metadata-only (run_reconnect / run_ended) — those bypass the
+ * normal message pipeline but are otherwise ignored at the store level.
+ *
+ * Frames passed through:
+ *   - any frame with no special "replay" semantics (live agent_thinking,
+ *     agent_response, progress, error, stopping, cancelled, complete, ...)
+ *     is returned as-is.
+ *
+ * Frames translated:
+ *   - thinking_partial_replay: { content }
+ *       → agent_thinking { thinking_content: content }
+ *   - replay: { kind, seq, payload }
+ *       depending on kind, materialise the same RuntimeMessage shape
+ *       that the live path would have emitted.
+ *
+ * Frames absorbed (return null):
+ *   - run_reconnect, run_ended, reconnect_warning — these are protocol-
+ *     level metadata the store doesn't need; we use them only as
+ *     lifecycle signals via the onmessage caller.
+ */
+function translateReconnectFrame(raw: { [key: string]: unknown }): unknown | null {
+  const t = raw.type as string | undefined;
+
+  if (t === 'run_reconnect' || t === 'run_ended' || t === 'reconnect_warning') {
+    return null;
+  }
+
+  if (t === 'thinking_partial_replay') {
+    return {
+      type: 'agent_thinking',
+      timestamp: Date.now(),
+      thinking_content: (raw.content as string) ?? '',
+    };
+  }
+
+  if (t === 'replay') {
+    const kind = raw.kind as string | undefined;
+    const payloadRaw = raw.payload as string | null | undefined;
+    const payload = payloadRaw ?? '';
+
+    if (kind === 'thinking_segment') {
+      return {
+        type: 'agent_thinking',
+        timestamp: Date.now(),
+        thinking_content: payload,
+      };
+    }
+
+    if (kind === 'text_delta') {
+      return {
+        type: 'agent_response',
+        timestamp: Date.now(),
+        response_type: 'text',
+        delta: payload,
+      };
+    }
+
+    if (kind === 'tool_call') {
+      const p = safeParseJson(payload);
+      return {
+        type: 'progress',
+        timestamp: Date.now(),
+        step: (p?.step as string) ?? '3.4',
+        title: (p?.title as string) ?? 'Tool call',
+        description: 'Executing...',
+        status: 'running',
+        details: {
+          tool_name: p?.tool_name,
+          arguments: p?.arguments ?? {},
+        },
+        substeps: [],
+      };
+    }
+
+    if (kind === 'tool_output') {
+      const p = safeParseJson(payload);
+      return {
+        type: 'progress',
+        timestamp: Date.now(),
+        step: (p?.step as string) ?? '3.4',
+        title: (p?.title as string) ?? 'Tool output',
+        description: '✓ Execution completed',
+        status: 'completed',
+        details: {
+          output: p?.output,
+        },
+        substeps: [],
+      };
+    }
+
+    if (kind === 'progress') {
+      const p = safeParseJson(payload);
+      if (p && typeof p === 'object') {
+        return { ...p, type: 'progress', timestamp: Date.now() };
+      }
+      return null;
+    }
+
+    if (kind === 'error') {
+      const p = safeParseJson(payload);
+      return {
+        type: 'error',
+        timestamp: Date.now(),
+        error_message: (p?.error_message as string) ?? payload,
+        error_type: (p?.error_type as string) ?? 'replay_error',
+        severity: 'recoverable',
+      };
+    }
+
+    // Unknown replay kind — log and drop. Should not happen with the
+    // current backend protocol but a debug-mode crash would be worse
+    // than silent skip.
+    console.warn('[wsManager] unknown replay kind:', kind, raw);
+    return null;
+  }
+
+  // Live frame — pass through.
+  return raw;
+}
+
+
+function safeParseJson(s: string): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(s);
+    return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}

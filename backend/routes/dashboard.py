@@ -10,8 +10,10 @@ discriminated union (owner-only fields cannot appear on public variant) and
 2 req/s per-viewer sliding-window rate limit.
 
 Cloud mode: viewer_id from request.state.user_id (JWT middleware populated).
-Local mode: viewer_id from backend.auth.get_local_user_id() — NEVER from
-`?user_id=` query param (that would be an impersonation vector; see TDR-12).
+Local mode: viewer_id from request.state.user_id (X-User-Id header populated
+by auth_middleware; falls back to singleton "first user" for legacy clients).
+NEVER from `?user_id=` query param (that would be an impersonation vector;
+see TDR-12).
 
 See design doc rev-2 for the full flow + threat model.
 """
@@ -22,7 +24,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from backend.auth import _is_cloud_mode, get_local_user_id
+from backend.auth import resolve_current_user_id
 from backend.routes._dashboard_helpers import (
     bucket_count,
     build_action_line,
@@ -62,13 +64,10 @@ async def agents_status(request: Request, response: Response):
             detail="user_id query param not accepted; viewer identified by session",
         )
 
-    # 2. Identify viewer
-    if _is_cloud_mode():
-        viewer_id = getattr(request.state, "user_id", None)
-        if not viewer_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
-    else:
-        viewer_id = await get_local_user_id()
+    # 2. Identify viewer — auth_middleware populated request.state.user_id
+    # from JWT (cloud) or X-User-Id header (local). Same code path for both
+    # modes; rejecting ?user_id= above already prevents query-param spoofing.
+    viewer_id = await resolve_current_user_id(request)
 
     # 3. Rate limit
     if not _rate_limiter.allow(viewer_id):
@@ -293,12 +292,7 @@ async def _resolve_viewer(request: Request) -> str:
             status_code=400,
             detail="user_id query param not accepted; viewer identified by session",
         )
-    if _is_cloud_mode():
-        viewer_id = getattr(request.state, "user_id", None)
-        if not viewer_id:
-            raise HTTPException(status_code=401, detail="Authentication required")
-        return viewer_id
-    return await get_local_user_id()
+    return await resolve_current_user_id(request)
 
 
 async def _assert_agent_visible(viewer_id: str, agent_id: str) -> dict:

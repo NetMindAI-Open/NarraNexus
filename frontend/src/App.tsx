@@ -18,6 +18,10 @@ const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
 const SetupPage = lazy(() => import('@/pages/SetupPage'));
 const SystemPage = lazy(() => import('@/pages/SystemPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
+const BundleExportPage = lazy(() => import('@/pages/BundleExportPage'));
+const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
+const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
+const ManageAgentsPage = lazy(() => import('@/pages/ManageAgentsPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 
 /** Full-screen loading placeholder */
@@ -202,6 +206,19 @@ function App() {
     return () => window.removeEventListener('narranexus:quota-exceeded', handler);
   }, []);
 
+  // Stale JWT: api.ts dispatches narranexus:auth-expired when an
+  // authenticated request comes back 401 (token rejected by backend).
+  // Clear auth state via configStore so ProtectedRoute redirects to /login
+  // instead of letting the UI keep firing 401s in a broken state.
+  useEffect(() => {
+    const handler = () => {
+      const { isLoggedIn, logout } = useConfigStore.getState();
+      if (isLoggedIn) logout();
+    };
+    window.addEventListener('narranexus:auth-expired', handler);
+    return () => window.removeEventListener('narranexus:auth-expired', handler);
+  }, []);
+
   return (
     <>
       <MockBanner />
@@ -252,6 +269,10 @@ function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="bundle/export" element={<BundleExportPage />} />
+          <Route path="bundle/import" element={<BundleImportPage />} />
+          <Route path="teams/:teamId" element={<TeamDetailPage />} />
+          <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>
 
         {/* Root redirect + catch-all */}

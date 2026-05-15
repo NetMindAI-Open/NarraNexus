@@ -34,7 +34,48 @@ jobs:
           workspaces: tauri/src-tauri
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2"
+        # macos-14 runner regressions guarded for here:
+        #
+        # 1. `~/.cargo/bin/{cargo,rustc,...}` are all rustup-init shims
+        #    that re-exec `rustup-init` when no toolchain is "active
+        #    for the current invocation". `cargo install` fails with
+        #    "unexpected argument 'install' found"; if we work around
+        #    that and invoke the real cargo, cargo's own `rustc -vV`
+        #    probe (to discover the host triple) ALSO hits the shim
+        #    and returns `rustup-init 1.29.0 ...`, breaking cargo with
+        #    "rustc -vV didn't have a line for `host:`".
+        #
+        #    Fix: resolve the toolchain's bin dir explicitly with
+        #    `rustup which` and prepend it to PATH. Now every shelled-
+        #    out `cargo` / `rustc` call — by us, by build scripts, by
+        #    cargo itself — finds the real binaries first.
+        #
+        # 2. cargo-install can trigger a `rustup component add rust-src`
+        #    mid-compile, and that download intermittently fails on
+        #    the runner's APFS (the `.partial` file gets unlinked
+        #    before rename, "No such file or directory (os error 2)").
+        #    Pre-install rust-src in its own step with a 3x retry so
+        #    we don't gamble on it inside `cargo install`.
+        #
+        # `set -eux` echoes resolved paths so a future runner shift is
+        # debuggable from the CI log alone.
+        run: |
+          set -eux
+          rustup default stable
+          for i in 1 2 3; do
+            rustup component add rust-src --toolchain stable && break
+            echo "rustup component add rust-src failed (attempt $i), retrying…"
+            sleep 5
+          done
+          TOOLCHAIN_BIN="$(dirname "$(rustup which --toolchain stable cargo)")"
+          export PATH="$TOOLCHAIN_BIN:$PATH"
+          # Persist across subsequent steps (Build/sign/notarize also calls
+          # cargo + rustc indirectly via `cargo tauri build`).
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          which cargo
+          which rustc
+          rustc -vV
+          cargo install tauri-cli --version "^2"
 
       # Import the Developer ID cert into a temp keychain so build-desktop.sh's
       # `codesign --sign "$APPLE_SIGNING_IDENTITY"` calls can find it.

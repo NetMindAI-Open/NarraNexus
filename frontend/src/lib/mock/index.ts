@@ -315,11 +315,14 @@ export const mockApi = {
 
   /* ─ Files ─ */
   async listFiles(): Promise<FileListResponse> {
+    // Schema switched from a flat `files` array to a recursive `tree` of
+    // FileInfo in 2026-05-14 with the artifact pointer-model rework.
+    const now = new Date().toISOString();
     return ok({
       success: true,
-      files: [
-        { filename: 'notes.md', size: 4096, modified_at: new Date().toISOString() },
-        { filename: 'scratch.txt', size: 1200, modified_at: new Date().toISOString() },
+      tree: [
+        { name: 'notes.md', path: 'notes.md', is_dir: false, size: 4096, modified_at: now },
+        { name: 'scratch.txt', path: 'scratch.txt', is_dir: false, size: 1200, modified_at: now },
       ],
       workspace_path: '/mock/workspace',
     });

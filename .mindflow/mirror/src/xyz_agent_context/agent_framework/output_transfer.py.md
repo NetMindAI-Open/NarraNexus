@@ -1,9 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/output_transfer.py
-last_verified: 2026-04-10
+last_verified: 2026-05-14
 stub: false
 ---
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
+
+## 2026-05-14 — tool_output 必须是干净字符串，不能是 Python repr
+
+`_convert_user_to_stream_events` 处理 `ToolResultBlock` 时，原来用
+`str(block.content)` 填 `tool_call_output_item.output`。`block.content`
+对于返回 dict 的 MCP 工具（如 `create_artifact`）是一个 content block
+**列表**（`[{"type":"text","text":"<JSON>"}]` 或 SDK 的 block 对象），
+`str()` 出来是 Python repr —— **不是合法 JSON**。
+
+后果：前端凡是 `JSON.parse(tool_output)` 的消费方（artifact 发现、
+quota 错误检测）全部静默失败 —— agent 创建的 artifact 永远不会通过
+tool_output 这条路浮现，只能等无关的 reload（切 agent / 收尾刷新）。
+
+修复：新增 `_stringify_tool_result_content()`，把 `block.content`
+拍平成真正的文本载荷（str 直接用；list 逐块抽 `text`；SDK block
+对象抽 `.text`），保证 `output` 是工具实际返回的字符串。
 
 ## 为什么存在
 

@@ -7,6 +7,7 @@
 
 
 import asyncio
+from contextlib import suppress
 
 from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
@@ -281,18 +282,62 @@ class ClaudeAgentSDK:
             await client.query(this_turn_user_message)
             logger.info("[ClaudeAgentSDK] Query sent. Waiting for responses...")
 
-            # Wrap receive_response with idle timeout detection:
-            # If no message arrives within IDLE_TIMEOUT_SECONDS, raise TimeoutError.
+            # Race-with-cancel receive loop.
+            #
+            # Previously this loop used ``asyncio.wait_for(__anext__(),
+            # IDLE_TIMEOUT_SECONDS)`` and checked cancellation only after a
+            # message arrived. That meant cancellation issued while a tool
+            # call (e.g. a long-running Bash command) was in flight could
+            # not be detected until the tool returned a message — which
+            # could take tens of seconds or minutes.
+            #
+            # The race pattern below waits on TWO awaitables simultaneously:
+            #   * the next message arriving from Claude Code CLI
+            #   * the cancellation token firing
+            # whichever finishes first wins, and the still-pending one is
+            # cancelled. This brings the Stop-to-loop-exit latency down to
+            # the time it takes a single await round-trip — sub-100 ms on
+            # any realistic host — regardless of what the CLI is doing.
             response_iter = client.receive_response().__aiter__()
             while True:
+                message_task = asyncio.create_task(response_iter.__anext__())
+                cancel_task: asyncio.Task | None = None
+                if cancellation is not None:
+                    cancel_task = asyncio.create_task(cancellation.await_cancelled())
+                waiters: list[asyncio.Task] = [message_task]
+                if cancel_task is not None:
+                    waiters.append(cancel_task)
+
                 try:
-                    message = await asyncio.wait_for(
-                        response_iter.__anext__(),
+                    done, pending = await asyncio.wait(
+                        waiters,
+                        return_when=asyncio.FIRST_COMPLETED,
                         timeout=IDLE_TIMEOUT_SECONDS,
                     )
-                except StopAsyncIteration:
-                    break  # Stream ended normally
-                except asyncio.TimeoutError:
+                finally:
+                    # We must ALWAYS cancel still-pending waiters, even if
+                    # this block raises further down. Otherwise message_task
+                    # would dangle and consume the next yielded item later.
+                    for task in waiters:
+                        if not task.done():
+                            task.cancel()
+
+                if cancellation is not None and cancellation.is_cancelled:
+                    logger.info(
+                        f"[ClaudeAgentSDK] Cancellation detected after "
+                        f"{message_count} messages (mid-wait), stopping"
+                    )
+                    # Suppress message_task exceptions when it was the one
+                    # we cancelled — silently consume so the event loop
+                    # doesn't log "Task exception was never retrieved".
+                    if message_task in pending:
+                        with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                            await message_task
+                    break
+
+                if message_task not in done:
+                    # IDLE_TIMEOUT_SECONDS elapsed with no message and no
+                    # cancellation. This is the legacy "CLI is stuck" path.
                     logger.exception(
                         f"[ClaudeAgentSDK] ⚠️ No response from Claude Code CLI for {IDLE_TIMEOUT_SECONDS}s. "
                         f"Aborting agent loop. Messages received so far: {message_count}"
@@ -304,10 +349,10 @@ class ClaudeAgentSDK:
                         f"The service may be overloaded or unresponsive. Please try again."
                     )
 
-                # Check cancellation before processing
-                if cancellation is not None and cancellation.is_cancelled:
-                    logger.info(f"[ClaudeAgentSDK] Cancellation detected after {message_count} messages, stopping")
-                    break
+                try:
+                    message = message_task.result()
+                except StopAsyncIteration:
+                    break  # Stream ended normally
 
                 message_count += 1
                 msg_type = type(message).__name__
@@ -369,8 +414,34 @@ class ClaudeAgentSDK:
             raise
         finally:
             if client is not None:
+                # Bounded disconnect with SIGKILL fallback.
+                #
+                # claude_agent_sdk's transport.close() sends SIGTERM and
+                # then ``await self._process.wait()`` WITHOUT a timeout.
+                # If the Claude CLI subprocess hangs in cleanup or
+                # ignores SIGTERM, the disconnect coroutine never returns
+                # and the entire agent_loop finally block stalls.
+                #
+                # We bound the graceful path to 5 seconds. Beyond that we
+                # reach into the SDK's transport internals to send SIGKILL
+                # directly. This is a deliberate violation of the SDK's
+                # encapsulation; it is the only reliable way to guarantee
+                # the subprocess is reaped within a finite time window
+                # when Stop is pressed.
                 try:
-                    await client.disconnect()
+                    await asyncio.wait_for(client.disconnect(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "[ClaudeAgentSDK] disconnect() did not complete in 5s; "
+                        "force-killing Claude CLI subprocess via SIGKILL"
+                    )
+                    transport = getattr(client, "_transport", None)
+                    process = getattr(transport, "_process", None) if transport else None
+                    if process is not None and process.returncode is None:
+                        with suppress(Exception):
+                            process.kill()
+                            with suppress(Exception):
+                                await asyncio.wait_for(process.wait(), timeout=2.0)
                 except RuntimeError as e:
                     if "cancel scope" in str(e):
                         logger.debug(f"Ignoring cancel scope error during cleanup: {e}")

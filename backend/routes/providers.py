@@ -293,11 +293,18 @@ async def get_catalog():
 
 @router.get("/claude-status")
 async def get_claude_status(request: Request):
-    """Check if Claude Code CLI is logged in. Cloud: only staff can use it."""
+    """Check if Claude Code CLI is logged in. Cloud: only staff can use it.
+
+    Response fields:
+      - cli_installed: bool — `claude` binary on PATH
+      - logged_in:     bool — auth status reports an active token
+      - email:         str | None — account email if discoverable
+      - expires_at:    str | None — ISO-8601 token expiry if surfaced
+    """
     import json as _json
     from pathlib import Path
 
-    result = {"cli_installed": False, "logged_in": False, "expires_at": None}
+    result = {"cli_installed": False, "logged_in": False, "email": None, "expires_at": None}
 
     is_staff = getattr(request.state, 'role', '') == 'staff'
     is_cloud = not os.environ.get("DATABASE_URL", "").startswith("sqlite")
@@ -309,7 +316,11 @@ async def get_claude_status(request: Request):
     if shutil.which("claude"):
         result["cli_installed"] = True
 
-    # Preferred: use `claude auth status` (Claude Code v2.x+)
+    # Preferred: use `claude auth status` (Claude Code v2.x+).
+    # Output schema isn't formally documented and shifts between minor
+    # versions, so we probe a few common shapes for email / expiry instead
+    # of pinning to one. Anything we can't parse stays None — the UI just
+    # won't show those subfields.
     try:
         auth_out = subprocess.run(
             ["claude", "auth", "status"],
@@ -317,12 +328,42 @@ async def get_claude_status(request: Request):
         )
         if auth_out.returncode == 0 and auth_out.stdout.strip():
             auth_data = _json.loads(auth_out.stdout)
-            if auth_data.get("loggedIn"):
-                result["logged_in"] = True
+            if isinstance(auth_data, dict):
+                if auth_data.get("loggedIn"):
+                    result["logged_in"] = True
+                # Email — try flat then nested under account/user.
+                email = auth_data.get("email")
+                if not email:
+                    for nested_key in ("account", "user", "profile"):
+                        nested = auth_data.get(nested_key)
+                        if isinstance(nested, dict) and nested.get("email"):
+                            email = nested["email"]
+                            break
+                if isinstance(email, str) and email:
+                    result["email"] = email
+                # Expiry — flat fields first, then under token/oauth.
+                for key in ("expiresAt", "expires_at", "tokenExpiresAt"):
+                    val = auth_data.get(key)
+                    if val:
+                        result["expires_at"] = str(val)
+                        break
+                if not result["expires_at"]:
+                    for nested_key in ("token", "oauth", "credentials"):
+                        nested = auth_data.get(nested_key)
+                        if isinstance(nested, dict):
+                            for key in ("expiresAt", "expires_at"):
+                                if nested.get(key):
+                                    result["expires_at"] = str(nested[key])
+                                    break
+                            if result["expires_at"]:
+                                break
     except Exception:
         pass
 
-    # Fallback: check legacy credentials file (Claude Code v1.x)
+    # Fallback: check legacy credentials file (Claude Code v1.x).
+    # Mostly used to backfill logged_in when `claude auth status` is missing
+    # or the user is on an older CLI. Email/expires_at usually aren't in
+    # this file, so they may stay None even when we mark logged_in=True.
     if not result["logged_in"]:
         creds_file = Path.home() / ".claude" / ".credentials.json"
         if creds_file.is_file():
@@ -333,6 +374,25 @@ async def get_claude_status(request: Request):
                         if data.get(key):
                             result["logged_in"] = True
                             break
+                    # Best-effort metadata extraction from the credentials
+                    # file. Different CLI versions stash these in different
+                    # places; we walk the common ones.
+                    if not result["email"]:
+                        for nested_key in ("claudeAiOauth", "oauth", "account", "user"):
+                            nested = data.get(nested_key)
+                            if isinstance(nested, dict) and nested.get("email"):
+                                result["email"] = nested["email"]
+                                break
+                    if not result["expires_at"]:
+                        for nested_key in ("claudeAiOauth", "oauth"):
+                            nested = data.get(nested_key)
+                            if isinstance(nested, dict):
+                                for key in ("expiresAt", "expires_at"):
+                                    if nested.get(key):
+                                        result["expires_at"] = str(nested[key])
+                                        break
+                                if result["expires_at"]:
+                                    break
             except Exception:
                 pass
 

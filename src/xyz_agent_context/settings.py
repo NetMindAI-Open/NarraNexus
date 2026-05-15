@@ -116,6 +116,61 @@ class Settings(BaseSettings):
     # LLM call currently always returns the same 4 modules.
     skip_module_decision_llm: bool = True
 
+    # ===== Transcription (audio → text) =====
+    # Externally-reachable base URL for this NarraNexus deployment. Used by
+    # the NetMind transcription backend to mint signed audio URLs that
+    # NetMind's worker can fetch. Empty disables system-default NetMind
+    # transcription (the resolver downgrades to "unavailable" instead of
+    # minting URLs that NetMind can't reach).
+    public_base_url: str = ""
+
+    # HMAC-SHA256 secret used to sign transcription audio URLs. In cloud
+    # mode this MUST be set explicitly — we refuse to derive a secret in
+    # production. In local mode an unset value falls back to admin_secret_key.
+    transcription_hmac_secret: str = ""
+
+    # System-default NetMind credentials for the cloud free tier. When
+    # present and SystemProviderService is enabled, the transcription
+    # resolver appends NetMind as the last fallback (after user providers
+    # and settings.openai_api_key) without consulting the LLM token quota.
+    system_default_netmind_api_key: str = ""
+    system_default_netmind_base_url: str = "https://api.netmind.ai"
+
+    # ===== Artifact quotas =====
+    # Hard-cap byte quota per user (sum across all that user's agents and
+    # versions). 100 MB matches the design after user feedback. Combined with
+    # the per-artifact limits in artifact_runner (1 MB text / 10 MB binary),
+    # this caps a runaway agent at ~100 small artifacts before triggering
+    # quota-exceeded. Consciously not configurable per agent — keeping it
+    # user-scoped matches the Settings → Artifacts management UX.
+    artifact_total_bytes_per_user: int = 100 * 1024 * 1024  # 100 MB
+
+    # Count cap. Local desktop deployments allow more (you have your own
+    # disk); cloud deployments are tighter to keep aggregate disk usage
+    # predictable. Selected by `artifact_count_limit_per_user` based on
+    # is_cloud_mode below.
+    artifact_count_limit_per_user_local: int = 50
+    artifact_count_limit_per_user_cloud: int = 10
+
+    @property
+    def is_cloud_mode(self) -> bool:
+        """True when DATABASE_URL points at a non-sqlite backend (mysql in prod).
+
+        Mirrors backend.auth._is_cloud_mode but without the cross-package
+        import — settings is a leaf module and mustn't depend on backend.
+        """
+        url = (self.database_url or os.environ.get("DATABASE_URL") or "").strip()
+        return bool(url) and not url.startswith("sqlite")
+
+    @property
+    def artifact_count_limit_per_user(self) -> int:
+        """Per-user artifact count cap; 50 local / 10 cloud."""
+        return (
+            self.artifact_count_limit_per_user_cloud
+            if self.is_cloud_mode
+            else self.artifact_count_limit_per_user_local
+        )
+
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":
         """Expand ~ in path settings so callers don't need to handle it."""

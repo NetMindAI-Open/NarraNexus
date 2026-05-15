@@ -28,6 +28,7 @@ from xyz_agent_context.schema import (
     SimpleChatMessage,
     SimpleChatHistoryResponse,
     EventLogToolCall,
+    EventLogTimelineEntry,
     EventLogResponse,
 )
 from xyz_agent_context.schema.api_schema import InstanceInfo
@@ -475,9 +476,51 @@ async def get_simple_chat_history(
                         timestamp = meta_data.get("timestamp") or msg.get("created_at")
                         message_type = meta_data.get("message_type", "chat")
 
+                        # Privacy guard for IM channels: agent replies sent
+                        # via platform tools (tg_cli sendMessage, slack_cli
+                        # chat.postMessage, lark_cli +messages-send) live in
+                        # the same instance memory as chat replies so the
+                        # agent's NEXT turn can still see them (long-term
+                        # memory). But surfacing the raw IM reply text to
+                        # the owner's chat panel mixes two contexts:
+                        #   (a) "owner ↔ agent direct chat"
+                        #   (b) "agent ↔ third party on IM"
+                        # The frontend chat panel is for (a); routine IM
+                        # chatter should stay on the IM platform. We
+                        # replace the content with a one-line activity
+                        # marker AND override ``message_type`` to
+                        # ``"activity"`` so the frontend renders it
+                        # compactly (small centered italic line) rather
+                        # than as a full agent reply bubble — see
+                        # ``ChatPanel.tsx`` ``if item.messageType ===
+                        # 'activity'`` branch.
+                        #
+                        # Carve-out: when the agent explicitly called
+                        # ``send_message_to_user_directly`` during the IM
+                        # turn (the "tell owner about this important
+                        # thing" path the iron rules carve out), the
+                        # writer stashes that content on
+                        # ``meta_data.owner_notify_content``. We surface
+                        # it verbatim as a real reply (message_type left
+                        # untouched) so the owner DOES see the
+                        # important notification while routine IM
+                        # chatter stays hidden.
+                        content = msg.get("content", "")
+                        if working_source != "chat" and role == "assistant":
+                            owner_notify = meta_data.get("owner_notify_content", "")
+                            if owner_notify:
+                                content = owner_notify
+                            else:
+                                content = f"Background activity ({working_source})"
+                                # Force compact rendering on the frontend.
+                                # Without this the row keeps the writer's
+                                # default message_type and renders as a
+                                # full chat bubble — observed 2026-05-13.
+                                message_type = "activity"
+
                         all_messages.append({
                             "role": role,
-                            "content": msg.get("content", ""),
+                            "content": content,
                             "timestamp": timestamp,
                             "narrative_id": narrative_id,
                             "instance_id": instance.instance_id,
@@ -621,11 +664,67 @@ async def get_event_log_detail(agent_id: str, event_id: str):
                 ))
             i += 1
 
+        # Build the time-ordered timeline view. We walk event_log entries
+        # in their original order — that order IS the agent's actual
+        # think→tool→think→tool→reply rhythm, and we don't want to lose
+        # it the way the grouped thinking/tool_calls fields above do.
+        # Consecutive thinking deltas are concatenated into one entry so
+        # the UI doesn't render 50 tiny italic blocks.
+        timeline: List[EventLogTimelineEntry] = []
+        pending_thinking: List[str] = []
+
+        def _flush_thinking():
+            if pending_thinking:
+                timeline.append(EventLogTimelineEntry(
+                    type="thinking",
+                    content="".join(pending_thinking),
+                ))
+                pending_thinking.clear()
+
+        for entry in event_log:
+            content = entry.get("content", {}) if isinstance(entry.get("content"), dict) else entry
+            if not isinstance(content, dict):
+                continue
+            ctype = content.get("type")
+            if ctype == "thinking":
+                txt = content.get("content", "")
+                if txt:
+                    pending_thinking.append(txt)
+            elif ctype == "tool_call":
+                _flush_thinking()
+                # Some legacy stored entries carry a reply_via tag on the
+                # send_message tool — preserve it so the historical Reply
+                # block can render the "helper_llm fallback" badge.
+                timeline.append(EventLogTimelineEntry(
+                    type="tool_call",
+                    tool_name=content.get("tool_name", "unknown"),
+                    tool_input=content.get("arguments", {}) or {},
+                    reply_via=(content.get("details") or {}).get("reply_via"),
+                ))
+            elif ctype == "tool_output":
+                _flush_thinking()
+                timeline.append(EventLogTimelineEntry(
+                    type="tool_output",
+                    tool_name=content.get("tool_name", "unknown"),
+                    tool_output=content.get("output"),
+                ))
+            elif ctype in ("native_output", "agent_response"):
+                _flush_thinking()
+                txt = content.get("content", "")
+                if txt:
+                    timeline.append(EventLogTimelineEntry(
+                        type="native_output",
+                        content=txt,
+                    ))
+            # Other types (progress markers, etc.) intentionally skipped.
+        _flush_thinking()
+
         return EventLogResponse(
             success=True,
             event_id=event_id,
             thinking=thinking,
             tool_calls=tool_calls,
+            timeline=timeline,
         )
 
     except Exception as e:

@@ -1,10 +1,26 @@
 ---
 code_file: frontend/src/hooks/useAutoRefresh.ts
-last_verified: 2026-04-10
+last_verified: 2026-05-14
 stub: false
 ---
 
 # useAutoRefresh.ts — Tiered background polling with Visibility API pause
+
+## 2026-05-14 — Artifacts join refreshAll (but NOT the timers)
+
+`refreshAll` now also calls `artifactStore.loadPinned(aid)`. Before this,
+nothing reloaded artifacts when an agent run finished — the artifact panel
+relied entirely on the mid-stream `tool_output` discovery path, which was
+itself broken (see `[[output_transfer.py]]`). A finished run now reliably
+re-syncs artifacts.
+
+**Deliberately NOT added to any polling tier.** Artifacts are event-driven
+— they only change when an agent run creates/iterates one, or the user
+manages them in the UI. `refreshAll` (agent-complete) + the mid-stream
+discovery path cover the real cases; a blind 30 s artifact poll would just
+burn re-renders and risk disrupting a user mid-read for data that didn't
+change. The artifact panel also has a manual refresh button
+(`[[ArtifactColumn.tsx]]`) as the explicit escape hatch.
 
 ## Why it exists
 

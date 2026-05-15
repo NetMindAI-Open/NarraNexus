@@ -1,0 +1,39 @@
+{
+  "bot_info": [
+    "getMe",
+    "close",
+    "setMyCommands",
+    "getMyCommands",
+    "deleteMyCommands",
+    "setMyName",
+    "getMyName",
+    "setMyDescription",
+    "getMyDescription"
+  ],
+  "webhook": [
+    "getUpdates",
+    "setWebhook",
+    "deleteWebhook"
+  ],
+  "message": [
+    "sendMessage",
+    "editMessageText",
+    "deleteMessage",
+    "forwardMessage",
+    "copyMessage",
+    "setMessageReaction",
+    "answerCallbackQuery"
+  ],
+  "chat": [
+    "getChat",
+    "getChatMember",
+    "getChatAdministrators",
+    "getChatMemberCount",
+    "leaveChat"
+  ],
+  "admin": [
+    "pinChatMessage",
+    "unpinChatMessage",
+    "unpinAllChatMessages"
+  ]
+}

@@ -15,7 +15,9 @@ handler to the given FastMCP instance. Call exactly once per MCP server.
 
 import asyncio
 import json
+import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -33,6 +35,34 @@ _RUNNER_MODULE = (
     "_common_tools_impl.web_search_runner"
 )
 _RUNNER_CMD: list[str] = [sys.executable, "-m", _RUNNER_MODULE]
+
+# Resolve project root + src/ once at import time. The subprocess we
+# spawn below uses ``python -m xyz_agent_context.…`` which requires
+# ``xyz_agent_context`` to be importable. uv's editable install via
+# ``_editable_impl_*.pth`` can be flaky to pick up — observed 2026-05-13
+# where the live MCP server worked but a fresh subprocess from the same
+# venv could not find the package. Explicitly forcing PYTHONPATH=src on
+# the child makes the import deterministic regardless of editable-install
+# state. Also pin cwd to the project root so relative imports / config
+# resolution behave the same as the parent.
+_PROJECT_ROOT = Path(__file__).resolve().parents[5]
+_SRC_DIR = _PROJECT_ROOT / "src"
+
+
+def _runner_env() -> dict[str, str]:
+    """Build the env dict for the subprocess.
+
+    Inherits the parent's env so things like ``HOME``, network proxy
+    vars, and SSL cert paths flow through, then prepends our ``src/``
+    to ``PYTHONPATH`` so the runner can import the package.
+    """
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        f"{_SRC_DIR}{os.pathsep}{existing}" if existing else str(_SRC_DIR)
+    )
+    return env
+
 
 _SUBPROCESS_TIMEOUT_S: float = 25.0
 _MAX_ATTEMPTS: int = 4
@@ -55,6 +85,8 @@ async def _spawn_runner(queries: list[str], max_results: int) -> list[dict[str, 
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=_runner_env(),
+        cwd=str(_PROJECT_ROOT),
     )
 
     try:

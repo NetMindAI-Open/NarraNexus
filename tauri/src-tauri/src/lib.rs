@@ -13,6 +13,22 @@ pub fn run() {
     let app_state = AppState::default();
 
     tauri::Builder::default()
+        // Single-instance plugin MUST be registered before anything that
+        // does work in setup() — its callback fires in the live (first)
+        // process whenever a second `narranexus` is launched, then the
+        // second process exits non-zero before any sidecar spawn. Without
+        // this, double-clicking the .app twice fast (or relaunching after
+        // a crash that left orphans) tries to start a second full sidecar
+        // stack on the same hardcoded ports → user sees "address already
+        // in use" with no path to recover.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!("Second NarraNexus instance attempted — focusing existing window");
+            if let Some(win) = app.get_webview_window("main") {
+                let _ = win.unminimize();
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(app_state)
@@ -27,6 +43,10 @@ pub fn run() {
             commands::health::get_health_status,
             commands::health::get_logs,
             commands::tray::set_tray_badge,
+            commands::auth::trigger_claude_login,
+            commands::auth::trigger_claude_logout,
+            commands::auth::cancel_claude_login,
+            commands::auth::get_claude_login_status,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a
@@ -106,15 +126,33 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                log::info!("Window close requested, stopping services...");
-                let state: tauri::State<'_, AppState> = window.state();
-                let pm = state.process_manager.clone();
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    pm.lock().await.stop_all().await;
-                });
+                // Window close → defer to the unified ExitRequested
+                // handler below. We just log here so debugging stays easy;
+                // services are stopped exactly once in app.run() to avoid
+                // racing with concurrent CloseRequested + Cmd+Q paths.
+                log::info!("Window close requested for {:?}", window.label());
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running NarraNexus");
+        .build(tauri::generate_context!())
+        .expect("error while building NarraNexus")
+        .run(|app_handle, event| {
+            // Single chokepoint for tearing down sidecars. Every exit
+            // path Tauri knows about (Cmd+Q, tray Quit / app.exit(0),
+            // Dock quit, system logout/shutdown, last window close on
+            // platforms where that exits the app) ultimately fires
+            // ExitRequested before the runtime tears down. Doing the
+            // cleanup here, instead of in tray + on_window_event +
+            // wherever, eliminates the bypass that left orphan Python
+            // sidecars holding ports 8000 / 8100 / 7801 / 7830 across
+            // launches.
+            if let tauri::RunEvent::ExitRequested { code, .. } = event {
+                log::info!("ExitRequested (code={:?}) — stopping services", code);
+                let state = app_handle.state::<AppState>();
+                let pm = state.process_manager.clone();
+                tauri::async_runtime::block_on(async move {
+                    pm.lock().await.stop_all().await;
+                });
+                log::info!("All services stopped, runtime will now exit");
+            }
+        });
 }

@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-04-23
+last_verified: 2026-05-06
 ---
 
 # lib.rs — Tauri app bootstrap: registers commands, wires setup, handles close
@@ -40,14 +40,61 @@ These are set here but **not reliably inherited** by spawned children due to
 macOS thread-safety issues. `process_manager.rs::start_service` re-reads them
 and passes them explicitly via `.env(...)`. Both placements are required.
 
+## Registered IPC commands
+
+The `invoke_handler!` macro registers all frontend-callable commands.
+Current set (kept in lockstep with `commands/mod.rs`):
+
+- service: `get_service_status`, `start_all_services`, `stop_all_services`, `restart_service`
+- config:  `get_app_config`, `get_app_mode`, `set_app_mode`
+- health:  `get_health_status`, `get_logs`
+- tray:    `set_tray_badge`
+- auth:    `trigger_claude_login`, `trigger_claude_logout`, `cancel_claude_login`, `get_claude_login_status`
+
+Forgetting to add a freshly-defined command here is the #1 frontend symptom
+("invoke returned 'command not found'") — the macro list is the source of
+truth. `commands/auth.rs` exists since 2026-04-30 (in-app Claude Code OAuth).
+
 ## Upstream / downstream
 
 - **Called by:** `main.rs`
 - **Depends on:** `state`, `sidecar`, `tray`, `commands` modules
 
+## Single-instance + unified shutdown
+
+Two pieces of plumbing keep the desktop app from stepping on its own toes
+across relaunches:
+
+- **`tauri-plugin-single-instance`** — registered FIRST (before any
+  other plugin or setup work). When a second `narranexus` process
+  launches, it forwards argv to the live process via the plugin's IPC
+  channel and exits non-zero before any sidecar spawn. The first
+  process's init() callback raises/focuses the existing window. This
+  is what stops "double-click the .app twice fast → port already in
+  use" from happening.
+
+- **`RunEvent::ExitRequested` is the single chokepoint** for stopping
+  sidecars. Every exit path Tauri exposes — Cmd+Q, tray Quit
+  (`app.exit(0)`), Dock quit, system logout/shutdown — fires this
+  event before the runtime tears down. The handler block_on's
+  `pm.stop_all()` exactly once. Previously the cleanup was wired only
+  to `WindowEvent::CloseRequested`, so any non-window-close exit (the
+  tray menu being the obvious one) bypassed the cleanup and left
+  Python sidecars holding 8000/8100/7801/7830 as orphans. Today
+  CloseRequested still logs but defers stopping to ExitRequested.
+
+The structural change: switched from terminal `.run(context)` to
+`.build(context).run(closure)` so the closure can match on RunEvent.
+
 ## Gotchas
 
-`on_window_event` uses `tokio::runtime::Runtime::new()` to block on
-`stop_all`. This creates a second tokio runtime which is unusual and only
-safe because the async work is brief (SIGKILL each child). Do not add
-long-running async work here.
+`on_window_event` and the ExitRequested handler must NOT both stop
+services; we deliberately let CloseRequested only log. If you ever
+add stop logic back to CloseRequested, account for the second pass
+in ExitRequested running on an empty processes map (it's currently
+idempotent, so it's fine — but worth knowing).
+
+`tauri::async_runtime::block_on` inside ExitRequested is intentional:
+the runtime is still alive at that point, the work is short
+(per-child SIGTERM + 3s wait + optional SIGKILL), and we MUST
+complete before the runtime drops the process manager.

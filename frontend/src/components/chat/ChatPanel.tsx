@@ -11,18 +11,188 @@
  * - 2026-03-17: Unified timeline (removed history/session split)
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Square, Loader2, Sparkles, MessageSquare, CheckCircle2, Paperclip, X, FileText, Image as ImageIcon } from 'lucide-react';
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
-import { useChatStore, useConfigStore } from '@/stores';
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
+import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
+import { TurnTimeline } from './TurnTimeline';
 import { AttachmentImage } from './AttachmentImage';
+import { VoiceTranscript } from './VoiceTranscript';
+import { AudioRecorder } from './AudioRecorder';
 import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
-import type { Attachment, SimpleChatMessage } from '@/types';
+import { ArtifactInlineBadge } from '@/components/artifacts';
+import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
+
+// Artifact tool names that produce an artifact_id in tool_output.
+//
+// MCP tools arrive in the stream fully-qualified — `mcp__<server>__<tool>`
+// (e.g. `mcp__common_tools_module__register_artifact`), NOT the bare name.
+// An exact-match Set silently never matched, so artifact tool calls were
+// never recognised and the artifact panel only updated on an unrelated
+// reload (agent switch). Match the bare suffix instead so both the
+// qualified and unqualified forms are recognised.
+//
+// Pointer model (2026-05-14): the single tool is `register_artifact`; the
+// older `create_artifact` / `upload_artifact_file` names are gone — see the
+// artifact_runner + artifact_tool mirror md files.
+const ARTIFACT_TOOL_BASE_NAMES = ['register_artifact'];
+
+function isArtifactToolName(toolName: string): boolean {
+  return ARTIFACT_TOOL_BASE_NAMES.some(
+    (base) => toolName === base || toolName.endsWith(`__${base}`),
+  );
+}
+
+/**
+ * Fetch the latest Artifact metadata and upsert into the store, deduped by
+ * tool_call_id so we run at most once per emitted tool call.
+ *
+ * Why always refetch (not just "if missing"): a `register_artifact` call
+ * with `target_artifact_id=<existing>` is the agent's refresh signal — same
+ * `artifact_id` returns but with a bumped `updated_at`. If we short-circuit
+ * on "already in store" the renderers never see the new timestamp and the
+ * iframe doesn't reload. Refetching every NEW tool call ensures the
+ * downstream `useArtifactRawUrl(refreshKey=updated_at)` keys re-mint and
+ * the artifact's iframe / blob reloads with the latest bytes.
+ *
+ * The seen-Set lives at module scope so the React render loop (which fires
+ * this from inside the timeline map) doesn't re-trigger fetches that would
+ * race with the upsert and cause an infinite re-render. A tool_call_id is
+ * globally unique within an agent session, so collisions across panels
+ * don't happen.
+ */
+const _seenArtifactToolCallIds = new Set<string>();
+
+function refreshArtifactFromToolCall(
+  agentId: string,
+  artifactId: string,
+  toolCallId: string,
+): void {
+  if (_seenArtifactToolCallIds.has(toolCallId)) return;
+  _seenArtifactToolCallIds.add(toolCallId);
+  artifactsApi
+    .getDetail(agentId, artifactId)
+    .then((d) => useArtifactStore.getState().upsert(d))
+    .catch(() => undefined);
+}
+
+/**
+ * Renders one-line ArtifactInlineBadge chips for any artifact-producing
+ * tool calls in `toolCalls`.
+ *
+ * History: this used to render full ArtifactPreviewCard thumbnails (with
+ * CSV head, image preview, etc). Users found them disruptive because each
+ * re-register (refresh signal) re-mounted the card — the card visibly
+ * flashed in/out and then evaporated on history reload (chat history
+ * doesn't persist tool_calls). The badge is a one-line chip instead;
+ * dedupe-by-artifact_id keeps a re-register from doubling the badges up.
+ *
+ * Quota error short-circuit stays: ArtifactQuotaExceeded fires before
+ * any artifact_id exists, so the modal must still trigger from the bare
+ * tool_output payload.
+ */
+interface ArtifactToolCallCardsProps {
+  toolCalls: AgentToolCall[];
+  agentId: string;
+  allArtifacts: ReturnType<typeof useArtifactStore.getState>['artifacts'];
+}
+
+const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
+  toolCalls, agentId, allArtifacts,
+}: ArtifactToolCallCardsProps) {
+  // Collect unique artifact_ids in first-seen order across the turn's
+  // tool calls. Re-register on the same artifact yields the same id; we
+  // still refresh its metadata (via refreshArtifactFromToolCall) but
+  // render one badge.
+  const seenIds = new Set<string>();
+  const orderedIds: string[] = [];
+
+  for (const tc of toolCalls) {
+    if (!isArtifactToolName(tc.tool_name)) continue;
+    if (!tc.tool_output) continue;
+
+    let artifactId: string | undefined;
+    try {
+      const parsed = JSON.parse(tc.tool_output) as {
+        artifact_id?: string;
+        error?: string;
+        code?: number;
+      };
+      // Detect ArtifactQuotaExceeded (HTTP 507) from the structured tool_output
+      // payload — surface a modal pointing to Settings → Artifacts. We only
+      // fire once per error message so re-renders during streaming don't spam.
+      if (parsed.error && parsed.code === 507) {
+        const current = useArtifactStore.getState().quotaError;
+        if (current !== parsed.error) {
+          useArtifactStore.getState().setQuotaError(parsed.error);
+        }
+        continue;
+      }
+      artifactId = parsed.artifact_id;
+    } catch {
+      // tool_output is not JSON — skip
+      continue;
+    }
+
+    if (!artifactId) continue;
+
+    // Refetch fresh metadata for this tool call (deduped per call). Same
+    // `artifact_id` from a re-register lands here with a new tool_output
+    // string (new token+timestamp), so the dedup key naturally distinguishes
+    // first-register vs. subsequent refresh signals.
+    const dedupKey = `${tc.step ?? ''}::${tc.tool_output ?? ''}`;
+    refreshArtifactFromToolCall(agentId, artifactId, dedupKey);
+
+    if (!seenIds.has(artifactId)) {
+      seenIds.add(artifactId);
+      orderedIds.push(artifactId);
+    }
+  }
+
+  if (orderedIds.length === 0) return null;
+
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {orderedIds.map((id) => {
+        const artifact = allArtifacts.find((a) => a.artifact_id === id);
+        // Metadata may lag the tool_output by a roundtrip — render a muted
+        // placeholder chip so layout doesn't jump when the artifact arrives.
+        return artifact ? (
+          <ArtifactInlineBadge key={id} artifact={artifact} />
+        ) : (
+          <span
+            key={id}
+            className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] text-[var(--text-tertiary)] opacity-60"
+            title={`Loading artifact ${id}…`}
+          >
+            <span className="truncate">artifact…</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}, (prev, next) => {
+  // Custom shallow compare so React.memo skips re-renders triggered by
+  // unrelated keystrokes in the chat input. Each timeline item's `toolCalls`
+  // array is built once via useMemo and stays referentially stable until the
+  // streaming state actually advances, so the array identity check below is
+  // sufficient. allArtifacts swaps when the artifact store updates (exactly
+  // when we want to re-render to upgrade a placeholder chip to a real badge).
+  return (
+    prev.agentId === next.agentId &&
+    prev.toolCalls === next.toolCalls &&
+    prev.allArtifacts === next.allArtifacts
+  );
+});
 
 // Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
 const BOOTSTRAP_GREETING =
@@ -32,20 +202,8 @@ const BOOTSTRAP_GREETING =
   "Would you like to tell me what I should be called? " +
   "And what should I call you?";
 
-/** Unified message item for the single timeline */
-interface TimelineItem {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-  source: 'history' | 'session';  // Where this message came from (for dedup)
-  messageType?: string;           // "activity" for background activity records
-  workingSource?: string;         // "chat" | "job" | "lark"
-  eventId?: string;               // Associated Event ID (for loading event_log on demand)
-  thinking?: string;              // Reasoning content (from session messages)
-  toolCalls?: import('@/types').AgentToolCall[];  // Tool calls (from session messages)
-  attachments?: Attachment[];     // User-uploaded files referenced by this message
-}
+// TimelineItem + the unified-timeline builder live in @/lib/buildTimeline
+// (pure + unit-tested). ChatPanel just consumes the result.
 
 interface ChatPanelProps {
   /** Called after agent execution completes, used to trigger full data refresh */
@@ -53,10 +211,24 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
+  const navigate = useNavigate();
   const [input, setInput] = useState('');
   // Attachments uploaded for the next message but not yet sent. Each entry
   // is the server-acknowledged metadata returned by uploadAttachment.
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  // Banner above the input when an audio upload comes back with
+  // transcription_available=false. Cleared on next successful audio
+  // upload or when user dismisses. Plain string so we don't need a
+  // toast library — keeps the UI consistent with the rest of the panel.
+  const [transcriptionNotice, setTranscriptionNotice] = useState<string | null>(null);
+  // Click-time pre-flight for the mic button. ``undefined`` while the
+  // first availability probe is in flight (button stays enabled — better
+  // to false-positive once than block voice input on a network blip);
+  // boolean once the probe lands. ``reason`` lets the unavailable
+  // dialog vary its copy (free-tier vs. user-needs-to-configure).
+  const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
+  const [transcriptionReason, setTranscriptionReason] = useState<string>('');
+  const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -86,10 +258,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   const {
     messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
+    currentEvents,
     isStreaming, addUserMessage, startStreaming,
-    getUserVisibleResponse, setActiveAgent,
+    setActiveAgent,
   } = useChatStore();
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+
+  // Read artifact list at component scope so it can be safely passed into
+  // ArtifactToolCallCards without calling a hook inside a .map() callback.
+  const allArtifacts = useArtifactStore((s) => s.artifacts);
 
   useEffect(() => {
     if (agentId) setActiveAgent(agentId);
@@ -101,13 +278,43 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
 
-  const { run, stop, isLoading } = useAgentWebSocket({
+  const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
       refreshAgents();
       if (completedAgentId) checkAwarenessUpdate(completedAgentId);
       onAgentComplete?.();
     },
   });
+
+  // ── Phase C: auto-reconnect to an in-flight backend run ──────────
+  //
+  // When the user lands on this agent's chat panel and the backend
+  // already has a BackgroundRun in 'running' state for them, the
+  // panel should auto-reconnect (don't ask the user to "resend
+  // their last message" — the agent is still working on it).
+  //
+  // We key the effect on agentId + run_id so:
+  //   * switching agents drops the reconnect attempt for the previous
+  //     agent (its WS, if any, was tied to a different agentId map key)
+  //   * an agent transitioning into a NEW run later (different run_id)
+  //     triggers a fresh reconnect
+  //   * a run completing and the badge clearing won't infinitely
+  //     re-open WS connections — the active_run goes null
+  //
+  // We deliberately don't attempt to reconnect when isStreaming for
+  // this agent is already true: that means the local fresh-run flow
+  // is already in flight on this tab.
+  const activeRunId = currentAgent?.active_run?.run_id ?? null;
+  useEffect(() => {
+    if (!agentId || !userId) return;
+    if (!activeRunId) return;
+    if (isLoading) return; // already locally streaming → don't double-open
+    // Fire-and-forget; wsManager handles idempotency + replacement.
+    reconnect(agentId, userId, activeRunId, currentAgent?.name);
+    // We intentionally exclude `reconnect` from the dep list — it's a
+    // stable identity from useCallback in the hook.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, userId, activeRunId]);
 
   // ── History loading ─────────────────────────────────
   const HISTORY_PAGE_SIZE = 20;
@@ -232,106 +439,15 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   }, [agentId, userId, historyLoaded]);
 
   // ── Build unified timeline ──────────────────────────
-  const timeline: TimelineItem[] = useMemo(() => {
-    const items: TimelineItem[] = [];
-
-    // 1. Add history messages (from DB)
-    for (let i = 0; i < historyMessages.length; i++) {
-      const msg = historyMessages[i];
-
-      // Filter out legacy junk
-      const isNonChat = msg.working_source && msg.working_source !== 'chat';
-      if (isNonChat && msg.content === '(Agent decided no response needed)') continue;
-
-      items.push({
-        id: `h-${i}`,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp ? new Date(msg.timestamp).getTime() : 0,
-        source: 'history',
-        messageType: msg.message_type,
-        workingSource: msg.working_source,
-        eventId: msg.event_id,
-        attachments: msg.attachments,
-      });
-    }
-
-    // 2. Add current session messages (from chatStore)
-    //
-    // Dedup by (role + content) AND timestamp proximity: if a history entry
-    // with identical role+content exists within SAME_MESSAGE_WINDOW_MS of the
-    // session message's timestamp, they are the same message (already
-    // persisted) — drop the session copy.
-    //
-    // Bug 19: the match MUST consume the history timestamp it pairs with,
-    // otherwise a single history row can dedup multiple session messages of
-    // the same role+content. Real-world trigger: user retries the exact
-    // same question after a failed turn — session then has both the
-    // original user message (which legitimately matches history) AND the
-    // retry (which must NOT, because the history row belongs to the first
-    // one). Without consumption, the retry disappears from the UI.
-    //
-    // The window is a safety net for browser/server clock skew. After the
-    // backend fix that stamps user messages at turn-start (Event.created_at)
-    // instead of turn-end (utc_now() after agent finishes), the real diff
-    // between session ts and history ts is just RTT — milliseconds. The
-    // window only needs to cover clock drift now:
-    //   - NTP-synced machine: < 1s drift (any window works)
-    //   - Laptop off-network a while: 10s–1min
-    //   - Neglected / post-sleep laptop: can hit a few minutes
-    // 5 min covers realistic drift without being so loose that repeat-text
-    // edge cases feel weird. Note: short identical content sent twice
-    // (e.g. "好" / "go on") is NOT a false-positive source — the
-    // "consume matched history timestamp" logic pairs them one-to-one.
-    const SAME_MESSAGE_WINDOW_MS = 300_000;
-    const historyByKey = new Map<string, number[]>();
-    for (const item of items) {
-      const key = `${item.role}:${item.content}`;
-      const list = historyByKey.get(key);
-      if (list) {
-        list.push(item.timestamp);
-      } else {
-        historyByKey.set(key, [item.timestamp]);
-      }
-    }
-
-    for (const msg of messages) {
-      const key = `${msg.role}:${msg.content}`;
-      const historyTimestamps = historyByKey.get(key);
-      const matchIdx = historyTimestamps
-        ? historyTimestamps.findIndex(
-            (ts) => Math.abs(msg.timestamp - ts) < SAME_MESSAGE_WINDOW_MS,
-          )
-        : -1;
-      if (matchIdx >= 0 && historyTimestamps) {
-        // Consume the matched history timestamp so the next session
-        // message of the same role+content doesn't pair against it.
-        historyTimestamps.splice(matchIdx, 1);
-        continue;
-      }
-
-      items.push({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        timestamp: msg.timestamp,
-        source: 'session',
-        thinking: msg.thinking,
-        toolCalls: msg.toolCalls,
-        attachments: msg.attachments,
-      });
-    }
-
-    // Sort by timestamp, with id as tie-breaker so same-ms messages are still
-    // totally ordered (Array.sort is spec-stable but the input order can be
-    // wrong when history and session are interleaved).
-    items.sort((a, b) => {
-      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-
-    return items;
-  }, [historyMessages, messages]);
+  // History (DB) + session (chatStore) merged + de-duplicated. The dedup
+  // (event_id-first, content heuristic fallback) lives in the pure,
+  // unit-tested @/lib/buildTimeline so the logic — burned twice now,
+  // Bug 19 and the "latest reply shown twice" bug — is testable in
+  // isolation instead of buried in a useMemo.
+  const timeline: TimelineItem[] = useMemo(
+    () => buildUnifiedTimeline(historyMessages, messages),
+    [historyMessages, messages],
+  );
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
   //
@@ -391,14 +507,45 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (isStreaming) shouldAutoScrollRef.current = true;
   }, [isStreaming]);
 
+  // ── Voice-input availability pre-flight ──────────────
+  // We probe ONCE per (userId) — provider config doesn't change mid-session
+  // for the chat view. If the user adds a provider in Settings during the
+  // session, they'll see the click-time dialog one more time and then a
+  // page reload picks up the new state. Cheaper than polling.
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    api
+      .getTranscriptionAvailability(userId)
+      .then((r) => {
+        if (cancelled) return;
+        setTranscriptionAvailable(r.available);
+        setTranscriptionReason(r.reason);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Probe failure → leave as undefined so click is allowed; the
+        // post-upload banner will explain a real failure.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
   // ── Attachment handlers ──────────────────────────────
+  // `source='recording'` triggers backend Whisper transcription; the
+  // default ('upload') means the user attached a file (Paperclip /
+  // drag-drop / paste) and audio bytes are treated as opaque file
+  // content, not dictation. Keeping the discriminator at the call
+  // site rather than guessing from filename / MIME avoids fragile
+  // heuristics and lets the AudioRecorder hand-pick its own path.
   const uploadAttachments = useCallback(
-    async (files: File[]) => {
+    async (files: File[], opts?: { source?: 'recording' | 'upload' }) => {
       if (!agentId || !userId || files.length === 0) return;
       setUploadingCount((n) => n + files.length);
       for (const file of files) {
         try {
-          const resp = await api.uploadAttachment(agentId, userId, file);
+          const resp = await api.uploadAttachment(agentId, userId, file, opts);
           if (resp.success && resp.file_id && resp.mime_type && resp.category) {
             setPendingAttachments((prev) => [
               ...prev,
@@ -408,13 +555,60 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 original_name: resp.original_name ?? file.name,
                 size_bytes: resp.size_bytes ?? file.size,
                 category: resp.category!,
+                // Render-path discriminator (recording vs upload).
+                // Echoed by backend so the persisted attachment dict
+                // carries it through chat history reload. Falls back
+                // to the local request hint for forward compat.
+                source: (resp.source ?? opts?.source ?? 'upload') as
+                  | 'recording'
+                  | 'upload',
+                // Whisper transcript — populated for any audio/* upload
+                // the user can transcribe (the backend runs Whisper for
+                // both source values). Forwarded into the WS payload so
+                // the agent's attachment marker carries the spoken
+                // content for both voice memos AND uploaded files.
+                transcript: resp.transcript ?? undefined,
               },
             ]);
+            // Backstop for the race: availability probe said true at
+            // mount but the actual upload found nothing (provider was
+            // deleted between the two calls). Mirror the dialog with
+            // a banner so the user still sees something concrete.
+            const isRecording = (resp.source ?? opts?.source) === 'recording';
+            if (isRecording && resp.transcription_available === false) {
+              // Sync the cached availability state and surface the
+              // dialog the next time they tap mic.
+              setTranscriptionAvailable(false);
+              setTranscriptionNotice(
+                'Voice input is no longer available — the provider may have been removed. Open Settings to reconfigure.',
+              );
+            } else if (isRecording && resp.transcript) {
+              // New successful recording → clear any stale notice
+              setTranscriptionNotice(null);
+            }
           } else {
             console.error('Attachment upload failed:', resp.error);
           }
         } catch (e) {
           console.error('Attachment upload error:', e);
+          // 402 means auth_middleware's provider_resolver gated the
+          // request — user has no LLM provider AND opted out of the
+          // free tier. STT can't proceed because the whole agent path
+          // is gated. Surface the same dialog as a normal "no
+          // transcription provider" state — the call to action is
+          // identical (configure a provider OR re-enable free quota).
+          //
+          // This branch is the safety net; a healthy click should
+          // already have been blocked by `onPreflight` re-probing
+          // /api/transcription/availability before MediaRecorder starts.
+          // Keeping this branch costs us nothing and protects against
+          // races (toggle flipped between preflight and upload).
+          const msg = String((e as Error)?.message ?? e);
+          if (msg.includes('402') && (opts?.source === 'recording')) {
+            setTranscriptionAvailable(false);
+            setTranscriptionReason('free_tier_opted_out');
+            setVoiceUnavailableDialogOpen(true);
+          }
         } finally {
           setUploadingCount((n) => Math.max(0, n - 1));
         }
@@ -689,8 +883,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             );
           }
 
-          // Normal message → bubble
+          // Normal message → bubble + optional artifact preview cards
           const isNewSession = item.source === 'session';
+          const hasArtifactTools =
+            item.role === 'assistant' &&
+            !!agentId &&
+            !!item.toolCalls?.some((tc) => isArtifactToolName(tc.tool_name) && tc.tool_output);
           return (
             <div
               key={item.id}
@@ -705,33 +903,76 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   thinking: item.thinking,
                   toolCalls: item.toolCalls,
                   attachments: item.attachments,
+                  timeline: item.timeline,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
               />
+              {/* Render inline artifact preview cards for register_artifact
+                  tool calls that returned an artifact_id */}
+              {hasArtifactTools && agentId && item.toolCalls && (
+                <ArtifactToolCallCards
+                  toolCalls={item.toolCalls}
+                  agentId={agentId}
+                  allArtifacts={allArtifacts}
+                />
+              )}
             </div>
           );
         })}
 
-        {/* Streaming assistant message (includes tool calls accumulated so far) */}
-        {isStreaming && getUserVisibleResponse() && (
-          <div className="animate-fade-in">
-            <MessageBubble
-              message={{
-                id: 'streaming',
-                role: 'assistant',
-                content: getUserVisibleResponse()!,
-                timestamp: Date.now(),
-                toolCalls: currentToolCalls.length > 0 ? [...currentToolCalls] : undefined,
-                thinking: currentThinking || undefined,
-              }}
-              isStreaming
-            />
+        {/* Inline TurnTimeline — replaces the old "streaming MessageBubble
+            + Live activity preview" pair. Renders thinking / tool /
+            reply blocks in chronological order as the events arrive,
+            so the user can see the agent's actual rhythm. See
+            TurnTimeline.tsx and the 2026-05-12 redesign mirror md.
+
+            Wrapped in the same Bot-avatar + flex-1 content shell as
+            MessageBubble uses for historical turns, so the in-flight
+            turn doesn't visually detach from the rest of the
+            conversation (it would otherwise be the only assistant
+            output with no left-side avatar). */}
+        {isStreaming && currentEvents.length > 0 && (
+          <div className="flex gap-3 animate-fade-in">
+            <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
+              <Bot className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <TurnTimeline events={currentEvents} isStreaming />
+              {/* Mid-stream artifact preview is independent of the timeline:
+                  it surfaces created/uploaded artifacts inline as soon as
+                  their tool_output lands, without waiting for the whole
+                  turn to finish. */}
+              {agentId && currentToolCalls.length > 0 && (
+                <ArtifactToolCallCards
+                  toolCalls={currentToolCalls}
+                  agentId={agentId}
+                  allArtifacts={allArtifacts}
+                />
+              )}
+              {/* Inter-event "still working" indicator. Reassurance for
+                  the gap between two visible blocks (e.g. waiting on a
+                  tool result, or the next thinking hasn't started
+                  streaming yet) — without it the page goes silent
+                  and the user can't tell stuck from busy. Distinct from
+                  "Thinking" (whose content is already on screen): this
+                  signals the agent is *acting* between the visible
+                  blocks. Disappears the instant isStreaming flips. */}
+              <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
+                <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
+                <span>Acting…</span>
+              </div>
+            </div>
           </div>
         )}
 
-        {/* Loading indicator / Live activity preview */}
-        {isStreaming && !getUserVisibleResponse() && (() => {
+        {/* Initial "starting up..." indicator — shown only when streaming
+            has started but no event has arrived yet (the timeline is
+            empty). As soon as the first thinking / tool / reply event
+            comes in, the indicator is replaced by TurnTimeline. Same
+            avatar shell as the streaming branch so the layout doesn't
+            jump when the first event arrives. */}
+        {isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
             const latestStep = currentSteps[currentSteps.length - 1];
@@ -743,53 +984,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) return 'Building context...';
             return 'Thinking...';
           };
-
-          const toolSteps = currentSteps.filter(
-            (s) => /^3\.4\.\d+$/.test(s.step) &&
-              !(s.details && typeof s.details === 'object' && typeof (s.details as Record<string, unknown>).tool_name === 'string' &&
-                ((s.details as Record<string, unknown>).tool_name as string).endsWith('send_message_to_user_directly'))
-          );
-
-          const hasThinking = !!(currentThinking || currentAssistantMessage);
-          const hasActivity = hasThinking || toolSteps.length > 0;
-
           return (
-            <div className="animate-fade-in p-4">
-              {hasActivity ? (
-                <div className="flex gap-3">
-                  <div className="relative shrink-0 mt-1">
-                    <Loader2 className="w-4 h-4 text-[var(--accent-primary)] animate-spin" />
-                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
-                  </div>
-                  <ScrollArea className="flex-1" style={{ maxHeight: '200px' }}>
-                    <div className="space-y-2">
-                    {hasThinking && (
-                      <div className="text-sm italic text-[var(--text-tertiary)] whitespace-pre-wrap leading-relaxed">
-                        {currentThinking || currentAssistantMessage}
-                      </div>
-                    )}
-                    {toolSteps.map((step) => (
-                      <div
-                        key={step.id}
-                        className="flex items-center gap-2 text-xs text-[var(--text-secondary)] py-1 px-2 rounded bg-[var(--bg-tertiary)]/50 border border-[var(--border-subtle)]"
-                      >
-                        {step.status === 'completed' ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-[var(--color-success)] shrink-0" />
-                        ) : (
-                          <Loader2 className="w-3.5 h-3.5 text-[var(--accent-primary)] animate-spin shrink-0" />
-                        )}
-                        <span className="font-medium truncate">{step.title}</span>
-                        {step.description && (
-                          <span className="text-[var(--text-tertiary)] truncate hidden sm:inline">
-                            {step.description.length > 60 ? step.description.slice(0, 60) + '...' : step.description}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                    </div>
-                  </ScrollArea>
-                </div>
-              ) : (
+            <div className="flex gap-3 animate-fade-in">
+              <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
+                <Bot className="w-3.5 h-3.5" />
+              </div>
+              <div className="flex-1 min-w-0 py-2">
                 <div className="flex items-center gap-3">
                   <div className="relative">
                     <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
@@ -797,7 +997,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   </div>
                   <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
                 </div>
-              )}
+              </div>
             </div>
           );
         })()}
@@ -809,40 +1009,63 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       {/* Input area — drop is handled at the Card root, so this wrapper
           no longer needs its own onDragOver/onDragLeave/onDrop. */}
       <div className="px-5 py-4 border-t border-[var(--rule)]">
+        {/* Audio transcription unavailable notice — only shown when an
+            audio upload returned transcription_available=false. */}
+        {transcriptionNotice && (
+          <div className="mb-2.5 flex items-start gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 px-3 py-2 text-xs text-[var(--text-secondary)]">
+            <span className="flex-1">{transcriptionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setTranscriptionNotice(null)}
+              className="p-0.5 rounded hover:bg-[var(--bg-secondary)]"
+              title="Dismiss"
+            >
+              <X className="w-3 h-3 text-[var(--text-tertiary)]" />
+            </button>
+          </div>
+        )}
         {/* Pending attachments preview row */}
         {(pendingAttachments.length > 0 || uploadingCount > 0) && (
           <div className="mb-2.5 flex flex-wrap gap-2">
             {pendingAttachments.map((att) => {
+              const haveCreds = !!agentId && !!userId;
               const isImage = att.category === 'image';
-              const canPreview = isImage && !!agentId && !!userId;
+              const isVoiceMemo = att.source === 'recording';
+              const canPreviewImage = isImage && haveCreds;
               return (
                 <div
                   key={att.file_id}
-                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[240px]"
+                  className="relative flex items-center gap-2 rounded-md border border-[var(--rule)] bg-[var(--bg-tertiary)]/60 pr-7 pl-1.5 py-1 max-w-[300px]"
                 >
-                  {canPreview ? (
-                    <AttachmentImage
-                      agentId={agentId!}
-                      userId={userId!}
-                      fileId={att.file_id}
-                      alt={att.original_name}
-                      className="w-9 h-9 rounded object-cover shrink-0"
-                    />
+                  {isVoiceMemo ? (
+                    <VoiceTranscript compact transcript={att.transcript} />
                   ) : (
-                    <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
-                      {isImage ? (
-                        <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                    <>
+                      {canPreviewImage ? (
+                        <AttachmentImage
+                          agentId={agentId!}
+                          userId={userId!}
+                          fileId={att.file_id}
+                          alt={att.original_name}
+                          className="w-9 h-9 rounded object-cover shrink-0"
+                        />
                       ) : (
-                        <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                        <div className="w-9 h-9 rounded bg-[var(--bg-secondary)] flex items-center justify-center shrink-0">
+                          {isImage ? (
+                            <ImageIcon className="w-4 h-4 text-[var(--text-tertiary)]" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-[var(--text-tertiary)]" />
+                          )}
+                        </div>
                       )}
-                    </div>
+                      <div className="min-w-0 flex-1 leading-tight">
+                        <div className="text-xs truncate">{att.original_name}</div>
+                        <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
+                          {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
+                        </div>
+                      </div>
+                    </>
                   )}
-                  <div className="min-w-0 flex-1 leading-tight">
-                    <div className="text-xs truncate">{att.original_name}</div>
-                    <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-                      {att.category} · {Math.max(1, Math.round(att.size_bytes / 1024))} KB
-                    </div>
-                  </div>
                   <button
                     type="button"
                     onClick={() => handleRemoveAttachment(att.file_id)}
@@ -881,6 +1104,38 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           >
             <Paperclip className="w-4 h-4" />
           </Button>
+          {/* Voice capture: hands the recorded blob to the same upload
+              path as Paperclip / drag-drop, so transcription, the
+              "transcription unavailable" notice, and the pendingAttachments
+              chip all behave identically across input methods. */}
+          <AudioRecorder
+            disabled={!agentId || isLoading}
+            onRecorded={(file) => uploadAttachments([file], { source: 'recording' })}
+            onError={(msg) => setTranscriptionNotice(msg)}
+            available={transcriptionAvailable}
+            onUnavailable={() => setVoiceUnavailableDialogOpen(true)}
+            onPreflight={async () => {
+              // Click-time refresh of the availability cache. Without
+              // this, toggling "Use free quota" in Settings doesn't
+              // invalidate the value the AudioRecorder sees from the
+              // mount-time useEffect.
+              if (!userId) return false;
+              try {
+                const r = await api.getTranscriptionAvailability(userId);
+                setTranscriptionAvailable(r.available);
+                setTranscriptionReason(r.reason);
+                if (!r.available) {
+                  setVoiceUnavailableDialogOpen(true);
+                  return false;
+                }
+                return true;
+              } catch {
+                // Network blip — don't block recording. Upload-time
+                // error handler will surface real failures.
+                return true;
+              }
+            }}
+          />
           <div className="flex-1 relative">
             <Textarea
               value={input}
@@ -957,6 +1212,87 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           <kbd className="font-[family-name:var(--font-mono)]">Drop</kbd> to attach
         </p>
       </div>
+
+      {/* Voice-input unavailable dialog. Triggered by clicking the mic
+          button when the availability probe came back false — we surface
+          the missing-provider state up-front rather than letting the
+          user record audio that can't be transcribed. */}
+      <Dialog
+        isOpen={voiceUnavailableDialogOpen}
+        onClose={() => setVoiceUnavailableDialogOpen(false)}
+        title="Voice input unavailable"
+        size="md"
+      >
+        <DialogContent>
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+              <Mic className="w-4 h-4 text-[var(--text-secondary)]" />
+            </div>
+            <div className="flex-1 text-sm leading-relaxed text-[var(--text-secondary)]">
+              {transcriptionReason === 'free_tier_opted_out' ? (
+                <>
+                  <p>
+                    Voice input is unavailable. You've turned off "Use free quota" and haven't configured your own transcription provider. Either path will enable it:
+                  </p>
+                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
+                    <li>Add an OpenAI or NetMind API key in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span></li>
+                    <li>Re-enable "Use free quota" in <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span></li>
+                  </ul>
+                </>
+              ) : transcriptionReason === 'none_openai_only' ? (
+                <>
+                  <p>
+                    Voice input requires an OpenAI-compatible transcription provider. The desktop / local build can't reach NetMind's worker (it pulls audio from a public URL we don't have here), so OpenAI is the supported path:
+                  </p>
+                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
+                    <li>OpenAI official API (recommended)</li>
+                    <li>Yunwu, or any other OpenAI-protocol Whisper provider</li>
+                    <li>Self-hosted whisper.cpp behind an OpenAI-shaped endpoint</li>
+                  </ul>
+                  <p className="mt-3">
+                    Add one in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> to enable voice input.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    Voice input requires a supported transcription provider. None is configured for this account:
+                  </p>
+                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
+                    <li>OpenAI official API (recommended, best quality)</li>
+                    <li>NetMind API (pay-as-you-go, lower cost)</li>
+                  </ul>
+                  <p className="mt-3">
+                    Add either one in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> to enable voice input — it takes effect as soon as you save.
+                  </p>
+                </>
+              )}
+              {transcriptionReason === 'unknown' && (
+                <p className="mt-2 text-xs text-[var(--text-tertiary)] italic">
+                  Note: availability check failed to reach the server — the configuration may already be ready.
+                </p>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => setVoiceUnavailableDialogOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="accent"
+            onClick={() => {
+              setVoiceUnavailableDialogOpen(false);
+              navigate('/app/settings');
+            }}
+          >
+            Open Settings
+          </Button>
+        </DialogFooter>
+      </Dialog>
     </Card>
   );
 }

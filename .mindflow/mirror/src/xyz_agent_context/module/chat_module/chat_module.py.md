@@ -1,7 +1,124 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-04-28
+last_verified: 2026-05-11
 ---
+
+## 2026-05-12 P0 #3 followup — drop final_output fallback, defer to step_3 helper_llm
+
+Reverted the 2026-05-11 "use io_data.final_output as reply content"
+fallback. That fallback violated the project's thinking-vs-speaking
+design (final_output is the agent's internal reasoning, not a
+user-facing reply) and could persist meta-talk like "Let me check the
+chat history first" as the assistant's spoken line, then poison the
+next turn's context. The 5/11 product review with Xiong explicitly
+ruled out this shortcut.
+
+The real no-reply recovery now lives one layer up in
+`step_3_agent_loop._generate_fallback_reply_stream`: when a chat-
+trigger turn ends without `send_message_to_user_directly`, step 3
+calls helper_llm with the agent's reasoning as background, streams a
+user-facing reply through `AgentTextDelta` (frontend renders it like
+any other agent reply), and finally emits a synthetic
+`send_message_to_user_directly` ProgressMessage carrying
+`details.reply_via="helper_llm_fallback"`.
+
+`hook_after_event_execution` is now a pure consumer:
+- the synthetic ProgressMessage flows through
+  `_extract_user_visible_response` like any organic send_message call,
+  so `assistant_content` is the helper_llm reply text (not reasoning).
+- a tiny scan of `agent_loop_response` lifts
+  `details.reply_via="helper_llm_fallback"` onto the persisted row's
+  `meta_data.reply_via` field so observability tooling can distinguish
+  organic vs. recovered replies.
+- if step 3's helper_llm fallback failed too, the row still carries
+  `(Agent decided no response needed)` placeholder — that's the honest
+  record, not a silent backfill of reasoning.
+
+Pinned by `tests/chat_module/test_error_severity_and_fallback.py`:
+- `test_helper_llm_fallback_marker_is_propagated`
+- `test_no_reply_tool_and_no_helper_llm_fallback_persists_placeholder`
+
+## 2026-05-11 P0 #3 — error detail, no-reply differentiation, final_output fallback
+
+Three changes addressing the "Agent decided no response needed"
+recurring P0 (Lark recviIcuKMNuHj / Xiong's 60% failure rate):
+
+1. **`_detect_error_in_agent_loop` → `_detect_fatal_error_in_agent_loop`**.
+   Only `ErrorMessage(severity="fatal")` collapses the turn into a
+   failed user-only row. Recoverable signals (mid-loop rate-limit
+   blips emitted by ResponseProcessor) keep the turn alive so the
+   agent can react and still produce a reply. The old name is kept as
+   an alias for backwards compat with existing tests.
+
+2. **Failed-turn rows persist `error_message`, not just `error_type`**.
+   `_FAILED_TURN_ANNOTATION_TEMPLATE` now substitutes the actual
+   error message into the next-turn annotation, so when the LLM (or
+   an operator) reads `[Previous turn failed... Error type: X.
+   Detail: Y. Do NOT retry]`, it sees *why* — ops no longer need to
+   grep stderr to learn what happened.
+
+3. **`final_output` fallback** (Bug B fix). When
+   `_extract_user_visible_response` returns the placeholder but
+   `io_data.final_output` is non-empty, we persist `final_output` as
+   the assistant content and tag the row with
+   `meta_data.reply_via="final_output_fallback"`. Pre-fix, the agent
+   would stream LLM-native output to the user (visible mid-turn) but
+   the persisted row was just `(Agent decided no response needed)` —
+   the next turn's prompt then showed the agent saying it decided not
+   to reply, training the model into a self-reinforcing failure loop.
+   Production data (RDS, 2026-05-11): chat-trigger placeholders had
+   `events.final_output` non-empty in 83/90 cases (92%) — those are
+   the rows the fallback will recover.
+
+New `[NO-REPLY]` / `[NO-REPLY-BG]` / `[TURN-FAILED]` / `[FALLBACK]`
+WARNING-level log markers fire on each path so ops can grep production
+logs and instantly see *which* path a turn ended on and why.
+
+Pinned by `tests/chat_module/test_error_severity_and_fallback.py`.
+
+## 2026-05-11 follow-ups — recency cap + short-term fairness
+
+After landing the per-source dispatch fix, three knobs in this file
+got tuned in the same direction (better recall of meaningful history):
+
+- `MAX_RECENT_MESSAGES`: **30 → 40** (chat_module.py around line 432).
+  Long narratives were hitting the old cap and silently losing the
+  earlier half of the conversation. 40 is still count-based — a
+  token-based cap is the right next step if 40 starts to matter.
+- `SHORT_TERM_PER_INSTANCE = 5` new constant. `_load_short_term_memory`
+  now runs **two stages**: Stage A caps each cross-narrative
+  ChatModule instance at its 5 most recent rows; Stage B merges and
+  applies the existing `SHORT_TERM_MAX_MESSAGES = 15` global cap.
+  Pre-fix, one chatty instance could fill all 15 slots and starve
+  every other narrative the user had touched. Pinned by
+  `tests/chat_module/test_short_term_fairness.py`.
+
+Both changes are read-side only — no schema, no migration.
+
+
+
+`hook_after_event_execution` used to stamp the injected
+`BOOTSTRAP_GREETING` row with `utc_now()` (the moment the hook runs,
+i.e. after the agent loop finishes), while the user's first message
+carries `event.created_at` (turn-start). Because the agent loop spans
+seconds to minutes, the greeting timestamp ended up *later* than the
+user message timestamp. Both the chat-history API
+(`backend/routes/agents_chat_history.py`, sorts by
+`meta_data.timestamp` ascending) and the frontend timeline
+(`frontend/src/components/chat/ChatPanel.tsx`, also ascending sort)
+then rendered the greeting *under* the user's first query bubble —
+the P0 "agent主动问好的消息跑到 query 底下了" filed by Xinyao.
+
+Fix: anchor the greeting at `event.created_at - 1ms` (or
+`utc_now() - 1ms` as defensive fallback when `params.event` is None),
+keeping the persisted ordering greeting → user → assistant under any
+timestamp-ascending sort. Regression pinned in
+`tests/chat_module/test_bootstrap_greeting_order.py`.
+
+The frontend never needed changing: the in-session greeting injection
+in `ChatPanel.tsx` already stamps `Date.now() - 1`, which dedups
+correctly against the (now earlier) DB greeting via the role+content
+key inside the 5-minute SAME_MESSAGE_WINDOW.
 
 ## 2026-04-28 changes — half-finished features parked
 

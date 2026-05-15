@@ -59,6 +59,22 @@ class RegisterResponse(BaseModel):
     initial_output_tokens: int = 0
 
 
+class ActiveRunInfo(BaseModel):
+    """Phase C — summary of the agent's currently running run, if any.
+
+    The frontend uses this to render the "Running" badge on the agent
+    card (pulse + glow, sharing the visual language of the Jobs
+    status badges). When no run is active, the parent AgentInfo
+    carries ``active_run = None``.
+    """
+    run_id: str
+    state: str  # running / cancelling / completed / cancelled / failed
+    started_at: Optional[str] = None
+    last_event_at: Optional[str] = None
+    tool_call_count: int = 0
+    current_stage: Optional[str] = None
+
+
 class AgentInfo(BaseModel):
     """Response model for agent info"""
     agent_id: str
@@ -69,6 +85,11 @@ class AgentInfo(BaseModel):
     is_public: bool = False
     created_by: Optional[str] = None
     bootstrap_active: bool = False
+    # Phase C (2026-05-13): summarise the agent's active run for the
+    # frontend "running" badge. None means the agent is not currently
+    # running for this user. The query is one event-table SELECT per
+    # agent in the list — bounded by agent count which is small.
+    active_run: Optional[ActiveRunInfo] = None
 
 
 class AgentListResponse(BaseModel):
@@ -301,28 +322,67 @@ class EventLogToolCall(BaseModel):
     tool_output: Optional[str] = None
 
 
+class EventLogTimelineEntry(BaseModel):
+    """A single entry in the original event_log timeline.
+
+    Preserves the chronological order of thinking / tool_call / tool_output /
+    native_output events so the frontend can render history with the same
+    inline "think → tool → think → tool → reply" cadence as the live
+    streaming TurnTimeline, instead of the legacy "all thinking on top,
+    all tools below" grouping that lost time ordering.
+    """
+    # Discriminator: "thinking" | "tool_call" | "tool_output" | "native_output" | "reply"
+    type: str
+    # Plain-text content (thinking / native_output / reply); empty for tool entries.
+    content: Optional[str] = None
+    # Tool-call fields (only set when type == "tool_call" or "tool_output").
+    tool_name: Optional[str] = None
+    tool_input: Optional[Dict[str, Any]] = None
+    tool_output: Optional[str] = None
+    # Optional tag preserved from progress events (e.g. "helper_llm_fallback")
+    # so the UI can mark fallback replies in history just like live streams.
+    reply_via: Optional[str] = None
+
+
 class EventLogResponse(BaseModel):
     """Response for event log detail endpoint (on-demand loading)"""
     success: bool
     event_id: str = ""
     thinking: Optional[str] = None
     tool_calls: List[EventLogToolCall] = []
+    # Ordered, time-preserving view of the same data. The frontend prefers
+    # this when present; the legacy thinking / tool_calls fields remain for
+    # back-compat with any older client builds still in the wild.
+    timeline: List[EventLogTimelineEntry] = []
     error: Optional[str] = None
 
 
 # ===== File Management Schemas =====
 
 class FileInfo(BaseModel):
-    """File information"""
-    filename: str
-    size: int
+    """One node in the agent-workspace directory tree.
+
+    Returned recursively: directories carry ``is_dir=True`` and a ``children``
+    list (which may be empty); regular files carry ``is_dir=False`` and
+    ``children=None``. Dotfolders (name starts with ``.``) are filtered out
+    on the server side and never appear in the tree.
+    """
+    name: str                          # basename (e.g. "index.html")
+    path: str                          # workspace-relative path (e.g. "report/index.html")
+    is_dir: bool
+    size: int                          # 0 for directories
     modified_at: str
+    children: Optional[List["FileInfo"]] = None
+
+
+# Resolve the self-referential ``children: Optional[List[FileInfo]]``.
+FileInfo.model_rebuild()
 
 
 class FileListResponse(BaseModel):
-    """Response for file list"""
+    """Response for the workspace tree GET. ``tree`` is the top-level node list."""
     success: bool
-    files: List[FileInfo] = []
+    tree: List[FileInfo] = []
     workspace_path: str = ""
     error: Optional[str] = None
 
@@ -337,9 +397,9 @@ class FileUploadResponse(BaseModel):
 
 
 class FileDeleteResponse(BaseModel):
-    """Response for file deletion"""
+    """Response for file/folder deletion"""
     success: bool
-    filename: Optional[str] = None
+    path: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -441,6 +501,9 @@ class JobResponse(BaseModel):
     # Dependencies (obtained from module_instances table)
     instance_id: Optional[str] = None
     depends_on: List[str] = []
+    # Parent narrative (jobs are owned by a narrative; bundle export uses
+    # this to group jobs under their narrative for selection).
+    narrative_id: Optional[str] = None
 
 
 class JobListResponse(BaseModel):

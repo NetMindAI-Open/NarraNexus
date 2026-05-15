@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-04-21
+last_verified: 2026-05-14
 stub: true
 ---
+
+## 2026-05-14 — FileInfo becomes a recursive tree node
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+Mirrors the backend `api_schema.FileInfo` change. The flat
+`{filename, size, modified_at}` shape became a recursive tree node:
+`{name, path, is_dir, size, modified_at, children?: FileInfo[] | null}`.
+`FileListResponse.files` renamed to `tree`. `FileDeleteResponse.filename`
+renamed to `path` because the backend DELETE accepts nested relative paths.
+
+## 2026-05-13 — Phase C: ActiveRunInfo + AgentInfo.active_run
+
+Adds the frontend mirror of the backend ActiveRunInfo type so the
+GET /api/auth/agents response carries enough metadata to render the
+"Running" indicator across tab reloads / devices. Field set matches
+`xyz_agent_context.schema.api_schema.ActiveRunInfo` exactly.
 
 # types/api.ts
 

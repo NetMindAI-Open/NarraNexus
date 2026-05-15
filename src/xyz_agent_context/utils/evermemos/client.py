@@ -30,8 +30,34 @@ if TYPE_CHECKING:
 _evermemos_clients: Dict[str, "EverMemOSClient"] = {}
 
 
-def get_evermemos_client(agent_id: str, user_id: str) -> "EverMemOSClient":
-    """Get or create an EverMemOS client instance"""
+class _DisabledEverMemOSClient:
+    """No-op client returned when narrative_config.EVERMEMOS_ENABLED is False.
+
+    Belt-and-suspenders: most call sites already gate on EVERMEMOS_ENABLED, but
+    a few service methods on MemoryModule call the client unconditionally. This
+    stub keeps those paths from spamming ConnectError on deploys without an
+    EverMemOS instance.
+    """
+
+    async def write_event(self, event, narrative=None) -> bool:
+        return True
+
+    async def search_narratives(self, *args, **kwargs):
+        return []
+
+    async def search_episodes(self, *args, **kwargs):
+        return []
+
+
+def get_evermemos_client(agent_id: str, user_id: str):
+    """Get or create an EverMemOS client instance.
+
+    Returns a no-op stub when EVERMEMOS_ENABLED is False so callers that didn't
+    gate on the flag silently no-op instead of failing at the HTTP boundary.
+    """
+    from xyz_agent_context.narrative import config as narrative_config
+    if not narrative_config.EVERMEMOS_ENABLED:
+        return _DisabledEverMemOSClient()
     key = f"{agent_id}_{user_id}"
     if key not in _evermemos_clients:
         _evermemos_clients[key] = EverMemOSClient(agent_id, user_id)

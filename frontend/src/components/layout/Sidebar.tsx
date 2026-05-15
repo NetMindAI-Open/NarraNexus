@@ -31,6 +31,8 @@ const prefetchDashboard = () => {
   void import('@/pages/DashboardPage');
 };
 import { AgentList } from './AgentList';
+import { TeamFilterBar } from './TeamFilterBar';
+import { useTeamsStore } from '@/stores';
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -212,10 +214,9 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Agents List */}
-      <ScrollArea className="flex-1">
-        <AgentList collapsed={collapsed} />
-      </ScrollArea>
+      {/* Team filter (Subproject 1) — hidden when sidebar is collapsed */}
+      <TeamFilterAndAgents collapsed={collapsed} />
+
 
       {/* Navigation Items */}
       <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">
@@ -386,7 +387,7 @@ export function Sidebar() {
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
                 Powered by NetMind.AI
               </span>
-              <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v1.0.0</span>
+              <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v{__APP_VERSION__}</span>
             </div>
           </>
         ) : (
@@ -414,5 +415,35 @@ export function Sidebar() {
         )}
       </div>
     </aside>
+  );
+}
+
+/**
+ * Helper that owns the team-filter selection state and wires it into AgentList.
+ * Subproject 1: filter agents by team membership.
+ */
+function TeamFilterAndAgents({ collapsed }: { collapsed: boolean }) {
+  const [filter, setFilter] = useState<string>('all');
+  const teams = useTeamsStore((s) => s.teams);
+  const { agents } = useConfigStore();
+
+  const filterIds = (() => {
+    if (filter === 'all') return null;
+    if (filter === 'untagged') {
+      const memberSet = new Set<string>();
+      teams.forEach((t) => t.member_agent_ids.forEach((id) => memberSet.add(id)));
+      return agents.filter((a) => !memberSet.has(a.agent_id)).map((a) => a.agent_id);
+    }
+    const t = teams.find((t) => t.team.team_id === filter);
+    return t ? t.member_agent_ids : [];
+  })();
+
+  return (
+    <>
+      <TeamFilterBar selectedFilter={filter} onChange={setFilter} collapsed={collapsed} />
+      <ScrollArea className="flex-1">
+        <AgentList collapsed={collapsed} filterAgentIds={filterIds} />
+      </ScrollArea>
+    </>
   );
 }

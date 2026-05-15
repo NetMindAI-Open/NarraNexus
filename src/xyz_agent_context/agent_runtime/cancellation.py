@@ -76,6 +76,35 @@ class CancellationToken:
         if self._event.is_set():
             raise CancelledByUser(self._reason)
 
+    async def await_cancelled(self) -> None:
+        """Block until ``cancel()`` is called.
+
+        Designed for race patterns where a coroutine wants to wait for
+        EITHER "next LLM message" OR "user pressed Stop", whichever
+        comes first. The canonical use is in
+        ``xyz_claude_agent_sdk.agent_loop`` which previously did::
+
+            message = await asyncio.wait_for(response_iter.__anext__(), 600)
+            if cancellation.is_cancelled:
+                break
+
+        That pattern can not detect cancellation while a tool call is
+        running (no message arrives for tens of seconds). With this
+        method, the wait becomes::
+
+            msg_task = asyncio.create_task(response_iter.__anext__())
+            cancel_task = asyncio.create_task(cancellation.await_cancelled())
+            done, pending = await asyncio.wait(
+                [msg_task, cancel_task],
+                return_when=asyncio.FIRST_COMPLETED,
+                timeout=IDLE_TIMEOUT_SECONDS,
+            )
+
+        Returns immediately if already cancelled — same semantics as
+        ``asyncio.Event.wait()``.
+        """
+        await self._event.wait()
+
 
 class CancelledByUser(Exception):
     """Raised when the user explicitly cancels an agent run.

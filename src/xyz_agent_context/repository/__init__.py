@@ -45,6 +45,12 @@ from .instance_awareness_repository import InstanceAwarenessRepository, Instance
 # Embedding Store
 from .embedding_store_repository import EmbeddingStoreRepository
 
+# Subproject 1: Team Membership
+from .team_repository import TeamRepository, TeamMemberRepository
+
+# Subproject 2: Skill Archive
+from .skill_archive_repository import SkillArchiveRepository
+
 # Import entity types from schema (convenient re-export)
 from xyz_agent_context.schema import (
     SocialNetworkEntity,
@@ -92,4 +98,9 @@ __all__ = [
     "InstanceAwareness",
     # Embedding Store
     "EmbeddingStoreRepository",
+    # Team
+    "TeamRepository",
+    "TeamMemberRepository",
+    # Skill Archive
+    "SkillArchiveRepository",
 ]

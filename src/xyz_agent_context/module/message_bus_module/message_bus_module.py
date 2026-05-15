@@ -263,7 +263,22 @@ class MessageBusModule(XYZBaseModule):
             except Exception as e:
                 logger.debug(f"Failed to auto-register agent in bus: {e}")
 
-            # --- 2. Fetch known agents (same owner + public, excluding self) ---
+            # --- 2. Fetch known agents ---
+            #
+            # Visibility rule (subproject 1, 议题 7 follow-up):
+            #
+            #   * If THIS agent belongs to one or more teams → only same-team
+            #     members (across all of this agent's teams) + public agents.
+            #     Same-owner agents NOT in any of my teams are excluded —
+            #     team is the messageable boundary once you've opted in.
+            #
+            #   * If this agent is in NO team → fall back to legacy behavior:
+            #     same-owner agents + public. (Backwards-compatible default
+            #     for users who haven't created any team.)
+            #
+            # This way "team" actually scopes who an agent can talk to via
+            # the bus; users who don't use teams keep the old "everyone I own"
+            # behavior unchanged.
             known_agents = []
             try:
                 db = await _get_shared_db()
@@ -271,22 +286,43 @@ class MessageBusModule(XYZBaseModule):
                     agent_row = await db.get_one("agents", {"agent_id": self.agent_id})
                     my_owner = agent_row.get("created_by", "") if agent_row else ""
 
-                    # Get agents created by same owner OR public agents
+                    # Resolve my team-mates (set of agent_ids I share at least
+                    # one team with). Empty set → I'm in no team → legacy mode.
+                    from xyz_agent_context.repository import TeamMemberRepository
+                    team_repo = TeamMemberRepository(db)
+                    my_team_ids = await team_repo.list_teams_by_agent(self.agent_id)
+                    teammate_ids: set = set()
+                    if my_team_ids:
+                        for mate in await team_repo.list_team_mates(self.agent_id):
+                            teammate_ids.add(mate["agent_id"])
+
+                    use_team_scope = bool(my_team_ids)
+
                     all_agents = await db.get("agents", {})
                     for a in all_agents:
-                        if a.get("agent_id") == self.agent_id:
+                        aid = a.get("agent_id")
+                        if aid == self.agent_id:
                             continue
-                        # Only include: (a) same owner, or (b) public
                         same_owner = my_owner and a.get("created_by") == my_owner
                         is_public = bool(a.get("is_public", 0))
-                        if not (same_owner or is_public):
-                            continue
+                        if use_team_scope:
+                            # In team mode: only team-mates (same owner or not)
+                            # plus public agents.
+                            if aid not in teammate_ids and not is_public:
+                                continue
+                        else:
+                            # Legacy / no-team mode: same owner OR public.
+                            if not (same_owner or is_public):
+                                continue
                         known_agents.append({
-                            "agent_id": a.get("agent_id"),
+                            "agent_id": aid,
                             "agent_name": a.get("agent_name", ""),
                             "agent_description": a.get("agent_description", ""),
                             "is_public": a.get("is_public", 0),
                             "created_by": a.get("created_by", ""),
+                            # Tag whether this agent shares a team with us.
+                            # Useful for prompt rendering / debugging.
+                            "via_team": aid in teammate_ids,
                         })
                         if len(known_agents) >= MAX_KNOWN_AGENTS_IN_CONTEXT:
                             break

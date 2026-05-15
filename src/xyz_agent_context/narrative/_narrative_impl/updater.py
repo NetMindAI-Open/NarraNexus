@@ -326,11 +326,14 @@ class NarrativeUpdater:
 
             instructions = NARRATIVE_UPDATE_INSTRUCTIONS
 
+            from xyz_agent_context.narrative.config import config as narrative_config
             sdk = OpenAIAgentsSDK()
             result = await sdk.llm_function(
                 instructions=instructions,
                 user_input=context,
                 output_type=NarrativeUpdateOutput,
+                model=narrative_config.NARRATIVE_LLM_UPDATE_MODEL,
+                reasoning_effort=narrative_config.NARRATIVE_LLM_UPDATE_REASONING_EFFORT or None,
             )
 
             return result.final_output

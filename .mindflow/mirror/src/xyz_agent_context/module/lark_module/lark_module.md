@@ -1,7 +1,65 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-04-23
+last_verified: 2026-05-08
+---
+
+## 2026-05-08 — Phase 2: subclass `ChannelModuleBase`
+
+`LarkModule` now inherits `xyz_agent_context.channel.ChannelModuleBase`
+(Phase 2 of the IM channel abstraction). The structural boilerplate
+moves into the base; the 600+ lines of Lark-specific instruction
+rendering + 7 MCP tools stay here.
+
+### What moved into `ChannelModuleBase`
+
+- Sender registry self-registration (`ChannelSenderRegistry.register`
+  called automatically in base's `__init__`). The class-level
+  `_sender_registered` flag is gone — base owns the once-per-channel
+  guard.
+- `hook_data_gathering` template (loads credential → calls
+  `build_extra_data` → injects into `ctx_data.extra_data[ctx_data_key]`).
+  Lark's `lark_info` dict construction lives in `build_extra_data` now.
+- `hook_after_event_execution` filtering by `working_source`. The
+  body of post-execution work is in the new `_on_event_executed`
+  override hook.
+- `get_mcp_config` (built from class attrs `mcp_server_name` + `mcp_port`).
+- `create_mcp_server` (FastMCP creation + `register_mcp_tools` call).
+
+### What stays here (Lark-specific content, not boilerplate)
+
+- All instruction constants: `_NO_BOT_INSTRUCTION`,
+  `_THREE_CLICK_BACKGROUND`, `_IDENTITY_GUIDE`,
+  `_INCREMENTAL_AUTH_GUIDE`, `_NARRANEXUS_SPECIFICS`,
+  `_CONTENT_DELIVERY_GUIDE`, `_IRON_RULES`.
+- `get_instructions(ctx_data)` — 600+ line three-click-flow renderer.
+- `register_mcp_tools(mcp)` — calls `register_lark_mcp_tools(mcp)` to
+  register all 7 Lark MCP tools.
+- `build_extra_data(cred, ctx_data)` — builds the `lark_info` dict
+  consumed by `get_instructions`. The `is_owner_interacting`
+  trust-signal derivation reads `ctx_data.extra_data["channel_tag"]`,
+  which is why the base passes `ctx_data` into this method.
+- `send_to_agent(agent_id, target_id, message, **kw)` — Lark-specific
+  delivery via `LarkCLIClient.send_message`.
+- `_dev_console_url`, `_build_skill_section`, `_on_event_executed`.
+
+### Class attrs setting the contract
+
+```python
+channel_name = "lark"
+brand_display = "Lark / Feishu"
+working_source = WorkingSource.LARK
+ctx_data_key = "lark_info"
+mcp_server_name = "lark_module"
+mcp_port = LARK_MCP_PORT  # 7830
+```
+
+### Iron rule alignment
+
+- Iron rule #6 (no DB destructive changes): no schema changes.
+- Iron rule #7 (run.sh / DMG aligned): no service-definition changes.
+- Iron rule #10 (mirror md): updated.
+
 ---
 
 ## 2026-04-23 update (4/4) — `_INCREMENTAL_AUTH_GUIDE` 加 admin-approval 两阶段说明

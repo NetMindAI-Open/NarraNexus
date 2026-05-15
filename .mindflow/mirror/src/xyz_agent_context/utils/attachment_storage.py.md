@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/attachment_storage.py
-last_verified: 2026-04-29
+last_verified: 2026-05-04
 stub: false
 ---
 
@@ -77,6 +77,19 @@ corrupt.
   as either a string (WS payload, JSON memory) or an
   AttachmentCategory enum (Pydantic model_dump default). Don't tighten
   this — the dual shape is real and we tolerate both.
+- `format_attachments_for_system_prompt` also surfaces the `transcript`
+  field inline when present (audio uploads). Without this, the agent
+  sees only the file path and tries to "play" the audio; with the
+  inline transcript the LLM reads the spoken content directly. Mirrors
+  the same logic in `Attachment.synthesize_marker` for chat-history
+  replay; keep the two in sync.
+- For audio uploads with NO transcript, the formatter writes
+  `transcript=<unavailable: ...>` instead of staying silent. The agent
+  needs to know **why** the transcript is missing — without that hint
+  the LLM falls back to "I can't listen to audio" instead of telling
+  the user to add an OpenAI provider. Non-audio files (image / PDF /
+  text) intentionally do not get this hint; only `mime.startswith("audio/")`
+  triggers it.
 - `_write_index` writes to a `.tmp` and `os.replace`s — atomic on POSIX,
   but if the process is killed between successive saves of the same
   index, you may lose the most recent entry. The bytes are still on

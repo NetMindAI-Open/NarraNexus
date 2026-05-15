@@ -41,6 +41,7 @@ import type { SkillInfo } from '@/types/skills';
 import { SkillCard } from './SkillCard';
 import { InstallDialog } from './InstallDialog';
 import type { InstallMode } from './InstallDialog';
+import { MCPManager } from './MCPManager';
 
 // Environment configuration dialog
 function EnvConfigDialog({
@@ -257,7 +258,7 @@ export function SkillsPanel() {
       <CardHeader>
         <CardTitle>
           <Puzzle />
-          Skills
+          Skill &amp; MCP
           <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
             · {skills.length}
           </span>
@@ -296,56 +297,64 @@ export function SkillsPanel() {
         </label>
       </div>
 
-      <CardContent className="flex-1 overflow-hidden min-h-0">
-        {error ? (
-          <div className="h-full flex items-center justify-center px-8 py-12">
-            <div className="text-center">
-              <AlertCircle className="w-8 h-8 text-[var(--color-red-500)] mx-auto mb-4 opacity-60" />
-              <p className="text-[var(--color-red-500)] text-sm mb-1.5">Error</p>
-              <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
-                {error instanceof Error ? error.message : 'Failed to load skills'}
-              </p>
-              <Button variant="ghost" size="sm" onClick={() => refetch()} className="mt-4">
-                <RefreshCw className="w-3 h-3 mr-1.5" />
-                Retry
-              </Button>
-            </div>
-          </div>
-        ) : isLoading ? (
-          <div className="h-full flex items-center justify-center">
-            <Loader2 className="w-5 h-5 text-[var(--text-tertiary)] animate-spin" />
-          </div>
-        ) : skills.length === 0 ? (
-          <div className="h-full flex items-center justify-center px-8 py-12">
-            <div className="text-center">
-              <Puzzle className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mx-auto mb-4" />
-              <p className="text-[var(--text-primary)] text-sm mb-1.5">
-                No skills installed
-              </p>
-              <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
-                Install skills from GitHub or upload a zip file
-              </p>
-            </div>
-          </div>
-        ) : (
-          <ScrollArea className="h-full" viewportClassName="py-2">
-            <div className="space-y-2">
-            {skills.map((skill: SkillInfo) => (
-              <SkillCard
-                key={skill.name}
-                skill={skill}
-                onToggle={handleToggle}
-                onRemove={handleRemove}
-                onStudy={handleStudy}
-                onConfigure={setConfiguringSkill}
-                isToggling={toggleSkill.isPending && toggleSkill.variables?.name === skill.name}
-                isRemoving={removeSkill.isPending && removeSkill.variables === skill.name}
-                isStudying={activeStudying === skill.name}
-              />
-            ))}
-            </div>
-          </ScrollArea>
-        )}
+      <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
+        <ScrollArea className="h-full">
+          {/* ── Section: Skills ── */}
+          <section className="px-5 py-4">
+            {error ? (
+              <div className="flex items-center justify-center px-8 py-10">
+                <div className="text-center">
+                  <AlertCircle className="w-8 h-8 text-[var(--color-red-500)] mx-auto mb-4 opacity-60" />
+                  <p className="text-[var(--color-red-500)] text-sm mb-1.5">Error</p>
+                  <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
+                    {error instanceof Error ? error.message : 'Failed to load skills'}
+                  </p>
+                  <Button variant="ghost" size="sm" onClick={() => refetch()} className="mt-4">
+                    <RefreshCw className="w-3 h-3 mr-1.5" />
+                    Retry
+                  </Button>
+                </div>
+              </div>
+            ) : isLoading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="w-5 h-5 text-[var(--text-tertiary)] animate-spin" />
+              </div>
+            ) : skills.length === 0 ? (
+              <div className="flex items-center justify-center px-8 py-10">
+                <div className="text-center">
+                  <Puzzle className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mx-auto mb-4" />
+                  <p className="text-[var(--text-primary)] text-sm mb-1.5">
+                    No skills installed
+                  </p>
+                  <p className="text-[var(--text-tertiary)] text-xs max-w-[260px]">
+                    Install skills from GitHub or upload a zip file
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {skills.map((skill: SkillInfo) => (
+                  <SkillCard
+                    key={skill.name}
+                    skill={skill}
+                    onToggle={handleToggle}
+                    onRemove={handleRemove}
+                    onStudy={handleStudy}
+                    onConfigure={setConfiguringSkill}
+                    isToggling={toggleSkill.isPending && toggleSkill.variables?.name === skill.name}
+                    isRemoving={removeSkill.isPending && removeSkill.variables === skill.name}
+                    isStudying={activeStudying === skill.name}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* ── Section: MCP Servers ── */}
+          <section className="border-t border-[var(--rule)] px-5 py-5">
+            <MCPManager />
+          </section>
+        </ScrollArea>
       </CardContent>
 
       {/* Install dialog */}

@@ -5,28 +5,58 @@
  * @description: Main Layout - Bioluminescent Terminal Style
  *
  * Layout structure:
- * ┌──────────┬─────────────────────────────┬──────────────────┐
- * │          │                             │ [Tab] [Tab] [Bell]│
- * │  Agent   │        Chat Area            ├──────────────────┤
- * │  List    │                             │                  │
- * │          │     (Spacious chat area)    │  Context Panel   │
- * │          │                             │  (Tab content)   │
- * └──────────┴─────────────────────────────┴──────────────────┘
+ * ┌──────────┬──────────────────────┬──┬──────────────────┬──────────────────┐
+ * │          │                      │║│                  │ [Tab] [Tab] [Bell]│
+ * │  Agent   │      Chat Area       │║│ Artifact Column  ├──────────────────┤
+ * │  List    │                      │║│ (auto-hides when │                  │
+ * │          │  (Spacious chat)     │║│   no artifacts)  │  Context Panel   │
+ * │          │                      │║│                  │  (Tab content)   │
+ * └──────────┴──────────────────────┴──┴──────────────────┴──────────────────┘
+ *                                    └─ Drag handle (chat ↔ artifacts)
  *
  * Right-side tabs: Runtime, Awareness, Agent Inbox, Jobs
  * Top-right bell: User Inbox Popover
+ * Artifact column: auto-hides when no artifacts; collapses to sliver on demand.
+ *
+ * Chat ↔ Artifacts split is user-resizable via the ResizableDivider; ratio
+ * persisted to localStorage. Divider hidden when the artifact column is in
+ * sliver mode (no artifacts yet, or user-collapsed) because resizing a
+ * 36-px sliver is meaningless.
+ *
+ * Signal source: artifact_id signals arrive via the chat WebSocket stream
+ * (tool_output frames parsed in ChatPanel.tsx). loadPinned is called on mount /
+ * agent change to hydrate agent-scoped artifacts. No dedicated artifact WS.
  */
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { DashboardSkeleton } from '@/components/dashboard/DashboardSkeleton';
 import { ContextPanelHeader, type ContextTab } from './ContextPanelHeader';
 import { ContextPanelContent } from './ContextPanelContent';
+import { ResizableDivider } from './ResizableDivider';
 import { ChatPanel } from '@/components/chat';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
-import { useConfigStore, usePreloadStore } from '@/stores';
+import { ArtifactColumn } from '@/components/artifacts';
+import QuotaExceededModal from '@/components/artifacts/QuotaExceededModal';
+import { useConfigStore, usePreloadStore, useArtifactStore } from '@/stores';
 import { useAutoRefresh } from '@/hooks';
+
+const SPLIT_STORAGE_KEY = 'chat_artifact_split_v1';
+const DEFAULT_SPLIT = 0.6; // 60 % chat, 40 % artifacts — matches the legacy 3:2 flex shares.
+const MIN_CHAT_PX = 400;
+const MIN_ARTIFACT_PX = 320;
+const SPLIT_HARD_MIN = 0.1;
+const SPLIT_HARD_MAX = 0.9;
+
+function readInitialSplit(): number {
+  if (typeof window === 'undefined') return DEFAULT_SPLIT;
+  const raw = window.localStorage.getItem(SPLIT_STORAGE_KEY);
+  if (!raw) return DEFAULT_SPLIT;
+  const parsed = parseFloat(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_SPLIT;
+  return Math.min(SPLIT_HARD_MAX, Math.max(SPLIT_HARD_MIN, parsed));
+}
 
 /** Default chat view with context panel */
 export function ChatView() {
@@ -34,11 +64,135 @@ export function ChatView() {
   const { agentId, userId } = useConfigStore();
   const { refreshAll } = useAutoRefresh({ agentId, userId });
 
+  const loadPinned = useArtifactStore((s) => s.loadPinned);
+  const artifactsLength = useArtifactStore((s) => s.artifacts.length);
+  const artifactsCollapsed = useArtifactStore((s) => s.collapsed);
+
+  // Chat ↔ Artifacts split (fraction of joint width occupied by chat).
+  //
+  // Perf: dragging the divider does NOT resize the panes in real time —
+  // resizing the artifact pane reflows whatever it hosts (an HTML
+  // artifact is a sandboxed iframe; reflowing it every frame, especially
+  // shrinking, is visibly janky). Instead, during the drag only a thin
+  // "ghost" preview line moves (positioned imperatively, zero React
+  // renders). On release `handleResizeEnd` commits the final ratio to
+  // `chatSplit` state — exactly one re-render → one reflow per drag.
+  const [chatSplit, setChatSplit] = useState<number>(() => readInitialSplit());
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  const ghostLineRef = useRef<HTMLDivElement | null>(null);
+  const pendingSplitRef = useRef<number>(chatSplit);
+
+  // Persist on every committed change so refreshes preserve the layout.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(SPLIT_STORAGE_KEY, String(chatSplit));
+  }, [chatSplit]);
+
+  // Translate a raw pointer clientX into a clamped split fraction relative
+  // to the joint chat+artifact area. Clamp tight against per-pane min
+  // widths so neither pane can be dragged below its declared minimum.
+  const computeSplit = useCallback((clientX: number): number | null => {
+    const el = groupRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const rawRatio = (clientX - rect.left) / rect.width;
+    const minRatio = Math.max(SPLIT_HARD_MIN, MIN_CHAT_PX / rect.width);
+    const maxRatio = Math.min(SPLIT_HARD_MAX, 1 - MIN_ARTIFACT_PX / rect.width);
+    // If the container is too narrow for both mins, just clamp to hard bounds.
+    const lo = Math.min(minRatio, maxRatio);
+    const hi = Math.max(minRatio, maxRatio);
+    return Math.min(hi, Math.max(lo, rawRatio));
+  }, []);
+
+  // During drag (≤ once per frame): move the ghost preview line only. The
+  // real columns stay put — no flex change, no iframe reflow.
+  const handleResize = useCallback((clientX: number) => {
+    const el = groupRef.current;
+    const ghost = ghostLineRef.current;
+    if (!el || !ghost) return;
+    const split = computeSplit(clientX);
+    if (split === null) return;
+    pendingSplitRef.current = split;
+    // Position the ghost at the *clamped* split so it previews exactly
+    // where the panes will snap to on release.
+    ghost.style.left = `${split * el.getBoundingClientRect().width}px`;
+    ghost.style.display = 'block';
+  }, [computeSplit]);
+
+  // On release: hide the ghost, commit the final ratio to state (one
+  // re-render → the columns resize and their content reflows once).
+  const handleResizeEnd = useCallback((clientX: number) => {
+    if (ghostLineRef.current) ghostLineRef.current.style.display = 'none';
+    const split = computeSplit(clientX);
+    if (split !== null) pendingSplitRef.current = split;
+    setChatSplit(pendingSplitRef.current);
+  }, [computeSplit]);
+
+  // Load pinned artifacts whenever agentId changes.
+  // Note: chatStore does not expose a per-agent session ID, so loadForSession
+  // is not called here. Session-scoped artifacts arrive via the chat WS stream
+  // (tool_output frames parsed in ChatPanel.tsx).
+  // TODO: if chatStore gains a sessionId field, add loadForSession(agentId, sessionId) here.
+  useEffect(() => {
+    if (!agentId) return;
+    loadPinned(agentId);
+  }, [agentId, loadPinned]);
+
+  // The divider only makes sense when the artifact column is in expanded
+  // mode (has artifacts AND is not collapsed). In sliver mode the artifact
+  // pane is a fixed 36-px button and a resize handle next to it would just
+  // confuse the user.
+  const artifactExpanded = !!agentId && artifactsLength > 0 && !artifactsCollapsed;
+
   return (
     <main className="flex-1 flex min-w-0 p-5 gap-5 overflow-hidden relative z-10">
-      {/* Chat column — outer border gives the column a single frame */}
-      <div className="flex-[3] min-w-[400px] animate-fade-in border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
-        <ChatPanel onAgentComplete={refreshAll} />
+      {/* Chat + Artifact group — owns the resizable divider + ghost line.
+          `relative` so the ghost preview line can absolutely-position
+          itself against this box. */}
+      <div
+        ref={groupRef}
+        className="relative flex-[5] min-w-0 flex overflow-hidden"
+      >
+        {/* Chat column — outer border gives the column a single frame */}
+        <div
+          className="min-w-[400px] animate-fade-in border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden"
+          style={
+            artifactExpanded
+              ? { flexGrow: chatSplit, flexBasis: 0 }
+              : { flexGrow: 1, flexBasis: 0 }
+          }
+        >
+          <ChatPanel onAgentComplete={refreshAll} />
+        </div>
+
+        {/* Resizable divider (chat ↔ artifacts). Hidden in sliver mode.
+            handleResize only moves the ghost line; handleResizeEnd
+            commits the split to state once on release. */}
+        {artifactExpanded && (
+          <ResizableDivider onResize={handleResize} onResizeEnd={handleResizeEnd} />
+        )}
+
+        {/* Artifact column — auto-hides when no artifacts are loaded.
+            flexGrow is passed only when the column is actually expanded so
+            the sliver path keeps its fixed 36-px width. */}
+        {agentId && (
+          <ArtifactColumn
+            agentId={agentId}
+            flexGrow={artifactExpanded ? 1 - chatSplit : undefined}
+          />
+        )}
+
+        {/* Drag preview line — only exists alongside the divider. Hidden
+            (display:none) until handleResize toggles it on; positioned
+            imperatively so the drag never triggers a React render. */}
+        {artifactExpanded && (
+          <div
+            ref={ghostLineRef}
+            className="absolute top-0 bottom-0 w-0.5 bg-[var(--text-primary)] pointer-events-none z-20 hidden"
+            aria-hidden
+          />
+        )}
       </div>
 
       {/* Context column */}
@@ -81,6 +235,12 @@ export function MainLayout() {
 
       {/* Background agent completion toasts */}
       <AgentCompletionToast />
+
+      {/* Quota-exceeded modal — driven by artifactStore.quotaError, shown over
+          everything when an agent's register_artifact call hits the per-user
+          limit. Mounted once at the layout root so it can pop regardless of
+          which sub-route the user is currently viewing. */}
+      <QuotaExceededModal />
 
       {/* Render sub-page via Outlet, or the default chat view */}
       {isSubPage ? (

@@ -16,6 +16,8 @@ EverMemOS is an optional external memory backend that can supplement or replace 
 
 ## Design decisions
 
+**Disabled-by-default no-op stub.** When `narrative_config.EVERMEMOS_ENABLED` is `False` (the cloud-deploy default), `get_evermemos_client` returns a `_DisabledEverMemOSClient` instead of building an HTTP client. The stub implements `write_event` (returns `True`), `search_narratives` (returns `[]`), and `search_episodes` (returns `[]`) — the public surface used by `MemoryModule.search_evermemos` / `write_to_evermemos` / `_async_evermemos_write` and `agent_runtime`. Most callers already gate on `EVERMEMOS_ENABLED`, but a few service methods on `MemoryModule` call the client unconditionally; the stub keeps those paths from spamming `ConnectError` against a non-existent service. To re-enable, flip `EVERMEMOS_ENABLED = True` in `narrative/config.py` after the EverMemOS instance is provisioned.
+
 **Per-(agent_id, user_id) client cache.** Each unique combination of agent and user gets one `EverMemOSClient` instance cached in `_evermemos_clients`. This avoids creating a new `httpx.AsyncClient` on every call while still providing isolation between different agents or users.
 
 **`TYPE_CHECKING` guard for Narrative models.** The client imports `Event`, `Narrative`, and `NarrativeSearchResult` only under `TYPE_CHECKING` to avoid a circular import (narrative models depend on the database layer which is in `utils/`). At runtime these types are referenced only in type annotations, so no actual import happens.

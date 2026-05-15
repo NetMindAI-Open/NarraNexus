@@ -1,8 +1,160 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-04-20
+last_verified: 2026-05-15
 stub: false
 ---
+
+## 2026-05-15 — artifact card → inline badge
+
+`ArtifactToolCallCards` no longer renders `<ArtifactPreviewCard>` (the full-sized thumbnail with CSV/image/markdown previews). It now emits one `<ArtifactInlineBadge>` chip per **unique** artifact_id in the turn. Re-register on the same artifact is deduped down to a single badge. The card was visually disruptive (re-registers re-mounted it, producing a "flash and disappear" feeling) and the right-side ArtifactColumn is the canonical place to view content — the badge is just an affordance to jump there. ArtifactPreviewCard is kept in `components/artifacts/` for potential future re-use but is no longer mounted from chat.
+
+## 2026-05-15 — re-register signal: refetch (not ensure-loaded)
+
+`ensureArtifactLoaded` (which short-circuited on "already in store") was
+replaced with `refreshArtifactFromToolCall(agentId, artifactId, dedupKey)`.
+Reason: a `register_artifact` call with `target_artifact_id=<existing>` is
+the agent's refresh signal — same `artifact_id` arrives in the tool stream
+but with a bumped `updated_at`. The old guard would skip the fetch and
+renderers would never see the new timestamp, so the iframe wouldn't
+reload. The new helper always refetches, deduped per tool call by a key
+built from `tc.step + tc.tool_output` so the render loop doesn't trigger
+infinite refetches. The seen-Set is module-scope (small bounded growth
+per session, no leak concern).
+
+## 2026-05-14 — artifact tool name collapsed to `register_artifact`
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`ARTIFACT_TOOL_BASE_NAMES` is now `['register_artifact']` (was
+`['create_artifact', 'upload_artifact_file']`). The frontend's live artifact
+discovery keys off this list to recognise tool calls in the agent stream
+and surface `ArtifactPreviewCard`s — must stay in lockstep with the
+`@mcp.tool(name=...)` registration in `artifact_tool.py`. Also updated the
+`ensureArtifactLoaded` helper because `artifactsApi.getDetail` now returns
+`Artifact` directly (no `{artifact, versions}` wrapper).
+
+## 2026-05-14 — timeline dedup extracted; event_id-based dedup
+
+The unified-timeline merge + dedup (a ~50-line block inside the `timeline`
+`useMemo`) was extracted into the pure, unit-tested
+`[[buildTimeline.ts]]` — `buildUnifiedTimeline(historyMessages, messages)`.
+The `TimelineItem` type moved there too; ChatPanel imports both.
+
+The dedup itself was upgraded: **`(role, event_id)` exact match** instead
+of the old `${role}:${content}` exact-string key. The string key missed
+whenever the session-assembled content drifted from the DB-persisted
+content by even one whitespace char (two independent code paths) — that
+was the "latest reply shown twice" bug. Session messages now carry
+`event_id` (stamped by `[[chatStore.ts]]`); see `[[buildTimeline.ts]]`
+for the full dedup contract. The old `role:content` + window + consume
+logic survives only as the fallback for event-id-less messages.
+
+The "Match-and-consume semantics" / "5 min window" notes in the v2.4
+section below still describe the **fallback** path accurately, but the
+primary path is now event_id.
+
+## 2026-05-14 — artifact tool-name matching must tolerate the `mcp__…__` prefix
+
+**Bug:** the artifact panel never updated during/after a run — the
+artifact only appeared on an unrelated reload (agent switch). Root cause
+was here: MCP tools arrive in the event stream **fully-qualified** —
+`mcp__<server>__<tool>`, e.g. `mcp__common_tools_module__create_artifact`
+— but the code matched a bare-name `Set` exactly
+(`ARTIFACT_TOOL_NAMES.has(tc.tool_name)`). That `.has()` never returned
+true, so `hasArtifactTools` was always false, `ArtifactToolCallCards`
+never rendered, and `ensureArtifactLoaded` never fired.
+
+**Fix:** replaced the exact-match `Set` with `isArtifactToolName()` —
+matches the bare name OR a `…__<base>` suffix, so both qualified and
+unqualified forms work. `ARTIFACT_TOOL_BASE_NAMES` must stay in sync
+with the MCP tool names registered in `common_tools_module` — there is a
+reciprocal comment on the tool implementations in `[[artifact_tool.py]]`
+flagging this coupling.
+
+(Sibling fix: `tool_output` itself must be clean JSON for the
+`JSON.parse` here to work — see `[[output_transfer.py]]`.)
+
+## 2026-05-13 — Phase C: 自动 reconnect 到后端在跑的 run
+
+新增 useEffect 监听 `agentId + userId + currentAgent.active_run.run_id`：
+当用户打开（或切换到）一个已经在后端跑着的 agent，前端立刻调
+`reconnect(agentId, userId, activeRunId, agentName)`，让 `wsManager`
+重开一条带 `run_id` 的 WS。后端识别到 run_id 就走 replay 分支：把
+event_stream 里所有 seq ASC 的事件回放完，再 hook 到 broadcaster
+拿 live 接续。
+
+业内对这种模式的标准说法（用户在最近一次对话里直接问到）：
+**resumable / replayable streaming session**——event_stream 是事件
+存储（event sourcing），server-side run 是 long-running operation
+(LRO)，WS reconnect = last-event-id-style resumption（W3C SSE 把它
+做成 first-class，我们在 WS 上等价实现），整体是 "server-side
+session continuity"。
+
+useEffect 的边界条件（顺序 short-circuit）：
+1. 没 agentId / userId → 直接返回（panel 还没 ready）
+2. `activeRunId` 为 null → 后端没活跃 run，不重连（也是退出条件
+   防止 run 结束后死循环）
+3. 本地 `isLoading=true` → 当前 tab 自己刚发完 fresh-run 还在跑，
+   wsManager 已经管理着一条 WS，**不能**再开一条；reconnect 也
+   不需要——本地路径已经在收 live frames
+4. 上述都不满足 → fire-and-forget `reconnect()`；`wsManager` 内部
+   保证 idempotent（开新连接前 close 旧的）
+
+依赖数组 `[agentId, userId, activeRunId]` 是关键：
+- 用户切换 agent：activeRunId 跟着 currentAgent 变化（可能变 null
+  或变成新 agent 的 run_id），effect 重跑
+- run 结束后 `/api/auth/agents` 下一次拉到 active_run=null，
+  activeRunId 变 null，effect 重跑后第 2 步退出 —— **不会**继续
+  连旧 run
+
+`reconnect` 故意从 deps 里排除（eslint-disable-next-line）——它在
+hook 里是 useCallback 包过的稳定引用，写进去只会徒增噪音。
+
+## 2026-05-11 fix — live activity stays visible after first reply (P0)
+
+The streaming-state UI used to have two mutually exclusive render
+branches:
+
+1. `isStreaming && getUserVisibleResponse()` → render a streaming
+   `MessageBubble` with the reply content. `thinking` and `toolCalls`
+   are passed in but live inside the bubble's **collapsed** Reasoning
+   / Tool-calls sections (`MessageBubble.tsx` initialises `showThinking`
+   and `showTools` to `false`).
+2. `isStreaming && !getUserVisibleResponse()` → render the "Live
+   activity preview": italic streaming `currentThinking` text + a
+   spinner-decorated list of in-flight `toolSteps`. **Always visible,
+   no click required.**
+
+The instant the agent called `send_message_to_user_directly` for the
+first time, `getUserVisibleResponse()` flipped from `null` to a
+string, branch 2 unmounted, and branch 1 took over. Any subsequent
+thinking deltas or tool calls kept accumulating into
+`chatStore.currentThinking` / `currentToolCalls` but had **no
+always-visible UI surface** — the reply bubble looked finished even
+when the agent was still mid-loop running more tools. Xiong's P0
+"先回复一条信息后，不再显示思考过程" (`recvjhejbs2abv`).
+
+Fix: drop the `!getUserVisibleResponse()` gate so the live activity
+preview now stays mounted for the **entire** streaming window. The
+streaming MessageBubble keeps receiving `thinking` / `toolCalls` so a
+user who clicks "Reasoning" mid-stream still sees the full trace; the
+live preview below provides the always-visible "still working" signal
+until `stopStreaming` flips `isStreaming` to false (at which point the
+bubble persists into history with its data already attached, line
+269-270 of `chatStore.ts`). The `toolSteps` filter (regex
+`/^3\.4\.\d+$/` minus `*.send_message_to_user_directly`) intentionally
+drops the reply tool call so the same action doesn't appear twice
+(once as the bubble, once as a tool step).
+
+Defensive guard: inside the live preview, the `!hasActivity` fallback
+now renders the "Starting up..." banner only when
+`!getUserVisibleResponse()`. Without this, an LLM that emits no
+`agent_thinking` deltas and whose only progress step is the
+send_message tool call itself (which `toolSteps` filters out) would
+land on `hasActivity=false` *after* a reply already rendered above —
+visually contradicting "Starting up..." beneath a populated reply
+bubble. With the guard, the live preview cleanly disappears in that
+rare path instead.
 
 # ChatPanel.tsx — Unified timeline chat surface with streaming and history pagination
 
@@ -36,6 +188,15 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 
 **Two-mode scroll (Bug 15)**: scroll-to-bottom is split into two effects because "initial open" and "streaming tick" have incompatible requirements. `initialScrollPendingRef` is raised whenever fresh content arrives (initial load, agent switch, background poll, user's own submitted message). A dedicated effect picks it up, waits one `requestAnimationFrame` so `MessageBubble` subtrees (markdown, code blocks, tool-call UI) get a frame to lay out, then snaps `container.scrollTop = container.scrollHeight` — instant, not smooth, and scoped to `scrollContainerRef` only (scrollIntoView on a sentinel would also scroll ancestor containers). The streaming effect uses the classic smooth `scrollIntoView` + sentinel, gated by `isStreaming`, because during streaming the deltas are small and smooth feels right. If you ever need to "jump to bottom" from a new code path, set `initialScrollPendingRef.current = true` — do NOT reach for `scrollIntoView` directly (smooth loses the race against async content layout; that was the Bug 15 root cause).
 
+## v2.4 改动（2026-05-08）— Inline artifact preview cards
+
+- **`ArtifactToolCallCards` component**: a file-local component that receives `toolCalls: AgentToolCall[]`, `agentId`, and `allArtifacts` (pre-read from the store at component scope — not inside the map callback). For each tool call where `tool_name ∈ {create_artifact, upload_artifact_file}` and `tool_output` parses as JSON with an `artifact_id`, it renders an `ArtifactPreviewCard`. While the artifact is not yet in the store, it shows a "Loading artifact…" placeholder and fires `ensureArtifactLoaded` (fire-and-forget fetch → upsert).
+- **`ensureArtifactLoaded` helper**: a module-level function (not a hook) that checks `useArtifactStore.getState().artifacts` for the given `artifact_id`. If absent, calls `artifactsApi.getDetail` and upserts the result. Safe to call on every render because the store lookup short-circuits immediately when already cached.
+- **Hook rule compliance**: `allArtifacts` is read via `useArtifactStore((s) => s.artifacts)` at the `ChatPanel` component scope (top-level hook call), then passed down as a prop. This avoids calling a hook inside the `timeline.map()` callback.
+- **Placement**: `ArtifactToolCallCards` is rendered as a sibling of `MessageBubble` inside each timeline item's wrapper `<div>`, so the cards appear below the message bubble.
+
 ## 新人易踩的坑
 
 `BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
+
+**Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.

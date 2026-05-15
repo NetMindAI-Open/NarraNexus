@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-04-20
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — `_get_user_llm_configs_strict` delegates to provider_driver
+
+The user-provider branch now first calls
+`provider_driver.resolve_user_llm_configs(user_id, db)`. That function
+encapsulates the new single-point resolution path including reverse-
+validation self-heal for broken slot.model bindings (the Xiong bug).
+If the new resolver raises `LLMConfigNotConfigured` we re-raise to keep
+the actionable message; any other exception logs a warning and falls
+through to the legacy hand-rolled branch below — kept as a safety net
+during the Phase 1 confidence window.
+
+The legacy `_use_system_default_strict` path is untouched. The cloud
+migration that turns env-var system credentials into a regular
+`user_providers` row with `owner_user_id=NULL` (Phase 3) will collapse
+that branch too; until then, opt-in `prefer_system_override=true` users
+keep going through the old path.
+
+See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
 
 ## 2026-04-20 change — strict 2-branch `get_user_llm_configs` (Bug 2)
 

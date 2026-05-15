@@ -241,7 +241,14 @@ def format_attachments_for_system_prompt(
     lines: list[str] = ["#### Files attached to the current message"]
     lines.append(
         "The user just uploaded the following file(s) with this message. "
-        "Call the built-in `Read` tool with the absolute path to view each one:"
+        "Call the built-in `Read` tool with the absolute path to view each one. "
+        "Audio uploads include an inline `transcript=...` field — read that "
+        "text directly instead of attempting to play the audio. If an audio "
+        "file is missing its `transcript` field, transcription was "
+        "unavailable (typically because the user has not configured an "
+        "OpenAI-compatible provider). In that case, briefly tell the user "
+        "the audio could not be transcribed and ask them to add an OpenAI "
+        "API key under Settings → Providers, then resend the audio."
     )
     for att in attachments:
         if not isinstance(att, dict):
@@ -256,9 +263,19 @@ def format_attachments_for_system_prompt(
             category = category.value
         path = resolve_attachment_path(agent_id, user_id, file_id)
         path_str = str(path) if path is not None else "<unavailable>"
-        lines.append(
-            f"- name={name}, type={category}, mime={mime}, path={path_str}"
-        )
+        line = f"- name={name}, type={category}, mime={mime}, path={path_str}"
+        transcript = att.get("transcript")
+        if isinstance(transcript, str) and transcript.strip():
+            line += f", transcript={transcript.strip()}"
+        elif isinstance(mime, str) and mime.startswith("audio/"):
+            # Audio with no transcript → tell the agent why, so it can
+            # explain to the user instead of saying "I can't listen".
+            line += (
+                ", transcript=<unavailable: no OpenAI-compatible provider "
+                "configured; ask user to add an OpenAI API key in "
+                "Settings → Providers>"
+            )
+        lines.append(line)
     return "\n".join(lines)
 
 

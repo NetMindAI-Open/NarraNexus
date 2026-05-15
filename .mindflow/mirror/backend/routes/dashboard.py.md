@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/dashboard.py
-last_verified: 2026-04-21
+last_verified: 2026-05-13
 stub: true
 ---
+
+## 2026-05-13 — local 多用户隔离修复
+
+`_resolve_viewer` 和主端点的 viewer 解析改成走统一 helper
+`backend.auth.resolve_current_user_id`。cloud/local 共用同一段
+identity 路径——cloud 走 JWT、local 走 X-User-Id header，差异在
+middleware 内消化完毕。`?user_id=` query param 拒绝逻辑保留（仍是
+TDR-12 防御）。
 
 # dashboard.py
 

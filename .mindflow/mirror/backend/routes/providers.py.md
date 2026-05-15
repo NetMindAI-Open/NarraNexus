@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-04-20
+last_verified: 2026-05-05
 stub: false
 ---
 
@@ -37,6 +37,17 @@ user_id 优先从 `request.state.user_id`（云模式下由 auth 中间件注入
 **`claude-status` 豁免认证**
 
 这个接口在 `backend/auth.py` 的 `AUTH_EXEMPT_PATHS` 里，不需要 JWT。原因是前端需要在登录之前就能检查 Claude Code CLI 状态（用于显示安装引导）。但在云模式下，它检查了 `request.state.role == 'staff'`，只允许 staff 使用 CLI——这个检查依赖中间件注入的 role，但由于豁免了认证，cloud 模式下 `request.state.role` 可能不存在，`getattr` 用了默认空字符串来避免 AttributeError。
+
+**`claude-status` 返回字段：cli_installed / logged_in / email / expires_at**
+
+email 和 expires_at 是 best-effort 解析——`claude auth status` 的 JSON
+schema 在 minor 版本之间会变（有时把 email 放在顶层，有时放在
+`account` / `user` / `profile`，有时根本没有；expiresAt 同样可能在顶层
+或藏在 `token` / `oauth` / `credentials` 子对象里），所以代码逐一探测
+常见 shape，解析不出来就保持 None。前端能渲染缺失字段（不显示而已），
+所以这里宁可放过也不抛错。fallback 路径（直接读 `~/.claude/.credentials.json`）
+也会顺手补一次 email/expires_at，覆盖 `claude auth status` 不可用或返回
+不完整的 v1.x CLI 场景。
 
 ## Gotcha / 边界情况
 

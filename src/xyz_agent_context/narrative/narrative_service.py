@@ -160,13 +160,23 @@ class NarrativeService:
                     if session.current_narrative_id:
                         current_narrative = await self._crud.load_by_id(session.current_narrative_id)
 
-                    with timed("narrative.continuity_detect"):
+                    with timed("narrative.continuity_detect") as t:
                         result = await detector.detect(
                             current_query=input_content,
                             session=session,
                             current_narrative=current_narrative,
                             awareness=awareness
                         )
+                        # Tag the timer with the model the helper LLM
+                        # actually ended up using inside detector.detect
+                        # (resolution happens deep in OpenAIAgentsSDK —
+                        # we read it back via the contextvar set there).
+                        from xyz_agent_context.agent_framework.openai_agents_sdk import (
+                            get_last_llm_call_info,
+                        )
+                        info = get_last_llm_call_info()
+                        if info:
+                            t.tag(**info)
                     logger.debug(f"Continuity detection reason: {result.reason}")
                     is_continuous = result.is_continuous
                     continuity_reason = result.reason

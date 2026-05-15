@@ -34,6 +34,27 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
     [options.onComplete]
   );
 
+  /**
+   * Phase C: reconnect to an existing run by run_id.
+   *
+   * Used when the agent panel is mounted for an agent that has a
+   * live BackgroundRun on the backend (signalled via
+   * AgentInfo.active_run). The server replays the full event_stream
+   * history then keeps the WS subscribed for live continuation.
+   *
+   * Idempotent — calling twice with the same agent closes the prior
+   * connection first.
+   */
+  const reconnect = useCallback(
+    (agentId: string, userId: string, runId: string, agentName?: string) => {
+      wsManager.reconnect(agentId, userId, runId, {
+        onComplete: options.onComplete,
+        agentName,
+      });
+    },
+    [options.onComplete]
+  );
+
   const stop = useCallback((agentId: string) => {
     wsManager.stop(agentId);
   }, []);
@@ -44,6 +65,7 @@ export function useAgentWebSocket(options: UseAgentWebSocketOptions = {}) {
 
   return {
     run,
+    reconnect,
     stop,
     close,
     isLoading: isStreaming,

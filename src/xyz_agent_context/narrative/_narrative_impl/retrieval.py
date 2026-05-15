@@ -338,8 +338,8 @@ class NarrativeRetrieval:
             # This is the slow path — wrap in timed() so the dual cost
             # (LLM call + extra DB loads inside _llm_unified_match) is
             # visible separately from the vector_search above.
-            with timed("narrative.retrieve.llm_unified_match"):
-                return await self._llm_unified_match(
+            with timed("narrative.retrieve.llm_unified_match") as t:
+                result = await self._llm_unified_match(
                     query=query,
                     search_results=search_results[:3] if search_results else [],
                     agent_id=agent_id,
@@ -351,6 +351,16 @@ class NarrativeRetrieval:
                     participant_narratives=participant_narratives,  # P0-4: Pass PARTICIPANT Narratives
                     retrieval_method=retrieval_method  # Pass retrieval method
                 )
+                # Tag with the model + structured-output mode the SDK
+                # ended up using inside _llm_unified_match → llm_judge_unified
+                # → sdk.llm_function. See openai_agents_sdk.get_last_llm_call_info.
+                from xyz_agent_context.agent_framework.openai_agents_sdk import (
+                    get_last_llm_call_info,
+                )
+                info = get_last_llm_call_info()
+                if info:
+                    t.tag(**info)
+                return result
 
         # LLM not enabled - Create new Narrative directly
         else:

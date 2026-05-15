@@ -1,8 +1,64 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-04-29
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-15 — live artifact registry in data gathering + refresh-signal docs
+
+Two coupled additions:
+
+1. `get_instructions` now appends a **"Your registered artifacts"** block
+   built from `ArtifactRepository.list_pinned(agent_id)` — the agent sees
+   id / kind / title / workspace-relative path of every pinned artifact
+   live RIGHT NOW. (The `{agent_id}_{user_id}/` prefix is stripped from
+   the DB path because the agent thinks in workspace-relative terms.)
+   Empty list still renders a "(none registered yet)" line so the agent
+   knows the block is present and trustworthy. Implementation lives in
+   `_render_artifact_state_block`; DB errors degrade silently (best-effort).
+
+2. The static instruction explains the **refresh-signal pattern**: after
+   registering, the agent can edit the file(s) freely, but the frontend
+   doesn't auto-reload — to make the user see the update, call
+   `register_artifact` again with `target_artifact_id=<existing id>`.
+   That second call IS the refresh signal. Paired with the per-turn
+   artifact-list block, the agent always knows which ids are live and
+   can target them.
+
+## 2026-05-14-r3 — instruction softened: sibling-assets is a capability, not a rule
+
+The "Always nest the entry inside a fresh, dedicated subdirectory" block
+with its two non-negotiable reasons is gone. Deletion is now registry-only
+(workspace files are never touched) and the public-raw route degrades to
+single-file serving at the workspace root — so there is no class of bug
+the rule was protecting against anymore. The instruction now says: "for a
+multi-file artifact, use a subdirectory so siblings resolve; single-file
+artifacts can sit anywhere". The agent's mental model becomes about
+capability, not compliance.
+
+## 2026-05-14-r2 — explicit *why* for "no workspace-root entry"
+
+The "dedicated subdirectory" rule was stated as a preference. The instruction
+now spells out the two enforcement reasons:
+1. workspace-root entry → whole workspace served → exposes every other file;
+   plus `delete_source=true` would wipe the workspace;
+2. one folder per artifact → unambiguous deletion + non-overlapping served roots.
+
+Pairs with the parallel update in [[artifact_tool.py]] description.
+
+## 2026-05-14 — artifact instruction rewritten for the pointer model
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+The "Visual Artifacts" section of the module instruction was rewritten:
+- one tool now: `register_artifact` (replaces `create_artifact` +
+  `upload_artifact_file`);
+- the **two-step** mental model is the headline — write files into a
+  dedicated workspace subdirectory, then `register_artifact` with the entry
+  path; an entry HTML may reference sibling assets (./style.css, etc.) that
+  are all served as part of the artifact;
+- emphasises "files you write are invisible until you register them" so the
+  agent doesn't expect a UI side-effect from `Write` alone.
 
 # common_tools_module.py
 
@@ -12,8 +68,12 @@ Always-on capability module that hosts generic, domain-agnostic tools
 every agent benefits from. Today it owns:
 
 1. `web_search` MCP tool (DuckDuckGo or Brave depending on env)
-2. The system-prompt instruction block that tells the agent how to use
+2. `create_artifact` + `upload_artifact_file` MCP tools for emitting charts,
+   reports, CSV, markdown, and interactive HTML to side-panel tabs
+3. The system-prompt instruction block that tells the agent how to use
    the **built-in** `Read` tool to view user-uploaded attachments
+4. The system-prompt instruction block that tells the agent how to use
+   `create_artifact` / `upload_artifact_file` and when to use each kind
 
 Note: there is no MCP tool for attachments — Anthropic's SDK ships the
 multimodal `Read` primitive, and our marker text + dynamic instruction
@@ -35,6 +95,29 @@ Downstream:
 - `xyz_agent_context.utils.attachment_storage
   .format_attachments_for_system_prompt` renders the current-turn
   attachment block
+
+## 2026-05-14 — `#### Visual Artifacts` instruction rewrite
+
+The artifact block in `COMMON_TOOLS_INSTRUCTIONS` was rewritten:
+
+- **Leads with proactive-use philosophy** — artifacts render at full
+  fidelity and look great; the agent should create them *directly* as part
+  of the response, not as an announced extra step. (Framed as "just create
+  it", deliberately NOT as "don't ask the user" — the latter could bleed
+  into other behaviour.)
+- **"Pass content inline"** — explicit "don't write the HTML/JSON to a
+  workspace file first and then create_artifact from it" rule; doing so
+  makes the agent generate the same content twice.
+- **Defers the precise contract** (exact `kind` values, params) to each
+  tool's own `description=` in `[[artifact_tool.py]]` — the old block
+  duplicated it AND carried a wrong signature (omitted the required
+  `agent_id` / `user_id` params). One source of truth now.
+- **Dropped "no network"** — it was factually wrong. `HtmlRenderer`'s
+  iframe is `sandbox="allow-scripts"` with no CSP, so CDN assets (web
+  fonts, CSS) DO load. New wording: CDN assets are fine, but embed your
+  data in the page — don't fetch it at runtime.
+- Mentions the error → fix → retry contract so the agent knows a failed
+  call is non-blocking.
 
 ## Design decisions
 

@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-04-23
+last_verified: 2026-05-15
 ---
 
 # state.rs — AppState, ServiceDef, and path resolution for the Tauri app
@@ -44,7 +44,7 @@ choose the right commands based on this.
 `dev_services` prefixes all commands with `uv run python ...` for the
 virtual-env-managed dev workflow.
 
-Both factories define the same seven services in the same order:
+Both factories define the same nine services in the same order:
 1. sqlite_proxy (order 0, 3 s startup delay)
 2. backend (order 1) — uvicorn args include `--ws-ping-interval 30
    --ws-ping-timeout 60` so long-running Agent turns don't drop the WS stream
@@ -53,10 +53,18 @@ Both factories define the same seven services in the same order:
 5. job_trigger (order 4)
 6. message_bus_trigger (order 5)
 7. lark_trigger (order 6)
+8. slack_trigger (order 7) — Socket Mode subscriber, one WS per
+   channel_slack_credentials row. No bound port (Socket Mode is outbound).
+9. telegram_trigger (order 8) — long-poll subscriber, one async loop per
+   channel_telegram_credentials row. No bound port (long-poll is outbound).
 
-**These MUST stay in sync with `scripts/dev-local.sh` (CLAUDE.md rule #7).**
+**These MUST stay in sync with `scripts/dev-local.sh` AND with
+`NarraNexus-deploy/stacks/narranexus-app/compose.yml` (CLAUDE.md rule #7).**
 Specifically the backend uvicorn ws-ping args above — mismatching the two
-makes chat streams drop on the dmg while they survive on dev.
+makes chat streams drop on the dmg while they survive on dev. Slack/Telegram
+triggers were originally only wired into `dev-local.sh`, causing them to
+silently miss on both dmg and EC2 — that gap is now closed; adding any new
+trigger MUST touch all three startup paths together.
 
 ## The SQLite proxy startup delay
 

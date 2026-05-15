@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-04-28
+last_verified: 2026-05-06
 ---
 
 # process_manager.rs — Child process lifecycle manager with log collection
@@ -22,8 +22,12 @@ Manages the six Python sidecar processes. Core responsibilities:
      suppresses only the on-disk copy; the ring buffer keeps working.
 3. **Start all in order** (`start_all`): sorts by `ServiceDef.order`, applies
    per-service `startup_delay_ms` between starts.
-4. **Stop / restart** (`stop_service`, `stop_all`, `restart_service`): sends
-   SIGKILL via `child.kill()`.
+4. **Stop / restart** (`stop_service`, `stop_all`, `restart_service`):
+   graceful — sends `libc::SIGTERM` first, waits up to 3s for the child
+   to exit on its own, falls back to `child.kill()` (SIGKILL) only if
+   the timeout elapses. SIGKILL-only was the historical behavior and
+   left ports lingering in TIME_WAIT across relaunches because Python
+   couldn't run its `finally` / `await trigger.stop()` paths.
 5. **Query** (`get_all_status`, `get_logs`): read-only access to status map
    and log buffer.
 

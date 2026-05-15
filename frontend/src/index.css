@@ -612,6 +612,23 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   color: var(--text-primary);
 }
 
+/* TurnTimeline block variants.
+   `.markdown-content` sets an explicit `color` / `font-size` that wins
+   over any ancestor utility class, so a timeline block can't dim or
+   enlarge its settled (Markdown-rendered) body just by styling the
+   container. These two-class selectors (specificity 0,2,0) beat the
+   plain `.markdown-content` rule (0,1,0) and are the supported hook for
+   it — see TurnTimeline.tsx ThinkingBlock / ReplyBlock. */
+.markdown-content.markdown-dim {
+  /* Thinking — process, not product. Recede to the dimmest tone. */
+  color: var(--text-tertiary);
+}
+.markdown-content.markdown-reply {
+  /* Reply — the authoritative answer. One notch larger than the 0.95rem
+     default so the eye lands here first. */
+  font-size: 1.05rem;
+}
+
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,

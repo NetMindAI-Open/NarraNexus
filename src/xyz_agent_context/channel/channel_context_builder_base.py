@@ -33,6 +33,35 @@ from .channel_prompts import (
     ROOM_MEMBERS_TEMPLATE,
 )
 
+# Upper bound on the user message body interpolated into the prompt.
+# Threat model:
+#   - DoS: a 1 MB message would block a worker for the whole
+#     PROCESS_MESSAGE_TIMEOUT_SECONDS (~30 min) and burn LLM tokens.
+#   - Prompt injection: long bodies are also where attackers stash fake
+#     "## Instructions" sections to try to flip the system rules.
+# 4000 chars ≈ 1000 tokens for English — plenty for any real IM message
+# while well clear of any frontier model's effective attention budget for
+# this section.
+MAX_MESSAGE_BODY_CHARS = 4000
+_TRUNCATION_SUFFIX = "\n[... message truncated by NarraNexus ingress — original was longer than 4000 chars ...]"
+
+
+def _cap_message_body(text: str) -> str:
+    """Cap untrusted IM body text to a fixed length.
+
+    The body is user-controlled input from an external IM platform. The
+    cap is a soft defence — a clipping-friendly first line of defence
+    against long-message DoS and one form of prompt-injection. Real
+    prompt-injection resistance requires the agent itself to treat
+    everything in this section as opaque content, which is enforced by
+    the surrounding template ("## Current Message" section).
+    """
+    if not text:
+        return ""
+    if len(text) <= MAX_MESSAGE_BODY_CHARS:
+        return text
+    return text[:MAX_MESSAGE_BODY_CHARS] + _TRUNCATION_SUFFIX
+
 
 @dataclass
 class ChannelHistoryConfig:
@@ -159,6 +188,14 @@ class ChannelContextBuilderBase(ABC):
         """
         # Step 1: Message metadata
         info = await self.get_message_info()
+
+        # Cap the user-supplied message body before any further section
+        # building. Body is the only field in ``info`` that originates
+        # 100% from untrusted external input; the other fields are either
+        # platform metadata (timestamps, channel ids) or names that
+        # subclasses already sanitised via sanitize_display_name.
+        if "message_body" in info:
+            info["message_body"] = _cap_message_body(info["message_body"])
 
         # Default reply_instruction if channel didn't provide one
         if "reply_instruction" not in info:

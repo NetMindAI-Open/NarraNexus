@@ -308,6 +308,20 @@ def _mysql_to_sqlite_sql(query: str) -> str:
         )
         q = q[:json_contains_match.start()] + replacement + q[json_contains_match.end():]
 
+    # JSON_CONTAINS(col, ?) -> EXISTS(SELECT 1 FROM json_each(col) WHERE value = json_extract(?, '$'))
+    # Used by SocialNetworkRepository.search_by_name_or_alias for the
+    # `JSON_CONTAINS(aliases, json.dumps(name))` form (a single JSON-quoted
+    # scalar). MySQL natively understands this; SQLite's json1 extension does
+    # not have JSON_CONTAINS at all, so we expand to a json_each scan. The
+    # `json_extract(?, '$')` strips the outer JSON quotes from the bound
+    # param so the comparison is against the unquoted scalar that json_each
+    # exposes via `value`.
+    q = re.sub(
+        r"JSON_CONTAINS\s*\(\s*(\w+)\s*,\s*\?\s*\)",
+        r"EXISTS(SELECT 1 FROM json_each(\1) WHERE value = json_extract(?, '$'))",
+        q, flags=re.IGNORECASE
+    )
+
     # Clean up extra whitespace
     q = re.sub(r'  +', ' ', q)
     return q

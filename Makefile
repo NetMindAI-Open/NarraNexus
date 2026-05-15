@@ -103,6 +103,9 @@ dev-poller:
 # Schema is auto-migrated on startup via schema_registry.auto_migrate().
 # No manual sync needed. To add tables/columns, edit schema_registry.py.
 
+db-doctor: ## Verify schema integrity + print row counts (no side-effects unless repair needed)
+	uv run python scripts/db_doctor.py
+
 # ── MindFlow (doc tooling moved to MindFlow plugin) ────────────────────────
 # Doc check/scaffold/audit commands are now in the MindFlow plugin CLI.
 # Install MindFlow plugin for doc management: bash related_project/MindFlow/install.sh

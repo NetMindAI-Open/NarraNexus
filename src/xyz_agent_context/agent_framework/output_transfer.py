@@ -8,7 +8,47 @@
 每个块对应一个独立事件。
 """
 
+import json
 from typing import Any, Dict, List
+
+
+def _stringify_tool_result_content(content: Any) -> str:
+    """Flatten a ToolResultBlock.content into the tool's plain-text payload.
+
+    The Claude Agent SDK delivers a tool result either as a bare string or as
+    a list of content blocks — dicts shaped like ``{"type": "text", "text":
+    ...}`` or SDK block objects exposing a ``.text`` attribute. An MCP tool
+    that returns a dict (e.g. ``register_artifact``) arrives as a single text
+    block whose ``text`` is the JSON-encoded result.
+
+    The previous implementation used ``str(block.content)``, which on a list
+    produces a Python repr (``[{'type': 'text', 'text': '...'}]``) — NOT valid
+    JSON. Every frontend consumer that ``JSON.parse``-s ``tool_output``
+    (artifact discovery, quota-error detection) silently failed on it, so
+    agent-created artifacts never surfaced until an unrelated reload. This
+    flattens to the actual text payload so the result stays parseable.
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text")
+                parts.append(
+                    text if isinstance(text, str)
+                    else json.dumps(item, ensure_ascii=False)
+                )
+            elif hasattr(item, "text"):
+                parts.append(str(item.text))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content)
 
 
 def output_transfer(
@@ -351,7 +391,7 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
                     "type": "run_item_stream_event",
                     "item": {
                         "type": "tool_call_output_item",
-                        "output": str(block.content)
+                        "output": _stringify_tool_result_content(block.content)
                     }
                 })
 

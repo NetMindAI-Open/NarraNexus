@@ -18,6 +18,13 @@ import { cn } from '@/lib/utils';
 interface StepCardProps {
   step: Step;
   isLast: boolean;
+  /** Optional render-prop slot for callers that need to inject step-
+   *  specific extra UI into the expanded section. Used by RuntimePanel
+   *  to surface the live tool-call console inside the "Execute Agent
+   *  Loop" step (step "3") so tool calls live where the user expects
+   *  them — under the agent loop — instead of in a standalone section.
+   *  StepCard itself stays generic and doesn't know about tool calls. */
+  extraExpandedContent?: React.ReactNode;
 }
 
 // Display data type definitions
@@ -112,7 +119,7 @@ function ChangesSummary({ changes }: { changes: { added?: string[]; removed?: st
   );
 }
 
-export function StepCard({ step, isLast }: StepCardProps) {
+export function StepCard({ step, isLast, extraExpandedContent }: StepCardProps) {
   const [expanded, setExpanded] = useState(step.status === 'running');
 
   const StatusIcon = {
@@ -157,7 +164,8 @@ export function StepCard({ step, isLast }: StepCardProps) {
     executionData ||
     selectionReason ||
     decisionReasoning ||
-    relationshipGraph;
+    relationshipGraph ||
+    !!extraExpandedContent;
 
   return (
     <div
@@ -374,6 +382,11 @@ export function StepCard({ step, isLast }: StepCardProps) {
           {relationshipGraph && (
             <RelationshipGraph graph={relationshipGraph} />
           )}
+
+          {/* Caller-injected extras (e.g. the live tool-call console
+              that RuntimePanel hangs off the "Execute Agent Loop" step
+              so tool calls live under the step that owns them). */}
+          {extraExpandedContent}
         </div>
       )}
     </div>

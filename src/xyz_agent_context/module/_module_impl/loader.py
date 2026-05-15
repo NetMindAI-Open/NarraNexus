@@ -62,9 +62,35 @@ class ModuleLoader:
         "MessageBusModule",
     ]
 
-    # Always-loaded modules (no Instance record needed, loaded directly)
-    # These modules are independent of the database Instance mechanism and are always auto-loaded
-    ALWAYS_LOAD_MODULES = [
+    # Core modules that always load regardless of channel state.
+    # NOT including channel modules (Lark/Slack/Telegram/...) — those are
+    # auto-enrolled via `_channel_modules()` so adding a new IM means
+    # subclassing ChannelModuleBase + registering in MODULE_MAP, with
+    # zero changes here.
+    CORE_ALWAYS_LOAD = [
+        "SkillModule",
+        "CommonToolsModule",
+    ]
+
+    @classmethod
+    def _channel_modules(cls, module_map: Dict[str, type]) -> List[str]:
+        """All registered ChannelModuleBase subclasses (name-sorted)."""
+        # Lazy import — avoids circular dep with channel/ → module/.
+        from xyz_agent_context.channel.channel_module_base import ChannelModuleBase
+        return sorted(
+            name
+            for name, cls_ in module_map.items()
+            if isinstance(cls_, type) and issubclass(cls_, ChannelModuleBase)
+        )
+
+    @classmethod
+    def always_load_modules(cls, module_map: Dict[str, type]) -> List[str]:
+        """Effective always-load list: core + every ChannelModuleBase subclass."""
+        return list(cls.CORE_ALWAYS_LOAD) + cls._channel_modules(module_map)
+
+    # Backward-compat alias preserved for any external readers; internal sites
+    # below use ``always_load_modules(self.module_map)`` instead.
+    ALWAYS_LOAD_MODULES = [  # populated lazily on first use; see __init__
         "SkillModule",
         "LarkModule",
         "CommonToolsModule",
@@ -519,7 +545,7 @@ class ModuleLoader:
         selected_modules = module_name_list or self.DEFAULT_MODULE_LIST
 
         # Add always-loaded modules (if not already in the list)
-        for always_module in self.ALWAYS_LOAD_MODULES:
+        for always_module in self.always_load_modules(self.module_map):
             if always_module not in selected_modules:
                 selected_modules = list(selected_modules) + [always_module]
 
@@ -707,7 +733,7 @@ class ModuleLoader:
         """
         result = list(instances)
 
-        for module_name in self.ALWAYS_LOAD_MODULES:
+        for module_name in self.always_load_modules(self.module_map):
             # Check if already exists
             already_loaded = any(
                 inst.module_class == module_name

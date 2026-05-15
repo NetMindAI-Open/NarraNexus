@@ -176,7 +176,7 @@ create_service "backend" "Backend API" \
     "${UV_BIN} run uvicorn backend.main:app --host 127.0.0.1 --port 8000 --ws-ping-interval 30 --ws-ping-timeout 60"
 
 create_service "mcp" "MCP Server" \
-    "${UV_BIN} run python src/xyz_agent_context/module/module_runner.py mcp"
+    "${UV_BIN} run python -m xyz_agent_context.module.module_runner mcp"
 
 create_service "poller" "Module Poller" \
     "${UV_BIN} run python -m xyz_agent_context.services.module_poller"
@@ -187,12 +187,23 @@ create_service "jobs" "Job Trigger" \
 create_service "bus" "Bus Trigger" \
     "${UV_BIN} run python -m xyz_agent_context.message_bus.message_bus_trigger"
 
+# IM channel triggers — must mirror scripts/dev-local.sh so cloud and local
+# stay in lockstep. Missing any of these means the bot never receives events.
+create_service "lark" "Lark Trigger" \
+    "${UV_BIN} run python -m xyz_agent_context.module.lark_module.run_lark_trigger"
+
+create_service "slack" "Slack Trigger" \
+    "${UV_BIN} run python -m xyz_agent_context.module.slack_module.run_slack_trigger"
+
+create_service "telegram" "Telegram Trigger" \
+    "${UV_BIN} run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger"
+
 sudo systemctl daemon-reload
 echo -e "${G}  Systemd services created${R}"
 
 # --- Start services ---
 echo -e "${Y}[6/6] Starting services...${R}"
-for svc in backend mcp poller jobs bus; do
+for svc in backend mcp poller jobs bus lark slack telegram; do
     sudo systemctl enable "narranexus-${svc}" --quiet
     sudo systemctl restart "narranexus-${svc}"
     echo -e "  ${G}●${R} narranexus-${svc}"
@@ -221,5 +232,5 @@ echo -e "    sudo systemctl status narranexus-backend"
 echo -e "    sudo journalctl -u narranexus-backend -f"
 echo -e "    sudo systemctl restart narranexus-backend"
 echo ""
-echo -e "  All services: narranexus-{backend,mcp,poller,jobs,bus}"
+echo -e "  All services: narranexus-{backend,mcp,poller,jobs,bus,lark,slack,telegram}"
 echo -e "${G}============================================================${R}"

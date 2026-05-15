@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-04-21
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 — FileInfo becomes a recursive tree node
+
+`FileInfo` was flat (`filename`, `size`, `modified_at`). It now models a node
+in the workspace **directory tree**: `name`, `path` (workspace-relative),
+`is_dir`, `size`, `modified_at`, `children: Optional[List[FileInfo]]`.
+Directories carry a `children` list (possibly empty); regular files carry
+`children=None`. `FileListResponse.files` renamed to `tree`. Dotfolder
+filtering is server-side — `FileInfo` never represents a hidden node.
+`FileInfo.model_rebuild()` resolves the self-referential type hint. Pure
+shape change (no backward compat); frontend is updated in the same change.
+
+`FileDeleteResponse.filename` renamed to `path` because deletes accept nested
+relative paths now.
 
 # api_schema.py
 

@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { usePreloadStore, useChatStore, useConfigStore } from '@/stores';
+import { usePreloadStore, useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { api } from '@/lib/api';
 
 // ── Polling interval config ─────────────────────
@@ -54,6 +54,12 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
     refreshSocialNetwork,
   } = usePreloadStore();
 
+  // Artifacts are NOT polled on a timer (they're event-driven — see the
+  // mirror md). loadPinned is wired into refreshAll only, so a finished
+  // agent run reliably surfaces any artifact it created even if the
+  // mid-stream tool_output discovery path missed it.
+  const loadPinnedArtifacts = useArtifactStore((s) => s.loadPinned);
+
   // Keep latest ids in refs so interval callbacks never capture stale values
   const agentIdRef = useRef(agentId);
   const userIdRef = useRef(userId);
@@ -77,8 +83,9 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       refreshAwareness(aid),
       refreshChatHistory(aid, uid),
       refreshSocialNetwork(aid),
+      loadPinnedArtifacts(aid),
     ]);
-  }, [refreshAgentInbox, refreshJobs, refreshRAGFiles, refreshAwareness, refreshChatHistory, refreshSocialNetwork]);
+  }, [refreshAgentInbox, refreshJobs, refreshRAGFiles, refreshAwareness, refreshChatHistory, refreshSocialNetwork, loadPinnedArtifacts]);
 
   // ── Polling scheduler (all polls are silent) ──
 

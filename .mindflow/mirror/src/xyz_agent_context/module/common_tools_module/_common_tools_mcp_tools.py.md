@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_mcp_tools.py
-last_verified: 2026-04-21
+last_verified: 2026-05-08
 stub: false
 ---
 
@@ -50,6 +50,15 @@ CommonToolsModule MCP server 的薄入口层。它做两件事：
 - 新加 MCP 工具**必须**在 backend 文件里叠 `@with_mcp_timeout(N)`——没有这个，一次 bug 可以挂整个 MCP 容器所有 session
 - backend 选择在 `create_common_tools_mcp_server` 里判断，不在 top-level——所以 `BRAVE_API_KEY` 必须在进程启动时设置好，运行中改 env 不会切换 backend
 
+## 已注册的工具（当前）
+
+1. **web_search** — 按 env 选 Brave 或 DDGS backend（见 `web_search_ddgs_tool.py` / `web_search_brave_tool.py`）
+2. **create_artifact** — 文本 artifact 创建/迭代（HTML / ECharts JSON / CSV / Markdown）
+3. **upload_artifact_file** — 二进制 artifact 上传（PNG / JPEG / PDF）
+
+后两个由 `_common_tools_impl/artifact_tool.register(mcp)` 注册，在 web_search backend dispatch 之后执行。
+
 ## 相关约束
 
-- 详见 `.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_impl/web_search_ddgs_tool.py.md`——DDGS backend 全部实现细节在那
+- DDGS backend 细节：`.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_impl/web_search_ddgs_tool.py.md`
+- artifact tool 注册细节：`.mindflow/mirror/src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py.md`

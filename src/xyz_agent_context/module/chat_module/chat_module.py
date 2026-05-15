@@ -19,6 +19,7 @@ Note: ChatModule itself does not include "multi-turn conversation" capability; m
 """
 
 
+from datetime import timedelta
 from typing import Optional, Any, List, Dict
 from loguru import logger
 
@@ -79,7 +80,7 @@ from xyz_agent_context.bootstrap.template import BOOTSTRAP_GREETING
 _FAILED_TURN_ANNOTATION_TEMPLATE = (
     "[Previous turn failed before the agent could reply. "
     "The user's original question was: {original!r}. "
-    "An error ({error_type}) occurred and no reply was given. "
+    "Error type: {error_type}. Detail: {error_message}. "
     "Do NOT retry this question — focus on the current user input.]"
 )
 
@@ -117,20 +118,39 @@ def _synthesize_attachment_markers(
     return "\n".join(lines)
 
 
-def _detect_error_in_agent_loop(agent_loop_response: List[Any]) -> Optional[Dict[str, str]]:
-    """Scan ``agent_loop_response`` for an ``ErrorMessage`` and return the
-    first one's signal, or ``None`` if the turn succeeded.
+def _detect_fatal_error_in_agent_loop(
+    agent_loop_response: List[Any],
+) -> Optional[Dict[str, str]]:
+    """Scan ``agent_loop_response`` for a **fatal** ``ErrorMessage`` and
+    return its signal, or ``None`` if the turn either succeeded or only
+    saw recoverable errors.
+
+    Why "fatal" only: tearing down a whole turn into a `status=failed`
+    user-only row is the right answer for unrecoverable framework
+    errors (CLI timeout, SDK crash, auth failure) — the agent literally
+    cannot reply. But for recoverable signals (transient rate-limit,
+    one-shot 5xx that the SDK already retried, etc.) the agent loop
+    can keep going; treating those as turn-killers is exactly what
+    caused the "agent decided no response needed" baseline noise.
 
     Import is local so the module doesn't couple to ``runtime_message``
     at import time (keeps test fixtures simple)."""
     from xyz_agent_context.schema import ErrorMessage
     for msg in agent_loop_response:
-        if isinstance(msg, ErrorMessage):
-            return {
-                "error_type": msg.error_type,
-                "error_message": msg.error_message,
-            }
+        if not isinstance(msg, ErrorMessage):
+            continue
+        if getattr(msg, "severity", "fatal") != "fatal":
+            continue
+        return {
+            "error_type": msg.error_type,
+            "error_message": msg.error_message,
+        }
     return None
+
+
+# Backwards-compatible alias — existing tests / callers import the old
+# name. New code should use _detect_fatal_error_in_agent_loop directly.
+_detect_error_in_agent_loop = _detect_fatal_error_in_agent_loop
 
 
 def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -160,6 +180,7 @@ def _apply_failed_turn_filter(messages: List[Dict[str, Any]]) -> List[Dict[str, 
             annotated["content"] = _FAILED_TURN_ANNOTATION_TEMPLATE.format(
                 original=msg.get("content", ""),
                 error_type=meta.get("error_type", "unknown"),
+                error_message=meta.get("error_message", "no detail captured"),
             )
             out.append(annotated)
         # role == "assistant" with status=failed → drop
@@ -186,7 +207,8 @@ class ChatModule(XYZBaseModule):
     """
 
     # Short-term memory configuration parameters (2026-02-09 optimization: removed time limit)
-    SHORT_TERM_MAX_MESSAGES = 15    # Max short-term memory messages (most recent K across Narratives)
+    SHORT_TERM_MAX_MESSAGES = 15    # Hard cap on total short-term rows (across all other ChatModule instances)
+    SHORT_TERM_PER_INSTANCE = 5      # Per-instance cap before global merge (fairness — see _load_short_term_memory)
     # Note: Long-term memory count is controlled by EverMemOS retrieval top_k (see narrative/config.py)
 
     def __init__(
@@ -265,48 +287,103 @@ class ChatModule(XYZBaseModule):
     
     # ============================================================================= Hooks
 
-    def _extract_user_visible_response(self, agent_loop_response: list) -> str:
+    def _extract_user_visible_response(
+        self,
+        agent_loop_response: list,
+        working_source: str,
+    ) -> str:
+        """Extract user-visible reply text emitted during this turn.
+
+        Per-source dispatch via MessageSourceRegistry: each WorkingSource
+        (chat / lark / message_bus / job / …) registers which tool names
+        count as the agent replying to the user. Chat uses
+        send_message_to_user_directly; Lark also accepts lark_cli
+        +messages-send / +messages-reply; bus accepts its own bus_send;
+        etc. Without this dispatch, Lark turns where the agent really
+        did reply via lark_cli would be misclassified as "no response"
+        and persisted as activity rows — the actual P0 we are fixing.
         """
-        Extract user-visible response content from agent_loop_response
+        _im, direct, combined = self._split_user_visible_response(
+            agent_loop_response, working_source
+        )
+        if combined:
+            return combined
+        return "(Agent decided no response needed)"
 
-        Iterates through agent_loop_response, looking for ALL send_message_to_user_directly
-        tool calls, and concatenates their content. Agent may call this tool multiple times
-        in a single turn (e.g. sending a greeting then a detailed answer).
+    def _split_user_visible_response(
+        self,
+        agent_loop_response: list,
+        working_source: str,
+    ) -> tuple[str, str, str]:
+        """Split the user-visible response into IM-tool vs direct-notify halves.
 
-        Args:
-            agent_loop_response: Raw response list from Agent Loop, containing ProgressMessage etc.
+        For IM working_sources (telegram/slack/lark/...), the agent may
+        legitimately fire BOTH paths in one turn:
+          - the platform reply tool (tg_cli sendMessage, slack_cli
+            chat.postMessage, lark_cli +messages-send/reply), which goes
+            back to the IM sender;
+          - ``send_message_to_user_directly``, which surfaces in the
+            owner's chat panel for the "this is important, the owner
+            should know about it" carve-out spelled out in the iron
+            rules.
 
-        Returns:
-            str: Concatenated user-visible response content; returns default message if not called
+        Both currently get joined into one ``assistant_content`` string,
+        which means downstream consumers can't tell them apart. The
+        chat-history endpoint needs the split so it can render the
+        direct-notify text in full while replacing the routine IM reply
+        with a "Background activity" placeholder.
+
+        Returns ``(im_reply, direct_notify, combined)``:
+          - ``im_reply``: parts that came from non-direct platform tools.
+          - ``direct_notify``: parts from ``send_message_to_user_directly``.
+          - ``combined``: the original "\\n\\n"-joined string, preserved
+            for callers (long-term memory write, log lines) that want
+            the full picture.
+
+        For working_source="chat", direct_notify will hold everything
+        (the handler only matches ``send_message_to_user_directly``)
+        and im_reply will be empty — backward-compatible.
         """
         from xyz_agent_context.schema import ProgressMessage
-
-        parts = []
-        for response in agent_loop_response:
-            # Check if it's a ProgressMessage (tool calls are wrapped as ProgressMessage)
-            if isinstance(response, ProgressMessage) and response.details:
-                tool_name = response.details.get("tool_name", "")
-                # Match send_message_to_user_directly (frontend uses endsWith matching)
-                if tool_name.endswith("send_message_to_user_directly"):
-                    arguments = response.details.get("arguments", {})
-                    content = arguments.get("content", "")
-                    if content:
-                        parts.append(content)
-
-        if parts:
-            combined = "\n\n".join(parts)
-            logger.debug(
-                f"ChatModule._extract_user_visible_response: "
-                f"Extracted {len(parts)} reply(s), total length {len(combined)}"
-            )
-            return combined
-
-        # send_message_to_user_directly call not found
-        logger.debug(
-            "ChatModule._extract_user_visible_response: "
-            "send_message_to_user_directly tool call not found, Agent did not reply to user"
+        from xyz_agent_context.channel.message_source_handler import (
+            MessageSourceRegistry,
         )
-        return "(Agent decided no response needed)"
+
+        handler = MessageSourceRegistry.get(working_source)
+        im_parts: List[str] = []
+        direct_parts: List[str] = []
+        for response in agent_loop_response:
+            if not (isinstance(response, ProgressMessage) and response.details):
+                continue
+            tool_name = response.details.get("tool_name", "")
+            arguments = response.details.get("arguments", {})
+            reply = handler.extract_reply_text(tool_name, arguments)
+            if not reply:
+                continue
+            # send_message_to_user_directly is the owner-notify path
+            # regardless of which channel triggered the turn.
+            if "send_message_to_user_directly" in tool_name:
+                direct_parts.append(reply)
+            else:
+                im_parts.append(reply)
+
+        im_reply = "\n\n".join(im_parts)
+        direct_notify = "\n\n".join(direct_parts)
+        combined = "\n\n".join(p for p in (im_reply, direct_notify) if p)
+
+        if combined:
+            logger.info(
+                f"[CHAT-CTX] _split_user_visible_response: ws={working_source} "
+                f"handler={handler.name} im_parts={len(im_parts)} "
+                f"direct_parts={len(direct_parts)} total_len={len(combined)}"
+            )
+        else:
+            logger.info(
+                f"[CHAT-CTX] _split_user_visible_response: ws={working_source} "
+                f"handler={handler.name} no reply tool matched "
+                f"(checked patterns={handler.user_reply_tool_names})"
+            )
+        return im_reply, direct_notify, combined
 
     @staticmethod
     def _build_activity_summary(working_source: str, meta: dict) -> str:
@@ -376,6 +453,19 @@ class ChatModule(XYZBaseModule):
                         msg["meta_data"]["instance_id"] = instance_id
                         msg["meta_data"]["memory_type"] = "long_term"
 
+                        # Drop background activity rows — they are agent
+                        # housekeeping (Matrix/Lark cascade forwards a
+                        # job did not reply to a user about), not real
+                        # dialogue. Once Phase 2 lands new turns will
+                        # only get message_type=activity when the agent
+                        # truly did not reply to anyone; pre-existing
+                        # mislabelled rows from before that fix are no
+                        # longer salvageable (content was already
+                        # rewritten by _build_activity_summary), so
+                        # filtering loses nothing the LLM could use.
+                        if msg["meta_data"].get("message_type") == "activity":
+                            continue
+
                         # Messages from non-chat sources (job/a2a): only load assistant side
                         working_source = msg.get("meta_data", {}).get("working_source", "chat")
                         if working_source != "chat" and msg.get("role") != "assistant":
@@ -410,8 +500,13 @@ class ChatModule(XYZBaseModule):
                         f"[ChatHistory-A] Instance {instance_id}: {len(messages)} messages loaded"
                     )
 
-        # Limit to most recent 30 messages (Part A: recency-based)
-        MAX_RECENT_MESSAGES = 30
+        # Limit to most recent N messages (Part A: recency-based).
+        # 40 (raised from 30 on 2026-05-11) — long narratives were
+        # hitting the old cap and losing earlier context. 40 is a
+        # compromise: enough headroom for a meaningful conversation arc
+        # without bloating the prompt; if this becomes the limiting
+        # factor again, consider a token-based cap instead of a count.
+        MAX_RECENT_MESSAGES = 40
         if len(long_term_messages) > MAX_RECENT_MESSAGES:
             original_count = len(long_term_messages)
             long_term_messages = long_term_messages[-MAX_RECENT_MESSAGES:]
@@ -522,22 +617,34 @@ class ChatModule(XYZBaseModule):
             logger.debug("ChatModule._load_short_term_memory: No other ChatModule instances")
             return []
 
-        # Get messages from each instance (no longer time-limited)
-        short_term_messages = []
+        # Two-stage budgeting (2026-05-11 fairness fix):
+        # Stage A — per instance, keep only the most recent K rows
+        #          (SHORT_TERM_PER_INSTANCE = 5). Prevents one chatty
+        #          instance from saturating the 15-slot global cap and
+        #          starving every other narrative the user has touched.
+        # Stage B — flatten all instances' Stage-A survivors, sort by
+        #          timestamp descending, take SHORT_TERM_MAX_MESSAGES.
+        short_term_messages: List[Dict[str, Any]] = []
+        per_instance_kept = 0
 
         for instance in other_instances:
             memory = await self.event_memory_module.search_instance_json_format_memory(
                 module_name, instance.instance_id
             )
-
             if not memory or "messages" not in memory:
                 continue
 
             messages = memory.get("messages", [])
 
-            # Collect all messages (no longer filtered by time)
+            # Filter + tag this instance's messages.
+            keepers: List[Dict[str, Any]] = []
             for msg in messages:
                 meta = msg.get("meta_data", {})
+
+                # Same activity-row filter as long_term — see
+                # hook_data_gathering for the why.
+                if meta.get("message_type") == "activity":
+                    continue
 
                 # Messages from non-chat sources (job/a2a): only load assistant side
                 working_source = meta.get("working_source", "chat")
@@ -573,17 +680,26 @@ class ChatModule(XYZBaseModule):
                             ),
                         }
 
-                short_term_messages.append(msg)
+                keepers.append(msg)
 
-        # Sort by time, limit count
+            # Stage A: per-instance cap.
+            if len(keepers) > self.SHORT_TERM_PER_INSTANCE:
+                keepers.sort(
+                    key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
+                    reverse=True,
+                )
+                keepers = keepers[:self.SHORT_TERM_PER_INSTANCE]
+
+            short_term_messages.extend(keepers)
+            per_instance_kept += len(keepers)
+
+        # Stage B: global cap + final chronological ordering.
         if short_term_messages:
             short_term_messages.sort(
                 key=lambda m: m.get("meta_data", {}).get("timestamp", ""),
                 reverse=True
             )
-            # Take the most recent N messages
             short_term_messages = short_term_messages[:self.SHORT_TERM_MAX_MESSAGES]
-            # Sort by time in ascending order again
             short_term_messages.sort(
                 key=lambda m: m.get("meta_data", {}).get("timestamp", "")
             )
@@ -677,13 +793,26 @@ class ChatModule(XYZBaseModule):
 
         # Bootstrap greeting injection: if this is the first turn and bootstrap is active,
         # prepend the static greeting as the first assistant message so DB history starts with it.
+        #
+        # Timestamp anchor: must be strictly earlier than the user's first
+        # message, otherwise the chat-history API and the frontend timeline
+        # (both sort by meta_data.timestamp ascending) render the greeting
+        # AFTER the user's query bubble. event.created_at is turn-start,
+        # so we subtract 1ms; the fallback (no event) uses now()-1ms which
+        # also stays below the user message stamped a moment later.
         if len(messages) == 0 and getattr(params.ctx_data, 'bootstrap_active', False):
+            base_dt = (
+                params.event.created_at
+                if params.event is not None and params.event.created_at is not None
+                else utc_now()
+            )
+            greeting_ts_iso = (base_dt - timedelta(milliseconds=1)).isoformat()
             messages.append({
                 "role": "assistant",
                 "content": BOOTSTRAP_GREETING,
                 "meta_data": {
                     "event_id": params.event_id,
-                    "timestamp": utc_now().isoformat(),
+                    "timestamp": greeting_ts_iso,
                     "instance_id": instance_id,
                     "bootstrap": True,
                 }
@@ -748,15 +877,40 @@ class ChatModule(XYZBaseModule):
 
         user_meta = {**shared_meta, "timestamp": user_ts_iso}
 
-        # Bug 8: detect failure FIRST. If the agent loop raised, persist
-        # only the user question with status=failed so the next turn's
-        # prompt (after _apply_failed_turn_filter) shows an explicit
-        # "do not retry" annotation instead of a fake completed pair.
-        error_signal = _detect_error_in_agent_loop(params.agent_loop_response)
+        # Bug 8 + 2026-05-11: detect FATAL framework error first. Recoverable
+        # ErrorMessages (severity="recoverable") are intentionally NOT
+        # treated as turn-killers — they're agent-visible information, not
+        # framework failures. Only fatal errors (TimeoutError, SDK crash,
+        # auth failure, etc.) collapse the whole turn into a failed
+        # user-only row.
+        error_signal = _detect_fatal_error_in_agent_loop(params.agent_loop_response)
 
-        # Extract the user-visible response (from send_message_to_user_directly tool call)
-        assistant_content = self._extract_user_visible_response(params.agent_loop_response)
+        # Extract the user-visible response, dispatched by working_source
+        # so per-source reply tools (e.g. lark_cli for Lark) are recognised.
+        # We split into two parts so the chat-history endpoint can render
+        # the owner-notify text in full while the routine IM reply gets a
+        # "Background activity" placeholder. ``assistant_content`` keeps
+        # the combined form for long-term memory and log lines.
+        im_reply_content, direct_notify_content, assistant_content = (
+            self._split_user_visible_response(
+                params.agent_loop_response, working_source
+            )
+        )
+        if not assistant_content:
+            assistant_content = "(Agent decided no response needed)"
         is_no_response = assistant_content == "(Agent decided no response needed)"
+
+        # NOTE (2026-05-12): the previous "use io_data.final_output as
+        # reply" fallback was removed — it violated the thinking-vs-
+        # speaking design (final_output is the agent's internal reasoning,
+        # not a user-facing reply). The real no-reply recovery now lives
+        # one layer up: step_3_agent_loop detects a chat turn that ended
+        # without send_message_to_user_directly and asks the helper_llm
+        # to generate a real reply, streamed to the frontend and emitted
+        # as a synthetic send_message ProgressMessage. By the time we get
+        # here, _extract_user_visible_response will have already picked
+        # that up; if it didn't, the helper_llm fallback failed too and
+        # persisting a placeholder is the honest record.
 
         # Attachments forwarded by the trigger (WebSocket / Lark / etc.)
         # land in ctx_data.extra_data via context_runtime's
@@ -770,7 +924,14 @@ class ChatModule(XYZBaseModule):
                 turn_attachments = [a for a in raw if isinstance(a, dict)]
 
         if error_signal is not None:
-            # Failed turn: preserve user question (for reference), skip assistant.
+            # Fatal turn: preserve user question (for reference), skip assistant.
+            # Persist BOTH error_type and error_message so the next turn's
+            # annotation tells the agent (and ops) *why* it failed.
+            logger.warning(
+                f"[TURN-FAILED] event_id={params.event_id} working_source={working_source} "
+                f"error_type={error_signal['error_type']} "
+                f"error_message={error_signal['error_message'][:200]!r}"
+            )
             user_msg = {
                 "role": "user",
                 "content": params.input_content,
@@ -778,6 +939,7 @@ class ChatModule(XYZBaseModule):
                     **user_meta,
                     "status": "failed",
                     "error_type": error_signal["error_type"],
+                    "error_message": error_signal["error_message"],
                 },
             }
             if turn_attachments:
@@ -793,15 +955,48 @@ class ChatModule(XYZBaseModule):
             if turn_attachments:
                 user_msg["attachments"] = turn_attachments
             messages.append(user_msg)
+            asst_meta = {**assistant_meta}
+            # If the upstream agent loop's helper_llm fallback fired
+            # (see step_3_agent_loop._generate_fallback_reply_stream),
+            # it emits a synthetic send_message_to_user_directly
+            # ProgressMessage tagged details.reply_via="helper_llm_fallback".
+            # Surface that tag on the persisted row so observability
+            # tooling can tell organic vs. recovered replies apart.
+            for r in (params.agent_loop_response or []):
+                d = getattr(r, "details", None)
+                if isinstance(d, dict) and d.get("reply_via") == "helper_llm_fallback":
+                    asst_meta["reply_via"] = "helper_llm_fallback"
+                    break
+            # Stash the owner-notify portion on meta_data when the turn
+            # was IM-triggered AND the agent explicitly called
+            # send_message_to_user_directly. The chat-history endpoint
+            # shows this string verbatim, falling back to the
+            # "Background activity (...)" placeholder when absent. We
+            # only set it for non-chat triggers — on chat-triggered
+            # turns the assistant_content IS the owner-facing reply
+            # and the endpoint shows it as-is.
+            if working_source != "chat" and direct_notify_content:
+                asst_meta["owner_notify_content"] = direct_notify_content
             messages.append({
                 "role": "assistant",
                 "content": assistant_content,
-                "meta_data": {**assistant_meta},
+                "meta_data": asst_meta,
             })
+            if is_no_response:
+                logger.warning(
+                    f"[NO-REPLY] event_id={params.event_id} working_source={working_source} "
+                    f"agent_loop_response_size={len(params.agent_loop_response)} "
+                    f"final_output_empty=True — persisting placeholder. "
+                    f"Likely cancellation or LLM produced zero output."
+                )
         else:
             # Background task (job/lark/message_bus) where agent chose not to message user:
             # Store a lightweight activity record instead of a fake conversation pair
             activity_summary = self._build_activity_summary(working_source, shared_meta)
+            logger.info(
+                f"[NO-REPLY-BG] event_id={params.event_id} working_source={working_source} "
+                f"writing activity row (background trigger, no user-facing reply)"
+            )
             messages.append({
                 "role": "assistant",
                 "content": activity_summary,

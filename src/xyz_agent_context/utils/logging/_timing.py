@@ -35,9 +35,27 @@ _SLOW_LEVEL = "WARNING"
 
 class _Timed:
     """Re-entrant context manager + decorator. Holds the configuration;
-    a fresh start time is captured on every ``__enter__``."""
+    a fresh start time is captured on every ``__enter__``.
 
-    __slots__ = ("name", "level", "slow_threshold_ms", "_start")
+    Tags
+    ----
+    Callers can attach ad-hoc key=value tags to a timed scope to enrich
+    the emitted log line (e.g. record the model name actually used
+    inside an LLM call, since model selection often happens deep in the
+    stack and isn't visible from the call site). Use the context-manager
+    form to access ``.tag()``::
+
+        with timed("narrative.llm_judge") as t:
+            result = await sdk.llm_function(...)
+            t.tag(model=result_model_name, structured="fallback")
+
+    Tag values are stringified with ``str()`` on emit; pass primitives
+    only (numbers, strings, booleans). Tags emitted from a decorator-
+    form ``@timed(...)`` are not accessible — use the context-manager
+    form when you need them.
+    """
+
+    __slots__ = ("name", "level", "slow_threshold_ms", "_start", "_tags")
 
     def __init__(
         self,
@@ -50,18 +68,37 @@ class _Timed:
         self.level = level
         self.slow_threshold_ms = slow_threshold_ms
         self._start: float | None = None
+        self._tags: dict[str, Any] = {}
 
     def __enter__(self) -> "_Timed":
         self._start = time.monotonic()
+        # Reset tags on each enter so re-using the same _Timed across
+        # nested scopes (shouldn't happen, but defensive) doesn't leak
+        # tags from a prior scope.
+        self._tags = {}
         return self
+
+    def tag(self, **kwargs: Any) -> None:
+        """Attach key=value tags that will be appended to the emitted
+        ``[TIMED]`` log line on exit. Safe to call multiple times — last
+        value wins for a given key. No-op if called from a decorator-form
+        scope (the caller has no reference to the timer)."""
+        self._tags.update(kwargs)
+
+    def _format_tags(self) -> str:
+        if not self._tags:
+            return ""
+        return " " + " ".join(f"{k}={v}" for k, v in self._tags.items())
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         elapsed_ms = (time.monotonic() - (self._start or time.monotonic())) * 1000.0
+        tag_suffix = self._format_tags()
         if exc_type is not None:
             logger.exception(
-                "[TIMED] {name} failed elapsed_ms={ms:.1f}",
+                "[TIMED] {name} failed elapsed_ms={ms:.1f}{tags}",
                 name=self.name,
                 ms=elapsed_ms,
+                tags=tag_suffix,
             )
             return False  # propagate
         level = self.level
@@ -72,9 +109,10 @@ class _Timed:
             level = _SLOW_LEVEL
         logger.log(
             level,
-            "[TIMED] {name} ok elapsed_ms={ms:.1f}",
+            "[TIMED] {name} ok elapsed_ms={ms:.1f}{tags}",
             name=self.name,
             ms=elapsed_ms,
+            tags=tag_suffix,
         )
         return False
 

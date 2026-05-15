@@ -1,7 +1,80 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-04-27
+last_verified: 2026-05-08
+---
+
+## 2026-05-08 — Phase 2: refactor onto `ChannelTriggerBase`
+
+`LarkTrigger` is now a subclass of `xyz_agent_context.channel.channel_trigger_base.ChannelTriggerBase`.
+The channel-agnostic 80% of the previous monolith is gone — Worker pool,
+credential watcher, audit log, dedup store, inbox writer, and start/stop
+machinery all inherit from the base. What remains here is the Lark-only
+20%: SDK threading + `_ThreadLocalLoopProxy` (H-6), bot open_id cache
+(M-6), `lark_cli` tool-call output extraction, IM-friendly error rendering.
+
+### What inherits from `ChannelTriggerBase`
+
+- `start()` / `stop()` lifecycle (Lark `start()` overrides to inject
+  Lark dedup tunables + boot the `/healthz` server)
+- `_credential_watcher` (calls our `load_active_credentials`)
+- `_adjust_workers` / `_prune_dead_workers` / `_desired_worker_count`
+- `_audit` helper writing to `channel_trigger_audit` (channel="lark")
+- `_maybe_heartbeat` / `_run_cleanup`
+- `_dedup_store` is a `ChannelDedupStore` writing to
+  `channel_seen_messages` (channel="lark")
+
+### What's overridden / Lark-specific
+
+- `_subscribe_loop` — Lark's SDK threading model needs daemon threads +
+  fresh per-thread asyncio loops (`_ThreadLocalLoopProxy` + H-6 fix). The
+  base's `async for raw in connect()` shape doesn't fit; we override.
+- `connect()` — abstract method satisfied by `raise NotImplementedError`;
+  Lark drives via `_subscribe_loop` directly.
+- `parse_event(raw)` — converts dict to ParsedMessage, stashes raw in
+  `.raw` for `is_echo` to read `sender_type`.
+- `is_echo(message, credential)` — two-layer check (sender_type +
+  bot open_id cached on `(agent_id, app_id)`, M-6).
+- `extract_output(result, message, credential)` — Lark scrapes
+  `lark_cli` tool-call args (agent doesn't emit text directly).
+- `format_error_reply(error)` — IM-friendly text via
+  `format_lark_error_reply` (sender often isn't the agent owner).
+- `_build_and_run_agent` — accepts both old 7-arg signature (legacy
+  tests) and new (cred, message, sender_name) signature.
+- `_worker` — defensive `message.message_id` extraction handling both
+  dict and ParsedMessage on the queue (legacy test surface).
+- `_stop_subscriber` — clears `_bot_open_ids` cache (M-6) on top of
+  base's stop logic.
+
+### Backward-compat shims kept for the 146 existing Lark tests
+
+- `_dedup_and_enqueue(cred, dict)` — runs dedup + audit + enqueues a
+  ParsedMessage (writes the rich INFO log + content_preview audit
+  details on entry, before the dedup decision).
+- `_check_and_classify_event(dict)`, `_should_process_event(dict)` —
+  delegate to the base's `_dedup_store.classify`. Sync baseline from
+  `_startup_time_ms` and `_last_ws_connected_wallclock_ms` on every
+  call (monotonic) so tests that poke `_startup_time_ms` directly
+  still get the right historic-replay behaviour.
+- `_process_message(cred, dict_or_msg, worker_id=0)` — accepts both
+  shapes. Production uses ParsedMessage; legacy tests use dict.
+- `_seen_repo`, `_audit_repo`, `_seen_messages`, `_seen_lock`
+  property shims.
+- `_write_to_inbox(cred, ...)` — delegates to `ChannelInboxWriter`.
+- `_sanitize_display_name` — alias to base's `sanitize_display_name`.
+- `_is_echo(cred, raw_dict, sender_id)` — legacy signature wrapper.
+
+### Tables: writes go to `channel_*` now
+
+- New writes: `channel_seen_messages`, `channel_trigger_audit` (with
+  `channel="lark"`).
+- Legacy `lark_seen_messages` and `lark_trigger_audit` tables remain in
+  `schema_registry.py` for safe rollback. Tests that explicitly
+  construct `LarkSeenMessageRepository(db)` / `LarkTriggerAuditRepository(db)`
+  and assign them to `_seen_repo` / `_audit_repo` still work via the
+  property shims (data lands in legacy tables for those tests). Phase 2.5
+  cleanup PR drops the legacy tables + shims after the migration window.
+
 ---
 
 ## 2026-04-27 — H-6 (part 2): replace SDK module-global `loop` with thread-local proxy

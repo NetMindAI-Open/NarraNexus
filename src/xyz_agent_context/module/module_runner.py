@@ -93,8 +93,11 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client
 # Default Configuration
 # =============================================================================
 
-# Modules that have MCP servers and their fixed ports.
-DEFAULT_MCP_MODULES = [
+# Core MCP-bearing modules (NOT channels). Channel modules (Lark, Slack,
+# Telegram, ...) are auto-discovered via `discover_channel_modules` so adding
+# a new IM channel needs zero edits here — just subclass ChannelModuleBase
+# with `mcp_port = NNNN` and register in MODULE_MAP.
+CORE_MCP_MODULES = [
     "AwarenessModule",      # port: 7801
     "ChatModule",           # port: 7804
     "SocialNetworkModule",  # port: 7802
@@ -102,11 +105,8 @@ DEFAULT_MCP_MODULES = [
     "SkillModule",          # port: 7806
     "CommonToolsModule",    # port: 7807
     "MessageBusModule",     # port: 7820
-    "LarkModule",           # port: 7830
 ]
-
-# Port reference (for documentation only - actual ports are set in each module)
-MODULE_PORTS = {
+CORE_MODULE_PORTS = {
     "AwarenessModule": 7801,
     "ChatModule": 7804,
     "SocialNetworkModule": 7802,
@@ -114,8 +114,57 @@ MODULE_PORTS = {
     "SkillModule": 7806,
     "CommonToolsModule": 7807,
     "MessageBusModule": 7820,
-    "LarkModule": 7830,
 }
+
+
+def discover_channel_modules(
+    module_map: dict,
+) -> tuple[list[str], dict[str, int]]:
+    """Walk MODULE_MAP for ChannelModuleBase subclasses; pull their mcp_port.
+
+    Returns (sorted_names, ports_dict). Subclasses MUST define class attr
+    ``mcp_port: int`` — raises ValueError otherwise to fail loud at import
+    rather than silently leaving a port un-bound.
+    """
+    # Lazy import to avoid circular dep with channel/ → module/
+    from xyz_agent_context.channel.channel_module_base import ChannelModuleBase
+
+    names: list[str] = []
+    ports: dict[str, int] = {}
+    for name, cls in module_map.items():
+        if isinstance(cls, type) and issubclass(cls, ChannelModuleBase):
+            names.append(name)
+            port = getattr(cls, "mcp_port", None)
+            if not port:
+                raise ValueError(
+                    f"{name}: ChannelModuleBase subclass must define mcp_port"
+                )
+            ports[name] = port
+    return sorted(names), ports
+
+
+def all_mcp_modules() -> list[str]:
+    """All MCP-bearing modules (core + every ChannelModuleBase subclass)."""
+    from xyz_agent_context.module import MODULE_MAP
+
+    ch_names, _ = discover_channel_modules(MODULE_MAP)
+    return list(CORE_MCP_MODULES) + ch_names
+
+
+def all_module_ports() -> dict[str, int]:
+    """All MCP module ports (core + every ChannelModuleBase subclass)."""
+    from xyz_agent_context.module import MODULE_MAP
+
+    _, ch_ports = discover_channel_modules(MODULE_MAP)
+    return {**CORE_MODULE_PORTS, **ch_ports}
+
+
+# ── Legacy aliases (defensive — external readers / CLI scripts may
+#    have grabbed `module_runner.all_mcp_modules()` / `MODULE_PORTS`).
+#    These are computed once at import; if MODULE_MAP changes after import
+#    (rare), use `all_mcp_modules()` / `all_module_ports()` instead.
+DEFAULT_MCP_MODULES = all_mcp_modules()
+MODULE_PORTS = all_module_ports()
 
 
 class ModuleRunner:
@@ -181,10 +230,10 @@ class ModuleRunner:
             classes = runner._resolve_modules([AwarenessModule, JobModule])
 
             # Default
-            classes = runner._resolve_modules(None)  # Uses DEFAULT_MCP_MODULES
+            classes = runner._resolve_modules(None)  # Uses all_mcp_modules()
         """
         if modules is None:
-            modules = DEFAULT_MCP_MODULES
+            modules = all_mcp_modules()
 
         resolved = []
         for module in modules:
@@ -293,7 +342,7 @@ class ModuleRunner:
         Args:
             agent_id: Agent ID for data isolation
             user_id: User ID (defaults to agent_id)
-            modules: List of module names or classes (default: DEFAULT_MCP_MODULES)
+            modules: List of module names or classes (default: all_mcp_modules())
 
         Example:
             runner = ModuleRunner()
@@ -549,7 +598,7 @@ class ModuleRunner:
         Args:
             agent_id: Agent ID for MCP data isolation
             user_id: User ID (defaults to agent_id)
-            modules: Module names or classes (default: DEFAULT_MCP_MODULES)
+            modules: Module names or classes (default: all_mcp_modules())
             api_host: A2A API host (default: "0.0.0.0")
             api_port: A2A API port (default: 8000)
         """
@@ -630,7 +679,7 @@ class ModuleRunner:
         Returns:
             List of default MCP module names
         """
-        return DEFAULT_MCP_MODULES.copy()
+        return all_mcp_modules().copy()
 
 
 def _is_sqlite_mode() -> bool:
@@ -731,7 +780,7 @@ Supported JSON-RPC Methods:
             # List available modules
             print("\n📦 Available Modules:")
             for name in runner.list_available_modules():
-                is_default = "✓" if name in DEFAULT_MCP_MODULES else " "
+                is_default = "✓" if name in all_mcp_modules() else " "
                 print(f"   [{is_default}] {name}")
             print("\n   ✓ = Included in default MCP deployment\n")
         elif command == "help" or command == "-h" or command == "--help":

@@ -9,7 +9,7 @@ Endpoints:
   POST   /api/lark/auth/complete — Complete OAuth with device code
   GET    /api/lark/auth/status   — Check login status
   POST   /api/lark/test          — Test connection
-  DELETE /api/lark/unbind        — Unbind a Lark bot
+  POST   /api/lark/unbind        — Unbind a Lark bot
   GET    /api/lark/credential    — Get credential info for an agent
 """
 
@@ -230,9 +230,13 @@ async def test_lark_connection(request: Request, body: AgentRequest) -> dict[str
     )
 
 
-@router.delete("/unbind")
+@router.post("/unbind")
 async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any]:
-    """Unbind Lark bot from agent. Removes CLI profile and DB record."""
+    """Unbind Lark bot from agent. Removes CLI profile and DB record.
+
+    POST not DELETE: some proxies strip DELETE bodies. See
+    ``backend/routes/slack.py:unbind_slack_bot`` for rationale.
+    """
     auth_err = await _verify_agent_ownership(request, body.agent_id)
     if auth_err:
         return {"success": False, "error": auth_err}

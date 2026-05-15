@@ -24,7 +24,10 @@ Category derivation:
 
 Out-of-scope for MVP (kept as future fields, intentionally not added now):
 - `caption: Optional[str]` — vision-LLM-pre-generated description (Path B)
-- `transcript: Optional[str]` — STT output for audio/video
+
+Active fields populated outside MVP:
+- `transcript: Optional[str]` — Whisper STT output, set by the upload
+  route for audio/* MIME types (Phase 1 of multimodal audio support).
 """
 
 from __future__ import annotations
@@ -137,7 +140,27 @@ class Attachment(BaseModel):
 
     transcript: Optional[str] = Field(
         default=None,
-        description="Reserved for future audio/video transcription output.",
+        description=(
+            "Whisper transcription output. Set by the attachment upload "
+            "route for audio/* MIME types when the user has any "
+            "OpenAI-protocol provider configured. None means either "
+            "non-audio file or transcription was unavailable / failed."
+        ),
+    )
+
+    source: Optional[str] = Field(
+        default=None,
+        description=(
+            "How the attachment was produced — set by the upload route "
+            "from the request's ``source`` query param. ``'recording'`` "
+            "means the in-browser AudioRecorder captured a voice memo; "
+            "``'upload'`` (or None on legacy rows) means a regular file "
+            "upload (Paperclip / drag-drop / paste). The backend treats "
+            "both identically (Whisper still runs for audio/*); the "
+            "field exists so the frontend can render voice memos as "
+            "transcript-only and file uploads as ordinary chips even "
+            "when both carry transcripts."
+        ),
     )
 
     def synthesize_marker(self, agent_id: str, user_id: str) -> str:
@@ -149,6 +172,13 @@ class Attachment(BaseModel):
         natively returns image / PDF / text content blocks). No custom
         MCP tool is needed — Anthropic's SDK ships with the right
         primitive.
+
+        For audio/* uploads with a populated `transcript`, the
+        transcribed text is appended to the marker so the agent reads
+        the spoken content directly without a separate Read step. If
+        `transcript` is empty/None the marker reverts to its non-audio
+        shape, signalling that the agent should fall back to Read (or
+        tell the user the audio could not be transcribed).
 
         If path resolution fails (file removed / orphan reference), the
         marker still announces the upload but tells the agent the file
@@ -163,8 +193,12 @@ class Attachment(BaseModel):
         path = resolve_attachment_path(agent_id, user_id, self.file_id)
         path_str = str(path) if path is not None else "<unavailable>"
         kind = self.category.value
-        return (
-            f"[User uploaded {kind}: name={self.original_name}, "
-            f"path={path_str}, mime={self.mime_type} "
-            f"— use Read tool to view]"
-        )
+
+        parts = [
+            f"[User uploaded {kind}: name={self.original_name}",
+            f"path={path_str}",
+            f"mime={self.mime_type}",
+        ]
+        if self.transcript:
+            parts.append(f"transcript={self.transcript}")
+        return ", ".join(parts) + " — use Read tool to view]"

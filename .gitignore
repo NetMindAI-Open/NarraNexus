@@ -27,6 +27,7 @@ AGENT.md
 
 # ── Superpowers worktrees (must remain untracked) ─────────────────────────
 /.worktrees/
+/.superpowers/
 
 # ── Python bytecode & cache ────────────────────────────────────────────────
 __pycache__/
@@ -110,3 +111,6 @@ scripts/.control.sh
 
 # Local production planning notes
 /production_plan/
+
+# Local audio fixtures for manual transcription testing
+/test_assets/

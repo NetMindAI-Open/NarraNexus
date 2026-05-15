@@ -12,7 +12,7 @@ Design principles:
 - State separation: does not directly modify state, but returns processing results for the caller to use
 """
 
-from typing import Union, Optional
+from typing import Iterator, Union, Optional
 from dataclasses import dataclass
 from enum import Enum
 from loguru import logger
@@ -25,6 +25,7 @@ from xyz_agent_context.schema import (
     AgentToolCall,
     ErrorMessage,
 )
+from ._thinking_batcher import _ThinkingBatcher
 from .execution_state import ExecutionState
 from ._agent_runtime_steps.step_display import (
     format_tool_call_for_display,
@@ -65,55 +66,114 @@ class ResponseProcessor:
     Converts raw responses from ClaudeAgentSDK into typed messages.
     Extracted from AgentRuntime._process_agent_response.
 
+    As of Phase B (2026-05-13) ``process`` is a GENERATOR yielding 0..N
+    ``ProcessedResponse`` per raw response — to support thinking-delta
+    coalescing where a single thinking_item input may not produce an
+    output (still buffered) and a non-thinking input may produce TWO
+    outputs (residual thinking flush + the actual non-thinking event).
+
+    Per-instance state: a ``_ThinkingBatcher`` that coalesces consecutive
+    thinking_item chunks into ~100 ms WebSocket frames. The batcher's
+    lifetime is one ResponseProcessor instance == one agent turn ==
+    per-run (iron rule decision: Q1 → per-run).
+
     Usage:
         >>> processor = ResponseProcessor()
         >>> state = ExecutionState()
         >>> for raw_response in agent_loop():
-        ...     result = processor.process(raw_response, state)
+        ...     for result in processor.process(raw_response, state):
+        ...         if result.message:
+        ...             yield result.message
+        ...         state = processor.apply_state_update(state, result)
+        >>> # End-of-stream — flush any residual thinking buffer
+        >>> for result in processor.flush_pending(state):
         ...     if result.message:
         ...         yield result.message
         ...     state = processor.apply_state_update(state, result)
     """
 
+    def __init__(self) -> None:
+        self._thinking_batcher = _ThinkingBatcher()
+
     def process(
         self,
         response: dict,
         state: ExecutionState
-    ) -> ProcessedResponse:
+    ) -> Iterator[ProcessedResponse]:
         """
-        Process a single Agent Loop response
+        Process a single Agent Loop response. Yields 0..N ProcessedResponse.
 
-        Args:
-            response: Raw response from ClaudeAgentSDK
-            state: Current execution state (used for count information)
-
-        Returns:
-            ProcessedResponse: Processing result
+        Most raw events yield exactly one ProcessedResponse — backward
+        compatible. Thinking events may yield zero (still buffering) or
+        one (flush triggered). Non-thinking events may yield two
+        (residual thinking flush THEN the actual event) to preserve
+        the user-visible chronological order.
         """
         logger.debug(f"Response[{state.response_count + 1}]: {response}")
 
         if not isinstance(response, dict):
-            return ProcessedResponse(
+            yield ProcessedResponse(
                 type=ResponseType.OTHER,
                 message=response,
                 state_update={"method": "increment_response", "args": {}}
             )
+            return
 
         response_type = response.get("type")
 
         # Handle raw_response_event (text output, completion markers, etc.)
         if response_type == "raw_response_event":
-            return self._handle_raw_response_event(response, state)
+            # Non-thinking event arriving — flush any residual thinking
+            # FIRST so the front-end sees thinking → text in the actual
+            # order the LLM produced it.
+            yield from self._flush_thinking_residual(state)
+            yield self._handle_raw_response_event(response, state)
+            return
 
         # Handle run_item_stream_event (tool calls, tool results, etc.)
         if response_type == "run_item_stream_event":
-            return self._handle_run_item_stream_event(response, state)
+            yield from self._handle_run_item_stream_event(response, state)
+            return
 
-        # Other types of responses
-        return ProcessedResponse(
+        # Other types of responses — also flush thinking residual to be safe
+        yield from self._flush_thinking_residual(state)
+        yield ProcessedResponse(
             type=ResponseType.OTHER,
             message=response,
             state_update={"method": "increment_response", "args": {}}
+        )
+
+    def flush_pending(self, state: ExecutionState) -> Iterator[ProcessedResponse]:
+        """Emit any residual buffered thinking content. Caller MUST
+        invoke this once after the agent_loop ends (normal end,
+        cancellation, exception) so the user does not silently lose
+        the last partial thinking buffer.
+
+        Returns an iterator — yields 0 or 1 ProcessedResponse.
+        """
+        yield from self._flush_thinking_residual(state)
+
+    def _flush_thinking_residual(
+        self, state: ExecutionState
+    ) -> Iterator[ProcessedResponse]:
+        """If the thinking batcher has buffered content, emit it as a
+        single AgentThinking message and clear the buffer."""
+        if not self._thinking_batcher.has_pending():
+            return
+        residual = self._thinking_batcher.flush_ws()
+        if not residual:
+            return
+        thinking_display = format_thinking_for_display(residual)
+        yield ProcessedResponse(
+            type=ResponseType.THINKING,
+            message=AgentThinking(thinking_content=residual),
+            state_update={
+                "method": "record_thinking",
+                "args": {
+                    "content": residual,
+                    "display": thinking_display,
+                },
+            },
         )
 
     def apply_state_update(
@@ -170,14 +230,27 @@ class ResponseProcessor:
 
         if data_type == "response.error":
             # API error (rate limit, auth failure, quota exhaustion, etc.)
+            # surfaced inline by the SDK while the stream is still alive.
+            #
+            # Pre-2026-05-11 behaviour: chat_module saw any ErrorMessage in
+            # agent_loop_response and tore the whole turn down into a
+            # failed user-only row. That meant a transient rate-limit blip
+            # mid-loop killed turns that had already produced useful
+            # output. Now we tag these as severity="recoverable" so the
+            # turn keeps assembling — the agent loop may still complete
+            # with a valid reply, and chat_module's fatal-only detector
+            # leaves it alone. Auth/quota errors are still surfaced to the
+            # user via the yielded ErrorMessage (frontend renders it as a
+            # warning) and logged here for ops visibility.
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
-            logger.error(f"API error ({error_type}): {error_message}")
+            logger.error(f"[AGENT-LOOP-RECOVERABLE] API error ({error_type}): {error_message}")
             return ProcessedResponse(
                 type=ResponseType.ERROR,
                 message=ErrorMessage(
                     error_message=error_message,
                     error_type=error_type,
+                    severity="recoverable",
                 ),
                 state_update={"method": "increment_response", "args": {}}
             )
@@ -222,10 +295,44 @@ class ResponseProcessor:
         self,
         response: dict,
         state: ExecutionState
-    ) -> ProcessedResponse:
-        """Handle run_item_stream_event type responses"""
+    ) -> Iterator[ProcessedResponse]:
+        """Handle run_item_stream_event type responses.
+
+        Generator: yields 0..2 ProcessedResponse per input. A thinking
+        item buffers and may yield nothing (still accumulating) or one
+        coalesced AgentThinking. Non-thinking items first flush any
+        residual buffered thinking THEN yield themselves — two outputs
+        — so the visible chronological order tracks the LLM's actual
+        emission order."""
         item = response.get("item", {})
         item_type = item.get("type")
+
+        if item_type == "thinking_item":
+            # Buffer into the WS-tier batcher. May or may not produce
+            # an emission this round. The DB-tier (per-segment) flush
+            # is added in Phase C alongside event_stream persistence.
+            thinking_content = item.get("content", "")
+            coalesced = self._thinking_batcher.append_thinking(thinking_content)
+            if coalesced is None:
+                return  # still buffering
+            thinking_display = format_thinking_for_display(coalesced)
+            logger.info(f"  💭 Thinking flush: {len(coalesced)} chars (coalesced)")
+            yield ProcessedResponse(
+                type=ResponseType.THINKING,
+                message=AgentThinking(thinking_content=coalesced),
+                state_update={
+                    "method": "record_thinking",
+                    "args": {
+                        "content": coalesced,
+                        "display": thinking_display,
+                    },
+                },
+            )
+            return
+
+        # Any non-thinking item — flush thinking residual FIRST so the
+        # user sees thinking → tool_call in the correct order.
+        yield from self._flush_thinking_residual(state)
 
         if item_type == "tool_call_item":
             # Tool call - use ProgressMessage to display in the step panel
@@ -243,7 +350,7 @@ class ResponseProcessor:
                 is_completed=False
             )
 
-            return ProcessedResponse(
+            yield ProcessedResponse(
                 type=ResponseType.TOOL_CALL,
                 message=ProgressMessage(
                     step=f"3.4.{tool_count}",
@@ -265,6 +372,7 @@ class ResponseProcessor:
                     }
                 }
             )
+            return
 
         if item_type == "tool_call_output_item":
             # Tool call result - update the corresponding tool call status to completed
@@ -296,7 +404,7 @@ class ResponseProcessor:
                 is_completed=True
             )
 
-            return ProcessedResponse(
+            yield ProcessedResponse(
                 type=ResponseType.TOOL_OUTPUT,
                 message=ProgressMessage(
                     step=f"3.4.{tool_output_num}",
@@ -313,29 +421,12 @@ class ResponseProcessor:
                     "args": {"output": output}
                 }
             )
+            return
 
-        if item_type == "thinking_item":
-            # Thinking process - use AgentThinking type, matching the message format expected by the frontend
-            thinking_content = item.get("content", "")
-            logger.info(f"  💭 Thinking: {len(thinking_content)} chars")
-
-            # User-friendly display
-            thinking_display = format_thinking_for_display(thinking_content)
-
-            return ProcessedResponse(
-                type=ResponseType.THINKING,
-                message=AgentThinking(thinking_content=thinking_content),
-                state_update={
-                    "method": "record_thinking",
-                    "args": {
-                        "content": thinking_content,
-                        "display": thinking_display  # User-friendly display data
-                    }
-                }
-            )
-
-        # Other types of items
-        return ProcessedResponse(
+        # Other types of items (NOTE: thinking_item is handled at the top
+        # of this method via the _ThinkingBatcher path — the legacy
+        # branch is intentionally removed)
+        yield ProcessedResponse(
             type=ResponseType.OTHER,
             message=response,
             state_update={"method": "increment_response", "args": {}}

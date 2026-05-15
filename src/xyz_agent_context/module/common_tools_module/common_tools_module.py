@@ -112,6 +112,67 @@ Rules:
   fabricate content.
 - Do NOT modify or delete user-uploaded files unless the user explicitly
   asks you to.
+
+#### Visual Artifacts — write files, then register
+
+You can surface rich visual artifacts in a dedicated tab right next to the
+chat: interactive charts, styled HTML pages and apps (entry HTML +
+sibling assets), formatted reports and tables, images, PDFs. They render at
+full fidelity — far better than dumping numbers or ASCII tables into a chat
+message.
+
+Treat artifacts as a first-class part of your response, not an extra step.
+Whenever a chart, page, table or report would make your answer clearer,
+build it and register it directly as part of doing the task — no need to
+announce it first.
+
+How it works:
+
+1. Write the artifact file(s) somewhere in your workspace. Files are
+   invisible to the user until you register them.
+2. Call `register_artifact` with the entry file's path — it returns
+   `{artifact_id, url}` and the tab appears.
+
+`register_artifact` only registers a **pointer**. It does not move or copy
+your files — keep them in place. Deleting an artifact also only removes the
+tab from the registry; your workspace files stay where you wrote them and
+are yours to clean up (or keep) via the workspace section.
+
+**Updating an existing artifact.** Once registered, you can edit the file(s)
+in your workspace freely — the registry just holds a pointer, so the bytes
+the user sees are whatever is on disk at fetch time. **But the frontend
+won't reload automatically.** To make the user see your update, call
+`register_artifact` **again** with `target_artifact_id=<the existing
+artifact_id>` (other args optional — same path, same kind, same title is
+fine). That second call is the refresh signal the frontend listens for: it
+re-fetches the entry HTML and any sibling assets, so the tab shows your
+latest edit. Don't keep registering new tabs for iterations — re-register
+the same id.
+
+**Sibling-asset capability.** When the entry lives in a subdirectory, the
+public-raw route serves that whole folder — so an entry HTML can reference
+siblings with relative paths (`./style.css`, `./data.json`, images) and they
+all load. So for multi-file artifacts (HTML page/app with assets), write the
+files into a dedicated subdirectory and register the entry inside it.
+Single-file artifacts (one CSV / Markdown / JSON / image / PDF) can sit
+anywhere, including the workspace root.
+
+You can always check your current artifact registry in the "Your registered
+artifacts" block that's injected each turn — it tells you the ids, kinds,
+titles and workspace paths of everything you have live right now, so you
+know what to `target_artifact_id` at vs. when to create a new tab.
+
+The tool description on `register_artifact` carries the exact `kind` values
+and parameters — follow that.
+
+Guidance:
+- For numbers, trends, comparisons or distributions, default to an ECharts
+  artifact (a JSON file containing the ECharts `option` object) — not a
+  markdown table, and never an ASCII table in chat.
+- Don't paste the artifact URL into your reply — the UI already shows the tab.
+- If `register_artifact` returns an error, the error text states the cause
+  (path outside workspace, file missing, too large, quota); fix the inputs
+  and call again — a failed call never blocks you and is safe to retry.
 """
 
 
@@ -143,35 +204,98 @@ class CommonToolsModule(XYZBaseModule):
         return ctx_data
 
     async def get_instructions(self, ctx_data: ContextData) -> str:
-        """Return the static base instruction plus a dynamic block listing
-        the absolute paths of files attached to the *current* turn.
+        """Return the static base instruction plus two dynamic blocks:
 
-        The dynamic block is built from `ctx_data.extra_data["attachments"]`,
-        which the trigger layer (WebSocket / Lark / Job / ...) populates
-        with the user's upload metadata for this run. Path resolution
-        lives in `xyz_agent_context.utils.attachment_storage`.
+        1. *Attached files* for this turn — built from
+           `ctx_data.extra_data["attachments"]`, populated by the trigger
+           layer (WebSocket / Lark / Job / ...). Resolution lives in
+           `utils/attachment_storage`.
+        2. *Registered artifacts* the agent has live RIGHT NOW — pulled
+           fresh from `ArtifactRepository.list_pinned(agent_id)` so the
+           agent always sees the current set (id, kind, title, workspace
+           path) and can decide whether to re-register an existing one
+           vs. create a new one. This is the data-gathering surface for
+           the artifact registry.
         """
         from xyz_agent_context.utils.attachment_storage import (
             format_attachments_for_system_prompt,
         )
 
+        sections = [self.instructions]
+
+        # ── attachments for this turn ────────────────────────────────────
         attachments = []
         if ctx_data.extra_data:
             raw = ctx_data.extra_data.get("attachments")
             if isinstance(raw, list):
                 attachments = raw
+        if attachments:
+            appendix = format_attachments_for_system_prompt(
+                attachments,
+                agent_id=self.agent_id,
+                user_id=self.user_id or "",
+            )
+            if appendix:
+                sections.append(appendix)
 
-        if not attachments:
-            return self.instructions
+        # ── live artifact registry ───────────────────────────────────────
+        artifact_block = await self._render_artifact_state_block()
+        if artifact_block:
+            sections.append(artifact_block)
 
-        appendix = format_attachments_for_system_prompt(
-            attachments,
-            agent_id=self.agent_id,
-            user_id=self.user_id or "",
+        return "\n\n".join(sections)
+
+    async def _render_artifact_state_block(self) -> str:
+        """Build the 'Your registered artifacts' appendix for this turn.
+
+        Lists every pinned (agent-scoped) artifact this agent owns. Each
+        line is `art_id [kind] "title" → workspace/relative/path`. Paths
+        are made workspace-relative (the `{agent_id}_{user_id}/` prefix
+        is stripped from the DB-stored path) because that's the form the
+        agent's Write/Edit tools see.
+
+        Returns an empty string on DB errors (the rest of the instruction
+        is still useful; this block is best-effort).
+        """
+        if not self.db:
+            return ""
+        try:
+            from xyz_agent_context.repository.artifact_repository import (
+                ArtifactRepository,
+            )
+            repo = ArtifactRepository(self.db)
+            artifacts = await repo.list_pinned(self.agent_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"artifact-state block: list_pinned failed: {e}")
+            return ""
+
+        header = "#### Your registered artifacts (live)"
+        if not artifacts:
+            return (
+                f"{header}\n"
+                "(none registered yet — call `register_artifact` to surface "
+                "a file as a tab the user can see)"
+            )
+
+        workspace_prefix = f"{self.agent_id}_{self.user_id or ''}/"
+        lines = [header]
+        for a in artifacts:
+            rel = a.file_path
+            if rel.startswith(workspace_prefix):
+                rel = rel[len(workspace_prefix):]
+            lines.append(
+                f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`"
+            )
+        lines.append("")
+        lines.append(
+            "To update what the user sees: edit the workspace file(s) in "
+            "place, then call `register_artifact` again with "
+            "`target_artifact_id=<that artifact's id>` — the re-registration "
+            "call itself is the refresh signal the frontend listens for. "
+            "To change the title or repoint at a different entry file, pass "
+            "the new value(s) alongside `target_artifact_id`."
         )
-        if not appendix:
-            return self.instructions
-        return f"{self.instructions}\n\n{appendix}"
+        return "\n".join(lines)
 
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         return MCPServerConfig(

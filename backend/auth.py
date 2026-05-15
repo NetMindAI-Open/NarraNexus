@@ -161,6 +161,12 @@ AUTH_EXEMPT_PATHS = {
 # Prefixes that don't require auth
 AUTH_EXEMPT_PREFIXES = (
     "/ws/",  # WebSocket handles its own auth via message payload
+    # Public transcription audio: NetMind's STT worker fetches via
+    # HMAC-signed token URLs; the token IS the auth. Without bypass,
+    # NetMind can't fetch (it has no JWT). See
+    # backend/routes/transcription_public.py and
+    # src/xyz_agent_context/agent_framework/transcription/url_signer.py.
+    "/api/public/",
 )
 
 # Prefixes that STILL require JWT auth but must SKIP the provider_resolver
@@ -174,6 +180,14 @@ QUOTA_BYPASS_PREFIXES = (
     "/api/quota",      # read own quota, flip prefer_system_override
     "/api/admin",      # staff operations (grant, init)
     "/api/auth",       # login / register / me / logout
+    # `/api/transcription/availability` is a pure capability probe — it
+    # has no LLM cost, and the frontend uses it to decide whether the
+    # mic button records on click or opens a "configure a provider"
+    # dialog. Without this bypass, the very state we want to surface
+    # (user opted out of free tier without configuring their own
+    # provider) gets a 402 from the resolver instead of an actionable
+    # `{available: false, reason: "free_tier_opted_out"}` response.
+    "/api/transcription",
 )
 
 
@@ -200,7 +214,24 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
 
     if not _is_cloud_mode():
-        # Local mode: no auth enforcement
+        # Local mode: no auth enforcement (the OS user is the security
+        # boundary), but we still resolve "who is calling right now" so
+        # routes can scope data by user just like in cloud mode. The
+        # frontend sets ``X-User-Id`` from configStore on every request;
+        # if absent (legacy frontend / bootstrap probe) we fall back to
+        # the singleton "first user" so the old single-user assumption
+        # still works.
+        local_path = request.url.path
+        if local_path.startswith("/api/"):
+            header_uid = request.headers.get("x-user-id")
+            if header_uid:
+                request.state.user_id = header_uid
+            else:
+                request.state.user_id = await get_local_user_id()
+            # Mirror cloud mode: tag the cost-tracker ContextVar so usage
+            # records get attributed to the right user even in local mode.
+            from xyz_agent_context.agent_framework.api_config import set_current_user_id
+            set_current_user_id(request.state.user_id)
         response = await call_next(request)
         return response
 
@@ -277,13 +308,48 @@ def _json_response(status_code: int, body: dict):
 # Local-mode identity (dashboard v2 TDR-12)
 # ---------------------------------------------------------------------------
 
+async def resolve_current_user_id(request) -> str:
+    """Single source of truth for "who is the current user" on this request.
+
+    Both cloud and local modes populate ``request.state.user_id`` via the
+    ``auth_middleware`` before the route handler runs:
+
+    - cloud: from the verified JWT Bearer token (signed identity)
+    - local: from the ``X-User-Id`` header set by the frontend, with a
+      fallback to the singleton "first user" for legacy frontends that
+      don't send the header
+
+    Route handlers should call this helper instead of branching on
+    ``_is_cloud_mode()``. The mode difference is fully encapsulated in
+    the middleware, which keeps the rest of the code path identical for
+    both modes — a key compatibility goal (cloud multi-user isolation
+    and local multi-user isolation share the same downstream code).
+
+    Raises 401 if the middleware skipped setting the field (e.g., the
+    route is on an exempt path and called this helper by mistake) —
+    treats it as an authentication failure rather than masking the bug.
+    """
+    from fastapi import HTTPException
+    uid = getattr(request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return uid
+
+
 async def get_local_user_id() -> str:
     """Return the singleton local user_id; bootstrap 'local-default' when empty.
 
-    Local mode assumes a single trusted user on the machine. The user_id is
-    never derived from a query param — that would be an impersonation vector
-    (see design doc TDR-12 + security critic C-1). Callers MUST use this
-    function, not `request.query_params["user_id"]`.
+    Historic helper kept for backwards compatibility AND used by
+    ``auth_middleware`` as the fallback when the frontend doesn't send
+    the ``X-User-Id`` header. New route handlers should prefer
+    :func:`resolve_current_user_id` so they automatically pick up the
+    real logged-in user rather than the first row in the table.
+
+    The original docstring's "single trusted user" assumption (TDR-12)
+    described the v1 design; the system since gained per-user isolation
+    in local mode via the X-User-Id header mechanism. This function now
+    only returns the singleton when no header is provided — that path
+    still serves bootstrap and OS-side scripts.
     """
     from xyz_agent_context.utils.db_factory import get_db_client
     db = await get_db_client()

@@ -35,7 +35,7 @@ status() {
   echo ""
   echo -e "${C}Service Status${R}"
   echo ""
-  local services=("8100:DB Proxy" "8000:Backend API" "5173:Frontend" "7801:MCP Server" "7830:Lark Trigger")
+  local services=("8100:DB Proxy" "8000:Backend API" "5173:Frontend" "7801:MCP Server" "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"
@@ -54,17 +54,19 @@ stop_all() {
   # Kill tmux session if running
   tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830; do
+  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
   pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
-  pkill -f "module_runner.py mcp" 2>/dev/null || true
+  pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
   pkill -f "module_poller" 2>/dev/null || true
   pkill -f "job_trigger" 2>/dev/null || true
   pkill -f "message_bus_trigger" 2>/dev/null || true
   pkill -f "run_lark_trigger" 2>/dev/null || true
+  pkill -f "run_slack_trigger" 2>/dev/null || true
+  pkill -f "run_telegram_trigger" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 
@@ -337,15 +339,33 @@ case "${1:-}" in
     # Sync Python deps — clear ALL external Python env vars that interfere with uv
     UV_CLEAN_ENV="env -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u CONDA_PYTHON_EXE"
     echo -e "${Y}Syncing Python dependencies...${R}"
-    $UV_CLEAN_ENV uv sync 2>&1 | tail -1
+    # Don't swallow errors. `tail -1` was hiding "uv sync failed" output and
+    # leaving users with a half-installed venv. Show full output; if uv
+    # reports an error, the user sees what actually broke.
+    $UV_CLEAN_ENV uv sync || {
+      echo -e "${RED}uv sync failed. Aborting startup.${R}"
+      exit 1
+    }
     # Ensure editable install is active (uv .pth can fail on some Python builds)
-    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" --reinstall-package xyz-agent-context 2>&1 | tail -1
+    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" --reinstall-package xyz-agent-context || {
+      echo -e "${RED}editable install failed. Aborting startup.${R}"
+      exit 1
+    }
     # Verify import works
     "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
-      echo -e "${RED}Failed to install xyz_agent_context. Rebuilding venv...${R}"
+      echo -e "${RED}xyz_agent_context still not importable. Rebuilding venv from scratch...${R}"
       rm -rf "$SCRIPT_DIR/.venv"
-      $UV_CLEAN_ENV uv sync 2>&1 | tail -1
-      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" 2>&1 | tail -1
+      $UV_CLEAN_ENV uv sync || { echo -e "${RED}uv sync failed.${R}"; exit 1; }
+      $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" || {
+        echo -e "${RED}editable install failed after rebuild. Manual fix needed:${R}"
+        echo "  rm -rf .venv && uv sync && uv pip install -e ."
+        exit 1
+      }
+      # Final check after rebuild
+      "$SCRIPT_DIR/.venv/bin/python3" -c "import xyz_agent_context" || {
+        echo -e "${RED}STILL not importable. Tell maintainer.${R}"
+        exit 1
+      }
     }
 
     # Start everything

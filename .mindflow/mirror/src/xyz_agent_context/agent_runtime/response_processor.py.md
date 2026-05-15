@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-04-10
+last_verified: 2026-05-13
 stub: false
 ---
+
+## 2026-05-13 — Phase B：generator 化 + thinking-delta WS 合并
+
+`ResponseProcessor.process(...)` 从 "return 单个 ProcessedResponse" 改成
+**generator yield 0..N 个 ProcessedResponse**。同时引入 per-instance
+`_ThinkingBatcher`：
+
+- 一个 raw thinking_item 进来：进 batcher，yield 0（仍累积）或 1（触发 chars/time 阈值）
+- 一个 raw 非 thinking 事件进来：先 flush thinking 残余（yield 0 或 1 个 THINKING），再
+  yield 该事件本身。**两条输出**——保证用户看到 thinking → tool_call 的自然时序
+- 100ms / 500 chars / type 切换 / 显式 flush 任一触发都会出 thinking frame
+- 一个 turn 一个 ResponseProcessor 实例（per-run），所以 batcher 也是 per-run
+
+新加 `flush_pending(state)` 方法：caller 在 agent_loop 退出后（正常 / 异常 / cancel
+都要）显式调一次，把 batcher 里残留的 thinking 吐出去——否则最后一段思考会
+silent dropped。`step_3_agent_loop.py` 已经在 try 末尾 + except 块开头都接上了。
+
+数据效果（5000 个 1-char chunk 输入）：emit 出来的 thinking 帧 ≤ 200，content
+逐字保留，顺序不变。
+
+**调用方契约变化（重要）**：所有调用 `process()` 的代码必须改成 `for result in
+processor.process(...):` 而不是 `result = processor.process(...)`。Stream 结束
+后必须 `for result in processor.flush_pending(state):` 收尾。
+
 # response_processor.py — Agent Loop 原始事件 → 类型化消息的转换器
 
 ## 为什么存在

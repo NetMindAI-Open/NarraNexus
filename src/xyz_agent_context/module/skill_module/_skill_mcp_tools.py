@@ -165,4 +165,183 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             logger.exception(f"SkillMCP: Failed to save study summary: {e}")
             return f"Failed to save summary: {str(e)}"
 
+    # =====================================================================
+    # Subproject 2 (Bundle Export/Import): Skill backup tools
+    # =====================================================================
+
+    @mcp.tool()
+    async def skill_backup_from_github(
+        agent_id: str,
+        user_id: str,
+        skill_name: str,
+        github_url: str,
+        branch: str = "main",
+    ) -> str:
+        """
+        Back up a skill that you installed by cloning/downloading from GitHub.
+
+        **WHEN TO CALL**: Right after you successfully install a skill from a GitHub
+        URL outside the official install API (e.g., you ran `git clone` or downloaded
+        a tarball yourself into the skills/ directory). Without this call, when the
+        user later exports a bundle, this skill will appear as "unbacked-up" — they'll
+        need to manually fill the URL or upload a zip.
+
+        Args:
+            agent_id: Your agent ID.
+            user_id: The user ID.
+            skill_name: Skill directory name under skills/.
+            github_url: The GitHub repo URL (https://github.com/owner/repo).
+            branch: Branch name; defaults to "main".
+
+        Returns:
+            Confirmation with archive location.
+        """
+        try:
+            from xyz_agent_context.bundle.skill_backup import (
+                archive_github_tarball,
+                register_archive,
+            )
+            archive_path, sha = await archive_github_tarball(
+                user_id=user_id,
+                skill_name=skill_name,
+                github_url=github_url,
+                branch=branch,
+            )
+            await register_archive(
+                user_id=user_id,
+                skill_name=skill_name,
+                source_type="github",
+                source_url=github_url,
+                archive_path=str(archive_path),
+                sha256=sha,
+            )
+            return (
+                f"Backed up '{skill_name}' from GitHub. Archive: {archive_path.name} (sha256={sha[:8]}…)."
+            )
+        except Exception as e:
+            logger.exception(f"skill_backup_from_github failed: {e}")
+            return f"Backup failed: {e}"
+
+    @mcp.tool()
+    async def skill_backup_from_md(
+        agent_id: str,
+        user_id: str,
+        skill_name: str,
+        skill_md_content: str,
+    ) -> str:
+        """
+        Back up a skill that came as a single SKILL.md file (no zip, no GitHub).
+
+        **WHEN TO CALL**: After you install a skill that has only a SKILL.md (e.g., the
+        user pasted a SKILL.md into your workspace, or you downloaded a single .md file).
+        We package the SKILL.md content into a zip and register it as the archive.
+
+        Args:
+            agent_id: Your agent ID.
+            user_id: The user ID.
+            skill_name: Skill directory name.
+            skill_md_content: Full SKILL.md content (Markdown text).
+
+        Returns:
+            Confirmation message.
+        """
+        try:
+            from xyz_agent_context.bundle.skill_backup import (
+                archive_md_only,
+                register_archive,
+            )
+            archive_path, sha = await archive_md_only(
+                user_id=user_id,
+                skill_name=skill_name,
+                skill_md_content=skill_md_content,
+            )
+            await register_archive(
+                user_id=user_id,
+                skill_name=skill_name,
+                source_type="zip",
+                source_url=None,
+                archive_path=str(archive_path),
+                sha256=sha,
+            )
+            return f"Backed up '{skill_name}' as md-only zip (sha256={sha[:8]}…)."
+        except Exception as e:
+            logger.exception(f"skill_backup_from_md failed: {e}")
+            return f"Backup failed: {e}"
+
+    @mcp.tool()
+    async def skill_backup_from_local_zip(
+        agent_id: str,
+        user_id: str,
+        skill_name: str,
+        zip_file_path: str,
+    ) -> str:
+        """
+        Back up a skill using a zip file already in the agent's workspace.
+
+        **WHEN TO CALL**: When a complete skill zip exists under your workspace (e.g.,
+        you downloaded one earlier) and you want to register it as the source for the
+        installed skill. The zip file path MUST be inside your workspace; absolute
+        paths or paths outside workspace are rejected to prevent escalation.
+
+        Args:
+            agent_id: Your agent ID.
+            user_id: The user ID.
+            skill_name: Skill directory name.
+            zip_file_path: Path inside your workspace pointing at the zip.
+
+        Returns:
+            Confirmation message.
+        """
+        try:
+            from xyz_agent_context.bundle.skill_backup import (
+                archive_local_zip,
+                register_archive,
+            )
+            archive_path, sha = await archive_local_zip(
+                user_id=user_id,
+                agent_id=agent_id,
+                skill_name=skill_name,
+                zip_file_path=zip_file_path,
+            )
+            await register_archive(
+                user_id=user_id,
+                skill_name=skill_name,
+                source_type="zip",
+                source_url=None,
+                archive_path=str(archive_path),
+                sha256=sha,
+            )
+            return f"Backed up '{skill_name}' from local zip (sha256={sha[:8]}…)."
+        except Exception as e:
+            logger.exception(f"skill_backup_from_local_zip failed: {e}")
+            return f"Backup failed: {e}"
+
+    @mcp.tool()
+    async def skill_list_unbackedup(
+        agent_id: str,
+        user_id: str,
+    ) -> str:
+        """
+        List skills installed in this agent that have NO archive backup yet.
+
+        **WHEN TO CALL**: Proactively before the user asks to export a bundle, OR
+        right after you finish installing a new skill, OR whenever the user mentions
+        backing up / sharing skills.
+
+        Returns:
+            A list of skill names without backups; empty list means everything's good.
+        """
+        try:
+            from xyz_agent_context.bundle.skill_backup import list_unbackedup
+            skills = await list_unbackedup(user_id=user_id, agent_id=agent_id)
+            if not skills:
+                return "All installed skills have an archive — you're good."
+            return (
+                "These skills have no archive (won't be exportable as URL/Zip without manual fill):\n  - "
+                + "\n  - ".join(skills)
+            )
+        except Exception as e:
+            logger.exception(f"skill_list_unbackedup failed: {e}")
+            return f"Query failed: {e}"
+
     return mcp

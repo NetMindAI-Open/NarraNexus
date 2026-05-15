@@ -1,0 +1,226 @@
+{
+  "admin": [
+    "admin.apps.approve",
+    "admin.apps.approved.list",
+    "admin.apps.requests.list",
+    "admin.apps.restrict",
+    "admin.apps.restricted.list",
+    "admin.conversations.archive",
+    "admin.conversations.convertToPrivate",
+    "admin.conversations.create",
+    "admin.conversations.delete",
+    "admin.conversations.disconnectShared",
+    "admin.conversations.ekm.listOriginalConnectedChannelInfo",
+    "admin.conversations.getConversationPrefs",
+    "admin.conversations.getTeams",
+    "admin.conversations.invite",
+    "admin.conversations.rename",
+    "admin.conversations.restrictAccess.addGroup",
+    "admin.conversations.restrictAccess.listGroups",
+    "admin.conversations.restrictAccess.removeGroup",
+    "admin.conversations.search",
+    "admin.conversations.setConversationPrefs",
+    "admin.conversations.setTeams",
+    "admin.conversations.unarchive",
+    "admin.emoji.add",
+    "admin.emoji.addAlias",
+    "admin.emoji.list",
+    "admin.emoji.remove",
+    "admin.emoji.rename",
+    "admin.inviteRequests.approve",
+    "admin.inviteRequests.approved.list",
+    "admin.inviteRequests.denied.list",
+    "admin.inviteRequests.deny",
+    "admin.inviteRequests.list",
+    "admin.teams.admins.list",
+    "admin.teams.create",
+    "admin.teams.list",
+    "admin.teams.owners.list",
+    "admin.teams.settings.info",
+    "admin.teams.settings.setDefaultChannels",
+    "admin.teams.settings.setDescription",
+    "admin.teams.settings.setDiscoverability",
+    "admin.teams.settings.setIcon",
+    "admin.teams.settings.setName",
+    "admin.usergroups.addChannels",
+    "admin.usergroups.addTeams",
+    "admin.usergroups.listChannels",
+    "admin.usergroups.removeChannels",
+    "admin.users.assign",
+    "admin.users.invite",
+    "admin.users.list",
+    "admin.users.remove",
+    "admin.users.session.invalidate",
+    "admin.users.session.reset",
+    "admin.users.setAdmin",
+    "admin.users.setExpiration",
+    "admin.users.setOwner",
+    "admin.users.setRegular"
+  ],
+  "api": [
+    "api.test"
+  ],
+  "apps": [
+    "apps.event.authorizations.list",
+    "apps.permissions.info",
+    "apps.permissions.request",
+    "apps.permissions.resources.list",
+    "apps.permissions.scopes.list",
+    "apps.permissions.users.list",
+    "apps.permissions.users.request",
+    "apps.uninstall"
+  ],
+  "auth": [
+    "auth.revoke",
+    "auth.test"
+  ],
+  "bots": [
+    "bots.info"
+  ],
+  "calls": [
+    "calls.add",
+    "calls.end",
+    "calls.info",
+    "calls.participants.add",
+    "calls.participants.remove",
+    "calls.update"
+  ],
+  "chat": [
+    "chat.delete",
+    "chat.deleteScheduledMessage",
+    "chat.getPermalink",
+    "chat.meMessage",
+    "chat.postEphemeral",
+    "chat.postMessage",
+    "chat.scheduleMessage",
+    "chat.scheduledMessages.list",
+    "chat.unfurl",
+    "chat.update"
+  ],
+  "conversations": [
+    "conversations.archive",
+    "conversations.close",
+    "conversations.create",
+    "conversations.history",
+    "conversations.info",
+    "conversations.invite",
+    "conversations.join",
+    "conversations.kick",
+    "conversations.leave",
+    "conversations.list",
+    "conversations.mark",
+    "conversations.members",
+    "conversations.open",
+    "conversations.rename",
+    "conversations.replies",
+    "conversations.setPurpose",
+    "conversations.setTopic",
+    "conversations.unarchive"
+  ],
+  "dialog": [
+    "dialog.open"
+  ],
+  "dnd": [
+    "dnd.endDnd",
+    "dnd.endSnooze",
+    "dnd.info",
+    "dnd.setSnooze",
+    "dnd.teamInfo"
+  ],
+  "emoji": [
+    "emoji.list"
+  ],
+  "files": [
+    "files.comments.delete",
+    "files.delete",
+    "files.info",
+    "files.list",
+    "files.remote.add",
+    "files.remote.info",
+    "files.remote.list",
+    "files.remote.remove",
+    "files.remote.share",
+    "files.remote.update",
+    "files.revokePublicURL",
+    "files.sharedPublicURL",
+    "files.upload"
+  ],
+  "migration": [
+    "migration.exchange"
+  ],
+  "oauth": [
+    "oauth.access",
+    "oauth.token",
+    "oauth.v2.access"
+  ],
+  "pins": [
+    "pins.add",
+    "pins.list",
+    "pins.remove"
+  ],
+  "reactions": [
+    "reactions.add",
+    "reactions.get",
+    "reactions.list",
+    "reactions.remove"
+  ],
+  "reminders": [
+    "reminders.add",
+    "reminders.complete",
+    "reminders.delete",
+    "reminders.info",
+    "reminders.list"
+  ],
+  "rtm": [
+    "rtm.connect"
+  ],
+  "search": [
+    "search.messages"
+  ],
+  "stars": [
+    "stars.add",
+    "stars.list",
+    "stars.remove"
+  ],
+  "team": [
+    "team.accessLogs",
+    "team.billableInfo",
+    "team.info",
+    "team.integrationLogs",
+    "team.profile.get"
+  ],
+  "usergroups": [
+    "usergroups.create",
+    "usergroups.disable",
+    "usergroups.enable",
+    "usergroups.list",
+    "usergroups.update",
+    "usergroups.users.list",
+    "usergroups.users.update"
+  ],
+  "users": [
+    "users.conversations",
+    "users.deletePhoto",
+    "users.getPresence",
+    "users.identity",
+    "users.info",
+    "users.list",
+    "users.lookupByEmail",
+    "users.profile.get",
+    "users.profile.set",
+    "users.setActive",
+    "users.setPhoto",
+    "users.setPresence"
+  ],
+  "views": [
+    "views.open",
+    "views.publish",
+    "views.push",
+    "views.update"
+  ],
+  "workflows": [
+    "workflows.stepCompleted",
+    "workflows.stepFailed",
+    "workflows.updateStep"
+  ]
+}
