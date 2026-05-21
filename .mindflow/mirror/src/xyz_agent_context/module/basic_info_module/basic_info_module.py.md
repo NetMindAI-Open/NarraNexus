@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-04-10
+last_verified: 2026-05-20
 ---
 
+## 2026-05-20 (Fix #2 P3) — basic_info now hosts the narrative-awareness MCP tools
+
+Previously `get_mcp_config` returned `server_url=""`/`type="None"` (no tools).
+Now it advertises an SSE MCP server on `self.port=7808` and `create_mcp_server()`
+delegates to [[_basic_info_mcp_tools.py]] (`create_basic_info_mcp_server`),
+which registers view_narrative / view_event / switch_narrative /
+create_narrative. Port 7808 is registered in [[module_runner.py]]
+CORE_MCP_MODULES/CORE_MODULE_PORTS. The tool usage is documented for the agent
+in [[prompts.py]] (BASIC_INFO_MODULE_INSTRUCTIONS).
 # basic_info_module.py — BasicInfoModule 实现
 
 ## 为什么存在

@@ -37,9 +37,9 @@ from typing import Optional, Callable
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.api_config import embedding_config
+from xyz_agent_context.agent_framework.api_config import EmbeddingConfig
 from xyz_agent_context.agent_framework.llm_api.embedding import (
-    get_embedding,
+    EmbeddingClient,
     prepare_job_text_for_embedding,
 )
 from xyz_agent_context.repository.embedding_store_repository import EmbeddingStoreRepository
@@ -114,27 +114,79 @@ def _reset_progress_for_tests() -> None:
 # Model / provider resolution
 # =============================================================================
 
-async def _resolve_user_embedding_model(user_id: str) -> str:
-    """
-    Figure out which embedding model belongs to this user.
+async def _resolve_user_embedding_cfg(
+    user_id: str,
+    resolver=None,
+    db=None,
+    *,
+    raise_on_gating: bool = True,
+) -> Optional[EmbeddingConfig]:
+    """Resolve the full embedding provider (model + api_key + base_url) for a user.
 
-    Prefers the user's `embedding` slot from `user_providers`. Falls back
-    to the global `embedding_config.model` for desktop/single-user mode
-    where the user has no DB-side provider rows.
+    The embedding config MUST come from what the user explicitly configured:
+      - Cloud multi-tenant: ``resolver`` (ProviderResolver, duck-typed) returns
+        either the user's own provider or the system-default free tier.
+      - Local / desktop: the user's embedding slot in ``user_providers`` (the
+        same table Settings writes to).
+
+    There is deliberately NO fallback to the global ``embedding_config`` holder
+    (env / llm_config.json). Falling back there is exactly what made "rebuild
+    vector" silently embed against a stale/empty global key — we refuse to read
+    embedding credentials from the environment. When nothing is configured we
+    return ``None`` so the caller can surface a clear "not configured" error.
+
+    With ``raise_on_gating=True`` (rebuild path) the resolver's gating errors
+    (no provider / quota exhausted) propagate so the caller records a clear
+    error. With ``raise_on_gating=False`` (status path) they are swallowed and
+    ``None`` is returned (status renders an empty/unconfigured model).
     """
-    try:
-        from xyz_agent_context.agent_framework.api_config import (
-            get_user_llm_configs,
+    if resolver is not None:
+        from xyz_agent_context.agent_framework.provider_resolver import (
+            ProviderResolverError,
         )
-        _, _, embedding_cfg = await get_user_llm_configs(user_id)
-        if embedding_cfg and embedding_cfg.model:
-            return embedding_cfg.model
-    except Exception as e:  # pragma: no cover — defensive
-        logger.debug(
-            f"[EmbeddingMigration] user={user_id}: per-user llm_configs lookup "
-            f"failed ({e}); falling back to global embedding_config"
-        )
-    return embedding_config.model
+        try:
+            resolved = await resolver.resolve(user_id)
+        except ProviderResolverError:
+            if raise_on_gating:
+                raise
+            resolved = None
+        if resolved is not None:
+            _, _, embedding_cfg, _ = resolved
+            if embedding_cfg and embedding_cfg.model:
+                return embedding_cfg
+
+    # Local / desktop (resolver disabled): read THIS user's embedding slot
+    # straight from `user_providers` — the same table Settings writes to.
+    # We can't rely on the global `embedding_config` proxy here: `set_user_config`
+    # (the Settings hot-reload) only primes a ContextVar this background task
+    # never sees, so the proxy would fall back to the static holder
+    # (llm_config.json / .env) and ignore what the user configured.
+    #
+    # We read ONLY the embedding slot (not get_user_llm_configs, which is
+    # all-or-nothing across agent/helper_llm/embedding and raises if any other
+    # slot is unconfigured) — an embedding rebuild only needs the embedding slot.
+    if db is not None:
+        try:
+            from xyz_agent_context.agent_framework.user_provider_service import (
+                UserProviderService,
+            )
+            cfg = await UserProviderService(db).get_user_config(user_id)
+            emb_slot = cfg.slots.get("embedding") if cfg else None
+            prov = cfg.providers.get(emb_slot.provider_id) if (cfg and emb_slot) else None
+            if emb_slot and emb_slot.model and prov and prov.api_key:
+                return EmbeddingConfig(
+                    api_key=prov.api_key,
+                    base_url=prov.base_url,
+                    model=emb_slot.model,
+                )
+        except Exception as e:  # pragma: no cover — defensive
+            logger.debug(
+                f"[EmbeddingMigration] user={user_id}: user_providers embedding "
+                f"slot lookup failed ({e})"
+            )
+
+    # No env / llm_config.json fallback by design — see docstring.
+    return None
 
 
 def _resolve_use_embedding_store(user_id: str) -> bool:
@@ -283,9 +335,18 @@ def _job_count_sql() -> str:
 
 
 def _entity_count_sql() -> str:
-    """Entities owned by user (via module_instances.user_id)."""
+    """Entities owned by user (via module_instances.user_id).
+
+    COUNT(DISTINCT entity_id), not COUNT(*): the same entity_id can appear
+    under multiple module_instances (one social-network instance per agent),
+    so the JOIN fans out to one row per (entity_id, instance_id). But
+    embeddings_store is keyed on (entity_type, entity_id, model) — one vector
+    per entity_id. Counting raw rows would over-count and leave a permanent
+    "N missing" the rebuild can never close. Must stay in sync with
+    `_user_entity_ids('entity')` (also DISTINCT).
+    """
     return (
-        "SELECT COUNT(*) AS cnt FROM instance_social_entities ise "
+        "SELECT COUNT(DISTINCT ise.entity_id) AS cnt FROM instance_social_entities ise "
         "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
         f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})"
     )
@@ -308,12 +369,46 @@ class EmbeddingMigrationService:
     # Batch size for embedding generation (avoid overwhelming the API)
     BATCH_SIZE = 20
 
-    def __init__(self, db_client, user_id: str):
+    def __init__(self, db_client, user_id: str, resolver=None):
         if not user_id:
             raise ValueError("EmbeddingMigrationService requires a user_id")
         self.db = db_client
         self.user_id = user_id
+        # ProviderResolver (duck-typed), injected by the route from
+        # app.state.provider_resolver. Lets a background rebuild resolve the
+        # user's embedding provider without the request ContextVar.
+        self.resolver = resolver
         self.emb_repo = EmbeddingStoreRepository(db_client)
+        self._emb_cfg: Optional[EmbeddingConfig] = None
+        self._cfg_resolved = False  # distinguishes "not resolved yet" from "resolved to None"
+        self._emb_client: Optional[EmbeddingClient] = None
+
+    async def _resolve_cfg(self, *, raise_on_gating: bool) -> Optional[EmbeddingConfig]:
+        """Resolve (and cache) this user's embedding provider config.
+
+        Returns ``None`` when the user has no embedding provider configured —
+        we never fall back to env / llm_config.json.
+        """
+        if not self._cfg_resolved:
+            self._emb_cfg = await _resolve_user_embedding_cfg(
+                self.user_id, self.resolver, self.db, raise_on_gating=raise_on_gating
+            )
+            self._cfg_resolved = True
+        return self._emb_cfg
+
+    def _embedding_client(self, cfg: EmbeddingConfig) -> EmbeddingClient:
+        """Build (once) a dedicated embedding client pinned to the user's
+        provider — controlled fully by (base_url, api_key, model). Caching is
+        off so a background rebuild can never serve another model's cached
+        vector."""
+        if self._emb_client is None:
+            self._emb_client = EmbeddingClient(
+                model=cfg.model,
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                enable_cache=False,
+            )
+        return self._emb_client
 
     # ---- Status ----
 
@@ -323,17 +418,21 @@ class EmbeddingMigrationService:
         the active model vs. how many exist in total.
         """
         # Resolve whether the new store should be used for this user.
+        # Status is read-only/display, so gating errors are swallowed and an
+        # unconfigured embedding provider renders as an empty model (no env
+        # fallback). `or ""` handles the None (not-configured) case.
         if not await self._should_use_store():
-            model = await _resolve_user_embedding_model(self.user_id)
+            cfg = await self._resolve_cfg(raise_on_gating=False)
             return {
-                "model": model,
+                "model": cfg.model if cfg else "",
                 "stats": {},
                 "all_done": True,
                 "migration": get_migration_progress(self.user_id).to_dict(),
                 "legacy_mode": True,
             }
 
-        model = await _resolve_user_embedding_model(self.user_id)
+        cfg = await self._resolve_cfg(raise_on_gating=False)
+        model = cfg.model if cfg else ""
 
         # Clean stale data before counting — scoped to this user's rows.
         await self._cleanup_before_rebuild(model)
@@ -374,23 +473,35 @@ class EmbeddingMigrationService:
             )
             return
 
-        model = await _resolve_user_embedding_model(self.user_id)
-
         # Reset progress for this run
         progress.is_running = True
-        progress.current_model = model
+        progress.current_model = ""
         progress.total = {}
         progress.completed = {}
         progress.failed = {}
         progress.error = None
         progress.finished = False
 
-        logger.info(
-            f"[EmbeddingMigration] user={self.user_id}: starting rebuild for "
-            f"model={model}"
-        )
-
         try:
+            # Resolve the user's embedding provider and pin a dedicated client
+            # to it BEFORE embedding. Gating errors (no provider / quota) now
+            # surface as progress.error instead of a per-row 401 storm. A
+            # missing config is a hard error — we never fall back to env.
+            cfg = await self._resolve_cfg(raise_on_gating=True)
+            if cfg is None:
+                raise RuntimeError(
+                    "No embedding provider configured for this user. Configure an "
+                    "embedding provider in Settings before rebuilding."
+                )
+            model = cfg.model
+            progress.current_model = model
+            self._embedding_client(cfg)
+
+            logger.info(
+                f"[EmbeddingMigration] user={self.user_id}: starting rebuild for "
+                f"model={model}"
+            )
+
             await self._cleanup_before_rebuild(model)
 
             await self._rebuild_narratives(model)
@@ -466,8 +577,11 @@ class EmbeddingMigrationService:
             rows = await self.db.execute(sql, (self.user_id,), fetch=True)
             return [r["job_id"] for r in rows]
         if entity_type == "entity":
+            # DISTINCT — entity_id can recur across module_instances; the
+            # embedding store holds one vector per entity_id (see
+            # _entity_count_sql).
             sql = (
-                "SELECT ise.entity_id FROM instance_social_entities ise "
+                "SELECT DISTINCT ise.entity_id FROM instance_social_entities ise "
                 "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
                 f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})"
             )
@@ -581,6 +695,21 @@ class EmbeddingMigrationService:
             progress.failed[entity_type] = 0
             return
 
+        # Dedup by id — a fan-out JOIN (e.g. an entity_id under several
+        # module_instances) can return the same id more than once. The
+        # embedding store keys on the id, so embedding it twice is wasted
+        # work and would also double the progress totals vs get_status's
+        # distinct count. Keep the first row per id.
+        seen_ids: set = set()
+        deduped_rows = []
+        for row in rows:
+            rid = row[id_field]
+            if rid in seen_ids:
+                continue
+            seen_ids.add(rid)
+            deduped_rows.append(row)
+        rows = deduped_rows
+
         all_ids = [row[id_field] for row in rows]
         existing = await self.emb_repo.get_vectors_by_ids(
             entity_type, all_ids, model
@@ -608,7 +737,9 @@ class EmbeddingMigrationService:
                     progress.completed[entity_type] += 1
                     continue
                 try:
-                    vector = await get_embedding(source_text)
+                    # Client is pinned in rebuild_all() before any _rebuild_*()
+                    # runs, so it's always set here.
+                    vector = await self._emb_client.embed(source_text)
                     actual_dims = len(vector)
                     records.append({
                         "entity_type": entity_type,

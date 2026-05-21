@@ -1,0 +1,42 @@
+name: Welcome first-time contributors
+
+on:
+  issues:
+    types: [opened]
+  pull_request_target:
+    types: [opened]
+
+jobs:
+  welcome:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          issue-message: |
+            👋 Welcome to NarraNexus, and thanks for your first issue.
+
+            A maintainer will read this within a couple of days. To make triage faster:
+            - Make sure your environment + version info is filled in.
+            - If logs / screenshots contain API keys or personal data, redact them.
+
+            Curious how the project works? Two files give the full picture:
+            [`CLAUDE.md`](../blob/main/CLAUDE.md) (the rules) and
+            [`.mindflow/_overview.md`](../blob/main/.mindflow/_overview.md) (the docs index).
+            Drop them into your AI editor and it can answer most "how does this work"
+            questions for you.
+          pr-message: |
+            🎉 Thanks for your first pull request to NarraNexus.
+
+            A maintainer will review within a couple of days. While you wait:
+            - Make sure CI is green.
+            - If you touched a `.py / .ts / .tsx / .rs` file, check the PR template's
+              **Tier-2 doc sync** box (or write `Mirror-md: needs-maintainer` in your description
+              and we'll handle the mirror md for you).
+            - Read [`CONTRIBUTING.md` §0](../blob/main/CONTRIBUTING.md#0-before-you-start--ai-assisted-contributing)
+              if you haven't — it explains the AI-assisted workflow we lean on.
+
+            Welcome aboard.

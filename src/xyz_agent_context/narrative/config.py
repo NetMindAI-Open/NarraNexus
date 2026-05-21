@@ -25,19 +25,13 @@ class NarrativeConfig:
 
     # ==================== Session Management ====================
 
-    # Session timeout (seconds)
-    # Description: Maximum interval between two user queries; session expires after this time
-    # Recommended: 600 (10 minutes)
-    # Tuning suggestions:
-    #   - Web interface: 300-600 seconds (5-10 minutes)
-    #   - API calls: 60-300 seconds (1-5 minutes)
-    #   - Long conversation scenarios: 1800-3600 seconds (30-60 minutes)
-    SESSION_TIMEOUT = 600
-
-    # Session cleanup interval (seconds)
-    # Description: Background interval for cleaning up expired sessions
-    # Recommended: 3600 (1 hour)
-    SESSION_CLEANUP_INTERVAL = 3600
+    # NOTE (2026-05-20 short-term-memory continuity fix): the session timeout
+    # was REMOVED. The session is the continuity anchor for the user's chat
+    # box — the user can reply to a visible message minutes, hours, or days
+    # later (e.g. answering a question the agent sent from a scheduled job),
+    # so the anchor must persist indefinitely. Sessions are one tiny,
+    # overwritten-in-place file per (agent, user); they do not grow without
+    # bound, so there is nothing to time out. (Was SESSION_TIMEOUT = 600.)
 
     # ==================== Continuity Detection (LLM version) ====================
 

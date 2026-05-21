@@ -269,7 +269,7 @@ export function AudioRecorder({
         disabled={disabled}
         className={cn(
           'shrink-0 h-[52px] w-[52px]',
-          'text-[var(--accent-danger,#dc2626)]',
+          'text-[color:var(--color-error)]',
         )}
         title="Microphone access denied — click to retry after enabling permission"
       >

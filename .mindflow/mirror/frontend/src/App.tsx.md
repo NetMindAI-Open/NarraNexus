@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-05-06
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — deep-link receiver (Tauri-only)
+
+New `useEffect` listens for `narranexus://install?url=...&sha256=...`
+deep links delivered by the Tauri layer:
+1. On mount calls `consumePendingDeepLink()` (Tauri IPC) to drain any
+   URL the OS handed the process before React was alive.
+2. Subscribes to the `deep-link-received` Tauri event for URLs that
+   arrive while the app is already running (forwarded into the live
+   instance by `tauri-plugin-single-instance`'s deep-link feature).
+
+URLs are parsed; if the host segment is `install`, navigate to
+`/app/templates/install` carrying the same query string — that route
+points at `BundleImportPage` which detects URL mode and auto-fetches via
+`POST /api/bundle/import/from-url`.
+
+Hook is a no-op outside Tauri (web/cloud build), so `isTauri()` guard at
+top. Design context:
+`drafts/logs/template_sharing_2026_05_18.md`.
 
 # App.tsx — Root routing, route guards, and global side-effects
 
@@ -31,6 +50,8 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 **All pages are lazy-loaded.** Every `const Foo = lazy(() => import(...))` call creates a code-split chunk. `Suspense` with `PageFallback` shows a spinner while the chunk loads. The only performance trade-off is a ~100ms delay on first navigation to each page.
 
 **`/app/chat` renders `null` as content.** The chat content (`ChatPanel` etc.) is rendered by `MainLayout`'s child slot logic, not by a dedicated route element. The `<Route path="chat" element={null} />` declaration exists only to make the route valid for `Navigate` destinations.
+
+**`/nm-playground` is a public dev-mode route.** Added in M2 (NM design system Phase 1). Renders `NMPlaygroundPage` — a visual gallery of every NM primitive in light + dark side-by-side. No auth required so it can be loaded before login during visual review. Not linked from any navigation. Should ideally be tree-shaken from production builds, but harmless if left in.
 
 ## Gotchas
 

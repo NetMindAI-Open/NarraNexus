@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-05-14
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — quotaError state removed + ECharts LRU added
+
+Two related changes around the artifact pipeline cleanup (see
+[[artifact_runner.py]] 2026-05-19 note):
+
+- `quotaError` / `setQuotaError` are gone with the per-user quota. Tool-call
+  failures during register_artifact now surface only as a structured
+  `{error, code}` returned to the agent; no more layout-level modal.
+- New `chartLruOrder: string[]` (newest first, length ≤ `CHART_LRU_LIMIT = 5`)
+  + the `_promoteChartLru` helper. Every code path that flips
+  `activeArtifactId` pipes the new id through `_promoteChartLru` so an
+  echarts artifact rises to the head of the list. `ArtifactColumn` then
+  keeps every id in that list mounted with `display: none` for the
+  non-active ones, so re-selecting a recent chart is instant — no fetch,
+  no `echarts.init`. Tail drops trigger ChartRenderer unmount which runs
+  `chart.dispose()`. HTML / CSV / Markdown / PDF / image kinds slide
+  through unchanged.
 
 ## 2026-05-14-r3 — `delete` no longer takes `deleteSource`
 

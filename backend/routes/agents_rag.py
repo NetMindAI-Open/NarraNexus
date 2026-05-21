@@ -12,9 +12,10 @@ Provides endpoints for:
 
 import asyncio
 
-from fastapi import APIRouter, Query, UploadFile, File
+from fastapi import APIRouter, Request, UploadFile, File
 from loguru import logger
 
+from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 from xyz_agent_context.module.gemini_rag_module.rag_file_service import RAGFileService
 from xyz_agent_context.schema import (
@@ -32,9 +33,11 @@ router = APIRouter()
 @router.get("/{agent_id}/rag-files", response_model=RAGFileListResponse)
 async def list_rag_files(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """List all RAG files and upload status for Agent-User pair"""
+    """List all RAG files and upload status for Agent-User pair.
+    Identity from auth_middleware (X-User-Id / JWT)."""
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Listing RAG files for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -59,10 +62,12 @@ async def list_rag_files(
 @router.post("/{agent_id}/rag-files", response_model=RAGFileUploadResponse)
 async def upload_rag_file(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
     file: UploadFile = File(..., description="File to upload to RAG store"),
 ):
-    """Upload file to RAG temp directory and trigger Gemini store upload"""
+    """Upload file to RAG temp directory and trigger Gemini store upload.
+    Identity from auth_middleware (X-User-Id / JWT)."""
+    user_id = await resolve_current_user_id(request)
     # Supported file formats
     supported_extensions = {".txt", ".md", ".pdf"}
 
@@ -109,13 +114,14 @@ async def upload_rag_file(
 async def delete_rag_file(
     agent_id: str,
     filename: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
     """
-    Delete file from RAG temp directory
+    Delete file from RAG temp directory. Identity from auth_middleware.
 
     Note: Does not delete from Gemini store (Gemini does not support deletion).
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Deleting RAG file '{filename}' for agent: {agent_id}, user: {user_id}")
 
     try:

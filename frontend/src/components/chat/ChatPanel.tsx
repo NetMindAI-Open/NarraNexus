@@ -13,15 +13,17 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Sparkles, MessageSquare, Paperclip, X, FileText, Image as ImageIcon, Mic, Bot } from 'lucide-react';
+import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
+import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd, RingAvatar } from '@/components/nm';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { TurnTimeline } from './TurnTimeline';
@@ -95,10 +97,6 @@ function refreshArtifactFromToolCall(
  * flashed in/out and then evaporated on history reload (chat history
  * doesn't persist tool_calls). The badge is a one-line chip instead;
  * dedupe-by-artifact_id keeps a re-register from doubling the badges up.
- *
- * Quota error short-circuit stays: ArtifactQuotaExceeded fires before
- * any artifact_id exists, so the modal must still trigger from the bare
- * tool_output payload.
  */
 interface ArtifactToolCallCardsProps {
   toolCalls: AgentToolCall[];
@@ -124,19 +122,7 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
     try {
       const parsed = JSON.parse(tc.tool_output) as {
         artifact_id?: string;
-        error?: string;
-        code?: number;
       };
-      // Detect ArtifactQuotaExceeded (HTTP 507) from the structured tool_output
-      // payload — surface a modal pointing to Settings → Artifacts. We only
-      // fire once per error message so re-renders during streaming don't spam.
-      if (parsed.error && parsed.code === 507) {
-        const current = useArtifactStore.getState().quotaError;
-        if (current !== parsed.error) {
-          useArtifactStore.getState().setQuotaError(parsed.error);
-        }
-        continue;
-      }
       artifactId = parsed.artifact_id;
     } catch {
       // tool_output is not JSON — skip
@@ -212,7 +198,11 @@ interface ChatPanelProps {
 
 export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const navigate = useNavigate();
-  const [input, setInput] = useState('');
+  // Lazy-init from the persisted draft for whichever agent is active at mount
+  // (configStore is the source of truth for agentId; it's read again below).
+  const [input, setInput] = useState(() =>
+    getChatDraft(useConfigStore.getState().agentId ?? '')
+  );
   // Attachments uploaded for the next message but not yet sent. Each entry
   // is the server-acknowledged metadata returned by uploadAttachment.
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -272,6 +262,31 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (agentId) setActiveAgent(agentId);
   }, [agentId, setActiveAgent]);
 
+  // ── Per-agent draft persistence ──────────────────────────────────────
+  // On agent switch, stash the outgoing agent's half-typed message and load
+  // the incoming agent's saved draft. On every keystroke, persist the current
+  // agent's draft (best-effort localStorage) so it survives a reload too.
+  // `setInput('')` after a send flows through the persist effect and clears
+  // the stored draft automatically.
+  const prevAgentIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevAgentIdRef.current;
+    if (prev !== agentId) {
+      if (prev) setChatDraft(prev, input);
+      setInput(agentId ? getChatDraft(agentId) : '');
+      prevAgentIdRef.current = agentId;
+    }
+    // Intentionally keyed on agentId only: `input` is read as the outgoing
+    // value to save, but must not re-run this swap on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId]);
+  useEffect(() => {
+    if (agentId) setChatDraft(agentId, input);
+    // Keyed on `input` only — during a switch the input hasn't changed yet,
+    // so this won't clobber the incoming agent's draft with the outgoing text.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input]);
+
   const currentAgent = useMemo(
     () => agents.find((a) => a.agent_id === agentId),
     [agents, agentId]
@@ -323,7 +338,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (!agentId || !userId) return;
     setIsLoadingHistory(true);
     try {
-      const response = await api.getSimpleChatHistory(agentId, userId, HISTORY_PAGE_SIZE);
+      const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
       if (response.success) {
         setHistoryMessages(response.messages);
         setHistoryTotalCount(response.total_count);
@@ -356,7 +371,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
     try {
       const response = await api.getSimpleChatHistory(
-        agentId, userId, HISTORY_PAGE_SIZE, historyLengthRef.current
+        agentId, HISTORY_PAGE_SIZE, historyLengthRef.current
       );
       if (response.success && response.messages.length > 0) {
         // Use flushSync to ensure DOM updates synchronously before measuring scroll
@@ -403,7 +418,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     const poll = async () => {
       if (document.hidden) return;
       try {
-        const response = await api.getSimpleChatHistory(agentId, userId, HISTORY_PAGE_SIZE);
+        const response = await api.getSimpleChatHistory(agentId, HISTORY_PAGE_SIZE);
         if (!response.success || response.messages.length === 0) return;
 
         const latestMsg = response.messages[response.messages.length - 1];
@@ -516,7 +531,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (!userId) return;
     let cancelled = false;
     api
-      .getTranscriptionAvailability(userId)
+      .getTranscriptionAvailability()
       .then((r) => {
         if (cancelled) return;
         setTranscriptionAvailable(r.available);
@@ -545,7 +560,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       setUploadingCount((n) => n + files.length);
       for (const file of files) {
         try {
-          const resp = await api.uploadAttachment(agentId, userId, file, opts);
+          const resp = await api.uploadAttachment(agentId, file, opts);
           if (resp.success && resp.file_id && resp.mime_type && resp.category) {
             setPendingAttachments((prev) => [
               ...prev,
@@ -770,27 +785,29 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — archive document caption */}
-      <div className="px-5 flex items-center justify-between border-b border-[var(--rule)] min-h-[48px]">
+      {/* Header — NM mono section label + StatusDot per conversation state */}
+      <div className="px-5 flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
         <div className="flex items-center gap-2.5 min-w-0">
-          <span
-            className={cn(
-              'w-1.5 h-1.5 rounded-full allow-circle shrink-0 transition-colors',
-              isStreaming
-                ? 'bg-[var(--color-yellow-500)] animate-pulse'
-                : agentId ? 'bg-[var(--color-green-500)]' : 'bg-[var(--text-tertiary)]'
-            )}
+          <StatusDot
+            status={isStreaming ? 'warning' : agentId ? 'success' : 'neutral'}
+            size={8}
+            pulse={isStreaming}
           />
-          <span className="text-[11px] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em] text-[var(--text-primary)]">
+          <BracketSectionLabel
+            trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px]">{agentId}</span> : undefined}
+          >
             Interaction
-          </span>
-          <span className="text-[11px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] truncate">
-            · {agentId || 'no agent'}
-          </span>
+          </BracketSectionLabel>
         </div>
 
         {isStreaming && (
-          <span className="flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--color-yellow-500)]">
+          <span
+            className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em]"
+            style={{
+              color: 'var(--color-warning)',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
             <Sparkles className="w-3 h-3 animate-pulse" />
             Processing
           </span>
@@ -822,35 +839,30 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }}
       >
       <div className="space-y-4">
-        {/* Loading more (top) */}
+        {/* Loading more (top) — NM bracket-loading placeholder */}
         {isLoadingMore && (
-          <div className="flex items-center justify-center gap-2 py-2">
-            <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
-            <span className="text-[10px] text-[var(--text-tertiary)]">Loading older messages...</span>
+          <div className="flex items-center justify-center py-2">
+            <BracketLoading label="Loading older messages" />
           </div>
         )}
 
         {/* Initial loading */}
         {isLoadingHistory && (
-          <div className="flex items-center justify-center gap-2 py-4">
-            <Loader2 className="w-4 h-4 text-[var(--text-tertiary)] animate-spin" />
-            <span className="text-xs text-[var(--text-tertiary)]">Loading chat history...</span>
+          <div className="flex items-center justify-center py-4">
+            <BracketLoading label="Loading chat history" />
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Empty state — NM bracket-wrapped */}
         {showEmptyState && (
-          <div className="h-full flex flex-col items-center justify-center text-center px-8">
-            <MessageSquare className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mb-4" />
-            <p className="text-[var(--text-primary)] text-sm mb-1.5">
-              {!agentId ? 'Select an agent to start' : 'Start a conversation'}
-            </p>
-            <p className="text-[var(--text-tertiary)] text-xs max-w-[260px] leading-relaxed">
-              {!agentId
+          <BracketEmptyState
+            label={!agentId ? 'Select an agent' : 'Start a conversation'}
+            hint={
+              !agentId
                 ? 'Choose an agent from the sidebar to begin your interaction.'
-                : 'Send a message to interact with the AI agent.'}
-            </p>
-          </div>
+                : 'Send a message to interact with the AI agent.'
+            }
+          />
         )}
 
         {/* Bootstrap greeting */}
@@ -907,6 +919,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
+                agentName={currentAgent?.name || agentId}
               />
               {/* Render inline artifact preview cards for register_artifact
                   tool calls that returned an artifact_id */}
@@ -934,9 +947,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             output with no left-side avatar). */}
         {isStreaming && currentEvents.length > 0 && (
           <div className="flex gap-3 animate-fade-in">
-            <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
-              <Bot className="w-3.5 h-3.5" />
-            </div>
+            <RingAvatar
+              species="silicon"
+              label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
+              size="sm"
+              className="shrink-0"
+            />
             <div className="flex-1 min-w-0">
               <TurnTimeline events={currentEvents} isStreaming />
               {/* Mid-stream artifact preview is independent of the timeline:
@@ -986,9 +1002,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           };
           return (
             <div className="flex gap-3 animate-fade-in">
-              <div className="w-8 h-8 flex items-center justify-center shrink-0 bg-[var(--text-primary)] text-[var(--text-inverse)]">
-                <Bot className="w-3.5 h-3.5" />
-              </div>
+              <RingAvatar
+                species="silicon"
+                label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
+                size="sm"
+                className="shrink-0"
+              />
               <div className="flex-1 min-w-0 py-2">
                 <div className="flex items-center gap-3">
                   <div className="relative">
@@ -1121,7 +1140,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               // mount-time useEffect.
               if (!userId) return false;
               try {
-                const r = await api.getTranscriptionAvailability(userId);
+                const r = await api.getTranscriptionAvailability();
                 setTranscriptionAvailable(r.available);
                 setTranscriptionReason(r.reason);
                 if (!r.available) {
@@ -1163,15 +1182,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                     ? 'Drop file to attach…'
                     : 'Type your message… (drag files here to attach)'
               }
-              disabled={isLoading || !agentId}
+              // Stay editable while the agent is running (isLoading): the user
+              // can compose their next message during a long turn. Sending is
+              // still blocked — handleSubmit/Enter early-return on isLoading and
+              // the Send button is replaced by Stop while streaming.
+              disabled={!agentId}
               className={cn(
                 // Auto-resizing textarea: min-h sets the empty-state height,
                 // max-h caps growth. The Textarea component manages
                 // `style.height` based on scrollHeight on every input.
                 // Padding 14 + line-height 24 + padding 14 = 52px exactly,
                 // matching the send-button height next to it.
-                'min-h-[52px] max-h-[160px] py-[14px] leading-[24px] resize-none',
-                isLoading && 'opacity-60'
+                'min-h-[52px] max-h-[160px] py-[14px] leading-[24px] resize-none'
               )}
               rows={1}
             />
@@ -1204,13 +1226,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             </Button>
           )}
         </div>
-        <p className="mt-2 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-center">
-          <kbd className="font-[family-name:var(--font-mono)]">Enter</kbd> to send
-          <span className="opacity-40 mx-2">·</span>
-          <kbd className="font-[family-name:var(--font-mono)]">Shift + Enter</kbd> new line
-          <span className="opacity-40 mx-2">·</span>
-          <kbd className="font-[family-name:var(--font-mono)]">Drop</kbd> to attach
-        </p>
+        <div
+          className="mt-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-[0.12em]"
+          style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
+        >
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Enter']} /> to send</span>
+          <span className="opacity-40">·</span>
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Shift', 'Enter']} /> new line</span>
+          <span className="opacity-40">·</span>
+          <span className="inline-flex items-center gap-1"><Kbd keys={['Drop']} /> to attach</span>
+        </div>
       </div>
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic

@@ -122,9 +122,13 @@ full fidelity — far better than dumping numbers or ASCII tables into a chat
 message.
 
 Treat artifacts as a first-class part of your response, not an extra step.
-Whenever a chart, page, table or report would make your answer clearer,
-build it and register it directly as part of doing the task — no need to
-announce it first.
+**Default to an HTML artifact whenever the information is complex, long, or
+structured.** If you could express the answer as an HTML page — a report, a
+dashboard, a comparison, a document, a multi-section write-up, anything with
+structure — it is almost always clearer rendered as an HTML artifact than as
+a wall of chat text. When in doubt, write the HTML and register it. Build and
+register it directly as part of doing the task — no need to announce it
+first.
 
 How it works:
 
@@ -165,13 +169,21 @@ know what to `target_artifact_id` at vs. when to create a new tab.
 The tool description on `register_artifact` carries the exact `kind` values
 and parameters — follow that.
 
+**Where artifacts are visible.** The artifact tab lives in the owner's web /
+desktop chat UI. Someone interacting with you through an IM channel (Lark /
+Slack / Telegram) does NOT see artifacts — they only see what you send back
+on their channel. So an artifact is always worth building for the owner, but
+it never replaces a reply on an IM channel: if this turn's audience is an IM
+sender, still answer them in the channel message itself (and register the
+artifact for the owner only if it's useful to them).
+
 Guidance:
 - For numbers, trends, comparisons or distributions, default to an ECharts
   artifact (a JSON file containing the ECharts `option` object) — not a
   markdown table, and never an ASCII table in chat.
 - Don't paste the artifact URL into your reply — the UI already shows the tab.
 - If `register_artifact` returns an error, the error text states the cause
-  (path outside workspace, file missing, too large, quota); fix the inputs
+  (path outside workspace, file missing, too large); fix the inputs
   and call again — a failed call never blocks you and is safe to retry.
 """
 

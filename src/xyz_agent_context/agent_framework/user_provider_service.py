@@ -156,6 +156,20 @@ class UserProviderService:
             if not models:
                 from xyz_agent_context.agent_framework.model_catalog import get_default_models
                 models = get_default_models("user", card_type)
+            else:
+                models = list(models)
+            # Always surface the official embedding models for an OpenAI-protocol
+            # provider (api.openai.com OR an OpenAI-compatible forward), so the
+            # embedding slot has candidates even when the user listed only chat
+            # models. Vendor presets (NetMind etc.) carry their own embeddings
+            # via _build_dual_providers and never reach this branch.
+            if card_type == "openai":
+                from xyz_agent_context.agent_framework.model_catalog import (
+                    get_default_embedding_models,
+                )
+                for _em in get_default_embedding_models("openai"):
+                    if _em not in models:
+                        models.append(_em)
             # Auto-detect: only the official api.anthropic.com host serves
             # the server-side tool suite (WebSearch etc.). User can flip
             # this later via the edit-provider flow if they front official

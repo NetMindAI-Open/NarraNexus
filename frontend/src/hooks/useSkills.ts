@@ -24,7 +24,7 @@ export function useSkillsList(showDisabled: boolean) {
 
   return useQuery({
     queryKey,
-    queryFn: () => api.listSkills(agentId!, userId!, showDisabled),
+    queryFn: () => api.listSkills(agentId!, showDisabled),
     enabled: !!agentId && !!userId,
     select: (data: SkillListResponse): SkillInfo[] => data.skills,
   });
@@ -32,82 +32,82 @@ export function useSkillsList(showDisabled: boolean) {
 
 /** Install skill from GitHub */
 export function useInstallFromGithub() {
-  const { agentId, userId } = useConfigStore();
+  const { agentId } = useConfigStore();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: ({ url, branch }: { url: string; branch: string }) =>
-      api.installSkillFromGithub(agentId!, userId!, url, branch),
+      api.installSkillFromGithub(agentId!, url, branch),
     onSuccess: () => qc.invalidateQueries({ queryKey: [SKILLS_KEY] }),
   });
 }
 
 /** Install skill from zip file */
 export function useInstallFromZip() {
-  const { agentId, userId } = useConfigStore();
+  const { agentId } = useConfigStore();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: (file: File) =>
-      api.installSkillFromZip(agentId!, userId!, file),
+      api.installSkillFromZip(agentId!, file),
     onSuccess: () => qc.invalidateQueries({ queryKey: [SKILLS_KEY] }),
   });
 }
 
 /** Toggle skill enabled/disabled */
 export function useToggleSkill() {
-  const { agentId, userId } = useConfigStore();
+  const { agentId } = useConfigStore();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: ({ name, disabled }: { name: string; disabled: boolean }) =>
       disabled
-        ? api.enableSkill(name, agentId!, userId!)
-        : api.disableSkill(name, agentId!, userId!),
+        ? api.enableSkill(name, agentId!)
+        : api.disableSkill(name, agentId!),
     onSuccess: () => qc.invalidateQueries({ queryKey: [SKILLS_KEY] }),
   });
 }
 
 /** Remove a skill */
 export function useRemoveSkill() {
-  const { agentId, userId } = useConfigStore();
+  const { agentId } = useConfigStore();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: (name: string) =>
-      api.removeSkill(name, agentId!, userId!),
+      api.removeSkill(name, agentId!),
     onSuccess: () => qc.invalidateQueries({ queryKey: [SKILLS_KEY] }),
   });
 }
 
 /** Start studying a skill */
 export function useStudySkill() {
-  const { agentId, userId } = useConfigStore();
+  const { agentId } = useConfigStore();
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: (name: string) =>
-      api.studySkill(name, agentId!, userId!),
+      api.studySkill(name, agentId!),
     onSuccess: () => qc.invalidateQueries({ queryKey: [SKILLS_KEY] }),
   });
 }
 
 /** Poll study status for a skill (enabled only when studying) */
 export function useStudyStatus(skillName: string | null) {
-  const { agentId, userId } = useConfigStore();
+  const { agentId } = useConfigStore();
   const qc = useQueryClient();
 
   return useQuery({
     queryKey: [SKILLS_KEY, 'study-status', skillName],
     queryFn: async () => {
-      const status = await api.getSkillStudyStatus(skillName!, agentId!, userId!);
+      const status = await api.getSkillStudyStatus(skillName!, agentId!);
       if (status.study_status === 'completed' || status.study_status === 'failed') {
         // Study finished — invalidate the skill list to refresh
         qc.invalidateQueries({ queryKey: [SKILLS_KEY] });
       }
       return status;
     },
-    enabled: !!skillName && !!agentId && !!userId,
+    enabled: !!skillName && !!agentId,
     refetchInterval: (query: { state: { data?: { study_status?: string } } }) => {
       const status = query.state.data?.study_status;
       if (status === 'completed' || status === 'failed') return false;

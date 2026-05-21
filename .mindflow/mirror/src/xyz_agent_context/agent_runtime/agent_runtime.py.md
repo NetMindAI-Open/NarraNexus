@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-04-28
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — Step 4.6: synchronous turn persistence before background
+
+`run()` now awaits `hook_manager.hook_persist_turn(ctx.module_list,
+build_after_execution_params(ctx))` AFTER Step 4 (`step_4_persist_results`) and
+BEFORE `asyncio.create_task(_run_hooks_background())`. Why: Steps 5–6 run in a
+background task that can lag 3–19s; the conversation row written there (ChatModule)
+was raced by fast user replies → the next turn read history missing the exchange
+("short-reply amnesia"). The sync phase makes that write durable in-request. Placed
+AFTER Step 4 specifically so the P3 narrative-routing rebind (4.0, see
+[[step_4_persist_results.py]]) has already repointed the chat instance — the message
+lands in the thread it now belongs to. Param-building is shared via
+`build_after_execution_params` (see [[step_5_execute_hooks.py]] / [[hook_manager.py]]
+/ [[base.py]]).
+
+## 2026-05-19 — LLMResolverError downgraded from logger.exception to logger.warning
+
+The `except LLMResolverError` branch previously did `logger.exception`,
+which emits ERROR + full traceback on every occurrence. For a single
+user with an exhausted free-tier quota this fires once per scheduled
+job — 1458 lines in 14h on EC2 jobs container 2026-05-19, drowning out
+real errors. The exception class itself carries an actionable user
+message ("Either turn off 'Use free quota' in Settings ..."), and per
+铁律 #15 the platform must not auto-switch providers — so the traceback
+adds zero diagnostic value. Now we log a single WARNING line with
+type + message and continue surfacing the structured `ErrorMessage`
+unchanged.
 
 ## 2026-04-28 change — trace injection + LoggingService removed (M4 / T15)
 

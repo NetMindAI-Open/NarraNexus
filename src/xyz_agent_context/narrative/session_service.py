@@ -39,7 +39,6 @@ from uuid import uuid4
 from loguru import logger
 
 from .models import ConversationSession
-from .config import config
 
 
 def _ensure_timezone_aware(dt: datetime) -> datetime:
@@ -213,20 +212,14 @@ class SessionService:
         agent_id: str
     ) -> ConversationSession:
         """
-        Get or create a Session (with smart timeout detection)
+        Get or create a Session
 
         Logic flow:
         1. Check if Session exists in memory cache
         2. If not in memory, check if file exists
-        3. If exists:
-           - Check if timed out (time since last_query_time > SESSION_TIMEOUT)
-           - Not timed out: return existing Session
-           - Timed out: delete old Session, create new Session
+        3. If exists: reuse it (sessions NEVER expire — they are the chat-box
+           continuity anchor and must persist across arbitrary idle gaps)
         4. If not exists: create new Session and persist
-
-        Timeout detection:
-        - Uses config.SESSION_TIMEOUT setting (default 600 seconds = 10 minutes)
-        - After timeout, treated as new conversation, creates new Session
 
         Args:
             user_id: User ID
@@ -251,26 +244,21 @@ class SessionService:
                     self._session_by_id[session.session_id] = session
                     logger.debug(f"Loaded Session from file: {session.session_id}")
 
-            # Step 3: Check timeout
+            # Step 3: Reuse if it exists — sessions NEVER expire.
+            # The session is the continuity anchor for the user's chat box.
+            # The user can reply to a visible message at any later time (the
+            # agent may have sent it from a scheduled job hours ago), so the
+            # anchor must persist. The former 10-min SESSION_TIMEOUT eviction
+            # was exactly what destroyed the anchor and produced the
+            # "short reply → amnesia" bug. (2026-05-20 fix.)
             if session:
-                elapsed = (datetime.now(timezone.utc) - session.last_query_time).total_seconds()
+                logger.debug(
+                    f"Reusing existing Session: {session.session_id} "
+                    f"(user={user_id}, agent={agent_id})"
+                )
+                return session
 
-                if elapsed <= config.SESSION_TIMEOUT:
-                    # Not timed out, reuse Session
-                    logger.debug(
-                        f"Reusing existing Session: {session.session_id} "
-                        f"(user={user_id}, agent={agent_id}, time since last query={elapsed:.1f}s)"
-                    )
-                    return session
-                else:
-                    # Timed out, delete old Session
-                    logger.info(
-                        f"Session timed out, creating new Session: {session.session_id} "
-                        f"(time since last query={elapsed:.1f}s > {config.SESSION_TIMEOUT}s)"
-                    )
-                    await self._remove_session_with_file(session)
-
-            # Step 4: Create new Session
+            # Step 4: Create new Session (none exists yet)
             session = self._create_new_session(user_id, agent_id)
 
             # Store in memory
@@ -379,42 +367,17 @@ class SessionService:
 
     async def cleanup_expired_sessions(self) -> int:
         """
-        Clean up expired Sessions (free memory and files)
+        No-op since 2026-05-20.
 
-        Features:
-        - Iterates through all Sessions (memory + files)
-        - Deletes timed-out Sessions
-        - Returns cleanup count
-
-        Recommended call timing:
-        - Periodic cleanup (e.g., once per hour)
-        - When memory pressure is high
-        - Background task on schedule
+        Sessions no longer expire (see `get_or_create_session`): they are the
+        continuity anchor for the user's chat box and must persist regardless
+        of idle time. There is no timeout to clean up against. Kept as a
+        no-op so any external/scheduled caller keeps working; always returns 0.
 
         Returns:
-            int: Number of Sessions cleaned up
+            int: Always 0 (nothing is evicted).
         """
-        async with self._lock:
-            now = datetime.now(timezone.utc)
-            expired_sessions = []
-
-            # First load all Sessions from files into memory
-            await self._load_all_sessions_to_memory()
-
-            # Find all expired Sessions
-            for session in list(self._sessions.values()):
-                elapsed = (now - session.last_query_time).total_seconds()
-                if elapsed > config.SESSION_TIMEOUT:
-                    expired_sessions.append(session)
-
-            # Delete expired Sessions (memory + files)
-            for session in expired_sessions:
-                await self._remove_session_with_file(session)
-
-            if expired_sessions:
-                logger.info(f"Cleaned up {len(expired_sessions)} expired Sessions")
-
-            return len(expired_sessions)
+        return 0
 
     async def _load_all_sessions_to_memory(self) -> None:
         """Load all Sessions from files into memory"""

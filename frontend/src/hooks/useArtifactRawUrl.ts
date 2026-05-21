@@ -15,13 +15,17 @@
  * token-protected path.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { artifactsApi } from '@/services/artifactsApi';
 
 export interface ArtifactRawUrlState {
   url: string | null;
   error: string | null;
+  /** Force a fresh token mint. Used by the self-heal flow when an artifact
+   *  was re-registered onto the same id and the renderer needs to refetch
+   *  the now-valid pointer. */
+  reload: () => void;
 }
 
 export function useArtifactRawUrl(
@@ -36,6 +40,8 @@ export function useArtifactRawUrl(
 ): ArtifactRawUrlState {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,7 +60,7 @@ export function useArtifactRawUrl(
     return () => {
       cancelled = true;
     };
-  }, [agentId, artifactId, refreshKey]);
+  }, [agentId, artifactId, refreshKey, reloadTick]);
 
-  return { url, error };
+  return { url, error, reload };
 }

@@ -15,6 +15,8 @@ import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { useArtifactHeal } from '@/hooks/useArtifactHeal';
+import ArtifactHealModal from '../ArtifactHealModal';
 
 interface Props {
   artifact: Artifact;
@@ -28,13 +30,18 @@ function parseCsv(text: string): string[][] {
 }
 
 export default function CsvRenderer({ artifact }: Props) {
-  const { url, error: urlError } = useArtifactRawUrl(
+  const { url, error: urlError, reload } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
     artifact.updated_at,
   );
   const [rows, setRows] = useState<string[][] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+
+  useEffect(() => {
+    if (heal.recoveryVersion > 0) reload();
+  }, [heal.recoveryVersion, reload]);
 
   useEffect(() => {
     if (!url) return;
@@ -45,42 +52,67 @@ export default function CsvRenderer({ artifact }: Props) {
         const text = await fetchArtifactText(url);
         if (!cancelled) setRows(parseCsv(text));
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (cancelled) return;
+        const msg = String(e);
+        setError(msg);
+        if (msg.includes('fetch failed: 410')) heal.attempt();
       }
     })();
     return () => { cancelled = true; };
-  }, [url]);
+  }, [url, heal]);
 
-  if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
-  if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
-  if (!rows) return <div className="p-4 opacity-60">Loading…</div>;
-  if (rows.length === 0) return <div className="p-4 opacity-60">Empty CSV</div>;
-
-  const [header, ...body] = rows;
-  return (
-    <div className="overflow-auto p-4">
-      <table className="border-collapse text-sm">
-        <thead>
-          <tr>
-            {header.map((cell, i) => (
-              <th key={i} className="border border-[var(--border-default)] px-2 py-1 text-left bg-[var(--bg-primary)]">
-                {cell}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {body.map((row, i) => (
-            <tr key={i}>
-              {row.map((cell, j) => (
-                <td key={j} className="border border-[var(--border-default)] px-2 py-1">
-                  {cell}
-                </td>
+  const content = urlError ? (
+    <div className="p-4 text-red-400">Failed to load: {urlError}</div>
+  ) : error ? (
+    <div className="p-4 text-red-400">Failed to load: {error}</div>
+  ) : !rows ? (
+    <div className="p-4 opacity-60">Loading…</div>
+  ) : rows.length === 0 ? (
+    <div className="p-4 opacity-60">Empty CSV</div>
+  ) : (
+    (() => {
+      const [header, ...body] = rows;
+      return (
+        <div className="overflow-auto p-4">
+          <table className="border-collapse text-sm">
+            <thead>
+              <tr>
+                {header.map((cell, i) => (
+                  <th key={i} className="border border-[var(--border-default)] px-2 py-1 text-left bg-[var(--bg-primary)]">
+                    {cell}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, i) => (
+                <tr key={i}>
+                  {row.map((cell, j) => (
+                    <td key={j} className="border border-[var(--border-default)] px-2 py-1">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+            </tbody>
+          </table>
+        </div>
+      );
+    })()
+  );
+
+  return (
+    <>
+      {content}
+      <ArtifactHealModal
+        open={heal.modalOpen}
+        artifactTitle={artifact.title}
+        candidates={heal.candidates}
+        message={heal.message}
+        busy={heal.busy}
+        onPick={(workspacePath) => heal.attempt(workspacePath)}
+        onDismiss={heal.dismiss}
+      />
+    </>
   );
 }

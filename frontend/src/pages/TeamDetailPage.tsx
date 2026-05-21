@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Pencil, Users, Bot, Package } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
+import { BracketEmptyState, BracketSectionLabel } from '@/components/nm';
 import { Markdown } from '@/components/ui/Markdown';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 import { useTeamsStore, useConfigStore } from '@/stores';
@@ -112,28 +113,30 @@ export default function TeamDetailPage() {
 
         {/* Intro markdown */}
         {team.team.intro_md ? (
-          <section className="border border-[var(--border-default)] p-5">
-            <div className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mb-3 font-mono">
-              Team intro
+          <section className="rounded-[var(--radius-md)] border border-[color:var(--nm-hairline)] bg-[color:var(--nm-card)] p-5">
+            <BracketSectionLabel>Team intro</BracketSectionLabel>
+            <div className="mt-3">
+              <Markdown content={team.team.intro_md} />
             </div>
-            <Markdown content={team.team.intro_md} />
           </section>
         ) : (
-          <section className="border border-dashed border-[var(--border-default)] p-5 text-center text-sm text-[var(--text-tertiary)]">
-            No team intro yet. Click <span className="font-mono">Edit</span> to add a description that
-            will travel with the bundle when you export.
-          </section>
+          <BracketEmptyState
+            label="No team intro yet"
+            hint="Click Edit to add a description that will travel with the bundle when you export."
+          />
         )}
 
         {/* Member roster */}
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Users className="w-4 h-4 text-[var(--text-secondary)]" />
-            <h2 className="text-sm font-mono uppercase tracking-widest">Members</h2>
-          </div>
+          <BracketSectionLabel>
+            <span className="inline-flex items-center gap-2"><Users className="w-3 h-3" /> Members</span>
+          </BracketSectionLabel>
           {memberAgents.length === 0 ? (
-            <div className="text-xs text-[var(--text-tertiary)] border border-dashed border-[var(--border-default)] p-4 text-center">
-              No agents in this team yet. Click Edit to add some.
+            <div className="mt-3">
+              <BracketEmptyState
+                label="No agents in this team yet"
+                hint="Click Edit to add some."
+              />
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-2">

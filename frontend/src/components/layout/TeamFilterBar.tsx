@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { Settings2, ExternalLink, Upload, Package } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
+import { BracketSectionLabel } from '@/components/nm';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -125,11 +126,13 @@ export function TeamFilterBar({ selectedFilter, onChange, collapsed }: Props) {
 
   return (
     <div className="px-3 pt-3 pb-2 border-b border-[var(--border-subtle)] space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.15em] font-[family-name:var(--font-mono)]">
+      <div className="flex items-center justify-between gap-2">
+        <BracketSectionLabel
+          trailing={<span className="text-[10px] opacity-60">{teams.length}</span>}
+        >
           Teams
-        </span>
-        <div className="flex items-center gap-0.5">
+        </BracketSectionLabel>
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={() => navigate('/app/bundle/import')}
             className="p-1 hover:bg-[var(--bg-tertiary)]"

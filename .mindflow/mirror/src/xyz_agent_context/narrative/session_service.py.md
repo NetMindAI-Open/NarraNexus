@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/session_service.py
-last_verified: 2026-04-10
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — sessions never expire (timeout removed)
+
+The 10-minute `SESSION_TIMEOUT` eviction was **removed**. The session is the
+continuity anchor for the user's chat box; a user can reply to a visible
+message (often one the agent sent from a scheduled job) minutes, hours, or days
+later, so the anchor must persist. `get_or_create_session` now reuses any
+existing session unconditionally (memory → file), creating a new one only when
+none exists. `cleanup_expired_sessions()` is a no-op returning 0 (kept for any
+external caller). `SESSION_TIMEOUT` / `SESSION_CLEANUP_INTERVAL` removed from
+`config.py`. The old "设计决策" note below about idle files staying on disk is
+now *intended*: files are tiny, one per (agent,user), overwritten in place — no
+unbounded growth. Part of the short-reply→amnesia fix (see
+[[narrative_service.py]] / [[step_4_persist_results.py]] 2026-05-20).
 
 # session_service.py — 用户 Session 持久化管理
 

@@ -4,10 +4,11 @@
  */
 
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
-import { api, getBaseUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
 
@@ -23,6 +24,9 @@ const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const ManageAgentsPage = lazy(() => import('@/pages/ManageAgentsPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+// NM design system dev gallery — public (no auth) so it can be loaded
+// before login during visual review. Not linked from any nav.
+const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
@@ -56,6 +60,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn, userId, logout } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
+  const location = useLocation();
   useAutoRestoreForcedMode();
 
   useEffect(() => {
@@ -64,7 +69,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       return;
     }
     // Validate that the session is still valid (JWT token accepted by backend)
-    api.getAgents(userId)
+    api.getAgents()
       .then(res => {
         if (!res.success) logout();
       })
@@ -93,7 +98,15 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (isForcedCloud() || isForcedLocal()) return <PageFallback />;
     return <Navigate to="/mode-select" replace />;
   }
-  if (!isLoggedIn) return <Navigate to="/login" replace />;
+  if (!isLoggedIn) {
+    // Preserve the URL the user was trying to reach so LoginPage can send
+    // them back after auth. This is what makes "Install in NarraNexus →
+    // Cloud" from website.narra.nexus land on the import page, not /chat.
+    // RegisterPage does NOT read `next` yet — fresh signups still land on
+    // the default. Tracked as a known edge case.
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
   if (validating) return <PageFallback />;
   return <>{children}</>;
 }
@@ -150,12 +163,14 @@ function RootRedirect() {
       setChecking(false);
       return;
     }
-    // Check if user has any providers configured
+    // Check if user has any providers configured. Use api.getProviders
+    // so the X-User-Id / JWT headers travel with the request — bare
+    // fetch sends neither, and the backend used to silently fall back
+    // to "first user in users table" which scoped this probe to the
+    // wrong account on multi-user local installs.
     const checkProviders = async () => {
       try {
-        const baseUrl = getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/providers?user_id=${encodeURIComponent(userId)}`);
-        const data = await res.json();
+        const data = await api.getProviders();
         if (data.success && data.data?.providers) {
           const count = Object.keys(data.data.providers).length;
           setNeedsSetup(count === 0);
@@ -187,10 +202,60 @@ function RootRedirect() {
 function App() {
   const { effectiveTheme } = useTheme();
   useTimezoneSync();
+  const navigate = useNavigate();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', effectiveTheme === 'dark');
   }, [effectiveTheme]);
+
+  // Deep-link handler: route narranexus:// URLs from the website (or any
+  // app firing `open narranexus://...`) into the in-app install flow.
+  // The Rust side (tauri/src-tauri/src/lib.rs) registers an on_open_url
+  // callback that BOTH emits this event AND stashes the URL in
+  // AppState::pending_deep_link, so we cover the hot case (event listener
+  // already mounted) and the cold case (URL arrived during app launch,
+  // before React was alive to listen).
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    const handleUrl = (raw: string) => {
+      try {
+        const u = new URL(raw);
+        // narranexus://install?url=...&sha256=... — host segment is "install".
+        // Browsers/parsers sometimes surface custom-scheme URLs with the
+        // path "/install" instead, so accept both shapes.
+        if (u.host === 'install' || u.pathname === '/install' || u.pathname === 'install') {
+          navigate(`/app/templates/install${u.search}`);
+        } else {
+          console.warn('[deep-link] unhandled URL shape:', raw);
+        }
+      } catch (e) {
+        console.warn('[deep-link] failed to parse URL:', raw, e);
+      }
+    };
+
+    // (1) Cold-start: drain the URL Rust buffered before we mounted.
+    consumePendingDeepLink().then((url) => {
+      if (url) handleUrl(url);
+    });
+
+    // (2) Hot: subscribe to live URL arrivals (already-running case forwarded
+    //     via single-instance plugin's deep-link feature).
+    let unlisten: (() => void) | null = null;
+    listenTauri('deep-link-received', (ev) => {
+      const payload =
+        ev && typeof ev === 'object' && 'payload' in ev
+          ? (ev as { payload: unknown }).payload
+          : ev;
+      if (typeof payload === 'string') handleUrl(payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, [navigate]);
 
   // Surface "quota exhausted" globally. api.ts dispatches a CustomEvent
   // on HTTP 402 + error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER; we show a
@@ -253,6 +318,9 @@ function App() {
           element={<PublicRoute><RegisterPage /></PublicRoute>}
         />
 
+        {/* NM design system gallery — public dev tool, no auth required */}
+        <Route path="/nm-playground" element={<NMPlaygroundPage />} />
+
         {/* Setup — requires login */}
         <Route
           path="/setup"
@@ -271,6 +339,10 @@ function App() {
           <Route path="settings" element={<SettingsPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
           <Route path="bundle/import" element={<BundleImportPage />} />
+          {/* Deep-link entry point from narra.nexus templates marketplace.
+              Same component as bundle/import; URL query (?url=&sha256=)
+              triggers the auto-fetch-then-preflight path. */}
+          <Route path="templates/install" element={<BundleImportPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
           <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>

@@ -1,6 +1,6 @@
 [package]
 name = "narranexus"
-version = "1.5.5"
+version = "1.7.3"
 edition = "2021"
 
 [lib]
@@ -18,7 +18,12 @@ tauri-plugin-updater = "2"
 # stack on top of the live one — root cause of repeated-launch port
 # collisions. Second-launch now hands its argv off to the live process and
 # exits, which raises the existing window via the init() callback.
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
+# Handles narranexus:// URL scheme for one-click template install from the
+# website. Bundler writes CFBundleURLTypes into Info.plist (see
+# tauri.conf.json plugins.deep-link), and the runtime callback forwards
+# received URLs as Tauri events to the webview (src/lib.rs setup hook).
+tauri-plugin-deep-link = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

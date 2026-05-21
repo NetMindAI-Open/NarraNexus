@@ -61,7 +61,47 @@ from loguru import logger
 # Retry utility for API calls
 from xyz_agent_context.utils.retry import with_retry
 
-from xyz_agent_context.agent_framework.api_config import embedding_config
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    """True when an embedding call failed because the provider rate-limited us.
+
+    A 429 is transient and back-off-able, so it must be retried rather than
+    failing the row outright (which left rebuilds permanently stuck on the
+    missing rows). We duck-type instead of importing a specific SDK exception:
+    OpenAI raises ``openai.RateLimitError`` (``status_code == 429``), but the
+    aggregators users plug in (DeepSeek / Yunwu / SiliconFlow / …) surface 429
+    under their own class names and message shapes (铁律 #9 — no hard SDK
+    coupling). Match on HTTP status, then class name, then message text.
+    """
+    status = getattr(e, "status_code", None) or getattr(e, "status", None)
+    if status == 429:
+        return True
+    if "ratelimit" in type(e).__name__.lower():
+        return True
+    msg = str(e).lower()
+    return "429" in msg or "rate limit" in msg or "too many requests" in msg
+
+
+# Retry policy for embedding API calls: transient network faults plus provider
+# rate limits (429). 5 attempts with a few-seconds exponential backoff
+# (2s, 4s, 8s, 16s, capped at 30s) lets a per-minute rate limit clear instead
+# of permanently failing the row.
+_EMBED_RETRY = dict(
+    max_attempts=5,
+    delay=2.0,
+    backoff=2.0,
+    max_delay=30.0,
+    exceptions=(ConnectionError, TimeoutError, OSError),
+    retry_on=_is_rate_limit_error,
+)
+
+
+class EmbeddingProviderNotConfigured(RuntimeError):
+    """Raised when an embedding is requested but no provider is configured for
+    the current context. We never fall back to environment credentials —
+    embedding config must come from explicit args or the per-task ContextVar
+    (set from the user's configured provider)."""
+
 
 # Try to import OpenAI
 try:
@@ -142,6 +182,7 @@ class EmbeddingClient:
         self,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         enable_cache: bool = True,
     ):
         """
@@ -149,7 +190,12 @@ class EmbeddingClient:
 
         Args:
             model: OpenAI embedding model name (default: text-embedding-3-small)
-            api_key: OpenAI API key (default: from environment)
+            api_key: OpenAI API key (default: from the current task's config)
+            base_url: OpenAI-compatible endpoint. Pass explicitly to fully
+                control the provider by (base_url, api_key, model) — used by
+                background jobs that cannot rely on the request ContextVar.
+                ``None`` → inherit the current task's config; ``""`` → official
+                OpenAI endpoint.
             enable_cache: Whether to enable embedding caching
         """
         if not OPENAI_AVAILABLE:
@@ -158,7 +204,16 @@ class EmbeddingClient:
                 "Install with: pip install openai"
             )
 
-        self.model = model or embedding_config.model
+        # Embedding credentials come ONLY from explicit args or the current
+        # task's ContextVar (set per agent turn / MCP call from the user's
+        # configured provider). We never read the global holder (.env /
+        # llm_config.json) for embedding — see api_config.get_current_embedding_config.
+        from xyz_agent_context.agent_framework.api_config import (
+            get_current_embedding_config,
+        )
+        ctx_cfg = get_current_embedding_config()
+
+        self.model = model or (ctx_cfg.model if ctx_cfg else None) or DEFAULT_MODEL
         # Prefer the canonical catalog (covers bge-m3, nv-embed-v2, stella,
         # etc.); fall back to the legacy OpenAI-only dict, then to the
         # platform-wide default when the model is unknown.
@@ -171,10 +226,27 @@ class EmbeddingClient:
         )
         self.enable_cache = enable_cache
 
+        # Resolve api_key / base_url: explicit arg wins, else the ContextVar.
+        # An explicit base_url (even "") pins the endpoint; None means inherit
+        # the ContextVar; "" → official OpenAI.
+        resolved_api_key = api_key or (ctx_cfg.api_key if ctx_cfg else "")
+        effective_base_url = (
+            base_url if base_url is not None
+            else (ctx_cfg.base_url if ctx_cfg else "")
+        )
+        if not resolved_api_key:
+            # Fail fast — never silently embed against an environment key.
+            raise EmbeddingProviderNotConfigured(
+                "No embedding provider configured for this embedding call. "
+                "Pass api_key explicitly, or ensure the agent turn / MCP tool "
+                "set the owner's embedding provider (set_user_config / "
+                "setup_mcp_llm_context). Embedding credentials are never read "
+                "from the environment."
+            )
         # Initialize OpenAI client; only pass base_url when configured
-        client_kwargs: dict = {"api_key": api_key or embedding_config.api_key}
-        if embedding_config.base_url:
-            client_kwargs["base_url"] = embedding_config.base_url
+        client_kwargs: dict = {"api_key": resolved_api_key}
+        if effective_base_url:
+            client_kwargs["base_url"] = effective_base_url
         self._client = AsyncOpenAI(**client_kwargs)
 
         # Cache is module-level (`_GLOBAL_EMBEDDING_CACHE`); the instance
@@ -194,7 +266,7 @@ class EmbeddingClient:
         # call site already emits a [TIMED] line.
         logger.debug(
             f"[Embedding] Initialized: model={self.model}, "
-            f"base_url={embedding_config.base_url or '(official)'}, "
+            f"base_url={effective_base_url or '(official)'}, "
             f"dims={self.dimensions}"
         )
 
@@ -243,12 +315,7 @@ class EmbeddingClient:
         """Generate cache key from text."""
         return hashlib.md5(f"{self.model}:{text}".encode()).hexdigest()
 
-    @with_retry(
-        max_attempts=3,
-        delay=1.0,
-        backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError, OSError),
-    )
+    @with_retry(**_EMBED_RETRY)
     async def _make_embedding_request(self, text: str) -> List[float]:
         """
         Make embedding API request with retry.
@@ -385,12 +452,7 @@ class EmbeddingClient:
             logger.exception(f"Error generating batch embeddings: {e}")
             raise
 
-    @with_retry(
-        max_attempts=3,
-        delay=1.0,
-        backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError, OSError),
-    )
+    @with_retry(**_EMBED_RETRY)
     async def _make_batch_embedding_request(self, texts: List[str]):
         """
         Make batch embedding API request with retry.

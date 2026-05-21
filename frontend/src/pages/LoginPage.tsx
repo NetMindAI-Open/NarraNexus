@@ -1,15 +1,25 @@
 /**
- * Login Page - Supports both Local (user_id only) and Cloud (user_id + password) modes
+ * Login Page · NM Design System (M3 Wave 2)
+ *
+ * Supports both Local (user_id only) and Cloud (user_id + password) modes.
+ * Restyled to use NM BracketMarkLogo + FormField/TextInput + Button + Chip
+ * primitives. Layout preserves the original document-style centered card.
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Loader2, ArrowRight, ArrowLeft, Sparkles, UserPlus, Cloud } from 'lucide-react';
-import { Button, Input } from '@/components/ui';
-import { useTheme } from '@/hooks';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { ArrowRight, ArrowLeft, UserPlus, Cloud } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
+import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import {
+  Button,
+  FormField,
+  TextInput,
+  Chip,
+  Divider,
+} from '@/components/nm';
+import { isSafeReturnTo } from '@/lib/safe-return';
 import { CreateUserDialog } from './CreateUserDialog';
 
 export function LoginPage() {
@@ -20,6 +30,7 @@ export function LoginPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { isDark } = useTheme();
   const { login, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
@@ -27,13 +38,8 @@ export function LoginPage() {
   const setCloudApiUrl = useRuntimeStore((s) => s.setCloudApiUrl);
 
   const isCloudMode = mode === 'cloud-app' || mode === 'cloud-web';
-
-  // "Change Mode" — clears the selected mode so the router sends the user
-  // back to /mode-select. We also clear cloudApiUrl so the next cloud pick
-  // prompts for a fresh URL instead of silently reusing the last one.
-  // `cloud-web` (force-cloud deployment) has no real "other mode" to
-  // switch to, so the button is hidden in that case.
   const canChangeMode = mode !== 'cloud-web';
+
   const handleChangeMode = () => {
     setCloudApiUrl('');
     setMode(null);
@@ -60,16 +66,21 @@ export function LoginPage() {
         setLoading(false);
         return;
       }
-
-      // Store token FIRST so subsequent API calls can use it
       login(userId.trim(), loginRes.token || undefined, loginRes.role || undefined);
 
-      const agentsRes = await api.getAgents(userId.trim());
+      const agentsRes = await api.getAgents();
       if (agentsRes.success && agentsRes.agents.length > 0) {
         setAgents(agentsRes.agents);
         setAgentId(agentsRes.agents[0].agent_id);
       }
-      navigate('/');
+      // Return-URL flow: ProtectedRoute redirects unauthenticated visitors
+      // to /login?next=<encoded-path>. After auth, send them back to that
+      // URL — but only if it's a same-origin relative path (open-redirect
+      // guard, see lib/safe-return). For unknown / unsafe / absent next,
+      // fall through to the default RootRedirect at "/".
+      const params = new URLSearchParams(location.search);
+      const next = params.get('next');
+      navigate(isSafeReturnTo(next) ? next : '/');
     } catch (err) {
       setError('Connection failed. Please try again.');
       console.error('Login error:', err);
@@ -83,56 +94,61 @@ export function LoginPage() {
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card animate-scale-in">
-        {/* Change Mode — lets the user back out of an accidental pick */}
+    <div
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: 'var(--nm-paper)' }}
+    >
+      <div
+        className="w-full max-w-md p-10 animate-scale-in"
+        style={{
+          background: 'var(--nm-card)',
+          border: '1px solid var(--nm-hairline)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
         {canChangeMode && (
           <button
             type="button"
             onClick={handleChangeMode}
-            className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] transition-colors mb-4 -mt-2"
+            className="flex items-center gap-1.5 text-[11px] mb-6 -mt-2 transition-colors hover:opacity-100 opacity-60"
+            style={{
+              color: 'var(--nm-ink50)',
+              fontFamily: 'var(--font-mono)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.10em',
+            }}
           >
             <ArrowLeft className="w-3 h-3" />
             <span>Change mode</span>
           </button>
         )}
 
-        {/* Document header — archive style */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-6">
-            <img src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'} alt="NarraNexus" className="h-8 w-auto object-contain" />
-            <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.22em] text-[var(--text-tertiary)]">
-              NetMind · Access
-            </span>
-          </div>
-          <h1
-            className="font-[family-name:var(--font-display)] font-bold text-[var(--text-primary)] mb-3"
-            style={{ fontSize: 'clamp(2rem, 6vw, 2.75rem)', lineHeight: 1.02, letterSpacing: '-0.025em' }}
+        {/* Brand header — original NarraNexus logo preserved */}
+        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <img
+            src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+            alt="NarraNexus"
+            className="h-16 w-auto object-contain"
+          />
+          <div
+            className="text-[10px] uppercase tracking-[0.22em]"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
           >
-            NarraNexus
-          </h1>
-          <hr className="archive-rule-thick" style={{ margin: '0 0 1rem 0' }} />
-          <p className="text-[var(--text-secondary)] text-sm font-light">
-            {isCloudMode ? 'Cloud platform · ' : 'Intelligent agent platform · '}
-            <span className="font-[family-name:var(--font-mono)] text-[11px] uppercase tracking-[0.14em] text-[var(--text-tertiary)]">
-              {isCloudMode ? '01 · Sign in' : '01 · Credentials'}
-            </span>
-          </p>
+            {isCloudMode ? 'Cloud · Access' : 'Local · Access'}
+          </div>
           {isCloudMode && (
-            <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] text-[var(--text-tertiary)] border border-[var(--border-subtle)] px-2 py-1">
-              <Cloud className="w-3 h-3" />
+            <Chip species="silicon" leading={<Cloud className="w-3 h-3" />}>
               Cloud mode
-            </div>
+            </Chip>
           )}
         </div>
 
-        {/* Login Form */}
-        <div className="space-y-5">
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              User ID
-            </label>
-            <Input
+        <Divider />
+
+        {/* Form */}
+        <div className="space-y-5 mt-6">
+          <FormField label="User ID">
+            <TextInput
               type="text"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
@@ -140,17 +156,14 @@ export function LoginPage() {
               placeholder="your_username"
               disabled={loading}
               error={!!error}
-              className={cn('h-12 text-base font-mono', 'bg-[var(--bg-sunken)]')}
               autoFocus
+              className="h-12"
             />
-          </div>
+          </FormField>
 
           {isCloudMode && (
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                Password
-              </label>
-              <Input
+            <FormField label="Password">
+              <TextInput
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -158,84 +171,95 @@ export function LoginPage() {
                 placeholder="••••••••"
                 disabled={loading}
                 error={!!error}
-                className={cn('h-12 text-base', 'bg-[var(--bg-sunken)]')}
+                className="h-12"
               />
-            </div>
+            </FormField>
           )}
 
           {error && (
-            <p className="text-xs text-[var(--color-error)] animate-slide-up flex items-center gap-1.5">
-              <span className="w-1 h-1 rounded-full bg-[var(--color-error)]" />
+            <p
+              className="text-xs animate-slide-up flex items-center gap-1.5"
+              style={{ color: 'var(--color-error)' }}
+              role="alert"
+            >
+              <span
+                className="w-1 h-1 rounded-full inline-block"
+                style={{ background: 'var(--color-error)' }}
+              />
               {error}
             </p>
           )}
 
           <Button
-            variant="accent"
+            variant="primary"
+            size="lg"
             onClick={handleLogin}
             disabled={loading || !userId.trim() || (isCloudMode && !password)}
-            className="w-full h-12 text-base font-semibold group"
+            loading={loading}
+            className="w-full"
+            trailing={!loading ? <ArrowRight className="w-4 h-4" /> : undefined}
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Connecting...</span>
-              </>
-            ) : (
-              <>
-                <span>{isCloudMode ? 'Sign In' : 'Access Terminal'}</span>
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </>
-            )}
+            {loading ? 'Connecting…' : isCloudMode ? 'Sign In' : 'Access Terminal'}
           </Button>
 
-          {/* Divider */}
           <div className="relative py-4">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-[var(--border-subtle)]" />
+              <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
             </div>
             <div className="relative flex justify-center">
-              <span className="px-3 bg-[var(--glass-bg)] text-[10px] text-[var(--text-tertiary)] uppercase tracking-wider">
+              <span
+                className="px-3 text-[10px] uppercase tracking-wider"
+                style={{
+                  background: 'var(--nm-card)',
+                  color: 'var(--nm-ink50)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+              >
                 or
               </span>
             </div>
           </div>
 
-          {/* Create User (local) or Register (cloud) */}
           {isCloudMode ? (
             <Button
-              variant="outline"
+              variant="secondary"
               onClick={() => navigate('/register')}
-              className="w-full h-11 text-sm"
+              className="w-full"
+              leading={<UserPlus className="w-4 h-4" />}
             >
-              <UserPlus className="w-4 h-4" />
-              <span>Create Account</span>
+              Create Account
             </Button>
           ) : (
             <Button
-              variant="outline"
+              variant="secondary"
               onClick={() => setShowCreateDialog(true)}
-              className="w-full h-11 text-sm"
+              className="w-full"
+              leading={<UserPlus className="w-4 h-4" />}
             >
-              <UserPlus className="w-4 h-4" />
-              <span>Create New User</span>
+              Create New User
             </Button>
           )}
         </div>
 
         {/* Footer */}
-        <div className="mt-10 pt-5 border-t border-[var(--rule)]">
-          <div className="flex items-center justify-between text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)]">
-            <span className="flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3" />
+        <div className="mt-10 pt-5 border-t" style={{ borderColor: 'var(--nm-hairline)' }}>
+          <div
+            className="flex items-center justify-between text-[10px] uppercase tracking-[0.18em]"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
+          >
+            <span className="inline-flex items-center gap-2">
+              <span
+                className="w-1.5 h-1.5 rounded-full inline-block"
+                style={{ background: 'var(--color-carbon)' }}
+                aria-hidden
+              />
               NetMind.AI
             </span>
-            <span>v1.0.0</span>
+            <span>v{__APP_VERSION__}</span>
           </div>
         </div>
       </div>
 
-      {/* Create User Dialog (local mode only) */}
       {showCreateDialog && (
         <CreateUserDialog
           onClose={() => setShowCreateDialog(false)}

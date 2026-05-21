@@ -34,8 +34,11 @@
  *   making multi-file artifacts actually work.
  */
 
+import { useEffect } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { useArtifactHeal } from '@/hooks/useArtifactHeal';
+import ArtifactHealModal from '../ArtifactHealModal';
 
 interface Props {
   artifact: Artifact;
@@ -46,27 +49,70 @@ export default function HtmlRenderer({ artifact }: Props) {
   // target_artifact_id, the row's updated_at bumps, our store upserts the
   // new row, this hook re-mints a token, and the iframe `src` changes so
   // the document and its sibling assets reload fresh.
-  const { url, error } = useArtifactRawUrl(
+  const { url, error, reload } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
     artifact.updated_at,
   );
+  const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
 
-  if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
-  if (!url) return <div className="p-4 opacity-60">Loading…</div>;
+  // Heal-success path: hook bumped recoveryVersion → re-mint the URL so
+  // the iframe key changes and reloads the now-valid pointer.
+  useEffect(() => {
+    if (heal.recoveryVersion > 0) reload();
+  }, [heal.recoveryVersion, reload]);
 
-  // Belt-and-braces: keying the iframe on updated_at forces React to
-  // remount it even if the `src` somehow doesn't change (e.g. expired
-  // token re-mint that lands on the same string).
+  // iframe.src swallows HTTP status from JS land, so we probe the URL with
+  // a HEAD before letting the iframe load. 410 = broken pointer (file_path
+  // NULL or off-disk) — kick off the self-heal flow instead of leaving the
+  // user with a blank frame and no recourse.
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(url, { method: 'HEAD' });
+        if (!cancelled && r.status === 410) {
+          heal.attempt();
+        }
+      } catch {
+        /* network blip — the iframe will surface its own error */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [url, heal]);
+
   return (
-    <iframe
-      key={artifact.updated_at}
-      title={artifact.title}
-      sandbox="allow-scripts"
-      src={url}
-      referrerPolicy="no-referrer"
-      loading="lazy"
-      className="w-full h-full border-0 bg-white"
-    />
+    <>
+      {error ? (
+        <div className="p-4 text-red-400">Failed to load: {error}</div>
+      ) : !url ? (
+        <div className="p-4 opacity-60">Loading…</div>
+      ) : (
+        // Belt-and-braces: keying the iframe on updated_at forces React to
+        // remount it even if the `src` somehow doesn't change (e.g. expired
+        // token re-mint that lands on the same string).
+        <iframe
+          key={`${artifact.updated_at}-${heal.recoveryVersion}`}
+          title={artifact.title}
+          sandbox="allow-scripts"
+          src={url}
+          referrerPolicy="no-referrer"
+          loading="lazy"
+          className="w-full h-full border-0 bg-white"
+        />
+      )}
+      <ArtifactHealModal
+        open={heal.modalOpen}
+        artifactTitle={artifact.title}
+        candidates={heal.candidates}
+        message={heal.message}
+        busy={heal.busy}
+        onPick={(workspacePath) => heal.attempt(workspacePath)}
+        onDismiss={heal.dismiss}
+      />
+    </>
   );
 }

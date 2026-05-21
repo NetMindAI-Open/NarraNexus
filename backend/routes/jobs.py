@@ -21,9 +21,10 @@ import json
 from typing import Optional, Any, List
 from uuid import uuid4
 from pydantic import BaseModel
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from loguru import logger
 
+from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import utc_now, format_for_api
 from xyz_agent_context.repository import JobRepository
@@ -146,25 +147,26 @@ def job_row_to_response(row: dict, depends_on: List[str] = None) -> JobResponse:
 
 @router.get("", response_model=JobListResponse)
 async def list_jobs(
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: Optional[str] = Query(None, description="Optional user ID filter"),
     status: Optional[str] = Query(None, description="Optional status filter"),
     limit: int = Query(50, description="Max number of jobs to return"),
 ):
     """
-    List jobs for an agent
+    List jobs for an agent. Identity from auth_middleware — the previous
+    "optional user_id filter" let any client list anyone's jobs by
+    passing a different user_id in the URL.
 
     Retrieves data from instance_jobs table and dependency relationships from module_instances table
     """
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Listing jobs for agent: {agent_id}, user: {user_id}, status: {status}")
 
     try:
         db_client = await get_db_client()
 
-        # Build filter conditions
-        filters = {"agent_id": agent_id}
-        if user_id:
-            filters["user_id"] = user_id
+        # Build filter conditions — always scoped to the caller.
+        filters = {"agent_id": agent_id, "user_id": user_id}
         if status:
             # Validate status value
             valid_statuses = ["pending", "active", "running", "completed", "failed", "blocked", "cancelled"]

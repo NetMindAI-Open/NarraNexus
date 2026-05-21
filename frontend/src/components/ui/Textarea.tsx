@@ -79,35 +79,31 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           }}
           className={cn(
             'w-full',
-            'bg-[var(--bg-primary)]',
-            'border border-[var(--border-default)]',
+            'bg-[color:var(--nm-paper-warm)]',
+            'border border-[color:var(--nm-hairline)]',
+            'rounded-[var(--radius-sm)]',
             'px-3 py-2.5',
-            'text-sm text-[var(--text-primary)]',
-            'placeholder:text-[var(--text-tertiary)] placeholder:font-light',
+            'text-sm text-[var(--nm-ink)]',
+            'placeholder:text-[color:var(--nm-ink30)] placeholder:font-normal',
             'font-[family-name:var(--font-sans)]',
             'transition-colors duration-150',
             'resize-none min-h-[100px]',
 
             'focus:outline-none',
-            'focus:border-[var(--text-primary)]',
+            'focus:border-[var(--nm-ink)]',
 
-            'hover:border-[var(--border-strong)]',
+            'hover:border-[color:var(--border-strong)]',
 
-            'disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-[var(--bg-secondary)]',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
 
             error && [
-              'border-[var(--color-red-500)]',
-              'focus:border-[var(--color-red-500)]',
+              'border-[color:var(--color-error)]',
+              'focus:border-[color:var(--color-error)]',
             ],
 
             className
           )}
-          // overflowY is managed dynamically inside `resize()`: hidden while
-          // content fits (no system scrollbar can appear), auto only when
-          // content actually exceeds max-height. autoResize=false falls back
-          // to native overflow.
           style={{
-            borderRadius: 0,
             overflowY: autoResize ? 'hidden' : 'auto',
           }}
           {...props}

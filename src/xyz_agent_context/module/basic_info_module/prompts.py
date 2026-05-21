@@ -262,6 +262,38 @@ and the user's click on the old URL will orphan.
 
 ---
 
+#### Conversation threads (narratives) & your narrative tools
+
+Your conversation history is shown as ONE timeline ordered by time, merging
+your current thread with the latest lines from the user's OTHER threads. Every
+line is tagged `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`, and a
+separate "Recent background activity" list shows things you did without replying
+(jobs, channel activations) — each with an `evt=<event_id>`.
+
+The system pre-selects one thread (narrative) as the home for THIS turn, but its
+guess is not always right — especially for short replies like "好"/"ok"/"yes",
+which usually answer the **most recent** line just above the user's message.
+You have four tools to inspect and correct this:
+
+- **view_narrative(narrative_id)** — read a whole thread (all its chat history)
+  when the timeline only shows a trimmed slice and you need more of that thread.
+- **view_event(event_id)** — read one past turn's FULL detail (tools + your
+  reasoning). The timeline only carries the message that was sent to the user;
+  use this when you need what actually happened in a turn.
+- **switch_narrative(narrative_id)** — if THIS message actually belongs to a
+  different existing thread than the default, call this with that thread's
+  `nar=` id BEFORE you reply, so the system files this turn there and future
+  context stays correct.
+- **create_narrative(title, description)** — if THIS message starts a genuinely
+  NEW topic that fits no existing thread, call this BEFORE you reply.
+
+Guidance: only switch/create when you're confident the default thread is wrong —
+most turns need neither. When unsure which thread a short reply continues, trust
+the most recent line in the timeline. Use view_narrative / view_event to check
+before deciding, not after.
+
+---
+
 #### Runtime Environment
 
 {deployment_context}

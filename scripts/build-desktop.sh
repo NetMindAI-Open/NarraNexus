@@ -823,23 +823,50 @@ if [ "$IS_REAL_SIGN" -eq 1 ] \
     echo "$SUBMISSION_ID" > "$NOTARIZE_ID_FILE"
     echo "  submission id: $SUBMISSION_ID  (saved to $NOTARIZE_ID_FILE)"
 
-    echo "  Waiting for notarization to finish (polling)..."
-    if ! xcrun notarytool wait "$SUBMISSION_ID" \
+    # Wait for a TERMINAL status, surviving transient runner network blips.
+    #
+    # `notarytool wait` long-polls Apple server-side, but the GitHub macOS
+    # runner occasionally drops its network mid-poll (observed:
+    # NSURLErrorDomain -1009 "Internet connection appears to be offline" /
+    # "No network route" while talking to appstoreconnect.apple.com). The old
+    # code took a single failed wait + info as fatal (`STATUS='?'` → exit 1),
+    # throwing away a ~30-min build even though Apple keeps processing our
+    # submission regardless. We now retry wait/info until `info` reports a
+    # terminal status (Accepted / Invalid / Rejected) or we exhaust the budget
+    # — a network blip just costs a short backoff, not the whole build.
+    echo "  Waiting for notarization to finish (network-resilient polling)..."
+    INFO_OUT="$STAGE_DIR/notarytool-info.json"
+    NOTARIZE_MAX_TRIES="${NOTARIZE_MAX_TRIES:-30}"
+    NOTARIZE_RETRY_SLEEP="${NOTARIZE_RETRY_SLEEP:-30}"
+    STATUS="?"
+    for _ntry in $(seq 1 "$NOTARIZE_MAX_TRIES"); do
+        # `wait` blocks until terminal or a transport error. Ignore its exit
+        # code — `info` below is the authoritative read of the status.
+        xcrun notarytool wait "$SUBMISSION_ID" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID"; then
-        echo "  notarytool wait returned non-zero — fetching log before aborting..."
-    fi
+            --team-id "$APPLE_TEAM_ID" >/dev/null 2>&1 || true
 
-    # Pull info for final status. `notarytool info` prints structured output;
-    # we re-query with --output-format json to parse status reliably.
-    INFO_OUT="$STAGE_DIR/notarytool-info.json"
-    xcrun notarytool info "$SUBMISSION_ID" \
-        --apple-id "$APPLE_ID" \
-        --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-        --team-id "$APPLE_TEAM_ID" \
-        --output-format json > "$INFO_OUT" || true
-    STATUS=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$INFO_OUT" 2>/dev/null || echo '?')
+        if xcrun notarytool info "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --output-format json > "$INFO_OUT" 2>/dev/null; then
+            STATUS=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status",""))' "$INFO_OUT" 2>/dev/null || echo '?')
+        else
+            STATUS="?"   # info itself failed (network) — status not yet known
+        fi
+
+        case "$STATUS" in
+            Accepted|Invalid|Rejected)
+                break ;;   # terminal — stop polling
+            *)
+                if [ "$_ntry" -lt "$NOTARIZE_MAX_TRIES" ]; then
+                    echo "  not terminal yet (status='$STATUS', try $_ntry/$NOTARIZE_MAX_TRIES) — likely a transient network blip; retrying in ${NOTARIZE_RETRY_SLEEP}s..."
+                    sleep "$NOTARIZE_RETRY_SLEEP"
+                fi ;;
+        esac
+    done
     echo "  final status: $STATUS"
 
     # Always download the per-submission log — even on success it can be

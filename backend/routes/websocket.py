@@ -395,18 +395,55 @@ async def websocket_agent_run(websocket: WebSocket):
             await websocket.close()
             return
 
-        # ---- Cloud-mode JWT authentication ----
+        # ---- Identity check (both modes) ----
         #
-        # The FastAPI auth middleware skips /ws/* paths because browser
-        # WebSocket API cannot set Authorization headers. Instead, the
-        # client sends the JWT in the first message payload. We validate
-        # it here and refuse the connection if it is missing/invalid/expired.
+        # Browser WebSocket API cannot set Authorization or X-User-Id
+        # headers, so identity travels on the first message payload
+        # (cloud: JWT token; local: ``user_id``). The auth middleware
+        # skips /ws/* exactly because of that — we do the check here.
         #
-        # The token's user_id is authoritative — we reject any request
-        # whose payload user_id does not match the token's user_id, to
-        # prevent one authenticated user from running agents as another.
+        # Cloud mode: JWT-derived user_id is authoritative; payload
+        # user_id must match the token claim, else reject.
         #
-        # Local mode (SQLite) bypasses this check entirely.
+        # Local mode: the WS URL query string ``?x_user_id=<id>`` is the
+        # identity anchor (frontend sets it from configStore.userId).
+        # The payload ``user_id`` must match. Mismatched / missing →
+        # reject. This is the WS analog of the X-User-Id header rule
+        # used by the HTTP middleware: we never silently accept a
+        # client-supplied identity without a server-anchored value to
+        # cross-check it against. (OS-user-is-boundary is still the
+        # trust root; this only catches FE state bugs that would
+        # otherwise silently scope the run to the wrong user_id and
+        # corrupt narratives / cost attribution.)
+        if not _is_cloud_mode():
+            anchor_uid = websocket.query_params.get("x_user_id", "").strip()
+            if not anchor_uid:
+                logger.warning(
+                    "WS auth failed (local): missing ?x_user_id= on URL"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": (
+                        "Missing x_user_id query param. The frontend "
+                        "must include ?x_user_id=<user_id> on the WS URL."
+                    ),
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+            if anchor_uid != request.user_id:
+                logger.warning(
+                    f"WS auth failed (local): URL ?x_user_id={anchor_uid!r} "
+                    f"!= payload user_id={request.user_id!r}"
+                )
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "user_id mismatch between URL and payload",
+                    "error_type": "AuthError",
+                })
+                await websocket.close(code=WS_CLOSE_POLICY_VIOLATION)
+                return
+
         if _is_cloud_mode():
             if not request.token:
                 logger.warning("WS auth failed: missing token in cloud mode")

@@ -1,0 +1,116 @@
+name: Tier-2 mirror md sync check
+
+# CLAUDE.md binding rule #10: every behavior change in a .py/.ts/.tsx/.rs
+# file must update its matching .mindflow/mirror/<path>.md in the same
+# commit/PR.
+#
+# This workflow checks for that — but it is INTENTIONALLY non-blocking.
+# It posts a friendly comment on the PR with the list of files that
+# look out of sync. We do NOT fail CI on it because:
+#
+#   - First-time contributors shouldn't bounce off mirror-md rules.
+#   - A maintainer can update the mirror md on merge if needed.
+#   - Some changes really don't need an intent rewrite (formatting,
+#     test-only edits) — humans decide.
+#
+# If the PR description contains `Mirror-md: needs-maintainer`, we
+# skip the check entirely.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.pull_request.body, 'Mirror-md: needs-maintainer')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find source files changed without mirror md update
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          # Source files that should have a mirror md.
+          mapfile -t CHANGED < <(
+            git diff --name-only --diff-filter=AM "$BASE" "$HEAD" \
+              | grep -E '\.(py|ts|tsx|rs)$' \
+              | grep -v -E '(^tests/|^frontend/node_modules/|\.test\.|^scripts/|\.d\.ts$)' \
+              || true
+          )
+
+          if [ ${#CHANGED[@]} -eq 0 ]; then
+            echo "missing=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # mirror md files actually updated in this PR.
+          mapfile -t MIRROR < <(
+            git diff --name-only --diff-filter=AM "$BASE" "$HEAD" \
+              | grep -E '^\.mindflow/mirror/.*\.md$' \
+              || true
+          )
+
+          # For each changed source file, the expected mirror md is:
+          # .mindflow/mirror/<path>.md
+          missing=()
+          for f in "${CHANGED[@]}"; do
+            expected=".mindflow/mirror/${f}.md"
+            in_diff=false
+            for m in "${MIRROR[@]:-}"; do
+              if [ "$m" = "$expected" ]; then
+                in_diff=true
+                break
+              fi
+            done
+            if [ "$in_diff" = false ]; then
+              missing+=("$f")
+            fi
+          done
+
+          if [ ${#missing[@]} -eq 0 ]; then
+            echo "missing=" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "missing<<EOF"
+              printf '%s\n' "${missing[@]}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment on PR if mirror md missing
+        if: steps.scan.outputs.missing != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const missing = `${{ steps.scan.outputs.missing }}`.trim().split('\n');
+            const body = [
+              '👋 Heads up — Tier-2 mirror md sync (CLAUDE.md rule #10).',
+              '',
+              'These source files changed without an update to their matching `.mindflow/mirror/<path>.md`:',
+              '',
+              ...missing.map((f) => `- \`${f}\` → expected \`.mindflow/mirror/${f}.md\``),
+              '',
+              'Pick one:',
+              '1. Update the mirror md in the same PR. Your AI can do this in one prompt: *"Read this file\'s mirror md, refresh `last_verified`, and update the intent paragraph if behavior changed."*',
+              '2. Or add **`Mirror-md: needs-maintainer`** to the PR description and a maintainer will handle it.',
+              '',
+              '_This check is non-blocking — CI will not fail on it._',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });

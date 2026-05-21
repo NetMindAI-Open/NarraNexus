@@ -20,11 +20,12 @@ on-disk path.
 import mimetypes
 from pathlib import Path
 
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, File, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 from pydantic import BaseModel
 
+from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 from xyz_agent_context.schema.attachment_schema import (
     derive_category_from_mime,
@@ -135,7 +136,7 @@ def _sniff_mime_type(file: UploadFile, raw_bytes: bytes) -> str:
 @router.post("/{agent_id}/attachments", response_model=AttachmentUploadResponse)
 async def upload_attachment(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
     source: str | None = Query(
         None,
         description=(
@@ -150,7 +151,9 @@ async def upload_attachment(
     ),
     file: UploadFile = File(..., description="File to upload as a chat attachment"),
 ):
-    """Upload a single file to be referenced by an upcoming chat message."""
+    """Upload a single file to be referenced by an upcoming chat message.
+    Identity comes from auth_middleware (X-User-Id / JWT)."""
+    user_id = await resolve_current_user_id(request)
     logger.info(
         f"Uploading attachment '{file.filename}' agent={agent_id} user={user_id}"
     )
@@ -248,15 +251,16 @@ async def upload_attachment(
 async def get_attachment_raw(
     agent_id: str,
     file_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """Stream the original attachment bytes.
+    """Stream the original attachment bytes. Identity from auth_middleware.
 
     Used by the frontend to render image thumbnails inline. The path is
     resolved through the same sandbox check the marker-synthesis path
     uses, so a bad / orphaned file_id returns 404 instead of escaping
     the workspace.
     """
+    user_id = await resolve_current_user_id(request)
     path = resolve_attachment_path(agent_id, user_id, file_id)
     if path is None:
         return JSONResponse(

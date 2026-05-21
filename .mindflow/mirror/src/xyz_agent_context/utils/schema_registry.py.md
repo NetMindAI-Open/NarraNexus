@@ -20,6 +20,23 @@ colleagues with old saved HTML can hand-migrate from the old rows. No code reads
 or writes them. Cleanup tracked in
 `reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md`.
 
+## 2026-05-14 addition — invite_codes
+
+New table `invite_codes` — backs the cloud-mode registration gate, replacing
+the single global `INVITE_CODE` env var (deleted from `backend/auth.py`).
+
+One row = one unique, single-use code issued to one email. `code` carries a
+unique index; `email` / `status` indexes drive idempotent re-requests (same
+email → resend existing issued code) and the Mode-B auto-issue cap count
+(`status IN (issued, used)` < cap). status flow: `issued → used` (consumed
+atomically by `/api/auth/register`), `waitlisted → issued` (admin promote
+when the cap is hit), `→ revoked` (admin kill). `email_sent` records whether
+the SMTP send actually succeeded so a failed send is visible/re-sendable in
+the admin list without blocking `/api/invite/request`.
+
+Purely additive — `auto_migrate` creates it on next startup. Design doc:
+`drafts/logs/invite_code_2026_05_14.md`.
+
 ## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
 
 `events` 表加 7 个 Phase-C 字段：`state` / `started_at` / `last_event_at`
@@ -37,7 +54,7 @@ reconcile 扫 stale 行用，后者给 `/api/auth/agents` list 加 active_run
 `(event_id, seq)` unique 复合索引让重连时的 replay 按 seq ASC 一次扫
 出全部。**永不清**——audit + 历史回看。
 
-数据量估算（Xiong-style 13 min run）：thinking 段约 50 行 + tool 约 80
+数据量估算（operator-style 13 min run）：thinking 段约 50 行 + tool 约 80
 行（call + output 各 41）+ progress / text_delta 若干 ≈ 200 行/run。
 13 万 run/年 ≈ 2600 万行，~25GB——MySQL 无压力。
 

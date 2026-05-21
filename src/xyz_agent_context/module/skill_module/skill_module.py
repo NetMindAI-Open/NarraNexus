@@ -599,7 +599,10 @@ class SkillModule(XYZBaseModule):
         1. Direct match: skills/{skill_name}/
         2. Scan all skills and match by parsed name
         """
-        if not self.skills_dir:
+        # Mirror the guard already used by `_scan_skills()` — the skills
+        # directory may be absent (never created, deleted, or the agent has
+        # no user_id). `iterdir()` would raise FileNotFoundError below.
+        if not self.skills_dir or not self.skills_dir.exists():
             return None
         # Direct match
         direct = self.skills_dir / skill_name

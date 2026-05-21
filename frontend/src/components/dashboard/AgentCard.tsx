@@ -62,7 +62,7 @@ function PublicCard({ agent }: { agent: AgentStatus }) {
   return (
     <div
       data-testid={`agent-card-${agent.agent_id}`}
-      className="group flex overflow-hidden rounded-xl border border-[var(--border-default)] bg-[var(--bg-primary)]"
+      className="group flex overflow-hidden rounded-[var(--radius-md)] border border-[color:var(--nm-hairline)] bg-[color:var(--nm-card)]"
     >
       <div className={`w-1 shrink-0 ${colors.rail}`} aria-hidden />
       <div className="flex-1 p-3 min-w-0">
@@ -139,7 +139,7 @@ function OwnedCard({
           onToggleExpand();
         }
       }}
-      className={`group relative flex overflow-hidden border border-[var(--border-default)] bg-[var(--bg-primary)] hover:border-[var(--border-strong)] transition-colors duration-150 cursor-pointer ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
+      className={`group relative flex overflow-hidden rounded-[var(--radius-md)] border border-[color:var(--nm-hairline)] bg-[color:var(--nm-card)] hover:bg-[color:var(--nm-paper-warm)] transition-colors duration-150 cursor-pointer ${colors.cardTint} ${agent.health === 'idle_long' ? 'opacity-75' : ''}`}
     >
       {/* Status rail with optional ack-dot (v2.2 G2 + G4) */}
       <div className="relative shrink-0">

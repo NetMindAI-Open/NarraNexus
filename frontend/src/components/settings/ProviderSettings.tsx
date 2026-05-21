@@ -39,14 +39,30 @@ import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } f
  *  the value is visible in one place + cheap to tune. */
 const CLAUDE_LOGIN_TIMEOUT_SEC = 600
 
-/** fetch wrapper that injects JWT auth header when available (cloud mode) */
+/** fetch wrapper that injects the identity headers configStore tracks.
+ *
+ * Two headers, mutually compatible (mirror of ApiClient.getAuthHeaders):
+ *   - Authorization: Bearer <jwt>  — cloud mode signed identity
+ *   - X-User-Id: <user_id>         — local mode unsigned identity
+ *
+ * Sending both is intentional. Backend auth_middleware picks the right
+ * one for the active mode and ignores the other (defence in depth: a
+ * cloud server won't honour X-User-Id even if a client sets it).
+ *
+ * History: until 2026-05-18 this wrapper only sent the JWT, which
+ * silently broke local mode. Settings calls landed under whatever user
+ * the backend's "first row in users" fallback resolved to (the eldest
+ * account), so a freshly-registered user's API key + slot bindings got
+ * written to someone else's row. Now we always send X-User-Id and the
+ * backend has lost the dangerous fallback — see auth.py 2026-05-18 note. */
 function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers)
   try {
     const raw = localStorage.getItem('narra-nexus-config')
     if (raw) {
-      const token = JSON.parse(raw)?.state?.token
-      if (token) headers.set('Authorization', `Bearer ${token}`)
+      const state = JSON.parse(raw)?.state || {}
+      if (state.token) headers.set('Authorization', `Bearer ${state.token}`)
+      if (state.userId) headers.set('X-User-Id', state.userId)
     }
   } catch {}
   return fetch(input, { ...init, headers })
@@ -431,21 +447,32 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 export function ProviderSettings() {
   const userId = useConfigStore((s) => s.userId)
 
-  /** Build a provider API URL with user_id query param.
+  /** Build a provider API URL. Identity travels in headers (X-User-Id in
+   * local, JWT in cloud) — not the query string. The previous version
+   * appended `?user_id=...` which the backend used to fall back to when
+   * the X-User-Id header was missing; that turned the URL into a second,
+   * unsigned identity channel and made cross-user write/read bugs easy
+   * to trigger. Backend now requires identity from headers only.
    *
    * IMPORTANT: getApiBaseUrl() is called INSIDE the callback (not captured at
    * component mount), so it always reflects the current mode. When the user
    * switches between local and cloud, every fresh call returns the right host
    * without needing to re-mount this component. */
   const providerUrl = useCallback((path: string = '') => {
-    const sep = path.includes('?') ? '&' : '?'
-    return `${getApiBaseUrl()}/api/providers${path}${sep}user_id=${encodeURIComponent(userId)}`
+    return `${getApiBaseUrl()}/api/providers${path}`
+  // userId is intentionally a dependency: re-creating the callback on
+  // user switch is cheap and forces all consumers (refreshConfig etc.)
+  // to re-run under the new identity.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})
   const [slots, setSlots] = useState<Record<string, SlotData>>({})
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
   const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelInfo[]>([])
+  // Embedding slot: user picked "Custom model…" and is typing a model id that
+  // isn't in the catalog (e.g. a self-hosted / niche OpenAI-format endpoint).
+  const [embeddingCustom, setEmbeddingCustom] = useState(false)
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
   const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
@@ -679,7 +706,7 @@ export function ProviderSettings() {
     setSyncing(true)
     setSyncResult(null)
     try {
-      const resp = await api.syncProviderDefaults(userId)
+      const resp = await api.syncProviderDefaults()
       if (!resp.success) {
         setSyncResult({ kind: 'err', text: 'Sync failed.' })
         return
@@ -884,12 +911,33 @@ export function ProviderSettings() {
 
                 if (slot.key === 'embedding') {
                   const emModels = embeddingModels.filter((em) => curProv.models.includes(em.model_id))
+                  const known = emModels.map((em) => em.model_id)
+                  // "Custom" when the user explicitly chose it, or the saved
+                  // model isn't a catalog entry for this provider (e.g. a
+                  // hand-typed OpenAI-format embedding model the backend
+                  // accepts as-is — set_slot does not gate on the catalog).
+                  const useCustom = embeddingCustom || (!!cfg?.model && !known.includes(cfg.model))
                   return (
-                    <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                      <option value="">Select embedding model...</option>
-                      {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
-                    </select>
+                    <div className="space-y-2">
+                      <select value={useCustom ? '__custom__' : (cfg?.model || '')}
+                        onChange={(e) => {
+                          if (!cfg?.provider_id) return
+                          if (e.target.value === '__custom__') { setEmbeddingCustom(true); return }
+                          setEmbeddingCustom(false)
+                          handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value)
+                        }}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
+                        <option value="">Select embedding model...</option>
+                        {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
+                        <option value="__custom__">Custom model…</option>
+                      </select>
+                      {useCustom && (
+                        <input type="text" value={cfg?.model || ''}
+                          onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
+                          placeholder="Enter embedding model id (OpenAI-format)"
+                          className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                      )}
+                    </div>
                   )
                 }
 
@@ -959,7 +1007,10 @@ export function ProviderSettings() {
           <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
             <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">Quick Add — Preset Provider</h4>
             <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              Select a provider, paste your API key, and both protocol endpoints will be created automatically.
+              Select a provider, paste your API key, and both protocol endpoints
+              will be created automatically. New here? <span className="text-[var(--text-secondary)]">NetMind.AI
+              Power</span> is the easiest start — one key, and default models are
+              pre-selected so you can finish right away.
             </p>
 
             <div className="space-y-3">
@@ -973,7 +1024,7 @@ export function ProviderSettings() {
                 >
                   {PRESET_PROVIDERS.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} — {p.description}
+                      {p.name}{p.id === 'netmind' ? ' (Recommended)' : ''} — {p.description}
                     </option>
                   ))}
                 </select>

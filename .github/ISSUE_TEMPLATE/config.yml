@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions, design ideas, show & tell
+    url: https://github.com/protagolabs/NarraNexus/discussions
+    about: For "how do I…", design questions, and general chat — usually faster than an issue.
+  - name: Report a security vulnerability (private)
+    url: https://github.com/protagolabs/NarraNexus/security/advisories/new
+    about: Please do NOT open a public issue for security problems. Use private vulnerability reporting instead.
+  - name: Thinking of contributing code? Read this first
+    url: https://github.com/protagolabs/NarraNexus/blob/main/CONTRIBUTING.md
+    about: AI-assisted workflow, mirror docs, PR conventions. NOT required if you only want to file a bug — pick the Bug report template above.

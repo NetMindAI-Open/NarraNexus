@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_5_execute_hooks.py
-last_verified: 2026-04-10
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — extracted `build_after_execution_params(ctx)`
+
+The current-instance resolution + HookAfterExecutionParams construction was lifted
+out of `step_5_execute_hooks` into a module-level `build_after_execution_params(ctx)`
+so the new SYNCHRONOUS persistence phase ([[agent_runtime.py]] Step 4.6 →
+[[hook_manager.py]] `hook_persist_turn`) builds identical params without duplicating
+the resolution logic. Step 5 (background) now just calls it. Pure read over ctx.
+
 # step_5_execute_hooks.py — Pipeline Step 5: Execute Module Post-turn Hooks
 
 ## Why It Exists

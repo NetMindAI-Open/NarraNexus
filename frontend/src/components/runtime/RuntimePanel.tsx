@@ -12,6 +12,7 @@
 import { useMemo, useState } from 'react';
 import { Play, BookOpen, RefreshCw, Activity, CheckCircle2, Zap, TrendingUp, Layers, Clock, Loader2, ChevronDown, ChevronRight, Terminal } from 'lucide-react';
 import { Card, CardContent, Button, StatStrip, ScrollArea } from '@/components/ui';
+import { BracketEmptyState } from '@/components/nm';
 import { useChatStore, usePreloadStore, useConfigStore } from '@/stores';
 import { StepCard } from '@/components/steps/StepCard';
 import { NarrativeList } from './NarrativeList';
@@ -199,12 +200,15 @@ function TabBtn({
   );
 }
 
-function EmptyState({ icon: Icon, title, hint }: { icon: React.ElementType; title: string; hint: string }) {
+function EmptyState({ title, hint }: { icon: React.ElementType; title: string; hint: string }) {
+  // Delegates to the NM BracketEmptyState so this panel's empty hints
+  // share the same bracket-wrapped grammar with every other empty list
+  // in the app. (Icon prop kept in the signature for backwards-compat
+  // with callers — discarded here intentionally; the bracket motif is
+  // the whole point.)
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-12">
-      <Icon className="w-8 h-8 text-[var(--text-tertiary)] opacity-40 mb-4" />
-      <p className="text-sm text-[var(--text-primary)] mb-1.5">{title}</p>
-      <p className="text-xs text-[var(--text-tertiary)] max-w-[240px] leading-relaxed">{hint}</p>
+    <div className="flex-1 flex items-center justify-center">
+      <BracketEmptyState label={title} hint={hint} />
     </div>
   );
 }

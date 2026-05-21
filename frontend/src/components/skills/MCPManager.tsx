@@ -201,7 +201,7 @@ export function MCPManager() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.listMCPs(agentId, userId);
+      const res = await api.listMCPs(agentId);
       if (res.success) {
         setMcps(res.mcps);
       } else {
@@ -223,7 +223,7 @@ export function MCPManager() {
     setValidatingIds(new Set(mcps.map(m => m.mcp_id)));
 
     try {
-      const res = await api.validateAllMCPs(agentId, userId);
+      const res = await api.validateAllMCPs(agentId);
       if (res.success) {
         // Update MCP statuses based on validation results
         setMcps(prev => prev.map(mcp => {
@@ -269,7 +269,7 @@ export function MCPManager() {
     setAdding(true);
     setError(null);
     try {
-      const res = await api.createMCP(agentId, userId, { name, url });
+      const res = await api.createMCP(agentId, { name, url });
       if (res.success && res.mcp) {
         setMcps(prev => [res.mcp!, ...prev]);
         setShowAddForm(false);
@@ -299,7 +299,7 @@ export function MCPManager() {
     if (!ok) return;
 
     try {
-      const res = await api.deleteMCP(agentId, userId, mcpId);
+      const res = await api.deleteMCP(agentId, mcpId);
       if (res.success) {
         setMcps(prev => prev.filter(m => m.mcp_id !== mcpId));
       } else {
@@ -316,7 +316,7 @@ export function MCPManager() {
     if (!agentId || !userId) return;
 
     try {
-      const res = await api.updateMCP(agentId, userId, mcpId, { is_enabled: enabled });
+      const res = await api.updateMCP(agentId, mcpId, { is_enabled: enabled });
       if (res.success && res.mcp) {
         setMcps(prev => prev.map(m =>
           m.mcp_id === mcpId ? { ...m, is_enabled: enabled } : m
@@ -337,7 +337,7 @@ export function MCPManager() {
     setValidatingIds(prev => new Set(prev).add(mcpId));
 
     try {
-      const res = await api.validateMCP(agentId, userId, mcpId);
+      const res = await api.validateMCP(agentId, mcpId);
       if (res.success) {
         setMcps(prev => prev.map(m =>
           m.mcp_id === mcpId ? {

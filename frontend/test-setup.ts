@@ -7,7 +7,14 @@
  * loaded by Markdown). Without this stub, any test that imports
  * anything that touches the theme system would fail before any
  * test code runs.
+ *
+ * Also extends vitest's `expect` with @testing-library/jest-dom matchers
+ * (toBeInTheDocument, toHaveAttribute, toHaveTextContent, etc.) used by
+ * NM primitive component tests in components/nm/__tests__/.
  */
+import '@testing-library/jest-dom/vitest';
+
+
 if (typeof window !== 'undefined' && !window.matchMedia) {
   window.matchMedia = (query: string) =>
     ({

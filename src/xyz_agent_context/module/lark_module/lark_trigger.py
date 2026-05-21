@@ -133,6 +133,56 @@ def _install_lark_oapi_loop_proxy() -> None:
 _install_lark_oapi_loop_proxy()
 
 
+def _ws_loop_exception_filter(loop, context: dict) -> None:
+    """asyncio loop exception-handler that turns WS-disconnect exceptions
+    into a clean loop shutdown so the outer ``_subscribe_loop`` reconnect
+    machinery can take over.
+
+    The SDK fires ``loop.create_task(...)`` for incoming message handling
+    and reconnect plumbing. When the upstream WS resets, those tasks raise
+    ``ConnectionResetError`` / ``OSError`` / a ``websockets.*`` exception
+    with no awaiter. The default asyncio handler would log "Task exception
+    was never retrieved" + traceback per occurrence and then continue
+    running the loop.
+
+    But the SDK's ``ws.Client.start()`` itself blocks on a forever-sleeping
+    ``_select()`` coroutine after spawning the receive task as
+    fire-and-forget. With ``auto_reconnect=False`` (H-6) the receive task
+    re-raises on disconnect, but that raise never propagates back to
+    ``start()`` — the only thing keeping ``start()`` running is ``_select()``,
+    which doesn't know anything died. Result: the daemon thread stays
+    "alive" forever with no WS underneath. The 2026-05-18 EC2 zombie
+    incident (11 h of silence + zero ``lark_trigger_audit`` rows) was
+    exactly this shape.
+
+    Fix: when this handler sees a connection-class exception, call
+    ``loop.stop()``. That terminates ``loop.run_until_complete(_select())``,
+    ``start()`` returns, ``run_ws`` exits, the daemon thread dies, and the
+    outer ``while t.is_alive() and self.running`` poll in ``_subscribe_loop``
+    falls through to the backoff + reconnect path.
+
+    Unknown / unrelated exceptions (e.g. application bugs) still go to
+    ``default_exception_handler`` so real bugs are not silenced. Contexts
+    with no exception (e.g. slow-callback warnings) also pass through —
+    the loop keeps running, which is correct for those.
+
+    ``websockets.*`` exceptions are matched by module-name prefix rather
+    than concrete type so we do not take a hard dependency on a specific
+    SDK exception class.
+    """
+    exc = context.get("exception")
+    if exc is None:
+        loop.default_exception_handler(context)
+        return
+    if isinstance(exc, (ConnectionResetError, ConnectionError, OSError)):
+        loop.stop()
+        return
+    if type(exc).__module__.startswith("websockets."):
+        loop.stop()
+        return
+    loop.default_exception_handler(context)
+
+
 # L-12: characters that must not survive into a sanitised display name.
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -434,10 +484,20 @@ class LarkTrigger(ChannelTriggerBase):
     async def resolve_sender_name(
         self, sender_id: str, credential: LarkCredential
     ) -> str:
-        """lark-cli get-user lookup. Best-effort — returns 'Unknown' on miss."""
+        """Resolve a sender's display name via the owner's user token.
+
+        Best-effort — returns 'Unknown' on miss. We look up names with
+        `--as user` (see ``LarkCLIClient.get_user``); the bot tenant token
+        can't read names. An agent that never completed the three-click
+        user authorization has no user token, so we skip the doomed CLI
+        call and stay 'Unknown' rather than spawning a subprocess that can
+        only fail.
+        """
+        if not credential.user_oauth_ok():
+            return "Unknown"
         try:
             user_info = await self._cli.get_user(
-                credential.agent_id, user_id=sender_id
+                credential.agent_id, user_id=sender_id, identity="user"
             )
             if user_info.get("success"):
                 outer = user_info.get("data", {})
@@ -557,11 +617,14 @@ class LarkTrigger(ChannelTriggerBase):
                     except Exception as e:
                         logger.warning(f"LarkTrigger SDK callback error: {e}")
 
-                handler = (
-                    lark.EventDispatcherHandler.builder("", "")
-                    .register_p2_im_message_receive_v1(on_message)
-                    .build()
-                )
+                # Register message-read receipts with a no-op processor so
+                # the SDK does not flood ERROR with "processor not found,
+                # type: im.message.message_read_v1" — Lark pushes one per
+                # IM read by default and we don't act on read receipts.
+                def _on_message_read(_data):
+                    pass
+
+                handler = self._build_event_handler(on_message, _on_message_read)
 
                 domain = (
                     lark.LARK_DOMAIN if cred.brand == "lark" else lark.FEISHU_DOMAIN
@@ -596,6 +659,13 @@ class LarkTrigger(ChannelTriggerBase):
                         # asyncio loop.
                         fresh_loop = asyncio.new_event_loop()
                         asyncio.set_event_loop(fresh_loop)
+                        # Silence "Task exception was never retrieved"
+                        # noise for SDK-internal fire-and-forget tasks
+                        # that raise on WS disconnect (the outer reconnect
+                        # loop owns the recovery).
+                        fresh_loop.set_exception_handler(
+                            _ws_loop_exception_filter
+                        )
                         ws_client._lock = asyncio.Lock()
                         ws_client.start()
                     except Exception as e:
@@ -705,6 +775,25 @@ class LarkTrigger(ChannelTriggerBase):
     # ────────────────────────────────────────────────────────────────────
     # SDK event helpers
     # ────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_event_handler(on_message_receive, on_message_read):
+        """Build the Lark `EventDispatcherHandler` for our subscription.
+
+        Extracted from `_subscribe_loop` so the processor registration
+        can be asserted in isolation (see tests/lark_module/
+        test_message_read_handler.py). Production code must not skip the
+        `message_read_v1` registration — without it the SDK logs one ERROR
+        per IM read receipt.
+        """
+        import lark_oapi as lark
+
+        return (
+            lark.EventDispatcherHandler.builder("", "")
+            .register_p2_im_message_receive_v1(on_message_receive)
+            .register_p2_im_message_message_read_v1(on_message_read)
+            .build()
+        )
 
     @staticmethod
     def _sdk_event_to_dict(data) -> dict:

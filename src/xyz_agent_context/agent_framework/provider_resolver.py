@@ -33,6 +33,8 @@ pattern-matches on this string to decide which remediation UI to show.
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
     EmbeddingConfig,
@@ -120,10 +122,26 @@ class ProviderResolver:
         self.system_provider_svc = system_provider_svc
         self.quota_svc = quota_svc
 
-    async def resolve_and_set(self, user_id: str) -> None:
+    async def resolve(
+        self, user_id: str
+    ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig, str]]:
+        """Resolve a user's effective LLM configs WITHOUT mutating ContextVars.
+
+        Returns ``(claude, openai, embedding, source)`` where ``source`` is
+        ``"system"`` or ``"user"``, or ``None`` when the system-default
+        feature is disabled (local mode / env not set) — in that case the
+        caller keeps whatever global/desktop config is already in effect.
+
+        Raises the same gating errors as :meth:`resolve_and_set`
+        (``FreeTierExhaustedError`` / ``QuotaExceededError`` /
+        ``NoProviderConfiguredError``). Background jobs that need a provider
+        outside the request path (e.g. the embedding rebuild) call this and
+        build their own client from the returned config, instead of relying
+        on a ContextVar that only exists inside the HTTP request task.
+        """
         # Branch 0: feature disabled (local mode or env not set).
         if not self.system_provider_svc.is_enabled():
-            return
+            return None
 
         quota = await self.quota_svc.get(user_id)
         prefer_system = quota is not None and quota.prefer_system_override
@@ -134,11 +152,10 @@ class ProviderResolver:
         if prefer_system:
             # Branch 1: user opted in to free tier.
             if await self.quota_svc.check(user_id):
-                sys_cfg = self.system_provider_svc.get_config()
-                claude, openai, embedding = _llm_config_to_dataclasses(sys_cfg)
-                set_user_config(claude, openai, embedding)
-                set_provider_source("system")
-                return
+                claude, openai, embedding = _llm_config_to_dataclasses(
+                    self.system_provider_svc.get_config()
+                )
+                return claude, openai, embedding, "system"
             if has_own:
                 raise FreeTierExhaustedError(user_id)
             raise QuotaExceededError(user_id)
@@ -146,10 +163,21 @@ class ProviderResolver:
         # Branch 2: opted out (or no quota row).
         if has_own:
             claude, openai, embedding = _llm_config_to_dataclasses(user_cfg)
-            set_user_config(claude, openai, embedding)
-            set_provider_source("user")
-            return
+            return claude, openai, embedding, "user"
         raise NoProviderConfiguredError(user_id)
+
+    async def resolve_and_set(self, user_id: str) -> None:
+        """Resolve the user's configs and push them onto the request ContextVars.
+
+        Thin wrapper over :meth:`resolve` — the HTTP request path uses this so
+        downstream LLM/embedding clients pick up the right provider implicitly.
+        """
+        resolved = await self.resolve(user_id)
+        if resolved is None:
+            return
+        claude, openai, embedding, source = resolved
+        set_user_config(claude, openai, embedding)
+        set_provider_source(source)
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:

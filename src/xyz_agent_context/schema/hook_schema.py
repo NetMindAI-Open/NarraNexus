@@ -133,6 +133,36 @@ class WorkingSource(str, Enum):
         """
         return self == WorkingSource.CHAT
 
+    def is_from_human(self) -> bool:
+        """Return True iff the run is replying to a human (not an agent /
+        background system).
+
+        Rule of thumb (set by Bin哥, 2026-05-19):
+          - Anything that ultimately delivers a reply to a real person —
+            CHAT (UI), LARK / SLACK / TELEGRAM (IM channels) — is
+            "from human". Reply with warmth; even a one-line ACK is
+            better than cold silence.
+          - JOB (cron / dependency triggers) / MESSAGE_BUS (peer agent) /
+            CALLBACK (post-job hook) / SKILL_STUDY (internal maintenance)
+            are NOT from a human. Reply tersely or stay silent when there's
+            nothing of substance to add.
+
+        Used by:
+          - `narrative_service.select()` and Step 4's last_response writer:
+            only human-source runs anchor Session.last_query / last_response /
+            current_narrative_id. Background runs leave them frozen so the
+            next real user message gets continuity scored against the prior
+            real exchange.
+          - `chat_module` and `message_bus_module` prompts: switch between
+            warm / concise reply discipline on this signal.
+        """
+        return self not in (
+            WorkingSource.JOB,
+            WorkingSource.MESSAGE_BUS,
+            WorkingSource.CALLBACK,
+            WorkingSource.SKILL_STUDY,
+        )
+
 
 @dataclass
 class HookExecutionContext:

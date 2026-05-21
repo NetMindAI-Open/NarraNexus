@@ -51,6 +51,9 @@ from .team_repository import TeamRepository, TeamMemberRepository
 # Subproject 2: Skill Archive
 from .skill_archive_repository import SkillArchiveRepository
 
+# Invite code registration gate
+from .invite_code_repository import InviteCodeRepository
+
 # Import entity types from schema (convenient re-export)
 from xyz_agent_context.schema import (
     SocialNetworkEntity,
@@ -103,4 +106,6 @@ __all__ = [
     "TeamMemberRepository",
     # Skill Archive
     "SkillArchiveRepository",
+    # Invite Code
+    "InviteCodeRepository",
 ]

@@ -1,0 +1,27 @@
+# .mailmap — canonical identity for each contributor.
+#
+# Format (one per line):
+#   Canonical Name <canonical@email>
+#   Canonical Name <canonical@email>  <other@email>
+#   Canonical Name <canonical@email>  Other Name <other@email>
+#
+# Reference: https://git-scm.com/docs/gitmailmap
+#
+# This file collapses commits made under multiple email addresses /
+# spellings into a single contributor in `git log`, `git shortlog`,
+# and GitHub's contributor stats.
+#
+# Add yourself when you contribute under more than one email
+# (e.g. workplace + personal, or GitHub's noreply alias).
+
+# Lead maintainer — collapse work email, personal email, GitHub noreply alias.
+Bin Liang <bin.liangmathematicsstudent@gmail.com>
+Bin Liang <bin.liangmathematicsstudent@gmail.com>  Bin.Liang <bin.liangmathematicsstudent@gmail.com>
+Bin Liang <bin.liangmathematicsstudent@gmail.com>  Bin Liang <92085318+BinLiang2021@users.noreply.github.com>
+
+# Hongyi Gu — collapse handle alias + GitHub noreply alias.
+Hongyi Gu <hongyi.gu@netmind.uk>  ghydsgaaa <hongyi.gu@netmind.uk>
+Hongyi Gu <hongyi.gu@netmind.uk>  ghydsgaaa <113628995+ghydsgaaa@users.noreply.github.com>
+
+# Chengyu Huang — first name vs full name spelling.
+Chengyu Huang <huangchengyu16@gmail.com>  Chengyu <huangchengyu16@gmail.com>

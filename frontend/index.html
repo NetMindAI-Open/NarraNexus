@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <script>
-      // Favicon follows OS color scheme. Source logos are 1360x840 with transparent
-      // padding; rendering them raw makes the favicon look stretched/tiny. We crop
-      // to the alpha bounding box, then contain-fit (preserving aspect ratio) onto
-      // a square transparent canvas before handing the data URL to <link rel="icon">.
+      // Favicon follows OS color scheme, using the icon-only mark SVGs
+      // (favicon-light/dark.svg) — the wordmark logo would be unreadable at
+      // tab size. We crop to the alpha bounding box, then contain-fit
+      // (preserving aspect ratio) onto a square transparent canvas before
+      // handing the rasterized data URL to <link rel="icon">.
       (function () {
         var SIZE = 128;
         var cache = {};
@@ -58,7 +59,7 @@
         }
 
         function apply(isDark) {
-          var src = isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png';
+          var src = isDark ? '/favicon-dark.svg' : '/favicon-light.svg';
           build(src, function (href) {
             var head = document.head;
             var existing = head.querySelector("link[rel~='icon'][data-runtime]");
@@ -79,11 +80,9 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NarraNexus · NetMind.AI</title>
-    <!-- Fonts — Space Grotesk (display 500/700) + Barlow (body 300/500/600) + DM Mono (labels 400)
-         Aligned with internal.netmind.foundation brand; font-display=swap keeps render unblocked. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Barlow:wght@300;500;600&family=DM+Mono:wght@400;500&family=Inter:wght@500&display=swap" rel="stylesheet">
+    <!-- NM design system uses pure system font stack — no web font loaded here.
+         See frontend/src/index.css @theme --font-display / --font-sans / --font-mono
+         for the SF Pro + CJK fallback chain. -->
   </head>
   <body>
     <div id="root"></div>

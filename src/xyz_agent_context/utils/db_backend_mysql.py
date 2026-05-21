@@ -19,14 +19,67 @@ Key design decisions:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import random
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import aiomysql
+import pymysql.err
+from loguru import logger
 
 from xyz_agent_context.utils.db_backend import DatabaseBackend
+
+
+# InnoDB deadlock errno. MySQL aborts the "lighter" transaction; the
+# client is expected to retry. See:
+# https://dev.mysql.com/doc/refman/8.0/en/innodb-deadlocks-handling.html
+_DEADLOCK_ERRNO = 1213
+
+
+async def _retry_on_deadlock(
+    coro_factory: Callable[[], Awaitable[Any]],
+    max_attempts: int = 3,
+) -> Any:
+    """Re-invoke `coro_factory()` if it raises a MySQL deadlock error.
+
+    Only retries on `pymysql.err.OperationalError` with errno 1213
+    ("Deadlock found when trying to get lock; try restarting
+    transaction"). Other OperationalError subtypes (e.g. 2003 / connect
+    refused) and unrelated exceptions propagate immediately.
+
+    Backoff is short and randomised — typical InnoDB deadlocks resolve
+    in microseconds and we just need to give the surviving transaction
+    time to commit.
+
+    Callers must only wrap statement-level work that does NOT already
+    sit inside an explicit transaction. Inside a transaction the boundary
+    is owned by the caller; re-running a single statement would leave
+    the earlier statements un-rolled-back.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return await coro_factory()
+        except pymysql.err.OperationalError as e:
+            if (
+                e.args
+                and e.args[0] == _DEADLOCK_ERRNO
+                and attempt < max_attempts - 1
+            ):
+                # 50ms, 100ms, 200ms ... with up to 50ms jitter
+                backoff = 0.05 * (2 ** attempt) + random.random() * 0.05
+                logger.warning(
+                    f"[MySQLBackend] deadlock (errno 1213) on attempt "
+                    f"{attempt + 1}/{max_attempts}; retrying in "
+                    f"{backoff:.3f}s"
+                )
+                await asyncio.sleep(backoff)
+                continue
+            raise
+    # Unreachable — the loop either returns or raises.
+    raise RuntimeError("unreachable")  # pragma: no cover
 
 
 def _validate_identifier(identifier: str) -> str:
@@ -157,36 +210,52 @@ class MySQLBackend(DatabaseBackend):
         query: str,
         params: Optional[tuple] = None,
     ) -> List[Dict[str, Any]]:
-        """Execute a raw SQL query and return rows as dicts."""
+        """Execute a raw SQL query and return rows as dicts.
+
+        Statement-level calls (no caller-owned transaction) are wrapped
+        in `_retry_on_deadlock` so InnoDB errno 1213 is recovered
+        transparently. Inside an explicit transaction the caller owns
+        the boundary — we must NOT retry a single statement and leave
+        earlier statements un-rolled-back.
+        """
         pool = self._ensure_pool()
 
         if self._transaction_connection is not None:
             async with self._transaction_connection.cursor(aiomysql.DictCursor) as cursor:
                 await cursor.execute(query, params or ())
                 return await cursor.fetchall()
-        else:
+
+        async def _run():
             async with pool.acquire() as conn:
                 async with conn.cursor(aiomysql.DictCursor) as cursor:
                     await cursor.execute(query, params or ())
                     return await cursor.fetchall()
+
+        return await _retry_on_deadlock(_run)
 
     async def execute_write(
         self,
         query: str,
         params: Optional[tuple] = None,
     ) -> int:
-        """Execute a write SQL statement, returning affected row count."""
+        """Execute a write SQL statement, returning affected row count.
+
+        See `execute` for the retry-on-deadlock contract.
+        """
         pool = self._ensure_pool()
 
         if self._transaction_connection is not None:
             async with self._transaction_connection.cursor() as cursor:
                 await cursor.execute(query, params or ())
                 return cursor.rowcount
-        else:
+
+        async def _run():
             async with pool.acquire() as conn:
                 async with conn.cursor() as cursor:
                     await cursor.execute(query, params or ())
                     return cursor.rowcount
+
+        return await _retry_on_deadlock(_run)
 
     # ===== CRUD Operations =====
 

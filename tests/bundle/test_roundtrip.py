@@ -636,3 +636,151 @@ async def test_legacy_bundle_without_artifacts_or_mcps_imports_clean(db_client, 
     assert summary.get("mcp_hints", 0) == 1  # still surfaced as hints
     # No artifacts.json => no instance_artifacts rows
     assert summary.get("artifacts_created", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_history_disabled_strips_memory_chat(db_client, tmp_workspace_root):
+    """When include_chat_history=False, instance_json_format_memory_chat
+    rows MUST NOT make it into the bundle. This table is ChatModule's
+    primary chat-message store (queried by the get_chat_history MCP
+    tool); leaking it after the user toggled "disable chat history"
+    is exactly the privacy break the toggle is supposed to prevent.
+
+    Reproduces the user-reported regression: export with chat history
+    off, import as new user, observe re-imported agent's chat history
+    in the UI. The chat strings come from this table's `memory` column.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+    import zipfile
+
+    user_id = "test_user"
+    aid = "agent_secretchat01"
+    await _seed_agent(db_client, aid, "Secret Chat Agent", user_id)
+    (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
+
+    # Seed instance_json_format_memory_chat with verbatim chat content
+    # that the bundle MUST NOT carry when chat history is disabled.
+    inst_id = f"inst_secretchat01"  # _seed_agent derives from agent suffix
+    secret_phrase = "SUPERSECRET_PASSPHRASE_42"
+    memory_blob = json.dumps({
+        "messages": [
+            {"role": "user", "content": f"my secret is {secret_phrase}"},
+            {"role": "assistant", "content": "I will remember that."},
+        ]
+    })
+    await db_client.insert("instance_json_format_memory_chat", {
+        "instance_id": inst_id,
+        "memory": memory_blob,
+    })
+
+    # --- Export with chat history DISABLED ---
+    bundle_path = tmp_workspace_root.parent / "chat_off.nxbundle"
+    selection = ExportSelection(
+        agent_ids=[aid],
+        include_chat_history=False,
+    )
+    await build_bundle(user_id, selection, bundle_path)
+    assert bundle_path.exists()
+
+    # Inspect the bundle directly: the memory_chat JSON inside MUST be empty.
+    with zipfile.ZipFile(bundle_path, "r") as zf:
+        names = zf.namelist()
+        memory_chat_path = f"agents/{aid}/instance_json_format_memory_chat.json"
+        assert memory_chat_path in names, (
+            f"expected {memory_chat_path} in bundle (empty is fine); "
+            f"got: {[n for n in names if 'memory' in n]}"
+        )
+        with zf.open(memory_chat_path) as f:
+            rows = json.loads(f.read().decode("utf-8"))
+        assert rows == [], (
+            f"instance_json_format_memory_chat must be empty when "
+            f"include_chat_history=False, but bundle contains: {rows!r}"
+        )
+        # Double-check: the SECRET phrase must not appear in the raw zip.
+        # Scan every member's bytes.
+        for name in names:
+            if name.endswith("/"):
+                continue
+            with zf.open(name) as f:
+                blob = f.read()
+            if secret_phrase.encode() in blob:
+                pytest.fail(
+                    f"SECRET phrase leaked into bundle member {name!r} "
+                    f"despite include_chat_history=False"
+                )
+
+    # --- Import the bundle as the same user (will rename) ---
+    pre = await preflight(bundle_path, user_id)
+    await confirm(pre["preflight_token"], user_id)
+
+    rows_imported = await db_client.get("agents", {"created_by": user_id})
+    new_agents = [r for r in rows_imported if r["agent_id"] != aid]
+    assert len(new_agents) == 1
+    new_aid = new_agents[0]["agent_id"]
+
+    # The imported agent's new instance MUST have no memory_chat row.
+    new_inst_rows = await db_client.get("module_instances", {"agent_id": new_aid})
+    assert len(new_inst_rows) == 1
+    new_inst_id = new_inst_rows[0]["instance_id"]
+    new_memory = await db_client.get(
+        "instance_json_format_memory_chat",
+        {"instance_id": new_inst_id},
+    )
+    assert new_memory == [], (
+        f"imported agent {new_aid!r}'s instance {new_inst_id!r} ended up "
+        f"with chat memory rows; should be empty: {new_memory!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_chat_history_enabled_keeps_memory_chat(db_client, tmp_workspace_root):
+    """Sanity inverse of the privacy test: when include_chat_history=True
+    (the default), the same memory_chat row MUST survive the round-trip,
+    or we've broken the happy-path export.
+    """
+    from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
+    from xyz_agent_context.bundle.importer import preflight, confirm
+
+    user_id = "test_user"
+    aid = "agent_keepchat0001"
+    await _seed_agent(db_client, aid, "Keep Chat Agent", user_id)
+    (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
+
+    inst_id = f"inst_keepchat0001"
+    keep_phrase = "KEEP_THIS_PHRASE_42"
+    memory_blob = json.dumps({
+        "messages": [
+            {"role": "user", "content": keep_phrase},
+            {"role": "assistant", "content": "ok"},
+        ]
+    })
+    await db_client.insert("instance_json_format_memory_chat", {
+        "instance_id": inst_id,
+        "memory": memory_blob,
+    })
+
+    bundle_path = tmp_workspace_root.parent / "chat_on.nxbundle"
+    selection = ExportSelection(
+        agent_ids=[aid],
+        include_chat_history=True,
+    )
+    await build_bundle(user_id, selection, bundle_path)
+
+    pre = await preflight(bundle_path, user_id)
+    await confirm(pre["preflight_token"], user_id)
+
+    rows_imported = await db_client.get("agents", {"created_by": user_id})
+    new_agents = [r for r in rows_imported if r["agent_id"] != aid]
+    assert len(new_agents) == 1
+    new_aid = new_agents[0]["agent_id"]
+    new_inst_rows = await db_client.get("module_instances", {"agent_id": new_aid})
+    new_inst_id = new_inst_rows[0]["instance_id"]
+    new_memory = await db_client.get(
+        "instance_json_format_memory_chat",
+        {"instance_id": new_inst_id},
+    )
+    assert len(new_memory) == 1
+    assert keep_phrase in new_memory[0]["memory"], (
+        f"happy-path chat memory must survive when include_chat_history=True"
+    )

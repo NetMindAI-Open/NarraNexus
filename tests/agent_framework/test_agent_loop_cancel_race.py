@@ -13,7 +13,7 @@ loop out of ``await asyncio.wait(...)`` within bounded latency.
 
 The previous implementation used ``asyncio.wait_for(__anext__(),
 timeout=IDLE_TIMEOUT_SECONDS)`` which could only check ``is_cancelled``
-AFTER a message arrived; for the slow-or-stuck-tool case (the Xiong
+AFTER a message arrived; for the slow-or-stuck-tool case (the operator
 bug) it meant Stop took tens of seconds to register.
 """
 from __future__ import annotations

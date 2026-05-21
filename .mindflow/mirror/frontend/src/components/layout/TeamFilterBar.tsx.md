@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/TeamFilterBar.tsx
-last_verified: 2026-05-09
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — TEAMS header uses `BracketSectionLabel`
+
+Header row migrated to the shared NM `[ TEAMS  N ]` bracket-label component (same visual language as `[ AGENTS  N ]` in `AgentList`). The three action icons (Upload / Package / Settings2) remain as a separate flex group on the right — they're NOT inside the bracket marks; the brackets only wrap the label + count.
 
 # TeamFilterBar.tsx — Sidebar 顶部 team chips (subproject 1)
 

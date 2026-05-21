@@ -1,0 +1,44 @@
+name: Question / Help
+description: Ask how something works or how to do something with NarraNexus.
+title: "question: <short description>"
+labels: [question, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Quick questions and "how do I…" usually fit better in
+        [Discussions](https://github.com/protagolabs/NarraNexus/discussions) — they reach a wider
+        audience and others can find the answer. Use this template if
+        you tried Discussions and still need help, or if you think the
+        answer will be useful as a reference issue.
+
+        中英文都可以 / English or 中文 — both welcome.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What are you trying to do?
+      placeholder: "I'm trying to make my agent send a message to a Lark room when a new Job completes…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Docs you read, commands you ran, error messages. Helps us answer once instead of asking you to clarify three times.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: NarraNexus version
+      placeholder: "v1.5.7"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

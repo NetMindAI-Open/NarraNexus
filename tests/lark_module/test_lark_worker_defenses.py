@@ -36,6 +36,12 @@ class _Cred:
         self.profile_name = profile_name
         self.brand = "lark"
 
+    def user_oauth_ok(self) -> bool:
+        # Default off so name resolution short-circuits to "Unknown" without
+        # touching the CLI — these tests exercise the cred gatekeeper, not
+        # sender-name lookup.
+        return False
+
 
 # --- H-2: cred gatekeeper -------------------------------------------------
 

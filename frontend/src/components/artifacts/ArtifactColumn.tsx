@@ -44,6 +44,7 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const restoreTab = useArtifactStore((s) => s.restoreTab);
   const loadPinned = useArtifactStore((s) => s.loadPinned);
+  const chartLruOrder = useArtifactStore((s) => s.chartLruOrder);
 
   const [zoomedId, setZoomedId] = useState<string | null>(null);
   // Manual refresh: artifacts are intentionally NOT polled on a timer
@@ -222,12 +223,27 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
           </button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {active ? (
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        {/* Live LRU pool for echarts artifacts: every id in chartLruOrder
+            stays mounted (display:none when not active) so clicking back to
+            a recent chart is instant — no re-fetch, no re-init. Oldest id
+            falls off → ChartRenderer unmounts → echarts dispose() runs. */}
+        {chartLruOrder
+          .map((id) => artifacts.find((a) => a.artifact_id === id))
+          .filter((a): a is NonNullable<typeof a> => Boolean(a))
+          .map((a) => (
+            <div
+              key={a.artifact_id}
+              className="absolute inset-0"
+              style={{ display: a.artifact_id === activeId ? 'block' : 'none' }}
+            >
+              <ArtifactRenderer artifact={a} />
+            </div>
+          ))}
+        {active && active.kind !== 'application/vnd.echarts+json' ? (
           <ArtifactRenderer artifact={active} />
-        ) : (
-          <div className="p-4 opacity-60">Select an artifact</div>
-        )}
+        ) : null}
+        {!active && <div className="p-4 opacity-60">Select an artifact</div>}
       </div>
 
       {/* Fullscreen zoom modal — portal'd to body, dimmed + blurred backdrop.

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-04-10
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — Reply Discipline 段强化 Agent-to-Agent 简洁优先
+
+新增两条规则：
+1. 显式标注"对方是 agent 不是 human"，要 Agent 跳过寒暄、首选一句话 /
+   单数字 / 单 list 这种最小回复形态。
+2. "Substance-empty → 明确选静默" — 没新信息时不要 call `bus_send_*`，
+   直接结束这轮；平台按 `[NO_REPLY]` 处理，unread 游标按正常方式推进。
+
+跟 [[prompts.py]] (chat_module) 配对：chat 路径强调"对人要温暖"，bus
+路径强调"对 agent 要极简"。两边各自收紧自己的边界。
 
 # message_bus_module.py — MessageBus Module 主体
 

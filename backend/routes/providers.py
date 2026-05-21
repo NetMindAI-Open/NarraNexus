@@ -12,7 +12,6 @@ both SQLite (local) and MySQL (cloud).
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from loguru import logger
@@ -66,13 +65,28 @@ class UpdateModelsRequest(BaseModel):
 # Helpers
 # =============================================================================
 
-def _get_user_id(request: Request, user_id: Optional[str] = None) -> str:
-    """Extract user_id from JWT (cloud) or query param (local)."""
-    if hasattr(request.state, 'user_id') and request.state.user_id:
-        return request.state.user_id
-    if user_id:
-        return user_id
-    return ""
+def _get_user_id(request: Request) -> str:
+    """Return the identity established by auth_middleware.
+
+    Cloud mode: JWT-decoded user_id; local mode: X-User-Id header.
+    Either way, middleware writes ``request.state.user_id`` BEFORE the
+    handler runs, and 401s the request if the caller didn't declare an
+    identity — so by the time we get here, the value is present and is
+    the only legitimate source.
+
+    The previous version also accepted a ``user_id`` query param as a
+    backup. That was a cross-user write/read bug waiting to happen: the
+    frontend could trivially construct ``?user_id=alice`` while logged
+    in as bob, and have the backend silently scope provider config to
+    alice. Identity must come from auth_middleware, never the URL.
+    """
+    uid = getattr(request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required (no user_id on request.state)",
+        )
+    return uid
 
 
 async def _get_service():
@@ -113,16 +127,16 @@ def _config_to_response(config: LLMConfig) -> dict:
 # =============================================================================
 
 @router.get("")
-async def get_providers(request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def get_providers(request: Request):
+    uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
     return {"success": True, "data": _config_to_response(config)}
 
 
 @router.post("")
-async def add_provider(req: AddProviderRequest, request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def add_provider(req: AddProviderRequest, request: Request):
+    uid = _get_user_id(request)
     try:
         service = await _get_service()
         config, new_ids = await service.add_provider(
@@ -163,8 +177,8 @@ async def add_provider(req: AddProviderRequest, request: Request, user_id: Optio
 
 
 @router.delete("/{provider_id}")
-async def remove_provider(provider_id: str, request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def remove_provider(provider_id: str, request: Request):
+    uid = _get_user_id(request)
     service = await _get_service()
     try:
         config = await service.remove_provider(uid, provider_id)
@@ -174,15 +188,15 @@ async def remove_provider(provider_id: str, request: Request, user_id: Optional[
 
 
 @router.post("/{provider_id}/test")
-async def test_provider(provider_id: str, request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def test_provider(provider_id: str, request: Request):
+    uid = _get_user_id(request)
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
     return {"success": success, "message": message}
 
 
 @router.post("/sync-defaults")
-async def sync_default_models(request: Request, user_id: Optional[str] = Query(None)):
+async def sync_default_models(request: Request):
     """Backfill the latest default model list from `model_catalog` into every
     one of this user's providers whose (source, protocol) pair has defaults.
 
@@ -190,7 +204,7 @@ async def sync_default_models(request: Request, user_id: Optional[str] = Query(N
     Existing user-curated entries are preserved; only missing defaults are
     appended at the end.
     """
-    uid = _get_user_id(request, user_id)
+    uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
 
@@ -229,8 +243,8 @@ async def sync_default_models(request: Request, user_id: Optional[str] = Query(N
 
 
 @router.put("/{provider_id}/models")
-async def update_provider_models(provider_id: str, req: UpdateModelsRequest, request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def update_provider_models(provider_id: str, req: UpdateModelsRequest, request: Request):
+    uid = _get_user_id(request)
     service = await _get_service()
     try:
         config = await service.update_models(uid, provider_id, req.models)
@@ -240,8 +254,8 @@ async def update_provider_models(provider_id: str, req: UpdateModelsRequest, req
 
 
 @router.put("/slots/{slot_name}")
-async def set_slot(slot_name: str, req: SetSlotRequest, request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
+    uid = _get_user_id(request)
     try:
         service = await _get_service()
         config = await service.set_slot(uid, slot_name, req.provider_id, req.model)
@@ -265,8 +279,8 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request, user_i
 
 
 @router.get("/slots/validate")
-async def validate_slots(request: Request, user_id: Optional[str] = Query(None)):
-    uid = _get_user_id(request, user_id)
+async def validate_slots(request: Request):
+    uid = _get_user_id(request)
     service = await _get_service()
     errors = await service.validate_slots(uid)
     return {"success": True, "errors": errors, "all_configured": len(errors) == 0}
@@ -404,7 +418,10 @@ async def get_claude_status(request: Request):
 # =============================================================================
 
 @router.get("/embeddings/status")
-async def get_embedding_status(user_id: str = Query(..., description="User ID to scope the status")):
+async def get_embedding_status(
+    request: Request,
+    user_id: str = Query(..., description="User ID to scope the status"),
+):
     """
     Per-user embedding migration status.
 
@@ -418,13 +435,15 @@ async def get_embedding_status(user_id: str = Query(..., description="User ID to
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
     db = await get_db_client()
-    service = EmbeddingMigrationService(db, user_id=user_id)
+    resolver = getattr(request.app.state, "provider_resolver", None)
+    service = EmbeddingMigrationService(db, user_id=user_id, resolver=resolver)
     status = await service.get_status()
     return {"success": True, "data": status}
 
 
 @router.post("/embeddings/rebuild")
 async def rebuild_embeddings(
+    request: Request,
     background_tasks: BackgroundTasks,
     user_id: str = Query(..., description="User ID whose entities to rebuild"),
 ):
@@ -450,6 +469,7 @@ async def rebuild_embeddings(
             "data": progress.to_dict(),
         }
     db = await get_db_client()
-    service = EmbeddingMigrationService(db, user_id=user_id)
+    resolver = getattr(request.app.state, "provider_resolver", None)
+    service = EmbeddingMigrationService(db, user_id=user_id, resolver=resolver)
     background_tasks.add_task(service.rebuild_all)
     return {"success": True, "message": "Embedding rebuild started"}

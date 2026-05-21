@@ -7,11 +7,10 @@
 Backs the Settings → Artifacts management UI. Distinct from
 agents_artifacts.py (agent-scoped routes) because the management UI needs to
 see the full user-owned set across every agent the user owns, and let them
-delete in bulk to free the per-user quota.
+delete in bulk.
 
 Endpoints:
 - GET    /{user_id}/artifacts                 list every artifact owned by user
-- GET    /{user_id}/artifacts/quota           return current usage vs. limits
 - DELETE /{user_id}/artifacts                 bulk delete registry rows only
 
 Registry-only delete (2026-05-14-r3): workspace files are never removed by
@@ -27,7 +26,6 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact
-from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.db_factory import get_db_client
 
 
@@ -46,14 +44,6 @@ async def _verify_user_self(request: Request, user_id: str) -> None:
         raise HTTPException(403, "not authorized for this user")
 
 
-class QuotaInfo(BaseModel):
-    used_count: int
-    count_limit: int
-    used_bytes: int
-    bytes_limit: int
-    is_cloud_mode: bool
-
-
 class BulkDeleteRequest(BaseModel):
     artifact_ids: List[str] = Field(default_factory=list, max_length=200)
 
@@ -70,27 +60,6 @@ async def list_user_artifacts(user_id: str, request: Request):
     db = await get_db_client()
     repo = ArtifactRepository(db)
     return await repo.list_by_user(user_id)
-
-
-@router.get("/{user_id}/artifacts/quota", response_model=QuotaInfo)
-async def get_user_quota(user_id: str, request: Request):
-    """Return current artifact usage vs. configured limits.
-
-    Used by the Settings → Artifacts panel to render the "8 / 10" headline and
-    to colour the progress bar warning when the user is approaching the cap.
-    """
-    await _verify_user_self(request, user_id)
-    db = await get_db_client()
-    repo = ArtifactRepository(db)
-    used_count = await repo.count_for_user(user_id)
-    used_bytes = await repo.total_bytes_for_user(user_id)
-    return QuotaInfo(
-        used_count=used_count,
-        count_limit=settings.artifact_count_limit_per_user,
-        used_bytes=used_bytes,
-        bytes_limit=settings.artifact_total_bytes_per_user,
-        is_cloud_mode=settings.is_cloud_mode,
-    )
 
 
 @router.delete("/{user_id}/artifacts", response_model=BulkDeleteResponse)

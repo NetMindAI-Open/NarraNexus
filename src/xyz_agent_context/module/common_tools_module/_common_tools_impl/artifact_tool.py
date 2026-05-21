@@ -98,7 +98,7 @@ def register(mcp: FastMCP) -> None:
             "On success returns {artifact_id, url}; the tab is already visible "
             "to the user, so don't repeat the URL in your reply. On failure "
             "returns {error, code} — the error text states the cause (path "
-            "outside workspace, file missing, too large, quota); fix the "
+            "outside workspace, file missing, too large); fix the "
             "inputs and call again. A failed register_artifact never blocks "
             "you and is safe to retry."
         ),
@@ -117,8 +117,8 @@ def register(mcp: FastMCP) -> None:
 
         The LLM-facing contract lives in the `description=` above. This body
         just resolves a DB client and delegates to
-        `artifact_runner.register_artifact`; all validation, quota and
-        path logic is there. Every failure path returns a structured
+        `artifact_runner.register_artifact`; all validation and path logic
+        is there. Every failure path returns a structured
         `{error, code}` dict.
         """
         try:
@@ -137,7 +137,7 @@ def register(mcp: FastMCP) -> None:
             )
             return result.model_dump(mode="json")
         except artifact_runner.ArtifactError as e:
-            # Expected, structured rejection (bad kind, path escape, quota, ...).
+            # Expected, structured rejection (bad kind, path escape, too large, ...).
             # The message is already actionable; hand it straight to the LLM.
             logger.warning(f"register_artifact rejected: {e}")
             return {"error": str(e), "code": e.code}

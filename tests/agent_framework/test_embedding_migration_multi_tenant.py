@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from xyz_agent_context.agent_framework.api_config import EmbeddingConfig
 from xyz_agent_context.services import embedding_migration_service as mig_mod
 from xyz_agent_context.services.embedding_migration_service import (
     EmbeddingMigrationService,
@@ -122,14 +123,19 @@ async def _seed_entity(
 
 @pytest.fixture
 def patched_embedding(monkeypatch):
-    """Replace the live embedding call with a deterministic stub."""
+    """Replace the live embedding call with a deterministic stub.
 
-    async def _fake_embed(text: str, model: str = ""):  # noqa: ARG001
+    The service now embeds through a dedicated EmbeddingClient instance
+    (pinned to the user's provider), so we stub the instance method rather
+    than the old module-level get_embedding helper.
+    """
+
+    async def _fake_embed(self, text: str):  # noqa: ARG001
         # 4-dim vector, values derived from text length so collisions are unlikely
         n = len(text) or 1
         return [float(n), float(n) + 1, float(n) + 2, float(n) + 3]
 
-    monkeypatch.setattr(mig_mod, "get_embedding", _fake_embed)
+    monkeypatch.setattr(mig_mod.EmbeddingClient, "embed", _fake_embed)
 
 
 @pytest.fixture(autouse=True)
@@ -150,19 +156,27 @@ def force_new_embedding_path(monkeypatch):
 
 
 @pytest.fixture
-def patched_model_resolver(monkeypatch):
-    async def _resolve(user_id: str) -> str:
-        return {
+def patched_embedding_cfg(monkeypatch):
+    """Stub the per-user embedding provider resolution.
+
+    Returns a concrete EmbeddingConfig (model + api_key + base_url) so the
+    service can build a real EmbeddingClient without hitting a provider — the
+    api_key is non-empty so AsyncOpenAI constructs cleanly.
+    """
+
+    async def _resolve(user_id, resolver=None, db=None, *, raise_on_gating=True):  # noqa: ARG001
+        model = {
             "alice": "model-a",
             "bob": "model-b",
         }.get(user_id, "model-default")
+        return EmbeddingConfig(api_key="test-key", base_url="", model=model)
 
-    monkeypatch.setattr(mig_mod, "_resolve_user_embedding_model", _resolve)
+    monkeypatch.setattr(mig_mod, "_resolve_user_embedding_cfg", _resolve)
 
 
 @pytest.mark.asyncio
 async def test_status_sees_only_caller_user_data(
-    db_client, patched_embedding, force_new_embedding_path, patched_model_resolver
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
 ):
     await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
     await _seed_agent(db_client, agent_id="agent_b", created_by="bob")
@@ -185,7 +199,7 @@ async def test_status_sees_only_caller_user_data(
 
 @pytest.mark.asyncio
 async def test_status_filters_events_by_user_id(
-    db_client, patched_embedding, force_new_embedding_path, patched_model_resolver
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
 ):
     await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
     await _seed_agent(db_client, agent_id="agent_b", created_by="bob")
@@ -202,7 +216,7 @@ async def test_status_filters_events_by_user_id(
 
 @pytest.mark.asyncio
 async def test_status_filters_jobs_by_user_id(
-    db_client, patched_embedding, force_new_embedding_path, patched_model_resolver
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
 ):
     await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
     await _seed_agent(db_client, agent_id="agent_b", created_by="bob")
@@ -218,7 +232,7 @@ async def test_status_filters_jobs_by_user_id(
 
 @pytest.mark.asyncio
 async def test_status_filters_entities_via_instance_user(
-    db_client, patched_embedding, force_new_embedding_path, patched_model_resolver
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
 ):
     await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
     await _seed_agent(db_client, agent_id="agent_b", created_by="bob")
@@ -237,7 +251,7 @@ async def test_status_filters_entities_via_instance_user(
 
 @pytest.mark.asyncio
 async def test_rebuild_only_touches_caller_user(
-    db_client, patched_embedding, force_new_embedding_path, patched_model_resolver
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
 ):
     await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
     await _seed_agent(db_client, agent_id="agent_b", created_by="bob")
@@ -277,3 +291,172 @@ async def test_progress_is_isolated_per_user():
 async def test_missing_user_id_raises(db_client):
     with pytest.raises(ValueError, match="user_id"):
         EmbeddingMigrationService(db_client, user_id="")  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_rebuild_uses_resolved_provider_not_global(db_client, monkeypatch):
+    """Regression (debug/20260521 bug #1): the rebuild background task ran on
+    /api/providers (quota-bypassed), so the request ContextVar carrying the
+    user's embedding provider was never set — get_embedding fell back to the
+    global OpenAI config with an empty key and every embed 401'd (0/N done).
+
+    The fix resolves the user's provider explicitly and pins a dedicated
+    EmbeddingClient to it. This test asserts the client is constructed from the
+    resolver-provided (base_url, api_key, model), not the global config.
+    """
+    captured: dict = {}
+
+    def spy_init(self, model=None, api_key=None, base_url=None, enable_cache=True):  # noqa: ARG001
+        captured["model"] = model
+        captured["api_key"] = api_key
+        captured["base_url"] = base_url
+        self.model = model  # minimal attr; skip real AsyncOpenAI construction
+
+    async def fake_embed(self, text: str):  # noqa: ARG001
+        return [1.0, 2.0, 3.0, 4.0]
+
+    monkeypatch.setattr(mig_mod.EmbeddingClient, "__init__", spy_init)
+    monkeypatch.setattr(mig_mod.EmbeddingClient, "embed", fake_embed)
+
+    class FakeResolver:
+        async def resolve(self, user_id: str):
+            emb = EmbeddingConfig(
+                api_key="user-key",
+                base_url="https://user.example/v1",
+                model="user-emb-model",
+            )
+            return (None, None, emb, "user")
+
+    await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
+    await _seed_narrative(db_client, narrative_id="nar_a1", agent_id="agent_a")
+
+    svc = EmbeddingMigrationService(db_client, user_id="alice", resolver=FakeResolver())
+    await svc.rebuild_all()
+
+    assert captured["api_key"] == "user-key"
+    assert captured["base_url"] == "https://user.example/v1"
+    assert captured["model"] == "user-emb-model"
+
+    rows = await db_client.get("embeddings_store", filters={"entity_type": "narrative"})
+    assert {r["model"] for r in rows} == {"user-emb-model"}, (
+        "vectors must be stored under the resolved per-user model"
+    )
+
+
+@pytest.mark.asyncio
+async def test_local_no_resolver_reads_user_providers(monkeypatch):
+    """Gap B (debug/20260521): in local/desktop mode the resolver is disabled,
+    but provider config still lives in user_providers (the table Settings
+    writes to). `set_user_config` only primes a ContextVar a background task
+    can't see, so the migration must read the user's embedding SLOT straight
+    from the DB. It must read only the embedding slot (not the all-or-nothing
+    get_user_llm_configs), so a user with only the embedding slot configured
+    still works."""
+    from types import SimpleNamespace
+    from xyz_agent_context.agent_framework import user_provider_service as ups_mod
+
+    fake = SimpleNamespace(
+        slots={"embedding": SimpleNamespace(provider_id="prov_x", model="BAAI/bge-m3")},
+        providers={"prov_x": SimpleNamespace(api_key="db-key", base_url="https://db.example/v1")},
+    )
+
+    async def fake_get(self, user_id):  # noqa: ARG001, ARG002
+        return fake
+
+    monkeypatch.setattr(ups_mod.UserProviderService, "get_user_config", fake_get)
+
+    cfg = await mig_mod._resolve_user_embedding_cfg("alice", resolver=None, db=object())
+    assert cfg.api_key == "db-key"
+    assert cfg.base_url == "https://db.example/v1"
+    assert cfg.model == "BAAI/bge-m3"
+
+
+@pytest.mark.asyncio
+async def test_status_swallows_resolver_gating_error(db_client, monkeypatch, force_new_embedding_path):
+    """Status is display-only: a resolver gating error (no provider / quota)
+    must not 500 — it falls back to the global model for display."""
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        NoProviderConfiguredError,
+    )
+
+    class GatingResolver:
+        async def resolve(self, user_id: str):
+            raise NoProviderConfiguredError(user_id)
+
+    svc = EmbeddingMigrationService(db_client, user_id="alice", resolver=GatingResolver())
+    status = await svc.get_status()  # must not raise
+    assert "model" in status
+    # No env fallback: an unconfigured user renders an empty model, never a
+    # value scavenged from the global embedding_config.
+    assert status["model"] == ""
+
+
+@pytest.mark.asyncio
+async def test_no_embedding_provider_resolves_to_none(db_client):
+    """No env / llm_config.json fallback: an unconfigured user resolves to
+    None instead of scavenging credentials from the global holder."""
+    cfg = await mig_mod._resolve_user_embedding_cfg("nobody", resolver=None, db=db_client)
+    assert cfg is None
+
+
+@pytest.mark.asyncio
+async def test_rebuild_errors_clearly_when_no_provider(db_client):
+    """Rebuild with no embedding provider must fail with a clear error
+    recorded in progress — never silently embed against an env key."""
+    await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
+    await _seed_narrative(db_client, narrative_id="nar_a1", agent_id="agent_a")
+
+    svc = EmbeddingMigrationService(db_client, user_id="alice", resolver=None)
+    await svc.rebuild_all()
+
+    prog = get_migration_progress("alice")
+    assert prog.error and "embedding provider" in prog.error.lower()
+    assert prog.is_running is False
+    # Nothing was embedded against a fallback key.
+    rows = await db_client.get("embeddings_store", filters={"entity_type": "narrative"})
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_status_counts_distinct_entity_ids_across_instances(
+    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
+):
+    """An entity_id that exists under multiple module_instances must be
+    counted ONCE, not once per instance.
+
+    Regression (debug/20260521-embedding-rebuild-retry): embeddings_store is
+    keyed on (entity_type, entity_id, model) — one vector per entity_id. But
+    the entity count used COUNT(*) over instance_social_entities JOIN
+    module_instances, which fans out to one row per (entity_id, instance_id).
+    A user whose social-network entity appears in N instances therefore
+    showed total=N but migrated=1 → a permanent "N-1 missing" that no rebuild
+    could ever close (rebuild embeds distinct ids, all already done).
+    """
+    await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
+    await _seed_instance(db_client, instance_id="inst_a1", agent_id="agent_a", user_id="alice")
+    await _seed_instance(db_client, instance_id="inst_a2", agent_id="agent_a", user_id="alice")
+
+    # Same entity_id present in BOTH instances (the fan-out source) ...
+    await _seed_entity(db_client, instance_id="inst_a1", entity_id="ent_dup", name="Dup")
+    await _seed_entity(db_client, instance_id="inst_a2", entity_id="ent_dup", name="Dup")
+    # ... plus one that lives in a single instance.
+    await _seed_entity(db_client, instance_id="inst_a1", entity_id="ent_solo", name="Solo")
+
+    svc = EmbeddingMigrationService(db_client, user_id="alice")
+
+    # 2 distinct entities, not 3 (the JOIN would otherwise report 3).
+    status_before = await svc.get_status()
+    assert status_before["stats"]["entity"]["total"] == 2
+
+    await svc.rebuild_all()
+
+    status_after = await svc.get_status()
+    assert status_after["stats"]["entity"]["total"] == 2
+    assert status_after["stats"]["entity"]["migrated"] == 2
+    # The bug surfaced as a permanent missing>0 here.
+    assert status_after["stats"]["entity"]["missing"] == 0
+    assert status_after["all_done"] is True
+
+    # Exactly one embedding row per distinct entity_id (no per-instance dupes).
+    emb = await db_client.get("embeddings_store", filters={"entity_type": "entity"})
+    assert sorted(r["entity_id"] for r in emb) == ["ent_dup", "ent_solo"]

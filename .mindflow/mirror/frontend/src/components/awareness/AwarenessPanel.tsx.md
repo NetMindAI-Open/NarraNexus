@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-05-15
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — Save button contrast fix (invisible "black blob")
+
+The awareness edit dialog's Save button was `variant="default"` with a
+`className` override forcing `bg-[var(--accent-primary)]`. But `--accent-primary`
+resolves to `--nm-ink`, and `variant="default"`'s text color is *also*
+`--nm-ink` → background and text were the same color (a black blob in light
+mode, a white blob in dark mode), zero contrast. Switched to `variant="accent"`
+(the canonical ink-fill primary action: `bg --nm-ink` + `text --nm-paper`,
+high-contrast in both themes) and dropped the override. This matches the other
+primary-action buttons across the app (RAGUpload, ChatPanel, MCPManager).
 
 ## 2026-05-15 — awareness markdown inner-scroll discoverability
 

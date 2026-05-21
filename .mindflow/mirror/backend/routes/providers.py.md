@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-05-05
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — 关掉 query 参数 user_id 这条 identity channel
+
+`_get_user_id` 以前同时认两个 user_id 源：`request.state.user_id`（middleware 设的）和 query 参数 `user_id`。这俩并存就是 IDOR 漏洞：客户端可以一边发 `X-User-Id: bob`、一边 `?user_id=alice`，让 backend 在不同分支看到不同身份。本次彻底关掉 query 通道——`_get_user_id` 只读 `request.state.user_id`，缺失就 401。所有 endpoint 也删掉了 `user_id: Optional[str] = Query(None)` 参数。
+
+身份只能来自一个 channel：cloud=JWT、local=X-User-Id header。前端 ApiClient (`api.ts:getAuthHeaders`) 和 SettingsProviders 的 `authFetch` 现在都会同时发这两个 header（取决于 mode）。
+
+例外：`/embeddings/status` 和 `/embeddings/rebuild` 仍然有 `user_id: str = Query(...)`，但它的语义是 **target user**（管理员视角的"我要查谁的"），不是 identity。后续可以加 staff 角色 check。
 
 # routes/providers.py — LLM 提供商与 Slot 配置路由
 
@@ -22,9 +30,11 @@ stub: false
 
 ## 设计决策
 
-**`_get_user_id` 的双模式提取**
+**`_get_user_id` 单一身份源**（2026-05-18 重写）
 
-user_id 优先从 `request.state.user_id`（云模式下由 auth 中间件注入）读取，fallback 到 query 参数。这让同一个接口在两种模式下都能工作：云模式下 user_id 来自 JWT（防止伪造），local 模式下从 query 参数传入。
+user_id **只能**从 `request.state.user_id` 读，由 `auth_middleware` 在 handler 跑之前注入：cloud 模式来自 JWT decode，local 模式来自 `X-User-Id` header。没有任何 fallback——middleware 在 header 缺失时已经 401 了，handler 拿到的一定是用户明确声明的身份。
+
+历史版本接受 query 参数 `?user_id=` 作为 backup，是为了 local 模式"少改前端"。结果是双 channel 并存、互相覆盖，写错 user_id 的 bug 在 2026-05-18 被踩到（详见 `backend/auth.py.md` 同日 entry）。这条 channel 现在彻底关闭。
 
 **api_key 脱敏**
 

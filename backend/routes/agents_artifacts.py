@@ -7,6 +7,7 @@
 Endpoints:
 - GET    /{agent_id}/artifacts                       list (scope=session|pinned, session_id?)
 - POST   /{agent_id}/artifacts/register              manual register: register a workspace file as an artifact
+- POST   /{agent_id}/artifacts/{aid}/heal            try to recover a broken pointer (file_path NULL or off-disk)
 - GET    /{agent_id}/artifacts/{aid}                 metadata
 - GET    /{agent_id}/artifacts/{aid}/view-token      mint a short-TTL HMAC token for the public raw route
 - PATCH  /{agent_id}/artifacts/{aid}                 { pinned?, title? }
@@ -23,6 +24,7 @@ via the workspace section in the config panel.
 
 from __future__ import annotations
 
+import os
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -32,9 +34,28 @@ from pydantic import BaseModel, Field
 from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.db_factory import get_db_client
 
 from backend.routes import _artifact_token
+
+
+# Kind → file extension(s) used by the workspace scan in the heal endpoint.
+# Multi-extension tuples cover the casual variants an agent might pick.
+_KIND_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "text/html": (".html", ".htm"),
+    "application/vnd.echarts+json": (".json",),
+    "text/csv": (".csv",),
+    "text/markdown": (".md", ".markdown"),
+    "image/png": (".png",),
+    "image/jpeg": (".jpg", ".jpeg"),
+    "application/pdf": (".pdf",),
+}
+
+# How many candidate files to surface when the auto-recover heuristic
+# can't pick a unique winner. Top-N by mtime desc, scoped to the kind's
+# extension(s).
+_HEAL_MAX_CANDIDATES = 10
 
 
 router = APIRouter()
@@ -84,6 +105,27 @@ class RegisterRequest(BaseModel):
     target_artifact_id: Optional[str] = None
 
 
+class HealRequest(BaseModel):
+    """Optional entry_path lets the user pick a candidate the auto-heuristic
+    surfaced but couldn't pick on its own. Omitted → server runs the
+    heuristic and registers automatically if it finds a unique match."""
+
+    entry_path: Optional[str] = None
+
+
+class HealCandidate(BaseModel):
+    workspace_path: str   # path relative to the agent workspace, e.g. "briefings/2026-05-19.html"
+    size_bytes: int
+    mtime: float          # unix epoch seconds
+
+
+class HealResponse(BaseModel):
+    recovered: bool
+    artifact: Optional[Artifact] = None     # populated when recovered=True
+    candidates: List[HealCandidate] = Field(default_factory=list)
+    message: str
+
+
 class ViewTokenResponse(BaseModel):
     token: str
     raw_url: str
@@ -125,7 +167,7 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
 
     Powers the "register as artifact" action in the workspace tree viewer.
     Delegates to the same `artifact_runner.register_artifact` the MCP tool
-    uses, so validation, quota, and path-confinement rules are identical.
+    uses, so validation and path-confinement rules are identical.
 
     `file_path` may be absolute or workspace-relative; it must be inside the
     agent's workspace AND in a subdirectory (not directly in the workspace
@@ -156,6 +198,186 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
         # Should be impossible — the runner just wrote the row.
         raise HTTPException(500, "artifact disappeared after registration")
     return art
+
+
+# ── heal: recover a broken pointer ───────────────────────────────────────────
+
+
+def _scan_workspace_for_kind(
+    workspace_root: str, kind: str
+) -> List[HealCandidate]:
+    """Return up to `_HEAL_MAX_CANDIDATES` files in the workspace whose
+    extension matches the artifact kind, sorted newest-first by mtime.
+
+    Symlinks are not followed (the artifact runner uses realpath at register
+    time, so a symlink to /etc/passwd that survives the scan is still rejected
+    when we try to register it).
+    """
+    extensions = _KIND_EXTENSIONS.get(kind)
+    if not extensions:
+        return []
+
+    found: List[HealCandidate] = []
+    base = os.path.realpath(workspace_root)
+    if not os.path.isdir(base):
+        return []
+
+    for root, _dirs, files in os.walk(base, followlinks=False):
+        for name in files:
+            if not name.lower().endswith(extensions):
+                continue
+            abs_path = os.path.join(root, name)
+            try:
+                st = os.stat(abs_path)
+            except OSError:
+                continue
+            rel = os.path.relpath(abs_path, base)
+            found.append(
+                HealCandidate(
+                    workspace_path=rel,
+                    size_bytes=st.st_size,
+                    mtime=st.st_mtime,
+                )
+            )
+    found.sort(key=lambda c: c.mtime, reverse=True)
+    return found[:_HEAL_MAX_CANDIDATES]
+
+
+@router.post("/{agent_id}/artifacts/{artifact_id}/heal", response_model=HealResponse)
+async def heal_artifact(
+    request: Request,
+    agent_id: str,
+    artifact_id: str,
+    body: HealRequest,
+):
+    """Try to recover an artifact whose pointer is broken.
+
+    A pointer is "broken" when the artifact row's `file_path` is empty/None,
+    or when the on-disk entry file at that path no longer exists. The /raw/
+    route returns 410 in either case, surfacing as a broken tab on the
+    frontend.
+
+    Recovery sequence (each step short-circuits on success):
+
+    1. If the existing `file_path` is set AND the file is on disk: the
+       pointer is actually fine — return recovered=True. Useful when the
+       frontend's 410 race was a transient miss.
+    2. If `body.entry_path` is given: caller already picked a candidate —
+       re-register onto this artifact_id with that path. This is the
+       "user picked from the modal" path.
+    3. Scan the agent workspace for files whose extension matches the
+       artifact kind. Sort by mtime desc, cap at `_HEAL_MAX_CANDIDATES`.
+       - 1 candidate → auto-register and return recovered=True.
+       - 0 candidates → recovered=False, empty list, "no matching file
+         found — please regenerate the artifact".
+       - >1 candidates → recovered=False, list returned, "multiple
+         matches — pick one to register" (frontend renders modal).
+
+    All registrations go through `artifact_runner.register_artifact` with
+    `target_artifact_id=artifact_id` so kind/path/sanity-cap rules stay
+    identical to the MCP tool and manual-register flows.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    user_id = await _resolve_agent_user_id(agent_id)
+
+    db = await get_db_client()
+    repo = ArtifactRepository(db)
+    art = await repo.get_by_id(artifact_id)
+    if art is None or art.agent_id != agent_id:
+        raise HTTPException(404, "artifact not found")
+
+    base = os.path.realpath(settings.base_working_path)
+    workspace_root = os.path.realpath(
+        os.path.join(base, f"{agent_id}_{user_id}")
+    )
+
+    # 1. Pointer might already be valid (frontend saw a transient 410).
+    if art.file_path:
+        existing_abs = os.path.realpath(os.path.join(base, art.file_path))
+        if (
+            existing_abs.startswith(workspace_root + os.sep)
+            and os.path.isfile(existing_abs)
+        ):
+            return HealResponse(
+                recovered=True,
+                artifact=art,
+                message="pointer is already valid — no action needed",
+            )
+
+    # 2. User explicitly picked a candidate from the modal.
+    if body.entry_path:
+        try:
+            result = await artifact_runner.register_artifact(
+                repo=repo,
+                agent_id=agent_id,
+                user_id=user_id,
+                session_id=None,
+                kind=art.kind,
+                entry_path=body.entry_path,
+                title=art.title,
+                description=art.description,
+                target_artifact_id=artifact_id,
+            )
+        except artifact_runner.ArtifactError as e:
+            raise HTTPException(status_code=e.code, detail=str(e))
+        healed = await repo.get_by_id(result.artifact_id)
+        return HealResponse(
+            recovered=True,
+            artifact=healed,
+            message=f"re-registered onto {body.entry_path}",
+        )
+
+    # 3. Scan workspace by kind.
+    candidates = _scan_workspace_for_kind(workspace_root, art.kind)
+    if len(candidates) == 1:
+        only = candidates[0]
+        try:
+            result = await artifact_runner.register_artifact(
+                repo=repo,
+                agent_id=agent_id,
+                user_id=user_id,
+                session_id=None,
+                kind=art.kind,
+                entry_path=only.workspace_path,
+                title=art.title,
+                description=art.description,
+                target_artifact_id=artifact_id,
+            )
+        except artifact_runner.ArtifactError as e:
+            logger.warning(
+                f"heal_artifact: single-candidate register failed for "
+                f"{artifact_id}: {e}"
+            )
+            return HealResponse(
+                recovered=False,
+                candidates=candidates,
+                message=f"found one match but it could not be registered: {e}",
+            )
+        healed = await repo.get_by_id(result.artifact_id)
+        return HealResponse(
+            recovered=True,
+            artifact=healed,
+            message=f"auto-recovered from {only.workspace_path}",
+        )
+
+    if not candidates:
+        return HealResponse(
+            recovered=False,
+            candidates=[],
+            message=(
+                "no matching file found in the agent workspace — "
+                "regenerate the artifact (re-run the agent) and it will register again"
+            ),
+        )
+
+    return HealResponse(
+        recovered=False,
+        candidates=candidates,
+        message=(
+            f"{len(candidates)} candidate files found — pick the right one "
+            f"to re-register this artifact"
+        ),
+    )
 
 
 # ── detail / view-token / patch / delete ─────────────────────────────────────

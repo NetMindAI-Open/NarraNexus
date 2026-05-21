@@ -90,6 +90,16 @@ class AgentInfo(BaseModel):
     # running for this user. The query is one event-table SELECT per
     # agent in the list — bounded by agent count which is small.
     active_run: Optional[ActiveRunInfo] = None
+    # NM messenger sidebar preview — most recent persisted assistant
+    # reply for this agent, truncated server-side to a render-friendly
+    # length. The frontend prefers this over deriving from local session
+    # state so unselected sidebar rows can show "what did this agent
+    # last say" without first loading the conversation. ``None`` means
+    # this agent has never produced a reply (fresh, no completed runs).
+    # The companion ``last_assistant_at`` lets the row sort/anchor by
+    # the same message the preview came from.
+    last_assistant_preview: Optional[str] = None
+    last_assistant_at: Optional[str] = None
 
 
 class AgentListResponse(BaseModel):
@@ -161,6 +171,44 @@ class UpdateTimezoneResponse(BaseModel):
     user_id: Optional[str] = None
     timezone: Optional[str] = None
     error: Optional[str] = None
+
+
+# ===== Onboarding Schemas =====
+
+class OnboardingProgress(BaseModel):
+    """New-user onboarding checklist state, persisted inside users.metadata.
+
+    Flags are write-once-true: a completed step stays completed even if the
+    underlying entity is later removed (user creates their first agent then
+    deletes it — onboarding still counts it done). This keeps the checklist
+    card from oscillating. `dismissed` permanently hides the card.
+
+    `provider_configured` is intentionally NOT stored here — it is derived
+    live from the user's provider count by the frontend, because that step
+    is gated by SetupPage before the checklist card is ever shown.
+    """
+    first_agent_created: bool = False
+    template_applied: bool = False
+    dismissed: bool = False
+
+
+class OnboardingResponse(BaseModel):
+    """Response model for the onboarding GET / POST endpoints."""
+    success: bool
+    progress: Optional[OnboardingProgress] = None
+    error: Optional[str] = None
+
+
+class UpdateOnboardingRequest(BaseModel):
+    """Mark one or more onboarding steps complete.
+
+    Only fields explicitly set to True are applied (write-once-true) — None
+    and False are ignored, so a client can never un-complete a step.
+    """
+    user_id: str
+    first_agent_created: Optional[bool] = None
+    template_applied: Optional[bool] = None
+    dismissed: Optional[bool] = None
 
 
 # ===== Awareness Schemas =====

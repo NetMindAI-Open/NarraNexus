@@ -1,0 +1,47 @@
+name: Semantic PR title
+
+# The PR title becomes the squash commit message. We require it to
+# follow Conventional Commits so the auto-generated changelog stays
+# readable. This action is fast (< 5 seconds) and only blocks on
+# obviously broken titles like "Updated some stuff" or "fix bug".
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Allowed types (Conventional Commits).
+          types: |
+            feat
+            fix
+            docs
+            refactor
+            test
+            perf
+            chore
+            style
+            ci
+            build
+            revert
+          # Scopes are optional; we don't enforce a fixed list because
+          # the codebase has many modules and the list would go stale.
+          requireScope: false
+          # Subject (the part after the colon) must start lowercase and
+          # not end with a period — matches our CONTRIBUTING.md style.
+          subjectPattern: ^(?![A-Z]).+[^.]$
+          subjectPatternError: |
+            The subject "{subject}" doesn't match Conventional Commits style:
+              - lowercase first letter
+              - no period at the end
+            Example: `feat(bundle): add MCP allowlist export`

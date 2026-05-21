@@ -1,0 +1,60 @@
+name: Feature request
+description: Propose a new capability or an improvement to an existing one.
+title: "feat: <short description>"
+labels: [feature, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion!
+        中英文都可以 / English or 中文 — both welcome.
+
+        If your idea is closer to "how do I…" or "should we…", consider
+        starting a [Discussion](https://github.com/protagolabs/NarraNexus/discussions) instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the pain point or limitation, not the solution yet.
+      placeholder: "When I run an agent through Lark, I can't see which channel a message came from in the chat history view."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How you think it should work. Doesn't need to be code-level — a clear description is fine.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Anything else you thought about and why it's not ideal. "I considered X but it doesn't cover Y" is helpful.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Which area does this touch?
+      multiple: true
+      options:
+        - Backend (FastAPI / agent_runtime / services)
+        - Frontend (React / Tauri)
+        - Module system (adding / changing a module)
+        - Narrative / memory system
+        - LLM / provider config
+        - IM channels (Lark / Slack / Telegram)
+        - Bundle export / import
+        - Docs / developer experience
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Mockups, screenshots, related PRs / issues, etc.

@@ -1,0 +1,55 @@
+name: "[Maintainer-only] Good first issue"
+description: Template used by maintainers to surface beginner-friendly tasks. Contributors don't need to use this.
+title: "good first issue: <short description>"
+labels: [good first issue, help wanted]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template is for **maintainers** to seed the
+        [good-first-issue page](https://github.com/protagolabs/NarraNexus/contribute).
+        Contributors picking up an issue do not need this template — just comment "I'd like to work on this".
+
+  - type: textarea
+    id: task
+    attributes:
+      label: What needs doing
+      description: One-paragraph description. Be concrete — file paths, expected behavior, acceptance bar.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why-beginner
+    attributes:
+      label: Why this is a good first issue
+      description: |
+        Bounded scope, no architectural decision required, etc.
+        Especially good first issues:
+          - Add or refresh a Tier-2 mirror md for a specific source file
+          - Add an example to a playbook
+          - Improve an error message
+          - Fix a small lint / type warning
+    validations:
+      required: true
+
+  - type: textarea
+    id: pointers
+    attributes:
+      label: Pointers for the contributor
+      description: |
+        Where to start reading. If the task is "add a mirror md for X",
+        link the source file and the corresponding empty / stub md.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ai-friendly
+    attributes:
+      label: AI-friendly?
+      description: Is this a task an AI assistant can largely complete after reading CLAUDE.md and the relevant mirror md?
+      options:
+        - "Yes — AI can do most of the work after reading CLAUDE.md"
+        - "Partial — AI helps but human judgement needed"
+        - "No — requires hands-on understanding"
+    validations:
+      required: true

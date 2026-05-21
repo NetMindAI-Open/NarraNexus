@@ -1,15 +1,22 @@
 /**
- * Register Page - Cloud mode only, requires invite code
+ * Register Page · NM Design System (M3 Wave 2)
+ * Cloud mode only, requires invite code.
  */
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Loader2, Sparkles, UserPlus, Cloud, ArrowLeft } from 'lucide-react';
-import { Button, Input } from '@/components/ui';
-import { useTheme } from '@/hooks';
+import { UserPlus, Cloud, ArrowLeft } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
+import { useTheme } from '@/hooks';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import {
+  Button,
+  FormField,
+  TextInput,
+  Chip,
+  Divider,
+  PaperCard,
+} from '@/components/nm';
 
 export function RegisterPage() {
   const [userId, setUserId] = useState('');
@@ -19,8 +26,8 @@ export function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [welcomeQuota, setWelcomeQuota] = useState<{
-    input: number
-    output: number
+    input: number;
+    output: number;
   } | null>(null);
 
   const navigate = useNavigate();
@@ -30,7 +37,6 @@ export function RegisterPage() {
   const setMode = useRuntimeStore((s) => s.setMode);
   const setCloudApiUrl = useRuntimeStore((s) => s.setCloudApiUrl);
 
-  // See LoginPage.tsx for rationale on the Change Mode affordance.
   const canChangeMode = mode !== 'cloud-web';
   const handleChangeMode = () => {
     setCloudApiUrl('');
@@ -40,30 +46,13 @@ export function RegisterPage() {
 
   const handleRegister = async () => {
     setError('');
-
-    if (!userId.trim()) {
-      setError('Please enter a username');
-      return;
-    }
-    if (userId.trim().length < 2 || userId.trim().length > 32) {
-      setError('Username must be 2-32 characters');
-      return;
-    }
-    if (!password || password.length < 6) {
-      setError('Password must be at least 6 characters');
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-    if (!inviteCode.trim()) {
-      setError('Please enter the invite code');
-      return;
-    }
+    if (!userId.trim()) { setError('Please enter a username'); return; }
+    if (userId.trim().length < 2 || userId.trim().length > 32) { setError('Username must be 2-32 characters'); return; }
+    if (!password || password.length < 6) { setError('Password must be at least 6 characters'); return; }
+    if (password !== confirmPassword) { setError('Passwords do not match'); return; }
+    if (!inviteCode.trim()) { setError('Please enter the invite code'); return; }
 
     setLoading(true);
-
     try {
       const res = await api.register(userId.trim(), password, inviteCode.trim());
       if (!res.success) {
@@ -71,23 +60,18 @@ export function RegisterPage() {
         setLoading(false);
         return;
       }
-
-      // Auto-login after registration
       login(userId.trim(), res.token || undefined, 'user');
 
-      // Fetch agents (will be empty for new user)
       try {
-        const agentsRes = await api.getAgents(userId.trim());
+        const agentsRes = await api.getAgents();
         if (agentsRes.success && agentsRes.agents.length > 0) {
           setAgents(agentsRes.agents);
           setAgentId(agentsRes.agents[0].agent_id);
         }
-      } catch {}
+      } catch {
+        // empty agents is fine for new account
+      }
 
-      // If the backend seeded a free-tier quota for this user, show a
-      // brief inline welcome banner before navigating so the user knows
-      // they have starter credits. cloud-app / cloud-web modes only;
-      // local never seeds so the flag is always false there.
       const isCloud = mode === 'cloud-app' || mode === 'cloud-web';
       if (isCloud && res.has_system_quota) {
         setWelcomeQuota({
@@ -111,161 +95,176 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card animate-scale-in">
-        {/* Change Mode — lets the user back out of an accidental pick */}
+    <div
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{ background: 'var(--nm-paper)' }}
+    >
+      <div
+        className="w-full max-w-md p-10 animate-scale-in"
+        style={{
+          background: 'var(--nm-card)',
+          border: '1px solid var(--nm-hairline)',
+          borderRadius: 'var(--radius-md)',
+        }}
+      >
         {canChangeMode && (
           <button
             type="button"
             onClick={handleChangeMode}
-            className="flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--accent-primary)] transition-colors mb-4 -mt-2"
+            className="flex items-center gap-1.5 text-[11px] mb-6 -mt-2 opacity-60 hover:opacity-100 transition-opacity"
+            style={{
+              color: 'var(--nm-ink50)',
+              fontFamily: 'var(--font-mono)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.10em',
+            }}
           >
             <ArrowLeft className="w-3 h-3" />
             <span>Change mode</span>
           </button>
         )}
 
-        {/* Header */}
-        <div className="text-center mb-10">
-          <div className="relative inline-block mb-5">
-            <div className="relative w-20 h-20 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center overflow-hidden shadow-[var(--shadow-glow)]">
-              <img
-                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
-                alt="NarraNexus"
-                className="w-14 h-14 object-contain"
-              />
-              <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-[var(--bg-primary)] border-2 border-[var(--accent-primary)] flex items-center justify-center">
-                <Cloud className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-              </div>
-            </div>
+        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <img
+            src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+            alt="NarraNexus"
+            className="h-16 w-auto object-contain"
+          />
+          <div
+            className="text-[10px] uppercase tracking-[0.22em]"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
+          >
+            Create account · Invite required
           </div>
-
-          <h1 className="text-3xl font-bold font-[family-name:var(--font-display)] text-[var(--text-primary)] mb-2 tracking-tight">
-            Narra<span className="text-[var(--accent-primary)]">Nexus</span>
-          </h1>
-          <p className="text-[var(--text-secondary)] text-sm">Create your account</p>
-          <p className="text-[10px] text-[var(--text-tertiary)] font-mono tracking-[0.2em] uppercase mt-1">
-            Invite code required
-          </p>
+          <Chip species="silicon" leading={<Cloud className="w-3 h-3" />}>
+            Cloud mode
+          </Chip>
         </div>
 
-        {/* Register Form */}
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Username
-            </label>
-            <Input
+        <Divider />
+
+        <div className="space-y-4 mt-6">
+          <FormField label="Username">
+            <TextInput
               type="text"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="choose_a_username"
               disabled={loading}
-              className={cn('h-12 text-base font-mono', 'bg-[var(--bg-sunken)]')}
               autoFocus
+              className="h-12"
             />
-          </div>
+          </FormField>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Password
-            </label>
-            <Input
+          <FormField label="Password" hint="At least 6 characters.">
+            <TextInput
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="at least 6 characters"
+              placeholder="••••••••"
               disabled={loading}
-              className={cn('h-12 text-base', 'bg-[var(--bg-sunken)]')}
+              className="h-12"
             />
-          </div>
+          </FormField>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Confirm Password
-            </label>
-            <Input
+          <FormField label="Confirm Password">
+            <TextInput
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="re-enter password"
+              placeholder="••••••••"
               disabled={loading}
-              className={cn('h-12 text-base', 'bg-[var(--bg-sunken)]')}
+              className="h-12"
             />
-          </div>
+          </FormField>
 
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-              Invite Code
-            </label>
-            <Input
+          <FormField label="Invite Code">
+            <TextInput
               type="text"
               value={inviteCode}
               onChange={(e) => setInviteCode(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="enter your invite code"
               disabled={loading}
-              className={cn('h-12 text-base font-mono', 'bg-[var(--bg-sunken)]')}
+              className="h-12"
             />
-          </div>
+          </FormField>
+
+          <p className="text-xs -mt-1" style={{ color: 'var(--nm-ink50)' }}>
+            No invite code?{' '}
+            <a
+              href="https://website.narra.nexus/invite"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+              style={{ color: 'var(--nm-ink70)' }}
+            >
+              Request one here
+            </a>{' '}
+            &mdash; we&rsquo;ll email you a code. (Check your spam folder if it
+            doesn&rsquo;t arrive.)
+          </p>
 
           {error && (
-            <p className="text-xs text-[var(--color-error)] animate-slide-up flex items-center gap-1.5">
-              <span className="w-1 h-1 rounded-full bg-[var(--color-error)]" />
+            <p
+              className="text-xs animate-slide-up flex items-center gap-1.5"
+              role="alert"
+              style={{ color: 'var(--color-error)' }}
+            >
+              <span
+                className="w-1 h-1 rounded-full inline-block"
+                style={{ background: 'var(--color-error)' }}
+              />
               {error}
             </p>
           )}
 
           {welcomeQuota && (
-            <div className="rounded-md border border-[var(--accent-primary)] bg-[var(--bg-primary)] p-3 animate-slide-up">
-              <div className="text-sm font-medium text-[var(--text-primary)] mb-1">
+            <PaperCard padding="md" className="animate-slide-up" style={{ borderColor: 'var(--color-carbon)' }}>
+              <div className="text-sm font-medium mb-1" style={{ color: 'var(--nm-ink)' }}>
                 Welcome! You've got starter credits.
               </div>
-              <div className="text-xs text-[var(--text-secondary)]">
-                {welcomeQuota.input.toLocaleString()} input tokens ·{' '}
-                {welcomeQuota.output.toLocaleString()} output tokens on
-                the system provider. Taking you to the dashboard…
+              <div className="text-xs" style={{ color: 'var(--nm-ink70)' }}>
+                {welcomeQuota.input.toLocaleString()} input tokens · {welcomeQuota.output.toLocaleString()} output tokens on the system provider. Taking you to the dashboard…
               </div>
-            </div>
+            </PaperCard>
           )}
 
           <Button
-            variant="accent"
+            variant="primary"
+            size="lg"
             onClick={handleRegister}
             disabled={loading || !userId.trim() || !password || !confirmPassword || !inviteCode.trim()}
-            className="w-full h-12 text-base font-semibold group mt-2"
+            loading={loading}
+            className="w-full mt-2"
+            leading={!loading ? <UserPlus className="w-4 h-4" /> : undefined}
           >
-            {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Creating account...</span>
-              </>
-            ) : (
-              <>
-                <UserPlus className="w-5 h-5" />
-                <span>Create Account</span>
-              </>
-            )}
+            {loading ? 'Creating account…' : 'Create Account'}
           </Button>
 
-          {/* Back to login */}
           <Button
             variant="ghost"
             onClick={() => navigate('/login')}
-            className="w-full h-11 text-sm"
+            className="w-full"
+            leading={<ArrowLeft className="w-4 h-4" />}
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back to Sign In</span>
+            Back to Sign In
           </Button>
         </div>
 
-        {/* Footer */}
-        <div className="mt-8 pt-6 border-t border-[var(--border-subtle)]">
-          <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-tertiary)]">
-            <Sparkles className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+        <div className="mt-8 pt-6 border-t" style={{ borderColor: 'var(--nm-hairline)' }}>
+          <div
+            className="flex items-center justify-center gap-2 text-xs"
+            style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full inline-block"
+              style={{ background: 'var(--color-silicon)' }}
+              aria-hidden
+            />
             <span>Powered by NetMind.AI</span>
           </div>
         </div>

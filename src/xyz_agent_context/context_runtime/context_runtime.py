@@ -31,7 +31,8 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
 from xyz_agent_context.context_runtime.prompts import (
     AUXILIARY_NARRATIVES_HEADER,
     MODULE_INSTRUCTIONS_HEADER,
-    SHORT_TERM_MEMORY_HEADER,
+    CHAT_HISTORY_TIMELINE_PREAMBLE,
+    RECENT_ACTIONS_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
 )
@@ -578,62 +579,57 @@ class ContextRuntime:
         chat_history = ctx_data.chat_history if ctx_data.chat_history else messages
         history_source = "ChatModule Memory" if ctx_data.chat_history else "Event System (fallback)"
 
-        # ========== Separate long-term memory and short-term memory ==========
-        long_term_messages = []
-        short_term_messages = []
+        # 2026-05-20 (Fix #2): chat_history is ONE unified, time-sorted timeline
+        # (current narrative + cross-narrative), each msg tagged with
+        # narrative_id/alias by ChatModule.hook_data_gathering. Render every line
+        # as a role message prefixed `[time · topic · nar_id]` + the channel
+        # source prefix, and teach the agent how to read it via the preamble.
+        # No more long/short split; no cross-narrative-into-system-prompt section.
+        timeline = self._truncate_long_term_messages(chat_history)
 
-        for msg in chat_history:
-            meta = msg.get("meta_data", {})
-            memory_type = meta.get("memory_type", "long_term")
+        enhanced_system_prompt = system_prompt + "\n\n" + CHAT_HISTORY_TIMELINE_PREAMBLE
 
-            if memory_type == "short_term":
-                short_term_messages.append(msg)
-            else:
-                long_term_messages.append(msg)
+        # P2: append the recent background-activity section (centered small-text
+        # in the UI) — a compact list with event_ids, separate from the timeline.
+        recent_actions = (getattr(ctx_data, "extra_data", None) or {}).get("recent_actions") or []
+        if recent_actions:
+            enhanced_system_prompt += "\n\n" + self._build_recent_actions_section(recent_actions)
+            logger.info(f"[RecentActions] rendered {len(recent_actions)} actions into system prompt")
 
-        logger.debug(
-            f"        Dual-track memory: long-term {len(long_term_messages)} messages, short-term {len(short_term_messages)} messages"
-        )
-
-        # ========== Single message truncation (prevent overly long content) ==========
-        long_term_messages = self._truncate_long_term_messages(long_term_messages)
-
-        # ========== Build enhanced system prompt (including short-term memory) ==========
-        enhanced_system_prompt = system_prompt
-
-        if short_term_messages:
-            short_term_section = self._build_short_term_memory_prompt(short_term_messages)
-            enhanced_system_prompt = system_prompt + "\n\n" + short_term_section
-            logger.debug(f"        Added short-term memory to system prompt: {len(short_term_section)} chars")
-
-        # Step 1: Build messages list
-        logger.debug("        Step 1: Building messages list")
         final_messages = [
             {"role": "system", "content": enhanced_system_prompt}
         ]
-        logger.debug(f"        Added system prompt: {len(enhanced_system_prompt)} chars")
+        logger.debug(f"        Added system prompt + timeline preamble: {len(enhanced_system_prompt)} chars")
 
-        # Add long-term memory historical messages with a per-source
-        # prefix so the LLM can tell whether each row was a direct UI
-        # conversation, a Lark exchange, an inter-agent bus message, etc.
-        # See MessageSourceHandler / Registry — each WorkingSource
-        # supplies its own prefix template (default for unregistered
-        # sources falls back to `[NarraNexus UI · user=...]`).
+        # Each line: [time · topic · nar_id] + channel source prefix + content.
+        # The narrative tag lets the agent tell threads apart / re-route; the
+        # source prefix (MessageSourceRegistry) marks UI vs Lark vs bus, etc.
         from xyz_agent_context.channel.message_source_handler import (
             MessageSourceRegistry,
         )
-        for msg in long_term_messages:
-            ws = (msg.get("meta_data") or {}).get("working_source", "chat")
+        cross_count = 0
+        for msg in timeline:
+            meta = msg.get("meta_data") or {}
+            ws = meta.get("working_source", "chat")
             handler = MessageSourceRegistry.get(ws)
-            prefix = handler.format_row_prefix(msg)
+            src_prefix = handler.format_row_prefix(msg)
+            tag = self._format_timeline_tag(meta)
+            if meta.get("memory_type") == "short_term":
+                cross_count += 1
             raw_content = msg.get("content", "") or ""
+            prefix = f"{tag} {src_prefix}".strip()
             final_messages.append({
                 "role": msg.get("role", "user"),
+                # `_source` (internal) drives source-aware truncation in the LLM
+                # adapter when system_prompt + history exceeds the SDK ceiling —
+                # background rows drop first, then oldest chat. SDKs ignore it.
                 "content": f"{prefix} {raw_content}" if prefix else raw_content,
+                "_source": ws,
             })
         logger.info(
-            f"[CHAT-CTX] build_input_for_framework: long_term={len(long_term_messages)} "
-            f"short_term={len(short_term_messages)} source={history_source}"
+            f"[CHAT-CTX] unified timeline rendered: {len(timeline)} msgs "
+            f"({cross_count} cross-narrative, {len(timeline) - cross_count} current) "
+            f"source={history_source}"
         )
 
         # Add current user input
@@ -666,6 +662,39 @@ class ContextRuntime:
         logger.debug(f"      build_input_for_framework() completed: {len(final_messages)} messages, {len(mcp_urls)} MCP URLs")
         return final_messages, mcp_urls
 
+    @staticmethod
+    def _format_timeline_tag(meta: Dict[str, Any]) -> str:
+        """Render the per-message timeline tag
+        `[<time> · <topic> · nar=<narrative_id> · evt=<event_id>]`.
+
+        - time: the message's stored timestamp (compact YYYY-MM-DD HH:MM).
+        - topic: the resolved narrative alias (name); falls back to the id.
+        - nar=<narrative_id>: full id — the agent needs it for switch/view tools.
+        - evt=<event_id>: the event that produced this message — the agent can
+          pass it to view_event() to fetch that turn's full agent-loop +
+          reasoning detail (only the sent message is in the timeline).
+        """
+        meta = meta or {}
+        ts = (meta.get("timestamp") or "")
+        t = ts[:16].replace("T", " ") if ts else "??"
+        nid = meta.get("narrative_id") or "unknown"
+        topic = meta.get("narrative_alias") or nid
+        eid = meta.get("event_id") or "?"
+        return f"[{t} · {topic} · nar={nid} · evt={eid}]"
+
+    @staticmethod
+    def _build_recent_actions_section(actions: List[Dict[str, Any]]) -> str:
+        """Render the recent-background-activity list (Fix #2 P2): one compact
+        line per action `- [time] <source>: <job title / summary>  (evt=<id>)`."""
+        lines = [RECENT_ACTIONS_HEADER]
+        for a in actions:
+            t = (a.get("timestamp") or "")[:16].replace("T", " ")
+            src = a.get("working_source") or "?"
+            title = a.get("title") or a.get("summary") or f"({src} activity)"
+            eid = a.get("event_id") or "?"
+            lines.append(f"- [{t}] {src}: {title}  (evt={eid})")
+        return "\n".join(lines)
+
     # Token budget for the short-term memory section.
     # ~4 chars per token is a rough estimate; keeps the section under ~10k tokens.
     SHORT_TERM_TOKEN_LIMIT = 40000  # characters (≈ 10000 tokens)
@@ -675,11 +704,13 @@ class ContextRuntime:
         short_term_messages: List[Dict[str, Any]]
     ) -> str:
         """
-        Build the short-term memory Prompt section.
+        DEPRECATED (2026-05-20, Fix #2) — no longer called.
 
-        Loads recent messages at full length (up to per-message limit) and stops
-        when the total token budget is reached. Most recent messages are
-        prioritised — groups are processed in reverse chronological order.
+        Cross-narrative short-term memory used to be rendered as a separate
+        system-prompt section via this method + SHORT_TERM_MEMORY_HEADER. It now
+        flows through the SINGLE unified timeline (see build_input_for_framework
+        + _format_timeline_tag + CHAT_HISTORY_TIMELINE_PREAMBLE). Kept only so any
+        stray caller doesn't crash; safe to delete once nothing references it.
 
         Args:
             short_term_messages: List of short-term memory messages
@@ -688,6 +719,7 @@ class ContextRuntime:
             Formatted short-term memory Prompt
         """
         from datetime import datetime
+        from xyz_agent_context.context_runtime.prompts import SHORT_TERM_MEMORY_HEADER
 
         prompt = SHORT_TERM_MEMORY_HEADER
 

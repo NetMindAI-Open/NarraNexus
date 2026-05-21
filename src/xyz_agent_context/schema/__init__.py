@@ -132,6 +132,10 @@ from .api_schema import (
     CreateUserResponse,
     UpdateTimezoneRequest,
     UpdateTimezoneResponse,
+    # Onboarding
+    OnboardingProgress,
+    OnboardingResponse,
+    UpdateOnboardingRequest,
     # Awareness
     AwarenessResponse,
     AwarenessUpdateRequest,
@@ -225,6 +229,9 @@ from .a2a_schema import (
     # Error Codes
     A2AErrorCodes,
 )
+
+# ===== Invite Code Schema =====
+from .invite_code_schema import InviteCode
 
 # ===== Artifact Schema (agent-emitted artifacts: charts, reports, html apps, csv, images, pdf) =====
 from .artifact_schema import (
@@ -349,6 +356,9 @@ __all__ = [
     "CreateUserResponse",
     "UpdateTimezoneRequest",
     "UpdateTimezoneResponse",
+    "OnboardingProgress",
+    "OnboardingResponse",
+    "UpdateOnboardingRequest",
     # Awareness
     "AwarenessResponse",
     "AwarenessUpdateRequest",
@@ -396,6 +406,9 @@ __all__ = [
     "SkillListResponse",
     "SkillOperationResponse",
     "SkillStudyResponse",
+
+    # Invite Code Schema
+    "InviteCode",
 
     # Artifact Schema
     "Artifact",

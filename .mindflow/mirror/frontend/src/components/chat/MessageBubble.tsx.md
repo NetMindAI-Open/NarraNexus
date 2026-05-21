@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-05-06
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — assistant avatar label uses agent name (was hardcoded 'A')
+
+The assistant `RingAvatar` label was a literal `'A'` regardless of which agent
+was replying, so every chat looked identical and didn't match the sidebar
+`[[AgentList]]` (which derives its label from the first 2 chars of the agent
+name). Added an `agentName?: string` prop; `avatarLabel` for assistant messages
+is now `agentName?.slice(0, 2) || 'AI'`. `ChatPanel` passes
+`agentName={currentAgent?.name || agentId}`. Note: `AgentInfo` carries no avatar
+*image* field — initials are the canonical avatar everywhere, so this just
+brings the bubble in line with the list.
+
+## 2026-05-19 — NM canonical FinBubble styling
+
+Bubble surfaces rewritten to match the NM design's `FinBubble` (light-blue silicon fill + 3px LEFT species edge for AI, neutral `--nm-own-bubble` gray fill + 3px RIGHT `--nm-own-edge` for own). The species (carbon/silicon) tokens are now reserved for the *other* party — multi-user fan-out semantics: in a future shared room the *receiver* will see the *sender* in a species color, but your own outgoing messages stay gray because you don't need a species cue to identify yourself.
+
+Footer (time + copy/download) moved INSIDE the bubble, bottom-right, mono 9.5px in `--nm-subtle`. All `<BracketEdge>` corner marks removed — the radius + 3px edge stripe carry the species/own signal alone, no top-left rectangle.
 
 # MessageBubble.tsx — Single message row with lazy-loaded thinking/tool-call details
 

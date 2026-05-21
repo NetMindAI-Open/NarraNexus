@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { setTrayBadge, listenTauri } from '@/lib/tauri';
 import { AgentCard } from '@/components/dashboard/AgentCard';
 import { DashboardSummary } from '@/components/dashboard/DashboardSummary';
+import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 
 export function DashboardPage() {
   const agents = useDashboardStore((s) => s.agents);
@@ -87,19 +88,39 @@ export function DashboardPage() {
   }, [onFetchSuccess, onFetchError, onRateLimited]);
 
   return (
-    <div className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">Agent Dashboard</h1>
+    <div className="p-6 space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <h1
+          className="text-2xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          Agent Dashboard
+        </h1>
+        <BracketSectionLabel>{agents.length} agents</BracketSectionLabel>
+      </div>
+
       {error && (
-        <div className="p-3 border border-[var(--color-red-500)] text-sm">
+        <div
+          className="p-3 text-sm rounded-[var(--radius-sm)]"
+          style={{
+            background: 'var(--color-error)',
+            color: 'white',
+            border: '1px solid var(--color-error)',
+          }}
+        >
           {error}
         </div>
       )}
+
       {agents.length === 0 && !error && (
-        <div className="p-8 text-center text-[var(--text-secondary)] text-sm">
-          No agents yet.
-        </div>
+        <BracketEmptyState
+          label="No agents yet"
+          hint="Create an agent from the sidebar to populate this dashboard."
+        />
       )}
+
       {agents.length > 0 && <DashboardSummary agents={agents} />}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {agents.map((a) => (
           <div key={a.agent_id}>

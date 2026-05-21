@@ -237,8 +237,12 @@ def _load_from_settings() -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
         api_key=settings.openai_api_key,
     )
 
+    # Embedding deliberately carries NO api_key from .env. Embedding
+    # credentials must come from the user's configured provider (resolver in
+    # cloud, user_providers in local) via the request/agent-turn ContextVar —
+    # never scavenged from the environment. We keep only the model name as a
+    # display/default. See get_current_embedding_config() + EmbeddingClient.
     embedding = EmbeddingConfig(
-        api_key=settings.openai_api_key,
         model=settings.openai_embedding_model,
     )
 
@@ -382,6 +386,19 @@ claude_config: ClaudeConfig = _ConfigProxy("claude", _claude_ctx)  # type: ignor
 openai_config: OpenAIConfig = _ConfigProxy("openai", _openai_ctx)  # type: ignore
 embedding_config: EmbeddingConfig = _ConfigProxy("embedding", _embedding_ctx)  # type: ignore
 gemini_config: GeminiConfig = _ConfigProxy("gemini")  # type: ignore
+
+
+def get_current_embedding_config() -> Optional[EmbeddingConfig]:
+    """Embedding config set on the CURRENT task's ContextVar, or None.
+
+    Unlike the ``embedding_config`` proxy, this NEVER falls back to the global
+    holder (.env / llm_config.json). Embedding credentials must come from what
+    the user configured (resolver in cloud, user_providers in local), set per
+    agent turn (AgentRuntime) or per MCP tool call (setup_mcp_llm_context).
+    EmbeddingClient uses this so a missing config fails fast instead of
+    silently embedding against an environment key.
+    """
+    return _embedding_ctx.get()
 
 
 def reload_llm_config() -> None:

@@ -117,7 +117,7 @@ export function RAGUpload() {
           continue;
         }
 
-        const res = await api.uploadRAGFile(agentId, userId, file);
+        const res = await api.uploadRAGFile(agentId, file);
         if (!res.success) {
           setError(res.error || `Failed to upload ${file.name}`);
         }
@@ -149,7 +149,7 @@ export function RAGUpload() {
       const blob = new Blob([textContent], { type: 'text/plain' });
       const file = new File([blob], filename, { type: 'text/plain' });
 
-      const res = await api.uploadRAGFile(agentId, userId, file);
+      const res = await api.uploadRAGFile(agentId, file);
       if (res.success) {
         setShowTextModal(false);
         setTextContent('');
@@ -178,7 +178,7 @@ export function RAGUpload() {
     if (!ok) return;
 
     try {
-      const res = await api.deleteRAGFile(agentId, userId, filename);
+      const res = await api.deleteRAGFile(agentId, filename);
       if (res.success) {
         await fetchFiles();
       } else {

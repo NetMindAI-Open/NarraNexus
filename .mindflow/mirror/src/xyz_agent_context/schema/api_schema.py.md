@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-05-14
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — Onboarding schemas
+
+Added `OnboardingProgress` / `OnboardingResponse` / `UpdateOnboardingRequest`
+for the new-user onboarding checklist (see `backend/routes/auth.py.md`).
+`OnboardingProgress` carries three write-once-true flags
+(`first_agent_created`, `template_applied`, `dismissed`); it is stored
+inside `users.metadata`, not as its own table. Also re-exported from
+`schema/__init__.py` (both the import block and `__all__`).
+
+## 2026-05-19 — AgentInfo gains last_assistant_preview / last_assistant_at
+
+Two optional string fields added to `AgentInfo` so the frontend NM messenger sidebar can render "what did this agent last say" on rows the user hasn't opened in the current session — without first fetching that agent's chat history. The values are derived server-side in `routes/auth.py::get_agents` (one window-function SELECT over `events.final_output`) and are `None` for agents with no completed reply yet.
+
+## 2026-05-15 — invite request DTOs removed
+
+The short-lived `InviteRequestRequest` / `InviteRequestResponse` (added
+2026-05-14 for the public `POST /api/invite/request` endpoint) are deleted.
+After the architecture pivot — the public invite-request surface moved
+to `narranexus-website` and NarraNexus exposes only the server-to-server
+`POST /api/invite/internal/issue` — those DTOs no longer have a caller.
+The new internal endpoint uses inline Pydantic models defined in
+`backend/routes/invite.py` (private, single-caller).
 
 ## 2026-05-14 — FileInfo becomes a recursive tree node
 

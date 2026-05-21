@@ -132,7 +132,7 @@ async def test_chat_trigger_send_message_recognised_as_reply(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -169,7 +169,7 @@ async def test_lark_trigger_lark_cli_send_recognised_as_reply(chat_module):
         },
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -205,7 +205,7 @@ async def test_lark_trigger_non_send_lark_cli_does_not_count_as_reply(chat_modul
         agent_loop_response=[list_call],
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -231,7 +231,7 @@ async def test_message_bus_trigger_send_message_recognised(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -253,7 +253,7 @@ async def test_message_bus_trigger_no_reply_writes_activity(chat_module):
         agent_loop_response=[],
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -278,7 +278,7 @@ async def test_job_trigger_send_message_recognised(chat_module):
         agent_loop_response=[reply],
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_disp_instance"
@@ -297,13 +297,13 @@ async def test_filtered_activity_row_invisible_to_long_term(chat_module):
     """End-to-end: write one chat row + one activity row, then load.
     long_term must drop the activity row."""
     # First turn: real chat reply.
-    await chat_module.hook_after_event_execution(_hook_params(
+    await chat_module.hook_persist_turn(_hook_params(
         working_source=WorkingSource.CHAT,
         agent_loop_response=[_progress_send_message("real chat")],
         input_content="user msg 1",
     ))
     # Second turn: lark trigger, no reply → activity row.
-    await chat_module.hook_after_event_execution(_hook_params(
+    await chat_module.hook_persist_turn(_hook_params(
         working_source=WorkingSource.LARK,
         agent_loop_response=[],  # no reply tool
         input_content="lark trigger payload",

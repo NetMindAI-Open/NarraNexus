@@ -40,7 +40,7 @@ pkill -f "message_bus_trigger" 2>/dev/null || true
 pkill -f "run_lark_trigger" 2>/dev/null || true
 pkill -f "run_slack_trigger" 2>/dev/null || true
 pkill -f "run_telegram_trigger" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -187,12 +187,12 @@ while true; do
       pkill -f "run_slack_trigger" 2>/dev/null || true
       pkill -f "run_telegram_trigger" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7830 7831 7832; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"

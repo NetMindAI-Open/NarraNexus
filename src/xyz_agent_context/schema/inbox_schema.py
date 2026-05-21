@@ -47,6 +47,7 @@ class InboxMessageType(str, Enum):
     SYSTEM_NOTICE = "system"       # System notification (reserved)
     AGENT_MESSAGE = "agent"        # Agent proactive message (reserved)
     CHANNEL_MESSAGE = "channel_message"  # IM channel message (Lark, Slack, etc.)
+    MESSAGE_BUS = "message_bus"    # Agent reply on a MessageBus channel
 
 
 # =============================================================================

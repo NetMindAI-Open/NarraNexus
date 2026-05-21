@@ -14,6 +14,7 @@ import {
   PhoneCall,
   GraduationCap,
   FlaskConical,
+  Grid3x3,
 } from 'lucide-react';
 
 const ICON_MAP: Record<
@@ -28,6 +29,7 @@ const ICON_MAP: Record<
   CALLBACK:    { Icon: PhoneCall,      label: 'Callback',     cls: 'text-rose-500' },
   SKILL_STUDY: { Icon: GraduationCap,  label: 'Skill',        cls: 'text-[var(--color-blue-500)]' },
   LARK:        { Icon: FlaskConical,   label: 'Lark',         cls: 'text-fuchsia-500' },
+  MATRIX:      { Icon: Grid3x3,        label: 'Matrix',       cls: 'text-[var(--color-info)]' },
 };
 
 export function StatusBadge({ kind }: { kind: AgentKind }) {

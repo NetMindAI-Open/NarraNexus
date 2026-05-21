@@ -53,7 +53,14 @@ class WebSocketManager {
     // Local mode: ws://localhost:8000/ws/...  Cloud mode: ws://<cloud-host>/ws/...
     // Both derive from the same base URL as REST API calls, so if the
     // mode switches between turns the next connection picks up the new host.
-    const wsUrl = `${getWsBaseUrl()}/ws/agent/run`;
+    //
+    // Identity anchor: in local mode the backend now requires
+    // ``?x_user_id=<id>`` on the URL and rejects the connection if the
+    // payload ``user_id`` doesn't match. Browsers can't set custom WS
+    // headers, so the URL query string is the only place a server-side
+    // identity anchor can live. Cloud mode ignores this — it uses the
+    // JWT inside the first payload.
+    const wsUrl = `${getWsBaseUrl()}/ws/agent/run?x_user_id=${encodeURIComponent(userId)}`;
     const ws = new WebSocket(wsUrl);
 
     const entry: ConnectionEntry = { ws, completed: false };
@@ -170,7 +177,9 @@ class WebSocketManager {
       return;
     }
 
-    const wsUrl = `${getWsBaseUrl()}/ws/agent/run`;
+    // Same identity anchor as run() — backend cross-checks payload.user_id
+    // against ?x_user_id= in local mode.
+    const wsUrl = `${getWsBaseUrl()}/ws/agent/run?x_user_id=${encodeURIComponent(userId)}`;
     const ws = new WebSocket(wsUrl);
 
     const entry: ConnectionEntry = { ws, completed: false };

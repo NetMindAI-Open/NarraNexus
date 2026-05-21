@@ -38,7 +38,7 @@ export function useAttachmentBlobUrl(
     let createdUrl: string | null = null;
 
     api
-      .fetchAttachmentBlob(agentId, userId, fileId)
+      .fetchAttachmentBlob(agentId, fileId)
       .then((blob) => {
         if (cancelled) return;
         createdUrl = URL.createObjectURL(blob);

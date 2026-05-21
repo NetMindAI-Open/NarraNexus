@@ -11,12 +11,30 @@ Endpoints:
 
 from __future__ import annotations
 
-from typing import Optional
+from datetime import datetime
+from typing import Any, Optional
 
 from fastapi import APIRouter, Query
 from loguru import logger
 
 router = APIRouter()
+
+
+def _to_iso(value: Any) -> str:
+    """Normalise timestamps (datetime / str / None) to an ISO 8601 string.
+
+    aiomysql returns DATETIME(6) columns as `datetime.datetime` while the
+    SQLite backend returns them as strings, and the default cursor
+    fallback in this module is the literal ``"1970-01-01"``. Comparing
+    these mixed types raises `TypeError`. Normalising to ISO 8601
+    strings (which sort lexicographically in time order) gives us one
+    comparable type across all backends and code paths.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
 
 
 async def _get_db():
@@ -69,9 +87,12 @@ async def get_agent_inbox(
             return {"success": True, "rooms": [], "total_unread": 0}
 
         channel_ids = [r["channel_id"] for r in member_rows]
-        # Build cursor map: channel_id -> last_processed_at
+        # Build cursor map: channel_id -> last_processed_at (normalised
+        # to ISO string — see `_to_iso` for why).
         cursor_map = {
-            r["channel_id"]: r.get("last_processed_at") or r.get("last_read_at") or "1970-01-01"
+            r["channel_id"]: _to_iso(
+                r.get("last_processed_at") or r.get("last_read_at") or "1970-01-01"
+            )
             for r in member_rows
         }
 
@@ -124,7 +145,7 @@ async def get_agent_inbox(
             unread = sum(
                 1 for m in msg_rows
                 if m.get("from_agent") != agent_id
-                and (m.get("created_at", "") > cursor)
+                and (_to_iso(m.get("created_at")) > cursor)
             )
             total_unread += unread
 
@@ -133,12 +154,12 @@ async def get_agent_inbox(
                 if is_read:
                     msg_rows = [
                         m for m in msg_rows
-                        if m.get("created_at", "") <= cursor or m.get("from_agent") == agent_id
+                        if _to_iso(m.get("created_at")) <= cursor or m.get("from_agent") == agent_id
                     ]
                 else:
                     msg_rows = [
                         m for m in msg_rows
-                        if m.get("from_agent") != agent_id and m.get("created_at", "") > cursor
+                        if m.get("from_agent") != agent_id and _to_iso(m.get("created_at")) > cursor
                     ]
 
             # Build members list for this channel
@@ -155,7 +176,7 @@ async def get_agent_inbox(
             messages = []
             for m in msg_rows:
                 sender = m.get("from_agent", "")
-                msg_time = m.get("created_at", "")
+                msg_time = _to_iso(m.get("created_at"))
                 is_msg_read = (
                     sender == agent_id
                     or msg_time <= cursor
@@ -169,7 +190,7 @@ async def get_agent_inbox(
                     "created_at": msg_time,
                 })
 
-            latest_at = msg_rows[-1].get("created_at") if msg_rows else None
+            latest_at = _to_iso(msg_rows[-1].get("created_at")) if msg_rows else None
 
             rooms.append({
                 "room_id": cid,

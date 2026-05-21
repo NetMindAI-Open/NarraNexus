@@ -1,11 +1,11 @@
 /**
  * @file_name: SettingsPage.tsx
- * @author: NexusAgent
- * @date: 2026-04-02
- * @description: Settings page — reuses existing ProviderSettings + adds mode switching
+ * @description: Settings page — NM section labels + display-font title.
  *
- * Uses the existing ProviderSettings component (which calls /api/providers)
- * for LLM configuration, and adds a mode switch section for local/cloud toggle.
+ * Reuses existing ProviderSettings, EmbeddingStatus, ArtifactsSection and
+ * adds bundle export/import + batch agent manager links. Each section is
+ * headed with a BracketSectionLabel so the page reads as a stack of
+ * NM-bracketed regions instead of plain `<h2>` headings.
  */
 
 import { useNavigate } from 'react-router-dom';
@@ -14,76 +14,85 @@ import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { ScrollArea, Button } from '@/components/ui';
+import { BracketSectionLabel } from '@/components/nm';
+
+function SectionHeader({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <div className="space-y-2 mb-3">
+      <BracketSectionLabel>{label}</BracketSectionLabel>
+      {hint && (
+        <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+          {hint}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const navigate = useNavigate();
   return (
     <ScrollArea className="h-full" viewportClassName="p-6">
-      <div className="space-y-6">
-      {/* LLM Provider Configuration — uses existing component that calls /api/providers */}
-      <section>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
-          LLM Providers
-        </h2>
-        <ProviderSettings />
-      </section>
+      <div className="max-w-4xl mx-auto space-y-8">
+        <header>
+          <h1
+            className="text-3xl font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            Settings
+          </h1>
+          <div className="mt-2">
+            <BracketSectionLabel>
+              Providers · Embedding · Bundle · Artifacts · Agents
+            </BracketSectionLabel>
+          </div>
+        </header>
 
-      {/* Embedding Status */}
-      <section>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
-          Embedding Index
-        </h2>
-        <EmbeddingStatus />
-      </section>
+        <section>
+          <SectionHeader label="LLM Providers" />
+          <ProviderSettings />
+        </section>
 
-      {/* Bundle Export / Import — Subproject 2 */}
-      <section>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
-          Bundle (export / import agents)
-        </h2>
-        <p className="text-sm text-[var(--text-secondary)] mb-3">
-          Package your agents (and optionally a team) into a portable .nxbundle file
-          to share with someone else, or import a .nxbundle file shared with you.
-        </p>
-        <div className="flex gap-3">
-          <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
-            <Package className="w-4 h-4" />
-            Export bundle…
+        <section>
+          <SectionHeader label="Embedding Index" />
+          <EmbeddingStatus />
+        </section>
+
+        <section>
+          <SectionHeader
+            label="Bundle · Export / Import"
+            hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
+          />
+          <div className="flex gap-3">
+            <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
+              <Package className="w-4 h-4" />
+              Export bundle…
+            </Button>
+            <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
+              <Upload className="w-4 h-4" />
+              Import bundle…
+            </Button>
+          </div>
+        </section>
+
+        <section>
+          <SectionHeader
+            label="Artifacts"
+            hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
+          />
+          <ArtifactsSection />
+        </section>
+
+        <section>
+          <SectionHeader
+            label="Manage agents · batch"
+            hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
+          />
+          <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
+            <Users className="w-4 h-4" />
+            Open batch manager…
           </Button>
-          <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
-            <Upload className="w-4 h-4" />
-            Import bundle…
-          </Button>
-        </div>
-      </section>
-
-      {/* Artifact management — Phase 1 of agent-artifact-tabs */}
-      <section>
-        <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-          Artifacts
-        </h2>
-        <p className="text-sm text-[var(--text-secondary)] mb-3">
-          Manage every chart, report, and file your agents have produced for you.
-          Bulk-select to free up your quota when an agent reports it has hit the limit.
-        </p>
-        <ArtifactsSection />
-      </section>
-
-      {/* Batch agent management — issue 8.B replacement for "undo import" */}
-      <section>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
-          Manage agents (batch)
-        </h2>
-        <p className="text-sm text-[var(--text-secondary)] mb-3">
-          Bulk-select agents to delete, or batch-add/remove them from teams.
-          Useful after importing a bundle you don't want to keep — filter by
-          "From bundles" to find them.
-        </p>
-        <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
-          <Users className="w-4 h-4" />
-          Open batch manager…
-        </Button>
-      </section>
+        </section>
       </div>
     </ScrollArea>
   );

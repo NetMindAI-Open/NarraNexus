@@ -255,6 +255,22 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     return []
 
 
+# Embedding models surfaced by default for a protocol's "official channel".
+# A custom OpenAI provider (official api.openai.com OR an OpenAI-compatible
+# forward/proxy) should always expose these so the embedding slot has
+# candidates even when the user listed only chat models. Vendor presets
+# (NetMind etc.) carry their own embedding models in `_DEFAULT_MODELS` and
+# are not affected by this.
+_DEFAULT_EMBEDDING_MODELS: dict[str, list[str]] = {
+    "openai": ["text-embedding-3-small", "text-embedding-3-large"],
+}
+
+
+def get_default_embedding_models(protocol: str) -> list[str]:
+    """Embedding model IDs to auto-include for a protocol's official channel."""
+    return list(_DEFAULT_EMBEDDING_MODELS.get(protocol, []))
+
+
 def get_embedding_dimensions(model_id: str) -> Optional[int]:
     """
     Look up the embedding dimensions for a given model ID.

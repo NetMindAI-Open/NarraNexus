@@ -15,12 +15,16 @@ Provides endpoints for:
 
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
-from xyz_agent_context.repository import AgentRepository, UserRepository
+from xyz_agent_context.repository import (
+    AgentRepository,
+    UserRepository,
+    InviteCodeRepository,
+)
 from xyz_agent_context.schema import (
     LoginRequest,
     LoginResponse,
@@ -38,19 +42,73 @@ from xyz_agent_context.schema import (
     CreateUserResponse,
     UpdateTimezoneRequest,
     UpdateTimezoneResponse,
+    OnboardingProgress,
+    OnboardingResponse,
+    UpdateOnboardingRequest,
 )
 from backend.auth import (
     hash_password,
     verify_password,
     create_token,
     _is_cloud_mode,
-    INVITE_CODE,
+    resolve_current_user_id,
 )
 from xyz_agent_context.utils import is_valid_timezone
+from xyz_agent_context.utils.timezone import utc_now
+from xyz_agent_context.agent_runtime.background_run import HEARTBEAT_INTERVAL_S
 from xyz_agent_context.settings import settings as app_settings
+
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 
 router = APIRouter()
+
+
+# An events row stuck at state='running' is only surfaced as an agent's
+# active_run while its heartbeat is fresh. BackgroundRun bumps
+# last_event_at every HEARTBEAT_INTERVAL_S (30s); after 3 missed beats the
+# run is considered dead — its task died without _finalize (process killed
+# mid-run, or the terminal DB write failed) and the in-memory active_runs
+# registry no longer holds it. The startup reconcile only flips such rows
+# on the NEXT restart, so without this filter the sidebar avatar pulses
+# "running" forever for an agent that is not running.
+#
+# This is a read-side liveness filter only — it never stops or mutates a
+# run. A genuinely long-running agent keeps beating and stays live, so long
+# agent_loops remain a first-class case (CLAUDE.md 铁律 #14).
+_RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
+
+
+def _parse_db_utc(ts) -> Optional[datetime]:
+    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
+    returns datetime) into a tz-aware UTC datetime. Returns None when the
+    value is absent or unparseable."""
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+    if isinstance(ts, str):
+        try:
+            dt = datetime.fromisoformat(ts.rstrip("Z"))
+        except ValueError:
+            return None
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return None
+
+
+def _run_is_live(ar_row: dict, now: Optional[datetime] = None) -> bool:
+    """Whether a 'running' events row still has a fresh heartbeat. Falls
+    back to started_at when the first beat hasn't fired yet. Fails open
+    (treats as live) when no parseable timestamp exists, so we never hide a
+    run that might genuinely be running."""
+    now = now or utc_now()
+    parsed = _parse_db_utc(ar_row.get("last_event_at")) or _parse_db_utc(
+        ar_row.get("started_at")
+    )
+    if parsed is None:
+        return True
+    return (now - parsed) <= timedelta(seconds=_RUN_STALE_AFTER_S)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -132,23 +190,6 @@ async def register(request: RegisterRequest, http_request: Request):
         if not _is_cloud_mode():
             return RegisterResponse(success=False, error="Registration is only available in cloud mode")
 
-        # Validate invite code. INVITE_CODE has no default — when the
-        # operator hasn't set it, every comparison fails, registration
-        # stays closed. Surface a clearer error so an admin can spot the
-        # missing config quickly instead of debugging "invalid invite
-        # code" reports from real users.
-        if INVITE_CODE is None:
-            logger.warning(
-                "Registration attempted but server has no INVITE_CODE configured. "
-                "Set the INVITE_CODE environment variable to enable registration."
-            )
-            return RegisterResponse(
-                success=False,
-                error="Registration is currently disabled on this server.",
-            )
-        if request.invite_code != INVITE_CODE:
-            return RegisterResponse(success=False, error="Invalid invite code")
-
         # Validate password length
         if len(request.password) < 6:
             return RegisterResponse(success=False, error="Password must be at least 6 characters")
@@ -159,22 +200,52 @@ async def register(request: RegisterRequest, http_request: Request):
 
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
+        invite_repo = InviteCodeRepository(db_client)
+        invite_code = (request.invite_code or "").strip()
+
+        # Validate the invite code: it must exist and still be 'issued'.
+        # This is a fast pre-check purely for a clear error message — the
+        # atomic consume() below is the real gate against concurrent reuse.
+        invite = await invite_repo.get_by_code(invite_code)
+        if invite is None:
+            return RegisterResponse(success=False, error="Invalid invite code")
+        if invite.status != "issued":
+            if invite.status == "used":
+                return RegisterResponse(success=False, error="This invite code has already been used")
+            return RegisterResponse(success=False, error="This invite code is no longer valid")
 
         # Check if user already exists
         existing = await user_repo.get_user(request.user_id)
         if existing:
             return RegisterResponse(success=False, error="Username already taken")
 
-        # Create user with password
-        password_hash = hash_password(request.password)
-        await db_client.insert("users", {
-            "user_id": request.user_id,
-            "password_hash": password_hash,
-            "role": "user",
-            "user_type": "individual",
-            "display_name": request.display_name or request.user_id,
-            "status": "active",
-        })
+        # Atomically consume the invite code (issued -> used). The
+        # `status = 'issued'` filter inside consume() is the race guard:
+        # if another registration already claimed this code, `consumed`
+        # is False and we stop here.
+        consumed = await invite_repo.consume(invite_code, request.user_id)
+        if not consumed:
+            return RegisterResponse(success=False, error="This invite code has already been used")
+
+        # Create user with password. If the insert fails, revert the code
+        # back to 'issued' so a failed registration doesn't burn it.
+        try:
+            password_hash = hash_password(request.password)
+            await db_client.insert("users", {
+                "user_id": request.user_id,
+                "password_hash": password_hash,
+                "role": "user",
+                "user_type": "individual",
+                "display_name": request.display_name or request.user_id,
+                "status": "active",
+            })
+        except Exception as insert_err:
+            await invite_repo.revert_consume(invite_code)
+            logger.exception(
+                f"register: user insert failed, reverted invite code "
+                f"{invite_code}: {insert_err}"
+            )
+            return RegisterResponse(success=False, error="Registration failed, please try again")
 
         # Generate token
         token = create_token(request.user_id, "user")
@@ -213,16 +284,20 @@ async def register(request: RegisterRequest, http_request: Request):
 
 
 @router.get("/agents", response_model=AgentListResponse)
-async def get_agents(
-    user_id: str = Query(..., description="User ID (required), returns agents created by this user + public agents"),
-):
+async def get_agents(request: Request):
     """
-    Get the list of agents visible to the user
+    Get the list of agents visible to the user. Identity from auth_middleware.
 
     Visibility rules:
     - Agents created by the user (created_by = user_id)
     - Agents set as public (is_public = 1)
+
+    History: ``user_id`` used to be a Query param the client supplied
+    directly. That let any client list any other user's owned agents by
+    swapping the value, and (in cloud mode) bypass the JWT identity.
+    Identity is now strictly derived from auth_middleware.
     """
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Getting agents list for user: {user_id}")
 
     try:
@@ -266,6 +341,10 @@ async def get_agents(
                     aid = r.get('agent_id')
                     if not aid:
                         continue
+                    # Skip rows whose heartbeat has died — a dead run must
+                    # not keep the sidebar avatar pulsing "running".
+                    if not _run_is_live(r):
+                        continue
                     existing = active_runs_by_agent.get(aid)
                     if existing is None or (r.get('started_at') or "") > (existing.get('started_at') or ""):
                         active_runs_by_agent[aid] = r
@@ -274,6 +353,43 @@ async def get_agents(
                 # enrichment broke — log and continue with no active_run
                 # info attached.
                 logger.warning(f"[/api/auth/agents] active_run enrichment failed: {e}")
+
+        # NM sidebar preview — one window-function SELECT pulls the most
+        # recent persisted assistant reply per agent in this list. Uses
+        # ROW_NUMBER() so we get exactly one row per agent without an
+        # N+1 sweep. Both SQLite (>=3.25) and MySQL 8+ support window
+        # functions, which are the two backends auto_migrate ships.
+        # final_output IS NOT NULL filters out events that crashed before
+        # producing a reply; an empty string is treated the same since
+        # the user wouldn't want "" rendered as preview.
+        last_assistant_by_agent: dict[str, dict] = {}
+        if agent_ids:
+            placeholders = ",".join(["%s"] * len(agent_ids))
+            try:
+                preview_rows = await db_client.execute(
+                    f"""
+                    SELECT agent_id, final_output, created_at FROM (
+                        SELECT agent_id, final_output, created_at,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY agent_id ORDER BY created_at DESC
+                               ) AS rn
+                        FROM events
+                        WHERE agent_id IN ({placeholders})
+                          AND final_output IS NOT NULL
+                          AND final_output != ''
+                    ) ranked
+                    WHERE rn = 1
+                    """,
+                    tuple(agent_ids),
+                )
+                for r in preview_rows or []:
+                    aid = r.get('agent_id')
+                    if aid:
+                        last_assistant_by_agent[aid] = r
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[/api/auth/agents] last_assistant enrichment failed: {e}"
+                )
 
         agents = []
         for row in rows:
@@ -301,6 +417,22 @@ async def get_agents(
                     current_stage=ar_row.get('current_stage') or None,
                 )
 
+            # NM sidebar preview — flatten whitespace and truncate so the
+            # wire payload stays bounded. Frontend may slice further for
+            # its row width, but 200 chars covers both alphabetic and
+            # CJK width comfortably without bloating the response.
+            last_assistant_preview = None
+            last_assistant_at = None
+            la_row = last_assistant_by_agent.get(row['agent_id'])
+            if la_row:
+                raw = la_row.get('final_output') or ""
+                if raw:
+                    flat = " ".join(raw.split())
+                    last_assistant_preview = (
+                        flat[:200] if len(flat) <= 200 else flat[:200].rstrip() + "…"
+                    )
+                last_assistant_at = format_for_api(la_row.get('created_at'))
+
             agent_info = AgentInfo(
                 agent_id=row['agent_id'],
                 name=row.get('agent_name') or row['agent_id'],
@@ -311,6 +443,8 @@ async def get_agents(
                 created_by=created_by,
                 bootstrap_active=bootstrap_active,
                 active_run=active_run,
+                last_assistant_preview=last_assistant_preview,
+                last_assistant_at=last_assistant_at,
             )
             agents.append(agent_info)
 
@@ -519,12 +653,18 @@ async def update_agent(
 @router.delete("/agents/{agent_id}", response_model=DeleteAgentResponse)
 async def delete_agent(
     agent_id: str,
-    user_id: str = Query(..., description="Operator's user ID, used for permission verification"),
+    request: Request,
 ):
     """
     Cascade delete an Agent and all its associated data
 
     Permission: Only the Agent creator (created_by == user_id) can delete.
+    Identity comes from auth_middleware — the old "operator's user_id"
+    query param was directly compared against ``agent.created_by``,
+    which let a client pass any value (including the real creator's
+    user_id) to pass the permission check and nuke someone else's agent.
+    Now ``user_id`` is the JWT/X-User-Id identity and unforgeable.
+
     Deletion order is from leaf to root to ensure foreign key safety:
     1. Instance Memory dynamic tables
     2. Narrative Memory dynamic tables
@@ -538,6 +678,7 @@ async def delete_agent(
     10. Agent Messages
     11. The Agent itself
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Delete agent request: agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -1058,3 +1199,86 @@ async def update_timezone(request: UpdateTimezoneRequest):
             success=False,
             error=str(e)
         )
+
+
+# =============================================================================
+# Onboarding checklist
+# =============================================================================
+
+# Key under users.metadata where the onboarding checklist state lives. The
+# metadata column is a shared JSON blob, so reads must merge-and-write to
+# avoid clobbering sibling keys.
+_ONBOARDING_METADATA_KEY = "onboarding_progress"
+
+
+def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
+    """Extract OnboardingProgress from a user's metadata dict (or defaults)."""
+    raw = (metadata or {}).get(_ONBOARDING_METADATA_KEY) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return OnboardingProgress(
+        first_agent_created=bool(raw.get("first_agent_created", False)),
+        template_applied=bool(raw.get("template_applied", False)),
+        dismissed=bool(raw.get("dismissed", False)),
+    )
+
+
+@router.get("/onboarding", response_model=OnboardingResponse)
+async def get_onboarding(user_id: str):
+    """Return the new-user onboarding checklist state for `user_id`.
+
+    The frontend calls this on chat-page mount to decide whether to show
+    the checklist card and which rows are already checked.
+    """
+    try:
+        db_client = await get_db_client()
+        user_repo = UserRepository(db_client)
+        user = await user_repo.get_user(user_id)
+        if not user:
+            return OnboardingResponse(success=False, error="User not found")
+        return OnboardingResponse(
+            success=True,
+            progress=_read_onboarding(user.metadata),
+        )
+    except Exception as e:
+        logger.exception(f"Error reading onboarding state: {e}")
+        return OnboardingResponse(success=False, error=str(e))
+
+
+@router.post("/onboarding", response_model=OnboardingResponse)
+async def update_onboarding(request: UpdateOnboardingRequest):
+    """Mark one or more onboarding steps complete.
+
+    Write-once-true: only fields explicitly True in the request are
+    applied; None / False are ignored so a completed step can never be
+    reverted. The merge reads the user's full metadata, updates only the
+    `onboarding_progress` sub-key, and writes the whole dict back so
+    sibling metadata keys are preserved.
+    """
+    try:
+        db_client = await get_db_client()
+        user_repo = UserRepository(db_client)
+        user = await user_repo.get_user(request.user_id)
+        if not user:
+            return OnboardingResponse(success=False, error="User not found")
+
+        current = _read_onboarding(user.metadata)
+        merged = OnboardingProgress(
+            first_agent_created=current.first_agent_created
+            or request.first_agent_created is True,
+            template_applied=current.template_applied
+            or request.template_applied is True,
+            dismissed=current.dismissed or request.dismissed is True,
+        )
+
+        metadata = dict(user.metadata or {})
+        metadata[_ONBOARDING_METADATA_KEY] = merged.model_dump()
+        await user_repo.update_user(request.user_id, {"metadata": metadata})
+
+        logger.info(
+            f"Onboarding updated for {request.user_id}: {merged.model_dump()}"
+        )
+        return OnboardingResponse(success=True, progress=merged)
+    except Exception as e:
+        logger.exception(f"Error updating onboarding state: {e}")
+        return OnboardingResponse(success=False, error=str(e))

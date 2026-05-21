@@ -1,8 +1,55 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-05-13
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — onboarding checklist endpoints
+
+Added `GET /api/auth/onboarding` + `POST /api/auth/onboarding` for the
+new-user onboarding checklist card (cloud version). State lives inside
+`users.metadata` under the `onboarding_progress` key — no new table.
+
+Design points:
+- **Write-once-true**: `POST` only applies fields explicitly `True`; None
+  and False are ignored, so a completed step can never be reverted. This
+  is deliberate — the checklist must not oscillate when a user creates
+  their first agent then deletes it.
+- **Merge, don't clobber**: `users.metadata` is a shared JSON blob, so the
+  handler reads the full dict, updates only the `onboarding_progress`
+  sub-key, and writes the whole dict back (`_read_onboarding` helper +
+  `_ONBOARDING_METADATA_KEY` constant).
+- `provider_configured` is **not** stored — the frontend derives it live
+  from provider count (that step is gated by SetupPage before the card
+  shows). Only `first_agent_created` / `template_applied` / `dismissed`
+  are persisted.
+
+Sits next to `/api/auth/timezone` — both are JWT-gated user-scoped
+settings endpoints. Tests: `tests/backend/test_onboarding.py`.
+
+## 2026-05-19 — `/api/auth/agents` 附加最近一条 assistant 回复（NM sidebar preview）
+
+每个 `AgentInfo` 现在带 `last_assistant_preview` + `last_assistant_at` 两个字段，供前端左边栏第二行显示"这个 agent 最近说了什么"。
+
+实现走窗口函数：`ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY created_at DESC)`，单条 SQL 一次性拿到列表里每个 agent 的最近一条非空 `events.final_output`。已有的 `idx_events_agent_created` 索引直接 cover 这个查询，不需要新加索引。过滤 `final_output IS NOT NULL AND final_output != ''` 把崩在中途的 run 和空回复都排掉。
+
+server 端把 `final_output` 拍平空白后截到 200 chars（前端再切到 60，多出来的 200 给前端将来调宽度留余量）。失败仅 warn-log，不阻塞 list 返回——和 active_run 一样定位为增强字段。
+
+## 2026-05-14 — register() 改用 DB 邀请码（替换全局 INVITE_CODE）
+
+`register()` 不再比对 `backend.auth.INVITE_CODE` 全局环境变量（该常量已
+删除）。新流程走 `InviteCodeRepository`：
+
+1. `get_by_code` 快速预检——码存在且 `status=='issued'`，否则返回明确错误
+   （已用 / 失效 / 无效）。纯为 UX，不是真正的 gate。
+2. 校验密码、用户名、user 不存在（顺序不变）。
+3. `consume(code, user_id)` —— 单条带条件 UPDATE（`WHERE status='issued'`），
+   原子消费 issued→used。并发抢同一码只有一方 affected==1。
+4. insert user；失败则 `revert_consume` 把码退回 issued，不白烧。
+
+注册不再"全局开关"——有没有可用的码由 `invite_codes` 表决定。Mode B 的
+发码 / cap / waitlist 全在 `backend/routes/invite.py` + `admin_invite.py`。
+设计文档：`drafts/logs/invite_code_2026_05_14.md`。
 
 ## 2026-05-13 — `/api/auth/agents` 返回 active_run 字段（Phase C）
 
@@ -45,7 +92,8 @@ to render a one-shot welcome toast on successful cloud-mode registration
 - **依赖谁**：
   - `AgentRepository` — Agent 的基础 CRUD
   - `UserRepository` — 用户的增删查、last_login 更新、timezone 更新
-  - `backend.auth` — `hash_password`、`verify_password`、`create_token`、`_is_cloud_mode`、`INVITE_CODE`
+  - `InviteCodeRepository` — 注册时校验 + 原子消费邀请码
+  - `backend.auth` — `hash_password`、`verify_password`、`create_token`、`_is_cloud_mode`
   - `xyz_agent_context.bootstrap.template.BOOTSTRAP_MD_TEMPLATE` — 创建 Agent 时写入工作区的初始化文件
   - `xyz_agent_context.settings.settings.base_working_path` — Agent 工作区根目录
 

@@ -37,6 +37,7 @@ import {
   Server,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
+import { BracketSectionLabel } from '@/components/nm';
 import { useConfigStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -51,7 +52,7 @@ import type {
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: 'agents', label: 'Agents', icon: Users },
-  { id: 'history', label: 'Chat history', icon: FileText },
+  { id: 'history', label: 'Narratives & Events', icon: FileText },
   // Skills sidebar in-app merges Skills + MCP into one Card; the wizard
   // follows the same grouping so users see one consistent surface for
   // "agent tools" no matter whether they're managing or packaging.
@@ -153,15 +154,38 @@ export default function BundleExportPage() {
   const [workspaceFiles, setWorkspaceFiles] = useState<Record<string, { path: string; size: number; sensitive: boolean }[]>>({});
   const [workspaceExcludes, setWorkspaceExcludes] = useState<Record<string, Set<string>>>({});
 
-  // B2: chat history selection state — narrative-level allowlist (per agent)
-  // and event-level allowlist (per narrative). Default = all included.
+  // Narrative selection state — narrative-level allowlist (per agent)
+  // and event-level allowlist (per narrative).
+  //
+  // The two selections use OPPOSITE defaults on purpose:
+  //
+  // - Narratives are an "exclusion set": every narrative is included
+  //   by default; user-unchecked narrative_ids land in the set. This
+  //   matches the "narratives are the bundle's skeleton" intuition —
+  //   you usually want all of them shipped.
+  // - Events are an "inclusion set": every event starts UNchecked;
+  //   only event_ids the user explicitly opted-in land in the set.
+  //   This was flipped on 2026-05-18 after Bin哥's feedback: "选中
+  //   narrative 时，默认不选任何 events"。Chat content is the most
+  //   sensitive thing in the bundle, so default = opt-in.
   const [historyByAgent, setHistoryByAgent] = useState<Record<string, ChatHistoryNarrative[]>>({});
   const [excludedNarratives, setExcludedNarratives] = useState<Record<string, Set<string>>>({});
-  const [excludedEvents, setExcludedEvents] = useState<Record<string, Set<string>>>({});
+  const [includedEvents, setIncludedEvents] = useState<Record<string, Set<string>>>({});
   // P7: per-narrative job exclusion (default = include). When the parent
   // narrative is excluded, its jobs are auto-dropped on the backend (P4)
   // regardless of this set.
   const [excludedJobs, setExcludedJobs] = useState<Record<string, Set<string>>>({});
+
+  // Per-narrative "how many events to render checkboxes for" cap.
+  // Default 30. UI exposes "Show 30 more" + "Show all" buttons to grow
+  // this value when a narrative has many events. This is *render-only*
+  // pagination — all events for the narrative are already loaded
+  // (getChatHistory called with event_limit=0), and the "Select all
+  // events" / "No events" buttons act on the full list regardless of
+  // the display cap. Stored separately from the data so changing the
+  // cap doesn't refetch.
+  const EVENT_PAGE_SIZE = 30;
+  const [eventDisplayLimit, setEventDisplayLimit] = useState<Record<string, number>>({});
 
   // Message Bus channels available for the selected agent closure. Lazy-fetched
   // when (a) the user opens the Bus tab, or (b) selectedAgents changes. Default
@@ -239,7 +263,7 @@ export default function BundleExportPage() {
   useEffect(() => {
     selectedAgents.forEach((aid) => {
       if (!skillsForAgents[aid]) {
-        api.listSkills(aid, userId, true)
+        api.listSkills(aid, true)
           .then((r) => {
             const list: SkillEntry[] = (r.skills || []).map((sk: any) => {
               const path: string = sk.path || '';
@@ -267,7 +291,7 @@ export default function BundleExportPage() {
           }).catch(() => {});
       }
       if (!workspaceFiles[aid]) {
-        api.listFiles(aid, userId)
+        api.listFiles(aid)
           .then((r: any) => {
             // Verified shape: { success, files: [{filename, size, modified_at}],
             //                   workspace_path, error }
@@ -287,12 +311,22 @@ export default function BundleExportPage() {
       // Plus we fetch jobs (/api/jobs?agent_id=...) and group by narrative_id (P7).
       if (!historyByAgent[aid]) {
         Promise.all([
-          api.getChatHistory(aid, userId).catch(() => null),
-          api.getJobs(aid, userId).catch(() => null),
+          // Pass event_limit=0 so the backend doesn't cap at its default
+          // 50 — users need to be able to cancel ANY event in a long
+          // narrative (one of ours has 1351 events). The handful of MB
+          // this brings into the page is fine; render-side pagination
+          // below keeps the DOM small.
+          api.getChatHistory(aid, 0).catch(() => null),
+          api.getJobs(aid).catch(() => null),
         ]).then(([chRaw, jobsRaw]: any[]) => {
           const ch: any = chRaw || {};
           const jobs: any = jobsRaw || {};
-          // Bucket events by narrative_id
+          // Bucket events by narrative_id, then sort each bucket
+          // newest → oldest. The bundle UI renders only the first
+          // `displayLimit` items in each list (default 30, expandable),
+          // so putting the most-recent events on top means "the chat
+          // I was just having" is what shows up by default — which is
+          // almost always what the user wants to inspect or strip.
           const eventsByNar: Record<string, ChatHistoryEvent[]> = {};
           for (const e of (ch.events || [])) {
             const nid = e.narrative_id;
@@ -303,6 +337,11 @@ export default function BundleExportPage() {
               created_at: e.created_at,
               preview: (e.final_output || '').slice(0, 100),
             });
+          }
+          for (const nid of Object.keys(eventsByNar)) {
+            eventsByNar[nid].sort((a, b) =>
+              (b.created_at || '').localeCompare(a.created_at || ''),
+            );
           }
           // Bucket jobs by narrative_id (jobs without parent narrative go in
           // a synthetic "(no narrative)" bucket the user can still skip)
@@ -682,8 +721,23 @@ export default function BundleExportPage() {
       return out;
     });
     // 4. History: include all narratives + events + jobs.
+    //    Events use opt-in semantics now (default empty), so for the
+    //    Full preset we pre-fill includedEvents with EVERY event_id
+    //    per narrative across all loaded agents. excludedNarratives
+    //    stays empty (exclusion semantics; empty = all included).
     setExcludedNarratives({});
-    setExcludedEvents({});
+    setIncludedEvents(() => {
+      const out: Record<string, Set<string>> = {};
+      Object.values(historyByAgent).forEach((narrs) => {
+        narrs.forEach((n) => {
+          if (n.narrative_id === '__orphan_jobs__') return;
+          if (n.events.length > 0) {
+            out[n.narrative_id] = new Set(n.events.map((e) => e.event_id));
+          }
+        });
+      });
+      return out;
+    });
     setExcludedJobs({});
     setIncludeChat(true);
     // 5. Workspace excludes: dual-meaning set (see toggleWorkspaceFile).
@@ -733,7 +787,23 @@ export default function BundleExportPage() {
         }
         if (out.size > 0) excludes[aid] = Array.from(out);
       });
-      // B2: derive narrative + event allowlists from "exclusion" sets
+      // Derive narrative + event allowlists for the backend payload.
+      //
+      // narratives — "exclusion set" semantics:
+      //   default = ship all, user-unchecked narratives land in
+      //   excludedNarratives[aid]. Only emit narrativeSel[aid] when
+      //   the user actually de-selected something, else leave
+      //   undefined (= backend ships all).
+      //
+      // events — "inclusion set" semantics (2026-05-18, opt-in
+      // default):
+      //   default = ship none. User-checked event_ids land in
+      //   includedEvents[nid]. We always emit eventSel as an explicit
+      //   object (possibly empty) so the backend's `is not None`
+      //   check locks the bundle into opt-in mode. An empty object
+      //   means "ship 0 events for every narrative shipped"; missing
+      //   narrative keys → backend's `.get(nid, [])` ships 0 for them
+      //   too. Adding an entry `nid: [event_ids]` ships those.
       const narrativeSel: Record<string, string[]> = {};
       const eventSel: Record<string, string[]> = {};
       Array.from(selectedAgents).forEach((aid) => {
@@ -743,19 +813,16 @@ export default function BundleExportPage() {
         // shouldn't enter the backend allowlist.
         const realNarrs = allNarrs.filter((n) => n.narrative_id !== '__orphan_jobs__');
         const exNars = excludedNarratives[aid] || new Set();
-        // Only emit a selection if user actually de-selected something;
-        // otherwise leave undefined to fall back to "include all" semantics.
         if (exNars.size > 0) {
           narrativeSel[aid] = realNarrs
             .filter((n) => !exNars.has(n.narrative_id))
             .map((n) => n.narrative_id);
         }
-        // Per-narrative event filtering (skip orphan placeholder which has no events)
         realNarrs.forEach((n) => {
-          const exEvts = excludedEvents[n.narrative_id];
-          if (exEvts && exEvts.size > 0) {
+          const inEvts = includedEvents[n.narrative_id];
+          if (inEvts && inEvts.size > 0) {
             eventSel[n.narrative_id] = n.events
-              .filter((e) => !exEvts.has(e.event_id))
+              .filter((e) => inEvts.has(e.event_id))
               .map((e) => e.event_id);
           }
         });
@@ -794,7 +861,13 @@ export default function BundleExportPage() {
         // picking that mode; auto-flag so they don't have to confirm twice.
         accept_sensitive_zips: mode === 'full' ? true : acceptSensitiveZips,
         narrative_selection: Object.keys(narrativeSel).length ? narrativeSel : null,
-        event_selection: Object.keys(eventSel).length ? eventSel : null,
+        // Always emit eventSel as an explicit object (even when empty)
+        // so the backend's `is not None` check locks the bundle into
+        // opt-in mode — empty dict means "ship 0 events", which is
+        // what the user gets when they haven't checked any event
+        // checkboxes. Sending null here would fall back to legacy
+        // "ship all events" semantics, which is the bug Bin哥 caught.
+        event_selection: includeChat ? eventSel : null,
         job_selection: Object.keys(jobSel).length ? jobSel : null,
         // Bus channel allowlist. Only emit when the user actually deselected
         // something (else the backend's default "ship every owner-owned channel
@@ -881,19 +954,31 @@ export default function BundleExportPage() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-primary)]">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-[var(--border-default)] flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/app/settings')} className="p-1 hover:bg-[var(--bg-tertiary)]">
+    <div className="h-full flex flex-col" style={{ background: 'var(--nm-card)' }}>
+      {/* Header — NM display title + bracket-section count line */}
+      <div
+        className="px-6 py-4 border-b flex items-center justify-between gap-3"
+        style={{ borderColor: 'var(--nm-hairline)' }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate('/app/settings')}
+            className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
+            aria-label="Back to settings"
+          >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <Package className="w-5 h-5" />
-          <h1 className="font-mono text-base">Export bundle</h1>
+          <Package className="w-5 h-5" style={{ color: 'var(--nm-ink50)' }} />
+          <h1
+            className="text-2xl font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            Export bundle
+          </h1>
         </div>
-        <div className="text-xs text-[var(--text-tertiary)]">
+        <BracketSectionLabel>
           {summary.agents} agents · {summary.skills} skills · {summary.socialEntities} entities · {summary.busChannels} channels
-        </div>
+        </BracketSectionLabel>
       </div>
 
       {/* Mode picker (PRD §5 议题 2) */}
@@ -1004,7 +1089,7 @@ export default function BundleExportPage() {
             agents={agents.filter((a) => selectedAgents.has(a.agent_id))}
             historyByAgent={historyByAgent}
             excludedNarratives={excludedNarratives}
-            excludedEvents={excludedEvents}
+            includedEvents={includedEvents}
             excludedJobs={excludedJobs}
             onToggleNarrative={(aid, nid) => setExcludedNarratives((s) => {
               const next = { ...s };
@@ -1013,7 +1098,7 @@ export default function BundleExportPage() {
               next[aid] = cur;
               return next;
             })}
-            onToggleEvent={(nid, eid) => setExcludedEvents((s) => {
+            onToggleEvent={(nid, eid) => setIncludedEvents((s) => {
               const next = { ...s };
               const cur = new Set(next[nid] || []);
               if (cur.has(eid)) cur.delete(eid); else cur.add(eid);
@@ -1033,11 +1118,11 @@ export default function BundleExportPage() {
             onSelectNoneNarratives={(aid) => setExcludedNarratives((s) => ({
               ...s, [aid]: new Set((historyByAgent[aid] || []).map((n) => n.narrative_id)),
             }))}
-            onSelectAllEventsInNarrative={(nid) => setExcludedEvents((s) => ({
-              ...s, [nid]: new Set(),
-            }))}
-            onSelectNoneEventsInNarrative={(nid, allIds) => setExcludedEvents((s) => ({
+            onSelectAllEventsInNarrative={(nid, allIds) => setIncludedEvents((s) => ({
               ...s, [nid]: new Set(allIds),
+            }))}
+            onSelectNoneEventsInNarrative={(nid) => setIncludedEvents((s) => ({
+              ...s, [nid]: new Set(),
             }))}
             onSelectAllJobsInNarrative={(nid) => setExcludedJobs((s) => ({
               ...s, [nid]: new Set(),
@@ -1045,7 +1130,19 @@ export default function BundleExportPage() {
             onSelectNoneJobsInNarrative={(nid, allIds) => setExcludedJobs((s) => ({
               ...s, [nid]: new Set(allIds),
             }))}
-            includeAll={includeChat}
+            eventDisplayLimit={eventDisplayLimit}
+            eventPageSize={EVENT_PAGE_SIZE}
+            onShowMoreEvents={(nid, total) => setEventDisplayLimit((s) => ({
+              ...s,
+              [nid]: Math.min(
+                (s[nid] ?? EVENT_PAGE_SIZE) + EVENT_PAGE_SIZE,
+                total,
+              ),
+            }))}
+            onShowAllEvents={(nid, total) => setEventDisplayLimit((s) => ({
+              ...s, [nid]: total,
+            }))}
+            chatHistoryEnabled={includeChat}
           />
         )}
         {tab === 'skills' && (
@@ -1316,6 +1413,18 @@ function AgentsTab({
 
   return (
     <div className="space-y-4">
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> the
+          set of agents this bundle will contain. Everything else in the wizard (narratives,
+          skills, MCPs, files…) is filtered to this closure.
+        </p>
+        <p>
+          Picking a team adds all of its existing members in one click; you can still
+          uncheck individuals afterwards. External references (e.g. a social entity pointing
+          at an agent outside this closure) get dropped automatically on export.
+        </p>
+      </div>
       <div>
         <label className="text-xs uppercase text-[var(--text-tertiary)]">Bundle this team (optional)</label>
         <select
@@ -1466,11 +1575,20 @@ function SkillsTab({
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-[var(--text-tertiary)]">
-        Per-agent skill list. The same skill name can appear on multiple agents — each one is
-        independent (its own <code>.skill_meta.json</code>, <code>env_config</code>, <code>study_result</code>).
-        {isReadOnly && ' Read-only: Full mode pinned every skill to Full Copy.'}
-      </p>
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
+          skills (and MCP servers) ship with each agent, and <em>how</em> they ship —
+          GitHub URL (recipient pulls fresh), Zip (frozen archive), or Full Copy
+          (full directory tree, env vars and study results included).
+        </p>
+        <p>
+          The same skill name can live on multiple agents independently — each row has its
+          own <code>.skill_meta.json</code>, <code>env_config</code>, <code>study_result</code>.
+          Pick per-(agent, skill).
+          {isReadOnly && ' Full snapshot pinned every skill to Full Copy — read-only here.'}
+        </p>
+      </div>
       {agents.map((a) => {
         const loaded = a.agent_id in skillsForAgents;
         const skills = skillsForAgents[a.agent_id] || [];
@@ -1697,47 +1815,68 @@ function AskAgentToBackupButton({
 }
 
 function HistoryTab({
-  agents, historyByAgent, excludedNarratives, excludedEvents, excludedJobs,
+  agents, historyByAgent, excludedNarratives, includedEvents, excludedJobs,
   onToggleNarrative, onToggleEvent, onToggleJob,
   onSelectAllNarratives, onSelectNoneNarratives,
   onSelectAllEventsInNarrative, onSelectNoneEventsInNarrative,
   onSelectAllJobsInNarrative, onSelectNoneJobsInNarrative,
-  includeAll,
+  eventDisplayLimit, eventPageSize, onShowMoreEvents, onShowAllEvents,
+  chatHistoryEnabled,
 }: {
   agents: any[];
   historyByAgent: Record<string, ChatHistoryNarrative[]>;
   excludedNarratives: Record<string, Set<string>>;
-  excludedEvents: Record<string, Set<string>>;
+  /** Per-narrative inclusion set. Empty / missing entry = ship 0
+   *  events for that narrative (opt-in default, see top-of-page state
+   *  declaration for the full rationale). */
+  includedEvents: Record<string, Set<string>>;
   excludedJobs: Record<string, Set<string>>;
   onToggleNarrative: (aid: string, nid: string) => void;
   onToggleEvent: (nid: string, eid: string) => void;
   onToggleJob: (nid: string, jid: string) => void;
   onSelectAllNarratives: (aid: string) => void;
   onSelectNoneNarratives: (aid: string) => void;
-  onSelectAllEventsInNarrative: (nid: string) => void;
-  onSelectNoneEventsInNarrative: (nid: string, allEventIds: string[]) => void;
+  onSelectAllEventsInNarrative: (nid: string, allEventIds: string[]) => void;
+  onSelectNoneEventsInNarrative: (nid: string) => void;
   onSelectAllJobsInNarrative: (nid: string) => void;
   onSelectNoneJobsInNarrative: (nid: string, allJobIds: string[]) => void;
-  includeAll: boolean;
+  /** Per-narrative cap for how many event checkboxes to render. Defaults
+   *  to {@link eventPageSize}; "Show more" / "Show all" buttons mutate
+   *  the entry via the corresponding handlers. */
+  eventDisplayLimit: Record<string, number>;
+  eventPageSize: number;
+  onShowMoreEvents: (nid: string, total: number) => void;
+  onShowAllEvents: (nid: string, total: number) => void;
+  /** Tracks the "Include chat history" toggle in the Bundle Notes
+   *  section. When false, the event list (and the message body inside
+   *  each narrative.json) is dropped from the bundle, but narrative
+   *  skeletons + jobs are still selectable here. */
+  chatHistoryEnabled: boolean;
 }) {
   if (agents.length === 0) {
     return (<div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>);
   }
-  if (!includeAll) {
-    return (
-      <div className="border border-[var(--color-yellow-500)] bg-[var(--color-yellow-500)]/10 p-3 text-xs">
-        <strong>Chat history disabled.</strong> Toggle "Include chat history" off in the
-        Bundle Notes section to enable this tab. With chat history off, narratives and events
-        are not exported regardless of your selection here.
-      </div>
-    );
-  }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-[var(--text-tertiary)]">
-        Per-agent narratives and per-narrative events. By default everything is included; uncheck
-        any narrative or individual event to exclude it from the bundle.
-      </p>
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
+          narratives (the agent's "topic threads") ship in the bundle, and — for each one —
+          which individual events (chat turns) and jobs ride along with it.
+        </p>
+        <p>
+          <strong className="text-[var(--text-secondary)]">Defaults:</strong> all narratives
+          are included; <em>no events</em> are included unless you tick them; all jobs under
+          a kept narrative ship along.
+        </p>
+        {!chatHistoryEnabled && (
+          <p className="text-[var(--color-yellow-500)]">
+            <strong>Chat history is disabled</strong> (toggle in the Bundle Notes section).
+            Narrative skeletons + jobs still ship; events and message bodies do not — your
+            per-event picks below are saved but won't take effect until you re-enable.
+          </p>
+        )}
+      </div>
       {agents.map((a) => {
         // Distinguish "not loaded yet" from "loaded, empty":
         //   - undefined  → fetch still in flight, show Loading…
@@ -1789,7 +1928,7 @@ function HistoryTab({
               )}
               {narrs.map((n) => {
                 const narExcluded = exNars.has(n.narrative_id);
-                const exEvts = excludedEvents[n.narrative_id] || new Set();
+                const inEvts = includedEvents[n.narrative_id] || new Set();
                 const exJobs = excludedJobs[n.narrative_id] || new Set();
                 const isOrphanJobsRow = n.narrative_id === '__orphan_jobs__';
                 return (
@@ -1815,7 +1954,7 @@ function HistoryTab({
                         <div className="text-[10px] text-[var(--text-tertiary)] flex flex-wrap gap-x-2">
                           {!isOrphanJobsRow && (
                             <span>
-                              {n.events.length - exEvts.size} / {n.events.length} events
+                              {inEvts.size} / {n.events.length} events
                             </span>
                           )}
                           {n.jobs.length > 0 && (
@@ -1831,16 +1970,16 @@ function HistoryTab({
                       </div>
                       {!narExcluded && (n.events.length > 0 || n.jobs.length > 0) && (
                         <div className="flex items-center gap-1 shrink-0">
-                          {n.events.length > 0 && (
+                          {chatHistoryEnabled && n.events.length > 0 && (
                             <>
                               <button
-                                onClick={(e) => { e.stopPropagation(); onSelectAllEventsInNarrative(n.narrative_id); }}
+                                onClick={(e) => { e.stopPropagation(); onSelectAllEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id)); }}
                                 className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                               >
                                 All events
                               </button>
                               <button
-                                onClick={(e) => { e.stopPropagation(); onSelectNoneEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id)); }}
+                                onClick={(e) => { e.stopPropagation(); onSelectNoneEventsInNarrative(n.narrative_id); }}
                                 className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                               >
                                 No events
@@ -1866,37 +2005,66 @@ function HistoryTab({
                         </div>
                       )}
                     </div>
-                    {!narExcluded && n.events.length > 0 && (
-                      <div className="border-t border-[var(--border-subtle)]">
-                        {n.events.slice(0, 30).map((e) => {
-                          const evExcluded = exEvts.has(e.event_id);
-                          return (
-                            <label key={e.event_id} className={cn(
-                              'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
-                              evExcluded && 'opacity-40'
-                            )}>
-                              <input
-                                type="checkbox"
-                                checked={!evExcluded}
-                                onChange={() => onToggleEvent(n.narrative_id, e.event_id)}
-                                className="mt-0.5"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
-                                  {e.trigger || 'event'} · {(e.created_at || '').slice(0, 19)}
+                    {chatHistoryEnabled && !narExcluded && n.events.length > 0 && (() => {
+                      // Render-side pagination. Events are pre-sorted
+                      // newest → oldest so the visible slice is the
+                      // most recent activity, which is what users
+                      // typically want to inspect when picking. Events
+                      // are opt-in: a checkbox shows checked only when
+                      // the user has explicitly added the event_id to
+                      // includedEvents[nid].
+                      const limit = eventDisplayLimit[n.narrative_id] ?? eventPageSize;
+                      const visible = n.events.slice(0, limit);
+                      const hidden = n.events.length - visible.length;
+                      return (
+                        <div className="border-t border-[var(--border-subtle)]">
+                          {visible.map((e) => {
+                            const evIncluded = inEvts.has(e.event_id);
+                            return (
+                              <label key={e.event_id} className={cn(
+                                'flex items-start gap-2 px-3 py-1 text-xs hover:bg-[var(--bg-tertiary)]',
+                                !evIncluded && 'opacity-50'
+                              )}>
+                                <input
+                                  type="checkbox"
+                                  checked={evIncluded}
+                                  onChange={() => onToggleEvent(n.narrative_id, e.event_id)}
+                                  className="mt-0.5"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
+                                    {e.trigger || 'event'} · {(e.created_at || '').slice(0, 19)}
+                                  </div>
+                                  <div className="truncate">{e.preview || '(no preview)'}</div>
                                 </div>
-                                <div className="truncate">{e.preview || '(no preview)'}</div>
+                              </label>
+                            );
+                          })}
+                          {hidden > 0 && (
+                            <div className="px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] bg-[var(--bg-secondary)]/40 border-t border-[var(--border-subtle)]">
+                              <span className="text-[var(--text-tertiary)]">
+                                Showing {visible.length} / {n.events.length} events
+                                (oldest {hidden} hidden)
+                              </span>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  onClick={(ev) => { ev.stopPropagation(); onShowMoreEvents(n.narrative_id, n.events.length); }}
+                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                >
+                                  Show {Math.min(eventPageSize, hidden)} more
+                                </button>
+                                <button
+                                  onClick={(ev) => { ev.stopPropagation(); onShowAllEvents(n.narrative_id, n.events.length); }}
+                                  className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
+                                >
+                                  Show all ({n.events.length})
+                                </button>
                               </div>
-                            </label>
-                          );
-                        })}
-                        {n.events.length > 30 && (
-                          <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)]">
-                            +{n.events.length - 30} more events (all included by default; select narrative-level toggle to exclude entire narrative)
-                          </div>
-                        )}
-                      </div>
-                    )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {!narExcluded && n.jobs.length > 0 && (
                       <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30">
                         <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
@@ -1949,7 +2117,10 @@ function SensitiveZipConfirmModal({
 }) {
   const [confirmText, setConfirmText] = useState('');
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center backdrop-blur-sm"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="w-[520px] max-w-[95vw] bg-[var(--bg-primary)] border-2 border-[var(--color-red-500)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-red-500)]/10">
           <div className="flex items-center gap-2 text-[var(--color-red-500)]">
@@ -2042,6 +2213,19 @@ function SocialTab({
   );
   return (
     <div className="space-y-4">
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> the
+          "people / organizations / agents this agent remembers" — its social network
+          entities. These travel with the bundle so the recipient gets the agent's
+          context about who's who.
+        </p>
+        <p>
+          Edges pointing at agents <em>outside</em> the bundle's agent closure are
+          dropped automatically. By default, all entities matching the team scope are
+          preselected; uncheck any you don't want shared.
+        </p>
+      </div>
       {agents.map((a) => {
         const loaded = a.agent_id in entitiesByAgent;
         const list = (entitiesByAgent[a.agent_id] || []).slice().sort((x, y) =>
@@ -2224,6 +2408,19 @@ function BusTab({
 
   return (
     <div className="space-y-3">
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
+          Message Bus channels (agent-to-agent chat rooms) ship with the bundle. Only
+          channels you own and that have at least one selected agent as a member appear.
+        </p>
+        <p>
+          Default = all eligible channels selected. Channel rows are recreated on import
+          with the recipient as owner; the historical messages inside them ride along
+          with each agent's narrative + event selections (controlled in the Narratives
+          & Events tab).
+        </p>
+      </div>
       <div className="flex items-center justify-between text-xs font-mono">
         <span className="text-[var(--text-tertiary)]">
           {channels.length} channel{channels.length === 1 ? '' : 's'} eligible · {selected.size} selected
@@ -2325,6 +2522,20 @@ function WorkspaceTab({
   if (agents.length === 0) return (<div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>);
   return (
     <div className="space-y-4">
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
+          files in each agent's workspace ride along inside the bundle's
+          <code>workspace.tar.gz</code>. Sensitive paths (<code>.env</code>,
+          <code>wallet.json</code>, <code>*.key</code>…) are <em>excluded by default</em>;
+          tick them only if you mean to ship secrets.
+        </p>
+        <p>
+          Non-sensitive files default to included; deselect any document you don't want
+          recipients to see. Agent artifacts referenced by other tabs already travel here,
+          so keep their source files in.
+        </p>
+      </div>
       {agents.map((a) => {
         const loaded = a.agent_id in filesByAgent;
         const files = filesByAgent[a.agent_id] || [];
@@ -2447,7 +2658,10 @@ function ReviewSummaryModal({
     (s: SkillExportSpec) => s.install_method && s.install_method !== 'skip'
   ).length;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center backdrop-blur-sm"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="w-[680px] max-w-[95vw] max-h-[90vh] bg-[var(--bg-primary)] border border-[var(--border-default)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] flex items-center justify-between">
           <h2 className="font-mono text-sm">Final review before download</h2>
@@ -2667,11 +2881,20 @@ function ArtifactsTab({
   };
   return (
     <div className="space-y-3">
-      <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-        Artifacts are pointer rows linking to files in the agent&apos;s workspace.
-        The files themselves always ride along inside <code>workspace.tar.gz</code> — this
-        tab only controls whether the DB row ships. On import, the recipient&apos;s
-        session is unknown so each artifact is auto-pinned and its session_id is cleared.
+      <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
+        <p>
+          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
+          artifact pointer rows ship in the bundle. Artifacts are the "this agent made
+          an HTML page / chart / image / PDF" records you see in the chat preview
+          cards.
+        </p>
+        <p>
+          The <em>files themselves</em> always ride along inside
+          <code>workspace.tar.gz</code> — this tab only controls whether the DB
+          pointer row ships. Unchecking an artifact hides it from the recipient's
+          Settings → Artifacts table but doesn't delete the underlying file. On
+          import each shipped artifact is auto-pinned and its session_id cleared.
+        </p>
       </div>
       <div className="space-y-4">
         {agents.map((a) => {

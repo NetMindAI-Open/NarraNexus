@@ -117,6 +117,7 @@ class NarrativeService:
         max_narratives: Optional[int] = None,
         session: Optional[ConversationSession] = None,
         awareness: Optional[str] = None,
+        is_user_chat: bool = True,
     ) -> NarrativeSelectionResult:
         """
         Select the appropriate Narratives
@@ -134,6 +135,13 @@ class NarrativeService:
             max_narratives: Maximum return count
             session: Session object
             awareness: Agent self-awareness content (optional)
+            is_user_chat: True iff the current run was triggered by a real
+                user chat message. Background triggers (cron jobs, message_bus
+                pings, IM webhooks, callbacks) pass False so the Session's
+                `last_query` / `last_response` / `current_narrative_id` —
+                which feed continuity detection on the *next* user message —
+                stay anchored to the last real user exchange and don't get
+                overwritten by intervening machine traffic.
 
         Returns:
             NarrativeSelectionResult: Contains Narrative list, selection reason, and other complete info
@@ -151,7 +159,12 @@ class NarrativeService:
         # the "everything else" bucket.
         is_continuous = False
         continuity_reason = ""
-        if session and session.last_query:
+        # Run continuity against the last *user-visible* exchange — that is
+        # either the user's previous query OR the agent's last reply the user
+        # is now responding to (a proactive job/heartbeat message anchors only
+        # last_response, with last_query empty). Was `if session.last_query`,
+        # which skipped continuity entirely for proactive-message replies.
+        if session and (session.last_query or session.last_response):
             try:
                 detector = self._get_continuity_detector()
                 if detector:
@@ -261,8 +274,13 @@ class NarrativeService:
             selection_method = retrieval_result.selection_method
             retrieval_method = retrieval_result.retrieval_method
 
-        # Update Session (using main Narrative)
-        if session and narratives:
+        # Update Session (using main Narrative).
+        # Only user-initiated runs (chat) write to last_query / last_response /
+        # current_narrative_id — background trigger runs (job / message_bus /
+        # lark / callback) must leave these fields untouched so the *next*
+        # user message gets its continuity judged against the previous user
+        # exchange, not against whatever cron job or bus ping ran in between.
+        if session and narratives and is_user_chat:
             from datetime import datetime, timezone
             session.last_query = input_content
             session.last_query_embedding = query_embedding

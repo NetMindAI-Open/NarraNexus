@@ -238,6 +238,42 @@ class HookManager:
 
         return callback_results
 
+    async def hook_persist_turn(
+        self,
+        module_list: List[XYZBaseModule],
+        params: HookAfterExecutionParams
+    ) -> None:
+        """
+        Run each Module's synchronous, next-turn-critical persistence hook.
+
+        Unlike `hook_after_event_execution` (dispatched to the background), this
+        is awaited inside the request, before the WebSocket closes — so the
+        conversation row a fast follow-up turn reads is already durable. Modules
+        that don't override `hook_persist_turn` default to a cheap no-op.
+
+        Errors are logged non-fatally: a failed persist hook must not crash the
+        turn (the user already has their answer), but it IS surfaced so the
+        race-fix regressing is visible.
+        """
+        if not module_list:
+            return
+
+        async def persist_one(module: XYZBaseModule) -> None:
+            module_name = module.config.name
+            try:
+                with timed(f"hook.{module_name}.persist_turn", slow_threshold_ms=1000):
+                    await module.hook_persist_turn(params)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"hook_persist_turn failed (non-fatal): {module_name}\n"
+                    f"          Cause: {type(e).__name__}: {e}"
+                )
+
+        await asyncio.gather(
+            *[persist_one(module) for module in module_list],
+            return_exceptions=True
+        )
+
     async def hook_callback_results(
         self,
         hook_callback_results: List[HookCallbackResult],

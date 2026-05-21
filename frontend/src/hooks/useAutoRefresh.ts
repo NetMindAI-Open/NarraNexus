@@ -130,7 +130,7 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
         if (isAgentStreaming(aid)) continue;
 
         try {
-          const response = await api.getSimpleChatHistory(aid, uid, 5);
+          const response = await api.getSimpleChatHistory(aid, 5);
           if (!response.success || response.messages.length === 0) continue;
 
           const latestMsg = response.messages[response.messages.length - 1];

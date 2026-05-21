@@ -12,21 +12,32 @@ export function MockBanner() {
   if (!MOCK_ENABLED) return null;
 
   return (
-    <div
-      className="fixed bottom-3 right-3 z-[60] select-none"
-      style={{ borderRadius: 0 }}
-    >
-      <div className="flex items-center gap-2 bg-[var(--color-ink,_#111214)] text-white px-2.5 py-1.5 border border-[var(--color-ink,_#111214)] shadow-[0_2px_8px_rgba(0,0,0,0.2)]">
+    <div className="fixed bottom-3 right-3 z-[60] select-none">
+      <div
+        className="flex items-center gap-2 px-2.5 py-1.5"
+        style={{
+          background: 'var(--nm-ink)',
+          color: 'var(--nm-paper)',
+          border: '1px solid var(--nm-ink)',
+          borderRadius: 'var(--radius-sm)',
+          boxShadow: 'var(--nm-elev-1)',
+        }}
+      >
         <span
-          className="h-1.5 w-1.5 rounded-full allow-circle bg-[var(--color-yellow-500)] animate-pulse"
+          className="h-1.5 w-1.5 rounded-full allow-circle animate-pulse"
+          style={{ background: 'var(--color-warning)' }}
           aria-hidden
         />
-        <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em]">
+        <span
+          className="text-[10px] uppercase tracking-[0.16em]"
+          style={{ fontFamily: 'var(--font-mono)' }}
+        >
           Mock data
         </span>
         <button
           onClick={() => setMockEnabled(false)}
-          className="ml-1 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-white/60 hover:text-white border-l border-white/20 pl-2 transition-colors"
+          className="ml-1 text-[10px] uppercase tracking-[0.10em] opacity-60 hover:opacity-100 pl-2 transition-opacity"
+          style={{ fontFamily: 'var(--font-mono)', borderLeft: '1px solid rgba(255,255,255,0.2)' }}
           aria-label="Disable mock mode"
           title="Turn off mock mode (reloads page)"
         >

@@ -1,8 +1,53 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-05-13
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — 杀掉 "first user" singleton fallback（彻底治本）
+
+2026-05-13 的修复留了一个口子：local 模式 middleware 在 `X-User-Id` header 缺失时 fallback 到 `get_local_user_id()` 的"users 表第一行"，理由是"老前端 / bootstrap 兼容"。这个口子在多用户下又咬了一次：
+
+**复现路径**：
+1. 在本地装了 `binliang` 帐号（id=1）跑了一段时间，user_slots / user_providers 都配好
+2. 用 `CreateUserDialog` 注册 `binliang3`（id=23），自动跳到 Settings 配 NetMind key + slots
+3. 前端 `ProviderSettings.tsx` 的 `authFetch` 这条专用 fetch path **只发 JWT 不发 X-User-Id**
+4. middleware 进 fallback → `request.state.user_id = "binliang"`
+5. `_get_user_id` 路由 helper 优先信任 middleware（query 参数 `user_id=binliang3` 被忽略）
+6. NetMind API key + 三个 slot 全部写到 `binliang` 名下
+7. binliang3 跑 agent → resolver 查不到 binliang3 的 slot → `LLMConfigNotConfigured`
+8. 用户视角："我明明配好了为什么不能用？"
+
+**修法（彻底，铁律 #5 治本不治标）**：
+- 移除 `get_local_user_id()`，改名 `ensure_local_default_user()` 只供 OS-side bootstrap 用，docstring 明禁 request-scoped 调用
+- `auth_middleware` local 模式：无 X-User-Id 时**直接 401**（除 `AUTH_EXEMPT_PATHS` / `AUTH_EXEMPT_PREFIXES` 之外）。不再静默 fallback
+- 前端 `ProviderSettings.tsx` 的 `authFetch` 改为同时发 JWT 和 X-User-Id（和 `api.ts` ApiClient 的 `getAuthHeaders` 对齐）
+- `backend/routes/providers.py` 的 `_get_user_id` 移除 query 参数 `user_id` 这条 backup 通道——身份只能来自 middleware 设置的 `request.state.user_id`，URL 不再是 identity channel
+- 所有 `/api/providers*` endpoint 删掉 `user_id: Optional[str] = Query(None)` 参数；前端相应去掉 `?user_id=...` 拼接
+
+**为什么不留兼容层**：铁律 #2（不做向后兼容）。query 参数 user_id 这个 channel 本身就是 IDOR 漏洞——客户端可以拼 `?user_id=alice` 当 bob 登录时，把 alice 的数据写花。把这个 channel 彻底关掉比留 deprecation 路径更安全。
+
+**已经落库的脏数据**：2026-05-18 03:57-03:58 之间 binliang3 的 NetMind key 落到 binliang 名下的两个 row（prov_d834ade2, prov_8f62e683） + 三个 slot row。debug branch 修完代码后用 SQL 删除，让 binliang3 重新走干净的 setup 流程。这次不写自动迁移——双用户场景下你不能确定哪条是"误写"，必须人工判断。
+
+## 2026-05-15 — invite 路由改成 server-to-server
+
+公开的 `/api/invite/request` 已废弃(架构 pivot:申请 UI + 发邮件移到
+`narranexus-website`)。NarraNexus 现在只暴露 server-to-server 的
+`POST /api/invite/internal/issue`,调用方是 website backend。
+
+`AUTH_EXEMPT_PATHS` 相应:
+- 移除 `/api/invite/request`
+- 新增 `/api/invite/internal/issue`(它在路由 handler 内部用
+  `X-Internal-Secret` header 校验,匹配 env `INTERNAL_INVITE_SECRET`——
+  不走 JWT)
+
+admin 侧 `/api/admin/invite/*` 仍需 staff JWT,不变。
+
+## 2026-05-14 — 删除全局 INVITE_CODE 常量
+
+`INVITE_CODE` 全局环境变量常量**已删除**。注册门禁改为 per-code 的 DB
+机制(`invite_codes` 表 + `InviteCodeRepository`)。`routes/auth.py::register()`
+不再 import / 比对它。
 
 ## 2026-05-13 — Local 模式多用户支持（X-User-Id header）
 
@@ -70,13 +115,13 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 - **被谁用**：
   - `backend/main.py` — 注册 `auth_middleware` 作为全局 HTTP 中间件
-  - `backend/routes/auth.py` — 调用 `hash_password`, `verify_password`, `create_token`, `_is_cloud_mode`, `INVITE_CODE`
+  - `backend/routes/auth.py` — 调用 `hash_password`, `verify_password`, `create_token`, `_is_cloud_mode`
   - `backend/routes/websocket.py` — 调用 `_is_cloud_mode`, `decode_token`（WebSocket 无法用 HTTP 头传 token，所以 WS 端自己验证）
   - `backend/routes/providers.py` — 通过 `request.state.user_id` 读取中间件注入的用户信息
 - **依赖谁**：
   - `bcrypt` — 密码哈希
   - `PyJWT`（`jwt`）— token 生成和验证
-  - 运行时读取 `DATABASE_URL`（或 fallback 到 `DB_HOST`）、`JWT_SECRET`、`INVITE_CODE` 环境变量
+  - 运行时读取 `DATABASE_URL`（或 fallback 到 `DB_HOST`）、`JWT_SECRET` 环境变量
 
 ## 设计决策
 
@@ -99,7 +144,6 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 ## Gotcha / 边界情况
 
 - **JWT_SECRET 的默认值**：默认值是 `"dev-secret-do-not-use-in-production"`。云部署时如果忘记设置 `JWT_SECRET` 环境变量，应用正常启动并签发 token，但任何知道这个默认值的人都可以伪造合法 token。没有启动时的校验或警告。
-- **INVITE_CODE 的默认值**：`"narranexus2026"`，同样没有强制要求在生产环境中覆盖。
 - **token 有效期 7 天**：`JWT_EXPIRY_DAYS = 7`，没有 refresh token 机制。7 天后用户必须重新登录，前端会看到 401 并需要处理重定向到登录页。
 - **`CurrentUser` 依赖在 local 模式下返回 None**：`get_current_user` 在 local 模式下返回 `None`，如果有路由用了 `Depends(get_current_user)` 并假设返回值非 None，local 模式下会 `AttributeError`。目前鉴权主要走中间件，这个函数几乎没被路由使用。
 

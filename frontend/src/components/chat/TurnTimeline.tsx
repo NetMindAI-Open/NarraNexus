@@ -24,7 +24,7 @@
  *     args/output live in the right-side Execution panel.
  *
  * Solid-vs-dashed left rule is the at-a-glance tier signal; colour +
- * size rank within a tier. (2026-05-12 review with Xiong established
+ * size rank within a tier. (2026-05-12 review with an operator established
  * the chronological-blocks model; 2026-05-14 reworked the styling into
  * these tiers after thinking and native_output proved hard to tell
  * apart — the earlier "make thinking dimmer" pass was a no-op because
@@ -87,22 +87,27 @@ const ThinkingBlock = memo(function ThinkingBlock({
   // pre-wrap text; once the turn settles (isStreaming=false, also the
   // path used by historical timelines) we switch to Markdown so
   // headings / bullets / code render properly.
+  // NM tier: PROCESS — recedes into ink-50 dim. The dashed border-left
+  // stays at the *row level* (drawn against the shared turn rail by the
+  // outer wrapper); inside the block we paint nothing on the left.
   return (
     <div
       className={cn(
-        'message-assistant px-4 py-3',
-        'border-l-4 border-dashed border-[var(--text-tertiary)]',
-        'text-[var(--text-tertiary)]',
+        'pl-4 py-2',
         isStreaming && 'animate-fade-in',
       )}
+      style={{ color: 'var(--nm-ink50)' }}
     >
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)] mb-2">
+      <div
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] mb-2"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
+      >
         <Brain className="w-3 h-3" />
         <span>Thinking</span>
       </div>
       <div className="text-sm leading-relaxed">
         {isStreaming ? (
-          <div className="whitespace-pre-wrap">{content}</div>
+          <div className="whitespace-pre-wrap" style={{ color: 'var(--nm-ink50)' }}>{content}</div>
         ) : (
           <Markdown content={content} className="markdown-dim" />
         )}
@@ -142,28 +147,48 @@ const ToolCallBlock = memo(function ToolCallBlock({
     ? argsJson.slice(0, TOOL_ARGS_PREVIEW_CHAR_LIMIT) + '…'
     : argsJson;
 
+  // NM: bracket-tagged [ tool ] label + mono args; SunkenWell-feeling
+  // body via paper-warm bg + hairline + radius-sm.
   return (
     <div
       className={cn(
-        'flex items-start gap-2 text-xs font-mono text-[var(--text-secondary)]',
-        'px-3 py-1.5 rounded-md bg-[var(--bg-tertiary)]/40 border border-[var(--border-subtle)]',
+        'flex items-start gap-2 text-xs px-3 py-1.5 rounded-[var(--radius-sm)]',
         isStreaming && 'animate-fade-in',
       )}
+      style={{
+        background: 'var(--nm-paper-warm)',
+        border: '1px solid var(--nm-hairline)',
+        color: 'var(--nm-ink70)',
+        fontFamily: 'var(--font-mono)',
+      }}
     >
-      <Wrench className="w-3.5 h-3.5 mt-0.5 text-[var(--accent-primary)] shrink-0" />
+      <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0" style={{ color: 'var(--nm-ink50)' }} />
       <div className="min-w-0 flex-1">
         <button
           onClick={() => setExpanded((p) => !p)}
-          className="flex items-center gap-1 w-full text-left"
+          className="flex items-center gap-1.5 w-full text-left"
         >
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-          <span className="font-semibold text-[var(--text-primary)]">{friendlyName}</span>
+          <span
+            className="text-[10px] uppercase tracking-[0.12em] shrink-0"
+            style={{ color: 'var(--nm-ink30)' }}
+          >
+            [ tool ]
+          </span>
+          <span className="font-semibold" style={{ color: 'var(--nm-ink)' }}>
+            {friendlyName}
+          </span>
           {!expanded && argsPreview && (
-            <span className="ml-2 truncate text-[var(--text-tertiary)]">{argsPreview}</span>
+            <span className="ml-2 truncate" style={{ color: 'var(--nm-ink50)' }}>
+              {argsPreview}
+            </span>
           )}
         </button>
         {expanded && (
-          <pre className="mt-1.5 text-[10px] whitespace-pre-wrap break-all text-[var(--text-tertiary)]">
+          <pre
+            className="mt-1.5 text-[10px] whitespace-pre-wrap break-all"
+            style={{ color: 'var(--nm-ink50)' }}
+          >
             {argsJson}
           </pre>
         )}
@@ -185,24 +210,27 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
   return (
     <div
       className={cn(
-        'pl-3 text-[10px] font-mono text-[var(--text-tertiary)]',
+        'pl-4 text-[10px]',
         isStreaming && 'animate-fade-in',
       )}
+      style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
     >
       <button
         onClick={() => setExpanded((p) => !p)}
-        className="flex items-center gap-1"
+        className="flex items-center gap-1.5"
       >
         {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        <span>output · {toolName.split('__').pop()}</span>
+        <span style={{ color: 'var(--nm-ink30)' }} className="uppercase tracking-[0.12em]">
+          [ output ]
+        </span>
+        <span>{toolName.split('__').pop()}</span>
       </button>
       {expanded && (
-        // No max-h / overflow — we deliberately want a single scroll
-        // surface (the parent message list). A bounded inner box here
-        // makes the user "double-scroll": once for the page, once for
-        // each tool output. Long outputs just push the rest of the
-        // turn down; the user can collapse the block to recover space.
-        <pre className="mt-1 whitespace-pre-wrap break-all">
+        // No max-h / overflow — single parent scroll surface only.
+        <pre
+          className="mt-1 whitespace-pre-wrap break-all"
+          style={{ color: 'var(--nm-ink70)' }}
+        >
           {output}
         </pre>
       )}
@@ -226,28 +254,50 @@ const ReplyBlock = memo(function ReplyBlock({
   // default. The size bump comes from the `markdown-reply` variant class
   // (index.css) — styling the container can't enlarge Markdown content
   // because `.markdown-content` sets an explicit font-size.
+  // NM tier: ANSWER (peak). Reply is the agent's authoritative reply —
+  // the user should land on it first. Rendered as a paper-warm bubble
+  // with a Silicon-colored bracket-edge top-left and slightly larger
+  // body (markdown-reply variant). No accent-fill or thick left rule —
+  // those broke the species-color discipline (Axiom #1 says accent
+  // can't double as "this is a reply").
   return (
     <div
       className={cn(
-        'message-assistant px-4 py-3',
-        'border-l-[6px] border-[var(--accent-primary)]',
-        'bg-[var(--accent-primary)]/5',
+        'relative px-4 py-3 rounded-[var(--radius-lg)]',
         isStreaming && 'animate-fade-in',
       )}
+      style={{
+        background: 'var(--nm-paper-warm)',
+        border: '1px solid var(--nm-hairline)',
+        color: 'var(--nm-ink)',
+      }}
     >
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--accent-primary)] mb-2">
+      {/* Silicon bracket-edge tl — species marker for "AI reply" */}
+      <span
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          top: -1,
+          left: -1,
+          width: 10,
+          height: 10,
+          borderTop: '1.5px solid var(--color-silicon)',
+          borderLeft: '1.5px solid var(--color-silicon)',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] mb-2"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-silicon)' }}
+      >
         <MessageSquare className="w-3 h-3" />
         <span>Reply</span>
         {isFallback && (
-          <span className="ml-auto text-[var(--color-yellow-500)]">
+          <span className="ml-auto" style={{ color: 'var(--color-warning)' }}>
             ↻ helper_llm fallback
           </span>
         )}
       </div>
-      {/* Streaming path renders plain pre-wrap text (the <Markdown>
-          re-parse cost per delta tanks input latency on long replies —
-          2026-05-12 catch); the settled path switches to <Markdown> with
-          the `markdown-reply` size variant. */}
       <div className="leading-relaxed">
         {isStreaming ? (
           <div className="whitespace-pre-wrap text-[1.05rem]">{content}</div>
@@ -277,15 +327,39 @@ const NativeOutputBlock = memo(function NativeOutputBlock({
   // native_output never goes through <Markdown> (always plain pre-wrap),
   // so the body colour is governed directly — full strength via
   // `.message-assistant`'s text-primary, no dimming.
+  // NM tier: ANSWER (secondary). native_output is speech meant for the
+  // user but not routed through send_message_to_user_directly. Same
+  // visual family as Reply (paper-warm + silicon edge) but the label
+  // reads [ NATIVE ] in ink-70 instead of silicon-colored.
   return (
     <div
       className={cn(
-        'message-assistant px-4 py-3',
-        'border-l-4 border-[var(--text-secondary)]',
+        'relative px-4 py-3 rounded-[var(--radius-lg)]',
         isStreaming && 'animate-fade-in',
       )}
+      style={{
+        background: 'var(--nm-paper-warm)',
+        border: '1px solid var(--nm-hairline)',
+        color: 'var(--nm-ink)',
+      }}
     >
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-secondary)] mb-1.5">
+      <span
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          top: -1,
+          left: -1,
+          width: 10,
+          height: 10,
+          borderTop: '1.5px solid var(--color-silicon)',
+          borderLeft: '1.5px solid var(--color-silicon)',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] mb-1.5"
+        style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink70)' }}
+      >
         <MessageSquare className="w-3 h-3" />
         <span>Native output</span>
       </div>
@@ -297,8 +371,16 @@ const NativeOutputBlock = memo(function NativeOutputBlock({
 export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps) {
   if (events.length === 0) return null;
 
+  // NM "one turn = one shared rail" rule: every sub-block (thinking /
+  // tool / output / reply / native) sits under a single 1px ink-30
+  // vertical line on the left, marking the whole stack as one turn.
   return (
-    <div className="space-y-3">
+    <div
+      className="space-y-3 relative pl-3"
+      style={{
+        borderLeft: '1px solid var(--nm-ink30)',
+      }}
+    >
       {events.map((event) => {
         switch (event.type) {
           case 'thinking':

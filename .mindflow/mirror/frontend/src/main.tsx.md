@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-18
 stub: false
 ---
 
@@ -21,6 +21,8 @@ Entry point for the Vite bundler. Renders `App.tsx` as the root component.
 **`BrowserRouter` (not `HashRouter`).** The app uses clean paths (`/login`, `/app/chat`). This requires the server to serve `index.html` for all paths — handled by Vite's dev server and Nginx in production. Hash-based routing would have worked but is less clean.
 
 **`StrictMode` is on in development.** React's StrictMode mounts components twice and may surface issues with effects that run more than once. This is intentional — catching bugs early. The known side effect is `wsManager.run` being invoked twice during dev; `wsManager.close` on the second call handles this cleanly.
+
+**NM ECharts theme registration.** Side-effect import `./lib/echarts-nm-theme` runs `registerNMEChartsTheme()` at startup, registering the `nm-light` and `nm-dark` ECharts themes before any chart component mounts. Placed between `./index.css` and `App.tsx` so the visual baseline (CSS) loads first, then the chart theme, then the React tree — ensuring no chart can render before its theme is available.
 
 ## Gotchas
 

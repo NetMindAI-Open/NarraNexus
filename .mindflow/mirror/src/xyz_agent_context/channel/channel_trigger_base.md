@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-21
 ---
 
 ## Why it exists
@@ -52,6 +52,20 @@ principle (see ``.mindflow/project/references/architecture.md``).
   silently dies (cancellation leak, async-for oddity) would otherwise
   keep ``_adjust_workers`` from spawning a replacement, leaving the
   queue to grow unbounded. Lark's H-4 fix preserved here.
+- **Credential cache is refreshed every poll, not just on subscriber
+  start.** The credential is a DB snapshot whose ``permission_state`` /
+  ``auth_status`` change mid-session — most importantly when the owner
+  completes the three-click user authorization, which is what flips
+  ``LarkCredential.user_oauth_ok()`` and lets ``resolve_sender_name``
+  read names via the user token. The transport (``connect``) captures
+  its credential once and the long-lived stream never re-reads it, so
+  ``_credential_watcher`` overwrites ``_subscriber_creds[key]`` with the
+  fresh DB snapshot on every poll, and ``_worker`` re-resolves the
+  credential from that cache at dequeue time. Net effect: a mid-session
+  auth completion (or any credential change) takes effect on the next
+  message without restarting the subscriber or dropping the connection.
+  Found on EC2: every Lark sender stayed "Unknown" because the running
+  subscriber was started before the owner finished authorizing.
 
 ## Upstream / downstream
 

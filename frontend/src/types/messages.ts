@@ -191,7 +191,7 @@ export interface ConversationRound {
  * during streaming. Built up from the raw websocket frames by
  * chatStore.processMessage and consumed by <TurnTimeline>.
  *
- * Design (see 2026-05-12 review with Xiong):
+ * Design (see 2026-05-12 review with an operator):
  * - thinking / tool_call / tool_output / reply / native_output are the
  *   only visible block types. Other progress frames (step markers like
  *   3.5, 4, 5) are framework plumbing and don't appear in the timeline.

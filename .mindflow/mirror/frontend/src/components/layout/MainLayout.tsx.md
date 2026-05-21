@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — onboarding checklist above the chat
+
+The chat-column card became a `flex flex-col` hosting `<OnboardingChecklist/>`
+on top + `<ChatPanel/>` in a `flex-1 min-h-0` wrapper. The checklist is
+cloud-only and self-hiding (renders null when not applicable / dismissed),
+so when it's absent the layout is byte-identical to before — ChatPanel
+just fills the column. The `min-h-0` wrapper is required so ChatPanel's
+`h-full` still resolves once a sibling is above it.
 
 ## 2026-05-14 — User-resizable chat ↔ artifacts split
 

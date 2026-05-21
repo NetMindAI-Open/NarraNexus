@@ -127,7 +127,7 @@ async def test_hook_after_event_persists_final_output_to_meta_reasoning(
         final_output=reasoning_text,
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_reasoning_instance"
@@ -158,7 +158,7 @@ async def test_long_reasoning_is_preserved_full_on_persist(chat_module):
         final_output=long_reasoning,
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_reasoning_instance"
@@ -184,7 +184,7 @@ async def test_empty_final_output_does_not_pollute_meta(chat_module):
         final_output="",
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_reasoning_instance"

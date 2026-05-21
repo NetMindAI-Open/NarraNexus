@@ -32,6 +32,86 @@ if TYPE_CHECKING:
     from xyz_agent_context.module import HookManager
 
 
+def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
+    """
+    Build the HookAfterExecutionParams for a completed turn.
+
+    Shared by the synchronous persistence phase (`hook_persist_turn`, run by
+    agent_runtime right after Step 4) and the background phase (Step 5 below),
+    so the current-instance resolution lives in exactly one place. Read-only over
+    ctx; resolves the "current instance" (the ChatModule/JobModule whose hooks
+    care about this turn) from ctx.active_instances by working_source.
+    """
+    execution_result = ctx.execution_result
+
+    current_instance = None
+    current_narrative = ctx.main_narrative
+    active_instances = ctx.active_instances
+
+    if active_instances:
+        if ctx.working_source == WorkingSource.CHAT:
+            user_chat_id = None
+            if current_narrative and hasattr(ctx, 'user_chat_instances'):
+                user_chat_id = ctx.user_chat_instances.get(current_narrative.id)
+
+            if user_chat_id:
+                for instance in active_instances:
+                    if instance.instance_id == user_chat_id:
+                        current_instance = instance
+                        logger.info(f"  → Current instance: {instance.instance_id} (user_chat)")
+                        break
+            else:
+                for instance in active_instances:
+                    if instance.module_class == "ChatModule":
+                        current_instance = instance
+                        logger.info(f"  → Current instance: {instance.instance_id} (chat_fallback)")
+                        break
+        elif ctx.working_source == WorkingSource.JOB:
+            job_instance_id = ctx.job_instance_id or (
+                execution_result.ctx_data.extra_data.get("instance_id")
+                if execution_result.ctx_data and execution_result.ctx_data.extra_data
+                else None
+            )
+            if job_instance_id:
+                for instance in active_instances:
+                    if instance.instance_id == job_instance_id:
+                        current_instance = instance
+                        logger.info(f"  → Current instance: {instance.instance_id} (job)")
+                        break
+
+    if current_instance:
+        status_value = (
+            current_instance.status.value
+            if hasattr(current_instance.status, 'value')
+            else current_instance.status
+        )
+        logger.info(f"  ✓ Instance found: {current_instance.instance_id}, status={status_value}")
+    else:
+        logger.warning(f"No instance found for working_source={ctx.working_source}")
+
+    return HookAfterExecutionParams(
+        execution_ctx=HookExecutionContext(
+            event_id=ctx.event.id,
+            agent_id=ctx.agent_id,
+            user_id=ctx.user_id,
+            working_source=ctx.working_source,
+        ),
+        io_data=HookIOData(
+            input_content=ctx.input_content,
+            final_output=execution_result.final_output,
+        ),
+        trace=HookExecutionTrace(
+            event_log=ctx.event_log_entries,
+            agent_loop_response=execution_result.agent_loop_response,
+        ),
+        ctx_data=execution_result.ctx_data,
+        instance=current_instance,
+        # Narrative-related (for MemoryModule writing to EverMemOS)
+        event=ctx.event,
+        narrative=current_narrative,
+    )
+
+
 @timed("step.5_execute_hooks")
 
 async def step_5_execute_hooks(
@@ -63,82 +143,9 @@ async def step_5_execute_hooks(
         substeps=ctx.substeps_5
     )
 
-    execution_result = ctx.execution_result
-
-    # Determine the currently executing instance (for state checking)
-    # Refactored: get from ctx.active_instances (from load_result, not narrative JSON)
-    current_instance = None
-    current_narrative = ctx.main_narrative
-    active_instances = ctx.active_instances  # From load_result.active_instances
-
-    if active_instances:
-        if ctx.working_source == WorkingSource.CHAT:
-            # CHAT trigger: get the current user's ChatModule instance from ctx.user_chat_instances
-            # 2026-01-21 P1-1: no longer using main_chat_instance_id, each user has an independent ChatModule instance
-            user_chat_id = None
-            if current_narrative and hasattr(ctx, 'user_chat_instances'):
-                user_chat_id = ctx.user_chat_instances.get(current_narrative.id)
-
-            if user_chat_id:
-                for instance in active_instances:
-                    if instance.instance_id == user_chat_id:
-                        current_instance = instance
-                        logger.info(f"  → Current instance: {instance.instance_id} (user_chat)")
-                        break
-            else:
-                # Fallback: try to find the current user's ChatModule in active_instances
-                for instance in active_instances:
-                    if instance.module_class == "ChatModule":
-                        current_instance = instance
-                        logger.info(f"  → Current instance: {instance.instance_id} (chat_fallback)")
-                        break
-        elif ctx.working_source == WorkingSource.JOB:
-            # JOB trigger: prefer ctx.job_instance_id (passed in by JobTrigger)
-            # Fall back to ctx_data.extra_data (backward compatibility)
-            job_instance_id = ctx.job_instance_id or (
-                execution_result.ctx_data.extra_data.get("instance_id")
-                if execution_result.ctx_data and execution_result.ctx_data.extra_data
-                else None
-            )
-            if job_instance_id:
-                for instance in active_instances:
-                    if instance.instance_id == job_instance_id:
-                        current_instance = instance
-                        logger.info(f"  → Current instance: {instance.instance_id} (job)")
-                        break
-
-    if current_instance:
-        status_value = (
-            current_instance.status.value
-            if hasattr(current_instance.status, 'value')
-            else current_instance.status
-        )
-        logger.info(f"  ✓ Instance found: {current_instance.instance_id}, status={status_value}")
-    else:
-        logger.warning(f"No instance found for working_source={ctx.working_source}")
-
-    # Build structured Hook parameters
-    hook_params = HookAfterExecutionParams(
-        execution_ctx=HookExecutionContext(
-            event_id=ctx.event.id,
-            agent_id=ctx.agent_id,
-            user_id=ctx.user_id,
-            working_source=ctx.working_source,
-        ),
-        io_data=HookIOData(
-            input_content=ctx.input_content,
-            final_output=execution_result.final_output,
-        ),
-        trace=HookExecutionTrace(
-            event_log=ctx.event_log_entries,
-            agent_loop_response=execution_result.agent_loop_response,
-        ),
-        ctx_data=execution_result.ctx_data,
-        instance=current_instance,
-        # Narrative-related (for MemoryModule writing to EverMemOS)
-        event=ctx.event,
-        narrative=current_narrative,
-    )
+    # Build structured Hook parameters (shared with the synchronous
+    # hook_persist_turn phase — see build_after_execution_params above).
+    hook_params = build_after_execution_params(ctx)
 
     # Get information about hooks to be executed
     hooks_to_execute = []

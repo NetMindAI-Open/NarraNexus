@@ -1,62 +1,69 @@
 /**
- * @file_name: ModeSelectPage.tsx
- * @author: NexusAgent
- * @date: 2026-04-02
- * @description: First-launch mode selection page
+ * ModeSelectPage · NM Design System (M3 Wave 6)
  *
- * Displays two large cards for choosing between Local Mode and Cloud Mode.
- * Cloud mode prompts for API URL before proceeding.
+ * First-launch mode selection page. Two PaperCards for Local vs Cloud,
+ * with NM BracketMarkLogo brand header and species-colored hover accents.
  */
 
 import { useNavigate } from 'react-router-dom';
 import { Monitor, Cloud } from 'lucide-react';
-import { useTheme } from '@/hooks';
 import { useRuntimeStore } from '@/stores/runtimeStore';
+import { useTheme } from '@/hooks';
 import { cn } from '@/lib/utils';
+import { PaperCard } from '@/components/nm';
 
 // Hardcoded cloud endpoint for locally-built clients (Tauri desktop, dev).
-// Docker-deployed cloud-web builds inject their own URL via /config.js at
-// container start, which takes precedence in getApiBaseUrl().
 const DEFAULT_CLOUD_URL = 'https://agent.narra.nexus/';
 
 interface ModeCardProps {
   icon: React.ReactNode;
   title: string;
   description: string;
-  selected?: boolean;
+  /** Species tint applied to icon ring + hover edge */
+  species: 'carbon' | 'silicon';
   onClick: () => void;
 }
 
-function ModeCard({ icon, title, description, selected, onClick }: ModeCardProps) {
+function ModeCard({ icon, title, description, species, onClick }: ModeCardProps) {
+  const ringColor = species === 'carbon' ? 'var(--color-carbon)' : 'var(--color-silicon)';
   return (
     <button
       onClick={onClick}
       className={cn(
-        'group relative flex flex-col items-center gap-5 p-10 rounded-2xl',
-        'bg-[var(--bg-secondary)] border',
-        'hover:border-[var(--accent-primary)] hover:shadow-[0_0_30px_var(--accent-glow)]',
-        'transition-all duration-300 cursor-pointer',
-        'w-80',
-        selected
-          ? 'border-[var(--accent-primary)] shadow-[0_0_30px_var(--accent-glow)]'
-          : 'border-[var(--border-default)]',
+        'group relative flex flex-col items-center gap-5 p-10',
+        'w-80 transition-all duration-200',
       )}
     >
-      <div className="absolute inset-0 rounded-2xl bg-[var(--accent-primary)] opacity-0 group-hover:opacity-5 transition-opacity duration-300" />
+      <PaperCard
+        padding="lg"
+        className="w-full h-full flex flex-col items-center gap-5 hover:bg-[color:var(--nm-raised)] transition-colors"
+        style={{
+          borderColor: 'var(--nm-hairline)',
+        }}
+      >
+        {/* Ring around icon — species-colored */}
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center transition-colors"
+          style={{
+            border: `2px solid ${ringColor}`,
+            color: 'var(--nm-ink)',
+          }}
+        >
+          {icon}
+        </div>
 
-      <div className="relative w-16 h-16 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)]">
-        {icon}
-        <div className="absolute -inset-1 rounded-2xl bg-[var(--accent-primary)] opacity-20 blur-md -z-10" />
-      </div>
-
-      <div className="text-center space-y-2">
-        <h3 className="text-lg font-semibold text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
-          {title}
-        </h3>
-        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-          {description}
-        </p>
-      </div>
+        <div className="text-center space-y-2">
+          <h3
+            className="text-lg font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            {title}
+          </h3>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--nm-ink70)' }}>
+            {description}
+          </p>
+        </div>
+      </PaperCard>
     </button>
   );
 }
@@ -71,7 +78,6 @@ export function ModeSelectPage() {
     navigate('/login');
   };
 
-  // Cloud: URL is fixed (see DEFAULT_CLOUD_URL above). No manual input.
   const handleCloudSelect = () => {
     setCloudApiUrl(DEFAULT_CLOUD_URL.replace(/\/+$/, ''));
     setMode('cloud-app');
@@ -79,34 +85,44 @@ export function ModeSelectPage() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col items-center justify-center bg-[var(--bg-deep)] gap-12">
-      {/* Title */}
-      <div className="text-center space-y-3 animate-fade-in">
-        <div className="flex items-center justify-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)] overflow-hidden">
-            <img src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'} alt="NarraNexus" className="w-7 h-7 object-contain" />
-          </div>
-        </div>
-        <h1 className="text-3xl font-bold text-[var(--text-primary)] font-[family-name:var(--font-display)] tracking-tight">
-          Welcome to <span className="text-[var(--accent-primary)]">NarraNexus</span>
+    <div
+      className="h-screen w-screen flex flex-col items-center justify-center gap-12"
+      style={{ background: 'var(--nm-paper)' }}
+    >
+      {/* Brand header — original logo preserved */}
+      <div className="flex flex-col items-center gap-4 animate-fade-in">
+        <img
+          src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+          alt="NarraNexus"
+          className="h-20 w-auto object-contain"
+        />
+        <h1
+          className="text-3xl font-bold tracking-tight"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
+          Welcome
         </h1>
-        <p className="text-sm text-[var(--text-secondary)]">
-          Choose how you want to run the platform
-        </p>
+        <div
+          className="text-[10px] uppercase tracking-[0.22em]"
+          style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
+        >
+          Choose your runtime
+        </div>
       </div>
 
-      {/* Mode cards */}
       <div className="flex gap-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
         <ModeCard
-          icon={<Monitor className="w-7 h-7 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />}
+          icon={<Monitor className="w-7 h-7" style={{ color: 'var(--color-carbon)' }} />}
           title="Local Mode"
           description="Everything runs on your machine. Your data stays local. Offline capable."
+          species="carbon"
           onClick={handleLocal}
         />
         <ModeCard
-          icon={<Cloud className="w-7 h-7 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />}
+          icon={<Cloud className="w-7 h-7" style={{ color: 'var(--color-silicon)' }} />}
           title="Cloud Mode"
           description="Connect to the managed NetMind.AI cloud. Access from any device."
+          species="silicon"
           onClick={handleCloudSelect}
         />
       </div>

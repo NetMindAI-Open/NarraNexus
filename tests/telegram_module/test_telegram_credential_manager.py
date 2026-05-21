@@ -234,13 +234,13 @@ async def test_bind_with_owner_username_resolves_user_id(
     res = await mgr.bind("agent_a", "123456789:AAH-tok-XXXXXXXXXXXXXXXXX", owner_username="@bin_liang")
     assert res["success"] is True
     assert res["data"]["owner_user_id"] == "555"
-    assert res["data"]["owner_name"] == "Bin Liang"
+    assert res["data"]["owner_name"] == "Demo Owner"
 
     cred = await mgr.get("agent_a")
     assert cred is not None
     assert cred.owner_username == "bin_liang"
     assert cred.owner_user_id == "555"
-    assert cred.owner_name == "Bin Liang"
+    assert cred.owner_name == "Demo Owner"
 
 
 @pytest.mark.asyncio

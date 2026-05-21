@@ -24,17 +24,27 @@ const base = (agentId: string) => `/api/agents/${agentId}/artifacts`;
 const userBase = (userId: string) => `/api/users/${userId}/artifacts`;
 
 export function authHeaders(): Record<string, string> {
+  // Mirror the app-wide ApiClient.getAuthHeaders(): send BOTH identity headers.
+  //   - Authorization: Bearer <jwt>  — trusted in cloud mode
+  //   - X-User-Id: <user_id>         — required in local mode (the local
+  //     auth middleware 401s any /api request that omits it)
+  // The backend decides which to trust per deployment mode; cloud ignores
+  // X-User-Id entirely, so sending it is safe in production. Without it,
+  // artifact list/detail/view-token requests 401'd in local mode.
+  const headers: Record<string, string> = {};
   try {
     const raw = localStorage.getItem('narra-nexus-config');
     if (raw) {
       const cfg = JSON.parse(raw);
       const token = cfg?.state?.token;
-      if (token) return { Authorization: `Bearer ${token}` };
+      const userId = cfg?.state?.userId;
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (userId) headers['X-User-Id'] = userId;
     }
   } catch {
     /* localStorage may be unavailable / disabled — fall through */
   }
-  return {};
+  return headers;
 }
 
 /**
@@ -60,14 +70,6 @@ export async function fetchArtifactText(url: string): Promise<string> {
   return r.text();
 }
 
-export interface ArtifactQuotaInfo {
-  used_count: number;
-  count_limit: number;
-  used_bytes: number;
-  bytes_limit: number;
-  is_cloud_mode: boolean;
-}
-
 export interface BulkDeleteResult {
   deleted: number;
   skipped_not_owned: string[];
@@ -85,6 +87,19 @@ export interface RegisterFromWorkspaceParams {
   title: string;
   description?: string;
   target_artifact_id?: string;
+}
+
+export interface HealCandidate {
+  workspace_path: string;
+  size_bytes: number;
+  mtime: number;
+}
+
+export interface HealResponse {
+  recovered: boolean;
+  artifact: Artifact | null;
+  candidates: HealCandidate[];
+  message: string;
 }
 
 export const artifactsApi = {
@@ -133,6 +148,29 @@ export const artifactsApi = {
   },
 
   /**
+   * Try to recover an artifact whose `/raw/` returned 410 (file_path is
+   * null in the DB or the file is missing on disk).
+   *
+   * Omit `entryPath` → server runs the workspace-scan heuristic and either
+   * auto-registers (single match) or returns a list of candidates the
+   * user can pick from. Pass `entryPath` → server re-registers onto the
+   * caller-chosen path (the "user picked from the modal" flow).
+   */
+  async heal(
+    agentId: string,
+    artifactId: string,
+    entryPath?: string,
+  ): Promise<HealResponse> {
+    const r = await fetch(`${base(agentId)}/${artifactId}/heal`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ entry_path: entryPath ?? null }),
+    });
+    if (!r.ok) throw new Error(`heal failed: ${r.status}`);
+    return r.json();
+  },
+
+  /**
    * Delete an artifact's registry row. The agent's workspace files are NEVER
    * touched — the user cleans those up via the workspace section if they
    * want. This pointer-only deletion replaced the previous `delete_source`
@@ -177,12 +215,6 @@ export const artifactsApi = {
   async listAll(userId: string): Promise<Artifact[]> {
     const r = await fetch(userBase(userId), { headers: authHeaders() });
     if (!r.ok) throw new Error(`listAll failed: ${r.status}`);
-    return r.json();
-  },
-
-  async getQuota(userId: string): Promise<ArtifactQuotaInfo> {
-    const r = await fetch(`${userBase(userId)}/quota`, { headers: authHeaders() });
-    if (!r.ok) throw new Error(`getQuota failed: ${r.status}`);
     return r.json();
   },
 

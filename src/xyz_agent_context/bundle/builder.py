@@ -78,6 +78,68 @@ STRIPPED_TABLES = {
 }
 
 
+def _scrub_narrative_chat_content(narrative_row: Dict[str, Any]) -> Dict[str, Any]:
+    """Strip chat-derived content from a narratives row.
+
+    Called when ``include_chat_history=False``. The narrative skeleton
+    (id / type / agent_id / actors / name / instance refs / timestamps)
+    stays so that jobs and instance_narrative_links keep resolving on
+    import, but every column that carries past-conversation content is
+    reset to its empty default.
+
+    Background: until 2026-05-18 the "Include chat history" toggle in
+    the bundle export UI gated events.jsonl and agent_messages.jsonl
+    but not narrative.json. Real-world narrative_info blobs already
+    contain verbatim recent-N message transcripts (via the agent's
+    framing-prompt copy of the Matrix conversation history), so a
+    bundle exported with chat history "disabled" still leaked the most
+    recent rounds of dialogue. Same for dynamic_summary / topic_hint /
+    topic_keywords — all distilled from past conversation by the LLM
+    during NarrativeService.update_narrative. routing_embedding is the
+    vector of that content; not human-readable but extractable.
+
+    Fields scrubbed inside ``narrative_info`` (JSON string column):
+      - ``description`` and ``current_summary`` → ""
+      - ``name`` and ``actors`` preserved (non-chat metadata)
+
+    Standalone columns scrubbed:
+      - ``dynamic_summary``  →  "[]"
+      - ``topic_keywords``   →  "[]"
+      - ``topic_hint``       →  ""
+      - ``routing_embedding`` →  None
+      - ``event_ids``        →  "[]"  (events themselves aren't exported,
+                                       so leaving dangling references on
+                                       the row would be misleading)
+    """
+    row = dict(narrative_row)
+    raw_info = row.get("narrative_info")
+    if raw_info:
+        if isinstance(raw_info, str):
+            try:
+                info = json.loads(raw_info)
+            except json.JSONDecodeError:
+                info = {}
+        elif isinstance(raw_info, dict):
+            info = raw_info
+        else:
+            info = {}
+        if not isinstance(info, dict):
+            info = {}
+        scrubbed_info = {
+            "name": info.get("name", ""),
+            "description": "",
+            "current_summary": "",
+            "actors": info.get("actors", []),
+        }
+        row["narrative_info"] = json.dumps(scrubbed_info, ensure_ascii=False)
+    row["dynamic_summary"] = "[]"
+    row["topic_keywords"] = "[]"
+    row["topic_hint"] = ""
+    row["routing_embedding"] = None
+    row["event_ids"] = "[]"
+    return row
+
+
 class SensitiveZipDetected(Exception):
     """Raised when a zip-source skill's archive contains sensitive paths and
     the caller has not confirmed via `accept_sensitive_zips=True`."""
@@ -249,8 +311,19 @@ async def build_bundle(
                     continue
                 ndir = narratives_dir / n["narrative_id"]
                 ndir.mkdir(parents=True, exist_ok=True)
+                # When the caller disabled chat history, strip every
+                # chat-derived field from the narrative row before
+                # writing — see _scrub_narrative_chat_content for the
+                # exact list and rationale. The narrative skeleton
+                # remains so jobs / instance_narrative_links still
+                # resolve on import; only chat content is dropped.
+                n_for_export = (
+                    n
+                    if selection.include_chat_history
+                    else _scrub_narrative_chat_content(n)
+                )
                 (ndir / "narrative.json").write_text(
-                    json.dumps(_scrub_user_id(dict(n), user_id, "narratives"),
+                    json.dumps(_scrub_user_id(dict(n_for_export), user_id, "narratives"),
                                indent=2, ensure_ascii=False, default=str),
                     encoding="utf-8",
                 )
@@ -260,9 +333,22 @@ async def build_bundle(
                         {"narrative_id": n["narrative_id"]},
                         order_by="created_at ASC",
                     )
+                    # event_selection semantics (2026-05-18, opt-in
+                    # default):
+                    # - None  → ship all events (legacy "no selection"
+                    #           default, kept for old clients)
+                    # - {}    → ship NO events for any narrative (new
+                    #           "user picked narratives but no events"
+                    #           path). `if dict:` treats {} as falsy
+                    #           and would silently fall back to "ship
+                    #           all"; explicit `is not None` keeps
+                    #           the distinction.
+                    # - {nid: [...]} → ship only those event_ids for
+                    #           nid; any narrative missing from the
+                    #           dict ships 0 events (`.get(nid, [])`).
                     allowed_events = (
                         set(selection.event_selection.get(n["narrative_id"], []))
-                        if selection.event_selection
+                        if selection.event_selection is not None
                         else None
                     )
                     e_path = ndir / "events.jsonl"
@@ -378,16 +464,49 @@ async def build_bundle(
                 encoding="utf-8",
             )
 
-            # Per-instance memory family
-            # Per-instance memory tables — keyed by instance_id.
+            # Per-instance memory family — keyed by instance_id.
+            #
+            # All four memory tables in this block carry chat-derived
+            # content and are gated on `selection.include_chat_history`.
+            # Until 2026-05-19 the gate was missing here, so a bundle
+            # exported with "disable chat history" still leaked the
+            # ChatModule's verbatim message store — exactly the leak
+            # the toggle is supposed to prevent.
+            #
+            #   instance_json_format_memory_chat
+            #     ChatModule's primary message store. `memory` is JSON
+            #     `{"messages": [{role, content, timestamp}, ...]}` —
+            #     query path: `get_chat_history` MCP tool
+            #     (see module/chat_module/_chat_mcp_tools.py:73). On
+            #     import, the message JSON travels intact even after
+            #     instance_id rewrite; querying the imported agent
+            #     surfaces the original user's dialogue word-for-word.
+            #
+            #   instance_json_format_memory
+            #     Same shape, shared by Slack / Telegram / EventMemory
+            #     for IM-style conversation cache.
+            #
+            #   instance_module_report_memory
+            #     LLM-generated per-instance summaries of past dialogue.
+            #
+            #   module_report_memory  (handled separately below;
+            #     narrative-keyed legacy version used by EventMemoryModule).
+            #
+            # When the gate is off we still emit empty JSON arrays so
+            # the importer (which reads these files unconditionally and
+            # tolerates missing files) sees well-formed input and creates
+            # zero rows.
             for memory_table in (
                 "instance_module_report_memory",
                 "instance_json_format_memory",
                 "instance_json_format_memory_chat",
             ):
-                mem_rows = []
-                for iid in agent_instance_ids:
-                    mem_rows.extend(await db.get(memory_table, {"instance_id": iid}))
+                if selection.include_chat_history:
+                    mem_rows = []
+                    for iid in agent_instance_ids:
+                        mem_rows.extend(await db.get(memory_table, {"instance_id": iid}))
+                else:
+                    mem_rows = []
                 (agent_dir / f"{memory_table}.json").write_text(
                     json.dumps([_scrub_user_id(dict(r), user_id, memory_table) for r in mem_rows],
                                indent=2, ensure_ascii=False, default=str),
@@ -397,11 +516,16 @@ async def build_bundle(
             # Legacy module_report_memory — keyed by (narrative_id, module_name),
             # NOT by instance_id (the table predates per-instance memory; it's still
             # actively written by EventMemoryModule). Query per narrative instead.
-            mrm_rows = []
-            for nrec in n_rows:
-                mrm_rows.extend(
-                    await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]})
-                )
+            # Gated on include_chat_history for the same reason as the per-instance
+            # family above — module reports are LLM-distilled past conversation.
+            if selection.include_chat_history:
+                mrm_rows = []
+                for nrec in n_rows:
+                    mrm_rows.extend(
+                        await db.get("module_report_memory", {"narrative_id": nrec["narrative_id"]})
+                    )
+            else:
+                mrm_rows = []
             (agent_dir / "module_report_memory.json").write_text(
                 json.dumps([_scrub_user_id(dict(r), user_id, "module_report_memory") for r in mrm_rows],
                            indent=2, ensure_ascii=False, default=str),

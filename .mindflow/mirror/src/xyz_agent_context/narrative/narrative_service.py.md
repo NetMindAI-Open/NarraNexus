@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-04-10
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — continuity keys off the last *visible* message (query OR response)
+
+`select()`'s continuity gate changed from `if session.last_query:` to
+`if session.last_query or session.last_response:`. Reason: when the agent
+messages the user proactively (e.g. from a scheduled job), [[step_4_persist_results.py]]
+anchors `last_response` + `current_narrative_id` but `last_query` is empty
+(no preceding user query). The old gate skipped continuity entirely in that
+case, so the user's short reply ("好") fell through to vector retrieval and
+mis-routed. Now continuity runs whenever there is any prior visible exchange,
+and [[continuity.py]] frames the proactive case as "the user is replying to a
+message the agent sent". `is_continuous=True` still reuses
+`session.current_narrative_id` (unchanged) — that anchor is now the chat-box
+anchor, so it's the narrative the user is actually looking at.
+
+## 2026-05-19 — select() 新增 `is_user_chat` 参数
+
+修复 short-reply 后连续性判断崩的 bug。Session 的 `last_query` /
+`last_response` / `current_narrative_id` 三个字段必须只反映**真实用户**的对话
+轨迹，不能被 cron job / message_bus / lark / callback 这类 background trigger
+覆盖。否则用户隔几分钟回复一个 "要" 时，`ContinuityDetector` 拿到的
+`previous_query` 是 background trigger 的输入（cron payload / bus 消息），
+连续性必然 False → 掉到 Top-K embedding 匹配 → 短消息 embedding 信息量极低 →
+匹配错 Narrative 甚至新建。
+
+- 新参数 `is_user_chat: bool = True`，由调用方根据 `ContextData.working_source`
+  传入（`working_source == "chat"` → True，其它 → False）。
+- `is_user_chat=False` 时整个 Session 更新分支被跳过，连续性判断仍然走，
+  但 Phase 2 检索后**不**把 background trigger 的 query 写回 Session。
+- 配套：[[step_4_persist_results.py]] 4.5 也加了同样的 source 判断，
+  确保 `last_response` 同样只在 chat run 时被覆盖。
 
 # narrative_service.py — Narrative 统一门面
 

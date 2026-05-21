@@ -21,7 +21,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -467,35 +466,50 @@ class MessageBusTrigger:
         self, agent_id: str, channel_id: str,
         trigger_message: BusMessage, agent_response: str,
     ) -> None:
-        """Write the agent's response to the user's inbox."""
+        """Write the agent's response to the recipient user's inbox.
+
+        Uses `InboxRepository.create_message` (the canonical writer) so
+        the row shape stays in sync with the `inbox_table` schema —
+        previous hand-written `db.insert("inbox_table", ...)` referenced
+        `agent_id` / `owner_user_id` / `updated_at` columns that don't
+        exist and omitted the required `message_id`, producing
+        `Unknown column 'agent_id' in 'field list'` 13 times in 3
+        hours on EC2 2026-05-18.
+        """
         try:
+            import uuid
+
+            from xyz_agent_context.repository.inbox_repository import InboxRepository
+            from xyz_agent_context.schema.inbox_schema import (
+                InboxMessageType,
+                MessageSource,
+            )
             from xyz_agent_context.utils.db_factory import get_db_client
+
             db = await get_db_client()
             agent_row = await db.get_one("agents", {"agent_id": agent_id})
             if not agent_row:
                 logger.warning(f"Cannot write to inbox: agent {agent_id} not found")
                 return
-            owner_user_id = agent_row.get("created_by", "")
-            from xyz_agent_context.utils.timezone import utc_now
-            now = utc_now()
-            inbox_data = {
-                "agent_id": agent_id,
-                "owner_user_id": owner_user_id,
-                "message_type": "channel_message",
-                "title": f"Message Bus: {trigger_message.from_agent}",
-                "content": agent_response,
-                "source": json.dumps({
-                    "type": "message_bus",
-                    "channel_id": channel_id,
-                    "from_agent": trigger_message.from_agent,
-                    "original_message": trigger_message.content[:500],
-                }),
-                "is_read": False,
-                "created_at": now,
-                "updated_at": now,
-            }
-            await db.insert("inbox_table", inbox_data)
-            logger.info(f"Wrote MessageBus result to inbox for user {owner_user_id}")
+            recipient_user_id = agent_row.get("created_by", "")
+            if not recipient_user_id:
+                logger.warning(
+                    f"Cannot write to inbox: agent {agent_id} has no created_by"
+                )
+                return
+
+            repo = InboxRepository(db)
+            await repo.create_message(
+                user_id=recipient_user_id,
+                message_id=f"bus_{uuid.uuid4().hex[:16]}",
+                title=f"Message Bus: {trigger_message.from_agent}",
+                content=agent_response,
+                message_type=InboxMessageType.MESSAGE_BUS,
+                source=MessageSource(type="message_bus", id=channel_id),
+            )
+            logger.info(
+                f"Wrote MessageBus result to inbox for user {recipient_user_id}"
+            )
         except Exception as e:
             logger.warning(f"Failed to write to inbox: {e}")
 

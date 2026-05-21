@@ -28,29 +28,24 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
           'relative',
 
           // Default = no visible border, just a semantic region.
-          // Use this for every top-level panel that lives inside MainLayout.
-          variant === 'default' && 'bg-[var(--bg-primary)]',
+          variant === 'default' && 'bg-[var(--nm-card)]',
 
           // Explicit bordered variant for cards that float on their own.
-          // Uses border-default — the project-wide weight for "this is a
-          // bounded container," visibly heavier than internal dividers.
           variant === 'bordered' && [
-            'bg-[var(--bg-primary)]',
-            'border border-[var(--border-default)]',
+            'bg-[var(--nm-card)]',
+            'border border-[color:var(--nm-hairline)]',
+            'rounded-[var(--radius-md)]',
           ],
-          // Glass = a transparent shell that fills its parent slot.
-          // The parent (MainLayout's column wrapper) already supplies the
-          // bg + border, so any panel using <Card variant="glass"> would
-          // otherwise paint a second same-color rectangle inside the first
-          // one — that "double frame" is what makes JobsPanel/SkillsPanel
-          // look like they have an internal shadow.
+          // Glass = transparent shell that fills its parent slot.
           variant === 'glass' && [],
           variant === 'elevated' && [
-            'bg-[var(--bg-elevated)]',
-            'border border-[var(--border-default)]',
+            'bg-[var(--nm-raised)]',
+            'border border-[color:var(--nm-hairline)]',
+            'rounded-[var(--radius-md)]',
           ],
           variant === 'sunken' && [
-            'bg-[var(--bg-sunken)]',
+            'bg-[var(--nm-paper-warm)]',
+            'rounded-[var(--radius-sm)]',
           ],
 
           className

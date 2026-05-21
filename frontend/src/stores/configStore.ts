@@ -94,7 +94,7 @@ export const useConfigStore = create<ConfigState>()(
         const { userId } = get();
         if (!userId) return;
         try {
-          const res = await api.getAgents(userId);
+          const res = await api.getAgents();
           if (res.success) {
             set({ agents: res.agents });
           }

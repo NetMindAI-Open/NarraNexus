@@ -1,0 +1,32 @@
+name: Sync labels
+
+# Keep the repository's labels in sync with .github/labels.yml.
+# Edit labels.yml, push to main, the action recreates / renames / deletes
+# labels to match. Never edit labels via the GitHub UI — they will drift.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/labels.yml"
+      - ".github/workflows/labels-sync.yml"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crazy-max/ghaction-github-labeler@v5
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          yaml-file: .github/labels.yml
+          # `dry-run: false` actually applies changes. Set to true if
+          # you want to preview changes from a feature branch first.
+          dry-run: false
+          # Don't delete labels the action doesn't know about — protects
+          # any label a maintainer adds manually for a one-off project.
+          skip-delete: true

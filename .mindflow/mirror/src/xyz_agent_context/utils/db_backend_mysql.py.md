@@ -18,6 +18,8 @@ When the database layer was refactored to support pluggable backends, the MySQL-
 
 **`aiomysql.create_pool` for concurrency.** Unlike SQLite's single connection, MySQL supports many simultaneous connections. The pool size and recycle interval are configurable at construction time and default to 10 connections, 1-hour recycle. The pool is created at `initialize()`, not at construction, so the class can be instantiated synchronously.
 
+**Transparent retry on InnoDB deadlocks (errno 1213).** `execute` and `execute_write` wrap the no-transaction path in `_retry_on_deadlock` — up to 3 attempts with 50/100/200 ms backoff + small jitter. The fix exists because cascading DELETE in `delete_agent` (77 rows × 13 tables) raced agent-run event INSERTs on EC2 2026-05-19 and surfaced as 4 `pymysql.err.OperationalError(1213, ...)` to ASGI clients. Retry is the canonical fix per MySQL docs. **Inside** an explicit transaction the wrapper is skipped on purpose: the caller owns the transaction boundary and re-running one statement would leave earlier ones un-rolled-back.
+
 **`%s` placeholders, backtick-quoted identifiers.** MySQL uses `%s` for parameters and backticks for identifiers. All identifier strings passed to `get`, `insert`, etc. are validated by `_validate_identifier` (alphanumeric + underscore) and then backtick-quoted to avoid reserved-word collisions.
 
 **`INSERT ... ON DUPLICATE KEY UPDATE ... AS new_row` for upserts.** The `upsert` method generates MySQL 8.0.20+ syntax using an alias (`new_row`) rather than the deprecated `VALUES()` function. This is more explicit and future-proof, but means the code will fail on MySQL versions older than 8.0.20.

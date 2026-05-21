@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py
-last_verified: 2026-05-14
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — per-user quotas removed
+
+The per-user `count` (50 local / 10 cloud) and `bytes` (100 MB total) quotas
+were removed. Artifacts live in the agent's workspace so they cost what the
+agent's workspace already costs; the user controls how many. `_enforce_quota`,
+`ArtifactQuotaExceeded`, and the `total_bytes_for_*` / `count_for_user` repo
+helpers are gone. `MAX_ARTIFACT_BYTES` (25 MB) — the **per-artifact** sanity
+cap — stays as a runaway guard. Front-end LRU caps how many ECharts instances
+stay live at once (see [[artifactStore.ts]]).
 
 ## 2026-05-14-r3 — drop "must be in subdirectory" rule; single-file mode at workspace root
 
@@ -38,9 +48,9 @@ plus `style.css`, `app.js`, `data.json`, images).
 
 `register_artifact` is the bridge that makes such a workspace file *visible to
 the user*. It does not write, copy, or move anything — it validates the entry
-path, sizes the artifact root directory, enforces quota, and writes/updates one
-`instance_artifacts` row. Content stays in the workspace; the backend serves it
-straight off disk.
+path, sizes the artifact root directory, sanity-caps it against
+`MAX_ARTIFACT_BYTES`, and writes/updates one `instance_artifacts` row. Content
+stays in the workspace; the backend serves it straight off disk.
 
 ## The model
 
@@ -71,7 +81,6 @@ straight off disk.
 | `ArtifactNotFound` | 404 | `target_artifact_id` row does not exist |
 | `ArtifactKindMismatch` | 400 | re-register kind ≠ existing kind |
 | `ArtifactPathEscape` | 400 | entry path missing / not a file / outside workspace / directly in workspace root |
-| `ArtifactQuotaExceeded` | 507 | per-user count or byte quota exceeded |
 | `ArtifactError` (base) | 400 | kind not in the 7-kind whitelist |
 
 `.code` lets the wrapper map to an HTTP status with no branching.
@@ -82,20 +91,15 @@ straight off disk.
   workspace-interior symlink pointing at `/etc/passwd` is still rejected by the
   `startswith(workspace + os.sep)` test. `abspath` alone is not enough.
 
-- **Quota delta on re-register.** `_enforce_quota` receives the *delta* bytes —
-  the full size for a new artifact, `(new − old)` for a re-register — so
-  re-registering a shrunk artifact never trips the byte ceiling, and the count
-  check is skipped entirely for re-registers (no new row).
-
 - **`size_bytes` is the recursive root directory size**, not the entry file
-  alone — a multi-file HTML app's quota cost is the whole folder.
+  alone — a multi-file HTML app's `size_bytes` reflects the whole folder. It
+  is stored for UI / debugging; nothing enforces a budget against it.
 
-- **`MAX_ARTIFACT_BYTES` (25 MB) caps a single artifact**; the per-user
-  aggregate quota (count + 100 MB bytes, deploy-mode aware) is enforced on top.
+- **`MAX_ARTIFACT_BYTES` (25 MB) caps a single artifact** as a runaway guard.
+  No per-user aggregate cap — the agent's workspace already bounds disk
+  usage, and the user owns the workspace.
 
-- **No filesystem writes at all.** The old "quota check before writing the
-  file" ordering concern is gone — there is nothing to write. The only side
-  effect is the DB row.
+- **No filesystem writes at all.** The only side effect is the DB row.
 
 ## Gotchas
 

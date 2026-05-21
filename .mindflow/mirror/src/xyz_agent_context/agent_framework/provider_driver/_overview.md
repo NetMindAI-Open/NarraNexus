@@ -14,7 +14,7 @@ pool) sharing the same ``user_providers`` table but doing four
 different things inside the resolver. There were also **two**
 resolve paths — one for HTTP middleware (``ProviderResolver``) and
 one for background triggers (``api_config._get_user_llm_configs_strict``)
-— each with its own completeness checks. The result was the Xiong-class
+— each with its own completeness checks. The result was the operator-class
 bug: a slot.model that no longer exists in its provider.models array
 slipping past every UI check and only failing inside a Lark trigger
 hours later.

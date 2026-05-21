@@ -45,7 +45,7 @@ def _tool_call_event(name: str = "Bash") -> dict:
 
 
 def test_5000_one_char_chunks_coalesce_to_far_fewer_frames():
-    """The Xiong scenario: DeepSeek emits one ZH-char-per-token. Verify
+    """The operator scenario: DeepSeek emits one ZH-char-per-token. Verify
     we drop frame count by orders of magnitude without losing content."""
     processor = ResponseProcessor()
     state = ExecutionState()

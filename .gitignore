@@ -15,8 +15,33 @@
 
 # ── Reference & internal docs ─────────────────────────────────────────────
 /reference/
-AGENT.md
 /deploy/synapse/
+# NOTE: AGENTS.md used to be ignored as an internal scratch file
+# (under its old single-form name AGENT.md). It is now a tracked,
+# vendor-neutral pointer that redirects AI editors to CLAUDE.md per
+# the agents.md convention — committed as part of repo governance.
+
+# CLAUDE.md / CLAUDE_zh.md — the Owner edits CLAUDE.md locally in
+# Chinese for ease of authoring; only the English version travels to
+# GitHub. CLAUDE_zh.md is a working copy of the same Chinese draft.
+#
+# IMPORTANT: gitignore by itself does NOT untrack an already-tracked
+# file. CLAUDE.md is currently tracked (the English version is in the
+# tree). The Owner's local Chinese edits are hidden from git via
+# `git update-index --skip-worktree CLAUDE.md` on this clone. The
+# entry below is for clarity + to keep ignore behavior consistent on
+# fresh clones where someone might temporarily create a Chinese copy.
+CLAUDE.md
+CLAUDE_zh.md
+
+# README_advice.md — internal working notes for the teammate
+# rewriting README.md. Was briefly tracked during the
+# chore/repo-governance branch; now lives locally only.
+README_advice.md
+
+# Design source files (HTML mockups, PDFs, Figma exports). They're
+# large, change frequently, and not needed in git history.
+/ui_enhance_elements/
 
 # ── Operator-local probe / benchmark scripts (often hold real API keys) ──
 # These are ad-hoc, single-machine investigations that read live provider

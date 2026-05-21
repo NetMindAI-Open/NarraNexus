@@ -16,7 +16,6 @@ Provides:
 - list_pinned(): pinned artifacts for an agent
 - list_by_user(): all artifacts for a user, newest first
 - delete() / bulk_delete(): remove artifact rows
-- count_for_user() / total_bytes_for_user() / total_bytes_for_agent(): quota queries
 """
 from __future__ import annotations
 
@@ -238,58 +237,6 @@ class ArtifactRepository(BaseRepository[Artifact]):
         """
         rows = await self._db.execute(sql, params=(user_id,), fetch=True)
         return [self._row_to_entity(row) for row in rows]
-
-    async def count_for_user(self, user_id: str) -> int:
-        """
-        Return the total artifact count for a user across all their agents.
-
-        Args:
-            user_id: User whose quota to count.
-
-        Returns:
-            Number of artifacts owned by the user.
-        """
-        sql = "SELECT COUNT(*) AS n FROM instance_artifacts WHERE user_id = %s"
-        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
-        if not rows:
-            return 0
-        return int(rows[0]["n"] or 0)
-
-    async def total_bytes_for_user(self, user_id: str) -> int:
-        """
-        Return the total size_bytes across all the user's artifacts.
-
-        Pointer model: size_bytes lives directly on instance_artifacts (the
-        recursive size of each artifact's root directory at register time), so
-        this is a plain SUM with no join.
-
-        Args:
-            user_id: User whose quota to sum.
-
-        Returns:
-            Sum of size_bytes (0 if user has no artifacts).
-        """
-        sql = "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM instance_artifacts WHERE user_id = %s"
-        rows = await self._db.execute(sql, params=(user_id,), fetch=True)
-        if not rows:
-            return 0
-        return int(rows[0]["total"] or 0)
-
-    async def total_bytes_for_agent(self, agent_id: str) -> int:
-        """
-        Return the total size_bytes across all the agent's artifacts.
-
-        Args:
-            agent_id: Agent whose quota to sum.
-
-        Returns:
-            Sum of size_bytes (0 if agent has no artifacts).
-        """
-        sql = "SELECT COALESCE(SUM(size_bytes), 0) AS total FROM instance_artifacts WHERE agent_id = %s"
-        rows = await self._db.execute(sql, params=(agent_id,), fetch=True)
-        if not rows:
-            return 0
-        return int(rows[0]["total"] or 0)
 
     # ── conversion helpers ─────────────────────────────────────────────────────
 

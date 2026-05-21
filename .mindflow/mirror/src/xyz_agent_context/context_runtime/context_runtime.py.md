@@ -1,8 +1,42 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-04-21
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 (Fix #2 P1) — render the unified timeline; drop the cross-narrative system-prompt section
+
+`build_input_for_framework` no longer splits chat_history into long/short and
+no longer injects cross-narrative memory as a separate system-prompt section
+(via `_build_short_term_memory_prompt` + `SHORT_TERM_MEMORY_HEADER` — now
+DEPRECATED/unused). It renders the single unified timeline (built by
+[[chat_module.py]]) as real role messages, each prefixed by
+`_format_timeline_tag()` → `[time · topic · nar_id]` plus the channel source
+prefix, and prepends `CHAT_HISTORY_TIMELINE_PREAMBLE` to the system prompt to
+teach the agent how to read it (tags, how it was assembled, and what the user
+can/can't see — reasoning is private). `[CHAT-CTX] unified timeline rendered`
+log line reports total / cross / current counts. `_format_timeline_tag` now also
+emits `evt=<event_id>` per line (for view_event drill-down).
+
+## 2026-05-20 (Fix #2 P2) — recent-actions section in the system prompt
+
+`_build_recent_actions_section` renders `ctx_data.extra_data['recent_actions']`
+(populated by [[chat_module.py]] `_load_recent_actions`) as a compact
+`RECENT_ACTIONS_HEADER` block appended to the system prompt — one line per
+background activity `- [time] <source>: <job title / summary> (evt=<id>)`. Kept
+separate from the conversation timeline so background work doesn't pollute it.
+
+## 2026-05-19 — `_source` carried on final_messages
+
+`build_input_for_framework()` now stamps each long-term history row with
+an internal `_source` field copied from its `meta_data.working_source`
+(default `"chat"`). Consumed by [[xyz_claude_agent_sdk.py]] for
+source-aware truncation: when the system prompt + history would exceed
+the SDK's argv ceiling, oldest background-trigger rows
+(`job / message_bus / lark / callback`) are evicted first; chat rows
+are kept until the budget can't be met any other way. Other SDK
+adapters (OpenAI Agents, Gemini) build their own message dicts so this
+extra key never reaches them.
 
 # context_runtime.py — the assembly engine that turns raw Narrative + Module state into a ready-to-submit LLM payload
 

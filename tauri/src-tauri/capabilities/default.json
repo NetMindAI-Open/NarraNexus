@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "shell:allow-open",
-    "updater:default"
+    "updater:default",
+    "deep-link:default"
   ]
 }

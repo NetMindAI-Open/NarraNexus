@@ -13,19 +13,26 @@ import { useEffect, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { useArtifactHeal } from '@/hooks/useArtifactHeal';
+import ArtifactHealModal from '../ArtifactHealModal';
 
 interface Props {
   artifact: Artifact;
 }
 
 export default function ImageRenderer({ artifact }: Props) {
-  const { url, error: urlError } = useArtifactRawUrl(
+  const { url, error: urlError, reload } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
     artifact.updated_at,
   );
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+
+  useEffect(() => {
+    if (heal.recoveryVersion > 0) reload();
+  }, [heal.recoveryVersion, reload]);
 
   useEffect(() => {
     if (!url) return;
@@ -42,20 +49,25 @@ export default function ImageRenderer({ artifact }: Props) {
         createdUrl = blobUrl;
         setSrc(blobUrl);
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (cancelled) return;
+        const msg = String(e);
+        setError(msg);
+        if (msg.includes('fetch failed: 410')) heal.attempt();
       }
     })();
     return () => {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [url]);
+  }, [url, heal]);
 
-  if (urlError) return <div className="p-4 text-red-400">Failed to load: {urlError}</div>;
-  if (error) return <div className="p-4 text-red-400">Failed to load: {error}</div>;
-  if (!src) return <div className="p-4 opacity-60">Loading…</div>;
-
-  return (
+  const content = urlError ? (
+    <div className="p-4 text-red-400">Failed to load: {urlError}</div>
+  ) : error ? (
+    <div className="p-4 text-red-400">Failed to load: {error}</div>
+  ) : !src ? (
+    <div className="p-4 opacity-60">Loading…</div>
+  ) : (
     <div className="w-full h-full flex items-center justify-center bg-[var(--bg-deep)] p-4">
       <img
         src={src}
@@ -63,5 +75,20 @@ export default function ImageRenderer({ artifact }: Props) {
         className="max-w-full max-h-full object-contain"
       />
     </div>
+  );
+
+  return (
+    <>
+      {content}
+      <ArtifactHealModal
+        open={heal.modalOpen}
+        artifactTitle={artifact.title}
+        candidates={heal.candidates}
+        message={heal.message}
+        busy={heal.busy}
+        onPick={(workspacePath) => heal.attempt(workspacePath)}
+        onDismiss={heal.dismiss}
+      />
+    </>
   );
 }

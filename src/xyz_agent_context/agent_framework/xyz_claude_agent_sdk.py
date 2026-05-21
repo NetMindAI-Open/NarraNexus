@@ -91,48 +91,114 @@ class ClaudeAgentSDK:
         MAX_SYSTEM_PROMPT_BYTES = 120 * 1024  # ~120 KiB, leaves 8 KiB for argv overhead
         MAX_HISTORY_LENGTH = 50_000  # chars
 
+        # Source-aware history truncation (2026-05-19):
+        # The earlier scheme was "append history to system_prompt, then
+        # [:100_000] the whole string" — which would chop the TAIL of the
+        # system instructions when history was long, breaking Module-injected
+        # context. New scheme:
+        #   1. Build system_prompt and the history list separately.
+        #   2. Reserve the system prompt's full length within the char ceiling.
+        #   3. Within the remaining budget, drop the OLDEST background-trigger
+        #      messages first (`_source` in {job, message_bus, lark, callback}),
+        #      then the oldest chat messages, until what's left fits.
+        # `_source` is set by context_runtime.build_input_for_framework from
+        # each row's `meta_data.working_source`; unknown rows default to "chat".
+        # Rows are NOT deleted from the database — this only governs which
+        # rows are sent to the LLM for this turn.
         system_prompt = ""
-        for msg in messages:
-            if msg["role"] == "system":
-                system_prompt += msg["content"] + "\n"
-        conversation_history = []
-        user_messages = []
+        history_entries: list[dict[str, Any]] = []  # ordered oldest -> newest
         this_turn_user_message = (messages.pop())["content"]    # TODO: Not robust enough; if the last message is not a user message, a logic error will occur. Needs adjustment.
-        for i, msg in enumerate(messages):
-            if msg["role"] == "user":
-                user_messages.append(i)
-                conversation_history.append(f"User: {msg['content']}")
-            elif msg["role"] == "assistant":
-                conversation_history.append(f"Assistant: {msg['content']}")
-        # If there is conversation history, append it to the system prompt
-        if len(user_messages) > 1:  # More than 1 user message indicates there is history
-            history_text = "\n\n=== Chat History ===\n" + "\n\n".join(conversation_history)
+        for msg in messages:
+            role = msg.get("role")
+            if role == "system":
+                system_prompt += msg["content"] + "\n"
+            elif role in ("user", "assistant"):
+                history_entries.append({
+                    "role": role,
+                    "content": msg.get("content", ""),
+                    "source": msg.get("_source", "chat"),
+                })
 
-            # If the history is too long, truncate and keep the most recent part
-            if len(history_text) > MAX_HISTORY_LENGTH:
-                logger.warning(f"Chat history too long ({len(history_text)} chars), truncating to {MAX_HISTORY_LENGTH} chars")
-                # Keep the most recent history
-                truncated_history = history_text[-MAX_HISTORY_LENGTH:]
-                # Find the start of the first complete message
-                first_user_idx = truncated_history.find("\nUser: ")
-                first_assistant_idx = truncated_history.find("\nAssistant: ")
-                if first_user_idx > 0 and (first_assistant_idx < 0 or first_user_idx < first_assistant_idx):
-                    truncated_history = truncated_history[first_user_idx:]
-                elif first_assistant_idx > 0:
-                    truncated_history = truncated_history[first_assistant_idx:]
-                history_text = "\n\n=== Chat History (truncated) ===\n" + truncated_history
+        def _format_entry(e: dict[str, Any]) -> str:
+            label = "User" if e["role"] == "user" else "Assistant"
+            return f"{label}: {e['content']}"
 
-            system_prompt += history_text
-            system_prompt += "\n=== Chat History End ===\n These are the chat history between you and the user. This time please make the response by user input in this turn."
+        # Char budget reserved for history within MAX_SYSTEM_PROMPT_LENGTH.
+        # If system_prompt alone is already near/over the ceiling we send NO
+        # history — protecting the system instructions is the priority.
+        HISTORY_HEADER = "\n\n=== Chat History ===\n"
+        HISTORY_FOOTER = (
+            "\n=== Chat History End ===\n"
+            " These are the chat history between you and the user. "
+            "This time please make the response by user input in this turn."
+        )
+        overhead = len(HISTORY_HEADER) + len(HISTORY_FOOTER)
+        sys_len = len(system_prompt)
+        history_budget = max(
+            0,
+            min(MAX_HISTORY_LENGTH, MAX_SYSTEM_PROMPT_LENGTH - sys_len - overhead),
+        )
 
-        # Final check on the total length of system_prompt — two-pass bound.
-        #   Pass 1: char count. Caps human-readable size.
-        #   Pass 2: UTF-8 byte count. Hard guard against the Linux 128 KiB
-        #           argv limit when the prompt contains multi-byte content.
+        kept: list[dict[str, Any]] = []
+        if history_entries and history_budget > 0:
+            kept = list(history_entries)
+
+            def _join_len(rows: list[dict[str, Any]]) -> int:
+                if not rows:
+                    return 0
+                # +2 per separator "\n\n" between rows
+                return sum(len(_format_entry(r)) for r in rows) + 2 * (len(rows) - 1)
+
+            dropped_bg = 0
+            dropped_chat = 0
+            while kept and _join_len(kept) > history_budget:
+                # Tier 1: drop the oldest non-chat row.
+                bg_idx = next(
+                    (i for i, r in enumerate(kept) if r["source"] != "chat"),
+                    None,
+                )
+                if bg_idx is not None:
+                    kept.pop(bg_idx)
+                    dropped_bg += 1
+                else:
+                    # Tier 2: drop the oldest chat row.
+                    kept.pop(0)
+                    dropped_chat += 1
+
+            if dropped_bg or dropped_chat:
+                logger.warning(
+                    f"History truncated by source-aware eviction: "
+                    f"dropped {dropped_bg} background-trigger rows "
+                    f"+ {dropped_chat} chat rows, kept {len(kept)} of "
+                    f"{len(history_entries)} (budget {history_budget} chars)."
+                )
+        elif history_entries:
+            logger.warning(
+                f"System prompt alone ({sys_len} chars) leaves no room for "
+                f"history; omitting all {len(history_entries)} history rows."
+            )
+
+        if kept:
+            body = "\n\n".join(_format_entry(r) for r in kept)
+            label_tag = (
+                "Chat History"
+                if len(kept) == len(history_entries)
+                else "Chat History (truncated by source-aware eviction)"
+            )
+            system_prompt += (
+                f"\n\n=== {label_tag} ===\n{body}{HISTORY_FOOTER}"
+            )
+
+        # Belt-and-braces (rare now): char + byte caps still apply because
+        # multi-byte content blows past char budget in the worst case, and
+        # the system_prompt itself might exceed MAX_SYSTEM_PROMPT_LENGTH
+        # (in which case the eviction loop already gave us 0-budget history,
+        # but the system prompt still needs to fit argv).
         if len(system_prompt) > MAX_SYSTEM_PROMPT_LENGTH:
             logger.warning(
-                f"System prompt too long ({len(system_prompt)} chars), "
-                f"truncating to {MAX_SYSTEM_PROMPT_LENGTH} chars"
+                f"System prompt still too long after source-aware eviction "
+                f"({len(system_prompt)} chars > {MAX_SYSTEM_PROMPT_LENGTH}), "
+                f"hard-truncating to char ceiling"
             )
             system_prompt = system_prompt[:MAX_SYSTEM_PROMPT_LENGTH] + "\n\n[...truncated due to length limit...]"
 
@@ -258,18 +324,21 @@ class ClaudeAgentSDK:
 
 
         # Step 2: Create a ClaudeSDKClient instance, send the user message, and receive the response
-        # Idle timeout: if no message is received within this duration, assume CLI is stuck.
-        # Bug 20 (2026-04-20): lowered from 1200s → 600s. Every MCP tool handler now
-        # self-caps at ≤60s via `with_mcp_timeout` (see common_tools_module), and
-        # Claude CLI built-in tools (WebFetch/Bash) have their own short internal
-        # timeouts. 1200s was "20 minutes of complete silence" — that length of
-        # idle means something deeper is broken; 10 minutes gives reasonable
-        # margin for a legitimately long LLM thinking pass while surfacing true
-        # hangs an order of magnitude faster.
-        IDLE_TIMEOUT_SECONDS = 600
+        # IDLE_PROBE_SECONDS is NOT a hard cap — per CLAUDE.md 铁律 #14
+        # the agent_loop has no force-stop. It's just the cadence at
+        # which we log a WARNING ("CLI silent for Ns, subprocess alive,
+        # still waiting") and probe subprocess liveness. If the CLI
+        # subprocess has actually died we surface that as an error;
+        # otherwise we continue waiting indefinitely.
+        IDLE_PROBE_SECONDS = 600
 
         client = None
         message_count = 0
+        # `message_task` is bound inside the receive loop but referenced
+        # by the outer `finally:` for cleanup — hoist its declaration
+        # here so an early failure (e.g. connect() raising) does not
+        # cause the finally to NameError on the cleanup access.
+        message_task: asyncio.Task | None = None
         # 去重集合：include_partial_messages=True 时，partial AssistantMessage
         # 和 complete AssistantMessage 都会携带同一个 ToolUseBlock，导致重复
         # 的 tool_call_item。通过 tool_call_id 去重，只保留首次出现。
@@ -299,8 +368,13 @@ class ClaudeAgentSDK:
             # the time it takes a single await round-trip — sub-100 ms on
             # any realistic host — regardless of what the CLI is doing.
             response_iter = client.receive_response().__aiter__()
+            # `message_task` (declared at function scope above) lives
+            # ACROSS iterations so a silent-but-alive CLI does not lose
+            # its in-flight `__anext__()`. The outer finally below
+            # cancels it if a message is still in flight on exit.
             while True:
-                message_task = asyncio.create_task(response_iter.__anext__())
+                if message_task is None or message_task.done():
+                    message_task = asyncio.create_task(response_iter.__anext__())
                 cancel_task: asyncio.Task | None = None
                 if cancellation is not None:
                     cancel_task = asyncio.create_task(cancellation.await_cancelled())
@@ -312,47 +386,77 @@ class ClaudeAgentSDK:
                     done, pending = await asyncio.wait(
                         waiters,
                         return_when=asyncio.FIRST_COMPLETED,
-                        timeout=IDLE_TIMEOUT_SECONDS,
+                        timeout=IDLE_PROBE_SECONDS,
                     )
                 finally:
-                    # We must ALWAYS cancel still-pending waiters, even if
-                    # this block raises further down. Otherwise message_task
-                    # would dangle and consume the next yielded item later.
-                    for task in waiters:
-                        if not task.done():
-                            task.cancel()
+                    # cancel_task is per-iteration — always cancel the
+                    # still-pending one. message_task lives across
+                    # iterations; do NOT cancel it here.
+                    if cancel_task is not None and not cancel_task.done():
+                        cancel_task.cancel()
 
                 if cancellation is not None and cancellation.is_cancelled:
                     logger.info(
                         f"[ClaudeAgentSDK] Cancellation detected after "
                         f"{message_count} messages (mid-wait), stopping"
                     )
-                    # Suppress message_task exceptions when it was the one
-                    # we cancelled — silently consume so the event loop
-                    # doesn't log "Task exception was never retrieved".
-                    if message_task in pending:
-                        with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
-                            await message_task
+                    if not message_task.done():
+                        message_task.cancel()
+                    # Suppress message_task exceptions when it was the
+                    # one we cancelled — silently consume so the event
+                    # loop doesn't log "Task exception was never
+                    # retrieved".
+                    with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                        await message_task
+                    message_task = None
                     break
 
                 if message_task not in done:
-                    # IDLE_TIMEOUT_SECONDS elapsed with no message and no
-                    # cancellation. This is the legacy "CLI is stuck" path.
-                    logger.exception(
-                        f"[ClaudeAgentSDK] ⚠️ No response from Claude Code CLI for {IDLE_TIMEOUT_SECONDS}s. "
-                        f"Aborting agent loop. Messages received so far: {message_count}"
+                    # IDLE_PROBE_SECONDS elapsed with no message and no
+                    # cancellation. Per CLAUDE.md 铁律 #14 we do NOT
+                    # force-stop agent_loop on silence — DeepSeek-V4-Pro
+                    # CoT and other long-thinking models legitimately
+                    # produce minutes-long silent passes. Just probe
+                    # subprocess liveness and continue waiting.
+                    process = (
+                        getattr(getattr(client, "_transport", None), "_process", None)
+                        if client is not None else None
+                    )
+                    cli_returncode = getattr(process, "returncode", None) if process else None
+                    if process is None or cli_returncode is None:
+                        logger.warning(
+                            f"[ClaudeAgentSDK] No message for {IDLE_PROBE_SECONDS}s "
+                            f"({message_count} so far); CLI subprocess still alive — "
+                            f"continuing to wait."
+                        )
+                        # KEEP message_task across iterations; loop
+                        # re-awaits it on the next pass.
+                        continue
+                    # The subprocess actually exited — that is a real
+                    # failure, not LLM thinking time.
+                    logger.error(
+                        f"[ClaudeAgentSDK] CLI subprocess exited unexpectedly "
+                        f"(returncode={cli_returncode}) after {message_count} messages "
+                        f"with no in-flight response. Aborting agent loop."
                     )
                     if cli_stderr_lines:
-                        logger.exception("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
-                    raise TimeoutError(
-                        f"Claude Code CLI did not respond for {IDLE_TIMEOUT_SECONDS} seconds. "
-                        f"The service may be overloaded or unresponsive. Please try again."
+                        logger.error("[ClaudeAgentSDK] CLI stderr:\n" + "\n".join(cli_stderr_lines))
+                    if not message_task.done():
+                        message_task.cancel()
+                    message_task = None
+                    raise RuntimeError(
+                        f"Claude Code CLI subprocess exited unexpectedly "
+                        f"(returncode={cli_returncode})."
                     )
 
                 try:
                     message = message_task.result()
                 except StopAsyncIteration:
-                    break  # Stream ended normally
+                    message_task = None
+                    break
+                # message_task has yielded its message; the next loop
+                # iteration must start a fresh one.
+                message_task = None
 
                 message_count += 1
                 msg_type = type(message).__name__
@@ -413,6 +517,13 @@ class ClaudeAgentSDK:
                 logger.exception("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
             raise
         finally:
+            # Make sure any still-pending message_task is cancelled and
+            # drained before we tear the client down — otherwise asyncio
+            # will log "Task exception was never retrieved" if it raises.
+            if message_task is not None and not message_task.done():
+                message_task.cancel()
+                with suppress(asyncio.CancelledError, StopAsyncIteration, Exception):
+                    await message_task
             if client is not None:
                 # Bounded disconnect with SIGKILL fallback.
                 #

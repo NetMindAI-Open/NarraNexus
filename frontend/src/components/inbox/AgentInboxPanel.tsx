@@ -12,6 +12,7 @@ import {
   Sparkles, Users, Hash,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, StatStrip, ScrollArea } from '@/components/ui';
+import { BracketEmptyState } from '@/components/nm';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -138,15 +139,10 @@ export function AgentInboxPanel() {
         <ScrollArea className="h-full" viewportClassName="py-2">
         <div className="space-y-2">
         {rooms.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center p-8">
-              <div className="w-14 h-14 rounded-2xl bg-[var(--accent-primary)]/10 mx-auto mb-4 flex items-center justify-center">
-                <Inbox className="w-7 h-7 text-[var(--accent-primary)]" />
-              </div>
-              <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">No messages</p>
-              <p className="text-[var(--text-tertiary)] text-xs">Channel messages will appear here</p>
-            </div>
-          </div>
+          <BracketEmptyState
+            label="No messages"
+            hint="Channel messages will appear here once an agent receives one."
+          />
         ) : (
           sortedRooms.map((room) => {
             const isRoomExpanded = expandedRoomId === room.room_id;
@@ -155,11 +151,11 @@ export function AgentInboxPanel() {
               <div
                 key={room.room_id}
                 className={cn(
-                  'rounded-xl border transition-all duration-300',
+                  'rounded-[var(--radius-md)] border transition-colors duration-150',
                   isRoomExpanded
-                    ? 'border-[var(--accent-primary)]/30 shadow-[0_0_20px_var(--accent-glow)]'
-                    : 'border-[var(--border-subtle)] hover:border-[var(--accent-primary)]/20',
-                  room.unread_count > 0 && !isRoomExpanded && 'bg-[var(--accent-glow)]'
+                    ? 'border-[color:var(--nm-ink)] bg-[color:var(--nm-card)]'
+                    : 'border-[color:var(--nm-hairline)] hover:bg-[color:var(--nm-paper-warm)]',
+                  room.unread_count > 0 && !isRoomExpanded && 'bg-[color:var(--color-carbon-soft)]'
                 )}
               >
                 {/* Room Header */}
@@ -168,10 +164,10 @@ export function AgentInboxPanel() {
                   className="w-full text-left p-3 flex items-center gap-3"
                 >
                   <div className={cn(
-                    'w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                    'w-8 h-8 rounded-[var(--radius-sm)] flex items-center justify-center shrink-0',
                     room.unread_count > 0
-                      ? 'bg-[var(--accent-glow)] shadow-[0_0_10px_var(--accent-glow)]'
-                      : 'bg-[var(--bg-tertiary)]'
+                      ? 'bg-[color:var(--color-carbon-soft)] text-[color:var(--color-carbon)]'
+                      : 'bg-[color:var(--nm-paper-warm)]'
                   )}>
                     <Hash className={cn(
                       'w-4 h-4',

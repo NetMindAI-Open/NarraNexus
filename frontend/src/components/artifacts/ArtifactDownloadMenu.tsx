@@ -18,8 +18,18 @@
  * Pointer model: the download URL is the token-protected directory URL
  * minted via `useArtifactRawUrl`. The TTL is generous (2h) so a click much
  * later still works for the typical session.
+ *
+ * Layout model: the dropdown panel is rendered via createPortal into
+ * document.body and positioned with fixed coordinates derived from the
+ * trigger's bounding rect. This is required because every ancestor of the
+ * artifact column (MainLayout <main>/<group>, ArtifactColumn <aside>) sets
+ * `overflow-hidden` for flex-sizing correctness — a plain absolutely
+ * positioned child would be clipped to a tiny sliver. The portal escapes
+ * that clipping chain, mirroring how Dialog/ArtifactZoomModal mount.
  */
 
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores/artifactStore';
@@ -62,6 +72,49 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   );
   const ext = KIND_TO_EXT[artifact.kind] ?? 'bin';
 
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Fixed-position coordinates for the portal-mounted panel, right-aligned
+  // to the trigger's right edge (matching the old `right-0 top-full`).
+  const [pos, setPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
+
+  const recompute = useCallback(() => {
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPos({
+      top: rect.bottom + 4, // mt-1 ≈ 4px gap below the trigger
+      right: window.innerWidth - rect.right,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    recompute();
+    const onScroll = () => recompute();
+    const onResize = () => recompute();
+    // capture phase so we also catch scrolls on inner overflow containers
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    const onPointerDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, recompute]);
+
   const exportChartImage = (type: 'png' | 'jpeg') => {
     const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
     if (!instance) {
@@ -79,52 +132,65 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
     document.body.appendChild(a);
     a.click();
     a.remove();
+    setOpen(false);
   };
 
   return (
-    <details className="relative">
-      <summary
-        className="cursor-pointer text-xs opacity-60 hover:opacity-100 px-2 py-1 select-none list-none flex items-center gap-1"
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="cursor-pointer text-xs opacity-60 hover:opacity-100 px-2 py-1 select-none flex items-center gap-1"
         title="Download / Export"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         <Download className="w-3.5 h-3.5" />
-      </summary>
-      <div
-        className="absolute right-0 top-full mt-1 bg-[var(--bg-primary)] border border-[var(--border-default)] py-1 z-20 min-w-[200px] text-sm shadow-lg"
-        role="menu"
-      >
-        {isChart && (
-          <>
-            <button
-              onClick={() => exportChartImage('png')}
-              className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
-              role="menuitem"
-            >
-              Export as PNG
-            </button>
-            <button
-              onClick={() => exportChartImage('jpeg')}
-              className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
-              role="menuitem"
-            >
-              Export as JPEG
-            </button>
-            <div className="my-1 border-t border-[var(--border-default)]" />
-          </>
-        )}
-        {url ? (
-          <a
-            href={url}
-            download={safeFilename(artifact.title, ext)}
-            className="block px-3 py-1.5 hover:bg-[var(--bg-secondary)] no-underline text-[var(--text-primary)]"
-            role="menuitem"
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="fixed bg-[var(--bg-primary)] border border-[var(--border-default)] py-1 z-[1000] min-w-[200px] text-sm shadow-lg"
+            style={{ top: pos.top, right: pos.right }}
+            role="menu"
           >
-            Download original (.{ext})
-          </a>
-        ) : (
-          <span className="block px-3 py-1.5 opacity-50">Preparing download…</span>
+            {isChart && (
+              <>
+                <button
+                  onClick={() => exportChartImage('png')}
+                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                  role="menuitem"
+                >
+                  Export as PNG
+                </button>
+                <button
+                  onClick={() => exportChartImage('jpeg')}
+                  className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
+                  role="menuitem"
+                >
+                  Export as JPEG
+                </button>
+                <div className="my-1 border-t border-[var(--border-default)]" />
+              </>
+            )}
+            {url ? (
+              <a
+                href={url}
+                download={safeFilename(artifact.title, ext)}
+                onClick={() => setOpen(false)}
+                className="block px-3 py-1.5 hover:bg-[var(--bg-secondary)] no-underline text-[var(--text-primary)]"
+                role="menuitem"
+              >
+                Download original (.{ext})
+              </a>
+            ) : (
+              <span className="block px-3 py-1.5 opacity-50">Preparing download…</span>
+            )}
+          </div>,
+          document.body,
         )}
-      </div>
-    </details>
+    </>
   );
 }

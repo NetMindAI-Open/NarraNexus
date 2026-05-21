@@ -1,104 +1,104 @@
-/* Fonts are loaded via <link> in index.html (preconnect + preload) —
-   no @import here, which would add a second render-blocking roundtrip. */
+/* ============================================================================
+   NM Design System · Carbon meets Silicon
+   ----------------------------------------------------------------------------
+   "人和 AI 在同一张暖纸上对话" · 暖纸色族 + 物种色 + bracket motif + warm-ink dark
+   Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md
+   Cheatsheet: reference/self_notebook/specs/2026-05-18-nm-design-system-cheatsheet.html
+   ----------------------------------------------------------------------------
+   IMPORTANT — most existing components use the original Archive semantic
+   token names (--bg-primary, --text-primary, --rule, etc.). To preserve
+   those usage sites without touching every component, this file *rebinds*
+   the Archive names onto NM values. New code should prefer the --nm-* and
+   species (--color-carbon / --color-silicon) tokens directly.
+   ============================================================================ */
 
 @import 'tailwindcss';
 
-/* ============================================================================
-   Design System: Nordic Archive
-   ============================================================================
-   Cold grayscale · no accents · 1px rules · flat right-angle surfaces.
-   Feels like a carefully typeset internal document, not a consumer product.
-   Space Grotesk (display) + Barlow (body) + DM Mono (labels / data).
-   Typography aligned with internal.netmind.foundation.
-   ============================================================================ */
-
 @theme {
-  /* Font System */
-  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
-  --font-sans: 'Barlow', 'Inter', system-ui, sans-serif;
-  --font-mono: 'DM Mono', 'JetBrains Mono', monospace;
+  /* === Font stack (pure system, no web fonts) === */
+  --font-display: -apple-system, "SF Pro Display", "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  --font-sans:    -apple-system, "SF Pro Text",    "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    "SF Mono", ui-monospace, "Menlo", "Consolas", "Liberation Mono", monospace;
 
-  /* ---------------------------------------------------------------
-   * Cold grayscale palette — single tonal family, no warm tones.
-   * Drives the entire archive aesthetic.
-   * ---------------------------------------------------------------*/
-  --color-paper:   #f1f3f5;
-  --color-paper-2: #e8eaed;
-  --color-paper-3: #dde0e4;
-  --color-paper-4: #d2d5da;
-  /* Pure black ink — the primary text colour in light mode reads as
-     absolute black on the cool paper, giving titles maximum authority. */
-  --color-ink:     #000000;
-  --color-ink-2:   #15171a;
-  --color-ink-3:   #22252a;
-  /* Muted ramp deepened so secondary/tertiary text stays clearly readable
-     against the lighter background ramp (no more washed-out 60656f). */
-  --color-muted:   #4a4e57;
-  --color-muted-2: #1f2126;
-  --color-muted-3: #6b707a;
+  /* === Species colors — NM brand core (Axiom #1: identity-only) === */
+  --color-carbon:       #E8704A;
+  --color-silicon:      #3D7EC4;
+  --color-overlap:      #8E5CB8;
+  --color-carbon-soft:  #FBE5DA;
+  --color-silicon-soft: #E2EDF7;
+  --color-carbon-hair:  rgba(232,112,74,0.22);
+  --color-silicon-hair: rgba(61,126,196,0.18);
 
-  /* Tailwind gray scale — remapped to cold archive grays so any
-     existing `bg-gray-*` / `text-gray-*` class lands on-palette. */
-  --color-gray-50:  #fbfcfd;
-  --color-gray-100: #f1f3f5;
-  --color-gray-200: #e8eaed;
-  --color-gray-300: #d2d5da;
-  --color-gray-400: #9aa0aa;
-  --color-gray-500: #6b707a;
-  --color-gray-600: #4a4e57;
-  --color-gray-700: #2a2d33;
-  --color-gray-800: #1f2126;
-  --color-gray-900: #15171a;
-  --color-gray-950: #000000;
+  /* === Warm grayscale — Tailwind gray-* utilities auto-route to NM warm palette === */
+  --color-gray-50:  #FAFAF7;
+  --color-gray-100: #F2EFE8;
+  --color-gray-200: #F1EEE7;
+  --color-gray-300: #E5E1D8;
+  --color-gray-400: #B5B0A8;
+  --color-gray-500: #8B8680;
+  --color-gray-600: #5C5852;
+  --color-gray-700: #3D3933;
+  --color-gray-800: #2A2620;
+  --color-gray-900: #1A1612;
+  --color-gray-950: #110D0A;
 
-  /* Status palette — editorial, saturated enough to scan at small sizes but
-   * still feels printed (not neon). Tuned for use on both paper (#e8eaed)
-   * and ink (#0f1012) backgrounds. */
-  --color-red-500:    #b4232c;  /* oxblood · "error / failed" */
-  --color-red-400:    #c94a52;  /* lighter, for dark-bg readability */
-  --color-yellow-500: #b8781a;  /* burnt ochre · "warning / running" */
-  --color-yellow-400: #d0942f;  /* lighter */
-  --color-green-500:  #2e7d3a;  /* forest · "success / online / completed" */
-  --color-green-400:  #4a9956;  /* lighter */
-  --color-blue-500:   #1f5b8f;  /* slate blue · "info / active-neutral" */
-  --color-blue-400:   #366f9e;
+  /* === Status palette (Axiom #2: warm-tinted, independent of species) === */
+  --color-red-500:    #C95A4D;
+  --color-red-400:    #E0796D;
+  --color-yellow-500: #C49A3E;
+  --color-yellow-400: #DCB562;
+  --color-green-500:  #6B9466;
+  --color-green-400:  #8AB082;
+  --color-blue-500:   #3D7EC4;
+  --color-blue-400:   #7BB1E8;
 
   --color-success: var(--color-green-500);
   --color-warning: var(--color-yellow-500);
   --color-error:   var(--color-red-500);
-  --color-info:    var(--color-blue-500);
+  --color-info:    var(--color-silicon);
 
-  /* Animation Keyframes — intentionally restrained */
+  /* === Radius scale (Axiom #5) — restored from Archive's forced 0 === */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  22px;
+  --radius-2xl: 28px;
+  --radius-3xl: 36px;
+  --radius-4xl: 44px;
+
+  /* === Motion (Axiom #8) === */
+  --ease-paper:    cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-quick:    cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-fast:   150ms;
+  --motion-medium: 280ms;
+  --motion-slow:   480ms;
+
+  /* === Keyframes (preserved from Archive — used by existing animations) === */
   @keyframes slide-up-fade {
     from { opacity: 0; transform: translateY(10px); }
     to   { opacity: 1; transform: translateY(0); }
   }
-
   @keyframes slide-in-right {
     from { opacity: 0; transform: translateX(8px); }
     to   { opacity: 1; transform: translateX(0); }
   }
-
   @keyframes slide-in-left {
     from { opacity: 0; transform: translateX(-8px); }
     to   { opacity: 1; transform: translateX(0); }
   }
-
   @keyframes fade-in {
     from { opacity: 0; }
     to   { opacity: 1; }
   }
-
   @keyframes scale-in {
     from { opacity: 0; transform: scale(0.98); }
     to   { opacity: 1; transform: scale(1); }
   }
-
   @keyframes shimmer {
     0%   { background-position: -200% 0; }
     100% { background-position: 200% 0; }
   }
-
   @keyframes typing-blink {
     0%, 50%    { opacity: 1; }
     51%, 100%  { opacity: 0; }
@@ -106,142 +106,209 @@
 }
 
 /* ============================================================================
-   Light Mode — the canonical archive palette
+   Light mode — warm paper
    ============================================================================ */
 :root {
-  /* ---------------------------------------------------------------
-   * Background elevation ramp — strictly monotonic.
-   * Every step is ~6–8 points of lightness, so nested surfaces are
-   * visually distinguishable but never break the cold archive look.
-   *
-   *   sunken    ← code, tool output, thesis quote  (recessed into card)
-   *   deep      ← page / viewport background       (the page itself)
-   *   secondary ← sidebar / second-tier panels     (next to the page)
-   *   primary   ← cards, message bubbles           (the work surface)
-   *   elevated  ← hover / active state             (lifts above primary)
-   *   tertiary  ← top bar, modal sheets            (highest plane)
-   *
-   * Lightness order:  sunken < deep < secondary < primary < elevated < tertiary
-   * --------------------------------------------------------------- */
-  --bg-sunken:    #e6e8eb;
-  --bg-deep:      #edeff2;
-  --bg-secondary: #f1f3f5;
-  --bg-primary:   #f7f8fa;
-  --bg-elevated:  #fcfcfd;
-  --bg-tertiary:  #ffffff;
+  /* NM-native tokens — preferred for all new code.
+     Canonical source: NarraNexus/ui_enhance_elements/narra messenger -NM design.html
+     (`.nm-light` block). Every value here matches that file 1:1. */
+  --nm-paper:        #FAFAF7;
+  --nm-paper-warm:   #F2EFE8;
+  --nm-bg2:          #F1EEE7;
+  --nm-card:         #FFFFFF;
 
-  /* Text hierarchy — every step deepened to maximise on-paper contrast.
-     primary  → pure black (21:1 AAA on bg-primary)
-     secondary→ near-black (14:1 AAA) — body and subheads
-     tertiary → mid-deep gray (~8:1 AAA) — captions/metadata still legible */
-  --text-primary:   var(--color-ink);
-  --text-secondary: var(--color-muted-2);
-  --text-tertiary:  var(--color-muted);
-  --text-inverse:   #ffffff;
+  --nm-ink:          #2A2620;
+  --nm-ink70:        rgba(42,38,32,0.70);
+  --nm-ink50:        rgba(42,38,32,0.50);
+  --nm-ink30:        rgba(42,38,32,0.28);
+  --nm-muted:        #6b6e75;
+  --nm-subtle:       #9ca0a8;
 
-  /* ---------------------------------------------------------------
-   * Rule hierarchy — three weights, each visibly different from the next.
-   *   rule          → finest internal divider (table rows, list separators).
-   *                   Should optically *retreat* — it's structure, not edge.
-   *   border-subtle → embedded block outline (code, tool output, thesis).
-   *                   Just enough to outline a recessed surface.
-   *   border-default→ standard container/card edge. Reads as "this is a
-   *                   bounded element," obvious without being heavy.
-   *   border-strong → hover/active/selected. The "I'm interactive" signal.
-   * --------------------------------------------------------------- */
-  /* Alphas use pure black (now that --color-ink = #000) so rule weights
-     scale the same way against any of the lifted bg-* tokens. */
-  --rule:           rgba(0, 0, 0, 0.08);
-  --border-subtle:  rgba(0, 0, 0, 0.14);
-  --border-default: rgba(0, 0, 0, 0.22);
-  --border-strong:  rgba(0, 0, 0, 0.42);
+  --nm-hairline:     rgba(42,38,32,0.08);
 
-  /* "Accent" is just ink — no colored highlight in the archive. */
-  --accent-primary:   var(--color-ink);
-  --accent-secondary: var(--color-muted-2);
-  --accent-glow:      rgba(0, 0, 0, 0.06);
+  /* Row-active overlay — neutral "selected" tone for list rows that sit
+     directly on paper. Translucent ink so the result auto-relates to
+     whatever paper bg shows through (light: a hint of darker beige;
+     dark: a hint of lifted gray). Distinct from --nm-paper-warm (the
+     hover bg, opaque) so hover ≠ selected can read at a glance. */
+  --nm-row-active:    rgba(42,38,32,0.07);
 
-  --glass-bg:     var(--bg-elevated);
+  /* Surfaces — paper-raised (used for own-bubble paper variant,
+     inputs, dropdowns, banners, OAuth chips). The shadow tokens
+     are auto-swapped per theme. */
+  --nm-raised:        #F5F2EB;
+  --nm-raised-edge:   rgba(42,38,32,0.08);
+
+  /* Elevation ladder — every shadow token swaps per theme via the .dark
+     overrides below. Use these instead of hardcoding rgba shadows.
+     - elev-1: subtle paper-lift (PaperCard hover, own-bubble, raised inputs)
+     - elev-2: floating chrome (Popover, Toast, dropdown content)
+     - elev-3: focused modal (Dialog body)
+     - elev-edge-x: side panel shadow (Drawer, used as `-2px 0 ...` or `2px 0 ...`)
+     - elev-edge-y: bottom-sheet upward shadow (Sheet) */
+  --nm-raised-shadow: 0 1px 0 rgba(42,38,32,0.04), 0 2px 6px rgba(42,38,32,0.05);
+  --nm-elev-1:        0 1px 0 rgba(42,38,32,0.04), 0 2px 6px rgba(42,38,32,0.05);
+  --nm-elev-2:        0 1px 0 rgba(42,38,32,0.04), 0 4px 12px rgba(42,38,32,0.08);
+  --nm-elev-3:        0 1px 0 rgba(42,38,32,0.04), 0 12px 36px rgba(42,38,32,0.16);
+  --nm-elev-edge:     12px rgba(42,38,32,0.06);
+  --nm-elev-sheet:    0 -4px 16px rgba(42,38,32,0.10);
+  --nm-backdrop:      rgba(42,38,32,0.45);
+
+  /* Own-bubble variants. NM exports three:
+     - gray default (`own-bubble`)  → bg #EAE8E2 + ink-edge for stronger weight
+     - paper variant (`own-paper`)  → bg = same as nm-raised, soft edge
+     - lilac variant (`own-lilac`)  → bg #EDE7F2, overlap-purple low-alpha hair */
+  --nm-own-bubble:     #EAE8E2;
+  --nm-own-edge:       #9a9da3;
+  --nm-own-hair:       rgba(42,38,32,0.06);
+
+  --nm-own-paper:      #F5F2EB;
+  --nm-own-paper-edge: #b8b3a7;
+  --nm-own-paper-hair: rgba(42,38,32,0.05);
+
+  --nm-own-lilac:      #EDE7F2;
+  --nm-own-lilac-hair: rgba(142,92,184,0.18);
+
+  /* === Archive semantic tokens REBOUND to NM values ===
+     These names are used by existing components/style/className calls.
+     Rebinding here lets M1 swap the palette without touching components. */
+  --bg-sunken:     var(--nm-paper-warm);
+  --bg-deep:       var(--nm-paper);
+  --bg-secondary:  var(--nm-bg2);
+  --bg-primary:    var(--nm-card);
+  --bg-elevated:   var(--nm-raised);
+  --bg-tertiary:   var(--nm-card);
+
+  --text-primary:   var(--nm-ink);
+  --text-secondary: var(--nm-ink70);
+  --text-tertiary:  var(--nm-ink50);
+  --text-inverse:   var(--nm-paper);
+
+  --rule:           var(--nm-hairline);
+  --border-subtle:  rgba(42,38,32,0.14);
+  --border-default: rgba(42,38,32,0.22);
+  --border-strong:  rgba(42,38,32,0.42);
+
+  --accent-primary:   var(--nm-ink);
+  --accent-secondary: var(--nm-ink70);
+  --accent-glow:      rgba(42,38,32,0.04);
+
+  --glass-bg:     var(--nm-raised);
   --glass-border: var(--border-default);
 
-  /* Shadows — minimal; most surfaces use borders, not depth. */
-  --shadow-sm:    0 0 0 1px rgba(0, 0, 0, 0.04);
-  --shadow-md:    0 0 0 1px rgba(0, 0, 0, 0.08);
-  --shadow-lg:    0 0 0 1px rgba(0, 0, 0, 0.12);
+  --shadow-sm:    inset 0 0 0 1px var(--nm-hairline);
+  --shadow-md:    inset 0 0 0 1px var(--nm-hairline);
+  --shadow-lg:    var(--nm-raised-shadow);
   --shadow-glow:  none;
-  --shadow-inset: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-inset: inset 0 0 0 1px rgba(42,38,32,0.06);
 
-  /* Gradients reduced to flat fills. */
-  --gradient-primary: var(--color-ink);
+  --gradient-primary: var(--nm-ink);
   --gradient-subtle:  transparent;
-  --gradient-card:    var(--bg-primary);
+  --gradient-card:    var(--nm-card);
 
-  --code-bg:     var(--bg-sunken);
-  --code-border: var(--border-subtle);
-
-  /* Paper grid — 72px cold grid overlay (faint; backgrounds-only,
-     never sits behind body text containers thanks to the lifted bg-primary) */
-  --paper-grid-color: rgba(0, 0, 0, 0.04);
-  --paper-grid-size: 72px;
+  --code-bg:     var(--nm-paper-warm);
+  --code-border: var(--nm-hairline);
 }
 
 /* ============================================================================
-   Dark Mode — inverted archive (black paper, gray ink)
+   Dark mode — warm-ink (same hue family as light, dropped to ~9% lightness)
+   ----------------------------------------------------------------------------
+   IMPORTANT: in dark mode --nm-raised intentionally equals --nm-card and
+   --nm-paper-warm (all = #211C16). The "raised" effect comes from the
+   --nm-raised-shadow (0,0,0,0.18 / 0,0,0,0.30) and the lighter
+   --nm-raised-edge, NOT from a lighter bg fill. Lifting bg makes the
+   dark UI look like patches of colored cards on warm paper — exactly the
+   "two different products" failure NM iteration #6 rejected.
    ============================================================================ */
 .dark {
-  /* ---------------------------------------------------------------
-   * Dark elevation ramp — pushed deeper at the page level, lifted at
-   * the working surface. The wider gap between page and primary lets
-   * lightened text colours read with maximum contrast.
-   *
-   * Lightness order:  sunken < deep < secondary < primary < elevated < tertiary
-   * --------------------------------------------------------------- */
-  --bg-sunken:    #050608;
-  --bg-deep:      #0a0b0d;
-  --bg-secondary: #111316;
-  --bg-primary:   #16181c;
-  --bg-elevated:  #1f2126;
-  --bg-tertiary:  #282b31;
+  --nm-paper:        #1A1612;
+  --nm-paper-warm:   #211C16;
+  --nm-bg2:          #27221C;
+  --nm-card:         #211C16;
 
-  /* Text hierarchy — pure white primary, lifted ramp for secondary/tertiary
-     so every step on dark mode reads at AAA against bg-primary (#16181c):
-       primary  → pure white (~18.5:1)
-       secondary→ #d4d6dc (~10.5:1)
-       tertiary → #9aa0aa (~6.4:1) */
-  --text-primary:   #ffffff;
-  --text-secondary: #d4d6dc;
-  --text-tertiary:  #9aa0aa;
-  --text-inverse:   #000000;
+  --nm-ink:          #F2EFE8;
+  --nm-ink70:        rgba(242,239,232,0.72);
+  --nm-ink50:        rgba(242,239,232,0.50);
+  --nm-ink30:        rgba(242,239,232,0.30);
+  --nm-muted:        #a59a89;
+  --nm-subtle:       #7a6f5f;
 
-  --rule:           rgba(255, 255, 255, 0.09);
-  --border-subtle:  rgba(255, 255, 255, 0.18);
-  --border-default: rgba(255, 255, 255, 0.28);
-  --border-strong:  rgba(255, 255, 255, 0.48);
+  --nm-hairline:     rgba(242,239,232,0.10);
 
-  --accent-primary:   #ffffff;
-  --accent-secondary: #b4b8bf;
-  --accent-glow:      rgba(255, 255, 255, 0.06);
+  /* Row-active overlay — light ink at low alpha so dark warm paper
+     lifts to a slightly grayer feel without losing the temperature. */
+  --nm-row-active:   rgba(242,239,232,0.09);
 
-  --glass-bg:     var(--bg-elevated);
+  /* Species lifted for AA contrast on dark warm paper */
+  --color-carbon:       #FF7A5C;
+  --color-silicon:      #7BB1E8;
+  --color-overlap:      #B388D9;
+  --color-carbon-soft:  rgba(255,122,92,0.13);
+  --color-silicon-soft: rgba(123,177,232,0.13);
+  --color-carbon-hair:  rgba(255,122,92,0.32);
+  --color-silicon-hair: rgba(123,177,232,0.32);
+
+  /* Raised surface (paper-raised + own-paper share this bg in dark).
+     Shadows use black-alpha so they remain visible on warm dark paper —
+     mirroring rgba(0,0,0,X) is brighter than ink-cream rgba would be. */
+  --nm-raised:        #211C16;
+  --nm-raised-edge:   rgba(242,239,232,0.10);
+  --nm-raised-shadow: 0 1px 0 rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.30);
+  --nm-elev-1:        0 1px 0 rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.30);
+  --nm-elev-2:        0 1px 0 rgba(0,0,0,0.24), 0 4px 12px rgba(0,0,0,0.36);
+  --nm-elev-3:        0 1px 0 rgba(0,0,0,0.28), 0 12px 36px rgba(0,0,0,0.48);
+  --nm-elev-edge:     12px rgba(0,0,0,0.30);
+  --nm-elev-sheet:    0 -4px 16px rgba(0,0,0,0.40);
+  --nm-backdrop:      rgba(0,0,0,0.55);
+
+  --nm-own-bubble:     #2D2820;
+  --nm-own-edge:       #5a544a;
+  --nm-own-hair:       rgba(242,239,232,0.10);
+
+  --nm-own-paper:      #211C16;
+  --nm-own-paper-edge: #635c50;
+  --nm-own-paper-hair: rgba(242,239,232,0.08);
+
+  --nm-own-lilac:      #2A2230;
+  --nm-own-lilac-hair: rgba(179,136,217,0.30);
+
+  --bg-sunken:     var(--nm-paper-warm);
+  --bg-deep:       var(--nm-paper);
+  --bg-secondary:  var(--nm-bg2);
+  --bg-primary:    var(--nm-card);
+  --bg-elevated:   var(--nm-raised);
+  --bg-tertiary:   var(--nm-card);
+
+  --text-primary:   var(--nm-ink);
+  --text-secondary: var(--nm-ink70);
+  --text-tertiary:  var(--nm-ink50);
+  --text-inverse:   var(--nm-paper);
+
+  --rule:           var(--nm-hairline);
+  --border-subtle:  rgba(242,239,232,0.18);
+  --border-default: rgba(242,239,232,0.28);
+  --border-strong:  rgba(242,239,232,0.48);
+
+  --accent-primary:   var(--nm-ink);
+  --accent-secondary: var(--nm-ink70);
+  --accent-glow:      rgba(242,239,232,0.06);
+
+  --glass-bg:     var(--nm-raised);
   --glass-border: var(--border-default);
 
-  --shadow-sm:    0 0 0 1px rgba(255, 255, 255, 0.04);
-  --shadow-md:    0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-lg:    0 0 0 1px rgba(255, 255, 255, 0.12);
+  --shadow-sm:    inset 0 0 0 1px var(--nm-hairline);
+  --shadow-md:    inset 0 0 0 1px var(--nm-hairline);
+  --shadow-lg:    var(--nm-raised-shadow);
   --shadow-glow:  none;
-  --shadow-inset: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-inset: inset 0 0 0 1px rgba(242,239,232,0.06);
 
-  --gradient-primary: var(--text-primary);
-  --gradient-subtle:  transparent;
-  --gradient-card:    var(--bg-primary);
+  --gradient-primary: var(--nm-ink);
+  --gradient-card:    var(--nm-card);
 
-  --code-bg:     var(--bg-sunken);
-  --code-border: var(--border-subtle);
+  --code-bg:     var(--nm-paper-warm);
+  --code-border: var(--nm-hairline);
 
-  --paper-grid-color: rgba(232, 234, 237, 0.04);
-
-  /* Status colors re-mapped to their lighter siblings in dark mode —
-   * the 500-values are too low-contrast on a near-black background. */
+  /* Re-map status colors to lifted siblings for AA on dark warm paper */
   --color-success: var(--color-green-400);
   --color-warning: var(--color-yellow-400);
   --color-error:   var(--color-red-400);
@@ -251,23 +318,18 @@
 /* ============================================================================
    Base
    ============================================================================ */
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 html {
   font-family: var(--font-sans);
   font-size: 15.5px;
-  /* Barlow ships only 300/500/600 — picking 400 silently fell back to 500,
-     which collapsed the gap between body and <strong>. We use 300 (light)
-     for body and rely on subpixel-AA + 600 for emphasis to keep the
-     hierarchy crisp without making prose feel heavy. */
-  font-weight: 300;
+  font-weight: 400;
   line-height: 1.6;
   -webkit-font-smoothing: subpixel-antialiased;
   -moz-osx-font-smoothing: auto;
   text-rendering: optimizeLegibility;
-  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'palt' 1;
+  letter-spacing: 0.005em;
 }
 
 body {
@@ -277,13 +339,8 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   overflow-x: hidden;
-  /* Paper grid — faint 72px grid on the page background */
-  background-image:
-    linear-gradient(var(--paper-grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--paper-grid-color) 1px, transparent 1px);
-  background-size: var(--paper-grid-size) var(--paper-grid-size);
-  background-attachment: fixed;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  /* No paper grid — NM is pure paper */
+  transition: background-color 0.3s var(--ease-paper), color 0.3s var(--ease-paper);
 }
 
 #root {
@@ -292,83 +349,49 @@ body {
   flex-direction: column;
 }
 
-/* Archive style is 100% right-angles.
-   Override Tailwind's radius scale at the theme level so
-   rounded-sm / rounded-md / rounded-lg / rounded-xl / rounded-2xl / rounded-3xl
-   all resolve to 0 without a cascade of !important rules. */
-@theme {
-  --radius-xs: 0;
-  --radius-sm: 0;
-  --radius-md: 0;
-  --radius-lg: 0;
-  --radius-xl: 0;
-  --radius-2xl: 0;
-  --radius-3xl: 0;
-  --radius-4xl: 0;
-}
-
-/* `rounded-full` is kept as an opt-in for true circles (avatars, dots, pulse
-   indicators). Use the .allow-circle escape hatch only when you explicitly need one. */
+/* Avatar circles + pulse indicators stay as true circles */
 .allow-circle,
 .avatar-circle {
   border-radius: 9999px;
 }
 
+/* Tabular numerals for any mono-formatted numeric data */
+.font-mono, code, pre, kbd, samp,
+.data-label, .data-value {
+  font-feature-settings: 'liga' off, 'calt' off, 'tnum' 1;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ============================================================================
-   Typography — Space Grotesk for display, Barlow for body, DM Mono for labels
-   (Space Grotesk tops out at weight 700 and is wider than Syne at the same size,
-    so letter-spacing is slightly less negative and h1 uses 700 instead of 800.)
+   Typography
    ============================================================================ */
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.015em;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   color: var(--text-primary);
   margin: 0;
 }
 
-h1 {
-  font-size: clamp(2.25rem, 5.5vw, 4rem);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-}
-h2 { font-size: clamp(1.5rem, 3.5vw, 2.375rem); letter-spacing: -0.02em; }
-h3 { font-size: 1.5rem; }
-h4 { font-size: 1.25rem; }
-h5 { font-size: 1.0625rem; }
-h6 { font-size: 0.95rem; }
+h1 { font-size: clamp(2rem, 4.5vw, 2.75rem); letter-spacing: -0.025em; }
+h2 { font-size: clamp(1.5rem, 3vw, 2rem); letter-spacing: -0.02em; }
+h3 { font-size: 1.375rem; }
+h4 { font-size: 1.125rem; }
+h5 { font-size: 1rem; }
+h6 { font-size: 0.9rem; }
 
-/* <p> defaults to zero margin — Tailwind-project convention. Margins for
-   prose paragraphs are re-added under `.markdown-content p`. This prevents
-   UI labels written as <p> from silently adding 1rem bottom margin when
-   placed inside flex/grid layouts. */
-p {
-  margin: 0;
-  line-height: 1.7;
-  font-weight: 300;
-}
-
-/* Bumped from 600 → 700-equivalent (display font fallback handles 700;
-   Barlow only ships up to 600, but the 300→600 jump is now wide enough
-   to read as clearly bold against light body text). */
+p { margin: 0; line-height: 1.7; font-weight: 400; }
 strong, b { font-weight: 600; }
 
-/* Monospace — DM Mono carries the archive/data feel */
 .font-mono, code, pre, kbd, samp {
   font-family: var(--font-mono) !important;
-  font-feature-settings: 'liga' off, 'calt' off;
 }
 
 .font-display {
   font-family: var(--font-display) !important;
 }
 
-/* Compact UI scale — sizes only. Weight inherits the html default (300)
-   so prose/descriptions written with text-xs read as a softer body, not
-   a bold label. Genuinely "small mono uppercase labels" pick up weight
-   via dedicated classes (.archive-label, .data-label, .tab-button) or
-   inline `font-medium` at the call site, not from this scale rule. */
 .text-xs { font-size: 0.75rem; line-height: 1.55; }
 .text-sm { font-size: 0.85rem; line-height: 1.6; }
 .text-base { font-size: 0.95rem; line-height: 1.65; }
@@ -377,8 +400,8 @@ strong, b { font-weight: 600; }
 .text-2xl { font-size: 1.5rem; line-height: 1.25; }
 .text-3xl { font-size: 2rem; line-height: 1.15; }
 
-/* Archive-specific utility classes */
-.archive-label {
+.archive-label,
+.data-label {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   font-weight: 500;
@@ -403,68 +426,35 @@ strong, b { font-weight: 600; }
 
 .archive-rule-thick {
   border: none;
-  border-top: 2px solid var(--color-ink);
+  border-top: 2px solid var(--nm-ink);
   height: 0;
   margin: 1.5rem 0;
 }
 
 /* ============================================================================
-   Scrollbar — hairline
-   ----------------------------------------------------------------------------
-   IMPORTANT — macOS "Always show scroll bars" caveat
-   --------------------------------------------------
-   When a macOS user has System Settings → Appearance → Show scroll bars set
-   to **Always**, WebKit/WKWebView falls back to AppKit's NSScroller for
-   every native overflow scroller. NSScroller COMPLETELY bypasses
-   `::-webkit-scrollbar` rules — no amount of CSS, !important, or
-   `-webkit-appearance: none` can override it.
-   The only way to keep a consistent dark-archive scrollbar in that mode is
-   to stop using native scroll containers and use the Radix-based
-   <ScrollArea> component (see `components/ui/scroll-area.tsx`) — it uses
-   `overflow:hidden` + a JS-rendered thumb that the OS can never hijack.
-   The rules below STILL apply as a fallback for users in "Automatic" or
-   "When scrolling" mode, and for the few native scrollers we choose not to
-   wrap (Markdown code blocks, top-level `<html>`/`<body>`).
+   Scrollbar — hairline (preserved from Archive, retargeted to NM tokens)
    ============================================================================ */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
   background: transparent;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--border-default);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   transition: background 0.2s;
 }
 ::-webkit-scrollbar-thumb:hover {
-  /* `--text-primary` flips with the theme, so hover is dark on light bg and
-     light on dark bg. The previous hardcoded `--color-ink` stayed near-black
-     in both modes — invisible on dark scrollbar tracks. */
   background: var(--text-primary);
 }
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
+::-webkit-scrollbar-corner { background: transparent; }
 
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--border-default) transparent;
 }
 
-/* ----------------------------------------------------------------------------
- * Textarea scrollbar — Nordic archive style
- *
- * The chat composer's <textarea> is a fixed 52px row. WebKit on macOS allocates
- * a scroll gutter whenever subpixel rounding pushes the content height even 1px
- * above the box height — exposing a system scrollbar on an empty field.
- *
- * Fix: keep the textarea's scrollbar custom-styled (so it never falls back to
- * the wide AppKit scrollbar even in "always-show" mode), AND keep the thumb
- * transparent until hover/focus so empty fields never show a chrome.
- * ---------------------------------------------------------------------------*/
 textarea.nx-textarea {
   overflow-y: auto;
   scrollbar-width: thin;
@@ -477,12 +467,8 @@ textarea.nx-textarea::-webkit-scrollbar {
   height: 6px;
   background: transparent;
 }
-textarea.nx-textarea::-webkit-scrollbar-track {
-  background: transparent;
-}
-textarea.nx-textarea::-webkit-scrollbar-thumb {
-  background: transparent;
-}
+textarea.nx-textarea::-webkit-scrollbar-track { background: transparent; }
+textarea.nx-textarea::-webkit-scrollbar-thumb { background: transparent; }
 textarea.nx-textarea:hover,
 textarea.nx-textarea:focus {
   scrollbar-color: var(--border-default) transparent;
@@ -493,142 +479,89 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 }
 
 /* ============================================================================
-   Glass — reduced to a flat tinted surface, no blur
-   (archive style doesn't use translucency; removing backdrop-filter
-    saves paint cost on scroll, especially on low-end hardware)
+   Glass / Card / Hover (preserved patterns, NM colors)
    ============================================================================ */
 .glass {
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
 }
 
-/* ============================================================================
-   Animations — very restrained
-   ============================================================================ */
-.animate-slide-up {
-  animation: slide-up-fade 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  transition: border-color 0.2s var(--ease-quick), background-color 0.2s var(--ease-quick);
+  position: relative;
 }
-.animate-slide-in-right {
-  animation: slide-in-right 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.animate-slide-in-left {
-  animation: slide-in-left 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.animate-fade-in {
-  animation: fade-in 0.3s ease-out forwards;
-}
-.animate-scale-in {
-  animation: scale-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-.animate-shimmer {
-  background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
-  background-size: 200% 100%;
-  animation: shimmer 2s ease-in-out infinite;
-}
-.animate-typing-cursor::after {
-  content: '|';
-  color: var(--accent-primary);
-  animation: typing-blink 1s step-end infinite;
+.card:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
 }
 
-/* Hover effects — no lift, just subtle tonal shift */
 .hover-lift {
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  transition: background-color 0.2s var(--ease-quick), border-color 0.2s var(--ease-quick);
 }
 .hover-lift:hover {
   background: var(--bg-elevated);
   border-color: var(--border-strong);
 }
-
 .hover-scale {
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s var(--ease-quick);
 }
 .hover-scale:hover {
   background: var(--bg-elevated);
 }
 
 /* ============================================================================
-   Card surface — flat, 1px ruled, no gradient
+   Archive boxes (kept for backwards compatibility with prose content)
    ============================================================================ */
-.card {
-  background: var(--bg-primary);
-  /* Card edge uses border-default so it reads as a bounded container —
-     not the same hairline weight as internal table dividers (--rule). */
-  border: 1px solid var(--border-default);
-
-  box-shadow: none;
-  transition: border-color 0.2s ease;
-  position: relative;
-}
-
-.card:hover {
-  border-color: var(--border-strong);
-  box-shadow: none;
-}
-
-/* ============================================================================
-   Archive boxes
-   ============================================================================ */
-
-/* Thesis box — left-rule accent, recessed fill (sunken below the surrounding
-   primary surface, so it reads as an embedded quote). */
 .archive-thesis {
-  border-left: 2px solid var(--color-ink);
+  border-left: 2px solid var(--nm-ink);
   background: var(--bg-sunken);
   padding: 1rem 1.25rem;
+  border-radius: var(--radius-sm);
   font-family: var(--font-display);
   font-weight: 500;
   color: var(--text-primary);
 }
 
-/* Summary box — the single high-contrast moment in the whole design */
 .archive-summary {
-  background: var(--color-ink);
-  color: #ffffff;
+  background: var(--nm-ink);
+  color: var(--nm-paper);
   padding: 1.5rem 1.75rem;
+  border-radius: var(--radius-md);
   font-family: var(--font-display);
   font-weight: 500;
   line-height: 1.5;
-  border: 1px solid var(--color-ink);
+  border: 1px solid var(--nm-ink);
 }
 .archive-summary .caveat {
   margin-top: 1rem;
   padding-top: 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.24);
   font-family: var(--font-sans);
-  font-weight: 300;
+  font-weight: 400;
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.82);
 }
 
 /* ============================================================================
-   Markdown — typographic, no color accents
+   Markdown content (typography, no color accents)
    ============================================================================ */
 .markdown-content {
   font-family: var(--font-sans);
   font-size: 0.95rem;
   line-height: 1.75;
-  font-weight: 300;
+  font-weight: 400;
   color: var(--text-primary);
 }
-
-/* TurnTimeline block variants.
-   `.markdown-content` sets an explicit `color` / `font-size` that wins
-   over any ancestor utility class, so a timeline block can't dim or
-   enlarge its settled (Markdown-rendered) body just by styling the
-   container. These two-class selectors (specificity 0,2,0) beat the
-   plain `.markdown-content` rule (0,1,0) and are the supported hook for
-   it — see TurnTimeline.tsx ThinkingBlock / ReplyBlock. */
 .markdown-content.markdown-dim {
-  /* Thinking — process, not product. Recede to the dimmest tone. */
   color: var(--text-tertiary);
 }
 .markdown-content.markdown-reply {
-  /* Reply — the authoritative answer. One notch larger than the 0.95rem
-     default so the eye lands here first. */
   font-size: 1.05rem;
 }
-
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,
@@ -641,91 +574,70 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   font-weight: 700;
   letter-spacing: -0.02em;
 }
-
 .markdown-content h1:first-child,
 .markdown-content h2:first-child,
-.markdown-content h3:first-child {
-  margin-top: 0;
-}
-
+.markdown-content h3:first-child { margin-top: 0; }
 .markdown-content h1 {
-  font-size: 1.75rem;
-  border-bottom: 2px solid var(--color-ink);
+  font-size: 1.625rem;
+  border-bottom: 2px solid var(--nm-ink);
   padding-bottom: 0.5em;
 }
 .markdown-content h2 {
-  font-size: 1.375rem;
+  font-size: 1.3rem;
   border-bottom: 1px solid var(--rule);
   padding-bottom: 0.3em;
 }
-.markdown-content h3 { font-size: 1.15rem; }
+.markdown-content h3 { font-size: 1.1rem; }
 .markdown-content h4 { font-size: 1rem; }
-
-.markdown-content p {
-  margin: 1em 0;
-}
-
+.markdown-content p { margin: 1em 0; }
 .markdown-content a {
   color: var(--text-primary);
   text-decoration: none;
   font-weight: 500;
-  border-bottom: 1px solid var(--color-ink);
-  transition: background-color 0.15s ease;
+  border-bottom: 1px solid var(--nm-ink);
+  transition: background-color 0.15s var(--ease-quick);
 }
-
 .markdown-content a:hover {
-  background: var(--color-ink);
-  color: #ffffff;
+  background: var(--nm-ink);
+  color: var(--nm-paper);
 }
-
 .markdown-content ul,
-.markdown-content ol {
-  margin: 1em 0;
-  padding-left: 1.5em;
-}
-
-.markdown-content li {
-  margin: 0.35em 0;
-}
-
+.markdown-content ol { margin: 1em 0; padding-left: 1.5em; }
+.markdown-content li { margin: 0.35em 0; }
 .markdown-content li::marker {
   color: var(--text-tertiary);
   font-family: var(--font-mono);
 }
-
 .markdown-content blockquote {
   margin: 1.5em 0;
   padding: 0.75em 1.25em;
-  border-left: 2px solid var(--color-ink);
+  border-left: 2px solid var(--nm-ink);
   background: var(--bg-sunken);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-display);
   font-weight: 500;
   font-style: normal;
 }
-
 .markdown-content code {
   font-family: var(--font-mono) !important;
   font-size: 0.85em;
   padding: 0.15em 0.4em;
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 0;
+  border-radius: var(--radius-xs);
   color: var(--text-primary);
 }
-
 .markdown-content pre {
   margin: 1.5em 0;
   padding: 1.15em;
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
   font-size: 0.85rem;
   line-height: 1.6;
 }
-
 .markdown-content pre code {
   padding: 0;
   background: none;
@@ -733,21 +645,18 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   color: var(--text-primary);
   font-size: inherit;
 }
-
 .markdown-content table {
   width: 100%;
   margin: 1.5em 0;
   border-collapse: collapse;
   font-size: 0.9rem;
 }
-
 .markdown-content th,
 .markdown-content td {
   padding: 0.65em 0.9em;
   border: 1px solid var(--rule);
   text-align: left;
 }
-
 .markdown-content th {
   background: var(--bg-sunken);
   font-weight: 600;
@@ -756,35 +665,31 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-
 .markdown-content tr:nth-child(even) {
   background: var(--bg-sunken);
 }
-
 .markdown-content hr {
   margin: 2em 0;
   border: none;
   height: 1px;
   background: var(--rule);
 }
-
 .markdown-content strong {
   font-weight: 600;
   color: var(--text-primary);
 }
-
 .markdown-content img {
   max-width: 100%;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   margin: 1em 0;
   border: 1px solid var(--border-subtle);
 }
 
 /* ============================================================================
-   Status
+   Status colors
    ============================================================================ */
 .status-pending   { color: var(--text-tertiary); }
-.status-running   { color: var(--color-ink); }
+.status-running   { color: var(--color-warning); }
 .status-completed { color: var(--color-success); }
 .status-failed    { color: var(--color-error); }
 
@@ -792,29 +697,51 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
    Focus / Selection
    ============================================================================ */
 *:focus-visible {
-  outline: 1px solid var(--color-ink);
+  outline: 1.5px solid var(--nm-ink);
   outline-offset: 2px;
 }
-
 ::selection {
-  background: var(--color-ink);
-  color: #ffffff;
+  background: var(--nm-ink);
+  color: var(--nm-paper);
 }
-
 .dark ::selection {
   background: var(--text-primary);
   color: var(--bg-deep);
 }
 
 /* ============================================================================
-   Transitions
+   Transitions + Animations (NM rhythm)
    ============================================================================ */
-.transition-all     { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.transition-fast    { transition: all 0.12s ease-out; }
-.transition-smooth  { transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1); }
+.transition-all     { transition: all var(--motion-fast) var(--ease-quick); }
+.transition-fast    { transition: all var(--motion-fast) var(--ease-quick); }
+.transition-smooth  { transition: all var(--motion-medium) var(--ease-paper); }
+
+.animate-slide-up        { animation: slide-up-fade var(--motion-medium) var(--ease-paper) forwards; }
+.animate-slide-in-right  { animation: slide-in-right var(--motion-medium) var(--ease-paper) forwards; }
+.animate-slide-in-left   { animation: slide-in-left  var(--motion-medium) var(--ease-paper) forwards; }
+.animate-fade-in         { animation: fade-in var(--motion-fast) var(--ease-quick) forwards; }
+.animate-scale-in        { animation: scale-in var(--motion-fast) var(--ease-paper) forwards; }
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+.animate-typing-cursor::after {
+  content: '|';
+  color: var(--accent-primary);
+  animation: typing-blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 /* ============================================================================
-   Login / Auth card — archive document, not glassmorphism
+   Login / Auth card
    ============================================================================ */
 .login-container {
   min-height: 100vh;
@@ -825,11 +752,10 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   position: relative;
   overflow: hidden;
 }
-
 .login-card {
   background: var(--bg-primary);
-  border: 1px solid var(--color-ink);
-
+  border: 1px solid var(--nm-ink);
+  border-radius: var(--radius-md);
   padding: 3rem;
   width: 100%;
   max-width: 440px;
@@ -839,30 +765,22 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 }
 
 /* ============================================================================
-   Agent item — list row with left-rule active state
+   Agent item (sidebar list row)
    ============================================================================ */
 .agent-item {
   padding: 0.9rem 1rem;
-
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.15s var(--ease-quick), border-color 0.15s var(--ease-quick);
   border: 1px solid transparent;
-  /* Internal panel-section divider — same weight as the sidebar's other
-     section dividers (logo/user/nav/logout). */
   border-bottom: 1px solid var(--rule);
   position: relative;
 }
-
-.agent-item:hover {
-  background: var(--bg-elevated);
-}
-
+.agent-item:hover { background: var(--bg-elevated); }
 .agent-item.active {
   background: var(--bg-elevated);
   border-color: transparent;
   border-bottom-color: var(--rule);
 }
-
 .agent-item.active::before {
   content: '';
   position: absolute;
@@ -870,43 +788,35 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--color-ink);
+  background: var(--nm-ink);
 }
 
 /* ============================================================================
-   Message bubbles — flat rectangles, no gradient
+   Message bubbles — placeholder (proper NM bubble lands in M3)
    ============================================================================ */
-/*
- * User-bubble color variables: `--on-bubble` is the primary foreground
- * on top of the inverted bubble background. Descendants use alpha
- * modifiers via color-mix to get /70 /50 /10 etc without hardcoding
- * white/black — so the bubble auto-inverts in dark mode.
- */
 .message-user {
-  --on-bubble: #ffffff;
-  --on-bubble-bg: var(--color-ink);
+  --on-bubble:    var(--nm-paper);
+  --on-bubble-bg: var(--nm-ink);
   background: var(--on-bubble-bg);
   color: var(--on-bubble);
   border: 1px solid var(--on-bubble-bg);
+  border-radius: var(--radius-lg);
   box-shadow: none;
 }
-
 .dark .message-user {
-  --on-bubble: var(--bg-deep);
+  --on-bubble:    var(--bg-deep);
   --on-bubble-bg: var(--text-primary);
 }
-
 .message-assistant {
   background: var(--bg-primary);
-  /* Assistant bubble is a bounded container — uses default weight,
-     not the hairline rule reserved for internal dividers. */
   border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   position: relative;
 }
 
 /* ============================================================================
-   Data labels — DM Mono archive tags
+   Data labels
    ============================================================================ */
 .data-label {
   font-family: var(--font-mono);
@@ -916,27 +826,25 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   letter-spacing: 0.12em;
   color: var(--text-tertiary);
 }
-
 .data-value {
   font-family: var(--font-mono);
   color: var(--text-primary);
   font-weight: 500;
 }
-
 .data-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   padding: 1rem;
   position: relative;
 }
 
 /* ============================================================================
-   Tabs — underline-only, no pills
+   Tabs — underline-only
    ============================================================================ */
 .tab-button {
   position: relative;
   padding: 0.5rem 0.9rem;
-
   font-family: var(--font-mono);
   font-size: 0.72rem;
   font-weight: 500;
@@ -944,9 +852,8 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   letter-spacing: 0.10em;
   color: var(--text-tertiary);
   background: transparent;
-  transition: color 0.15s ease;
+  transition: color 0.15s var(--ease-quick);
 }
-
 .tab-button::before {
   content: '';
   position: absolute;
@@ -954,33 +861,23 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   left: 0;
   width: 0;
   height: 2px;
-  background: var(--color-ink);
-  transition: width 0.2s ease;
+  background: var(--nm-ink);
+  transition: width 0.2s var(--ease-quick);
 }
-
-.tab-button:hover {
-  color: var(--text-primary);
-}
-
-.tab-button.active {
-  color: var(--text-primary);
-  background: transparent;
-}
-
-.tab-button.active::before {
-  width: 100%;
-}
+.tab-button:hover { color: var(--text-primary); }
+.tab-button.active { color: var(--text-primary); background: transparent; }
+.tab-button.active::before { width: 100%; }
 
 /* ============================================================================
-   Input focus — no colored glow
+   Input focus
    ============================================================================ */
 .input-glow:focus {
   outline: none;
-  box-shadow: inset 0 -2px 0 0 var(--color-ink);
+  box-shadow: inset 0 -2px 0 0 var(--nm-ink);
 }
 
 /* ============================================================================
-   Loading skeleton
+   Skeleton
    ============================================================================ */
 .skeleton {
   background: linear-gradient(
@@ -990,8 +887,8 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
     var(--bg-secondary) 100%
   );
   background-size: 200% 100%;
+  border-radius: var(--radius-sm);
   animation: shimmer 1.5s ease-in-out infinite;
-
 }
 
 /* ============================================================================
@@ -999,5 +896,4 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
    ============================================================================ */
 button, input, select, textarea {
   font-family: inherit;
-  border-radius: 0;
 }

@@ -89,7 +89,7 @@ function TreeNode({
   const [expanded, setExpanded] = useState(depth < 1);
 
   const isFile = !node.is_dir;
-  const downloadUrl = isFile ? api.workspaceFileRawUrl(agentId, userId, node.path) : '';
+  const downloadUrl = isFile ? api.workspaceFileRawUrl(agentId, node.path) : '';
 
   return (
     <div>
@@ -234,7 +234,7 @@ function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
           lower.endsWith('.html') || lower.endsWith('.htm') ||
           lower.endsWith('.js') || lower.endsWith('.ts') || lower.endsWith('.tsx') ||
           lower.endsWith('.css') || lower.endsWith('.py') || lower.endsWith('.yml') || lower.endsWith('.yaml');
-        const blob = await api.fetchWorkspaceFileBlob(agentId, userId, node.path);
+        const blob = await api.fetchWorkspaceFileBlob(agentId, node.path);
         if (cancelled) return;
         if (isImage) {
           blobUrl = URL.createObjectURL(blob);
@@ -414,7 +414,7 @@ export function FileUpload() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.listFiles(agentId, userId);
+      const res = await api.listFiles(agentId);
       if (res.success) {
         setTree(res.tree);
       } else {
@@ -438,7 +438,7 @@ export function FileUpload() {
     setError(null);
     try {
       for (const file of Array.from(filesToUpload)) {
-        const res = await api.uploadFile(agentId, userId, file);
+        const res = await api.uploadFile(agentId, file);
         if (!res.success) setError(res.error || `Failed to upload ${file.name}`);
       }
       await fetchTree();
@@ -462,7 +462,7 @@ export function FileUpload() {
     });
     if (!ok) return;
     try {
-      const res = await api.deleteFile(agentId, userId, node.path);
+      const res = await api.deleteFile(agentId, node.path);
       if (res.success) {
         await fetchTree();
       } else {

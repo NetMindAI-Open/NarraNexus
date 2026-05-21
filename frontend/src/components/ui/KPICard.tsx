@@ -1,16 +1,20 @@
 /**
- * KPICard — Nordic archive style
- * Flat rectangle, DM Mono label, Space Grotesk numeric value. No color chip, no glow.
+ * KPICard — NM Design System (M3 Wave 4)
+ *
+ * Restyled in-place to use NM PaperCard surface + display-font numeric +
+ * mono uppercase label. API preserved (icon, color, subtext, pulse) so
+ * existing callers in DashboardPage etc. don't need to change.
  */
 
 import { cn } from '@/lib/utils';
+import { PaperCard } from '@/components/nm';
 
 const colorMap = {
-  accent:    { icon: 'text-[var(--text-primary)]', value: 'text-[var(--text-primary)]' },
-  success:   { icon: 'text-[var(--color-green-500)]', value: 'text-[var(--color-green-500)]' },
-  warning:   { icon: 'text-[var(--color-yellow-500)]', value: 'text-[var(--color-yellow-500)]' },
-  error:     { icon: 'text-[var(--color-red-500)]', value: 'text-[var(--color-red-500)]' },
-  secondary: { icon: 'text-[var(--text-secondary)]', value: 'text-[var(--text-secondary)]' },
+  accent:    { icon: 'text-[var(--nm-ink)]',          value: 'text-[var(--nm-ink)]' },
+  success:   { icon: 'text-[var(--color-success)]',   value: 'text-[var(--color-success)]' },
+  warning:   { icon: 'text-[var(--color-warning)]',   value: 'text-[var(--color-warning)]' },
+  error:     { icon: 'text-[var(--color-error)]',     value: 'text-[var(--color-error)]' },
+  secondary: { icon: 'text-[var(--nm-ink70)]',        value: 'text-[var(--nm-ink70)]' },
 };
 
 export type KPIColor = keyof typeof colorMap;
@@ -35,34 +39,42 @@ export function KPICard({
   const colors = colorMap[color];
 
   return (
-    <div
-      className={cn(
-        'p-3 border border-[var(--border-default)] bg-[var(--bg-primary)]',
-        'transition-colors duration-150 hover:border-[var(--border-strong)]'
-      )}
-      style={{ borderRadius: 0 }}
-    >
-      <div className="flex items-center gap-2 mb-2">
+    <PaperCard padding="md" className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
         <Icon className={cn('w-3.5 h-3.5', colors.icon, pulse && 'animate-pulse')} />
         <span
-          className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-normal font-[family-name:var(--font-mono)]"
+          className="text-[10px] uppercase tracking-[0.12em]"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--nm-ink50)',
+          }}
         >
           {label}
         </span>
       </div>
       <div
         className={cn(
-          'text-xl font-semibold font-[family-name:var(--font-display)] tracking-tight',
+          'text-2xl font-bold leading-tight tracking-tight',
           colors.value
         )}
+        style={{
+          fontFamily: 'var(--font-display)',
+          fontVariantNumeric: 'tabular-nums',
+        }}
       >
         {value}
       </div>
       {subtext && (
-        <div className="text-[10px] text-[var(--text-tertiary)] mt-1 font-[family-name:var(--font-mono)] truncate">
+        <div
+          className="text-[10px] truncate"
+          style={{
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--nm-ink50)',
+          }}
+        >
           {subtext}
         </div>
       )}
-    </div>
+    </PaperCard>
   );
 }

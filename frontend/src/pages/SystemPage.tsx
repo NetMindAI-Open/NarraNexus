@@ -10,8 +10,9 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Play, Square, ServerCrash } from 'lucide-react';
+import { Play, Square } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
+import { BracketEmptyState, BracketSectionLabel } from '@/components/nm';
 import { ServiceCard } from '@/components/system/ServiceCard';
 import { HealthStatusBar } from '@/components/system/HealthStatusBar';
 import { LogViewer } from '@/components/system/LogViewer';
@@ -135,18 +136,20 @@ export function SystemPage() {
   // Platform not available — show placeholder
   if (platformError && processes.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-4 text-center p-8">
-        <ServerCrash className="w-12 h-12 text-[var(--text-tertiary)]" />
-        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-          Platform Not Available
-        </h2>
-        <p className="text-sm text-[var(--text-secondary)] max-w-md">
-          Service management requires the desktop runtime (Tauri). This feature
-          will be available once the desktop app is built.
-        </p>
-        <p className="text-xs text-[var(--text-tertiary)] font-mono">
-          {platformError}
-        </p>
+      <div className="h-full flex items-center justify-center p-8">
+        <BracketEmptyState
+          label="Platform not available"
+          hint={
+            <>
+              Service management requires the desktop runtime (Tauri). This
+              feature will be available once the desktop app is built.
+              <br />
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--nm-ink50)' }}>
+                {platformError}
+              </span>
+            </>
+          }
+        />
       </div>
     );
   }
@@ -164,9 +167,19 @@ export function SystemPage() {
 
       {/* Controls */}
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-[var(--text-primary)] flex-1">
-          Services
-        </h1>
+        <div className="flex-1">
+          <h1
+            className="text-2xl font-bold tracking-tight"
+            style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+          >
+            Services
+          </h1>
+          <div className="mt-1">
+            <BracketSectionLabel>
+              {processes.length} processes
+            </BracketSectionLabel>
+          </div>
+        </div>
         <Button variant="accent" size="sm" onClick={handleStartAll}>
           <Play className="w-3.5 h-3.5" />
           Start All

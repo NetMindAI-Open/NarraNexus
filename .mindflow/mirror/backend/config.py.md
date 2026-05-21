@@ -1,8 +1,19 @@
 ---
 code_file: backend/config.py
-last_verified: 2026-04-10
+last_verified: 2026-05-14
 stub: false
 ---
+
+## 2026-05-14 addition — invite_auto_issue_cap + narra.nexus CORS
+
+`settings.invite_auto_issue_cap`（env `INVITE_AUTO_ISSUE_CAP`，默认 200）。
+邀请码 Mode B 的自动发码上限：`/api/invite/request` 在 `issued+used` 码数
+低于此值时直接发码，超过则转 waitlist。这是真正卡 web 版用户数的开关。
+被 `backend/routes/invite.py` 读取。
+
+`_DEFAULT_CORS_ORIGINS` 加入 `https://narra.nexus` / `https://www.narra.nexus`
+（marketing 站）。website 邀请码表单走服务端代理，正常不需要 CORS，这里只是
+给直接浏览器调用兜底；云部署仍可用 `CORS_ORIGINS` env 整体覆盖。
 
 # config.py — 后端集中配置
 

@@ -56,12 +56,15 @@ interface ArtifactState {
   minimizedTabIds: Set<string>;
 
   /**
-   * Set when the agent's register_artifact tool call returns an
-   * ArtifactQuotaExceeded error. Surfaced as a modal at the layout level
-   * with a button that jumps the user to Settings → Artifacts. Cleared
-   * automatically once the user dismisses the modal or navigates away.
+   * LRU of recently-active echarts artifact_ids — newest first, length ≤
+   * CHART_LRU_LIMIT. ArtifactColumn keeps each id in this list mounted
+   * (display: hidden when not active) so flipping back to a recent chart is
+   * instant — no re-fetch, no re-init. When an id falls off the tail the
+   * ChartRenderer unmounts, `chart.dispose()` runs, and the canvas / option
+   * tree are released. setActive() promotes a chart to the head on every
+   * click. HTML / CSV / Markdown / PDF / image artifacts are unaffected.
    */
-  quotaError: string | null;
+  chartLruOrder: string[];
 
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
@@ -72,7 +75,6 @@ interface ArtifactState {
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
   minimizeTab: (artifactId: string) => void;
   restoreTab: (artifactId: string) => void;
-  setQuotaError: (msg: string | null) => void;
 
   pin: (agentId: string, artifactId: string, pinned: boolean) => Promise<void>;
   delete: (agentId: string, artifactId: string) => Promise<void>;
@@ -106,6 +108,27 @@ function persistMinimizedTabIds(ids: Set<string>): void {
   }
 }
 
+const CHART_LRU_LIMIT = 5;
+const ECHARTS_KIND = 'application/vnd.echarts+json';
+
+/**
+ * Move `artifactId` to the head of the chart LRU if (and only if) it points at
+ * an echarts artifact in `artifacts`. Returns the input list unchanged for
+ * non-chart kinds and missing rows, so the caller can pipe every active-id
+ * change through here without branching.
+ */
+function _promoteChartLru(
+  current: string[],
+  artifactId: string | null,
+  artifacts: Artifact[],
+): string[] {
+  if (!artifactId) return current;
+  const art = artifacts.find((a) => a.artifact_id === artifactId);
+  if (art?.kind !== ECHARTS_KIND) return current;
+  const without = current.filter((id) => id !== artifactId);
+  return [artifactId, ...without].slice(0, CHART_LRU_LIMIT);
+}
+
 export const useArtifactStore = create<ArtifactState>((set, get) => ({
   artifactsByAgent: {},
   activeAgentId: null,
@@ -114,21 +137,23 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   collapsed: initialCollapsed,
   chartInstances: {},
   minimizedTabIds: initialMinimizedTabIds,
-  quotaError: null,
+  chartLruOrder: [],
 
   async loadForSession(agentId, sessionId) {
     // Stale-while-revalidate: switch the active agent and surface any cached
     // artifacts immediately, then fetch in the background. Avoids a blank
     // panel on every agent switch.
     const cached = get().artifactsByAgent[agentId] ?? [];
-    set({
+    const nextActiveCached =
+      cached.find((a) => a.artifact_id === get().activeArtifactId)
+        ? get().activeArtifactId
+        : cached[0]?.artifact_id ?? null;
+    set((state) => ({
       activeAgentId: agentId,
       artifacts: cached,
-      activeArtifactId:
-        cached.find((a) => a.artifact_id === get().activeArtifactId)
-          ? get().activeArtifactId
-          : cached[0]?.artifact_id ?? null,
-    });
+      activeArtifactId: nextActiveCached,
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, nextActiveCached, cached),
+    }));
 
     const [sessionArtifacts, pinned] = await Promise.all([
       artifactsApi.listSession(agentId, sessionId),
@@ -140,42 +165,54 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     ];
     // Only commit if the user is still on this agent.
     if (get().activeAgentId !== agentId) return;
-    set({
+    const nextActiveMerged =
+      merged.find((a) => a.artifact_id === get().activeArtifactId)
+        ? get().activeArtifactId
+        : merged[0]?.artifact_id ?? null;
+    set((state) => ({
       artifactsByAgent: { ...get().artifactsByAgent, [agentId]: merged },
       artifacts: merged,
-      activeArtifactId:
-        merged.find((a) => a.artifact_id === get().activeArtifactId)
-          ? get().activeArtifactId
-          : merged[0]?.artifact_id ?? null,
-    });
+      activeArtifactId: nextActiveMerged,
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, nextActiveMerged, merged),
+    }));
   },
 
   async loadPinned(agentId) {
     // Stale-while-revalidate: switch + show cached immediately, then refresh.
     const cached = get().artifactsByAgent[agentId] ?? [];
-    set({
+    const nextActiveCached =
+      cached.find((a) => a.artifact_id === get().activeArtifactId)
+        ? get().activeArtifactId
+        : cached[0]?.artifact_id ?? null;
+    set((state) => ({
       activeAgentId: agentId,
       artifacts: cached,
-      activeArtifactId:
-        cached.find((a) => a.artifact_id === get().activeArtifactId)
-          ? get().activeArtifactId
-          : cached[0]?.artifact_id ?? null,
-    });
+      activeArtifactId: nextActiveCached,
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, nextActiveCached, cached),
+    }));
 
     const pinned = await artifactsApi.listPinned(agentId);
     if (get().activeAgentId !== agentId) return;
-    set({
+    const nextActivePinned =
+      pinned.find((a) => a.artifact_id === get().activeArtifactId)
+        ? get().activeArtifactId
+        : pinned[0]?.artifact_id ?? null;
+    set((state) => ({
       artifactsByAgent: { ...get().artifactsByAgent, [agentId]: pinned },
       artifacts: pinned,
-      activeArtifactId:
-        pinned.find((a) => a.artifact_id === get().activeArtifactId)
-          ? get().activeArtifactId
-          : pinned[0]?.artifact_id ?? null,
-    });
+      activeArtifactId: nextActivePinned,
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, nextActivePinned, pinned),
+    }));
   },
 
   setActive(artifactId) {
-    set({ activeArtifactId: artifactId });
+    set((state) => ({
+      activeArtifactId: artifactId,
+      // Every click on an echarts tab promotes that artifact to the head of
+      // the LRU; the oldest in the tail falls off and ChartRenderer disposes
+      // it on unmount. Non-chart kinds slide through unchanged.
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, artifactId, state.artifacts),
+    }));
   },
 
   upsert(artifact) {
@@ -183,8 +220,10 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     const idx = list.findIndex((a) => a.artifact_id === artifact.artifact_id);
     const nextList = idx === -1 ? [artifact, ...list] : list.map((a, i) => (i === idx ? artifact : a));
     const agentId = artifact.agent_id;
-    set({
-      artifacts: get().activeAgentId === agentId ? nextList : get().artifacts,
+    const isActiveAgent = get().activeAgentId === agentId;
+    const newActiveId = idx === -1 && isActiveAgent ? artifact.artifact_id : get().activeArtifactId;
+    set((state) => ({
+      artifacts: isActiveAgent ? nextList : get().artifacts,
       artifactsByAgent: {
         ...get().artifactsByAgent,
         [agentId]:
@@ -194,8 +233,9 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
             return ci === -1 ? [artifact, ...cache] : cache.map((a, i) => (i === ci ? artifact : a));
           })(),
       },
-      activeArtifactId: idx === -1 && get().activeAgentId === agentId ? artifact.artifact_id : get().activeArtifactId,
-    });
+      activeArtifactId: newActiveId,
+      chartLruOrder: _promoteChartLru(state.chartLruOrder, newActiveId, nextList),
+    }));
   },
 
   remove(artifactId) {
@@ -204,12 +244,20 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     for (const aid of Object.keys(cache)) {
       cache[aid] = cache[aid].filter((a) => a.artifact_id !== artifactId);
     }
-    set({
+    const newActiveId =
+      get().activeArtifactId === artifactId ? list[0]?.artifact_id ?? null : get().activeArtifactId;
+    set((state) => ({
       artifacts: list,
       artifactsByAgent: cache,
-      activeArtifactId:
-        get().activeArtifactId === artifactId ? list[0]?.artifact_id ?? null : get().activeArtifactId,
-    });
+      activeArtifactId: newActiveId,
+      // Drop the removed id from the LRU and re-promote the new active so a
+      // dispose-on-delete unmounts the canvas immediately.
+      chartLruOrder: _promoteChartLru(
+        state.chartLruOrder.filter((id) => id !== artifactId),
+        newActiveId,
+        list,
+      ),
+    }));
   },
 
   setCollapsed(collapsed) {
@@ -246,10 +294,6 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     next.delete(artifactId);
     persistMinimizedTabIds(next);
     set({ minimizedTabIds: next, activeArtifactId: artifactId });
-  },
-
-  setQuotaError(msg) {
-    set({ quotaError: msg });
   },
 
   async pin(agentId, artifactId, pinned) {

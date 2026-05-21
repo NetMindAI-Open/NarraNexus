@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-05-15
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — importBundleFromUrl (one-click template install)
+
+Added `importBundleFromUrl(url, expectedSha256?)` → `POST /api/bundle/import/from-url`.
+The deep-link / website install path: instead of the user uploading a
+`.nxbundle`, the backend fetches the URL itself (SSRF-guarded) and runs the
+same preflight, returning a `BundlePreflightResponse`. Called by the
+`/app/templates/install` page when arriving from narra.nexus.
 
 ## 2026-05-15 — bundle Artifacts + MCP preview
 

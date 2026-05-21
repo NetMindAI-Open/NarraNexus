@@ -6,8 +6,7 @@
 
 Uses real in-memory SQLite (via conftest db_client fixture).
 Covers: create, update_pointer, set_pinned/unpin (incl. double-pin idempotency),
-list_by_session/list_pinned/list_by_user, count_for_user,
-total_bytes_for_user/agent, delete, bulk_delete.
+list_by_session/list_pinned/list_by_user, delete, bulk_delete.
 """
 from __future__ import annotations
 
@@ -167,62 +166,6 @@ async def test_delete_removes_row(repo):
     await repo.create(_make_artifact())
     await repo.delete("art_test0001")
     assert await repo.get_by_id("art_test0001") is None
-
-
-@pytest.mark.asyncio
-async def test_count_for_user_aggregates_across_agents(repo):
-    user_id = "user_count_test"
-    await repo.create(_make_artifact(
-        artifact_id="art_u_01", user_id=user_id, agent_id="agent_a",
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_u_02", user_id=user_id, agent_id="agent_a",
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_u_03", user_id=user_id, agent_id="agent_b",
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_other", user_id="someone_else", agent_id="agent_a",
-    ))
-
-    assert await repo.count_for_user(user_id) == 3
-    assert await repo.count_for_user("someone_else") == 1
-    assert await repo.count_for_user("nobody") == 0
-
-
-@pytest.mark.asyncio
-async def test_total_bytes_for_user_sums_size_directly(repo):
-    """Pointer model: size_bytes lives on instance_artifacts, so totals are a
-    plain SUM (no version-table join)."""
-    user_id = "user_bytes_test"
-    await repo.create(_make_artifact(
-        artifact_id="art_b_01", user_id=user_id, agent_id="agent_x", size_bytes=1000,
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_b_02", user_id=user_id, agent_id="agent_y", size_bytes=2500,
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_b_other", user_id="someone_else", size_bytes=9999,
-    ))
-
-    assert await repo.total_bytes_for_user(user_id) == 3500
-    assert await repo.total_bytes_for_user("someone_else") == 9999
-    assert await repo.total_bytes_for_user("nobody") == 0
-
-
-@pytest.mark.asyncio
-async def test_total_bytes_for_agent_sums_per_agent(repo):
-    agent_id = "agent_bytes"
-    await repo.create(_make_artifact(
-        artifact_id="art_x", agent_id=agent_id, size_bytes=1000,
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_y", agent_id=agent_id, size_bytes=500,
-    ))
-    await repo.create(_make_artifact(
-        artifact_id="art_z", agent_id="other_agent", size_bytes=9999,
-    ))
-    assert await repo.total_bytes_for_agent(agent_id) == 1500
 
 
 @pytest.mark.asyncio

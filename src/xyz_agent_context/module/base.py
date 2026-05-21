@@ -229,9 +229,38 @@ MCPs: {mcp_tools}
         """
         return ctx_data
 
+    async def hook_persist_turn(self, params: HookAfterExecutionParams) -> None:
+        """
+        Synchronous, next-turn-critical persistence — runs INSIDE the request,
+        before the WebSocket closes and before `hook_after_event_execution` is
+        dispatched to the background.
+
+        Use this ONLY for state that the IMMEDIATELY NEXT turn must be able to
+        read. The canonical case: ChatModule writes the conversation row here, so
+        a user who replies the instant they see the answer cannot race the write
+        (the background-hook path could lag seconds-to-tens-of-seconds, which
+        manifested as the agent "forgetting" the turn it just had).
+
+        Keep this CHEAP — it adds latency to every turn's completion. Anything
+        heavy and non-next-turn-critical (embeddings, entity extraction, LLM
+        summaries, job analysis) belongs in `hook_after_event_execution`.
+
+        Default: no-op. Most modules don't need synchronous persistence.
+
+        Args:
+            params: HookAfterExecutionParams (same payload as the background hook).
+        """
+        return None
+
     async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
         """
-        After event execution, perform processing such as updating database, updating context, Memory summarization and other async operations.
+        Background enrichment — runs AFTER the WebSocket closes, dispatched as a
+        fire-and-forget task. The user has already seen the response; nothing the
+        next turn strictly needs may live only here (see `hook_persist_turn`).
+
+        Use for heavy, non-next-turn-critical work: embeddings, entity
+        extraction, memory summarization, external-system updates, job-completion
+        callbacks.
 
         Args:
             params: HookAfterExecutionParams, containing:

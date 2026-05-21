@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-04-23
+last_verified: 2026-05-20
 ---
 
+## 2026-05-20 (Fix #2 P3) — narrative-tools section added to instructions
+
+BASIC_INFO_MODULE_INSTRUCTIONS gained a "Conversation threads (narratives) & your
+narrative tools" section: explains the unified timeline tags
+`[time · topic · nar=… · evt=…]`, the recent-activity list, and when/how to use
+view_narrative / view_event / switch_narrative / create_narrative — including the
+key heuristic that a short reply usually continues the MOST RECENT line, and to
+switch/create only when confident the default thread is wrong. Tools live in
+[[_basic_info_mcp_tools.py]].
 ## 2026-04-23 — 新增 "Working Memory Across Turns" 段
 
 `BASIC_INFO_MODULE_INSTRUCTIONS` 在 Runtime Environment 段**前**新增一个

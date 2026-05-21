@@ -1,0 +1,54 @@
+name: Stale issues & PRs
+
+# We're a small team and our backlog drifts. The stale bot keeps things
+# honest without anyone having to remember.
+#
+# Issue lifecycle:
+#   - 60 days no activity      -> labeled `stale`, ping the author
+#   - +14 days still no answer -> auto-close (issue stays searchable)
+#
+# PR lifecycle:
+#   - 30 days no activity      -> labeled `stale`, ping the contributor
+#   - +14 days still no push   -> auto-close
+#
+# Items labeled `pinned`, `security`, or `help wanted` are exempt.
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC daily
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          days-before-pr-stale: 30
+          days-before-pr-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: "pinned,security,help wanted"
+          exempt-pr-labels: "pinned,security,help wanted"
+          stale-issue-message: |
+            This issue has been quiet for 60 days. We're flagging it as stale
+            so it doesn't get lost. If it's still relevant, leave a comment
+            and we'll reopen the conversation. Otherwise it'll auto-close in
+            two weeks.
+          stale-pr-message: |
+            This PR has been quiet for 30 days. We're flagging it as stale so
+            it doesn't get lost. If you're still working on it, push a commit
+            or comment. Otherwise it'll auto-close in two weeks.
+          close-issue-message: |
+            Closing for inactivity. If this is still happening, please open a
+            fresh issue (or comment here and we'll reopen).
+          close-pr-message: |
+            Closing for inactivity. You can reopen this PR or open a new one
+            when you're ready to continue.
+          remove-stale-when-updated: true

@@ -49,6 +49,8 @@ interface ScrollAreaProps
   /** Hide the scrollbar entirely (useful for tabs that scroll horizontally
    *  but shouldn't show a track). */
   hideScrollbar?: boolean;
+  /** Extra classes for the scrollbar track — e.g. `h-1.5` for a thin bar. */
+  scrollbarClassName?: string;
 }
 
 const ScrollArea = React.forwardRef<
@@ -63,6 +65,7 @@ const ScrollArea = React.forwardRef<
       onViewportScroll,
       horizontal = false,
       hideScrollbar = false,
+      scrollbarClassName,
       children,
       ...props
     },
@@ -93,8 +96,8 @@ const ScrollArea = React.forwardRef<
       >
         {children}
       </ScrollAreaPrimitive.Viewport>
-      {!hideScrollbar && <ScrollBar orientation="vertical" />}
-      {!hideScrollbar && horizontal && <ScrollBar orientation="horizontal" />}
+      {!hideScrollbar && <ScrollBar orientation="vertical" className={scrollbarClassName} />}
+      {!hideScrollbar && horizontal && <ScrollBar orientation="horizontal" className={scrollbarClassName} />}
       <ScrollAreaPrimitive.Corner />
     </ScrollAreaPrimitive.Root>
   )

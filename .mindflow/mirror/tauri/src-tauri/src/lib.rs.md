@@ -1,7 +1,30 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-05-06
+last_verified: 2026-05-18
 ---
+
+## 2026-05-18 — deep-link plugin for narranexus:// (templates marketplace)
+
+Registers `tauri-plugin-deep-link` (after `single-instance`, before
+`shell`/`updater`). In `.setup()`, attaches `on_open_url` that:
+1. **Emits** a `deep-link-received` Tauri event with the URL string
+   (handles the hot case — frontend already mounted and listening).
+2. **Buffers** the URL into `AppState::pending_deep_link` so the
+   `consume_pending_deep_link` command can deliver it to the frontend
+   on its first mount (handles the cold case — Tauri events fired before
+   any listener exists are dropped, not queued).
+
+`single-instance` carries the `deep-link` cargo feature so that a second
+launch invoked with a `narranexus://` URL forwards the URL to the live
+process's `on_open_url` callback instead of starting a duplicate sidecar
+stack. Plugin order matters: single-instance must initialise before
+deep-link.
+
+URL scheme is declared in `tauri.conf.json` (`plugins.deep-link.desktop.schemes`),
+which the bundler turns into `CFBundleURLTypes` inside `Info.plist`.
+Capability `deep-link:default` is granted in
+`capabilities/default.json`. Design context:
+`drafts/logs/template_sharing_2026_05_18.md`.
 
 # lib.rs — Tauri app bootstrap: registers commands, wires setup, handles close
 

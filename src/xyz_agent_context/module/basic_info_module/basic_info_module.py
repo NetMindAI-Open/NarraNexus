@@ -10,12 +10,13 @@ According to the design document:
 - Note: Basic Info Module itself does not include "multi-turn conversation" capability; multi-turn conversation requires Social-Network or Memory modules
 """
 
-from typing import Optional, List
+from typing import Any, Optional, List
 from loguru import logger
 
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule
+from xyz_agent_context.module.base import mcp_host
 
 # Schema
 from xyz_agent_context.schema import (
@@ -97,8 +98,11 @@ class BasicInfoModule(XYZBaseModule):
         instance_ids: Optional[List[str]] = None
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
-        
-        self.instructions = BASIC_INFO_MODULE_INSTRUCTIONS 
+
+        self.instructions = BASIC_INFO_MODULE_INSTRUCTIONS
+        # MCP port for the narrative-awareness tools (Fix #2 P3). Registered in
+        # module_runner CORE_MODULE_PORTS. 7808 = next free after CommonTools(7807).
+        self.port = 7808
 
     def get_config(self) -> ModuleConfig:
         """
@@ -201,10 +205,21 @@ class BasicInfoModule(XYZBaseModule):
 
     async def get_mcp_config(self) -> Optional[MCPServerConfig]:
         """
-        Return MCP Server configuration
+        Return MCP Server configuration.
+
+        2026-05-20 (Fix #2 P3): basic_info now hosts the narrative-awareness
+        tools (view_narrative / view_event / switch_narrative / create_narrative)
+        on an SSE MCP server, so it advertises a real URL instead of "None".
         """
         return MCPServerConfig(
             server_name="basic_info_module",
-            server_url="",
-            type="None"
+            server_url=f"http://{mcp_host()}:{self.port}/sse",
+            type="sse",
         )
+
+    def create_mcp_server(self) -> Optional[Any]:
+        from xyz_agent_context.module.basic_info_module._basic_info_mcp_tools import (
+            create_basic_info_mcp_server,
+        )
+        logger.debug(f"BasicInfoModule: creating MCP server on port {self.port}")
+        return create_basic_info_mcp_server(self.port)

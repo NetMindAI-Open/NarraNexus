@@ -1,8 +1,45 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-20
 ---
+
+## 2026-05-20 — `_INCREMENTAL_AUTH_GUIDE`: bot-scope dead-end
+
+Extended the `--as bot` `missing_scope` bullet and added a "verify
+before declaring solved" bullet. Why: prod agent `agent_demo00000000`
+(an operator) hit `99991672 App scope not enabled` on a `--as bot`
+minutes call; the owner was repeatedly handed `auth login` URLs that
+can only grant USER scopes, so clicking never fixed the bot/app scope
+(which needs a developer-console enable **plus a new app-version
+publish**, and possibly admin approval). The agent also recorded
+"授权已解决" in narrative memory without re-running the failing call.
+
+The guide now teaches: (1) `auth login` / a user click can never grant
+a bot scope — "clicked but still fails" is the expected symptom, stop
+minting URLs; (2) console scope changes need a version publish to take
+effect; (3) re-run the actual failing command to confirm success
+before claiming resolved / writing it to memory. Kept general (no
+`minutes`-specific wording) per CLAUDE.md iron rule #4. Regression
+pins in `tests/lark_module/test_incremental_auth_guide.py`
+(3 new tests, 2026-05-20 block).
+
+Follow-up bullet: an **incremental scope top-up is NOT the three-click
+binding flow** — `lark_permission_advance` is binding-only and its
+`Already completed` ≠ the needed scope is granted; a top-up is only
+`auth login --scope`(mint)→`auth login --device-code <carried code>`(poll).
+Why: prod an operator minutes saga — agent called `permission_advance` every turn,
+read "Already completed" as success, re-minted instead of polling the
+device_code carried in its reasoning. (Carry works — reasoning is spliced
+back across turns via meta_data.reasoning; the agent took the wrong flow.) +1 test.
+
+Third bullet (from a live test of a freshly-bound agent): once the scope is
+satisfied, a downstream Lark API error (`403 permission deny` / `failed to
+query`) is NOT an auth problem — more auth/clicks won't fix it (resource-level
+/ Lark-side / lark-cli). Agent must stop minting/re-polling and tell the user.
+Why: after scopes were granted, `vc +notes --minute-tokens` returned `ok:true`
+(scope) then `403 permission deny` on the specific minute, and the agent
+looped retrying to timeout. +1 test.
 
 ## 2026-05-08 — Phase 2: subclass `ChannelModuleBase`
 

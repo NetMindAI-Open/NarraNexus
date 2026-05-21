@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/pages/LoginPage.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-18
 stub: false
 ---
 
@@ -14,7 +14,7 @@ The login experience differs based on deployment mode. Local mode has no passwor
 
 Route: `/login`, wrapped by `PublicRoute` in `App.tsx` (redirects to `/` if already logged in).
 
-Reads `mode` from `runtimeStore` to determine whether cloud fields and the "Change Mode" button are shown. On submit: calls `api.login(userId, password?)`, then immediately calls `login()` on `configStore` (storing the JWT), then fetches and stores agents via `api.getAgents` + `configStore.setAgents/setAgentId`. Navigates to `/` on success (which routes through `RootRedirect` to `/setup` or `/app/chat`).
+Reads `mode` from `runtimeStore` to determine whether cloud fields and the "Change Mode" button are shown. On submit: calls `api.login(userId, password?)`, then immediately calls `login()` on `configStore` (storing the JWT), then fetches and stores agents via `api.getAgents` + `configStore.setAgents/setAgentId`. On success navigates to the `?next=` return path if present and safe, otherwise to `/` (which routes through `RootRedirect` to `/setup` or `/app/chat`).
 
 Renders `CreateUserDialog` as a modal for the local-mode "Create New User" flow. In cloud mode renders a "Create Account" button that navigates to `/register`.
 
@@ -25,6 +25,8 @@ Renders `CreateUserDialog` as a modal for the local-mode "Create New User" flow.
 **"Change Mode" button is hidden for `cloud-web` mode.** Force-deployed cloud builds (where the frontend and backend share an origin, set via `VITE_FORCE_CLOUD`) should not offer users a way to switch to local mode. The button is only shown when `mode !== 'cloud-web'`.
 
 **`handleChangeMode` clears `cloudApiUrl` before resetting mode.** Clearing the URL prevents the next cloud mode selection from silently reusing the old server URL without prompting the user.
+
+**Post-login `?next=` return path (open-redirect guarded).** `ProtectedRoute` sends unauthenticated visitors to `/login?next=<encoded-path>`; after auth, login reads `next` from `location.search` and navigates there via `navigate(isSafeReturnTo(next) ? next : '/')`. The guard (`lib/safe-return`) accepts only same-origin relative paths, so a crafted `?next=https://evil.com` falls through to `/` instead of redirecting off-site. This is what makes the one-click template install link survive the login wall.
 
 ## Gotchas
 

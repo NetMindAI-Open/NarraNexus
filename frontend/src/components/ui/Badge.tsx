@@ -20,40 +20,41 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
         ref={ref}
         className={cn(
           'relative inline-flex items-center justify-center gap-1.5',
-          'font-[family-name:var(--font-mono)] font-normal',
-          'uppercase tracking-[0.12em]',
+          'font-[family-name:var(--font-mono)] font-medium',
+          'uppercase tracking-[0.10em]',
+          'rounded-[var(--radius-xs)]',
           'whitespace-nowrap',
           'transition-colors duration-150',
 
           variant === 'default' && [
             'bg-transparent',
-            'text-[var(--text-secondary)]',
-            'border border-[var(--border-subtle)]',
+            'text-[color:var(--nm-ink70)]',
+            'border border-[color:var(--nm-hairline)]',
           ],
           variant === 'accent' && [
-            'bg-[var(--text-primary)]',
-            'text-[var(--text-inverse)]',
-            'border border-[var(--text-primary)]',
+            'bg-[color:var(--nm-ink)]',
+            'text-[color:var(--nm-paper)]',
+            'border border-[color:var(--nm-ink)]',
           ],
           variant === 'success' && [
             'bg-transparent',
-            'text-[var(--color-green-500)]',
-            'border border-[var(--color-green-500)]',
+            'text-[color:var(--color-success)]',
+            'border border-[color:var(--color-success)]',
           ],
           variant === 'warning' && [
             'bg-transparent',
-            'text-[var(--color-yellow-500)]',
-            'border border-[var(--color-yellow-500)]',
+            'text-[color:var(--color-warning)]',
+            'border border-[color:var(--color-warning)]',
           ],
           variant === 'error' && [
             'bg-transparent',
-            'text-[var(--color-red-500)]',
-            'border border-[var(--color-red-500)]',
+            'text-[color:var(--color-error)]',
+            'border border-[color:var(--color-error)]',
           ],
           variant === 'outline' && [
             'bg-transparent',
-            'text-[var(--text-secondary)]',
-            'border border-[var(--border-strong)]',
+            'text-[color:var(--nm-ink70)]',
+            'border border-[color:var(--border-strong)]',
           ],
 
           size === 'sm' && 'h-5 px-1.5 text-[9px]',
@@ -62,19 +63,18 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
 
           className
         )}
-        style={{ borderRadius: 0 }}
         {...props}
       >
         {pulse && (
           <span
             className={cn(
-              'h-1.5 w-1.5',
-              variant === 'accent' && 'bg-[var(--text-inverse)]',
-              variant === 'success' && 'bg-[var(--color-green-500)]',
-              variant === 'warning' && 'bg-[var(--color-yellow-500)]',
-              variant === 'error' && 'bg-[var(--color-red-500)]',
-              variant === 'default' && 'bg-[var(--text-tertiary)]',
-              variant === 'outline' && 'bg-[var(--text-tertiary)]',
+              'h-1.5 w-1.5 rounded-full',
+              variant === 'accent' && 'bg-[color:var(--nm-paper)]',
+              variant === 'success' && 'bg-[color:var(--color-success)]',
+              variant === 'warning' && 'bg-[color:var(--color-warning)]',
+              variant === 'error' && 'bg-[color:var(--color-error)]',
+              variant === 'default' && 'bg-[color:var(--nm-ink50)]',
+              variant === 'outline' && 'bg-[color:var(--nm-ink50)]',
               'animate-pulse'
             )}
           />

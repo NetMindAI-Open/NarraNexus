@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Bot,
   RefreshCw,
   Plus,
   Pencil,
@@ -19,9 +18,12 @@ import {
   ListChecks,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
+import { RingAvatar, BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 import { useConfigStore, useChatStore } from '@/stores';
+import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
-import { cn } from '@/lib/utils';
+import { cn, formatTime } from '@/lib/utils';
+import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
 
 interface AgentListProps {
   collapsed: boolean;
@@ -29,9 +31,26 @@ interface AgentListProps {
   filterAgentIds?: string[] | null;
 }
 
+/**
+ * Feature flag — temporary, 2026-05-18.
+ * Hides the "set agent public/private" toggle button in the sidebar
+ * while the public-agent feature is paused for product redesign.
+ *
+ * Scope of the flag:
+ *  - HIDES: the per-agent Globe/Lock toggle button (set-public entry point)
+ *  - KEEPS: the read-only Globe badge that marks other users' already-public
+ *           agents, and the dashboard's PublicCard for displaying them —
+ *           these aren't user-actionable controls, they're status indicators
+ *           for legacy `is_public=1` rows that may still exist.
+ *  - KEEPS: the backend endpoint and the `handleTogglePublic` function so
+ *           re-enabling is a one-line flip when the feature ships again.
+ *
+ * Flip this to `true` to bring the toggle back. */
+const SHOW_AGENT_PUBLIC_TOGGLE = false;
+
 export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   const [loadingAgents, setLoadingAgents] = useState(false);
-  const [creatingAgent, setCreatingAgent] = useState(false);
+  const { createAgent, creating: creatingAgent } = useCreateAgent();
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
@@ -47,7 +66,81 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
     ? rawAgents
     : rawAgents.filter((a) => filterAgentIds.includes(a.agent_id));
   const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
+  // Live read of every agent's session so the row's last-message preview /
+  // time / unread count update as new messages stream in. Reading the
+  // sessions map (not per-agent slice) is the simplest path; zustand
+  // re-renders this component when ANY session updates, which is fine for
+  // a list of agents that's already small.
+  const agentSessions = useChatStore((s) => s.agentSessions);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
+
+  // Mark the active agent's messages as read so its unread count stays
+  // cleared after the user navigates away. Without this the count only
+  // zeroed while the row was active and reappeared on switch-away (the
+  // marker was never advanced by reading). Re-runs when the active agent
+  // changes or its messages grow (e.g. a reply settles while viewing).
+  useEffect(() => {
+    if (!agentId) return;
+    const latest = latestMessageMs(agentSessions[agentId]?.messages ?? []);
+    if (latest > 0) markAgentRead(agentId, latest);
+  }, [agentId, agentSessions]);
+
+  /**
+   * Derive the per-agent meta shown in each row: agent-reply preview +
+   * activity time and an unread count.
+   *
+   * Preview is the most recent **assistant** message — NM messenger UX:
+   * each row "belongs" to the agent, so the second line previews what
+   * the agent last said to the user, not what the user just typed.
+   *
+   * Data source priority (latest-wins by timestamp):
+   *   1. Local session — if the live stream just produced a reply that
+   *      has not yet been re-fetched from /agents, prefer it so the
+   *      sidebar updates in real-time without polling.
+   *   2. Server-supplied last_assistant_preview from /agents, which
+   *      covers the common case (other agents the user hasn't opened
+   *      yet in this session — their `messages` array is empty).
+   *   3. Empty (renders the agent description placeholder).
+   *
+   * Unread count = messages whose timestamp is strictly newer than the
+   * localStorage `lastSeenAwarenessTime:<agent>` marker AND not authored
+   * by the local user. If the agent is the currently selected one we
+   * treat it as "all seen" so the count zeroes out.
+   */
+  const getRowMeta = (aid: string) => {
+    const session = agentSessions[aid];
+    const messages = session?.messages ?? [];
+    let sessionLast: typeof messages[number] | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant' && messages[i].content) {
+        sessionLast = messages[i];
+        break;
+      }
+    }
+    const agent = rawAgents.find((a) => a.agent_id === aid);
+    const serverPreview = agent?.last_assistant_preview || '';
+    const serverAtMs = agent?.last_assistant_at
+      ? new Date(agent.last_assistant_at).getTime()
+      : 0;
+
+    const sessionAtMs = sessionLast?.timestamp ?? 0;
+    let preview = '';
+    let timeMs = 0;
+    if (sessionLast && sessionAtMs >= serverAtMs) {
+      preview = sessionLast.content.replace(/\s+/g, ' ').slice(0, 60);
+      timeMs = sessionAtMs;
+    } else if (serverPreview) {
+      preview = serverPreview.replace(/\s+/g, ' ').slice(0, 60);
+      timeMs = serverAtMs;
+    }
+    const time = timeMs ? formatTime(timeMs) : '';
+    // Unread = agent messages newer than the per-agent read marker. The
+    // active row is always treated as read (its marker is advanced by the
+    // effect below). See lib/unread for why this has its own marker rather
+    // than reusing the Awareness-tab one.
+    const unread = aid !== agentId ? countUnread(messages, getLastReadMs(aid)) : 0;
+    return { preview, time, unread };
+  };
 
   // Fetch agents on mount
   useEffect(() => {
@@ -81,30 +174,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
   };
 
   const handleCreateAgent = async () => {
-    setCreatingAgent(true);
-    try {
-      const res = await api.createAgent(userId);
-      if (res.success && res.agent) {
-        const newAgent = {
-          agent_id: res.agent.agent_id,
-          name: res.agent.name,
-          description: res.agent.description,
-          status: res.agent.status,
-          created_at: res.agent.created_at,
-          created_by: userId,
-          bootstrap_active: res.agent.bootstrap_active,
-        };
-        setAgents([newAgent, ...agents]);
-        setAgentId(res.agent.agent_id);
-        setActiveAgent(res.agent.agent_id);
-      } else {
-        console.error('Failed to create agent:', res.error);
-      }
-    } catch (err) {
-      console.error('Error creating agent:', err);
-    } finally {
-      setCreatingAgent(false);
-    }
+    await createAgent();
   };
 
   const handleTogglePublic = async (agent: typeof agents[0], e: React.MouseEvent) => {
@@ -173,7 +243,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
 
     setDeletingAgentId(agent.agent_id);
     try {
-      const res = await api.deleteAgent(agent.agent_id, userId);
+      const res = await api.deleteAgent(agent.agent_id);
       if (res.success) {
         const remaining = agents.filter(a => a.agent_id !== agent.agent_id);
         setAgents(remaining);
@@ -206,42 +276,40 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
     }
   };
 
-  /** Render agent status icon (running spinner, completed badge, or default).
+  /** Render agent avatar — NM RingAvatar silicon (agents are AI) with
+   * running spinner overlay or completion badge.
    *
    * Phase C (2026-05-13): "running" is now the OR of two signals:
    *   1. local WS streaming state for the current tab (legacy)
    *   2. backend BackgroundRun in 'running' state for this agent
-   *
-   * The second source lets the spinner appear even after a hard
-   * reload or in a completely different tab — backend has persisted
-   * lifecycle in events.state and surfaces it via /api/auth/agents
-   * (AgentInfo.active_run). Without this, "关 tab → 重开 → 啥也没
-   * 有" was the symptom Xiong reported.
    */
-  const renderAgentStatusIcon = (
+  const renderAgentAvatar = (
+    agentLabel: string,
     id: string,
-    isSelected: boolean,
     hasBackendActiveRun: boolean = false,
+    size: 'sm' | 'md' = 'md',
   ) => {
     const streaming = isAgentStreaming(id) || hasBackendActiveRun;
-    const completed = completedAgentIds.includes(id);
 
     if (streaming) {
+      // Running state lives entirely on the avatar so the name row stays
+      // clean (no inline "RUNNING" pill crowding / truncating the name):
+      //   - a breathing halo ring (animate-ping) = the at-a-glance "this
+      //     agent is working" cue, visible even in collapsed mode
+      //   - the spinner replacing the ring center, as before
       return (
-        <Loader2 className="w-5 h-5 animate-spin text-[var(--color-yellow-500)]" />
+        <div className="relative inline-flex items-center justify-center">
+          <span
+            className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+            style={{ border: '2px solid var(--color-yellow-500)' }}
+          />
+          <RingAvatar species="silicon" label={agentLabel} size={size} />
+          <Loader2 className="absolute w-3 h-3 animate-spin text-[var(--color-yellow-500)]" />
+        </div>
       );
     }
 
-    return (
-      <Bot className={cn(
-        'w-5 h-5 transition-colors',
-        isSelected
-          ? 'text-[var(--text-primary)]'
-          : completed
-            ? 'text-[var(--color-yellow-500)]'
-            : 'text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]'
-      )} />
-    );
+    return <RingAvatar species="silicon" label={agentLabel} size={size} />;
   };
 
   // Collapsed mode: show compact agent icons
@@ -273,21 +341,19 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
         {agents.slice(0, 4).map((agent, index) => {
           const isSelected = agentId === agent.agent_id;
           const completed = completedAgentIds.includes(agent.agent_id);
+          const label = (agent.name || agent.agent_id).slice(0, 2);
           return (
-            <div key={agent.agent_id} className="relative">
+            <div key={agent.agent_id} className="relative flex justify-center">
               <button
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
-                  'w-full aspect-square flex items-center justify-center transition-colors duration-150',
-                  'animate-fade-in border',
-                  isSelected
-                    ? 'bg-[var(--bg-elevated)] border-[var(--border-strong)]'
-                    : 'bg-[var(--bg-tertiary)] border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)]'
+                  'p-1.5 rounded-full transition-colors duration-150 animate-fade-in',
+                  isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
                 )}
                 style={{ animationDelay: `${index * 50}ms` }}
                 title={agent.agent_id}
               >
-                {renderAgentStatusIcon(agent.agent_id, isSelected, !!agent.active_run)}
+                {renderAgentAvatar(label, agent.agent_id, !!agent.active_run, 'sm')}
               </button>
               {/* Completion badge dot */}
               {completed && !isSelected && (
@@ -302,116 +368,156 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
 
   // Expanded mode: full agent list
   return (
-    <div className="p-3">
+    <div>
       {confirmDialog}
-      <div className="flex items-center justify-between mb-3 px-1">
-        <span className="text-[10px] font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.15em] font-[family-name:var(--font-mono)]">
-          Agents
-        </span>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCreateAgent}
-            disabled={creatingAgent}
-            className="w-7 h-7"
-            title="Create New Agent"
+      {/* Header — pinned to the top of the scroll viewport so the
+          [ AGENTS ] label and its action icons stay anchored while the
+          agent rows scroll underneath. `bg-[--nm-paper]` matches the
+          sidebar paper so rows don't bleed through when they pass under
+          the stuck header. Padding mirrors the original `p-3 px-1` so
+          the visual placement is identical when not scrolling. */}
+      <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-3 pb-2">
+        <div className="flex items-center justify-between px-1 gap-2">
+          <BracketSectionLabel
+            trailing={<span className="text-[10px] opacity-60">{agents.length}</span>}
           >
-            <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate('/app/manage-agents')}
-            className="w-7 h-7"
-            title="Manage agents (batch · add / edit / delete)"
-            aria-label="Manage agents"
-          >
-            <ListChecks className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={fetchAgents}
-            disabled={loadingAgents}
-            className="w-7 h-7"
-            title="Refresh Agents"
-          >
-            <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
-          </Button>
+            Agents
+          </BracketSectionLabel>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleCreateAgent}
+              disabled={creatingAgent}
+              className="w-7 h-7"
+              title="Create New Agent"
+            >
+              <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/manage-agents')}
+              className="w-7 h-7"
+              title="Manage agents (batch · add / edit / delete)"
+              aria-label="Manage agents"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={fetchAgents}
+              disabled={loadingAgents}
+              className="w-7 h-7"
+              title="Refresh Agents"
+            >
+              <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
+            </Button>
+          </div>
         </div>
       </div>
 
+      <div className="px-3 pb-3">
       {agents.length === 0 ? (
-        <div className="text-center py-10 px-4">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[var(--bg-tertiary)] flex items-center justify-center border border-dashed border-[var(--border-default)]">
-            <Bot className="w-8 h-8 text-[var(--text-tertiary)]" />
-          </div>
-          <p className="text-sm text-[var(--text-tertiary)] mb-4">No agents found</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleCreateAgent}
-            disabled={creatingAgent}
-            className="gap-1.5"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Create Agent
-          </Button>
-        </div>
+        <BracketEmptyState
+          label="No agents yet"
+          hint="Create your first agent to start a conversation."
+          cta={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCreateAgent}
+              disabled={creatingAgent}
+              className="gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Create Agent
+            </Button>
+          }
+        />
       ) : (
-        <div className="space-y-1.5">
+        /* NM messenger conversation list (FinChats:500-559 canonical).
+           Outer container sits directly on the sidebar's paper bg with
+           no wrapping panel. Each row is transparent by default; only
+           when the agent is the active one OR has unread messages does
+           the row get a silicon-soft (light-blue) rounded highlight.
+           Radius is 18px per NM spec, no borders ever. */
+        <div className="space-y-0.5">
           {agents.map((agent, index) => {
             const isSelected = agentId === agent.agent_id;
-            const streaming = isAgentStreaming(agent.agent_id);
             const completed = completedAgentIds.includes(agent.agent_id);
+            const { preview, time, unread } = getRowMeta(agent.agent_id);
+            const displayName = agent.name || agent.agent_id;
+            const isOwner = agent.created_by === userId;
+            // Row bg priority: selected wins over unread. Selected uses a
+            // theme-neutral ink overlay (--nm-row-active) so the highlight
+            // relates to the underlying paper instead of stealing the
+            // unread signal. Unread (only when not selected) keeps the
+            // NM-canonical silicon-soft tint. Hover is paper-warm, only on
+            // rows that are neither selected nor unread.
+            const rowBg = isSelected
+              ? 'var(--nm-row-active)'
+              : unread > 0
+                ? 'var(--color-silicon-soft)'
+                : 'transparent';
+            const allowHover = !isSelected && unread === 0;
 
             return (
               <div
                 key={agent.agent_id}
                 onClick={() => handleSelectAgent(agent.agent_id)}
                 className={cn(
-                  'w-full text-left p-3 transition-colors duration-150 cursor-pointer',
-                  'group relative animate-slide-up',
-                  /* Selected state expressed by left rail + bg shift only.
-                     No extra 1px border — that doubled the visual weight
-                     against neighbouring (non-selected) cards. */
-                  isSelected
-                    ? 'bg-[var(--bg-elevated)]'
-                    : 'hover:bg-[var(--bg-elevated)]'
+                  'w-full text-left px-3 py-2.5 cursor-pointer animate-slide-up',
+                  'rounded-[18px] transition-colors duration-150',
+                  'group',
                 )}
-                style={{ animationDelay: `${index * 50}ms` }}
+                style={{
+                  animationDelay: `${index * 50}ms`,
+                  background: rowBg,
+                }}
+                onMouseEnter={(e) => {
+                  if (allowHover) {
+                    (e.currentTarget as HTMLDivElement).style.background = 'var(--nm-paper-warm)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (allowHover) {
+                    (e.currentTarget as HTMLDivElement).style.background = 'transparent';
+                  }
+                }}
               >
-                {/* Active indicator: 2px ink rail on the left edge. No glow. */}
-                {isSelected && (
-                  <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-[var(--text-primary)]" />
-                )}
-
                 <div className="flex items-start gap-3">
-                  <div
-                    className={cn(
-                      'w-10 h-10 flex items-center justify-center shrink-0 transition-colors duration-150 relative border',
-                      /* Avatar chip border stays at the same weight in all states.
-                         The chip itself doesn't need to signal selection — the
-                         parent row's left rail + bg shift already does that. */
-                      'bg-[var(--bg-tertiary)] border-[var(--border-subtle)]'
+                  {/* Avatar — Silicon ring with streaming overlay; completion
+                      dot stays on the avatar's top-right corner. */}
+                  <div className="relative shrink-0">
+                    {renderAgentAvatar(
+                      displayName.slice(0, 2),
+                      agent.agent_id,
+                      !!agent.active_run,
+                      'md',
                     )}
-                  >
-                    {renderAgentStatusIcon(agent.agent_id, isSelected, !!agent.active_run)}
-                    {/* Completion badge dot */}
                     {completed && !isSelected && (
-                      <div className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
+                      <div
+                        className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle"
+                        style={{
+                          background: 'var(--color-warning)',
+                          border: '2px solid var(--nm-card)',
+                        }}
+                      />
                     )}
                   </div>
-                  <div className="flex-1 min-w-0 pt-0.5">
+
+                  {/* Right side: 2-row stack */}
+                  <div className="flex-1 min-w-0">
                     {editingAgentId === agent.agent_id ? (
-                      /* Editing Mode */
+                      /* Inline rename mode — full width, no preview while editing */
                       <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
                         <input
                           type="text"
                           value={editingName}
                           onChange={e => setEditingName(e.target.value)}
-                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--text-primary)] focus:outline-none"
+                          className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
                           autoFocus
                           onKeyDown={e => {
                             if (e.key === 'Enter') handleSaveEdit(agent.agent_id, e as any);
@@ -421,93 +527,139 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
                         <button
                           onClick={(e) => handleSaveEdit(agent.agent_id, e)}
                           disabled={savingName}
-                          className="p-1 shrink-0 hover:bg-[var(--bg-tertiary)] transition-colors"
+                          className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                           title="Save (Enter)"
                         >
-                          <Check className={cn('w-3.5 h-3.5 text-[var(--color-green-500)]', savingName && 'animate-pulse')} />
+                          <Check className={cn('w-3.5 h-3.5', savingName && 'animate-pulse')} style={{ color: 'var(--color-success)' }} />
                         </button>
                         <button
                           onClick={handleCancelEdit}
-                          className="p-1 shrink-0 hover:bg-[var(--bg-tertiary)] transition-colors"
+                          className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                           title="Cancel (Esc)"
                         >
-                          <X className="w-3.5 h-3.5 text-[var(--color-red-500)]" />
+                          <X className="w-3.5 h-3.5" style={{ color: 'var(--color-error)' }} />
                         </button>
                       </div>
                     ) : (
-                      /* Display Mode */
                       <>
+                        {/* Row 1: [name] [inline action buttons] [..flex-spacer..] [time] */}
                         <div className="flex items-center gap-1.5">
                           <span
                             className={cn(
-                              'font-mono text-sm truncate transition-colors',
-                              isSelected
-                                ? 'text-[var(--text-primary)] font-semibold'
-                                : 'text-[var(--text-primary)]'
+                              'text-sm truncate',
+                              isSelected ? 'font-semibold' : 'font-medium'
+                            )}
+                            style={{
+                              color: 'var(--nm-ink)',
+                              fontFamily: 'var(--font-sans)',
+                            }}
+                          >
+                            {displayName}
+                          </span>
+                          {/* Inline status flags after the name */}
+                          {agent.is_public && !isOwner && (
+                            <span title={`Public · by ${agent.created_by}`}>
+                              <Globe className="w-3 h-3 shrink-0" style={{ color: 'var(--nm-ink50)' }} />
+                            </span>
+                          )}
+                          {/* Running state is shown on the avatar (breathing
+                              halo + spinner) — see renderAgentAvatar. No
+                              inline badge here, so a long name keeps its full
+                              width instead of being truncated by the badge. */}
+
+                          {/* Owner-only inline action buttons; visible on hover
+                              OR when this row is selected. */}
+                          <div
+                            className={cn(
+                              'flex items-center gap-0.5 shrink-0',
+                              isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                              'transition-opacity duration-150'
                             )}
                           >
-                            {agent.name || agent.agent_id}
-                          </span>
-                          {agent.is_public && agent.created_by !== userId && (
-                            <span title={`Public · by ${agent.created_by}`}>
-                              <Globe className="w-3 h-3 text-[var(--text-tertiary)] shrink-0" />
-                            </span>
-                          )}
-                          {/* Running indicator */}
-                          {streaming && (
-                            <span className="text-[9px] px-1.5 py-0.5 text-[var(--color-yellow-500)] border border-[var(--color-yellow-500)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]">
-                              Running
-                            </span>
-                          )}
-                        </div>
-                        {isSelected && (
-                          <div className="flex items-center gap-0.5 mt-1.5">
-                            {agent.created_by === userId && (
+                            {SHOW_AGENT_PUBLIC_TOGGLE && isOwner && (
                               <button
                                 onClick={(e) => handleTogglePublic(agent, e)}
-                                className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
+                                className="p-1 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                                 title={agent.is_public ? 'Set to Private' : 'Set to Public'}
                               >
                                 {agent.is_public ? (
-                                  <Globe className="w-3 h-3 text-[var(--text-primary)]" />
+                                  <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink)' }} />
                                 ) : (
-                                  <Lock className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" />
+                                  <Lock className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                                 )}
                               </button>
                             )}
                             <button
                               onClick={(e) => handleStartEdit(agent, e)}
-                              className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
+                              className="p-1 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                               title="Edit name"
                             >
-                              <Pencil className="w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors" />
+                              <Pencil className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                             </button>
-                            {agent.created_by === userId && (
+                            {isOwner && (
                               <button
                                 onClick={(e) => handleDeleteAgent(agent, e)}
                                 disabled={deletingAgentId === agent.agent_id}
-                                className="p-1 hover:bg-[var(--bg-tertiary)] transition-colors"
+                                className="p-1 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
                                 title="Delete agent"
                               >
-                                <Trash2 className={cn(
-                                  'w-3 h-3 text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors',
-                                  deletingAgentId === agent.agent_id && 'animate-pulse'
-                                )} />
+                                <Trash2 className={cn('w-3 h-3', deletingAgentId === agent.agent_id && 'animate-pulse')} style={{ color: 'var(--color-error)' }} />
                               </button>
                             )}
                           </div>
-                        )}
+
+                          {/* Right-aligned timestamp. NM: unread rows use
+                              the species color (silicon) for time, read use
+                              ink50. Tabular-nums so the column doesn't shift
+                              when the time string changes. */}
+                          <span
+                            className="ml-auto pl-2 text-[10px] shrink-0"
+                            style={{
+                              color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
+                              fontWeight: unread > 0 ? 500 : 400,
+                              fontFamily: 'var(--font-mono)',
+                              fontVariantNumeric: 'tabular-nums',
+                            }}
+                          >
+                            {time}
+                          </span>
+                        </div>
+
+                        {/* Row 2: [preview ...truncated] [unread pill]. The
+                            unread pill is the NM count pattern: transparent
+                            bg, ink30 hairline, ink70 mono digit — NOT a
+                            saturated species-color chip (FinChats:546-552). */}
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <p
+                            className="flex-1 min-w-0 text-xs truncate leading-snug"
+                            style={{ color: 'var(--nm-ink70)' }}
+                          >
+                            {preview || (
+                              <span style={{ color: 'var(--nm-ink30)' }}>
+                                {agent.description || 'No messages yet'}
+                              </span>
+                            )}
+                          </p>
+                          {unread > 0 && (
+                            <span
+                              className="inline-flex items-center justify-center text-[10px] font-semibold shrink-0"
+                              style={{
+                                minWidth: 20,
+                                height: 18,
+                                padding: '0 6px',
+                                borderRadius: 9,
+                                background: 'transparent',
+                                border: '1px solid var(--nm-ink30)',
+                                color: 'var(--nm-ink70)',
+                                fontFamily: 'var(--font-mono)',
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {unread > 99 ? '99+' : unread}
+                            </span>
+                          )}
+                        </div>
                       </>
-                    )}
-                    {agent.description && editingAgentId !== agent.agent_id && (
-                      <p className="text-xs text-[var(--text-tertiary)] mt-1 line-clamp-2 leading-relaxed">
-                        {agent.description}
-                      </p>
-                    )}
-                    {agent.name && agent.name !== agent.agent_id && editingAgentId !== agent.agent_id && (
-                      <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 font-mono opacity-60">
-                        {agent.agent_id}
-                      </p>
                     )}
                   </div>
                 </div>
@@ -516,6 +668,7 @@ export function AgentList({ collapsed, filterAgentIds }: AgentListProps) {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }

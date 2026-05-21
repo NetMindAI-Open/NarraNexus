@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-04-10
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — 新 `_is_user_chat(ctx)` helper
+
+Step 1 现在读 `ctx.working_source` 判断这一轮是不是回复真人 —— 通过
+`[[hook_schema.py]] WorkingSource.is_from_human()`（CHAT / LARK / SLACK /
+TELEGRAM → True；JOB / MESSAGE_BUS / CALLBACK / SKILL_STUDY → False）。
+结果作为 `is_user_chat` 透传给 [[narrative_service.py]] `.select()`，确保
+Session.last_query / current_narrative_id 只在人-回复轮被覆盖。两个
+`narrative_service.select()` 调用点（forced fallback + normal）都已带上
+这个参数。
+
 # step_1_select_narrative.py — 流水线第 1 步：选择 Narrative
 
 ## 为什么存在

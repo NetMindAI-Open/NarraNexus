@@ -23,9 +23,10 @@ import traceback
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Query, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Query, Request, UploadFile, File, Form, HTTPException
 from loguru import logger
 
+from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
@@ -248,11 +249,12 @@ async def _run_skill_study(
 
 @router.get("", response_model=SkillListResponse)
 async def list_skills(
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
     include_disabled: bool = Query(False, description="Whether to include disabled Skills"),
 ):
-    """Get skill list"""
+    """Get skill list. Identity from auth_middleware (X-User-Id / JWT)."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"GET /api/skills - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -268,20 +270,23 @@ async def list_skills(
 
 @router.post("/install", response_model=SkillOperationResponse)
 async def install_skill(
+    request: Request,
     agent_id: str = Form(..., description="Agent ID"),
-    user_id: str = Form(..., description="User ID"),
     source: str = Form(..., description="Install source: github or zip"),
     url: Optional[str] = Form(None, description="GitHub URL (required when source=github)"),
     branch: str = Form("main", description="Git branch (effective when source=github)"),
     file: Optional[UploadFile] = File(None, description="Zip file (required when source=zip)"),
 ):
     """
-    Install a Skill
+    Install a Skill. Identity from auth_middleware (X-User-Id / JWT) —
+    the previous `user_id: str = Form(...)` parameter let any client
+    install skills under any account by changing the form body.
 
     Supports two installation methods:
     1. Install from GitHub: source=github, url=repository URL
     2. Upload zip file: source=zip, file=zip file
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(
         f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}"
     )
@@ -358,10 +363,11 @@ async def install_skill(
 @router.delete("/{skill_name}", response_model=SkillOperationResponse)
 async def remove_skill(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
-    """Remove a Skill"""
+    """Remove a Skill. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -386,10 +392,11 @@ async def remove_skill(
 @router.put("/{skill_name}/disable", response_model=SkillOperationResponse)
 async def disable_skill(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
-    """Disable a Skill"""
+    """Disable a Skill. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"PUT /api/skills/{skill_name}/disable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -417,10 +424,11 @@ async def disable_skill(
 @router.put("/{skill_name}/enable", response_model=SkillOperationResponse)
 async def enable_skill(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
-    """Enable a Skill"""
+    """Enable a Skill. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"PUT /api/skills/{skill_name}/enable - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -454,17 +462,18 @@ async def enable_skill(
 @router.post("/{skill_name}/study", response_model=SkillStudyResponse)
 async def study_skill(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
     """
-    Trigger Agent to study a Skill
+    Trigger Agent to study a Skill. Identity from auth_middleware.
 
     1. Verify the Skill exists
     2. Set study_status = "studying"
     3. Start background task to run AgentRuntime
     4. Background task automatically updates study_status and study_result upon completion
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"POST /api/skills/{skill_name}/study - agent_id={agent_id}, user_id={user_id}")
 
     try:
@@ -510,10 +519,11 @@ async def study_skill(
 @router.get("/{skill_name}/study", response_model=SkillStudyResponse)
 async def get_study_status(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
-    """Get Skill study status (for frontend polling)"""
+    """Get Skill study status (for frontend polling). Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         study_info = skill_module.get_study_status(skill_name)
@@ -536,10 +546,11 @@ async def get_study_status(
 @router.get("/{skill_name}/env", response_model=SkillEnvConfigResponse)
 async def get_skill_env(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
-    """Get skill's required env vars and their configuration status"""
+    """Get skill's required env vars and their configuration status. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -567,11 +578,12 @@ async def get_skill_env(
 @router.put("/{skill_name}/env", response_model=SkillEnvConfigResponse)
 async def set_skill_env(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
     body: dict = None,
 ):
-    """Set env var values for a skill"""
+    """Set env var values for a skill. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skill = skill_module.get_skill(skill_name)
@@ -606,10 +618,11 @@ async def set_skill_env(
 @router.get("/{skill_name}", response_model=SkillOperationResponse)
 async def get_skill(
     skill_name: str,
+    request: Request,
     agent_id: str = Query(..., description="Agent ID"),
-    user_id: str = Query(..., description="User ID"),
 ):
-    """Get Skill details"""
+    """Get Skill details. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"GET /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:

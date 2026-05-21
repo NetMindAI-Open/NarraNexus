@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-05-14
+last_verified: 2026-05-21
 stub: false
 ---
+
+## 2026-05-21 — artifact 段强化：复杂信息默认 HTML + 可见性边界
+
+`COMMON_TOOLS_INSTRUCTIONS` 的 `#### Visual Artifacts` 段两处加强：
+1. **默认优先 HTML artifact**：把"whenever a chart/table would help"升级为
+   "**Default to an HTML artifact whenever the information is complex, long,
+   or structured**" —— 能用 HTML 表达的（报告 / 仪表盘 / 对比 / 文档 /
+   多段答复）几乎都比一大段 chat 文本清晰，拿不准就写 HTML 注册。
+2. **可见性边界（新增段 "Where artifacts are visible"）**：artifact tab 只在
+   owner 的 web/桌面 chat UI 里；通过 IM 通道（lark / slack / telegram）跟
+   agent 交互的人**看不到** artifact，只看到 channel 回复。所以 artifact 永远
+   值得给 owner 建，但**不能替代**对 IM 发送者的 channel 回复——给 IM 发送者
+   的实质内容要放进 channel message 本身。
+配套：[[prompts.py]]（chat_module）也加了同一条指引，因为 artifact 是
+owner-facing 可视内容、只有 web chat 能看到。owner-facing「该不该说话 /
+说给谁」的纪律仍归 chat_module，本 module 只负责 artifact 能力本身。
 
 ## 2026-05-15 — live artifact registry in data gathering + refresh-signal docs
 

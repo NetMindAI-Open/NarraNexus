@@ -6,7 +6,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  User,
   LogOut,
   Trash2,
   ChevronLeft,
@@ -19,6 +18,7 @@ import {
   LayoutDashboard,
 } from 'lucide-react';
 import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
 import { api } from '@/lib/api';
@@ -131,7 +131,7 @@ export function Sidebar() {
 
     if (agentId) {
       try {
-        const result = await api.clearHistory(agentId, userId);
+        const result = await api.clearHistory(agentId);
         if (!result.success) {
           console.error('Failed to clear history:', result.error);
         }
@@ -147,28 +147,27 @@ export function Sidebar() {
     <aside
       className={cn(
         'h-full flex flex-col relative',
-        'bg-[var(--bg-secondary)]',
-        'border-r border-[var(--rule)]',
+        // NM canonical (FinChats:461): chat-list container bg = var(--nm-paper).
+        // Rows sit on paper directly with rounded highlight when active.
+        'bg-[color:var(--nm-paper)]',
+        'border-r border-[color:var(--nm-hairline)]',
         'transition-all duration-400 ease-out',
         collapsed ? 'w-[72px]' : 'w-72'
       )}
     >
       {confirmDialog}
 
-      {/* Header — full-width logo replaces the old icon-tile + wordmark stack.
-          Collapsed state hides the logo and keeps only the toggle button. */}
+      {/* Header — original NarraNexus logo image preserved.
+          Collapsed state hides the wordmark and keeps only the toggle button. */}
       <div className="p-4 border-b border-[var(--rule)]">
         <div className="flex items-center justify-between gap-2">
           {!collapsed && (
             <div className="flex items-center gap-0 animate-fade-in min-w-0">
               <img
-                src={isDark ? '/logo-dark-mode.png' : '/logo-light-mode.png'}
+                src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
                 alt="NarraNexus"
-                className="h-12 w-auto object-contain shrink-0"
+                className="h-11 w-auto object-contain shrink-0"
               />
-              <span className="text-[16px] font-medium leading-none text-[var(--text-primary)] font-[family-name:Inter,system-ui,sans-serif] tracking-[0.02em] truncate">
-                NarraNexus
-              </span>
             </div>
           )}
           <Button
@@ -186,31 +185,28 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* User Info — avatar on the left, two-line stack on the right.
-          Use <div> not <p> to avoid inheriting global typography rules.
-          The online dot inside the "Online" label is the single source of
-          truth for status — no separate corner indicator on the avatar. */}
+      {/* User Info — NM RingAvatar carbon (human species), name + StatusDot status row.
+          Carbon ring marks "this is a human user" per Axiom #1. */}
       {!collapsed && (
         <div className="px-4 py-3 border-b border-[var(--rule)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 shrink-0 bg-[var(--bg-tertiary)] flex items-center justify-center border border-[var(--border-subtle)]">
-              <User className="w-4 h-4 text-[var(--text-secondary)]" />
-            </div>
-            {/* Name + status stacked inside a 40px column matching the avatar,
-                centered vertically so the pair sits on the avatar's midline. */}
+            <RingAvatar species="carbon" label={userId || '?'} size="md" />
             <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
               <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
                 {userId}
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
-                <span
-                  className="w-1.5 h-1.5 rounded-full allow-circle bg-[var(--color-green-500)] shrink-0"
-                  aria-hidden
-                />
+                <StatusDot status="success" size={6} />
                 <span>Online</span>
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {/* Collapsed: just the carbon avatar centered */}
+      {collapsed && userId && (
+        <div className="px-4 py-3 border-b border-[var(--rule)] flex justify-center">
+          <RingAvatar species="carbon" label={userId} size="sm" title={userId} />
         </div>
       )}
 

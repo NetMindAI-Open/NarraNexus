@@ -327,7 +327,14 @@ class AgentRuntime:
                 owner_claude, owner_openai, owner_embedding = await get_agent_owner_llm_configs(agent_id)
                 set_user_config(owner_claude, owner_openai, owner_embedding)
             except LLMResolverError as e:
-                logger.exception(
+                # Known-business error (quota exhausted, owner has not
+                # configured required slots, etc.). Per 铁律 #15 we do
+                # not auto-switch providers; the platform's only action
+                # is to surface the message via the structured
+                # `ErrorMessage` below. The traceback adds no value and
+                # floods logs when a single user's quota is exhausted
+                # (1458 lines in 14h for one user on EC2 2026-05-19).
+                logger.warning(
                     f"LLM config resolution failed for agent {agent_id}: "
                     f"{type(e).__name__}: {e}"
                 )
@@ -606,6 +613,28 @@ class AgentRuntime:
                 self.session_service
             ):
                 yield msg
+
+            # =============================================================================
+            # Step 4.6: Synchronous turn persistence (BEFORE background / WS close)
+            # =============================================================================
+            # The conversation row the NEXT turn reads must be durable NOW. Step 5
+            # (below) is dispatched to a background task that can lag seconds-to-
+            # tens-of-seconds (embeddings, entity extraction, LLM summaries); if the
+            # user replies the instant they see the answer, that next turn would read
+            # chat history MISSING this exchange -> the agent "forgets" (the reported
+            # short-reply amnesia). So each module's hook_persist_turn (ChatModule:
+            # write the conversation row) runs synchronously here. Placed AFTER Step 4
+            # so the P3 narrative-routing rebind (4.0) has already repointed the chat
+            # instance, and the message lands in the thread it now belongs to.
+            from ._agent_runtime_steps.step_5_execute_hooks import (
+                build_after_execution_params,
+            )
+            try:
+                await self.hook_manager.hook_persist_turn(
+                    ctx.module_list, build_after_execution_params(ctx)
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
 
             # =============================================================================
             # Step 5: Execute Hooks

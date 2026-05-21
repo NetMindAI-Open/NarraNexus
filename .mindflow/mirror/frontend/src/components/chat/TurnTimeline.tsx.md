@@ -56,7 +56,7 @@ the current turn:
 That double-rendering grouped events by *kind* (all thinking together,
 all tools together) instead of by *time*. With multiple tool calls
 thinking was pushed out of view and the user couldn't see the actual
-rhythm of "think → tool → think → tool → reply → think". Xiong called
+rhythm of "think → tool → think → tool → reply → think". An operator called
 this out in the 5/11 review.
 
 `TurnTimeline` replaces both of the above. It renders one block per

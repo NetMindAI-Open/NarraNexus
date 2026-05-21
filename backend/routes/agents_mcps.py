@@ -16,9 +16,10 @@ Provides endpoints for:
 import uuid
 import asyncio
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Request
 from loguru import logger
 
+from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import MCPRepository
@@ -59,9 +60,14 @@ def _mcp_to_info(mcp: MCPUrl) -> MCPInfo:
 @router.get("/{agent_id}/mcps", response_model=MCPListResponse)
 async def list_mcps(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """List all MCP URLs for Agent+User"""
+    """List all MCP URLs for Agent+User.
+
+    Identity comes from auth_middleware (JWT/X-User-Id). The URL no
+    longer accepts ``user_id`` as a query param — that channel let any
+    client list any other user's MCP config by changing the URL."""
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Listing MCPs for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -80,14 +86,15 @@ async def list_mcps(
 @router.post("/{agent_id}/mcps", response_model=MCPResponse)
 async def create_mcp(
     agent_id: str,
-    request: MCPCreateRequest,
-    user_id: str = Query(..., description="User ID"),
+    payload: MCPCreateRequest,
+    request: Request,
 ):
-    """Create a new MCP URL"""
-    logger.info(f"Creating MCP for agent: {agent_id}, user: {user_id}, name: {request.name}")
+    """Create a new MCP URL. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
+    logger.info(f"Creating MCP for agent: {agent_id}, user: {user_id}, name: {payload.name}")
 
     try:
-        if not request.url.startswith(("http://", "https://")):
+        if not payload.url.startswith(("http://", "https://")):
             return MCPResponse(
                 success=False,
                 error="URL must start with http:// or https://"
@@ -102,10 +109,10 @@ async def create_mcp(
             agent_id=agent_id,
             user_id=user_id,
             mcp_id=mcp_id,
-            name=request.name,
-            url=request.url,
-            description=request.description,
-            is_enabled=request.is_enabled
+            name=payload.name,
+            url=payload.url,
+            description=payload.description,
+            is_enabled=payload.is_enabled
         )
 
         mcps = await repo.get_mcps_by_agent_user(agent_id, user_id)
@@ -125,10 +132,11 @@ async def create_mcp(
 async def update_mcp_endpoint(
     agent_id: str,
     mcp_id: str,
-    request: MCPUpdateRequest,
-    user_id: str = Query(..., description="User ID"),
+    payload: MCPUpdateRequest,
+    request: Request,
 ):
-    """Update an existing MCP URL"""
+    """Update an existing MCP URL. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Updating MCP {mcp_id} for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -142,15 +150,15 @@ async def update_mcp_endpoint(
         if existing_mcp.agent_id != agent_id or existing_mcp.user_id != user_id:
             return MCPResponse(success=False, error="MCP does not belong to this agent+user")
 
-        if request.url and not request.url.startswith(("http://", "https://")):
+        if payload.url and not payload.url.startswith(("http://", "https://")):
             return MCPResponse(success=False, error="URL must start with http:// or https://")
 
         await repo.update_mcp(
             mcp_id=mcp_id,
-            name=request.name,
-            url=request.url,
-            description=request.description,
-            is_enabled=request.is_enabled
+            name=payload.name,
+            url=payload.url,
+            description=payload.description,
+            is_enabled=payload.is_enabled
         )
 
         updated_mcp = await repo.get_mcp(mcp_id)
@@ -169,9 +177,10 @@ async def update_mcp_endpoint(
 async def delete_mcp_endpoint(
     agent_id: str,
     mcp_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """Delete MCP URL"""
+    """Delete MCP URL. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Deleting MCP {mcp_id} for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -198,9 +207,10 @@ async def delete_mcp_endpoint(
 async def validate_mcp_endpoint(
     agent_id: str,
     mcp_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """Validate a single MCP SSE connection"""
+    """Validate a single MCP SSE connection. Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Validating MCP {mcp_id} for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -239,9 +249,10 @@ async def validate_mcp_endpoint(
 @router.post("/{agent_id}/mcps/validate-all", response_model=MCPValidateAllResponse)
 async def validate_all_mcps_endpoint(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """Batch validate all MCP SSE connections for Agent+User (parallel execution)"""
+    """Batch validate all MCP SSE connections for Agent+User (parallel execution). Identity from auth_middleware."""
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Validating all MCPs for agent: {agent_id}, user: {user_id}")
 
     try:

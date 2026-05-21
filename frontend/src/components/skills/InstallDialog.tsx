@@ -74,7 +74,10 @@ export function InstallDialog({
   if (!mode) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">

@@ -981,7 +981,7 @@ _register(
 #   stretch between two type switches (tool_call / tool_output / etc.).
 #   When a non-thinking event arrives or the run ends, the buffered
 #   segment is flushed as ONE row here. Tool_call and tool_output get
-#   one row each. Decision driver: 4408 raw thinking chunks per Xiong-
+#   one row each. Decision driver: 4408 raw thinking chunks per operator-
 #   style run collapse to ~50 segment rows; total row count per run is
 #   bounded by `2 × tool_call_count + small constant` rather than by
 #   token granularity.
@@ -1260,7 +1260,7 @@ _register(
         indexes=[
             Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
             Index("idx_artifact_agent_pinned",  ["agent_id", "pinned"]),
-            Index("idx_artifact_agent_id",      ["agent_id"]),  # for total_bytes_for_agent
+            Index("idx_artifact_agent_id",      ["agent_id"]),  # agent-scoped scans
         ],
     )
 )
@@ -1282,6 +1282,38 @@ _register(
             Column("created_at",  "TEXT",    "DATETIME(6)",     nullable=False, default="(datetime('now'))"),
         ],
         indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# invite_codes — cloud-mode registration gating (replaces the single global
+# INVITE_CODE env var). Each row is one unique, single-use code issued to one
+# email. status flow: issued -> used (consumed by /api/auth/register), or
+# waitlisted -> issued (admin promote) when the auto-issue cap is hit, or
+# -> revoked (admin kill). `code` carries its own unique index; lookups by
+# email / status drive idempotent re-requests and the cap count.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="invite_codes",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("code", "TEXT", "VARCHAR(32)", nullable=False, unique=True),
+            Column("email", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False, default="'issued'"),
+            Column("source", "TEXT", "VARCHAR(32)", nullable=False, default="'website'"),
+            Column("email_sent", "INTEGER", "TINYINT", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("issued_at", "TEXT", "DATETIME(6)"),
+            Column("used_at", "TEXT", "DATETIME(6)"),
+            Column("used_by_user_id", "TEXT", "VARCHAR(128)"),
+        ],
+        indexes=[
+            Index("idx_invite_codes_code", ["code"], unique=True),
+            Index("idx_invite_codes_email", ["email"]),
+            Index("idx_invite_codes_status", ["status"]),
+        ],
     )
 )
 

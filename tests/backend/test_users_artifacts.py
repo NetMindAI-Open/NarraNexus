@@ -4,8 +4,8 @@
 @date: 2026-05-09
 @description: e2e tests for /api/users/{user_id}/artifacts/* under the pointer model.
 
-Covers list, quota, bulk_delete (with / without `delete_source`), tenant
-isolation (skipped_not_owned), and cloud-mode JWT self-check.
+Covers list, bulk_delete, tenant isolation (skipped_not_owned), and
+cloud-mode JWT self-check.
 """
 from __future__ import annotations
 
@@ -34,7 +34,6 @@ async def setup(db_client, monkeypatch, tmp_path):
     from backend.routes.users_artifacts import router as users_router
     import backend.routes.users_artifacts as users_mod
     monkeypatch.setattr(users_mod, "get_db_client", lambda: _async_return(db_client))
-    monkeypatch.setattr(users_mod, "settings", sa_settings)
 
     app = FastAPI()
     app.include_router(users_router, prefix="/api/users")
@@ -85,17 +84,6 @@ def test_list_returns_only_users_artifacts(setup):
     assert r.status_code == 200
     ids = {a["artifact_id"] for a in r.json()}
     assert ids == {"art_u1", "art_u2", "art_u3"}
-
-
-def test_quota_endpoint_returns_usage(setup):
-    r = setup["client"].get("/api/users/binliang/artifacts/quota")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["used_count"] == 3
-    assert body["count_limit"] in (50, 10)
-    assert body["used_bytes"] > 0
-    assert body["bytes_limit"] == 100 * 1024 * 1024
-    assert body["is_cloud_mode"] in (True, False)
 
 
 def test_bulk_delete_is_registry_only_workspace_kept(setup):

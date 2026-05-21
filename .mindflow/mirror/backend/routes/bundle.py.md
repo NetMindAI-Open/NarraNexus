@@ -1,8 +1,43 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-05-15
+last_verified: 2026-05-18
 stub: false
 ---
+
+## 2026-05-18 — 新增 `/import/from-url`(Template 一键 install 的入口)
+
+承接 templates marketplace feature(`drafts/logs/template_sharing_2026_05_18.md`)。
+原 import 走"用户下载 → 浏览器上传 → /preflight"两跳;新 endpoint 让后端
+自己 fetch URL → 接现有 `preflight()`,实现"网站点 install → app 自动拉到
+review 页"的一键体验。
+
+**核心实现**:
+- 接受 `{url, expected_sha256?}`,JWT/X-User-Id 鉴权(跟 `/import/preflight` 同款)
+- URL 必须 http/https,host 必须在 `BUNDLE_FETCH_ALLOWED_HOSTS` env 白名单里。
+  默认值**按 mode 分**:cloud(`settings.is_cloud_mode == True`)= `narra.nexus,www.narra.nexus`;local(sqlite,DMG / `bash run.sh`)= 上面加 `localhost,127.0.0.1,[::1]`。env 显式设置永远 override mode 默认。
+  这条 mode-aware 默认值是 2026-05-18 加的,起因:DMG 内嵌 backend 跑出去拉 `http://localhost:3001/...` 被默认 allowlist 拒,UI 显示 "Could not fetch the template / load failed"——local 模式装 marketplace bundle 是 first-class 场景,默认就要允许 loopback
+- httpx async stream 下载到临时文件,enforce `MAX_BUNDLE_BYTES`(复用
+  `bundle/security.py`)+ `_FETCH_TIMEOUT_SEC=30s` + 不 follow redirects
+- 可选 sha256 校验(`file_sha256` 复用 security.py)
+- 复用 `bundle.importer.preflight(bundle_path, user_id)` —— 不重复 preflight
+  那一长串逻辑(zip 解析、name clash 检测、embedding compat 等),只是给它前
+  置一个"取件代办"
+
+**安全考量(每条挡一类攻击)**:
+| 控制 | 挡的是 |
+|---|---|
+| URL host allowlist | SSRF(Capital One 类:把后端骗去访问 `169.254.169.254/...` 拿 IAM 凭证) |
+| 拒 redirect | 上游 302 → 内网/metadata IP 绕过 allowlist |
+| size cap(MAX_BUNDLE_BYTES = 500 MB) | 50 GB 文件填满磁盘 |
+| timeout 30s | hang server 占满连接池 |
+| optional sha256 | 上游服务器被攻破后投放替换包 / URL 写错指向旧版本 |
+| JWT/X-User-Id 鉴权 | 匿名调用刷流量 |
+
+**`BUNDLE_FETCH_ALLOWED_HOSTS` env** 走 `os.environ.get` 直接读——目前
+`settings.py::_DOTENV_PASSTHROUGH` 白名单还没加它(那块是 invite-code
+branch 上的改动),所以本地 dev 要么把它 export 出去,要么等 invite-code
+merge 后顺手加到 passthrough。生产 EC2 部署直接走 systemd/docker env,不
+经 `.env`,无影响。
 
 ## 2026-05-13 — local 多用户隔离修复
 

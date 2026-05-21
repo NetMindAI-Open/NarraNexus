@@ -9,7 +9,7 @@ stub: false
 The user-provider branch now first calls
 `provider_driver.resolve_user_llm_configs(user_id, db)`. That function
 encapsulates the new single-point resolution path including reverse-
-validation self-heal for broken slot.model bindings (the Xiong bug).
+validation self-heal for broken slot.model bindings (the operator bug).
 If the new resolver raises `LLMConfigNotConfigured` we re-raise to keep
 the actionable message; any other exception logs a warning and falls
 through to the legacy hand-rolled branch below — kept as a safety net

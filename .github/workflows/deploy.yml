@@ -1,0 +1,57 @@
+name: Deploy NarraNexus
+
+# Auto-deploy on push:
+#   main -> production EC2  (ubuntu@13.40.48.129)
+#   dev  -> development EC2 (ec2-user@35.177.3.118)
+#
+# Each run SSHes into the matching host and:
+#   fetch the pushed branch tip -> make app-build -> make app-up
+# It deliberately does NOT commit/push the deploy-repo submodule pointer
+# and does NOT touch the website stack (those are manual, per ops policy).
+#
+# NOTE: the dev host IP below is the auto-assigned EC2 public IP. If the
+# dev instance is stop/started (no Elastic IP yet), this IP changes —
+# update the dev value here (or attach an EIP to make it permanent).
+
+on:
+  push:
+    branches: [main, dev]
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Only the protagolabs fork owns the EC2s. On the upstream
+    # (NetMindAI-Open/NarraNexus) or any other fork this is false, so the
+    # job is SKIPPED (neutral grey, NOT a red X) — upstream never deploys
+    # and never needs the EC2_SSH_KEY secret.
+    if: github.repository == 'protagolabs/NarraNexus'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ github.ref_name == 'main' && '13.40.48.129' || '35.177.3.118' }}
+          username: ${{ github.ref_name == 'main' && 'ubuntu' || 'ec2-user' }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 30m
+          script: |
+            set -eu
+            BRANCH="${{ github.ref_name }}"
+            if [ "$BRANCH" = "main" ]; then
+              REPO="/home/ubuntu/NetMind_RS_XYZ/NarraNexus-deploy"
+            else
+              REPO="/home/ec2-user/NetMind_RS_XYZ/NarraNexus-deploy"
+            fi
+            echo "==> deploy branch=$BRANCH host=$(hostname)"
+            cd "$REPO/NarraNexus"
+            git fetch origin "$BRANCH"
+            git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+            echo "==> NarraNexus @ $(git rev-parse --short HEAD)"
+            cd "$REPO"
+            make app-build
+            make app-up
+            echo "==> deploy complete"

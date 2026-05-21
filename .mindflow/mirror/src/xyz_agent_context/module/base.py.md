@@ -1,7 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-04-10
+last_verified: 2026-05-20
 ---
+
+## 2026-05-20 — new `hook_persist_turn` (synchronous, next-turn-critical)
+
+Added a second post-turn hook alongside `hook_after_event_execution`. The split
+exists because the OLD single background hook caused short-reply "amnesia":
+ChatModule wrote the conversation row in `hook_after_event_execution`, which the
+runtime dispatches to a background task (can lag 3–19s); a user replying instantly
+raced that write and the next turn read history missing the exchange.
+`hook_persist_turn` runs SYNCHRONOUSLY in-request (see [[agent_runtime.py]] Step
+4.6, [[hook_manager.py]]) for the minimal state the NEXT turn must read (ChatModule
+writes the conversation row here — see [[chat_module.py]]); `hook_after_event_execution`
+stays background for heavy/non-critical work (embeddings, entity extraction, LLM
+summaries). Default for both is no-op.
 
 # base.py — Module 基类契约
 

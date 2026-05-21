@@ -165,8 +165,13 @@ class ContinuityDetector:
         Returns:
             ContinuityResult: Detection result
         """
-        # No historical Query
-        if not session.last_query or session.last_query.strip() == "":
+        # No prior *visible* exchange at all — neither a previous user query
+        # nor a previous agent reply the user could be responding to. Only then
+        # is this genuinely a new session. (A proactive agent message anchors
+        # last_response with last_query empty; that must still run continuity.)
+        has_query = bool(session.last_query and session.last_query.strip())
+        has_response = bool(session.last_response and session.last_response.strip())
+        if not has_query and not has_response:
             return ContinuityResult(
                 is_continuous=False,
                 confidence=1.0,
@@ -247,9 +252,28 @@ Note: The Agent's role and characteristics may influence how Narratives are cate
         clean_current = _extract_core_content(current_query)
         clean_response = _extract_core_content(previous_response)
 
-        user_input = f"""Previous conversation turn:
-User asked: {clean_previous}
-Agent's reasoning: {clean_response}
+        # The "previous turn" is whatever the user last SAW in their chat box.
+        # Two shapes:
+        #   - normal: user asked X, agent replied Y → judge current vs that.
+        #   - proactive: the agent messaged the user unprompted (e.g. from a
+        #     scheduled job); there is no prior user query, only the agent's
+        #     message. A short reply ("好"/"yes") is then almost certainly
+        #     answering THAT message — make the prompt say so explicitly.
+        if clean_previous:
+            previous_turn = (
+                f"Previous conversation turn:\n"
+                f"User asked: {clean_previous}\n"
+                f"Agent's reply/reasoning: {clean_response}"
+            )
+        else:
+            previous_turn = (
+                "Previous turn (the agent messaged the user proactively — "
+                "there was no prior user query; the user's current message is "
+                "most likely replying to this):\n"
+                f"Agent said to user: {clean_response}"
+            )
+
+        user_input = f"""{previous_turn}
 {narrative_context}{awareness_context}
 Current user query: {clean_current}
 

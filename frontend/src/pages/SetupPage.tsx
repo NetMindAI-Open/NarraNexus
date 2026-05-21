@@ -11,25 +11,29 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Settings, ArrowRight, SkipForward } from 'lucide-react';
+import { ArrowRight, SkipForward } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
+import { BracketSectionLabel } from '@/components/nm';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
+import { useTheme } from '@/hooks';
 import { useConfigStore } from '@/stores';
-import { getBaseUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 
 export function SetupPage() {
   const navigate = useNavigate();
+  const { isDark } = useTheme();
   const userId = useConfigStore((s) => s.userId);
   const [providerCount, setProviderCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
-  // Check current provider count on mount and after changes
+  // Check current provider count on mount and after changes. Routed
+  // through api.getProviders so identity travels in the X-User-Id /
+  // JWT header — bare fetch used to send neither, and the backend
+  // happily fell back to "first user in users table".
   useEffect(() => {
     const check = async () => {
       try {
-        const baseUrl = getBaseUrl();
-        const res = await fetch(`${baseUrl}/api/providers?user_id=${encodeURIComponent(userId)}`);
-        const data = await res.json();
+        const data = await api.getProviders();
         if (data.success && data.data?.providers) {
           setProviderCount(Object.keys(data.data.providers).length);
         }
@@ -49,15 +53,21 @@ export function SetupPage() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--bg-deep)]">
-      {/* Header */}
-      <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in">
-        <div className="w-12 h-12 rounded-2xl bg-[var(--gradient-primary)] flex items-center justify-center shadow-[0_0_20px_var(--accent-glow)] mb-4">
-          <Settings className="w-6 h-6 text-[var(--text-inverse)] dark:text-[var(--bg-deep)]" />
-        </div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+      {/* Header — original logo preserved */}
+      <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in gap-3">
+        <img
+          src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+          alt="NarraNexus"
+          className="h-14 w-auto object-contain"
+        />
+        <BracketSectionLabel>Setup · Configure LLM Providers</BracketSectionLabel>
+        <h1
+          className="text-2xl font-bold"
+          style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
+        >
           Configure LLM Providers
         </h1>
-        <p className="text-sm text-[var(--text-secondary)] mt-2">
+        <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
           Set up your API keys so NarraNexus can connect to language models.
         </p>
       </div>

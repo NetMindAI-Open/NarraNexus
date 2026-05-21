@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-04-20
+last_verified: 2026-05-19
 ---
 
 # skill_module.py — SkillModule 主体
@@ -27,6 +27,7 @@ last_verified: 2026-04-20
 ## Gotcha / 边界情况
 
 - **`skills_dir` 可能是 `None`**：如果实例化 `SkillModule(agent_id=..., user_id=None)`，`skills_dir` 为 `None`，`_scan_skills()` 直接返回空列表。MCP Server 的工具函数也通过 `_get_skill_module(agent_id, user_id)` 实例化，如果没有 `user_id` 就没有技能目录。
+- **`skills_dir` 可能不存在于文件系统**：路径对象存在 ≠ 目录被创建。删除 agent 或新建用户后第一次调用 MCP 时，`{base_path}/{agent}_{user}/skills` 还没建。**所有遍历操作**（`_scan_skills`、`_resolve_skill_dir`、`list_skills`）都必须先守 `if not self.skills_dir or not self.skills_dir.exists()`，否则 `iterdir()` 抛 `FileNotFoundError`。
 
 ## 新人易踩的坑
 

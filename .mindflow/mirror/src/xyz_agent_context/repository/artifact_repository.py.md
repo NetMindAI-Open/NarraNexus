@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-05-14
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — quota helpers removed
+
+`count_for_user()`, `total_bytes_for_user()`, and `total_bytes_for_agent()`
+are gone, along with the per-user artifact quota they fed (see
+[[artifact_runner.py]] 2026-05-19 note). `idx_artifact_agent_id` stays —
+agent-scoped scans still want it.
 
 ## 2026-05-14 — pointer model: version table dropped
 
@@ -16,15 +23,12 @@ The repository no longer touches `instance_artifact_versions`. Changes:
 - `iterate()`, `list_versions()`, `_row_to_version()` removed.
 - `delete()` / `bulk_delete()` only remove the artifact row; on-disk source
   cleanup is the route layer's job (gated on `delete_source`).
-- `total_bytes_for_user()` / `total_bytes_for_agent()` are plain `SUM(size_bytes)`
-  off `instance_artifacts` — no join.
 
 # Intent
 
 Pure DB I/O for `instance_artifacts`. One row = one artifact = one pointer to an
-entry file in the agent's workspace. Business rules (quota limits, path
-validation, kind checks) live upstream in `artifact_runner`; this layer is
-deliberately dumb.
+entry file in the agent's workspace. Business rules (path validation, kind
+checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
 
 ## Upstream
 
@@ -55,10 +59,6 @@ deliberately dumb.
 - `list_by_session()` uses raw SQL because the simple `filters` dict passed to
   `BaseRepository.find()` cannot express `AND pinned = 0` alongside `session_id`.
 
-- `total_bytes_for_*` use a single SQL `SUM` (with `COALESCE(..., 0)` because
-  `SUM` over an empty set returns NULL) instead of loading rows and summing in
-  Python.
-
 - Placeholder style is `%s` (MySQL convention). `AsyncDatabaseClient` translates
   to `?` for SQLite via `_mysql_to_sqlite_sql`.
 
@@ -74,6 +74,3 @@ deliberately dumb.
   legacy (pre-pointer-model) rows that never had these columns populated — such
   rows won't render but won't crash the list query either. They are hand-migrated
   per the cleanup TODO.
-
-- `COALESCE(SUM(...), 0)` is required — bare `SUM()` over an empty set returns
-  NULL and the `int()` cast would raise `TypeError` for a user with no artifacts.

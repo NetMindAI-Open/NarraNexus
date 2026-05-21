@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/hook_manager.py
-last_verified: 2026-04-10
+last_verified: 2026-05-20
 ---
+
+## 2026-05-20 — `hook_persist_turn` runner (synchronous phase)
+
+Added `hook_persist_turn(module_list, params)` mirroring `hook_after_event_execution`
+but for the SYNCHRONOUS, next-turn-critical persistence phase (see [[base.py]] 2026-05-20).
+The runtime awaits it right after Step 4 and before dispatching the background hooks
+(see [[agent_runtime.py]] Step 4.6). Parallel `asyncio.gather` across modules; a
+single module's failure is logged non-fatally (must never crash the turn — the user
+already has their answer). Reuses `build_after_execution_params(ctx)` extracted into
+[[step_5_execute_hooks.py]] so both phases build identical params.
 
 # hook_manager.py — Hook 生命周期编排
 

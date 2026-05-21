@@ -279,6 +279,15 @@ export interface AgentInfo {
    * for this agent + the current user. Null means "not currently running".
    */
   active_run?: ActiveRunInfo | null;
+  /**
+   * NM sidebar preview — most recent persisted assistant reply for this
+   * agent, server-truncated to ~200 chars. Lets the sidebar show "what
+   * did this agent last say" on rows the user has not opened this
+   * session. Falls back to the local chat session when the live stream
+   * just produced a fresher reply that has not yet been re-fetched.
+   */
+  last_assistant_preview?: string | null;
+  last_assistant_at?: string | null;
 }
 
 // Auth types
@@ -333,6 +342,18 @@ export interface AgentListResponse extends ApiResponse {
 
 export interface UpdateTimezoneResponse extends ApiResponse {
   timezone?: string;
+}
+
+/** New-user onboarding checklist state. Mirrors backend OnboardingProgress —
+ *  three write-once-true flags persisted in users.metadata. */
+export interface OnboardingProgress {
+  first_agent_created: boolean;
+  template_applied: boolean;
+  dismissed: boolean;
+}
+
+export interface OnboardingResponse extends ApiResponse {
+  progress?: OnboardingProgress;
 }
 
 export interface CreateAgentResponse extends ApiResponse {
@@ -552,6 +573,7 @@ export type AgentKind =
   | 'A2A'
   | 'CALLBACK'
   | 'SKILL_STUDY'
+  | 'MATRIX'
   | 'LARK';
 
 export interface MessageBusDetails {

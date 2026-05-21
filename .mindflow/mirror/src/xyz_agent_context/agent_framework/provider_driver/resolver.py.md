@@ -11,7 +11,7 @@ stub: false
 The codebase had two parallel resolve paths — ``ProviderResolver`` for
 HTTP middleware and ``api_config._get_user_llm_configs_strict`` for
 background triggers. Each had its own completeness check and error
-handling, drift between them caused real bugs (Xiong's case shipped
+handling, drift between them caused real bugs (the operator's case shipped
 because the frontend Settings check ran the HTTP path while the LarkTrigger
 that broke ran the background path). This module collapses both into one
 function and ``api_config._get_user_llm_configs_strict`` now delegates

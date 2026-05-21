@@ -7,6 +7,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { RefreshCw, Brain, Clock, Users, Sparkles, Edit3, Save, X, MessageSquare, Network, TrendingUp, Search, Loader2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip, ScrollArea } from '@/components/ui';
+import { BracketEmptyState } from '@/components/nm';
 import { usePreloadStore, useConfigStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -249,10 +250,11 @@ export function AwarenessPanel() {
                 )}
               </div>
             ) : (
-              <div className="text-xs text-[var(--text-tertiary)] py-6 text-center">
-                <Brain className="w-5 h-5 mx-auto mb-2 opacity-30" />
-                No awareness data
-              </div>
+              <BracketEmptyState
+                label="No awareness data"
+                hint="Awareness blurbs from the agent will appear here."
+                className="!py-6"
+              />
             )}
           </section>
 
@@ -386,10 +388,11 @@ export function AwarenessPanel() {
                   ))}
                 </div>
               ) : sortedEntities.length === 0 ? (
-                <div className="text-xs text-[var(--text-tertiary)] py-6 text-center">
-                  <Users className="w-5 h-5 mx-auto mb-2 opacity-30" />
-                  No contacts yet
-                </div>
+                <BracketEmptyState
+                  label="No contacts yet"
+                  hint="People and agents discovered by the agent will appear here."
+                  className="!py-6"
+                />
               ) : (
                 <div className="space-y-1.5">
                   {sortedEntities.map((entity) => (
@@ -448,10 +451,9 @@ export function AwarenessPanel() {
             Cancel
           </Button>
           <Button
-            variant="default"
+            variant="accent"
             onClick={handleSaveAwareness}
             disabled={isSaving}
-            className="bg-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/80"
           >
             {isSaving ? (
               <>

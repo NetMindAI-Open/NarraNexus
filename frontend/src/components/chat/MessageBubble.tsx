@@ -12,12 +12,13 @@
  *   3. eventLogThinking + eventLogToolCalls (older backend; grouped)
  */
 
-import { User, Bot, Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
+import { Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
 import { useState, useCallback, useRef, useMemo } from 'react';
 import type { Attachment, ChatMessage, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
 import { Markdown } from '@/components/ui';
+import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
@@ -29,9 +30,10 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
   eventId?: string;    // For lazy-loading event log from history
   agentId?: string;    // Needed for the event log API call
+  agentName?: string;  // Drives the assistant avatar label (matches the sidebar AgentList)
 }
 
-export function MessageBubble({ message, isStreaming = false, eventId, agentId }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
@@ -199,6 +201,14 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
     URL.revokeObjectURL(url);
   }, [message.content, message.timestamp]);
 
+  // NM: user = Carbon ring (human), assistant = Silicon ring (AI).
+  // Assistant avatar mirrors the sidebar AgentList: first 2 chars of the
+  // agent name (falling back to 'AI' only when no name is available),
+  // instead of a hardcoded 'A'.
+  const avatarLabel = isUser
+    ? (userId || 'U').slice(0, 1)
+    : (message.role === 'assistant' ? (agentName?.slice(0, 2) || 'AI') : '?');
+
   return (
     <div
       className={cn(
@@ -206,45 +216,56 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* Avatar — flat archive square */}
-      <div
-        className={cn(
-          'w-8 h-8 flex items-center justify-center shrink-0 transition-colors duration-150',
-          isUser
-            ? 'bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[var(--text-secondary)]'
-            // Bot avatar uses text-primary → bg-inverse so it inverts automatically.
-            : 'bg-[var(--text-primary)] text-[var(--text-inverse)]'
-        )}
-      >
-        {isUser ? (
-          <User className="w-3.5 h-3.5" />
-        ) : (
-          <Bot className="w-3.5 h-3.5" />
-        )}
-      </div>
+      {/* NM RingAvatar — carbon for human, silicon for AI */}
+      <RingAvatar
+        species={isUser ? 'carbon' : 'silicon'}
+        label={avatarLabel}
+        size="sm"
+        className="shrink-0"
+      />
 
       {/* Content */}
       <div className={cn('flex-1 min-w-0', isUser && 'text-right')}>
         <div
           className={cn(
-            'inline-block max-w-[85%] text-left',
+            'relative inline-block max-w-[85%] text-left',
             'px-4 py-3',
+            'rounded-[var(--radius-lg)]',
             'transition-colors duration-150',
-            isUser
-              ? [
-                  'message-user',
-                ]
-              : message.isError
-                ? [
-                    'message-assistant',
-                    'bg-[var(--bg-primary)]',
-                    'text-[var(--color-red-500)]',
-                    'border border-[var(--color-red-500)]',
-                  ]
-                : [
-                    'message-assistant',
-                  ]
           )}
+          style={
+            isUser
+              ? {
+                  // Own bubble — NM canonical "gray" variant (FinBubble:593-600).
+                  // CRITICAL: species colors (carbon/silicon) are reserved for
+                  // the OTHER party — when the room becomes multi-user, the
+                  // RECEIVER will see the sender in carbon/silicon. Your own
+                  // outgoing messages are always gray ("ownBubble" / "ownEdge")
+                  // because YOU don't need a species cue to identify yourself.
+                  // 3px stripe stays on the RIGHT (the "own" side) per NM.
+                  background: 'var(--nm-own-bubble)',
+                  color: 'var(--nm-ink)',
+                  border: '1px solid var(--nm-own-hair)',
+                  borderRight: '3px solid var(--nm-own-edge)',
+                }
+              : message.isError
+                ? {
+                    background: 'var(--color-error)',
+                    color: 'white',
+                    border: '1px solid var(--color-error)',
+                  }
+                : {
+                    // AI bubble — NM canonical FinBubble: silicon-soft fill,
+                    // silicon-hair border, 3px silicon stripe on the LEFT
+                    // edge. Light mode lands on light-blue bg + dark-blue
+                    // stripe; dark mode flips to grayish-blue bg + light-blue
+                    // stripe (driven entirely by token redefinition).
+                    background: 'var(--color-silicon-soft)',
+                    color: 'var(--nm-ink)',
+                    border: '1px solid var(--color-silicon-hair)',
+                    borderLeft: '3px solid var(--color-silicon)',
+                  }
+          }
         >
           {/* Inline timeline (reasoning + tool calls + tool output)
               for assistant messages. Renders only when expanded; the
@@ -357,7 +378,11 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
             message.isError && 'text-[var(--color-red-500)]'
           )}>
             {isUser ? (
-              <span className="whitespace-pre-wrap">{message.content}</span>
+              // Match the Agent reply's font size: the Markdown wrapper
+              // (.markdown-content) renders at 0.95rem, but a plain user span
+              // would inherit the parent .text-sm (0.85rem) and look smaller.
+              // Pin 0.95rem here so both bubbles read at the same size.
+              <span className="whitespace-pre-wrap text-[0.95rem]">{message.content}</span>
             ) : message.isError ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
             ) : (
@@ -379,40 +404,46 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId }
               ))}
             </div>
           )}
-        </div>
 
-        {/* Footer: timestamp + action buttons */}
-        <div
-          className={cn(
-            'mt-1.5 flex items-center gap-2 text-[10px] text-[var(--text-tertiary)] font-mono tracking-wide',
-            isUser ? 'justify-end pr-1' : 'justify-start pl-1'
-          )}
-        >
-          <span>{formatTime(message.timestamp)}</span>
-
-          {/* Copy & Download (assistant messages only, not during streaming) */}
-          {!isUser && !isStreaming && message.content && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleCopy}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--bg-tertiary)] transition-all"
-                title="Copy Markdown"
-              >
-                {copied ? (
-                  <Check className="w-3 h-3 text-[var(--color-success)]" />
-                ) : (
-                  <Copy className="w-3 h-3" />
-                )}
-              </button>
-              <button
-                onClick={handleDownload}
-                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--bg-tertiary)] transition-all"
-                title="Download as .md"
-              >
-                <Download className="w-3 h-3" />
-              </button>
-            </div>
-          )}
+          {/* Bubble footer — NM canonical FinBubble pattern: time pinned to
+              the bottom-RIGHT of the bubble (regardless of own/other), with
+              the copy/download actions sitting just LEFT of the time. Mono
+              9.5px in the subtle token, matching FinBubble:651-657. */}
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            {!isUser && !isStreaming && message.content && (
+              <>
+                <button
+                  onClick={handleCopy}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title="Copy Markdown"
+                >
+                  {copied ? (
+                    <Check className="w-3 h-3 text-[var(--color-success)]" />
+                  ) : (
+                    <Copy className="w-3 h-3" />
+                  )}
+                </button>
+                <button
+                  onClick={handleDownload}
+                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                  title="Download as .md"
+                >
+                  <Download className="w-3 h-3" />
+                </button>
+              </>
+            )}
+            <span
+              className="font-mono tracking-wide"
+              style={{
+                color: 'var(--nm-subtle)',
+                fontSize: '9.5px',
+                letterSpacing: '0.05em',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {formatTime(message.timestamp)}
+            </span>
+          </div>
         </div>
       </div>
     </div>

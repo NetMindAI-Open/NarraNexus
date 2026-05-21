@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-05-14
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 — quota wording purged (v1.7.0 removal cleanup)
+
+The per-user artifact quota was removed in v1.7.0 (see [[artifact_runner.py]]),
+but stale "quota" wording survived in this tool's LLM-facing `description=` and
+in the body docstring/comment. Removed: the description's error-cause list no
+longer says "quota" (only "path outside workspace, file missing, too large"),
+and the `ArtifactQuotaExceeded` exception / `code === 507` modal references
+below are historical only — neither exists anymore. Keeping the stale wording
+risked the agent self-limiting or telling users about a quota that's gone.
 
 ## 2026-05-15 — description teaches the refresh-signal pattern
 

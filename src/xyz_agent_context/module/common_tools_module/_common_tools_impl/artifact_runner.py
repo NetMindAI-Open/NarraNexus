@@ -6,8 +6,8 @@
 
 `register_artifact` registers a *pointer* to an entry file the agent already
 wrote inside its own workspace. It does NOT copy, move, or write any content —
-it validates the path, computes the artifact root directory size, enforces the
-per-user quota, and writes (or updates) one `instance_artifacts` row.
+it validates the path, computes the artifact root directory size, and writes
+(or updates) one `instance_artifacts` row.
 
 An artifact = an entry file + the directory it lives in (the "artifact root").
 The whole root directory is served by the backend, so a multi-file HTML app can
@@ -40,8 +40,10 @@ from xyz_agent_context.settings import settings
 
 
 # Per-artifact ceiling: the recursive size of one artifact's root directory.
-# Caps a single runaway artifact; the per-user aggregate quota (count + bytes,
-# deploy-mode aware) lives in settings and is enforced on top of this.
+# Caps a single runaway artifact. This is the ONLY artifact limit — there is no
+# per-user count or aggregate-byte quota. The old deploy-mode-aware quota
+# (50 local / 10 cloud + 100 MB total) was removed in v1.7.0; users may now
+# register any number of artifacts.
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024  # 25 MB
 
 ALL_KINDS = frozenset(
@@ -80,10 +82,6 @@ class ArtifactKindMismatch(ArtifactError):
 
 class ArtifactPathEscape(ArtifactError):
     code = 400
-
-
-class ArtifactQuotaExceeded(ArtifactError):
-    code = 507
 
 
 # ── path helpers ───────────────────────────────────────────────────────────────
@@ -159,52 +157,6 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
     return abs_entry, artifact_root
 
 
-# ── quota enforcement ──────────────────────────────────────────────────────────
-
-
-async def _enforce_quota(
-    repo: ArtifactRepository,
-    user_id: str,
-    incoming_bytes: int,
-    *,
-    is_iteration: bool,
-) -> None:
-    """Raise ArtifactQuotaExceeded if registering this artifact would exceed the
-    per-user count or byte limit.
-
-    Both limits are user-scoped (cross-agent): count is 50 local / 10 cloud
-    (deploy-mode aware via settings.is_cloud_mode), bytes is 100 MB regardless
-    of mode. `incoming_bytes` is the *delta* — the new artifact root size for a
-    fresh register, or (new size − old size) for a re-register — so a
-    re-register that shrinks an artifact never trips the byte ceiling.
-
-    The count check is skipped for re-registrations (`is_iteration=True`) — they
-    update an existing row in place and don't grow the artifact count.
-
-    Error messages explicitly mention "Settings → Artifacts" so the agent can
-    relay actionable guidance, and the frontend can pattern-match the structured
-    payload to surface a modal.
-    """
-    used_bytes = await repo.total_bytes_for_user(user_id)
-    byte_limit = settings.artifact_total_bytes_per_user
-    if used_bytes + incoming_bytes > byte_limit:
-        raise ArtifactQuotaExceeded(
-            f"Artifact storage limit reached "
-            f"({used_bytes / 1024 / 1024:.1f} MB used + {incoming_bytes / 1024 / 1024:.1f} MB incoming "
-            f"> {byte_limit / 1024 / 1024:.0f} MB total per user). "
-            f"Manage in Settings → Artifacts."
-        )
-
-    if not is_iteration:
-        used_count = await repo.count_for_user(user_id)
-        count_limit = settings.artifact_count_limit_per_user
-        if used_count + 1 > count_limit:
-            raise ArtifactQuotaExceeded(
-                f"Artifact limit reached ({used_count}/{count_limit}). "
-                f"Manage in Settings → Artifacts before registering new ones."
-            )
-
-
 # ── public API ─────────────────────────────────────────────────────────────────
 
 
@@ -229,12 +181,11 @@ async def register_artifact(
     3. Compute size: entry-file size if entry sits at the workspace root
        (single-file artifact), else recursive size of `dirname(entry)`
        (multi-file artifact, where siblings are served too). Reject if it
-       exceeds MAX_ARTIFACT_BYTES.
-    4. Enforce the per-user quota (count for new artifacts, bytes always).
-    5. New artifact → mint an art_ id and insert a row.
+       exceeds MAX_ARTIFACT_BYTES (per-artifact sanity cap).
+    4. New artifact → mint an art_ id and insert a row.
        target_artifact_id → validate it exists and the kind matches, then
        overwrite its pointer in place.
-    6. Return CreateArtifactToolResult (artifact_id, url, created_at).
+    5. Return CreateArtifactToolResult (artifact_id, url, created_at).
 
     No filesystem writes. No copy. The DB stores `file_path` = entry file
     relative to settings.base_working_path; `size_bytes` matches what the
@@ -258,7 +209,6 @@ async def register_artifact(
         ArtifactError: kind not in the allowed set.
         ArtifactPathEscape: entry path invalid / outside workspace.
         ArtifactTooLarge: artifact size exceeds MAX_ARTIFACT_BYTES.
-        ArtifactQuotaExceeded: registering would exceed the per-user quota.
         ArtifactNotFound: target_artifact_id does not exist.
         ArtifactKindMismatch: target_artifact_id kind differs from requested kind.
     """
@@ -274,7 +224,7 @@ async def register_artifact(
     # Single-file mode when entry sits at the workspace root: account only for
     # the entry file (and serve only the entry — see artifacts_public.py).
     # Otherwise account for the whole dir so the multi-file artifact's
-    # sibling assets are paid for by this artifact's quota.
+    # sibling assets are reflected in size_bytes (UI / debugging only).
     if artifact_root == workspace:
         size_bytes = os.path.getsize(abs_entry)
     else:
@@ -302,10 +252,6 @@ async def register_artifact(
                 f"kind={existing.kind!r} to update it, or omit target_artifact_id "
                 f"to register a new artifact."
             )
-        # Quota delta: only the growth (or shrink) relative to the old size.
-        await _enforce_quota(
-            repo, user_id, size_bytes - existing.size_bytes, is_iteration=True
-        )
         await repo.update_pointer(
             target_artifact_id,
             file_path=rel_path,
@@ -320,7 +266,6 @@ async def register_artifact(
             created_at=existing.created_at,
         )
 
-    await _enforce_quota(repo, user_id, size_bytes, is_iteration=False)
     artifact_id = _new_artifact_id()
     # No session context (LLM-driven calls cannot know a session_id) → default
     # to agent-scoped (pinned=True). Otherwise the artifact would land with

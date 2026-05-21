@@ -269,9 +269,19 @@ class LarkCLIClient:
     # Business methods — all agent_id-scoped, route via _run_with_agent_id
     # =========================================================================
 
-    async def get_user(self, agent_id: str, user_id: str = "") -> dict:
-        """Get user info. Omit user_id to get the bot's own info."""
-        args = ["contact", "+get-user", "--as", "bot"]
+    async def get_user(
+        self, agent_id: str, user_id: str = "", identity: str = "user"
+    ) -> dict:
+        """Get a user's contact info (display name, etc.).
+
+        Defaults to `--as user` — the agent owner's authorized user token,
+        stored per-agent in the isolated workspace HOME. We need it because
+        the bot tenant token lacks `contact:user.base:readonly`, so
+        `--as bot` only ever returns open_id/union_id with no name. Pass
+        `identity="bot"` for an app-identity lookup. Omit user_id to read
+        the calling identity's own info.
+        """
+        args = ["contact", "+get-user", "--as", identity]
         if user_id:
             args.extend(["--user-id", user_id])
         return await self._run_with_agent_id(args, agent_id)

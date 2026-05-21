@@ -23,6 +23,9 @@ import type { Artifact } from '@/types/artifact';
 import { fetchArtifactText } from '@/services/artifactsApi';
 import { useArtifactStore, type ChartInstanceLike } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { useArtifactHeal } from '@/hooks/useArtifactHeal';
+import { pickNMTheme } from '@/lib/echarts-nm-theme';
+import ArtifactHealModal from '../ArtifactHealModal';
 
 interface Props {
   artifact: Artifact;
@@ -31,12 +34,20 @@ interface Props {
 export default function ChartRenderer({ artifact }: Props) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { url, error: urlError } = useArtifactRawUrl(
+  const { url, error: urlError, reload } = useArtifactRawUrl(
     artifact.agent_id,
     artifact.artifact_id,
     artifact.updated_at,
   );
   const registerChartInstance = useArtifactStore((s) => s.registerChartInstance);
+  const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+
+  // When heal succeeds (server re-registered) the hook bumps recoveryVersion.
+  // We can't just re-run the load effect on it directly — we need a fresh
+  // token-protected URL first. Calling reload() on the URL hook does that.
+  useEffect(() => {
+    if (heal.recoveryVersion > 0) reload();
+  }, [heal.recoveryVersion, reload]);
 
   useEffect(() => {
     if (!url) return;
@@ -50,12 +61,22 @@ export default function ChartRenderer({ artifact }: Props) {
         const text = await fetchArtifactText(url);
         const option = JSON.parse(text);
         if (disposed || !ref.current) return;
-        const c = echarts.init(ref.current);
+        // Pick the NM theme that matches the current dark/light state.
+        // lib/echarts-nm-theme registers nm-light / nm-dark at app boot
+        // (side-effect in main.tsx) so the names always resolve.
+        const c = echarts.init(ref.current, pickNMTheme());
         c.setOption(option);
         chart = c as unknown as { dispose: () => void };
         registerChartInstance(artifact.artifact_id, c as unknown as ChartInstanceLike);
       } catch (e) {
-        setError(String(e));
+        const msg = String(e);
+        setError(msg);
+        // 410 → broken pointer (file_path NULL or off-disk). Kick off the
+        // self-heal flow so the user gets candidates from their workspace
+        // instead of a dead "Chart failed: 410" badge.
+        if (msg.includes('fetch failed: 410')) {
+          heal.attempt();
+        }
       }
     })();
 
@@ -64,9 +85,26 @@ export default function ChartRenderer({ artifact }: Props) {
       registerChartInstance(artifact.artifact_id, null);
       chart?.dispose();
     };
-  }, [url, artifact.artifact_id, registerChartInstance]);
+  }, [url, artifact.artifact_id, registerChartInstance, heal]);
 
-  if (urlError) return <div className="p-4 text-red-400">Chart failed: {urlError}</div>;
-  if (error) return <div className="p-4 text-red-400">Chart failed: {error}</div>;
-  return <div ref={ref} className="w-full h-full" />;
+  return (
+    <>
+      {urlError ? (
+        <div className="p-4 text-red-400">Chart failed: {urlError}</div>
+      ) : error ? (
+        <div className="p-4 text-red-400">Chart failed: {error}</div>
+      ) : (
+        <div ref={ref} className="w-full h-full" />
+      )}
+      <ArtifactHealModal
+        open={heal.modalOpen}
+        artifactTitle={artifact.title}
+        candidates={heal.candidates}
+        message={heal.message}
+        busy={heal.busy}
+        onPick={(workspacePath) => heal.attempt(workspacePath)}
+        onDismiss={heal.dismiss}
+      />
+    </>
+  );
 }

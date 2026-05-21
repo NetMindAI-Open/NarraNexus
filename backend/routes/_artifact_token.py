@@ -65,12 +65,26 @@ class TokenInvalid(TokenError):
     http_status = 401
 
 
+# Deterministic fallback secret for LOCAL mode only. In local mode the backend
+# binds to loopback (see backend/main.py::_assert_local_bind_is_loopback), the
+# view token is short-TTL, and the OS user is the security boundary — the same
+# posture that lets local mode bypass JWT entirely. A stable derived value (vs
+# a random per-process one) means tokens minted before a restart still verify
+# after it, so an open artifact tab keeps working across `run.sh` restarts.
+# Cloud mode never reaches this — it requires an explicit secret.
+_LOCAL_FALLBACK_SECRET: Final[bytes] = hashlib.sha256(
+    b"narranexus-local-artifact-view-token-v1"
+).digest()
+
+
 def _secret() -> bytes:
     """Resolve the signing secret.
 
     Reuses the deployment-wide signing secret: `transcription_hmac_secret` if
-    set, else `admin_secret_key` (local mode). In cloud mode with neither set,
-    raises — refusing to derive a secret in production is the right posture.
+    set, else `admin_secret_key`. In cloud mode with neither set, raises —
+    refusing to derive a secret in production is the right posture. In local
+    mode with neither set, derives a stable local secret instead of raising, so
+    artifacts render out-of-the-box on a fresh dev/desktop install.
     """
     explicit = (settings.transcription_hmac_secret or "").strip()
     if explicit:
@@ -85,12 +99,10 @@ def _secret() -> bytes:
         )
 
     fallback = (settings.admin_secret_key or "").strip()
-    if not fallback:
-        raise RuntimeError(
-            "Cannot mint signed artifact view tokens — "
-            "neither TRANSCRIPTION_HMAC_SECRET nor admin_secret_key is set."
-        )
-    return fallback.encode("utf-8")
+    if fallback:
+        return fallback.encode("utf-8")
+    # Local mode, nothing configured: stable derived secret (see note above).
+    return _LOCAL_FALLBACK_SECRET
 
 
 def _b64url_encode(data: bytes) -> str:

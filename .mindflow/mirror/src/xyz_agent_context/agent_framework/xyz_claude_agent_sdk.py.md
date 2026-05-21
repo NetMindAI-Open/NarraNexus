@@ -1,8 +1,56 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-05-13
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — Source-aware history truncation
+
+Replaced the old "append history → `[:100_000]` the whole string" eviction
+with a source-aware loop that PROTECTS the system prompt. Background
+trigger rows (`_source ∈ {job, message_bus, lark, callback}`) are
+dropped oldest-first; chat rows are only dropped once all background
+rows are gone. Implementation reads `_source` (set by
+[[context_runtime.py]] from `meta_data.working_source`) — DB rows are
+never modified, this only governs what gets sent to the LLM this turn.
+Belt-and-braces char + UTF-8 byte ceilings stay as last-resort guards
+for the case where the system prompt itself overruns argv. Fixes the
+"system instructions tail gets chopped" bug observed when history grew
+large enough to push the combined string past 100K chars.
+
+## 2026-05-19 — IDLE_TIMEOUT replaced with IDLE_PROBE (铁律 #14)
+
+`IDLE_TIMEOUT_SECONDS = 600` used to `raise TimeoutError(...)` whenever
+the CLI emitted no message for 10 minutes. This was a hard cap on
+`agent_loop` and violated 铁律 #14 — DeepSeek-V4-Pro CoT and other
+long-thinking models legitimately produce minutes-long silent passes,
+and memory `agent_long_silence_deepseek` (2026-04 notes) already
+recorded this as a known false positive.
+
+Renamed to `IDLE_PROBE_SECONDS` and turned into a *probe* cadence
+rather than a kill switch:
+
+1. Every IDLE_PROBE_SECONDS of silence, peek at the CLI subprocess
+   `_transport._process.returncode`.
+2. `returncode is None` (alive) → `logger.warning("...continuing to wait")`
+   and re-enter `asyncio.wait` with the **same** in-flight
+   `message_task` (so the SDK's `__anext__()` isn't lost across the
+   probe).
+3. `returncode is not None` (subprocess actually exited) → log ERROR
+   and `raise RuntimeError(...)` — this is a genuine failure, not LLM
+   thinking time.
+
+Mechanical changes that follow from "keep message_task across
+iterations":
+
+- The per-loop `finally:` now cancels only `cancel_task` (per-iteration);
+  `message_task` is owned by the outer function-scope `try`.
+- The function-scope `try` hoists `message_task: asyncio.Task | None =
+  None` before its first use so the outer `finally:` can cancel + drain
+  it without NameError even if `connect()` raised early.
+- `message_task = None` is assigned at every consume site (after
+  `.result()`, after `StopAsyncIteration`, after cancellation, after
+  the subprocess-dead path) so the next iteration creates a fresh task.
 
 ## 2026-05-13 — Phase A C1+C2 (race-with-cancel + SIGKILL fallback)
 
@@ -18,7 +66,7 @@ Receive loop 从 `asyncio.wait_for(__anext__(), IDLE_TIMEOUT_SECONDS)`
 - 如果 message 赢了 → 正常 `.result()` 取出（包括 StopAsyncIteration 自然结束）
 
 **关键修复 effect**：cancel 在 tool call 进行中（没有 message 流出）也能即时
-检测到。Xiong 那种 13min run 中途 stop 不再被 receive loop 卡住。
+检测到。an operator 那种 13min run 中途 stop 不再被 receive loop 卡住。
 
 ### SIGKILL fallback in disconnect
 

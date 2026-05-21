@@ -24,10 +24,11 @@ import shutil
 from pathlib import Path, PurePosixPath
 from typing import List
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from loguru import logger
 
+from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
 from xyz_agent_context.schema import (
     FileInfo,
@@ -149,9 +150,15 @@ def _resolve_within_workspace(workspace: Path, rel_path: str) -> Path:
 @router.get("/{agent_id}/files", response_model=FileListResponse)
 async def list_workspace_files(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
-    """Return the agent workspace as a recursive directory tree."""
+    """Return the agent workspace as a recursive directory tree.
+
+    Identity comes from auth_middleware (JWT in cloud, X-User-Id header in
+    local); the URL no longer accepts a ``user_id`` param to avoid the
+    cross-account-leak class of bug (a client could otherwise list any
+    other user's workspace tree by changing the query string)."""
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Listing workspace tree for agent: {agent_id}, user: {user_id}")
     try:
         workspace_path = _get_workspace_path(agent_id, user_id)
@@ -167,14 +174,18 @@ async def list_workspace_files(
 @router.get("/{agent_id}/files/raw")
 async def fetch_workspace_file(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
     path: str = Query(..., description="Workspace-relative path of the file"),
 ):
     """Stream a single workspace file (for download or inline preview).
 
     Path is resolved via :func:`_resolve_within_workspace` — dotfolders,
     null bytes, `..` segments, and escapes are all rejected.
+
+    Identity comes from auth_middleware, not the URL — see the listing
+    endpoint above for the rationale.
     """
+    user_id = await resolve_current_user_id(request)
     workspace = Path(_get_workspace_path(agent_id, user_id))
     target = _resolve_within_workspace(workspace, path)
     if not target.is_file():
@@ -186,10 +197,14 @@ async def fetch_workspace_file(
 @router.post("/{agent_id}/files", response_model=FileUploadResponse)
 async def upload_file(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
     file: UploadFile = File(..., description="File to upload"),
 ):
-    """Upload a file to the workspace root."""
+    """Upload a file to the workspace root.
+
+    Identity comes from auth_middleware, not the URL.
+    """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Uploading file '{file.filename}' for agent: {agent_id}, user: {user_id}")
     try:
         safe_filename = sanitize_filename(file.filename or "", label="filename")
@@ -224,14 +239,17 @@ async def upload_file(
 async def delete_file(
     agent_id: str,
     path: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
 ):
     """Delete a file or a directory (recursively) from the workspace.
 
     Accepts nested paths (e.g. ``report/index.html`` or ``report``). When the
     resolved path is a directory, ``shutil.rmtree`` removes it and everything
     under it — confine yourself; this is destructive.
+
+    Identity comes from auth_middleware, not the URL.
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Deleting workspace path '{path}' for agent: {agent_id}, user: {user_id}")
     try:
         workspace = Path(_get_workspace_path(agent_id, user_id))

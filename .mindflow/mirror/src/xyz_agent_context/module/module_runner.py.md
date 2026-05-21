@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-04-22
+last_verified: 2026-05-20
 ---
 
+## 2026-05-20 (Fix #2 P3) — BasicInfoModule joins CORE MCP modules (port 7808)
+
+`BasicInfoModule` added to `CORE_MCP_MODULES` + `CORE_MODULE_PORTS` (7808) so the
+mcp runner stands up its SSE server (the narrative-awareness tools — see
+[[basic_info_module.py]]). 7808 = next free after CommonToolsModule(7807).
 # module_runner.py — MCP 服务器部署与 A2A API 管理
 
 ## 为什么存在

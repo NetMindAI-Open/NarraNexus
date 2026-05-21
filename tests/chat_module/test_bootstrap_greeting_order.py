@@ -128,7 +128,7 @@ async def test_bootstrap_greeting_timestamp_precedes_user_message(chat_module):
         event_created_at=event_started_at,
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"
@@ -163,7 +163,7 @@ async def test_bootstrap_greeting_precedes_user_even_when_event_missing(chat_mod
     )
     params.event = None
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"
@@ -189,7 +189,7 @@ async def test_no_bootstrap_when_inactive(chat_module):
         bootstrap_active=False,
     )
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_boot_instance"

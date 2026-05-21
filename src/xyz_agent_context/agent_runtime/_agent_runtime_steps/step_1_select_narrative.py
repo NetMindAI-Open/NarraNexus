@@ -20,6 +20,34 @@ from xyz_agent_context.utils.logging import timed
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
 
 
+def _is_user_chat(ctx) -> bool:
+    """True iff the current run is replying to a human (not a background
+    trigger or peer agent).
+
+    Delegates to `WorkingSource.is_from_human()`:
+      - True for CHAT / LARK / SLACK / TELEGRAM (any human-facing channel).
+      - False for JOB / MESSAGE_BUS / CALLBACK / SKILL_STUDY.
+
+    Only "True" runs are allowed to overwrite Session.last_query /
+    last_response — otherwise a cron job or peer-agent ping would clobber
+    the anchor a real user message expects to see on its next continuity
+    check.
+    """
+    from xyz_agent_context.schema.hook_schema import WorkingSource
+
+    src = getattr(ctx, "working_source", None)
+    if src is None:
+        return True   # unknown source → treat as human (legacy safe default)
+    if isinstance(src, WorkingSource):
+        return src.is_from_human()
+    try:
+        return WorkingSource(str(src)).is_from_human()
+    except ValueError:
+        # Unknown literal — be safe and treat as human (preserves Session
+        # updates if a new source gets added without updating the enum).
+        return True
+
+
 async def _run_with_cancellation(coro, cancellation: CancellationToken):
     """
     Run a coroutine that can be interrupted by a CancellationToken.
@@ -199,7 +227,8 @@ async def step_1_select_narrative(
             fallback_coro = narrative_service.select(
                 ctx.agent_id, ctx.user_id, ctx.input_content,
                 session=ctx.session,
-                awareness=ctx.awareness
+                awareness=ctx.awareness,
+                is_user_chat=_is_user_chat(ctx),
             )
             if ctx.cancellation:
                 selection_result = await _run_with_cancellation(fallback_coro, ctx.cancellation)
@@ -217,7 +246,8 @@ async def step_1_select_narrative(
         select_coro = narrative_service.select(
             ctx.agent_id, ctx.user_id, ctx.input_content,
             session=ctx.session,
-            awareness=ctx.awareness
+            awareness=ctx.awareness,
+            is_user_chat=_is_user_chat(ctx),
         )
         if ctx.cancellation:
             selection_result = await _run_with_cancellation(select_coro, ctx.cancellation)

@@ -1,10 +1,24 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-04-10
+last_verified: 2026-05-19
 stub: false
 ---
 
 # routes/inbox.py — Agent 收件箱路由
+
+## 2026-05-19 — `_to_iso` 时间归一化
+
+`bus_messages.created_at` / `bus_channel_members.last_*_at` 都是
+DATETIME(6) 列。在 MySQL 后端 aiomysql 把它们反序列化成 `datetime.datetime`；
+在 SQLite 后端是字符串；而 cursor 的默认 fallback 是字面量
+`"1970-01-01"`。三种类型在 `>` / `<=` 比较时混型会抛
+`TypeError: '>' not supported between instances of 'datetime.datetime'
+and 'str'`（生产环境 2026-05-19 backend 22 条 ERROR）。
+
+新加 `_to_iso(value) -> str` helper（datetime → isoformat，None → ""，
+str → as-is），在 cursor 构造 + 每个比较/排序点都 wrap 一层。
+ISO 8601 字符串按字典序就是时间序，跨后端等价。
+
 
 ## 为什么存在
 

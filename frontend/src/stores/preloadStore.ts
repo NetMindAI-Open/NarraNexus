@@ -211,11 +211,11 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
         (r) => ({ socialNetworkList: r.entities || [] }),
         'No social network data'),
       loadDomain(set, get, 'chatHistoryLoading', 'chatHistoryError',
-        () => api.getChatHistory(agentId, userId),
+        () => api.getChatHistory(agentId),
         (r) => ({ chatHistoryEvents: r.events || [], chatHistoryNarratives: r.narratives || [] }),
         'No chat history'),
       loadDomain(set, get, 'ragFilesLoading', 'ragFilesError',
-        () => api.listRAGFiles(agentId, userId),
+        () => api.listRAGFiles(agentId),
         (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
         'Failed to load RAG files'),
       loadDomain(set, get, 'costLoading', 'costError',
@@ -248,7 +248,7 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
 
   refreshJobs: (agentId, _userId?, status?, silent?) => loadDomain(set, get,
     'jobsLoading', 'jobsError',
-    () => api.getJobs(agentId, undefined, status),
+    () => api.getJobs(agentId, status),
     (r) => ({ jobs: r.jobs }),
     'Failed to load jobs', silent),
 
@@ -264,15 +264,15 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     (r) => ({ socialNetworkList: r.entities || [] }),
     'No social network data', silent),
 
-  refreshChatHistory: (agentId, userId, silent?) => loadDomain(set, get,
+  refreshChatHistory: (agentId, _userId, silent?) => loadDomain(set, get,
     'chatHistoryLoading', 'chatHistoryError',
-    () => api.getChatHistory(agentId, userId),
+    () => api.getChatHistory(agentId),
     (r) => ({ chatHistoryEvents: r.events || [], chatHistoryNarratives: r.narratives || [] }),
     'No chat history', silent),
 
-  refreshRAGFiles: (agentId, userId, silent?) => loadDomain(set, get,
+  refreshRAGFiles: (agentId, _userId, silent?) => loadDomain(set, get,
     'ragFilesLoading', 'ragFilesError',
-    () => api.listRAGFiles(agentId, userId),
+    () => api.listRAGFiles(agentId),
     (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
     'Failed to load RAG files', silent),
 

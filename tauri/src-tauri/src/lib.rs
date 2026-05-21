@@ -3,7 +3,8 @@ mod sidecar;
 mod state;
 mod tray;
 
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 use state::{resolve_db_path, resolve_project_root, AppState};
 
@@ -31,6 +32,20 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Deep-link plugin: handles narranexus:// URL scheme (registered in
+        // tauri.conf.json plugins.deep-link.desktop.schemes). When the OS
+        // delivers a URL — cold start OR forwarded via single-instance from
+        // a second launch — the `on_open_url` callback below fires inside
+        // the LIVE process. The callback both:
+        //   (a) emits a Tauri event for any already-mounted frontend listener
+        //   (b) buffers the URL in AppState::pending_deep_link so a frontend
+        //       that mounts AFTER cold-start can drain it via the
+        //       `consume_pending_deep_link` command (events fired before any
+        //       listener is registered are dropped, not queued).
+        // Single-instance plugin's "deep-link" feature is what bridges a
+        // second-launch URL into the live process so this callback sees it
+        // — see Cargo.toml.
+        .plugin(tauri_plugin_deep_link::init())
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::service::get_service_status,
@@ -47,6 +62,7 @@ pub fn run() {
             commands::auth::trigger_claude_logout,
             commands::auth::cancel_claude_login,
             commands::auth::get_claude_login_status,
+            commands::deep_link::consume_pending_deep_link,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a
@@ -98,6 +114,35 @@ pub fn run() {
                     *guard = Some(tray);
                 }
             }
+
+            // Wire the deep-link handler. Runs for every narranexus:// URL
+            // the OS hands us — cold start AND already-running forwarded
+            // via single-instance. See plugin registration comment above
+            // for the cold-start race rationale (emit + AppState buffer).
+            let app_handle_for_dl = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let url_str = url.to_string();
+                    log::info!("deep-link received: {}", url_str);
+                    // (a) live emit for already-mounted frontends
+                    if let Err(e) =
+                        app_handle_for_dl.emit("deep-link-received", url_str.clone())
+                    {
+                        log::warn!("failed to emit deep-link-received event: {}", e);
+                    }
+                    // (b) buffer for the not-yet-mounted cold-start case.
+                    // Bind the lock result explicitly: newer rustc (1.80+)
+                    // tightened temporary-scope rules so the MutexGuard
+                    // temporary in `if let Ok(..) = state.pending.lock()`
+                    // would outlive the inner `state` binding (E0597).
+                    // Mirror the same pattern setup() uses for tray_handle.
+                    let state = app_handle_for_dl.state::<AppState>();
+                    let lock_result = state.pending_deep_link.lock();
+                    if let Ok(mut pending) = lock_result {
+                        *pending = Some(url_str);
+                    }
+                }
+            });
 
             // Kick off the lark-cli + lark skill-pack preflight in parallel
             // with service startup. It is entirely optional — Lark features

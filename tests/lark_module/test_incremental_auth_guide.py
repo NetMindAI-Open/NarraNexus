@@ -388,3 +388,124 @@ def test_narranexus_specifics_rendered_only_when_stage_completed():
         "get_instructions must render _NARRANEXUS_SPECIFICS so the "
         "workspace / per-agent-auth callouts actually reach the agent."
     )
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# 2026-05-20 — bot-scope dead-end regression (prod agent_demo00000000 / operator)
+#
+# Context: a `--as bot` call returned `99991672 App scope not enabled:
+# minutes:minutes.basic:read`. The owner was repeatedly handed `auth login`
+# verification URLs; clicking them changed nothing (user OAuth can only grant
+# USER scopes — the bot/app scope needs a developer-console enable AND a new
+# app-version publish). The agent never re-ran the failing call to confirm,
+# and recorded "授权问题已解决" in narrative memory while the bot call kept
+# failing. These tests pin the missing knowledge into the guide. Kept general
+# per CLAUDE.md iron rule #4 — no scenario-specific (e.g. minutes) wording.
+# ───────────────────────────────────────────────────────────────────────────
+
+
+def test_guide_says_bot_scope_needs_console_enable_plus_version_publish():
+    """Enabling a bot/app scope in the developer console does NOT take
+    effect until a new app version is published (and on enterprise
+    tenants may need admin approval). A guide that says only "open the
+    console" lets the agent/owner believe a console click is enough and
+    loop forever while the tenant token still lacks the scope.
+    """
+    from xyz_agent_context.module.lark_module.lark_module import (
+        _INCREMENTAL_AUTH_GUIDE,
+    )
+
+    lower = _INCREMENTAL_AUTH_GUIDE.lower()
+    publish_signals = ["publish", "new version", "new app version", "release a version"]
+    assert any(s in lower for s in publish_signals), (
+        "Incremental auth guide must state that a console scope change "
+        "only takes effect after PUBLISHING a new app version. Without "
+        "this, bot-scope failures look unfixable even after the scope is "
+        "added in the console."
+    )
+
+
+def test_guide_says_user_click_cannot_grant_bot_scope():
+    """The owner clicking an auth-login link can never grant a
+    bot/tenant scope, so "I clicked the link but it still fails" is the
+    EXPECTED symptom of a bot-scope gap — not a second bug to chase with
+    more URLs. The guide must say this so the agent stops minting
+    auth-login URLs for `--as bot` scope errors.
+    """
+    from xyz_agent_context.module.lark_module.lark_module import (
+        _INCREMENTAL_AUTH_GUIDE,
+    )
+
+    lower = _INCREMENTAL_AUTH_GUIDE.lower()
+    # Must convey that a user click / auth login does not fix the bot side.
+    signals = [
+        "cannot grant",
+        "can never grant",
+        "won't grant",
+        "does not grant",
+        "clicking",
+        "click the link",
+        "still fail",
+    ]
+    assert any(s in lower for s in signals), (
+        "Incremental auth guide must tell the agent a user click / auth "
+        "login cannot grant a bot scope, so it stops looping auth-login "
+        "URLs on `--as bot` scope errors."
+    )
+
+
+def test_guide_requires_verifying_before_claiming_scope_resolved():
+    """A green `auth login` (or any setup step) is not proof the failing
+    call now works. The agent must re-run the actual failing command and
+    confirm success before telling the user it's fixed or recording it
+    as resolved in memory. Pre-fix, the agent recorded "已解决" while the
+    bot call kept returning 99991672.
+    """
+    from xyz_agent_context.module.lark_module.lark_module import (
+        _INCREMENTAL_AUTH_GUIDE,
+    )
+
+    lower = _INCREMENTAL_AUTH_GUIDE.lower()
+    verify_signals = ["re-run", "rerun", "re run", "run the actual", "confirm it returns", "verify", "proof"]
+    assert any(s in lower for s in verify_signals), (
+        "Incremental auth guide must require re-running the failing call "
+        "to verify success before claiming the scope problem is resolved "
+        "or recording it in memory."
+    )
+
+
+def test_guide_separates_incremental_topup_from_three_click_binding():
+    """Root cause of the operator minutes saga (2026-05): on every turn the
+    agent called `lark_permission_advance(user_authorized)` for an
+    incremental scope top-up, read its `Already completed` as success,
+    and re-minted instead of polling the carried device_code. The guide
+    must tell the agent that a top-up is NOT the three-click binding
+    flow and never calls permission_advance.
+    """
+    from xyz_agent_context.module.lark_module.lark_module import (
+        _INCREMENTAL_AUTH_GUIDE,
+    )
+
+    lower = _INCREMENTAL_AUTH_GUIDE.lower()
+    assert "lark_permission_advance" in lower
+    assert "already completed" in lower
+    # must mention it's not the binding flow / not success
+    assert any(s in lower for s in ["not the three-click", "binding flow", "first-time bot binding"])
+
+
+def test_guide_distinguishes_post_scope_resource_failure_from_auth():
+    """Once the scope is satisfied, a downstream Lark API error (403
+    permission deny / failed to query) is NOT fixable by more auth —
+    it's a resource-level / Lark-side / lark-cli issue. The agent must
+    stop re-minting/re-polling and tell the user, rather than loop
+    (which is what it did during the operator transcript saga after scopes
+    were granted).
+    """
+    from xyz_agent_context.module.lark_module.lark_module import (
+        _INCREMENTAL_AUTH_GUIDE,
+    )
+
+    lower = _INCREMENTAL_AUTH_GUIDE.lower()
+    assert "permission deny" in lower or "permission denied" in lower
+    assert "lark-cli" in lower  # names the possibility it's a Lark/CLI-side issue
+    assert any(s in lower for s in ["not an auth", "will not fix", "stop chasing", "do not mint or re-poll"])

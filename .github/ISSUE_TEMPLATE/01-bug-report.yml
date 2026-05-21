@@ -1,0 +1,90 @@
+name: Bug report
+description: Something broke or behaves unexpectedly.
+title: "bug: <short description>"
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.
+        中英文都可以 / English or 中文 — both welcome.
+
+        Before opening this issue, please search existing bugs to avoid duplicates.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: One or two sentences. What did you do, what broke?
+      placeholder: "When I clicked 'Export bundle' with chat history disabled, the bundle still contained chat content."
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps. If you have a code snippet, paste it. "It doesn't work" is not enough.
+      placeholder: |
+        1. Start the local stack with `bash run.sh`
+        2. Open Settings -> Providers, add NetMind key
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: NarraNexus version
+      description: From the sidebar in the app, from `git rev-parse --short HEAD`, or the tag like `v1.5.7`.
+      placeholder: "v1.5.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running NarraNexus?
+      options:
+        - Desktop DMG / installer
+        - "Local source: bash run.sh"
+        - "Local source: individual make targets"
+        - Cloud (agent.narra.nexus)
+        - Self-hosted Docker
+        - Other (please describe in logs)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: |
+        Paste the relevant traceback or attach a screenshot.
+
+        **Where to find logs by install type:**
+          - `bash run.sh` / `make dev-*` → `~/.narranexus/logs/backend/`
+          - Self-hosted Docker → `docker logs narranexus-backend`
+          - Desktop DMG (macOS) → `~/Library/Logs/com.narranexus.app/`
+            and the system Console.app "User Reports" if the app crashed
+          - Desktop DMG (other OS) → check `<app-data-dir>/logs/`
+          - Cloud → include a request id + timestamp; we'll fetch logs
+
+        Please redact API keys, tokens, and personal data before pasting.
+      render: shell
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Workarounds you tried, suspected root cause, related issues.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Quick checks
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true
+        - label: I've redacted API keys, tokens, and personal data from logs / screenshots.
+          required: true

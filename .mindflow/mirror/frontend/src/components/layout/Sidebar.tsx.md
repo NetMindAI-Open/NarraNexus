@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-04-13
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — Sidebar bg moved to `--nm-paper`
+
+Outer `<aside>` background now reads `bg-[color:var(--nm-paper)]` so the sidebar sits directly on NM paper (FinChats:461 canonical). Per-row treatment moved into `AgentList` — see its mirror for the row-bg priority rewrite.
 
 ## v2.2 改动（2026-04-13）
 

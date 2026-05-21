@@ -1,7 +1,29 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/prompts.py
-last_verified: 2026-04-27
+last_verified: 2026-05-21
 ---
+
+## 2026-05-21 — 复杂信息优先 HTML artifact（含可见性边界）
+
+Guidelines 段新增一条："复杂 / 结构化 / 长的 owner-facing 回复 → 优先做成
+HTML artifact + 一句 pointer message"，而不是把一大段文本塞进 chat。理由：
+artifact 在 owner 的 web/桌面 chat UI 里渲染，远比纯文本清晰。**关键边界**：
+artifact tab 是 chat UI 的一部分，所以只对 `chat` turn 有意义——IM 通道
+（lark / slack / telegram）的发送者**看不到** artifact，给他们的回复必须把
+内容放进 channel message 本身。artifact 工具由 always-on 的 common-tools 能力
+提供，how-to 在 [[common_tools_module.py]]（本 prompt 只给指引、不重复 how-to，
+保持 module 解耦）。配套：common_tools 的 `#### Visual Artifacts` 段同步强化了
+"复杂信息默认 HTML" + 同一条可见性边界。
+
+## 2026-05-19 — warm-with-humans 范围扩到所有 IM 通道
+
+最初实现只覆盖 `working_source=chat`，但 Lark / Slack / Telegram 通道
+的实际对方也是真人——按 [[hook_schema.py]] 的 `is_from_human()`
+分类，这四类都该走 warm 风格。新版 Guidelines 把规则的适用范围明确写到
+**`chat / lark / slack / telegram`**，并在 Rule of Thumb 段把
+`job / message_bus / callback / skill_study` 归入"agent / system partner —
+brevity beats politeness"。配套：[[message_bus_module.py]] 的 Reply
+Discipline 段在 MESSAGE_BUS 触发时强制 brevity + `[NO_REPLY]` 纪律。
 
 # prompts.py — ChatModule 指令定义
 

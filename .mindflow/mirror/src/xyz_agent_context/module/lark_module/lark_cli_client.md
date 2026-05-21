@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-04-17
+last_verified: 2026-05-21
 ---
+
+## 2026-05-21 — `get_user` defaults to `--as user`
+
+`get_user` now runs `contact +get-user --as user` (was `--as bot`). The
+bot tenant token lacks `contact:user.base:readonly`, so `--as bot`
+returns only `open_id`/`union_id` with no `name` for **every** sender —
+which made `LarkTrigger.resolve_sender_name` fall back to "Unknown" for
+everyone (and the agent then guessed names from its roster). Each
+lark-configured agent already holds the owner's user token in its
+isolated HOME (from the three-click auth), and that token *can* read
+names, so we resolve through it. `identity="bot"` stays selectable for
+callers that genuinely want the app identity.
 
 ## Why it exists
 

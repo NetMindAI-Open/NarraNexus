@@ -9,7 +9,10 @@
  *   - CostPopover always stays pinned to the right edge (shrink-0 + pr-1 so
  *     its -top-1 -right-1 unread badge never overflows the panel frame).
  *   - Tab row scrolls horizontally when the panel is too narrow, so tabs
- *     never collide with the cost indicator. Scrollbar is hidden visually.
+ *     never collide with the cost indicator. A thin scrollbar stays
+ *     visible whenever the tabs overflow (type="auto") — the affordance
+ *     that tells the user "there's more, you can scroll". It only shows
+ *     when content actually overflows, so wide panels stay clean.
  */
 
 import { Activity, Settings, Inbox, ListTodo, Puzzle } from 'lucide-react';
@@ -41,10 +44,18 @@ export function ContextPanelHeader({ activeTab, onTabChange }: ContextPanelHeade
 
   return (
     <div className="flex items-end justify-between gap-2 min-w-0">
-      {/* Tab row — scrolls horizontally when too narrow, hidden scrollbar.
-          Uses ScrollArea (hideScrollbar) so the row scrolls but no track
-          appears, even on macOS "always show scrollbars". */}
-      <ScrollArea horizontal hideScrollbar className="flex-1 min-w-0">
+      {/* Tab row — scrolls horizontally when too narrow. A thin track
+          (h-1.5) stays visible while the tabs overflow (type="auto") as a
+          clear "you can scroll" affordance; pb-1.5 drops it below the tab
+          underline so the two never stack. JS-rendered track stays
+          theme-consistent even on macOS "always show scrollbars". */}
+      <ScrollArea
+        horizontal
+        type="auto"
+        scrollbarClassName="h-1.5"
+        viewportClassName="pb-1.5"
+        className="flex-1 min-w-0"
+      >
         <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as ContextTab)}>
           <TabsList className="ctx-tabs flex w-max gap-0">
             {tabs.map((tab) => {

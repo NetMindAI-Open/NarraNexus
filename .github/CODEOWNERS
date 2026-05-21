@@ -1,0 +1,42 @@
+# CODEOWNERS — auto-request a review from the right people.
+#
+# Format: <path-glob> <@github-handle> [<@another-handle>]
+#
+# Lead maintainers (@johnsonice and @BinLiang2021) own the critical
+# paths together. GitHub will request a review from both, and either
+# can approve.
+#
+# Reference: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything.
+* @johnsonice @BinLiang2021
+
+# CLAUDE.md is the project's constitution. Lead maintainers only
+# (CLAUDE.md binding rule #11).
+/CLAUDE.md @johnsonice @BinLiang2021
+
+# Three-tier docs — second-review territory.
+/.mindflow/project/references/ @johnsonice @BinLiang2021
+/.mindflow/project/playbooks/   @johnsonice @BinLiang2021
+
+# Auth / identity — requires extra eyes.
+/backend/auth.py                       @johnsonice @BinLiang2021
+/backend/routes/auth.py                @johnsonice @BinLiang2021
+/src/xyz_agent_context/agent_framework/provider_driver/ @johnsonice @BinLiang2021
+
+# Bundle export / import — credentials and chat content flow here.
+/src/xyz_agent_context/bundle/ @johnsonice @BinLiang2021
+
+# Schema — never silently widen or narrow.
+/src/xyz_agent_context/utils/schema_registry.py @johnsonice @BinLiang2021
+
+# Release tooling.
+/.github/workflows/build-desktop.yml @johnsonice @BinLiang2021
+/pyproject.toml                      @johnsonice @BinLiang2021
+/tauri/src-tauri/                    @johnsonice @BinLiang2021
+
+# Governance docs themselves.
+/GOVERNANCE.md      @johnsonice @BinLiang2021
+/MAINTAINERS.md     @johnsonice @BinLiang2021
+/CODE_OF_CONDUCT.md @johnsonice @BinLiang2021
+/SECURITY.md        @johnsonice @BinLiang2021

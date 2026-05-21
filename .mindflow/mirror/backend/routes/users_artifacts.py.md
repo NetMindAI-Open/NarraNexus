@@ -1,8 +1,14 @@
 ---
 code_file: backend/routes/users_artifacts.py
-last_verified: 2026-05-14
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — `/quota` endpoint removed
+
+Per-user artifact quotas were dropped (see [[artifact_runner.py]] 2026-05-19
+note). `GET /{user_id}/artifacts/quota` and `QuotaInfo` are gone with them;
+the Settings → Artifacts panel renders count-only without a progress bar.
 
 ## 2026-05-14-r3 — `delete_source` removed from bulk delete
 
@@ -18,18 +24,14 @@ rationale).
 User-scoped (cross-agent) artifact endpoints powering the Settings →
 Artifacts management UI. Distinct from `agents_artifacts.py` (agent-scoped)
 because the management UI needs the full set across every agent the user
-owns and the ability to free quota with one bulk delete.
+owns and the ability to bulk delete.
 
 ## Endpoints
 
 - `GET    /{user_id}/artifacts`       — list every artifact for `user_id`,
   newest first.
-- `GET    /{user_id}/artifacts/quota` — current usage vs. configured limits;
-  drives the "8 / 10" headline and the progress bar in the management panel.
 - `DELETE /{user_id}/artifacts`       — bulk delete; body
-  `{ artifact_ids: [...], delete_source: bool }`. With `delete_source=true`,
-  each artifact's root directory (the folder containing its entry file) is
-  removed too, path-confined to that agent's workspace.
+  `{ artifact_ids: [...] }`. Registry-only — workspace files stay.
 
 ## Upstream / Downstream
 
@@ -37,10 +39,7 @@ Upstream:
 - Frontend `Settings → Artifacts` panel (`ArtifactsSection.tsx`).
 
 Downstream:
-- `ArtifactRepository.list_by_user` / `count_for_user` /
-  `total_bytes_for_user` / `bulk_delete`.
-- `settings.base_working_path` for workspace folder resolution when
-  `delete_source=true`.
+- `ArtifactRepository.list_by_user` / `bulk_delete`.
 
 Mounted under `/api/users` (see `backend/main.py`).
 

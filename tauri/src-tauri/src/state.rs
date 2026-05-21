@@ -511,6 +511,12 @@ pub struct AppState {
     /// SIGTERM the child without holding the Child handle across awaits.
     /// `None` means no login flow is currently running.
     pub claude_login_pid: Arc<StdMutex<Option<u32>>>,
+    /// Latest `narranexus://` URL the OS handed to this process, buffered
+    /// for the frontend to drain on mount. See
+    /// `commands::deep_link::consume_pending_deep_link` for why this is
+    /// needed alongside the live Tauri event (cold-start race: URLs
+    /// arrive in Rust before React mounts a listener).
+    pub pending_deep_link: Arc<StdMutex<Option<String>>>,
 }
 
 impl Default for AppState {
@@ -533,6 +539,7 @@ impl Default for AppState {
             service_defs: ServiceDef::default_services(&project_root_str, &python_path_str, bundled),
             tray_handle: Arc::new(StdMutex::new(None)),
             claude_login_pid: Arc::new(StdMutex::new(None)),
+            pending_deep_link: Arc::new(StdMutex::new(None)),
         }
     }
 }

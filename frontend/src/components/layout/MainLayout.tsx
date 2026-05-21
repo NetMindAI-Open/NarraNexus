@@ -36,9 +36,9 @@ import { ContextPanelHeader, type ContextTab } from './ContextPanelHeader';
 import { ContextPanelContent } from './ContextPanelContent';
 import { ResizableDivider } from './ResizableDivider';
 import { ChatPanel } from '@/components/chat';
+import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { ArtifactColumn } from '@/components/artifacts';
-import QuotaExceededModal from '@/components/artifacts/QuotaExceededModal';
 import { useConfigStore, usePreloadStore, useArtifactStore } from '@/stores';
 import { useAutoRefresh } from '@/hooks';
 
@@ -154,16 +154,24 @@ export function ChatView() {
         ref={groupRef}
         className="relative flex-[5] min-w-0 flex overflow-hidden"
       >
-        {/* Chat column — outer border gives the column a single frame */}
+        {/* Chat column — NM paper card (the actual conversation surface,
+            --nm-card sits on top of the warm nm-paper background).
+            flex-col so the (cloud-only, self-hiding) onboarding checklist
+            can sit above the chat without ChatPanel losing its height. */}
         <div
-          className="min-w-[400px] animate-fade-in border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden"
-          style={
-            artifactExpanded
+          className="min-w-[400px] animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col"
+          style={{
+            background: 'var(--nm-card)',
+            border: '1px solid var(--nm-hairline)',
+            ...(artifactExpanded
               ? { flexGrow: chatSplit, flexBasis: 0 }
-              : { flexGrow: 1, flexBasis: 0 }
-          }
+              : { flexGrow: 1, flexBasis: 0 }),
+          }}
         >
-          <ChatPanel onAgentComplete={refreshAll} />
+          <OnboardingChecklist />
+          <div className="flex-1 min-h-0">
+            <ChatPanel onAgentComplete={refreshAll} />
+          </div>
         </div>
 
         {/* Resizable divider (chat ↔ artifacts). Hidden in sliver mode.
@@ -195,16 +203,22 @@ export function ChatView() {
         )}
       </div>
 
-      {/* Context column */}
+      {/* Context column — NM paper-warm pane (sits beside the chat card,
+          a half-shade warmer so it reads as "the sidebar belonging to
+          this conversation"). */}
       <div
-        className="flex-[2] min-w-[320px] flex flex-col animate-slide-in-right"
-        style={{ animationDelay: '0.1s' }}
+        className="flex-[2] min-w-[320px] flex flex-col animate-slide-in-right rounded-[var(--radius-md)] overflow-hidden"
+        style={{
+          background: 'var(--nm-paper-warm)',
+          border: '1px solid var(--nm-hairline)',
+          animationDelay: '0.1s',
+        }}
       >
         <ContextPanelHeader
           activeTab={contextTab}
           onTabChange={setContextTab}
         />
-        <div className="flex-1 min-h-0 flex flex-col border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <ContextPanelContent activeTab={contextTab} />
         </div>
       </div>
@@ -235,12 +249,6 @@ export function MainLayout() {
 
       {/* Background agent completion toasts */}
       <AgentCompletionToast />
-
-      {/* Quota-exceeded modal — driven by artifactStore.quotaError, shown over
-          everything when an agent's register_artifact call hits the per-user
-          limit. Mounted once at the layout root so it can pop regardless of
-          which sub-route the user is currently viewing. */}
-      <QuotaExceededModal />
 
       {/* Render sub-page via Outlet, or the default chat view */}
       {isSubPage ? (

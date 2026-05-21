@@ -40,6 +40,7 @@ import type {
   AgentListResponse,
   CreateUserResponse,
   UpdateTimezoneResponse,
+  OnboardingResponse,
   SkillListResponse,
   SkillOperationResponse,
   SkillStudyResponse,
@@ -181,10 +182,9 @@ class ApiClient {
     return response.json();
   }
 
-  // Jobs API
-  async getJobs(agentId: string, userId?: string, status?: string): Promise<JobListResponse> {
+  // Jobs API. Identity scoped server-side from X-User-Id / JWT.
+  async getJobs(agentId: string, status?: string): Promise<JobListResponse> {
     let url = `/api/jobs?agent_id=${encodeURIComponent(agentId)}`;
-    if (userId) url += `&user_id=${encodeURIComponent(userId)}`;
     if (status && status !== 'all') url += `&status=${encodeURIComponent(status)}`;
     return this.request<JobListResponse>(url);
   }
@@ -265,15 +265,28 @@ class ApiClient {
     );
   }
 
-  async getChatHistory(agentId: string, userId?: string): Promise<ChatHistoryResponse> {
-    let url = `/api/agents/${encodeURIComponent(agentId)}/chat-history`;
-    if (userId) url += `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<ChatHistoryResponse>(url);
+  /** Fetch chat history (narratives + events) for an agent.
+   *
+   * @param eventLimit  optional override for how many recent events to
+   *                    return. The backend defaults to 50; pass `0` to
+   *                    disable the limit entirely (returns ALL events
+   *                    across all narratives). Used by BundleExportPage
+   *                    to enumerate every event in a narrative so the
+   *                    user can toggle each one individually.
+   */
+  async getChatHistory(
+    agentId: string,
+    eventLimit?: number,
+  ): Promise<ChatHistoryResponse> {
+    const qs =
+      eventLimit !== undefined ? `?event_limit=${eventLimit}` : '';
+    return this.request<ChatHistoryResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/chat-history${qs}`
+    );
   }
 
-  async getSimpleChatHistory(agentId: string, userId: string, limit: number = 20, offset: number = 0): Promise<SimpleChatHistoryResponse> {
+  async getSimpleChatHistory(agentId: string, limit: number = 20, offset: number = 0): Promise<SimpleChatHistoryResponse> {
     const params = new URLSearchParams({
-      user_id: userId,
       limit: limit.toString(),
       offset: offset.toString(),
     });
@@ -288,10 +301,11 @@ class ApiClient {
     );
   }
 
-  async clearHistory(agentId: string, userId?: string): Promise<ClearHistoryResponse> {
-    let url = `/api/agents/${encodeURIComponent(agentId)}/history`;
-    if (userId) url += `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<ClearHistoryResponse>(url, { method: 'DELETE' });
+  async clearHistory(agentId: string): Promise<ClearHistoryResponse> {
+    return this.request<ClearHistoryResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/history`,
+      { method: 'DELETE' },
+    );
   }
 
   // Auth API
@@ -334,10 +348,27 @@ class ApiClient {
     });
   }
 
-  async getAgents(userId: string): Promise<AgentListResponse> {
-    return this.request<AgentListResponse>(
-      `/api/auth/agents?user_id=${encodeURIComponent(userId)}`
+  /** New-user onboarding checklist state (cloud version). */
+  async getOnboarding(userId: string): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>(
+      `/api/auth/onboarding?user_id=${encodeURIComponent(userId)}`,
     );
+  }
+
+  /** Mark a single onboarding step complete. Write-once-true on the
+   *  backend — passing a step here can only ever set it, never clear it. */
+  async markOnboardingStep(
+    userId: string,
+    step: 'first_agent_created' | 'template_applied' | 'dismissed',
+  ): Promise<OnboardingResponse> {
+    return this.request<OnboardingResponse>('/api/auth/onboarding', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, [step]: true }),
+    });
+  }
+
+  async getAgents(): Promise<AgentListResponse> {
+    return this.request<AgentListResponse>(`/api/auth/agents`);
   }
 
   async createAgent(createdBy: string, agentName?: string, agentDescription?: string): Promise<CreateAgentResponse> {
@@ -367,25 +398,25 @@ class ApiClient {
     });
   }
 
-  async deleteAgent(agentId: string, userId: string): Promise<DeleteAgentResponse> {
+  async deleteAgent(agentId: string): Promise<DeleteAgentResponse> {
     return this.request<DeleteAgentResponse>(
-      `/api/auth/agents/${encodeURIComponent(agentId)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/auth/agents/${encodeURIComponent(agentId)}`,
       { method: 'DELETE' }
     );
   }
 
-  // File Management API
-  async listFiles(agentId: string, userId: string): Promise<FileListResponse> {
+  // File Management API — identity comes from headers (X-User-Id local, JWT cloud).
+  async listFiles(agentId: string): Promise<FileListResponse> {
     return this.request<FileListResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/files?user_id=${encodeURIComponent(userId)}`
+      `/api/agents/${encodeURIComponent(agentId)}/files`
     );
   }
 
-  async uploadFile(agentId: string, userId: string, file: File): Promise<FileUploadResponse> {
+  async uploadFile(agentId: string, file: File): Promise<FileUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files?user_id=${encodeURIComponent(userId)}`;
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
@@ -414,10 +445,8 @@ class ApiClient {
    *              dialog wording (e.g. free-tier users get "no setup
    *              required" copy) and for analytics.
    */
-  async getTranscriptionAvailability(
-    userId: string,
-  ): Promise<{ available: boolean; reason: string }> {
-    const url = `${getApiBaseUrl()}/api/transcription/availability?user_id=${encodeURIComponent(userId)}`;
+  async getTranscriptionAvailability(): Promise<{ available: boolean; reason: string }> {
+    const url = `${getApiBaseUrl()}/api/transcription/availability`;
     const response = await fetch(url, { headers: this.getAuthHeaders() });
     if (!response.ok) {
       // Don't block the chat UI on a probe failure — fall back to
@@ -429,7 +458,6 @@ class ApiClient {
 
   async uploadAttachment(
     agentId: string,
-    userId: string,
     file: File,
     options?: {
       /**
@@ -470,9 +498,10 @@ class ApiClient {
     const formData = new FormData();
     formData.append('file', file);
 
-    const params = new URLSearchParams({ user_id: userId });
+    const params = new URLSearchParams();
     if (options?.source) params.set('source', options.source);
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments?${params.toString()}`;
+    const qs = params.toString();
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments${qs ? `?${qs}` : ''}`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
@@ -494,8 +523,8 @@ class ApiClient {
    * (which the HTML elements can't attach themselves). Bypasses the
    * shared `request<T>` because the response body is binary.
    */
-  async fetchAttachmentBlob(agentId: string, userId: string, fileId: string): Promise<Blob> {
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments/${encodeURIComponent(fileId)}/raw?user_id=${encodeURIComponent(userId)}`;
+  async fetchAttachmentBlob(agentId: string, fileId: string): Promise<Blob> {
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/attachments/${encodeURIComponent(fileId)}/raw`;
     const response = await fetch(url, {
       method: 'GET',
       headers: this.getAuthHeaders(),
@@ -506,12 +535,12 @@ class ApiClient {
     return response.blob();
   }
 
-  async deleteFile(agentId: string, userId: string, path: string): Promise<FileDeleteResponse> {
+  async deleteFile(agentId: string, path: string): Promise<FileDeleteResponse> {
     // Path may contain slashes (nested workspace path). encodeURI preserves
     // them while still encoding spaces / unicode. The `{path:path}` route
     // pattern on the backend accepts the full sub-path as one segment.
     return this.request<FileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURI(path)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURI(path)}`,
       { method: 'DELETE' }
     );
   }
@@ -519,22 +548,20 @@ class ApiClient {
   /**
    * Build a download / preview URL for a workspace file. Returns a string so
    * callers can hand it to <a href download> or fetch it for inline preview.
-   * The route is JWT-authed via the global middleware; <a> elements load it
-   * with the page's cookie / no auth (in cloud mode that means it relies on
-   * the middleware exempting <a download> behaviour — currently it does not,
-   * so cloud-mode downloads need a fetch + blob flow if direct <a download>
-   * proves unauthenticated. For local mode the <a download> works directly).
+   * The route is JWT/X-User-Id-authed via the global middleware; <a> elements
+   * load with the page's cookie context. Identity now comes only from headers
+   * — never from the URL — so this helper no longer takes a user_id arg.
    */
-  workspaceFileRawUrl(agentId: string, userId: string, path: string): string {
-    return `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files/raw?user_id=${encodeURIComponent(userId)}&path=${encodeURIComponent(path)}`;
+  workspaceFileRawUrl(agentId: string, path: string): string {
+    return `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/files/raw?path=${encodeURIComponent(path)}`;
   }
 
   /**
    * Fetch a workspace file's bytes as a Blob (JWT attached). Use for inline
    * preview or for cloud-mode downloads where <a download> can't carry auth.
    */
-  async fetchWorkspaceFileBlob(agentId: string, userId: string, path: string): Promise<Blob> {
-    const url = this.workspaceFileRawUrl(agentId, userId, path);
+  async fetchWorkspaceFileBlob(agentId: string, path: string): Promise<Blob> {
+    const url = this.workspaceFileRawUrl(agentId, path);
     const response = await fetch(url, { headers: this.getAuthHeaders() });
     if (!response.ok) {
       throw new Error(`API error: ${response.status} ${response.statusText}`);
@@ -542,16 +569,16 @@ class ApiClient {
     return response.blob();
   }
 
-  // MCP Management API
-  async listMCPs(agentId: string, userId: string): Promise<MCPListResponse> {
+  // MCP Management API — identity from X-User-Id / JWT headers.
+  async listMCPs(agentId: string): Promise<MCPListResponse> {
     return this.request<MCPListResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/mcps?user_id=${encodeURIComponent(userId)}`
+      `/api/agents/${encodeURIComponent(agentId)}/mcps`
     );
   }
 
-  async createMCP(agentId: string, userId: string, data: MCPCreateRequest): Promise<MCPResponse> {
+  async createMCP(agentId: string, data: MCPCreateRequest): Promise<MCPResponse> {
     return this.request<MCPResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/mcps?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/mcps`,
       {
         method: 'POST',
         body: JSON.stringify(data),
@@ -559,9 +586,9 @@ class ApiClient {
     );
   }
 
-  async updateMCP(agentId: string, userId: string, mcpId: string, data: MCPUpdateRequest): Promise<MCPResponse> {
+  async updateMCP(agentId: string, mcpId: string, data: MCPUpdateRequest): Promise<MCPResponse> {
     return this.request<MCPResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/mcps/${encodeURIComponent(mcpId)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/mcps/${encodeURIComponent(mcpId)}`,
       {
         method: 'PUT',
         body: JSON.stringify(data),
@@ -569,39 +596,39 @@ class ApiClient {
     );
   }
 
-  async deleteMCP(agentId: string, userId: string, mcpId: string): Promise<MCPResponse> {
+  async deleteMCP(agentId: string, mcpId: string): Promise<MCPResponse> {
     return this.request<MCPResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/mcps/${encodeURIComponent(mcpId)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/mcps/${encodeURIComponent(mcpId)}`,
       { method: 'DELETE' }
     );
   }
 
-  async validateMCP(agentId: string, userId: string, mcpId: string): Promise<MCPValidateResponse> {
+  async validateMCP(agentId: string, mcpId: string): Promise<MCPValidateResponse> {
     return this.request<MCPValidateResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/mcps/${encodeURIComponent(mcpId)}/validate?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/mcps/${encodeURIComponent(mcpId)}/validate`,
       { method: 'POST' }
     );
   }
 
-  async validateAllMCPs(agentId: string, userId: string): Promise<MCPValidateAllResponse> {
+  async validateAllMCPs(agentId: string): Promise<MCPValidateAllResponse> {
     return this.request<MCPValidateAllResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/mcps/validate-all?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/mcps/validate-all`,
       { method: 'POST' }
     );
   }
 
-  // RAG File Management API
-  async listRAGFiles(agentId: string, userId: string): Promise<RAGFileListResponse> {
+  // RAG File Management API — identity from X-User-Id / JWT headers.
+  async listRAGFiles(agentId: string): Promise<RAGFileListResponse> {
     return this.request<RAGFileListResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files?user_id=${encodeURIComponent(userId)}`
+      `/api/agents/${encodeURIComponent(agentId)}/rag-files`
     );
   }
 
-  async uploadRAGFile(agentId: string, userId: string, file: File): Promise<RAGFileUploadResponse> {
+  async uploadRAGFile(agentId: string, file: File): Promise<RAGFileUploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/rag-files?user_id=${encodeURIComponent(userId)}`;
+    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/rag-files`;
     const response = await fetch(url, {
       method: 'POST',
       body: formData,
@@ -616,28 +643,24 @@ class ApiClient {
     return response.json();
   }
 
-  async deleteRAGFile(agentId: string, userId: string, filename: string): Promise<RAGFileDeleteResponse> {
+  async deleteRAGFile(agentId: string, filename: string): Promise<RAGFileDeleteResponse> {
     return this.request<RAGFileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files/${encodeURIComponent(filename)}?user_id=${encodeURIComponent(userId)}`,
+      `/api/agents/${encodeURIComponent(agentId)}/rag-files/${encodeURIComponent(filename)}`,
       { method: 'DELETE' }
     );
   }
 
-  // Skills Management API
-  async listSkills(agentId: string, userId: string, includeDisabled: boolean = false): Promise<SkillListResponse> {
+  // Skills Management API — identity from X-User-Id / JWT headers.
+  async listSkills(agentId: string, includeDisabled: boolean = false): Promise<SkillListResponse> {
     const params = new URLSearchParams({
       agent_id: agentId,
-      user_id: userId,
       include_disabled: includeDisabled.toString(),
     });
     return this.request<SkillListResponse>(`/api/skills?${params}`);
   }
 
-  async getSkill(skillName: string, agentId: string, userId: string): Promise<SkillOperationResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+  async getSkill(skillName: string, agentId: string): Promise<SkillOperationResponse> {
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}?${params}`
     );
@@ -645,13 +668,11 @@ class ApiClient {
 
   async installSkillFromGithub(
     agentId: string,
-    userId: string,
     url: string,
     branch: string = 'main'
   ): Promise<SkillOperationResponse> {
     const formData = new FormData();
     formData.append('agent_id', agentId);
-    formData.append('user_id', userId);
     formData.append('source', 'github');
     formData.append('url', url);
     formData.append('branch', branch);
@@ -672,12 +693,10 @@ class ApiClient {
 
   async installSkillFromZip(
     agentId: string,
-    userId: string,
     file: File
   ): Promise<SkillOperationResponse> {
     const formData = new FormData();
     formData.append('agent_id', agentId);
-    formData.append('user_id', userId);
     formData.append('source', 'zip');
     formData.append('file', file);
 
@@ -697,13 +716,9 @@ class ApiClient {
 
   async removeSkill(
     skillName: string,
-    agentId: string,
-    userId: string
+    agentId: string
   ): Promise<SkillOperationResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}?${params}`,
       { method: 'DELETE' }
@@ -712,13 +727,9 @@ class ApiClient {
 
   async disableSkill(
     skillName: string,
-    agentId: string,
-    userId: string
+    agentId: string
   ): Promise<SkillOperationResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/disable?${params}`,
       { method: 'PUT' }
@@ -727,13 +738,9 @@ class ApiClient {
 
   async enableSkill(
     skillName: string,
-    agentId: string,
-    userId: string
+    agentId: string
   ): Promise<SkillOperationResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/enable?${params}`,
       { method: 'PUT' }
@@ -748,16 +755,12 @@ class ApiClient {
     );
   }
 
-  // Skill Study API
+  // Skill Study API — identity from X-User-Id / JWT headers.
   async studySkill(
     skillName: string,
-    agentId: string,
-    userId: string
+    agentId: string
   ): Promise<SkillStudyResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillStudyResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/study?${params}`,
       { method: 'POST' }
@@ -766,28 +769,20 @@ class ApiClient {
 
   async getSkillStudyStatus(
     skillName: string,
-    agentId: string,
-    userId: string
+    agentId: string
   ): Promise<SkillStudyResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillStudyResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/study?${params}`
     );
   }
 
-  // Skill Env Config API
+  // Skill Env Config API — identity from X-User-Id / JWT headers.
   async getSkillEnvConfig(
     skillName: string,
-    agentId: string,
-    userId: string
+    agentId: string
   ): Promise<SkillEnvConfigResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillEnvConfigResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/env?${params}`
     );
@@ -796,13 +791,9 @@ class ApiClient {
   async setSkillEnvConfig(
     skillName: string,
     agentId: string,
-    userId: string,
     envConfig: Record<string, string>
   ): Promise<SkillEnvConfigResponse> {
-    const params = new URLSearchParams({
-      agent_id: agentId,
-      user_id: userId,
-    });
+    const params = new URLSearchParams({ agent_id: agentId });
     return this.request<SkillEnvConfigResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/env?${params}`,
       {
@@ -812,6 +803,25 @@ class ApiClient {
       }
     );
   }
+  /** Probe of /api/providers — returns the calling user's provider/slot
+   * config. Identity is taken from the X-User-Id header that this client
+   * attaches automatically; no query param is passed. Used by App.tsx
+   * post-login to decide whether to send the user through Setup.
+   *
+   * Response is typed loosely (Record<string, any>) because the full
+   * provider schema is only consumed inside ProviderSettings, and App
+   * only needs `Object.keys(providers).length`. */
+  async getProviders(): Promise<{
+    success: boolean;
+    data?: {
+      providers: Record<string, unknown>;
+      slots: Record<string, unknown>;
+      version?: number;
+    };
+  }> {
+    return this.request(`/api/providers`);
+  }
+
   // Embedding Status API (per-user)
   async getEmbeddingStatus(userId: string): Promise<EmbeddingStatusResponse> {
     const qs = `?user_id=${encodeURIComponent(userId)}`;
@@ -826,8 +836,9 @@ class ApiClient {
     );
   }
 
-  /** Backfill the latest default models from the catalog into existing providers. */
-  async syncProviderDefaults(userId: string): Promise<{
+  /** Backfill the latest default models from the catalog into existing providers.
+   * Identity comes from the X-User-Id / JWT header — no query param. */
+  async syncProviderDefaults(): Promise<{
     success: boolean;
     updates: Array<{
       provider_id: string;
@@ -839,8 +850,7 @@ class ApiClient {
     providers_updated: number;
     total_models_added: number;
   }> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request(`/api/providers/sync-defaults${qs}`, { method: 'POST' });
+    return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
   /**
@@ -1104,6 +1114,21 @@ class ApiClient {
     return this.request<BundleConfirmResponse>('/api/bundle/import/confirm', {
       method: 'POST',
       body: JSON.stringify({ preflight_token: preflightToken }),
+    });
+  }
+
+  /** Deep-link install path: backend fetches the URL itself then preflights.
+   *  Used by the /app/templates/install page when called from narra.nexus. */
+  async importBundleFromUrl(
+    url: string,
+    expectedSha256?: string,
+  ): Promise<BundlePreflightResponse> {
+    return this.request<BundlePreflightResponse>('/api/bundle/import/from-url', {
+      method: 'POST',
+      body: JSON.stringify({
+        url,
+        expected_sha256: expectedSha256 ?? null,
+      }),
     });
   }
 

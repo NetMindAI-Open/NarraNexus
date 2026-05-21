@@ -58,10 +58,26 @@ def _read_dotenv_raw(env_file: Path) -> dict[str, str]:
 # reads them. pydantic-settings' default priority is env_var > .env file, but
 # we want the opposite for API keys: the user explicitly configured these in .env
 # (via desktop app or run.sh), so they should override any pre-existing shell vars.
+#
+# Two whitelists drive the injection:
+#   _API_KEY_FIELDS     — LLM provider keys, original use case
+#   _DOTENV_PASSTHROUGH — other .env-only service secrets / tuning knobs that
+#                         backend code reads via `os.environ.get()` directly
+#                         (rather than through the Settings object). Add a
+#                         var here whenever you introduce one, otherwise it
+#                         silently has no effect on os.environ and
+#                         `bash run.sh` / `make dev-backend` won't pick it up.
 _dotenv_values = _read_dotenv_raw(_PROJECT_ROOT / ".env")
 _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
+_DOTENV_PASSTHROUGH = {
+    "INTERNAL_INVITE_SECRET",  # backend/routes/invite.py — server-to-server auth
+    "INVITE_AUTO_ISSUE_CAP",   # backend/config.py
+    "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
+}
 for _k, _v in _dotenv_values.items():
-    if _k in _API_KEY_FIELDS and _v:
+    if not _v:
+        continue
+    if _k in _API_KEY_FIELDS or _k in _DOTENV_PASSTHROUGH:
         os.environ[_k] = _v
 
 
@@ -136,22 +152,6 @@ class Settings(BaseSettings):
     system_default_netmind_api_key: str = ""
     system_default_netmind_base_url: str = "https://api.netmind.ai"
 
-    # ===== Artifact quotas =====
-    # Hard-cap byte quota per user (sum across all that user's agents and
-    # versions). 100 MB matches the design after user feedback. Combined with
-    # the per-artifact limits in artifact_runner (1 MB text / 10 MB binary),
-    # this caps a runaway agent at ~100 small artifacts before triggering
-    # quota-exceeded. Consciously not configurable per agent — keeping it
-    # user-scoped matches the Settings → Artifacts management UX.
-    artifact_total_bytes_per_user: int = 100 * 1024 * 1024  # 100 MB
-
-    # Count cap. Local desktop deployments allow more (you have your own
-    # disk); cloud deployments are tighter to keep aggregate disk usage
-    # predictable. Selected by `artifact_count_limit_per_user` based on
-    # is_cloud_mode below.
-    artifact_count_limit_per_user_local: int = 50
-    artifact_count_limit_per_user_cloud: int = 10
-
     @property
     def is_cloud_mode(self) -> bool:
         """True when DATABASE_URL points at a non-sqlite backend (mysql in prod).
@@ -161,15 +161,6 @@ class Settings(BaseSettings):
         """
         url = (self.database_url or os.environ.get("DATABASE_URL") or "").strip()
         return bool(url) and not url.startswith("sqlite")
-
-    @property
-    def artifact_count_limit_per_user(self) -> int:
-        """Per-user artifact count cap; 50 local / 10 cloud."""
-        return (
-            self.artifact_count_limit_per_user_cloud
-            if self.is_cloud_mode
-            else self.artifact_count_limit_per_user_local
-        )
 
     @model_validator(mode="after")
     def _expand_user_paths(self) -> "Settings":

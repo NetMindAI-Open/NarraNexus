@@ -81,6 +81,7 @@ def with_retry(
     max_delay: float = 60.0,
     exceptions: ExceptionTypes = DEFAULT_RETRYABLE_EXCEPTIONS,
     on_retry: Optional[Callable[[Exception, int], None]] = None,
+    retry_on: Optional[Callable[[Exception], bool]] = None,
 ):
     """
     Retry decorator with exponential backoff
@@ -92,6 +93,11 @@ def with_retry(
         max_delay: Maximum delay in seconds, prevents delays from growing too long
         exceptions: Exception types to retry on (tuple)
         on_retry: Callback function on retry, receives (exception, attempt) parameters
+        retry_on: Optional predicate ``(exc) -> bool``. When provided, an
+            exception is retried if it matches ``exceptions`` OR ``retry_on``
+            returns True. Use it to retry on conditions that aren't a fixed
+            class — e.g. an HTTP 429 that different SDKs raise as different
+            exception types. Anything not matched propagates immediately.
 
     Returns:
         The decorated function
@@ -113,7 +119,12 @@ def with_retry(
             for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
-                except exceptions as e:
+                except Exception as e:
+                    if not (
+                        isinstance(e, exceptions)
+                        or (retry_on is not None and retry_on(e))
+                    ):
+                        raise
                     last_exception = e
 
                     if attempt < max_attempts:
@@ -145,7 +156,12 @@ def with_retry(
             for attempt in range(1, max_attempts + 1):
                 try:
                     return func(*args, **kwargs)
-                except exceptions as e:
+                except Exception as e:
+                    if not (
+                        isinstance(e, exceptions)
+                        or (retry_on is not None and retry_on(e))
+                    ):
+                        raise
                     last_exception = e
 
                     if attempt < max_attempts:

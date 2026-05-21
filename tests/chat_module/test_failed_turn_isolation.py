@@ -120,7 +120,7 @@ async def test_failed_turn_stores_user_message_only_with_failed_status(
     )
     params = _hook_params(agent_loop_response=[error])
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_bug8_instance"
@@ -158,7 +158,7 @@ async def test_failed_turn_with_partial_assistant_output_still_not_stored_as_pai
     )
     params = _hook_params(agent_loop_response=[partial_reply, error])
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_bug8_instance"
@@ -182,7 +182,7 @@ async def test_successful_turn_still_stores_user_and_assistant_pair(
     reply = _success_progress_with_reply("It's 21°C and sunny in Paris.")
     params = _hook_params(agent_loop_response=[reply])
 
-    await chat_module.hook_after_event_execution(params)
+    await chat_module.hook_persist_turn(params)
 
     memory = await chat_module.event_memory_module.search_instance_json_format_memory(
         "ChatModule", "chat_bug8_instance"

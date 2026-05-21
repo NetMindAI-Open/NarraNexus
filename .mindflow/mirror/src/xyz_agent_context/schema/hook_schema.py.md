@@ -1,8 +1,37 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — `WorkingSource.is_from_human()` 新方法
+
+跟 `is_automated()` 和 `is_user_initiated()` **并存** (不动旧 API)。语义是
+"对方是不是真人，需不需要走 warm 风格"：
+
+| value | is_from_human |
+|---|---|
+| CHAT / LARK / SLACK / TELEGRAM | **True** — 终点是真人，需要 warm 回复 |
+| JOB / MESSAGE_BUS / CALLBACK / SKILL_STUDY | **False** — 终点是 agent / 后台，简洁优先 |
+
+为什么不直接用 `is_user_initiated()`：那个只把 CHAT 当 user，但
+LARK/SLACK/TELEGRAM 实际上都是真人在另一个 IM 通道说话，不应该按
+agent 待遇冷处理。`is_automated()` 又把 IM 当 automated，方向也不对。
+所以这个新 method 是专门给「人 vs 机器」这个语义维度用的。
+
+**消费点**：
+- `_agent_runtime_steps/step_1_select_narrative.py::_is_user_chat()` 用它判断
+  是否更新 Session.last_query / current_narrative_id (避免被 cron / bus 污染)
+- `_agent_runtime_steps/step_4_persist_results.py` 4.5 段同样判断是否写
+  Session.last_response
+- `module/chat_module/prompts.py` Guidelines 里把 warm-with-humans 规则的
+  适用范围按这个 method 列出
+- `module/message_bus_module/message_bus_module.py` 的 Reply Discipline
+  在 `working_source=MESSAGE_BUS` 触发时强制 brevity + `[NO_REPLY]` 纪律
+
+新增 source 类型时记得回来看这个 method —— default 不写就会按 enum 不在 4
+个 False 集合里被归入 human，对新通道一般是对的（safe default），但如果是
+新的 agent-to-agent 协议，必须把它加进 False 集合。
 
 # hook_schema.py
 

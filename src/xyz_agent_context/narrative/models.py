@@ -212,9 +212,11 @@ class ConversationSession(BaseModel):
     determining continuity between queries.
 
     Lifecycle:
-    - Created: On the user's first query
-    - Updated: last_query and last_query_time updated after each query
-    - Expired: No activity for more than SESSION_TIMEOUT
+    - Created: On the user's first query (or first agent message to the user)
+    - Updated: anchor (last_query / last_response / current_narrative_id)
+      updated after each user-visible turn — see step_1 / step_4
+    - Persistent: sessions never expire (the chat-box continuity anchor must
+      survive arbitrary idle gaps; the 10-min timeout was removed 2026-05-20)
     """
     # ===== Core Identity =====
     session_id: str  # Session unique ID (format: sess_xxxxxxxx)

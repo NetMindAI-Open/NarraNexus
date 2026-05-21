@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-05-12
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — `_write_to_inbox` routed through `InboxRepository`
+
+The hand-written `db.insert("inbox_table", ...)` referenced an `agent_id`
+column that doesn't exist in `inbox_table` and an `owner_user_id` field
+where the schema has `user_id`, and omitted the required `message_id`.
+EC2 bus container surfaced `Unknown column 'agent_id' in 'field list'`
+13 times in 3 hours on 2026-05-18.
+
+Now we delegate to `InboxRepository.create_message` (the canonical
+writer), generate a `bus_<uuid12>` message_id, and tag the row with a
+new `InboxMessageType.MESSAGE_BUS` enum value. `MessageSource` is set
+to `type="message_bus"`, `id=channel_id` so the inbox row traces back
+to its origin channel. The previous JSON blob with original message
+preview was dropped — that diagnostic data lives in `bus_messages`
+already; the inbox row is a notification, not an audit copy.
 
 ## 2026-04-20 — runtime consumption via `collect_run` (Bug 2)
 

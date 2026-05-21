@@ -67,7 +67,7 @@ function EnvConfigDialog({
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        const res = await api.getSkillEnvConfig(skill.name, agentId, userId);
+        const res = await api.getSkillEnvConfig(skill.name, agentId);
         setRequiresEnv(res.requires_env);
         setEnvStatus(res.env_configured);
       } catch (err) {
@@ -95,7 +95,7 @@ function EnvConfigDialog({
     setSaving(true);
     setError(null);
     try {
-      const res = await api.setSkillEnvConfig(skill.name, agentId, userId, toSave);
+      const res = await api.setSkillEnvConfig(skill.name, agentId, toSave);
       if (res.success) {
         onSaved();
         onClose();
@@ -108,7 +108,10 @@ function EnvConfigDialog({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
+    <div
+      className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
+      style={{ background: 'var(--nm-backdrop)' }}
+    >
       <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">

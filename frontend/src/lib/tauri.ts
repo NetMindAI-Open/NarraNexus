@@ -135,3 +135,26 @@ export async function getClaudeLoginStatus(): Promise<{
     logged_in: boolean;
   };
 }
+
+/**
+ * Drain the URL Rust stashed when the OS handed us a `narranexus://` link
+ * before the React mount finished. The Rust handler also emits a
+ * "deep-link-received" event for the already-mounted (hot) case, so the
+ * App-level listener wires both: this on first mount, the event for live
+ * URLs. See tauri/src-tauri/src/commands/deep_link.rs for the buffer
+ * rationale (Tauri events fired before any listener exists are dropped).
+ *
+ * Returns the URL string or null when no pending URL / not in Tauri /
+ * the IPC call failed.
+ */
+export async function consumePendingDeepLink(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const invoke = _getInvoke();
+  if (!invoke) return null;
+  try {
+    const result = await invoke('consume_pending_deep_link');
+    return typeof result === 'string' && result.length > 0 ? result : null;
+  } catch {
+    return null;
+  }
+}

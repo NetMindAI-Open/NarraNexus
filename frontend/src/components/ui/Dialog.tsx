@@ -51,32 +51,45 @@ export function Dialog({ isOpen, onClose, title, children, className, size = 'md
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-50">
-      {/* Backdrop — flat ink, no blur (cheap to paint, archival) */}
+    <div className="fixed inset-0 z-[1000]">
+      {/* NM warm-ink backdrop with subtle blur (Axiom #4 — paper feel preserved) */}
       <div
-        className="fixed inset-0 bg-[rgba(17,18,20,0.6)] animate-fade-in"
+        className="fixed inset-0 animate-fade-in"
+        style={{ background: 'var(--nm-backdrop)', backdropFilter: 'blur(2px)' }}
         onClick={onClose}
       />
 
-      {/* Dialog */}
-      <div className="fixed inset-0 overflow-y-auto">
+      {/* Dialog body — NM paper-raised + soft lift shadow (Axiom #4 exception) */}
+      <div className="fixed inset-0 overflow-y-auto z-[1001]">
         <div className="flex min-h-full items-center justify-center p-4">
           <div
             className={cn(
               'relative w-full',
-              'bg-[var(--bg-primary)]',
-              'border border-[var(--text-primary)]',
-              'animate-slide-up',
+              'animate-scale-in',
               sizeClasses[size],
               className
             )}
             onClick={(e) => e.stopPropagation()}
-            style={{ borderRadius: 0 }}
+            style={{
+              background: 'var(--nm-raised)',
+              border: '1px solid var(--nm-hairline)',
+              borderRadius: 'var(--radius-xl)',
+              boxShadow: 'var(--nm-elev-3)',
+            }}
           >
             <div className="relative">
               {title && (
-                <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--rule)]">
-                  <h2 className="text-[11px] font-medium uppercase font-[family-name:var(--font-mono)] tracking-[0.18em] text-[var(--text-primary)]">
+                <div
+                  className="flex items-center justify-between px-5 py-3 border-b"
+                  style={{ borderColor: 'var(--nm-hairline)' }}
+                >
+                  <h2
+                    className="text-[12px] font-semibold uppercase tracking-[0.14em]"
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      color: 'var(--nm-ink)',
+                    }}
+                  >
                     {title}
                   </h2>
                   <Button
@@ -112,7 +125,10 @@ export function DialogContent({ children, className }: { children: ReactNode; cl
 
 export function DialogFooter({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex items-center justify-end gap-2 px-5 py-3 border-t border-[var(--rule)]', className)}>
+    <div
+      className={cn('flex items-center justify-end gap-2 px-5 py-3 border-t', className)}
+      style={{ borderColor: 'var(--nm-hairline)' }}
+    >
       {children}
     </div>
   );

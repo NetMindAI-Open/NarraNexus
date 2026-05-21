@@ -7,17 +7,21 @@
 Subproject 2 endpoints (under /api/bundle):
 - POST /export                    Build a bundle and stream it back
 - POST /import/preflight          Validate + diff against this instance
+- POST /import/from-url           Fetch a bundle URL server-side, then preflight
 - POST /import/confirm            Execute the import using a preflight token
 - GET  /skills/archives           List skill archives for current user
 """
 
 import io
 import json
+import os
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, FileResponse
 from loguru import logger
@@ -26,6 +30,7 @@ from pydantic import BaseModel
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
+from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256
 from xyz_agent_context.repository import SkillArchiveRepository
 from backend.auth import resolve_current_user_id
 
@@ -224,6 +229,191 @@ async def import_confirm(payload: ConfirmRequest, request: Request):
     except Exception as e:
         logger.exception("confirm failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# /import/from-url — "the website pointed me at a template, fetch it for me
+# and start preflight"
+# ---------------------------------------------------------------------------
+#
+# Why this exists (vs the browser downloading then POSTing to /preflight):
+#  - one network hop (website → backend) instead of two (website → browser →
+#    backend), and the browser never holds the bundle bytes
+#  - the install button can be a one-liner deep link; the browser only ships
+#    a URL string
+#
+# Security envelope (each control catches a different abuse):
+#  - URL host allowlist  → SSRF defense (the classic Capital-One-style attack
+#    where a public fetch endpoint is turned into a tunnel into internal
+#    services / cloud metadata IPs)
+#  - per-request size cap → bound disk usage
+#  - per-request timeout  → bound request lifetime / connection-pool exhaustion
+#  - optional sha256      → integrity + prevents the website serving a wrong
+#    or tampered bundle from silently being installed
+#  - no redirect-follow   → an upstream 302 to localhost would otherwise
+#    sidestep the allowlist
+#  - JWT/X-User-Id auth   → only logged-in users can trigger fetches
+
+# Conservative defaults — production should override via env. Compatible with
+# Phase 1 (single template host on narra.nexus); object storage / R2 hosts
+# get added here when Phase 2+ moves files off public/.
+_DEFAULT_ALLOWED_HOSTS_CLOUD = "narra.nexus,www.narra.nexus,website.narra.nexus"
+# Local mode (sqlite, desktop DMG, bash run.sh) also needs to fetch from
+# locally-served bundles — the website running on localhost:3001 during dev
+# and a future local-marketplace flow. Production locks this back down via
+# is_cloud_mode + the explicit env override.
+_DEFAULT_ALLOWED_HOSTS_LOCAL = (
+    "narra.nexus,www.narra.nexus,website.narra.nexus,localhost,127.0.0.1,[::1]"
+)
+_FETCH_TIMEOUT_SEC = 30.0
+_FETCH_CHUNK_BYTES = 64 * 1024
+
+
+def _allowed_fetch_hosts() -> set[str]:
+    """Resolve allowed bundle-fetch hosts.
+
+    Priority:
+      1. `BUNDLE_FETCH_ALLOWED_HOSTS` env var (explicit override always wins —
+         cloud ops can lock this to exactly the prod hosts they trust, dev can
+         extend with object-storage or staging hosts)
+      2. Local mode default — includes localhost / loopback so a DMG or
+         `bash run.sh` user can install from a locally-served website bundle
+      3. Cloud mode default — narra.nexus only, no loopback (loopback in cloud
+         mode would be an SSRF foothold)
+    """
+    from xyz_agent_context.settings import settings  # late import — avoid cycle
+    explicit = os.environ.get("BUNDLE_FETCH_ALLOWED_HOSTS", "").strip()
+    if explicit:
+        raw = explicit
+    elif settings.is_cloud_mode:
+        raw = _DEFAULT_ALLOWED_HOSTS_CLOUD
+    else:
+        raw = _DEFAULT_ALLOWED_HOSTS_LOCAL
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def _host_allowed(host: Optional[str]) -> bool:
+    if not host:
+        return False
+    return host.lower() in _allowed_fetch_hosts()
+
+
+async def _stream_download(url: str, dst: Path) -> None:
+    """Stream-fetch `url` into `dst`, enforcing size cap + timeout.
+    Raises HTTPException on size overrun / upstream non-200 / network errors."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=_FETCH_TIMEOUT_SEC,
+            follow_redirects=False,  # see security envelope note above
+        ) as client:
+            async with client.stream("GET", url) as resp:
+                if resp.status_code != 200:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"upstream returned HTTP {resp.status_code}",
+                    )
+                # Cheap Content-Length pre-check (servers can lie / omit,
+                # so the streamed accumulator below is the authoritative cap).
+                cl = resp.headers.get("content-length")
+                if cl is not None:
+                    try:
+                        if int(cl) > MAX_BUNDLE_BYTES:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"bundle declares size {cl}B exceeding cap {MAX_BUNDLE_BYTES}B",
+                            )
+                    except ValueError:
+                        pass  # malformed header — fall through to streaming cap
+                total = 0
+                with open(dst, "wb") as f:
+                    async for chunk in resp.aiter_bytes(chunk_size=_FETCH_CHUNK_BYTES):
+                        total += len(chunk)
+                        if total > MAX_BUNDLE_BYTES:
+                            raise HTTPException(
+                                status_code=413,
+                                detail=f"bundle exceeds cap {MAX_BUNDLE_BYTES}B",
+                            )
+                        f.write(chunk)
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="upstream fetch timed out")
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"upstream fetch failed: {e}")
+
+
+class ImportFromUrlRequest(BaseModel):
+    url: str
+    # Optional — when set, the downloaded bundle's sha256 must match exactly.
+    # Phase 1 callers (website install button) always include this; the API
+    # leaves it optional for ad-hoc curl / future flows.
+    expected_sha256: Optional[str] = None
+
+
+@router.post("/import/from-url")
+async def import_from_url(payload: ImportFromUrlRequest, request: Request):
+    """Fetch a bundle from a URL on behalf of the caller, then run preflight.
+
+    Returns the same response shape as POST /import/preflight, so the
+    frontend can drop the result into the existing review UI.
+    """
+    user_id = await _user_id_for_request(request)
+
+    # ── 1. URL validation ─────────────────────────────────────────────────
+    parsed = urlparse(payload.url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=400,
+            detail="unsupported URL scheme — only http(s) is allowed",
+        )
+    if not _host_allowed(parsed.hostname):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"URL host {parsed.hostname!r} is not in the bundle-fetch "
+                "allowlist. Set BUNDLE_FETCH_ALLOWED_HOSTS to extend."
+            ),
+        )
+
+    # ── 2. Fetch + (optional) sha256 verify + preflight ───────────────────
+    tmpdir = Path(tempfile.mkdtemp(prefix="nx-from-url-"))
+    bundle_path = tmpdir / "downloaded.nxbundle"
+    try:
+        await _stream_download(payload.url, bundle_path)
+
+        if payload.expected_sha256:
+            actual = file_sha256(bundle_path)
+            if actual.lower() != payload.expected_sha256.lower():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"sha256 mismatch — expected "
+                        f"{payload.expected_sha256[:12]}…, got {actual[:12]}…"
+                    ),
+                )
+
+        logger.info(
+            "bundle from-url: user={} host={} size={}B",
+            user_id,
+            parsed.hostname,
+            bundle_path.stat().st_size,
+        )
+        return await preflight(bundle_path, user_id)
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("from-url import failed")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # preflight has already copied what it needs into its own work_dir,
+        # so the staged download file is no longer needed.
+        try:
+            bundle_path.unlink(missing_ok=True)
+            tmpdir.rmdir()
+        except Exception:
+            pass
 
 
 class BusChannelsPreviewRequest(BaseModel):

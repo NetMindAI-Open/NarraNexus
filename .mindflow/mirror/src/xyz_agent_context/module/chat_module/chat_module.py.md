@@ -1,7 +1,66 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-11
+last_verified: 2026-05-20
 ---
+
+## 2026-05-20 — conversation write moved to synchronous `hook_persist_turn`
+
+The conversation-row write (build user+assistant messages → `add_instance_json_format_memory`)
+moved OUT of `hook_after_event_execution` into the new SYNCHRONOUS `hook_persist_turn`
+(see [[base.py]] / [[hook_manager.py]] / [[agent_runtime.py]] Step 4.6). Reason: the
+old write lived in the backgrounded hook, which lags 3–19s; a user replying instantly
+raced it and the next turn read history missing the exchange ("short-reply amnesia").
+`hook_persist_turn` now writes it in-request, before the WS closes. What stays in the
+background `hook_after_event_execution` is ONLY the heavy Part-B embedding
+(`_embed_message_pair`), which re-locates this turn's user+assistant pair by `event_id`
+(robust to a later turn appending more messages before the background task runs).
+
+## 2026-05-20 (Fix #2 hotfix) — resolve cross-narrative tag via links table
+
+P1 originally read each cross-narrative chat instance's narrative off
+`instance.linked_narrative_ids[0]`. That was wrong and crashed in prod:
+`InstanceRepository.get_chat_instances_by_user` returns BASE
+`ModuleInstanceRecord` objects, which have NO `linked_narrative_ids` attribute
+(that field lives only on the `ModuleInstance` subclass in [[instance_schema.py]]
+and isn't populated by the SELECT anyway). The access raised `AttributeError`,
+the whole short-term load was swallowed by the try/except → the agent saw zero
+cross-narrative history → "amnesia". New
+`_resolve_instance_narratives(instance_ids)` maps each instance_id → narrative_id
+via `InstanceNarrativeLinkRepository.get_narratives_for_instance`
+(`instance_narrative_links`), used by BOTH `_load_short_term_memory` and
+`_load_recent_actions`. The unit tests now build REAL base records (no attr) +
+mock the link repo, so they fail the way prod did if anyone reads the attribute
+off the record again. (Below, "the source instance's `linked_narrative_ids[0]`"
+is superseded by this resolution.)
+
+## 2026-05-20 (Fix #2 P1) — unified time-sorted chat history, tagged by narrative
+
+`hook_data_gathering` no longer produces a long-term list + a separate
+cross-narrative blob. It now builds ONE timeline: the current narrative loaded
+in FULL (the old 40-cap removed) + cross-narrative via `_load_short_term_memory`,
+merged by timestamp, capped at `MERGED_HISTORY_MAX` (30, latest by time). Every
+message is tagged `meta_data.narrative_id` (long-term = `ctx_data.narrative_id`;
+cross = the source instance's `linked_narrative_ids[0]`) and
+`_tag_narrative_aliases()` batch-resolves each id → narrative name for the
+`[time · topic · nar_id]` tag the agent sees. `_load_short_term_memory` is now
+PURE RECENCY (latest `SHORT_TERM_MAX_MESSAGES`=30 by time; the 2026-05-11
+per-instance fairness cap / `SHORT_TERM_PER_INSTANCE` removed — Owner's call).
+The reasoning-splice (carry-forward of device codes / job ids / URLs) is KEPT.
+Heavy `[ChatHistory]` logging makes assembly verifiable from logs alone. Each
+timeline tag now also carries `evt=<event_id>` so the agent can drill into a
+turn's full agent-loop/reasoning via view_event; `[ChatHistory] timeline
+event_ids` logs the loaded ids for debugging (no raw text). See
+[[context_runtime.py]] for rendering + the preamble.
+
+## 2026-05-20 (Fix #2 P2) — recent background-activity track
+
+`_load_recent_actions()` collects the latest `RECENT_ACTIONS_MAX` (10)
+`message_type='activity'` rows across the user's chat instances — the centered
+small-text items in the UI (job runs, IM/channel activations, bus pings the
+agent did WITHOUT replying). These are still filtered OUT of the conversation
+timeline; surfaced separately (stored on `ctx_data.extra_data['recent_actions']`)
+with each row's `event_id` (for view_event drill-down) and a best-effort job
+title pulled from the event's env_context. [[context_runtime.py]] renders them.
 
 ## 2026-05-12 P0 #3 followup — drop final_output fallback, defer to step_3 helper_llm
 
@@ -10,7 +69,7 @@ fallback. That fallback violated the project's thinking-vs-speaking
 design (final_output is the agent's internal reasoning, not a
 user-facing reply) and could persist meta-talk like "Let me check the
 chat history first" as the assistant's spoken line, then poison the
-next turn's context. The 5/11 product review with Xiong explicitly
+next turn's context. The 5/11 product review with an operator explicitly
 ruled out this shortcut.
 
 The real no-reply recovery now lives one layer up in
@@ -41,7 +100,7 @@ Pinned by `tests/chat_module/test_error_severity_and_fallback.py`:
 ## 2026-05-11 P0 #3 — error detail, no-reply differentiation, final_output fallback
 
 Three changes addressing the "Agent decided no response needed"
-recurring P0 (Lark recviIcuKMNuHj / Xiong's 60% failure rate):
+recurring P0 (Lark recviIcuKMNuHj / the operator's 60% failure rate):
 
 1. **`_detect_error_in_agent_loop` → `_detect_fatal_error_in_agent_loop`**.
    Only `ErrorMessage(severity="fatal")` collapses the turn into a
@@ -107,7 +166,7 @@ user message timestamp. Both the chat-history API
 `meta_data.timestamp` ascending) and the frontend timeline
 (`frontend/src/components/chat/ChatPanel.tsx`, also ascending sort)
 then rendered the greeting *under* the user's first query bubble —
-the P0 "agent主动问好的消息跑到 query 底下了" filed by Xinyao.
+the P0 "agent主动问好的消息跑到 query 底下了" filed by an operator.
 
 Fix: anchor the greeting at `event.created_at - 1ms` (or
 `utc_now() - 1ms` as defensive fallback when `params.event` is None),

@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-04-21
+last_verified: 2026-05-20
 stub: false
 ---
+
+## 2026-05-20 (Fix #2 P1) — CHAT_HISTORY_TIMELINE_PREAMBLE added
+
+New `CHAT_HISTORY_TIMELINE_PREAMBLE` teaches the agent to read the unified
+time-sorted chat timeline: the `[time · topic · nar_id]` tags, that a short
+reply answers the MOST RECENT line (not an older other-thread line), how the
+history was assembled (current full + cross recent, merged, capped ~30), and
+that the user only saw the sent message (reasoning is private). Replaces the
+old `SHORT_TERM_MEMORY_HEADER` (kept as a now-unused constant — it wrongly told
+the model short replies usually continue OTHER threads, which caused
+cross-narrative misattribution).
+
+## 2026-05-20 (Fix #2 P2) — RECENT_ACTIONS_HEADER added
+
+`RECENT_ACTIONS_HEADER` labels the recent-background-activity list (job/IM/bus
+turns the agent did without replying), explicitly told NOT-shown-to-user and
+that each line carries an event id for view_event drill-down.
 
 # prompts.py — static string constants that label every structural section of the assembled system prompt
 

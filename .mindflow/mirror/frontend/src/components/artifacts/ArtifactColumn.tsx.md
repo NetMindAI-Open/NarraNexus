@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-19
 stub: false
 ---
+
+## 2026-05-19 — Live ECharts LRU pool
+
+When the active artifact is an echarts kind, ArtifactColumn no longer
+renders a single `<ArtifactRenderer artifact={active} />`. Instead it
+iterates `chartLruOrder` (from [[artifactStore.ts]]) and renders every
+id in that list, wrapped in `position: absolute inset-0` with
+`display: block` for the active one and `display: none` for the rest.
+Effect: clicking back to a recent chart costs nothing (no fetch, no
+`echarts.init`); the oldest in the tail unmounts and its canvas is
+disposed. Non-chart kinds still go through the single-renderer path.
 
 ## 2026-05-14 — Manual refresh button (expanded header + sliver)
 

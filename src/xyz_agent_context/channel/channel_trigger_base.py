@@ -474,12 +474,22 @@ class ChannelTriggerBase(ABC):
                     self._subscriber_tasks.pop(key, None)
                     self._subscriber_creds.pop(key, None)
 
-                # Start subscribers for new keys.
+                # Start subscribers for new keys; refresh the cached
+                # credential for ALL keys every poll. The credential is a
+                # DB snapshot — fields like permission_state / auth_status
+                # change mid-session (e.g. the owner completing the
+                # three-click user authorization). A subscriber captured its
+                # credential once at connect time and the long-lived
+                # transport never re-reads it, so without refreshing the
+                # cache here the per-message path (resolve_sender_name,
+                # context build) would keep seeing the stale pre-change
+                # credential until the subscriber restarts. Refreshing the
+                # cache is cheap (we already loaded creds this poll) and does
+                # not disturb the live transport connection.
                 for key, cred in seen_keys.items():
                     if key not in self._subscriber_tasks:
                         task = asyncio.create_task(self._subscribe_loop(cred))
                         self._subscriber_tasks[key] = task
-                        self._subscriber_creds[key] = cred
                         agent_id = getattr(cred, "agent_id", "")
                         app_id = getattr(cred, "app_id", "")
                         logger.info(
@@ -491,6 +501,7 @@ class ChannelTriggerBase(ABC):
                             agent_id=agent_id,
                             app_id=app_id,
                         )
+                    self._subscriber_creds[key] = cred
 
                 # Pool sizing.
                 self._prune_dead_workers()
@@ -747,6 +758,19 @@ class ChannelTriggerBase(ABC):
                 )
             except asyncio.TimeoutError:
                 continue
+
+            # Re-resolve the credential to the latest cached snapshot. The
+            # event was enqueued carrying whatever credential the subscriber
+            # held when it arrived; the watcher keeps _subscriber_creds
+            # current with the DB, so processing against the cached one means
+            # mid-session credential changes (e.g. the owner finishing user
+            # authorization) take effect on the very next message instead of
+            # only after a subscriber restart. Falls back to the dequeued
+            # credential when the key is gone — the _process_message
+            # gatekeeper then drops the event as unbound.
+            sub_key = self._subscriber_key(credential)
+            if sub_key:
+                credential = self._subscriber_creds.get(sub_key, credential)
 
             try:
                 await asyncio.wait_for(

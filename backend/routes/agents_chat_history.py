@@ -14,9 +14,10 @@ import json
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from loguru import logger
 
+from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import InstanceRepository
@@ -91,16 +92,21 @@ def _parse_json_field(value: Any, default: Any) -> Any:
 @router.get("/{agent_id}/chat-history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     agent_id: str,
-    user_id: Optional[str] = Query(None, description="Optional user ID to filter"),
+    request: Request,
     event_limit: int = Query(default=50, description="Maximum number of recent events to return (0=unlimited)")
 ):
     """
-    Get all Narratives and Events as chat history
+    Get all Narratives and Events as chat history. Identity from auth_middleware.
 
     Improved query logic: not only relies on narrative_info.actors, but also
     supplements via ChatModule instance lookup. This ensures chat history is
     returned even if Narrative actors are set incorrectly.
+
+    History: ``user_id`` was an "Optional[str] = Query()" filter — that
+    semantically reads as "let me filter by anyone I name", which is the
+    cross-user-read class of bug. Identity is now strictly the caller.
     """
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Getting chat history for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -283,16 +289,20 @@ async def get_chat_history(
 @router.delete("/{agent_id}/history", response_model=ClearHistoryResponse)
 async def clear_conversation_history(
     agent_id: str,
-    user_id: Optional[str] = Query(None, description="Optional user ID to filter")
+    request: Request,
 ):
     """
-    Clear Agent's conversation history
+    Clear Agent's conversation history. Identity from auth_middleware —
+    only the caller's own narratives/events are deleted, never another
+    user's (the old "optional filter" version let any client wipe
+    anyone's history by changing ``?user_id=``).
 
     Search logic:
     1. Query all Narratives under the specified agent_id
     2. Parse narrative_info JSON field, check if actors list contains user_id
     3. Delete matching Narratives and all associated Events
     """
+    user_id = await resolve_current_user_id(request)
     logger.info(f"Clearing history for agent: {agent_id}, user: {user_id}")
 
     try:
@@ -414,16 +424,17 @@ async def clear_conversation_history(
 @router.get("/{agent_id}/simple-chat-history", response_model=SimpleChatHistoryResponse)
 async def get_simple_chat_history(
     agent_id: str,
-    user_id: str = Query(..., description="User ID"),
+    request: Request,
     limit: int = Query(default=20, description="Maximum number of messages to return"),
     offset: int = Query(default=0, description="Number of recent messages to skip (for pagination from newest)")
 ):
     """
-    Get simplified chat history between user and Agent
+    Get simplified chat history between user and Agent. Identity from auth_middleware.
 
     Queries directly from ChatModule instances, without relying on Narratives.
     Finds all ChatModule instances via agent_id + user_id to retrieve chat records.
     """
+    user_id = await resolve_current_user_id(request)
     logger.debug(f"Getting simple chat history for agent: {agent_id}, user: {user_id}, limit: {limit}")
 
     try:

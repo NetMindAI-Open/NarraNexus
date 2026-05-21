@@ -1,8 +1,147 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-21
 ---
+
+## 2026-05-21 — `resolve_sender_name` resolves via owner user token
+
+Every sender was logging as "Unknown" because `get_user --as bot` can't
+read names (bot lacks `contact:user.base:readonly`). The agent then
+hallucinated identities (famously calling user "kz" "Zehua" from its
+roster). Fix in two parts:
+
+- `get_user` now uses `--as user` (see `lark_cli_client.md`).
+- `resolve_sender_name` gates on `credential.user_oauth_ok()`: an agent
+  that never completed the three-click user auth has no user token, so
+  we return "Unknown" immediately instead of spawning a CLI call that can
+  only fail. This is the accepted boundary — bot-only binds stay
+  anonymous until the owner finishes Click 3.
+
+## 2026-05-19 (PM) — `_ws_loop_exception_filter` now `loop.stop()`s instead of swallowing
+
+### Incident that exposed it
+
+EC2 lark container 2026-05-18T19:16 UTC: ~10 WS connections to
+`msg-frontier-sg.larksuite.com` dropped within 8 minutes with
+`keepalive ping timeout` / `Connection reset by peer`. **From 19:24
+through the next day 05:19** — 10+ hours — the container produced
+**zero `_process_message` log lines and zero `lark_trigger_audit` rows
+of any transport kind** (no `transport_disconnected`, no
+`transport_backoff`, no `transport_connected`). The container `docker
+ps` reported `Up`. The user's bot ignored every message.
+
+Resolved by `docker restart narranexus-lark` (which re-spawned
+subscribers from a clean DB scan). Root cause discovery + code fix
+below.
+
+### Root cause — what the AM 2026-05-19 entry got wrong
+
+The H-6 part 1 design (and the AM 2026-05-19 filter that followed it)
+both assumed that with `auto_reconnect=False` the SDK's `start()` would
+**return** on first WS disconnect, the daemon thread would die,
+`t.is_alive() == False` would trigger the outer reconnect. **That
+assumption is wrong** given the SDK's actual structure:
+
+```python
+# lark_oapi/ws/client.py:112-127
+def start(self) -> None:
+    try:
+        loop.run_until_complete(self._connect())  # creates _receive_message_loop
+                                                  # via loop.create_task (fire-and-forget)
+    except ...:
+        ...
+    loop.create_task(self._ping_loop())           # fire-and-forget
+    loop.run_until_complete(_select())            # blocks forever (see below)
+```
+
+```python
+# lark_oapi/ws/client.py:62-64
+async def _select():
+    while True:
+        await asyncio.sleep(3600)
+```
+
+When WS drops, `_receive_message_loop` raises with no awaiter — that's
+exactly the "Task exception was never retrieved" the AM filter was
+swallowing. **But the thread doesn't die because `_select()` keeps
+sleeping.** The outer `while t.is_alive(): await asyncio.sleep(1)` poll
+in `_subscribe_loop` never exits → no backoff, no reconnect, no audit
+row, no log — exactly the 11-hour silence we observed.
+
+Our filter was actively making it worse: by swallowing the
+fire-and-forget task's exception, we removed even the noisy "Task
+exception was never retrieved" trace that would otherwise have hinted
+at the problem in logs.
+
+### Fix
+
+`_ws_loop_exception_filter` now calls `loop.stop()` (in addition to
+not passing to `default_exception_handler`) when the exception is
+`ConnectionResetError` / `ConnectionError` / `OSError` / any
+`websockets.*` exception. `loop.stop()` runs at the next iteration of
+the loop, causing `loop.run_until_complete(_select())` to abort with
+`RuntimeError`. `ws_client.start()` then propagates that to the
+`run_ws` thread wrapper, the daemon thread exits, and the outer
+`_subscribe_loop` polling sees `t.is_alive() == False` and walks the
+existing backoff + reconnect path (with proper `transport_disconnected`
+audit row).
+
+Unknown / non-connection exceptions still go through the default
+handler so real bugs stay loud.
+
+### Tests
+
+- `tests/lark_module/test_ws_exception_filter.py`
+  - Unit tests: 3 connection-class exception types each assert
+    `loop.stop_called is True` AND default handler not invoked.
+  - 2 pass-through tests assert `loop.stop_called is False` AND
+    default handler IS invoked.
+  - 1 integration test runs a real asyncio loop with an SDK-shaped
+    `_select()` blocker; schedules a `ConnectionResetError` in a
+    fire-and-forget task; asserts the loop terminates within 2 s
+    (pre-fix: 60+ s).
+
+### Followup — H-6 part 1 mirror entry has a load-bearing wrong claim
+
+The "2026-04-27 — H-6 (part 1)" section below still says "On disconnect
+the SDK now `raise`s instead of swallowing — `ws_client.start()`
+returns". That claim **does not hold** under the SDK's actual code path
+— it's left in place as a historical record of the design intent, but
+do not treat it as accurate documentation. The behaviour the team
+**thought** they were getting from `auto_reconnect=False` only actually
+materialises with the 2026-05-19 PM `loop.stop()` change above.
+
+## 2026-05-19 (AM, partially superseded) — filter WS disconnect noise on fresh_loop
+
+`_subscribe_loop` now installs `_ws_loop_exception_filter` on the
+per-thread `fresh_loop` before `ws_client.start()`. The SDK creates
+fire-and-forget `loop.create_task(...)` jobs for incoming message
+handling and reconnect plumbing; on WS reset they raise
+`ConnectionResetError` / `OSError` / `websockets.*` exceptions with no
+awaiter, and the default asyncio handler dumps "Task exception was
+never retrieved" + traceback per occurrence.
+
+**Superseded by the PM 2026-05-19 entry above**: the original
+intent was "outer loop owns reconnect", but the outer loop never
+actually fired because the SDK thread never died. The filter now also
+calls `loop.stop()` to force-terminate the SDK thread on these
+exceptions. The "log noise reduction" effect of swallowing is
+preserved.
+
+## 2026-05-19 — register message_read no-op processor
+
+`_subscribe_loop` used to register only `register_p2_im_message_receive_v1`.
+Lark pushes `im.message.message_read_v1` (read receipts) by default; the
+SDK then logged an ERROR per event ("processor not found, type:
+im.message.message_read_v1"). We extracted the handler build into a
+static `_build_event_handler(on_recv, on_read)` and now register a no-op
+read-receipt processor alongside the real receive handler. We never act
+on read receipts — silencing the SDK noise is the only purpose.
+
+The build helper is staticmethod so the test in
+`tests/lark_module/test_message_read_handler.py` can introspect
+`handler._processorMap` without standing up a WebSocket.
 
 ## 2026-05-08 — Phase 2: refactor onto `ChannelTriggerBase`
 

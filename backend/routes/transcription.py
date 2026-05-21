@@ -18,11 +18,10 @@ upload-time `transcription_available` echo).
 """
 from __future__ import annotations
 
-from typing import Optional
-
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.transcription import TranscriptionService
 
 
@@ -39,23 +38,15 @@ class TranscriptionAvailabilityResponse(BaseModel):
     reason: str
 
 
-def _resolve_user_id(request: Request, query_user_id: Optional[str]) -> str:
-    """Cloud mode: trust the JWT-derived user_id on request.state.
-    Local mode: accept the ?user_id= query param like other dashboard
-    endpoints do — local has only one trusted user anyway.
-    """
-    state_uid = getattr(request.state, "user_id", None)
-    if state_uid:
-        return state_uid
-    return (query_user_id or "").strip()
-
-
 @router.get("/availability", response_model=TranscriptionAvailabilityResponse)
-async def availability(
-    request: Request,
-    user_id: Optional[str] = Query(default=None),
-):
-    """Tell the frontend whether voice input is usable for this user."""
-    uid = _resolve_user_id(request, user_id)
+async def availability(request: Request):
+    """Tell the frontend whether voice input is usable for this user.
+
+    Identity from auth_middleware (X-User-Id local, JWT cloud). The old
+    `?user_id=` fallback was a relic from the single-user-local era and
+    has been removed — local now requires X-User-Id like cloud requires
+    a JWT (auth_middleware enforces this before the handler runs).
+    """
+    uid = await resolve_current_user_id(request)
     available, reason = await TranscriptionService.instance().availability_reason(uid)
     return TranscriptionAvailabilityResponse(available=available, reason=reason)

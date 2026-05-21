@@ -35,6 +35,66 @@ if TYPE_CHECKING:
     )
 
 
+def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bool:
+    """Did this turn deliver a user-visible message?
+
+    True iff the agent fired a reply tool that surfaces in the user's chat
+    (``send_message_to_user_directly`` for any source; plus the per-channel
+    reply tools like ``lark_cli`` for IM sources). Uses the same
+    ``MessageSourceRegistry`` source-of-truth the ChatModule uses to split
+    user-visible replies, so the two never disagree.
+
+    Imports the channel registry (not any concrete Module) on purpose —
+    Modules stay hot-pluggable (铁律 #3); the registry is shared infra.
+    On any shape/registry mismatch we return False, which only means the
+    background-delivery anchor is skipped — the human-turn anchor path is
+    unaffected, so we never regress existing behavior.
+    """
+    try:
+        from xyz_agent_context.schema import ProgressMessage
+        from xyz_agent_context.channel.message_source_handler import (
+            MessageSourceRegistry,
+        )
+
+        handler = MessageSourceRegistry.get(working_source)
+        for resp in agent_loop_response or []:
+            if not (isinstance(resp, ProgressMessage) and resp.details):
+                continue
+            tool_name = resp.details.get("tool_name", "")
+            arguments = resp.details.get("arguments", {})
+            if handler.extract_reply_text(tool_name, arguments):
+                return True
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"_turn_delivered_user_message: detection failed ({e}); treating as not delivered")
+        return False
+    return False
+
+
+def _detect_narrative_routing_signal(agent_loop_response):
+    """Scan the agent-loop response for a switch_narrative / create_narrative
+    call (basic_info MCP tools, Fix #2 P3). Returns the LAST such (kind, args)
+    where kind in {'switch','create'} and args is the tool-call arguments, or
+    None. These tools are signals — the runtime does the actual re-attribution
+    (see the 4.0 block in step_4). Keep the tool names in lockstep with
+    basic_info_module._basic_info_mcp_tools.
+    """
+    found = None
+    try:
+        from xyz_agent_context.schema import ProgressMessage
+        for resp in agent_loop_response or []:
+            if not (isinstance(resp, ProgressMessage) and resp.details):
+                continue
+            tn = resp.details.get("tool_name", "") or ""
+            args = resp.details.get("arguments", {}) or {}
+            if tn.endswith("switch_narrative"):
+                found = ("switch", args)
+            elif tn.endswith("create_narrative"):
+                found = ("create", args)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"_detect_narrative_routing_signal failed: {e}")
+    return found
+
+
 @timed("step.4_persist_results")
 
 async def step_4_persist_results(
@@ -85,6 +145,90 @@ async def step_4_persist_results(
             substeps=ctx.substeps_4
         )
         return
+
+    # =========================================================================
+    # 4.0 Narrative routing signal (Fix #2 P3)
+    #
+    # The agent may have used switch_narrative / create_narrative (basic_info
+    # MCP tools) to say "this turn actually belongs to thread X" / "...to a NEW
+    # thread". Those tools are signals; we do the re-attribution HERE:
+    #   1. make the target the main narrative (narrative_list[0]) so the event
+    #      (4.4), summary updates, markdown stats (4.2) and the session anchor
+    #      (4.5) all flow to it, and point the session at it for the next turn;
+    #   2. RE-BIND this turn's chat persistence to the target's chat instance —
+    #      step_5's hook persists via the ChatModule object's `self.instance_id`,
+    #      which was bound in step_1 to the ORIGINAL narrative's chat instance.
+    #      We ensure/create the target's chat instance and reset the loaded
+    #      module's instance_id BEFORE step_5 runs, so the message lands in the
+    #      thread it now belongs to (not the original one).
+    # =========================================================================
+    routing = _detect_narrative_routing_signal(execution_result.agent_loop_response)
+    if routing:
+        kind, rargs = routing
+        try:
+            target = None
+            if kind == "switch":
+                tnid = rargs.get("narrative_id")
+                if tnid:
+                    target = await narrative_service.load_narrative_from_db(tnid)
+                    if not target:
+                        logger.warning(f"[NarrativeRouting] switch target {tnid} not found; keeping default")
+            else:  # create
+                target = await narrative_service.create_narrative(
+                    agent_id=ctx.agent_id,
+                    user_id=ctx.user_id,
+                    title=(rargs.get("title") or "New topic"),
+                    description=(rargs.get("description") or ""),
+                )
+            if target and target.id != main_narrative.id:
+                logger.info(
+                    f"[NarrativeRouting] {kind} signal -> {target.id} "
+                    f"(default was {main_narrative.id}); re-attributing this turn"
+                )
+                # main_narrative is a read-only property over narrative_list[0];
+                # override the list head (+ the local var used downstream).
+                if ctx.narrative_list:
+                    ctx.narrative_list[0] = target
+                else:
+                    ctx.narrative_list = [target]
+                main_narrative = target
+                if ctx.session:
+                    ctx.session.current_narrative_id = target.id
+
+                # Re-bind THIS turn's chat persistence to the target thread.
+                # step_5's ChatModule hook writes to the module object's
+                # self.instance_id (bound in step_1 to the ORIGINAL narrative's
+                # chat instance). Ensure/create the target's chat instance and
+                # reset the loaded module(s) BEFORE step_5, so the message lands
+                # in the thread it now belongs to.
+                try:
+                    from .step_1_select_narrative import _ensure_user_chat_instance
+                    target_chat_id = await _ensure_user_chat_instance(
+                        ctx.agent_id, ctx.user_id, target.id
+                    )
+                    rebound = 0
+                    for m in (getattr(ctx, "module_list", None) or []):
+                        if type(m).__name__ == "ChatModule":
+                            m.instance_id = target_chat_id
+                            m.instance_ids = [target_chat_id]
+                            rebound += 1
+                    if isinstance(getattr(ctx, "user_chat_instances", None), dict):
+                        ctx.user_chat_instances[target.id] = target_chat_id
+                    logger.info(
+                        f"[NarrativeRouting] re-bound chat persistence -> instance "
+                        f"{target_chat_id} ({rebound} ChatModule object(s))"
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"[NarrativeRouting] chat-instance rebind failed "
+                        f"(message will stay in original thread): {e}"
+                    )
+
+                ctx.substeps_4.append(f"[4.0] ✓ Narrative routing ({kind}) -> {target.id}")
+            elif target:
+                logger.info(f"[NarrativeRouting] {kind} signal target == default; no change")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[NarrativeRouting] failed to apply {kind} signal: {e}")
 
     # =========================================================================
     # 4.1 Record Trajectory
@@ -265,17 +409,65 @@ async def step_4_persist_results(
         logger.info(f"Narrative[{i}] ({update_type}) updated with event {current_event.id}")
 
     # =========================================================================
-    # 4.5 Update Session (add last_response and persist)
+    # 4.5 Update Session continuity anchor (last_response / narrative)
+    #
+    # The anchor must track the LAST MESSAGE VISIBLE IN THE USER'S CHAT BOX,
+    # because that is what the user's next reply (especially a short "好"/"yes")
+    # is responding to. That message is either:
+    #   - the user's own input on a human-triggered turn (is_user_chat), or
+    #   - an agent message the agent DELIVERED to the user this turn — even
+    #     from a background trigger (a scheduled job / heartbeat can call
+    #     send_message_to_user_directly; from the user's POV that is the
+    #     latest interaction).
+    # So we anchor when (is_user_chat OR this turn delivered a user message).
+    # Pure machine traffic (a job/bus turn that did NOT message the user) still
+    # leaves the anchor untouched, so it can't clobber the real exchange.
     # =========================================================================
-    if ctx.session and execution_result.final_output:
+    from xyz_agent_context.schema.hook_schema import WorkingSource as _WS
+
+    src = getattr(ctx, "working_source", None)
+    if src is None:
+        is_user_chat = True
+    elif isinstance(src, _WS):
+        is_user_chat = src.is_from_human()
+    else:
+        try:
+            is_user_chat = _WS(str(src)).is_from_human()
+        except ValueError:
+            is_user_chat = True
+    src_str = src.value if hasattr(src, "value") else (str(src) if src else None)
+
+    delivered_user_message = _turn_delivered_user_message(
+        execution_result.agent_loop_response, src_str or "chat"
+    )
+
+    if ctx.session and execution_result.final_output and (is_user_chat or delivered_user_message):
         ctx.session.last_response = execution_result.final_output
-        # Note: do not update last_query_time, it should remain as the user's query time (already updated in Step 1)
-        logger.debug(f"Updated Session.last_response: {execution_result.final_output[:50]}...")
-        
-        # Persist Session (including last_response)
+        if is_user_chat:
+            # Human turn: Step 1 already set last_query / current_narrative_id.
+            # Note: do not update last_query_time (keep the user's query time).
+            ctx.substeps_4.append("[4.5] ✓ Session persisted (including last_response)")
+        else:
+            # Proactive delivery (background trigger that messaged the user):
+            # Step 1 skipped the anchor, so set it here. The agent's message is
+            # now the last visible thing; there is no preceding user query, so
+            # clear last_query and key continuity off last_response.
+            if main_narrative:
+                ctx.session.current_narrative_id = main_narrative.id
+            ctx.session.last_query = ""
+            ctx.session.last_query_embedding = None
+            ctx.session.last_query_time = datetime.now(timezone.utc)
+            ctx.substeps_4.append(
+                f"[4.5] ✓ Session anchored to proactive delivery "
+                f"(source={src_str}, narrative={main_narrative.id if main_narrative else None})"
+            )
+        logger.debug(f"Updated Session anchor: last_response={execution_result.final_output[:50]}...")
         await session_service.save_session(ctx.session)
-        ctx.substeps_4.append("[4.5] ✓ Session persisted (including last_response)")
         logger.debug(f"session persisted session_id={ctx.session.session_id}")
+    elif ctx.session and execution_result.final_output:
+        ctx.substeps_4.append(
+            f"[4.5] ↪ Session anchor unchanged (no user-visible delivery, source={src_str})"
+        )
 
     # =========================================================================
     # 4.6 Record LLM cost (fire-and-forget, never blocks the pipeline)

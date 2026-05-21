@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Upload,
@@ -16,12 +16,12 @@ import {
   Check,
   Loader2,
   Package,
-  ChevronRight,
   Eye,
   Info,
   FileText,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
+import { BracketDropzone, StepIndicator } from '@/components/nm';
 import { useTeamsStore, useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -32,8 +32,15 @@ type Step = 'upload' | 'review' | 'done';
 export default function BundleImportPage() {
   const navigate = useNavigate();
   const { refresh: refreshTeams } = useTeamsStore();
-  const { refreshAgents } = useConfigStore();
+  const { refreshAgents, userId } = useConfigStore();
   const { dialog } = useConfirm();
+
+  // Deep-link mode: when mounted at /app/templates/install?url=…&sha256=…
+  // the page skips the upload step and auto-fetches the bundle via the
+  // server-side from-url endpoint. Used by the website templates page.
+  const [searchParams] = useSearchParams();
+  const urlMode = searchParams.get('url') || null;
+  const expectedSha256 = searchParams.get('sha256') || undefined;
 
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
@@ -43,13 +50,14 @@ export default function BundleImportPage() {
   const [error, setError] = useState<string | null>(null);
   const dropRef = useRef<HTMLDivElement>(null);
 
+  const [dragActive, setDragActive] = useState(false);
   useEffect(() => {
     const el = dropRef.current; if (!el) return;
-    const onOver = (e: DragEvent) => { e.preventDefault(); el.classList.add('ring-2', 'ring-[var(--text-primary)]'); };
-    const onLeave = () => el.classList.remove('ring-2', 'ring-[var(--text-primary)]');
+    const onOver = (e: DragEvent) => { e.preventDefault(); setDragActive(true); };
+    const onLeave = () => setDragActive(false);
     const onDrop = (e: DragEvent) => {
       e.preventDefault();
-      el.classList.remove('ring-2', 'ring-[var(--text-primary)]');
+      setDragActive(false);
       const f = e.dataTransfer?.files?.[0];
       if (f) setFile(f);
     };
@@ -78,6 +86,66 @@ export default function BundleImportPage() {
     }
   };
 
+  // Manual retry counter — incrementing re-fires the auto-fetch useEffect
+  // below. Used by the "Retry" button when auto-retry has exhausted.
+  const [retryNonce, setRetryNonce] = useState(0);
+
+  // URL-mode auto-fetch: fire on mount when the route receives a ?url=
+  // query, before the user sees the upload step. Builds in exponential-
+  // backoff retry so that the desktop-app cold-start race (~10-15s where
+  // the Tauri parent has loaded the frontend but the Python sidecar on
+  // :8000 isn't listening yet) doesn't surface as "Load failed" to the
+  // user. Retries are network-error-only — a 4xx from a reachable backend
+  // (allowlist reject, sha256 mismatch, malformed URL) is a real error
+  // and surfaces immediately.
+  useEffect(() => {
+    if (!urlMode || preflight) return;
+    let cancelled = false;
+    const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000]; // ~15s total
+    (async () => {
+      setBusy(true);
+      setError(null);
+      for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+        if (cancelled) return;
+        try {
+          const r = await api.importBundleFromUrl(urlMode, expectedSha256);
+          if (cancelled) return;
+          // Clear the "Waiting for backend..." message a previous attempt
+          // may have set — otherwise the warning persists on the review
+          // page even though the fetch ultimately succeeded.
+          setError(null);
+          setPreflight(r);
+          setStep('review');
+          setBusy(false);
+          return;
+        } catch (e: any) {
+          if (cancelled) return;
+          const msg = e?.message || String(e);
+          // Distinguish "network-not-ready" from "real backend error".
+          // The former is retriable (cold-start race), the latter isn't.
+          const isNetworkLike =
+            /load failed|failed to fetch|network|fetch failed|connection|refused|econnrefused/i.test(msg);
+          if (isNetworkLike && attempt < RETRY_DELAYS_MS.length) {
+            setError(
+              `Waiting for backend (try ${attempt + 1}/${RETRY_DELAYS_MS.length + 1})…`,
+            );
+            await new Promise((r) => window.setTimeout(r, RETRY_DELAYS_MS[attempt]));
+            continue;
+          }
+          // Final failure: surface message + leave the Retry button to drive
+          // a manual re-fire (via retryNonce bump).
+          setError(msg || 'Failed to fetch template');
+          setBusy(false);
+          return;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlMode, retryNonce]);
+
   const runConfirm = async () => {
     if (!preflight) return;
     setBusy(true);
@@ -88,6 +156,12 @@ export default function BundleImportPage() {
       setStep('done');
       await refreshTeams();
       await refreshAgents();
+      // A confirmed import counts as "applied a template" for the
+      // onboarding checklist. Best-effort — never let it surface as an
+      // import error.
+      if (userId) {
+        api.markOnboardingStep(userId, 'template_applied').catch(() => {});
+      }
     } catch (e: any) {
       const msg = e?.message || String(e);
       // Special case: preflight session expired (>6h since upload, or
@@ -113,44 +187,86 @@ export default function BundleImportPage() {
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Package className="w-5 h-5" />
-        <h1 className="font-mono text-base">Import bundle</h1>
-        <div className="ml-auto flex items-center gap-2 text-xs">
-          <StepDot active={step === 'upload'} done={step !== 'upload'}>1. Upload</StepDot>
-          <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
-          <StepDot active={step === 'review'} done={step === 'done'}>2. Review</StepDot>
-          <ChevronRight className="w-3 h-3 text-[var(--text-tertiary)]" />
-          <StepDot active={step === 'done'} done={false}>3. Done</StepDot>
+        <h1 className="font-mono text-base">
+          {urlMode ? 'Install template' : 'Import bundle'}
+        </h1>
+        <div className="ml-auto w-[360px]">
+          <StepIndicator
+            steps={[
+              { key: 'upload', label: urlMode ? 'Fetch' : 'Upload' },
+              { key: 'review', label: 'Review' },
+              { key: 'done', label: 'Done' },
+            ]}
+            currentIndex={step === 'upload' ? 0 : step === 'review' ? 1 : 2}
+          />
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {step === 'upload' && (
+        {step === 'upload' && urlMode && (
           <div className="max-w-2xl mx-auto space-y-4">
-            <div
-              ref={dropRef}
-              className="border-2 border-dashed border-[var(--border-default)] rounded-md p-10 text-center bg-[var(--bg-secondary)]"
-            >
-              <Upload className="w-10 h-10 mx-auto text-[var(--text-tertiary)]" />
-              <p className="mt-3 text-sm text-[var(--text-secondary)]">Drag &amp; drop a .nxbundle here</p>
-              <p className="mt-1 text-xs text-[var(--text-tertiary)]">or</p>
-              <label className="mt-3 inline-block">
-                <input
-                  type="file"
-                  accept=".nxbundle,.zip"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className="hidden"
-                />
-                <span className="px-3 py-1.5 border border-[var(--border-default)] cursor-pointer text-sm font-mono hover:bg-[var(--bg-tertiary)]">
-                  Choose file
-                </span>
-              </label>
-              {file && (
-                <div className="mt-4 inline-flex items-center gap-2 text-sm">
-                  <Check className="w-4 h-4 text-[var(--color-green-500)]" />
-                  <span className="font-mono">{file.name}</span>
-                  <span className="text-[var(--text-tertiary)]">({Math.round(file.size / 1024)} KB)</span>
-                </div>
+            <div className="border border-[var(--border-default)] rounded-md p-10 text-center bg-[var(--bg-secondary)]">
+              {busy && (
+                <>
+                  <Loader2 className="w-10 h-10 mx-auto text-[var(--text-tertiary)] animate-spin" />
+                  <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                    Fetching template from <span className="font-mono break-all">{urlMode}</span>…
+                  </p>
+                </>
               )}
+              {!busy && error && (
+                <>
+                  <AlertTriangle className="w-10 h-10 mx-auto text-[var(--color-red-500)]" />
+                  <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                    Could not fetch the template.
+                  </p>
+                  <Button
+                    onClick={() => setRetryNonce((n) => n + 1)}
+                    size="sm"
+                    className="mt-4 gap-1"
+                  >
+                    <Loader2 className="w-3.5 h-3.5" />
+                    Retry
+                  </Button>
+                </>
+              )}
+            </div>
+            {error && <ErrorBanner error={error} />}
+          </div>
+        )}
+        {step === 'upload' && !urlMode && (
+          <div className="max-w-2xl mx-auto space-y-4">
+            <div ref={dropRef}>
+              <BracketDropzone active={dragActive}>
+                <Upload className="w-10 h-10 mx-auto mb-3" />
+                <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>Drag &amp; drop a .nxbundle here</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}>— or —</p>
+                <label className="mt-3 inline-block">
+                  <input
+                    type="file"
+                    accept=".nxbundle,.zip"
+                    onChange={(e) => setFile(e.target.files?.[0] || null)}
+                    className="hidden"
+                  />
+                  <span
+                    className="inline-flex items-center px-3 py-1.5 cursor-pointer text-sm font-mono transition-colors"
+                    style={{
+                      border: '1px solid var(--nm-ink)',
+                      borderRadius: 'var(--radius-sm)',
+                      color: 'var(--nm-ink)',
+                    }}
+                  >
+                    Choose file
+                  </span>
+                </label>
+                {file && (
+                  <div className="mt-4 inline-flex items-center gap-2 text-sm">
+                    <Check className="w-4 h-4" style={{ color: 'var(--color-success)' }} />
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink)' }}>{file.name}</span>
+                    <span style={{ color: 'var(--nm-ink50)' }}>({Math.round(file.size / 1024)} KB)</span>
+                  </div>
+                )}
+              </BracketDropzone>
             </div>
             {error && <ErrorBanner error={error} />}
             <div className="flex justify-end">
@@ -186,17 +302,6 @@ export default function BundleImportPage() {
       </div>
       {dialog}
     </div>
-  );
-}
-
-function StepDot({ active, done, children }: { active: boolean; done: boolean; children: any }) {
-  return (
-    <span className={cn(
-      'px-2 py-0.5 font-mono uppercase tracking-wider',
-      active && 'bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)]',
-      done && !active && 'text-[var(--color-green-500)]',
-      !active && !done && 'text-[var(--text-tertiary)]',
-    )}>{children}</span>
   );
 }
 

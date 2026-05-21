@@ -37,7 +37,7 @@ Three things get written to the database as the run executes:
   point for future "agent finished while you were away" notifications.
 
 The "thinking segment" boundary is what makes DB row count tractable
-even on a 13-min Xiong-style run (4408 raw thinking chunks → ~50
+even on a 13-min operator-style run (4408 raw thinking chunks → ~50
 segment rows because the segments are bounded by tool_call switches).
 
 Lifecycle binding (no TTL)

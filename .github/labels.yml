@@ -1,0 +1,59 @@
+# Source of truth for issue / PR labels.
+#
+# Synced via .github/workflows/labels-sync.yml using
+# crazy-max/ghaction-github-labeler. Edit here, push, the action does the rest.
+#
+# Philosophy: small label set. Every label must be obvious to a
+# first-time contributor. We do NOT use area:*, priority:*, or kind:*
+# fine-grained taxonomies — they're maintenance debt.
+
+# ---- Type (one per issue/PR) ---------------------------------------------
+- name: bug
+  description: Something is broken or behaves unexpectedly
+  color: d73a4a
+
+- name: feature
+  description: New capability or improvement
+  color: a2eeef
+
+- name: docs
+  description: Documentation only
+  color: 0075ca
+
+- name: question
+  description: Usage or design question
+  color: cc317c
+
+- name: chore
+  description: CI, deps, tooling, housekeeping
+  color: ededed
+
+# ---- State (multiple OK) -------------------------------------------------
+- name: needs-triage
+  description: Awaiting maintainer review for next step
+  color: bfdadc
+
+- name: good first issue
+  description: Beginner-friendly task. Comment "I'd like to try this" to claim.
+  color: 7057ff
+
+- name: help wanted
+  description: Open to contribution; maintainer welcomes help
+  color: 008672
+
+- name: blocked
+  description: Blocked by upstream or another issue
+  color: e99695
+
+# ---- Closing reasons ------------------------------------------------------
+- name: stale
+  description: Set automatically by the stale bot
+  color: 808080
+
+- name: wontfix
+  description: Considered and intentionally not addressed
+  color: ffffff
+
+- name: duplicate
+  description: Duplicate of another issue
+  color: cfd3d7
