@@ -1,7 +1,29 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-05-06
+last_verified: 2026-05-22
 ---
+
+## 2026-05-22 — post-spawn readiness gate + detailed failure
+
+`start_all` no longer just spawns and hopes. After each port-bound service
+(sqlite_proxy :8100, backend :8000) it calls `verify_port_ready` — polls the
+port (TCP connect; backend gets 45s for first-run DB migration, others 20s) and
+fails fast if the child exits during the wait. Required PORTLESS workers (mcp,
+poller, job_trigger, message_bus_trigger — see `is_required_service`) get a
+final liveness sweep (`try_wait`) to catch crash-on-startup. A required service
+failing returns a detailed `startup_error` (label + reason + log path + stderr
+tail); optional channel triggers (lark/slack/telegram) only warn. `lib.rs` turns
+that error into a native dialog instead of the old silent `log::error!` that
+left the UI to fail with "Connection failed". Iron rule #7: `scripts/dev-local.sh`
+runs the equivalent checks for the headless path. Borrow note: read the child's
+exit status into an owned `Option<String>` BEFORE calling `self.startup_error`
+(can't hold a `&mut self.processes` borrow across the `&self` call).
+
+The log drainer (`spawn_log_drainer`) also mirrors every sidecar line to THIS
+process's own stdout/stderr (`println!`/`eprintln!`), in addition to the buffer
++ per-service file. So launching the app from a terminal streams the full live
+sidecar log (startup crashes, port-bind errors, tracebacks); a Finder launch
+sends them to the system log (Console.app).
 
 # process_manager.rs — Child process lifecycle manager with log collection
 

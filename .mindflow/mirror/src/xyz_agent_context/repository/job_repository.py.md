@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-04-21
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — get_jobs_by_status (no-quota resume, #6)
+
+Added `get_jobs_by_status(status, limit)` so JobTrigger's periodic recheck can
+fetch `PAUSED_NO_QUOTA` jobs to consider for resume. No row lock (unlike
+`get_due_jobs`' `FOR UPDATE SKIP LOCKED`) — the recheck only flips status;
+actual execution still re-acquires via `try_acquire_job` when the job later
+fires. `get_due_jobs` filters `status IN (PENDING, ACTIVE)`, so paused jobs
+never fire while paused.
 
 # job_repository.py
 

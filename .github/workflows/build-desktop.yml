@@ -159,6 +159,51 @@ jobs:
           [ -f "$DMG_DIR/notarize-latest.log" ]       && cp "$DMG_DIR/notarize-latest.log"       dist/ || true
           ls -la dist
 
+      # Auto-update artifact. Built from the *notarized* .app (NOT via
+      # createUpdaterArtifacts during the build, which would archive the
+      # pre-notarized .app from before the canonical script re-signs it):
+      #   1. tar+gzip the final .app
+      #   2. sign the archive with the Tauri updater key → .app.tar.gz.sig
+      #   3. write latest.json (version + signature + download URL) that the
+      #      updater plugin fetches from the release `latest` endpoint.
+      # Skipped (with a warning) when TAURI_SIGNING_PRIVATE_KEY is absent so a
+      # fork without the secret still builds the dmg.
+      - name: Build + sign updater artifact (latest.json)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — skipping updater artifact (auto-update not published for this build)."
+            exit 0
+          fi
+          APP_DIR="tauri/src-tauri/target/release/bundle/macos"
+          [ -d "$APP_DIR/NarraNexus.app" ] || { echo "::error::NarraNexus.app not found at $APP_DIR"; exit 1; }
+          tar -czf dist/NarraNexus.app.tar.gz -C "$APP_DIR" NarraNexus.app
+          npx --yes @tauri-apps/cli@^2 signer sign \
+            --private-key "$TAURI_SIGNING_PRIVATE_KEY" \
+            --password "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
+            dist/NarraNexus.app.tar.gz
+          SIG="$(cat dist/NarraNexus.app.tar.gz.sig)"
+          # Tag push → real version; branch test build → synthetic so the JSON is valid.
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$VERSION" = "${GITHUB_REF_NAME}" ] && VERSION="0.0.0-$(date -u +%Y%m%d%H%M%S)"
+          cat > dist/latest.json <<JSON
+          {
+            "version": "$VERSION",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$SIG",
+                "url": "https://github.com/NetMindAI-Open/NarraNexus/releases/download/${GITHUB_REF_NAME}/NarraNexus.app.tar.gz"
+              }
+            }
+          }
+          JSON
+          echo "--- latest.json ---"; cat dist/latest.json
+          ls -la dist
+
       # Always upload as artifact so branch builds (signing tests) can be
       # downloaded and verified locally with codesign / spctl / stapler.
       - name: Upload DMG as artifact
@@ -168,9 +213,13 @@ jobs:
           path: |
             dist/NarraNexus.dmg
             dist/NarraNexus.zip
+            dist/NarraNexus.app.tar.gz
+            dist/NarraNexus.app.tar.gz.sig
+            dist/latest.json
             dist/notarize-submission-id.txt
             dist/notarize-latest.log
           retention-days: 14
+          if-no-files-found: warn
 
       # Only attach to GitHub Release on tag push (skip on branch test runs).
       # Tag-triggered releases are published immediately and marked Latest so
@@ -182,6 +231,8 @@ jobs:
           files: |
             dist/NarraNexus.dmg
             dist/NarraNexus.zip
+            dist/NarraNexus.app.tar.gz
+            dist/latest.json
           tag_name: ${{ github.ref_name }}
           name: 'NarraNexus ${{ github.ref_name }}'
           body: |

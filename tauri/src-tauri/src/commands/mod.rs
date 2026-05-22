@@ -4,3 +4,4 @@ pub mod deep_link;
 pub mod health;
 pub mod service;
 pub mod tray;
+pub mod updater;

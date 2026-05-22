@@ -1,7 +1,18 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-04-23
+last_verified: 2026-05-22
 ---
+
+## 2026-05-22 — added show_startup_failure_dialog_and_exit
+
+New sibling to `show_conflict_dialog_and_exit`: same osascript native-dialog +
+`exit(1)`, but for when a REQUIRED sidecar spawned yet never became ready (port
+never bound / crashed on startup — bundled python blocked by Gatekeeper, an
+Intel-Mac arch mismatch, or an unwritable `~/.narranexus/logs` killing the DB).
+`lib.rs` calls it with the detailed message from `ProcessManager::startup_error`
+(service + reason + log path + output tail) instead of the old silent
+`log::error!`. The dialog appends a common-causes hint (Apple-Silicon-only /
+Gatekeeper / first-run init).
 
 # port_preflight.rs — detect hardcoded-port conflicts before spawning sidecars
 

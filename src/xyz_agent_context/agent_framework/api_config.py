@@ -86,6 +86,16 @@ class ClaudeConfig:
             else:
                 env["ANTHROPIC_API_KEY"] = self.api_key
 
+        # #7 resilience: bound a stalled request and turn on the CLI's built-in
+        # retry, both from settings (.env-tunable). API_TIMEOUT_MS is a
+        # per-REQUEST cap (not a run total → does not violate 铁律 #14's
+        # no-agent_loop-cap); a stalled/dead request errors after it and the CLI
+        # auto-retries CLAUDE_CODE_MAX_RETRIES times (transient 429/5xx/conn) on
+        # the SAME provider (does not govern the user's model → 铁律 #15).
+        from xyz_agent_context.settings import settings as _settings
+        env["API_TIMEOUT_MS"] = str(_settings.llm_api_timeout_ms)
+        env["CLAUDE_CODE_MAX_RETRIES"] = str(_settings.llm_max_retries)
+
         # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
         # subagent task dispatch, alias-to-model resolution) to the same
         # provider as the main loop. Without these, those calls fall back

@@ -1,8 +1,19 @@
 ---
 code_file: backend/routes/artifacts_public.py
-last_verified: 2026-05-14
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — raw route accepts HEAD (kills 405)
+
+The raw route is registered with `@router.api_route(..., methods=["GET","HEAD"])`,
+NOT `@router.get`. FastAPI's `APIRoute` does **not** auto-add HEAD to GET routes
+(plain Starlette does), so a HEAD request used to 405 at routing — before the
+handler ran. The frontend `HtmlRenderer` probes this URL with
+`fetch(url, {method:'HEAD'})` to detect broken pointers (410 → self-heal); the
+blanket 405 made every probe fail and the self-heal never fired. Starlette's
+`FileResponse` serves HEAD as headers-only, so the 200/410/401/404 mapping is
+identical to GET, just without a body. Don't revert to `@router.get`.
 
 ## 2026-05-14-r3 — single-file mode when entry sits at workspace root
 
@@ -27,8 +38,9 @@ automatically.
 
 ## Endpoint
 
-`GET /api/public/artifacts/raw/{token}/{file_path:path}` — serve a file from
-the artifact's root directory.
+`GET|HEAD /api/public/artifacts/raw/{token}/{file_path:path}` — serve a file
+from the artifact's root directory (HEAD = headers only, for the renderer
+broken-pointer probe).
 
 - Empty `file_path` → entry file.
 - Non-empty → the named asset under the artifact root (realpath-confined to

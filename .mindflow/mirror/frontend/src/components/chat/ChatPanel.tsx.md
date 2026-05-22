@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-20
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — chat input extracted to <Composer> (typing-lag fix)
+
+The message textarea + its draft text used to be `input` state living right
+here. Because this component subscribes to the **whole** chat store
+(`useChatStore()` with no selector) it re-renders on every streaming delta;
+with `input` also here, every keystroke re-rendered this 1300-line monolith,
+and typing *while an agent streamed* (esp. one-char-per-token models) made the
+two re-render storms collide → laggy input.
+
+The text now lives in `Composer.tsx`. ChatPanel reads it imperatively on send
+(`composerRef.getText()`), clears it after a successful send
+(`composerRef.clear()`), and tracks only the empty↔non-empty flip
+(`composerEmpty`) for the Send button. The drag/paste handlers are passed down
+as **stable** wrappers (`stableSubmit`/`stableDrag*` via a ref) so the memoized
+Composer doesn't re-render when ChatPanel does. Draft persistence (was a
+per-keystroke synchronous localStorage write) is now debounced inside Composer.
+`key={agentId}` remounts Composer on agent switch to restore that agent's draft.
+铁律 #16: pure render isolation — no message content is dropped or throttled.
 
 ## 2026-05-20 — streaming avatar: Bot icon → name-driven RingAvatar
 

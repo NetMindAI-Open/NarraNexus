@@ -792,6 +792,23 @@ class JobRepository(BaseRepository[JobModel]):
 
         return [self._row_to_entity(row) for row in results]
 
+    async def get_jobs_by_status(self, status: "JobStatus", limit: int = 200) -> List[JobModel]:
+        """Fetch jobs in a given status (e.g. PAUSED_NO_QUOTA for the resume
+        recheck). No row lock — the recheck only flips status, and the worker
+        path re-acquires via try_acquire_job when the job later fires."""
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE status = %s
+            ORDER BY updated_at ASC
+            LIMIT %s
+        """
+        results = await self._db.execute(
+            query,
+            params=(status.value if hasattr(status, "value") else status, limit),
+            fetch=True,
+        )
+        return [self._row_to_entity(row) for row in results]
+
     async def recover_stuck_jobs(self, timeout_minutes: int = 30) -> int:
         """
         Recover stuck tasks

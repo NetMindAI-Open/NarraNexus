@@ -58,7 +58,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
       case 'connected':
         return 'Connected';
       case 'failed':
-        return mcp.last_error ? `Failed: ${mcp.last_error.slice(0, 50)}` : 'Failed';
+        return mcp.last_error ? `Failed: ${mcp.last_error.slice(0, 80)}` : 'Failed';
       default:
         return 'Unknown';
     }
@@ -75,7 +75,10 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
       <button
         onClick={() => onValidate(mcp.mcp_id)}
         className="shrink-0 p-0.5 hover:bg-[var(--bg-tertiary)] rounded"
-        title={getStatusText()}
+        // Full error in the tooltip (the inline label is truncated). Click to
+        // re-validate. A Failed dot here means the URL is unreachable or not a
+        // valid SSE endpoint — see the add-form hints.
+        title={mcp.connection_status === 'failed' && mcp.last_error ? `Failed: ${mcp.last_error}\n\n(click to re-validate)` : `${getStatusText()} — click to re-validate`}
         disabled={validating}
       >
         {getStatusIcon()}
@@ -150,11 +153,21 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
       />
       <input
         type="url"
-        placeholder="SSE URL (e.g., http://localhost:3001/sse)"
+        placeholder="SSE URL (e.g., https://your-host/sse)"
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)] font-mono"
       />
+      {/* Usability hints — the common "added it but the agent can't use it"
+          confusion is almost always a non-SSE / unreachable / auth'd URL, not
+          a platform bug (verified e2e 2026-05-22). Spell out the contract. */}
+      <ul className="text-[10px] leading-relaxed text-[var(--text-tertiary)] list-disc pl-4 space-y-0.5">
+        <li>Must be a <span className="font-medium text-[var(--text-secondary)]">remote SSE endpoint</span> over http(s) — usually ending in <span className="font-mono">/sse</span>.</li>
+        <li>The server must be able to <span className="font-medium text-[var(--text-secondary)]">reach the URL</span> (public host or one this machine can connect to).</li>
+        <li>Local <span className="font-mono">stdio</span> / <span className="font-mono">npx</span> MCPs are <span className="font-medium text-[var(--text-secondary)]">not supported</span> here — only URL-based SSE servers.</li>
+        <li>If it needs an API key, put it in the URL or headers your MCP expects; we connect anonymously.</li>
+        <li>After adding, the status dot validates the connection — <span className="font-medium text-[var(--text-secondary)]">Failed</span> means the URL was unreachable or not a valid SSE endpoint.</li>
+      </ul>
       <div className="flex items-center gap-2 pt-1">
         <Button
           type="submit"

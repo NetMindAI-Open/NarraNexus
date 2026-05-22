@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/skills/MCPManager.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — add-form usability hints (#4)
+
+The "I added an MCP but the agent can't use it" complaint was verified e2e
+(2026-05-22) to NOT be a platform bug — adding a well-formed remote SSE MCP and
+running the agent works (it calls the tool). The failures are almost always the
+user's URL: not an SSE endpoint, unreachable, needs auth, or a stdio/npx local
+MCP (unsupported). `AddMCPForm` now spells out that contract as a hint list, and
+the status-dot tooltip shows the FULL `last_error` (was truncated to 50 chars)
+so a Failed validation is self-explanatory. Pure copy/UX — no behavior change.
 
 # MCPManager.tsx — External MCP SSE server management with connection validation
 

@@ -8,13 +8,15 @@
  * NM-bracketed regions instead of plain `<h2>` headings.
  */
 
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
+import { isTauri, checkForUpdates } from '@/lib/tauri';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -26,6 +28,47 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+// Desktop-only: manual "Check for updates". The app also auto-checks on launch
+// (Rust run_startup_update_check); this gives the user an explicit trigger.
+function UpdatesSection() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const onCheck = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await checkForUpdates();
+      if (r === 'up_to_date') setMsg("You're on the latest version.");
+      else if (r && r.startsWith('installed:'))
+        setMsg(`Update ${r.slice('installed:'.length)} installed — restart to apply.`);
+      else setMsg('Update check complete.');
+    } catch (e) {
+      setMsg(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section>
+      <SectionHeader
+        label="App updates"
+        hint="Check for and install the latest NarraNexus desktop build. Updates are signed and apply on restart."
+      />
+      <div className="flex items-center gap-3">
+        <Button onClick={onCheck} disabled={busy} variant="outline" className="gap-2">
+          <RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />
+          {busy ? 'Checking…' : 'Check for updates'}
+        </Button>
+        {msg && (
+          <span className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
+            {msg}
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -93,6 +136,8 @@ export default function SettingsPage() {
             Open batch manager…
           </Button>
         </section>
+
+        {isTauri() && <UpdatesSection />}
       </div>
     </ScrollArea>
   );

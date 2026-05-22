@@ -15,7 +15,7 @@ import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
-import { Card, Button, Textarea, ScrollArea } from '@/components/ui';
+import { Card, Button, ScrollArea } from '@/components/ui';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd, RingAvatar } from '@/components/nm';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
@@ -23,10 +23,11 @@ import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
-import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
+import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { TurnTimeline } from './TurnTimeline';
+import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
@@ -198,10 +199,14 @@ interface ChatPanelProps {
 
 export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const navigate = useNavigate();
-  // Lazy-init from the persisted draft for whichever agent is active at mount
-  // (configStore is the source of truth for agentId; it's read again below).
-  const [input, setInput] = useState(() =>
-    getChatDraft(useConfigStore.getState().agentId ?? '')
+  // The chat textarea + its per-agent draft live in <Composer>, isolated so a
+  // keystroke re-renders only that small child — not this timeline-rendering
+  // monolith (which also re-renders on every streaming delta). We read the
+  // text imperatively on send (composerRef) and track only the empty↔non-empty
+  // flip for the send button's disabled state (composerEmpty).
+  const composerRef = useRef<ComposerHandle>(null);
+  const [composerEmpty, setComposerEmpty] = useState(
+    () => getChatDraft(useConfigStore.getState().agentId ?? '').trim().length === 0
   );
   // Attachments uploaded for the next message but not yet sent. Each entry
   // is the server-acknowledged metadata returned by uploadAttachment.
@@ -224,8 +229,6 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isComposingRef = useRef(false);
-  const compositionEndTimeRef = useRef(0);
 
   // Chat history state (from DB)
   const [historyMessages, setHistoryMessages] = useState<SimpleChatMessage[]>([]);
@@ -262,30 +265,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (agentId) setActiveAgent(agentId);
   }, [agentId, setActiveAgent]);
 
-  // ── Per-agent draft persistence ──────────────────────────────────────
-  // On agent switch, stash the outgoing agent's half-typed message and load
-  // the incoming agent's saved draft. On every keystroke, persist the current
-  // agent's draft (best-effort localStorage) so it survives a reload too.
-  // `setInput('')` after a send flows through the persist effect and clears
-  // the stored draft automatically.
-  const prevAgentIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    const prev = prevAgentIdRef.current;
-    if (prev !== agentId) {
-      if (prev) setChatDraft(prev, input);
-      setInput(agentId ? getChatDraft(agentId) : '');
-      prevAgentIdRef.current = agentId;
-    }
-    // Intentionally keyed on agentId only: `input` is read as the outgoing
-    // value to save, but must not re-run this swap on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId]);
-  useEffect(() => {
-    if (agentId) setChatDraft(agentId, input);
-    // Keyed on `input` only — during a switch the input hasn't changed yet,
-    // so this won't clobber the incoming agent's draft with the outgoing text.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input]);
+  // Per-agent draft persistence + restore-on-switch now live in <Composer>
+  // (debounced, flushed on unmount; ChatPanel remounts it via key={agentId}).
 
   const currentAgent = useMemo(
     () => agents.find((a) => a.agent_id === agentId),
@@ -700,13 +681,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
   // ── Handlers ────────────────────────────────────────
   const handleSubmit = async () => {
-    const trimmed = input.trim();
+    const trimmed = (composerRef.current?.getText() ?? '').trim();
     const hasContent = trimmed.length > 0 || pendingAttachments.length > 0;
     if (!hasContent || isLoading || !agentId || !userId || uploadingCount > 0) return;
 
     const content = trimmed;
     const attachmentsToSend = pendingAttachments;
-    setInput('');
+    composerRef.current?.clear();
     setPendingAttachments([]);
     shouldAutoScrollRef.current = true;
     // Bug 15: snap to bottom for the user's freshly-sent bubble before
@@ -747,24 +728,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const isIMEComposing = e.nativeEvent.isComposing || isComposingRef.current;
-    const timeSinceCompositionEnd = Date.now() - compositionEndTimeRef.current;
-    const justFinishedComposition = timeSinceCompositionEnd < 100;
+  // handleKeyDown (Enter→send) + IME composition handling now live in
+  // <Composer>; it calls back into handleSubmit on Enter.
 
-    if (e.key === 'Enter' && !e.shiftKey) {
-      if (isIMEComposing || justFinishedComposition) return;
-      e.preventDefault();
-      handleSubmit();
-    }
-  };
-
-  const handleCompositionStart = () => { isComposingRef.current = true; };
-  const handleCompositionUpdate = () => { isComposingRef.current = true; };
-  const handleCompositionEnd = () => {
-    compositionEndTimeRef.current = Date.now();
-    setTimeout(() => { isComposingRef.current = false; }, 0);
-  };
+  // Stable wrappers so the memoized <Composer> doesn't re-render on every
+  // ChatPanel render (e.g. streaming deltas) — they always call the latest
+  // closure via a ref, so no stale values and no dependency lists.
+  const submitFnRef = useRef(handleSubmit);
+  submitFnRef.current = handleSubmit;
+  const dragFnsRef = useRef({ over: handleDragOver, leave: handleDragLeave, drop: handleDrop, paste: handlePaste });
+  dragFnsRef.current = { over: handleDragOver, leave: handleDragLeave, drop: handleDrop, paste: handlePaste };
+  const stableSubmit = useCallback(() => submitFnRef.current(), []);
+  const stableDragOver = useCallback((e: React.DragEvent<HTMLElement>) => dragFnsRef.current.over(e), []);
+  const stableDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => dragFnsRef.current.leave(e), []);
+  const stableDrop = useCallback((e: React.DragEvent<HTMLElement>) => dragFnsRef.current.drop(e), []);
+  const stablePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => dragFnsRef.current.paste(e), []);
 
   const showBootstrapGreeting = isBootstrap && historyLoaded && historyMessages.length === 0 && messages.length === 0;
   const showEmptyState = !showBootstrapGreeting && historyLoaded && historyMessages.length === 0 && messages.length === 0 && !isStreaming;
@@ -1155,49 +1133,32 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
-          <div className="flex-1 relative">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              onCompositionStart={handleCompositionStart}
-              onCompositionUpdate={handleCompositionUpdate}
-              onCompositionEnd={handleCompositionEnd}
-              // Drag handlers MUST live on the textarea itself, not just on
-              // a parent. Otherwise the browser's native textarea behavior
-              // (drop file → insert file path as text) wins, because the
-              // <textarea> element processes the drop default before the
-              // bubbled React event reaches the parent's preventDefault.
-              // Same reasoning for onPaste — clipboard items with kind=file
-              // (e.g. OS screenshot) need to be intercepted at the textarea
-              // before the default text-paste path strips them.
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onPaste={handlePaste}
-              placeholder={
-                !agentId
-                  ? 'Select an agent first…'
-                  : isDragging
-                    ? 'Drop file to attach…'
-                    : 'Type your message… (drag files here to attach)'
-              }
-              // Stay editable while the agent is running (isLoading): the user
-              // can compose their next message during a long turn. Sending is
-              // still blocked — handleSubmit/Enter early-return on isLoading and
-              // the Send button is replaced by Stop while streaming.
-              disabled={!agentId}
-              className={cn(
-                // Auto-resizing textarea: min-h sets the empty-state height,
-                // max-h caps growth. The Textarea component manages
-                // `style.height` based on scrollHeight on every input.
-                // Padding 14 + line-height 24 + padding 14 = 52px exactly,
-                // matching the send-button height next to it.
-                'min-h-[52px] max-h-[160px] py-[14px] leading-[24px] resize-none'
-              )}
-              rows={1}
-            />
-          </div>
+          {/* Textarea + draft state isolated in <Composer> so keystrokes don't
+              re-render this monolith (see Composer.tsx). key={agentId} remounts
+              it on agent switch to restore that agent's draft. The drag/paste
+              handlers are bound here too (also on the wrapper div) because the
+              native textarea default (insert dropped path / paste-as-text) wins
+              otherwise. Stays editable while the agent runs; sending is gated by
+              handleSubmit/the Send→Stop swap. */}
+          <Composer
+            key={agentId ?? '__none__'}
+            ref={composerRef}
+            agentId={agentId}
+            disabled={!agentId}
+            placeholder={
+              !agentId
+                ? 'Select an agent first…'
+                : isDragging
+                  ? 'Drop file to attach…'
+                  : 'Type your message… (drag files here to attach)'
+            }
+            onSubmit={stableSubmit}
+            onEmptyChange={setComposerEmpty}
+            onDragOver={stableDragOver}
+            onDragLeave={stableDragLeave}
+            onDrop={stableDrop}
+            onPaste={stablePaste}
+          />
           {isStreaming ? (
             <Button
               variant="danger"
@@ -1214,7 +1175,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               size="icon"
               onClick={handleSubmit}
               disabled={
-                (!input.trim() && pendingAttachments.length === 0)
+                (composerEmpty && pendingAttachments.length === 0)
                 || isLoading
                 || !agentId
                 || uploadingCount > 0

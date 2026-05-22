@@ -158,3 +158,20 @@ export async function consumePendingDeepLink(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Manually trigger an app update check (desktop only). The Rust command checks
+ * the release endpoint, downloads + installs a newer signed build if present,
+ * and returns a status string: `'up_to_date'` or `'installed:<version>'` (the
+ * installed update applies on restart). Throws on failure so the caller can
+ * surface the message. Returns null when not running in Tauri.
+ *
+ * NOTE: the app also auto-checks on startup (Rust `run_startup_update_check`);
+ * this is the explicit "Check for updates" button path.
+ */
+export async function checkForUpdates(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const invoke = _getInvoke();
+  if (!invoke) return null;
+  return (await invoke('check_and_install_update')) as string;
+}

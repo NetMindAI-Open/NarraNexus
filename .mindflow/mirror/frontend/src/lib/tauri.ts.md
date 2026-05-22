@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/tauri.ts
-last_verified: 2026-05-18
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — checkForUpdates()
+
+Added `checkForUpdates()` — invokes the Rust `check_and_install_update` command
+(via the same `__TAURI_INTERNALS__.invoke` pattern, no npm dep) for the Settings
+"Check for updates" button. Returns `'up_to_date'` / `'installed:<v>'`; null in
+web mode. The actual update logic + the startup auto-check live in Rust
+(`commands/updater.rs`).
 
 # tauri.ts — thin browser-side wrapper for Tauri v2 IPC
 

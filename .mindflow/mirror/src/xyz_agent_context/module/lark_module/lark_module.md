@@ -28,7 +28,7 @@ Follow-up bullet: an **incremental scope top-up is NOT the three-click
 binding flow** — `lark_permission_advance` is binding-only and its
 `Already completed` ≠ the needed scope is granted; a top-up is only
 `auth login --scope`(mint)→`auth login --device-code <carried code>`(poll).
-Why: prod an operator minutes saga — agent called `permission_advance` every turn,
+Why: prod operator minutes saga — agent called `permission_advance` every turn,
 read "Already completed" as success, re-minted instead of polling the
 device_code carried in its reasoning. (Carry works — reasoning is spliced
 back across turns via meta_data.reasoning; the agent took the wrong flow.) +1 test.

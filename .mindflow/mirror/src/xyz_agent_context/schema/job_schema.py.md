@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-04-21
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — JobStatus.PAUSED_NO_QUOTA (#6)
+
+New status value `paused_no_quota`: a recurring/ongoing job whose run failed
+because the owner's free-tier quota is exhausted (and no own provider) is parked
+here instead of being rescheduled (which caused the every-interval infinite-loop
+re-fire). Distinct from the reserved generic `PAUSED` so the frontend can label
+it "No quota" and JobTrigger's recheck can target it for auto-resume. Additive
+enum value (string) → safe per 铁律 #6. Mirrors: `job_trigger.py` (pause/resume),
+`JobsPanel.tsx` + `api.ts` (frontend label).
 
 # job_schema.py
 

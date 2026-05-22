@@ -1,3 +1,19 @@
+---
+code_file: src/xyz_agent_context/utils/db_backend_sqlite.py
+last_verified: 2026-05-22
+stub: false
+---
+
+## 2026-05-22 — initialize() guards the parent dir (clear error, not cryptic)
+
+Before `aiosqlite.connect`, `initialize()` ensures the DB's parent dir
+(`~/.narranexus`) is writable via `fs_safety.ensure_writable_dir` (which repairs
+perms on a dir we own). Unlike logs, the DB CANNOT be diverted to a temp dir —
+it's the user's data — so if the dir is foreign-owned (e.g. carried over by
+Migration Assistant) it raises a clear `RuntimeError` naming the dir + the exact
+`sudo chown` fix, instead of aiosqlite's cryptic `unable to open database file`
+that (pre readiness-gate) killed the proxy/backend on startup. `:memory:` skipped.
+
 # db_backend_sqlite.py
 
 `SQLiteBackend` — the `DatabaseBackend` implementation for local/desktop deployments, using `aiosqlite` with WAL mode and a serializing write lock.

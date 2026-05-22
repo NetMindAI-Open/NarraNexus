@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-05-19
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — stall health-probe diagnostic (#7, partial)
+
+The silent-probe cadence (`IDLE_PROBE_SECONDS`) now reads
+`settings.llm_stall_probe_after_seconds` (.env-tunable). When a run is truly
+silent that long AND the CLI subprocess is alive, we now ALSO fire
+`_probe_provider_reachable(base_url, …)` — a cheap out-of-band request to the
+provider endpoint — and log "provider REACHABLE (model thinking)" vs
+"UNREACHABLE (connection dead)". This is the dead-vs-thinking signal for a
+prolonged silence. **Diagnostic only — it never force-stops the run** (铁律
+#14); the transport-level recovery is the per-request `API_TIMEOUT_MS` + CLI
+retry (set via `api_config.to_cli_env`).
+
+**Deferred (NOT yet implemented):** the active `interrupt()` + re-issue
+auto-recovery on a confirmed-dead provider (the discussed "路径2"). It's risky
+surgery on this shared streaming loop and needs integration testing against a
+mock stalled provider before shipping — see
+`reference/self_notebook/todo/2026-05-22-debug-batch.md` #7.
 
 ## 2026-05-19 — Source-aware history truncation
 

@@ -88,6 +88,44 @@ from zoneinfo import ZoneInfo
 from xyz_agent_context.module.job_module._job_context_builder import build_execution_prompt
 
 
+# error_type values (set by step_3_agent_loop's `error_type = type(e).__name__`)
+# that mean "this run cannot succeed until the owner tops up quota or configures
+# their own provider". On these we PAUSE the job (PAUSED_NO_QUOTA) instead of
+# rescheduling — otherwise a recurring/ongoing job re-fires every interval into
+# the same wall (the infinite-loop bug, #6). Transient errors (network / LLM
+# hiccups) are deliberately NOT here: those still reschedule so the next
+# interval can succeed. (铁律 #14: this is job-scheduler-level, never an
+# agent_loop limit. #15: own-provider users' runs succeed and never hit this.)
+_NO_QUOTA_ERROR_TYPES: frozenset = frozenset({
+    "QuotaExceededError",         # free tier exhausted, no own provider
+    "FreeTierExhaustedError",     # free tier exhausted, has own provider (toggle)
+    "NoProviderConfiguredError",  # opted out, no own provider
+    "SystemDefaultUnavailable",   # free tier disabled / quota gone (api_config path)
+    "LLMConfigNotConfigured",     # provider_driver resolution: no usable config
+})
+
+# Fallback substrings for the generic-except path that only carries a message.
+_NO_QUOTA_ERROR_MARKERS = (
+    "quota exhausted",
+    "free quota exhausted",
+    "free-tier quota exhausted",
+    "no provider configured",
+    "system free tier",
+)
+
+
+def _is_no_quota_failure(result: Dict[str, Any]) -> bool:
+    """True when a failed job result is a quota/provider-config exhaustion that
+    won't fix itself by waiting — pause instead of reschedule."""
+    if result.get("success", True):
+        return False
+    et = result.get("error_type")
+    if et and et in _NO_QUOTA_ERROR_TYPES:
+        return True
+    msg = (result.get("error") or "").lower()
+    return any(m in msg for m in _NO_QUOTA_ERROR_MARKERS)
+
+
 class JobTrigger:
     """
     Job Trigger - Background Polling Service
@@ -329,6 +367,10 @@ class JobTrigger:
             if recovered > 0:
                 logger.info(f"Recovered {recovered} stuck jobs")
 
+            # 1.5 Resume jobs auto-paused for no-quota whose owner can now run
+            # again (quota restored or own provider configured) — #6 resume path.
+            await self._resume_eligible_no_quota_jobs()
+
             # 2. Query jobs due for execution
             due_jobs = await repo.get_due_jobs()
 
@@ -351,6 +393,68 @@ class JobTrigger:
 
         except Exception as e:
             logger.exception(f"Error in poll_and_enqueue: {e}")
+
+    async def _user_can_run(self, user_id: str) -> bool:
+        """Would a run for this user now resolve a provider? True if the system
+        free-tier quota is available OR the user has a complete own provider.
+        Mirrors ProviderResolver's success conditions cheaply (no agent loop) so
+        the poller can decide when to lift a PAUSED_NO_QUOTA. Respects 铁律 #15:
+        own-provider users always pass, so their jobs never stay paused."""
+        try:
+            from xyz_agent_context.agent_framework.quota_service import QuotaService
+            if await QuotaService.default().check(user_id):
+                return True
+        except Exception as e:  # noqa: BLE001 — quota subsystem optional/unbootstrapped
+            logger.debug(f"_user_can_run quota check failed for {user_id}: {e}")
+        try:
+            from xyz_agent_context.agent_framework.user_provider_service import (
+                UserProviderService,
+            )
+            from xyz_agent_context.agent_framework.provider_resolver import (
+                _is_user_config_complete,
+            )
+            cfg = await UserProviderService(self.db).get_user_config(user_id)
+            if _is_user_config_complete(cfg):
+                return True
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"_user_can_run provider check failed for {user_id}: {e}")
+        return False
+
+    async def _resume_eligible_no_quota_jobs(self) -> int:
+        """Flip PAUSED_NO_QUOTA jobs back to ACTIVE when the owner can run again.
+        Resume schedule goes forward (compute_next_run from now) so a long-paused
+        recurring job doesn't fire a backlog burst on resume. (#6 resume path —
+        covers both 'quota topped up' and 'user configured own provider'.)"""
+        try:
+            repo = self._get_job_repo()
+            paused = await repo.get_jobs_by_status(JobStatus.PAUSED_NO_QUOTA)
+            if not paused:
+                return 0
+            resumed = 0
+            for job in paused:
+                exec_uid = job.related_entity_id or job.user_id
+                if not exec_uid or not await self._user_can_run(exec_uid):
+                    continue
+                next_run = compute_next_run(
+                    job_type=job.job_type,
+                    trigger_config=job.trigger_config,
+                    last_run_utc=utc_now(),
+                )
+                if next_run:
+                    await repo.update_next_run(job.job_id, next_run)
+                await repo.update_job_status(
+                    job_id=job.job_id, status=JobStatus.ACTIVE
+                )
+                resumed += 1
+                logger.info(
+                    f"Job {job.job_id} resumed from PAUSED_NO_QUOTA (user={exec_uid})"
+                )
+            if resumed:
+                logger.info(f"Resumed {resumed} job(s) from PAUSED_NO_QUOTA")
+            return resumed
+        except Exception as e:
+            logger.exception(f"Error resuming PAUSED_NO_QUOTA jobs: {e}")
+            return 0
 
     async def _get_due_jobs(self) -> List[JobModel]:
         """
@@ -667,6 +771,28 @@ The task was executed but produced no text output.
                     job_id=job.job_id,
                     event_id=event_id
                 )
+
+            # #6 — no-quota / no-provider pause. This runs for ALL job types
+            # BEFORE the reschedule/complete branching: a run that failed
+            # because the owner's free-tier quota is gone (and they have no own
+            # provider) will fail identically every interval, so rescheduling
+            # it just burns a runtime slot forever. Pause instead; the periodic
+            # recheck (_resume_eligible_no_quota_jobs) flips it back to ACTIVE
+            # when quota is restored or a provider is configured. Transient
+            # failures fall through to the normal reschedule path below.
+            if _is_no_quota_failure(result):
+                await repo.update_job_status(
+                    job_id=job.job_id,
+                    status=JobStatus.PAUSED_NO_QUOTA,
+                    error_message=result.get("error"),
+                )
+                if job.instance_id:
+                    await self._update_instance_failed(job.instance_id)
+                logger.warning(
+                    f"Job {job.job_id} paused (no quota/provider): "
+                    f"{result.get('error_type') or result.get('error')}"
+                )
+                return
 
             # Handle based on job type
             if job.job_type == JobType.ONE_OFF:

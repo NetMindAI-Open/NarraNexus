@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -67,6 +68,69 @@ def _resolve_log_dir(arg: Path | None) -> Path:
     if env_dir:
         return Path(env_dir).expanduser()
     return _DEFAULT_LOG_ROOT
+
+
+# Shared with the SQLite backend (utils/fs_safety.py) so "fix the real dir, not
+# work around it" behaves identically for logs and the DB. Imported under the
+# module-private names so existing tests/monkeypatches on `_setup._chmod_repair`
+# keep working.
+from xyz_agent_context.utils.fs_safety import (  # noqa: E402
+    chmod_repair_owned as _chmod_repair,
+    chown_hint as _chown_hint,
+    probe_writable as _probe_writable,
+)
+
+
+def _ensure_writable_log_dir(preferred: Path, service_name: str) -> tuple[Path, bool]:
+    """Make a usable, *writable* log directory. Order of preference:
+
+      1. The preferred dir (``~/.narranexus/logs/<svc>`` or ``$NEXUS_LOG_DIR``)
+         — the CORRECT location. If it's not writable but we own it, repair the
+         perms (chmod) and use it. This is "create the file properly", not a
+         workaround.
+      2. Only if the preferred dir is owned by someone else (root / a foreign
+         uid from Migration Assistant) — which a user process cannot fix — fall
+         back to a temp dir so the service still starts, and print the EXACT
+         ``sudo`` command to fix it permanently.
+      3. If even that fails: stderr-only (``file_logging_ok=False``).
+
+    A bad log dir must NEVER crash the service (this is what killed
+    sqlite_proxy/backend on a fresh Mac → "Connection failed").
+
+    Returns ``(usable_dir, file_logging_ok)``.
+    """
+    # 1. Preferred dir — try, then self-repair-if-owned, then try again.
+    if _probe_writable(preferred):
+        return preferred, True
+    if _chmod_repair(preferred) and _probe_writable(preferred):
+        print(
+            f"[setup_logging] repaired permissions on {preferred}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return preferred, True
+
+    # 2. Preferred dir is unfixable from here (foreign ownership). Tell the user
+    # exactly how to fix it, then fall back so the app still runs.
+    print(
+        f"[setup_logging] WARNING: log dir {preferred} is not writable and is not "
+        f"owned by you (likely created by root, or carried over from another Mac "
+        f"by Migration Assistant). File logs are temporarily going to a temp dir. "
+        f"To fix permanently:  {_chown_hint(preferred)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    fallback = Path(tempfile.gettempdir()) / "narranexus-logs" / service_name
+    if _probe_writable(fallback):
+        return fallback, True
+
+    # 3. Nothing writable at all — run stderr-only rather than crash.
+    print(
+        "[setup_logging] WARNING: no writable log dir found — logging to stderr only.",
+        file=sys.stderr,
+        flush=True,
+    )
+    return preferred, False
 
 
 def _ensure_audit_level() -> None:
@@ -124,8 +188,11 @@ def setup_logging(
 
     resolved_level = _resolve_level(level)
     resolved_fmt = _resolve_format(fmt)
-    resolved_dir = _resolve_log_dir(log_dir) / service_name
-    resolved_dir.mkdir(parents=True, exist_ok=True)
+    # A bad/unwritable log dir must NEVER crash the service (see helper). When
+    # file_logging_ok is False we skip the file sink and run stderr-only.
+    resolved_dir, file_logging_ok = _ensure_writable_log_dir(
+        _resolve_log_dir(log_dir) / service_name, service_name
+    )
 
     _ensure_audit_level()
 
@@ -154,18 +221,19 @@ def setup_logging(
             backtrace=True,
             diagnose=False,
         )
-        logger.add(
-            log_file,
-            level=resolved_level,
-            serialize=True,
-            rotation="00:00",
-            retention="30 days",
-            compression="zip",
-            encoding="utf-8",
-            enqueue=True,
-            backtrace=True,
-            diagnose=False,
-        )
+        if file_logging_ok:
+            logger.add(
+                log_file,
+                level=resolved_level,
+                serialize=True,
+                rotation="00:00",
+                retention="30 days",
+                compression="zip",
+                encoding="utf-8",
+                enqueue=True,
+                backtrace=True,
+                diagnose=False,
+            )
     else:
         logger.add(
             sys.stderr,
@@ -174,18 +242,19 @@ def setup_logging(
             backtrace=True,
             diagnose=False,
         )
-        logger.add(
-            log_file,
-            format=_TEXT_FORMAT,
-            level=resolved_level,
-            rotation="00:00",
-            retention="30 days",
-            compression="zip",
-            encoding="utf-8",
-            enqueue=True,
-            backtrace=True,
-            diagnose=False,
-        )
+        if file_logging_ok:
+            logger.add(
+                log_file,
+                format=_TEXT_FORMAT,
+                level=resolved_level,
+                rotation="00:00",
+                retention="30 days",
+                compression="zip",
+                encoding="utf-8",
+                enqueue=True,
+                backtrace=True,
+                diagnose=False,
+            )
 
     install_intercept_handler()
 

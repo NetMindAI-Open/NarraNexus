@@ -273,6 +273,56 @@ tmux new-window -t "$SESSION" -n "Frontend" \
 # --- Select Control window ---
 tmux select-window -t "$SESSION:Control"
 
+# --- Readiness verification (iron rule #7: mirror the dmg's process_manager
+# readiness gate). Wait for the port-bound services and confirm the required
+# portless workers are alive; surface a clear error + log path for any that
+# didn't come up, instead of cheerfully printing "All services started" while
+# the app would fail every request with "Connection failed".
+RED="\033[31m"
+LOG_BASE="$HOME/.narranexus/logs"
+logpath() { echo "${LOG_BASE}/$1/$1_$(date +%Y%m%d).log"; }
+
+echo -n "Waiting for Backend API :8000..."
+backend_ok=false
+for _i in $(seq 1 45); do
+  if curl -sf "http://127.0.0.1:8000/docs" >/dev/null 2>&1 \
+     || lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null 2>&1; then
+    echo " ready"; backend_ok=true; break
+  fi
+  echo -n "."; sleep 1
+done
+[ "$backend_ok" = true ] || echo " NOT READY"
+
+# Give the portless workers a moment to either come up or crash on import.
+sleep 2
+
+# Newline-delimited accumulator (NOT a bash array — macOS ships bash 3.2 where
+# `"${arr[@]}"` on an empty array trips `set -u`).
+failed=""
+add_fail() { failed="${failed}$1"$'\n'; }
+[ "$backend_ok" = true ] || add_fail "Backend API|backend|HTTP :8000 never became reachable"
+{ lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null 2>&1 || ss -tlnp 2>/dev/null | grep -q ':8100 '; } \
+  || add_fail "SQLite Proxy|sqlite_proxy|:8100 never came up"
+pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null 2>&1 || add_fail "MCP Server|mcp|process not running (crashed on startup?)"
+pgrep -f 'module_poller' >/dev/null 2>&1 || add_fail "Module Poller|poller|process not running (crashed on startup?)"
+pgrep -f 'job_trigger' >/dev/null 2>&1 || add_fail "Job Trigger|job_trigger|process not running (crashed on startup?)"
+pgrep -f 'message_bus_trigger' >/dev/null 2>&1 || add_fail "Bus Trigger|message_bus_trigger|process not running (crashed on startup?)"
+
+if [ -n "$failed" ]; then
+  echo ""
+  echo -e "  ${RED}⚠ Some REQUIRED services did not start:${R}"
+  printf "%s" "$failed" | while IFS='|' read -r label sid reason; do
+    [ -z "$label" ] && continue
+    echo -e "    ${RED}✗${R} ${label} — ${reason}"
+    echo -e "       log:  $(logpath "$sid")"
+    echo -e "       live: tmux attach -t ${SESSION}  (window: ${label})"
+  done || true
+  echo -e "  ${Y}Until fixed, the app will show \"Connection failed\" on user/login.${R}"
+  echo ""
+else
+  echo -e "  ${G}✓ Required services healthy: proxy, backend, mcp, poller, jobs, bus.${R}"
+fi
+
 echo -e "${G}All services started in tmux session '${SESSION}'.${R}"
 echo ""
 echo -e "  Frontend:  ${C}http://localhost:5173${R}"

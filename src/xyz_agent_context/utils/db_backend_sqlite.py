@@ -159,6 +159,26 @@ class SQLiteBackend(DatabaseBackend):
         Enables WAL mode, sets performance-related PRAGMAs, and
         enables foreign key enforcement.
         """
+        # The DB lives at ~/.narranexus/nexus.db. If that parent dir is
+        # unwritable, aiosqlite fails with a cryptic "unable to open database
+        # file" and (before the readiness gate) took the proxy/backend down on
+        # startup → "Connection failed". Unlike logs, the DB CANNOT be diverted
+        # elsewhere (it's the user's data), so: repair the perms if we own the
+        # dir, else raise a clear, actionable error naming the fix. ":memory:"
+        # has no parent and is skipped.
+        if self._db_path not in (":memory:", "") and not self._db_path.startswith("file::memory:"):
+            from pathlib import Path
+            from xyz_agent_context.utils.fs_safety import ensure_writable_dir, chown_hint
+
+            parent = Path(self._db_path).expanduser().parent
+            if parent and str(parent) not in ("", ".") and not ensure_writable_dir(parent):
+                raise RuntimeError(
+                    f"SQLite database directory is not writable: {parent}\n"
+                    f"This is usually a stale ~/.narranexus owned by another user "
+                    f"(e.g. carried over by Migration Assistant from another Mac). "
+                    f"Fix it with:  {chown_hint(parent)}"
+                )
+
         self._conn = await aiosqlite.connect(self._db_path)
         self._conn.row_factory = aiosqlite.Row
 

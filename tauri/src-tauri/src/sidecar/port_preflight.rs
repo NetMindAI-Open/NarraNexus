@@ -142,3 +142,34 @@ pub fn show_conflict_dialog_and_exit(conflicts: &[PortConflict]) -> ! {
 
     std::process::exit(1);
 }
+
+/// Show a detailed dialog when a REQUIRED sidecar fails its readiness check
+/// (port never bound / process crashed on startup), then exit. Same osascript
+/// mechanism as the port-conflict dialog. `detail` is the message built by
+/// `ProcessManager::startup_error` (service, reason, log path, output tail).
+///
+/// This replaces the old silent `log::error!` on `start_all` failure — a fresh
+/// machine where the bundled python is blocked (Gatekeeper / arch mismatch) or
+/// a port-race leaves the backend down used to just show the UI and fail every
+/// request with "Connection failed", with nothing to point the user at.
+pub fn show_startup_failure_dialog_and_exit(detail: &str) -> ! {
+    let mut msg = String::from("NarraNexus 启动失败\n\n一个必需的后台服务没能起来：\n\n");
+    msg.push_str(detail);
+    msg.push_str(
+        "\n\n常见原因：\n  • 本版本仅支持 Apple Silicon（M 系列）芯片，Intel Mac 无法运行\n  \
+         • macOS 安全策略(Gatekeeper)拦截了内置 Python（全新下载的 App 容易遇到）\n  \
+         • 首次初始化失败\n\n请把上面的「Log file」发给我们排查。",
+    );
+
+    // Full detail to stderr / terminal launches.
+    eprintln!("\n[NarraNexus] Startup failure:\n{}\n", msg);
+
+    let escaped = msg.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        r#"display dialog "{}" with title "NarraNexus" buttons {{"退出"}} default button "退出" with icon stop"#,
+        escaped
+    );
+    let _ = Command::new("osascript").args(["-e", &script]).status();
+
+    std::process::exit(1);
+}

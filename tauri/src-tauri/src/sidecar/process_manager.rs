@@ -216,8 +216,116 @@ impl ProcessManager {
                 );
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
             }
+            // Readiness gate for port-bound services (sqlite_proxy :8100,
+            // backend :8000): dependents must not start until the port is
+            // actually reachable. If a REQUIRED one never comes up (port held,
+            // bundled python killed by Gatekeeper, crash on import) we abort
+            // with a detailed error instead of leaving the UI to fail later
+            // with a vague "Connection failed". Iron rule #7: scripts/run.sh
+            // runs the same readiness checks for the headless path.
+            if def.port.is_some() {
+                if let Err(e) = self.verify_port_ready(def).await {
+                    if is_required_service(&def.id) {
+                        return Err(e);
+                    }
+                    log::warn!("Optional service not ready (continuing): {}", e);
+                }
+            }
+        }
+
+        // Final liveness sweep: required PORTLESS workers (mcp, poller,
+        // job_trigger, message_bus_trigger) have no port to probe, so confirm
+        // they didn't crash on startup. The time spent above starting later
+        // services + the port polls is their grace window.
+        for def in sorted_defs
+            .iter()
+            .filter(|d| d.port.is_none() && is_required_service(&d.id))
+        {
+            let exit_status: Option<String> = self
+                .processes
+                .get_mut(&def.id)
+                .and_then(|c| c.try_wait().ok().flatten())
+                .map(|s| s.to_string());
+            if let Some(status) = exit_status {
+                return Err(self.startup_error(
+                    def,
+                    &format!("worker process exited on startup ({})", status),
+                ));
+            }
         }
         Ok(())
+    }
+
+    /// Poll a port-bound service until it accepts a TCP connection (or fail
+    /// with a detailed error). Fails fast if the child exits during the wait.
+    async fn verify_port_ready(&mut self, def: &ServiceDef) -> Result<(), String> {
+        let Some(port) = def.port else {
+            return Ok(());
+        };
+        // Backend runs DB auto-migration on first launch → more headroom.
+        let timeout =
+            std::time::Duration::from_secs(if def.id == "backend" { 45 } else { 20 });
+        let start = std::time::Instant::now();
+        loop {
+            // Child already gone? Surface immediately with its log tail.
+            let exit_status: Option<String> = self
+                .processes
+                .get_mut(&def.id)
+                .and_then(|c| c.try_wait().ok().flatten())
+                .map(|s| s.to_string());
+            if let Some(status) = exit_status {
+                return Err(self.startup_error(
+                    def,
+                    &format!("process exited during startup ({})", status),
+                ));
+            }
+            if tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_ok()
+            {
+                log::info!("Service {} ready on port {}", def.id, port);
+                self.promote_to_running(&def.id);
+                return Ok(());
+            }
+            if start.elapsed() >= timeout {
+                return Err(self.startup_error(
+                    def,
+                    &format!(
+                        "port {} never became reachable within {}s",
+                        port,
+                        timeout.as_secs()
+                    ),
+                ));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        }
+    }
+
+    /// Build a human-readable startup-failure message: what failed, why, the
+    /// log file path, and the tail of the captured output. Shown to the user
+    /// (dialog) and logged to stderr.
+    fn startup_error(&self, def: &ServiceDef, reason: &str) -> String {
+        let logs = self.get_logs(Some(&def.id));
+        let tail: Vec<String> = logs
+            .iter()
+            .rev()
+            .take(8)
+            .rev()
+            .map(|e| format!("  [{}] {}", e.stream, e.message))
+            .collect();
+        let log_path = current_log_path(&def.id);
+        format!(
+            "{} ({}) failed to start.\n\nReason: {}\n\nLog file: {}\n\nRecent output:\n{}",
+            def.label,
+            def.id,
+            reason,
+            log_path.display(),
+            if tail.is_empty() {
+                "  (no output captured — the process may have been blocked before it could log, e.g. macOS Gatekeeper or an arch mismatch)".to_string()
+            } else {
+                tail.join("\n")
+            }
+        )
     }
 
     /// Stop a service gracefully:
@@ -318,6 +426,17 @@ impl ProcessManager {
     }
 }
 
+/// Services the app cannot function without. A readiness failure on any of
+/// these aborts startup and surfaces a blocking error dialog; the optional
+/// channel triggers (lark/slack/telegram) are frequently unconfigured, so a
+/// failure there only warns. Keep in sync with scripts/run.sh's REQUIRED list.
+fn is_required_service(id: &str) -> bool {
+    matches!(
+        id,
+        "sqlite_proxy" | "backend" | "mcp" | "poller" | "job_trigger" | "message_bus_trigger"
+    )
+}
+
 /// Resolve the on-disk log directory we share with the Python side.
 /// Mirrors the layout used by setup_logging() in
 /// src/xyz_agent_context/utils/logging/_setup.py — namely
@@ -411,6 +530,19 @@ fn spawn_log_drainer<R>(
                             buf.pop_front();
                         }
                         buf.push_back(entry);
+                    }
+
+                    // Mirror every sidecar line to THIS process's own
+                    // stdout/stderr so launching the app from a terminal
+                    // (`open -a NarraNexus` or running the binary directly)
+                    // streams the full live log — startup crashes, port-bind
+                    // errors, Python tracebacks. On a Finder launch these go to
+                    // the system log (Console.app), still recoverable. The
+                    // in-memory buffer + per-service file below are unchanged.
+                    if stream == "stderr" {
+                        eprintln!("[{}] {}", service_id, line);
+                    } else {
+                        println!("[{}] {}", service_id, line);
                     }
 
                     if dir_ready {

@@ -97,6 +97,31 @@ class Settings(BaseSettings):
     anthropic_base_url: str = ""
     anthropic_model: str = ""  # Empty = let Claude Code CLI use its default model
 
+    # ===== LLM runtime resilience (#7) =====
+    # All env-tunable so ops can adjust without a code change. These address
+    # "agent run hangs on an API problem with no retry, occupying a runtime
+    # slot" WITHOUT violating 铁律 #14 (no agent_loop force-stop / total cap) or
+    # #15 (no governing the user's model choice).
+    #
+    # Injected into the Claude Code CLI subprocess env by `to_cli_env()`:
+    #   API_TIMEOUT_MS         — per-REQUEST timeout (NOT a run total). A stalled
+    #                            request errors after this and the CLI auto-
+    #                            retries. 10 min is generous enough that a
+    #                            legitimately-streaming long thinking pass (which
+    #                            keeps emitting tokens) is not cut.
+    #   CLAUDE_CODE_MAX_RETRIES — CLI's built-in retry count for transient
+    #                            errors (429 / 5xx / connection). Same provider,
+    #                            count-bounded (not time-bounded).
+    llm_api_timeout_ms: int = 600000          # 10 min per request
+    llm_max_retries: int = 10                 # CLI default; explicit = deterministic
+    # Health-probe diagnostic: when a run produces NO events at all for this
+    # long (true silence, subprocess still alive), probe the provider base_url
+    # out-of-band and log whether it's reachable — distinguishing "model is
+    # thinking" (provider up) from "connection is dead" (provider down). This is
+    # diagnostic only; it never force-stops the run (铁律 #14).
+    llm_stall_probe_after_seconds: int = 600
+    llm_stall_probe_timeout_seconds: int = 10
+
     # ===== Database =====
     database_url: Optional[str] = None
     db_host: str = "localhost"

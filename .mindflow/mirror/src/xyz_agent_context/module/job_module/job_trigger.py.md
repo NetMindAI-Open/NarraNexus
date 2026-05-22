@@ -1,7 +1,33 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-04-27
+last_verified: 2026-05-22
 ---
+
+## 2026-05-22 — no-quota auto-pause + resume (#6 infinite-loop fix)
+
+A run that failed because the owner's free-tier quota is exhausted (and no own
+provider is configured) returns `success=False` (it does NOT raise), so it
+bypassed `_handle_job_failure` and went through `_finalize_job_execution`, which
+ignored `success` and **rescheduled** the recurring/ongoing job — so it re-fired
+every interval into the same wall forever (amplified by many jobs).
+
+Fix:
+- `_finalize_job_execution` now early-returns BEFORE the reschedule branching
+  when `_is_no_quota_failure(result)` (error_type ∈ `_NO_QUOTA_ERROR_TYPES`
+  like `QuotaExceededError`, set by `step_3_agent_loop`'s
+  `error_type = type(e).__name__`; plus a message-substring fallback). It sets
+  status `PAUSED_NO_QUOTA` and does not reschedule. **Transient** failures
+  (network/LLM hiccups) are deliberately excluded → they still reschedule.
+- `_poll_and_enqueue` calls `_resume_eligible_no_quota_jobs()` each cycle:
+  for every `PAUSED_NO_QUOTA` job, `_user_can_run(uid)` checks system quota
+  (`QuotaService.default().check`) OR a complete own provider
+  (`UserProviderService` + `_is_user_config_complete`); if so, recompute
+  `next_run` from now and flip back to ACTIVE. Covers both resume triggers
+  (quota topped up / own provider configured).
+
+铁律 #14: this is purely job-scheduler-level — no agent_loop time/iteration
+limit, no force-stop. #15: own-provider users' runs succeed, so they never enter
+the pause branch and their jobs are never wrongly paused.
 
 ## 2026-04-27 — disable per-run file logging (fd-leak fix)
 

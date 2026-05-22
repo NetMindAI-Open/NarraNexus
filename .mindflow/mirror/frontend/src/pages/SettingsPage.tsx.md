@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — desktop-only "App updates" section
+
+Added `<UpdatesSection />` (rendered only when `isTauri()`) — a "Check for
+updates" button calling `checkForUpdates()` and showing the status. The app
+also auto-checks on launch (Rust); this is the explicit manual trigger.
 
 # SettingsPage.tsx — LLM provider and embedding configuration
 

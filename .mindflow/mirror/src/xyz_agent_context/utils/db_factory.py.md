@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/utils/db_factory.py
-last_verified: 2026-04-22
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — parse_sqlite_url collapses leading `//`
+
+Callers build the URL as `sqlite:///` + an already-absolute path → the
+SQLAlchemy 4-slash absolute form `sqlite:////Users/...`. `parse_sqlite_url`
+stripped only `sqlite://` (2 slashes), leaving a malformed `//Users/...` (macOS
+tolerates it but it showed up as `database: //Users/...` in proxy logs). It now
+collapses a leading run of slashes to one; `:memory:` / relative paths untouched.
 
 # db_factory.py
 

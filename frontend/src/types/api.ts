@@ -9,7 +9,7 @@ export interface ApiResponse {
 }
 
 // Job types
-export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'completed' | 'failed' | 'blocked' | 'cancelled';
 export type JobType = 'one_off' | 'scheduled' | 'ongoing';
 
 export interface TriggerConfig {

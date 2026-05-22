@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-05-18
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — LLM runtime resilience knobs (#7)
+
+Added `.env`-tunable fields: `llm_api_timeout_ms` (→ CLI `API_TIMEOUT_MS`),
+`llm_max_retries` (→ CLI `CLAUDE_CODE_MAX_RETRIES`), `llm_stall_probe_after_seconds`,
+`llm_stall_probe_timeout_seconds`. Consumed by `api_config.to_cli_env()` (timeout
++ retries injected into the CLI subprocess) and `xyz_claude_agent_sdk` (stall
+health-probe cadence/timeout). Defaults chosen to bound a pathological hang
+without cutting a legitimately long thinking pass (铁律 #14). Documented in
+`.env.cloud.example`.
 
 ## 2026-05-18 — extend .env→os.environ passthrough whitelist
 

@@ -34,6 +34,41 @@ except ImportError:
 _original_parse_message = _message_parser_module.parse_message
 
 
+async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:
+    """#7 diagnostic: is the LLM provider endpoint reachable right now?
+
+    Fires a cheap out-of-band request to ``base_url`` (independent of the
+    in-flight streaming request) so a prolonged silence can be classified:
+      - True  → endpoint answered (even a 4xx) → it's up; the model is most
+                likely just thinking. Do NOT interrupt (铁律 #14/#15).
+      - False → connection refused / timeout / DNS error → the connection is
+                most likely dead; the per-request API_TIMEOUT_MS + CLI retry
+                will recover or surface it at the transport layer.
+      - None  → couldn't determine (no base_url, or httpx unavailable).
+
+    Purely diagnostic — never used to force-stop a run.
+    """
+    if not base_url:
+        return None
+    try:
+        import httpx
+    except Exception:  # noqa: BLE001
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            # Any HTTP status (incl. 401/404) means the endpoint is up.
+            await client.get(base_url)
+        return True
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout,
+            httpx.PoolTimeout):
+        return False
+    except httpx.HTTPError:
+        # Got far enough to produce an HTTP-layer response/redirect → reachable.
+        return True
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _safe_parse_message(data: dict[str, Any]) -> Any:
     try:
         return _original_parse_message(data)
@@ -327,10 +362,14 @@ class ClaudeAgentSDK:
         # IDLE_PROBE_SECONDS is NOT a hard cap — per CLAUDE.md 铁律 #14
         # the agent_loop has no force-stop. It's just the cadence at
         # which we log a WARNING ("CLI silent for Ns, subprocess alive,
-        # still waiting") and probe subprocess liveness. If the CLI
+        # still waiting"), probe subprocess liveness, AND probe the
+        # provider endpoint's reachability (#7 diagnostic: distinguishes
+        # "model is thinking" from "connection is dead"). If the CLI
         # subprocess has actually died we surface that as an error;
-        # otherwise we continue waiting indefinitely.
-        IDLE_PROBE_SECONDS = 600
+        # otherwise we continue waiting indefinitely. .env-tunable via
+        # LLM_STALL_PROBE_AFTER_SECONDS.
+        from xyz_agent_context.settings import settings as _settings
+        IDLE_PROBE_SECONDS = max(30, _settings.llm_stall_probe_after_seconds)
 
         client = None
         message_count = 0
@@ -424,10 +463,29 @@ class ClaudeAgentSDK:
                     )
                     cli_returncode = getattr(process, "returncode", None) if process else None
                     if process is None or cli_returncode is None:
+                        # #7 diagnostic: subprocess alive but silent. Probe the
+                        # provider endpoint out-of-band to tell "model thinking"
+                        # (provider reachable) from "connection dead" (provider
+                        # unreachable). Diagnostic ONLY — we never force-stop
+                        # here (铁律 #14); the per-request API_TIMEOUT_MS + CLI
+                        # retry handle a genuinely dead request at the transport
+                        # layer. Surfacing this lets ops see a stuck slot.
+                        reachable = await _probe_provider_reachable(
+                            getattr(claude_config, "base_url", None),
+                            _settings.llm_stall_probe_timeout_seconds,
+                        )
+                        verdict = (
+                            "provider REACHABLE (model likely thinking)"
+                            if reachable is True
+                            else "provider UNREACHABLE (connection likely dead — "
+                            "API_TIMEOUT_MS + CLI retry should recover/surface)"
+                            if reachable is False
+                            else "provider reachability unknown"
+                        )
                         logger.warning(
                             f"[ClaudeAgentSDK] No message for {IDLE_PROBE_SECONDS}s "
-                            f"({message_count} so far); CLI subprocess still alive — "
-                            f"continuing to wait."
+                            f"({message_count} so far); CLI subprocess still alive; "
+                            f"{verdict} — continuing to wait."
                         )
                         # KEEP message_task across iterations; loop
                         # re-awaits it on the next pass.

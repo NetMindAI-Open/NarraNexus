@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-05-13
+last_verified: 2026-05-22
 stub: false
 ---
+
+## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
+
+`ClaudeConfig.to_cli_env()` now also sets `API_TIMEOUT_MS` (from
+`settings.llm_api_timeout_ms`) and `CLAUDE_CODE_MAX_RETRIES` (from
+`settings.llm_max_retries`). These are the Claude Code CLI's own knobs for a
+per-REQUEST timeout and built-in transient-error retry. Previously unset →
+inherited CLI defaults; now explicit + .env-tunable so a stalled request is
+bounded and auto-retried (the "卡死无重试" fix). API_TIMEOUT_MS is per-request,
+NOT a run total — it does not violate 铁律 #14 (no agent_loop cap); retry is on
+the SAME provider so it does not govern model choice (铁律 #15).
 
 ## 2026-05-13 — `_get_user_llm_configs_strict` delegates to provider_driver
 

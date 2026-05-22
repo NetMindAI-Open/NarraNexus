@@ -47,6 +47,10 @@ const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor:
   active: { icon: Zap, color: 'text-[var(--accent-primary)]', bgColor: 'bg-[var(--accent-glow)]', label: 'Active' },
   running: { icon: Play, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'Running' },
   paused: { icon: Pause, color: 'text-[var(--accent-secondary)]', bgColor: 'bg-[var(--accent-secondary)]/10', label: 'Paused' },
+  // Auto-paused: owner's free quota is exhausted and no own provider configured.
+  // Surfaced here (not via a notification) so users see why a scheduled job
+  // stopped firing; it auto-resumes once quota is restored or a provider added.
+  paused_no_quota: { icon: Pause, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'No quota' },
   completed: { icon: CheckCircle, color: 'text-[var(--color-success)]', bgColor: 'bg-[var(--color-success)]/10', label: 'Completed' },
   failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', label: 'Failed' },
   cancelled: { icon: Ban, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Cancelled' },
@@ -242,7 +246,7 @@ export function JobsPanel() {
       {viewMode === 'list' && (
         <ScrollArea horizontal hideScrollbar className="border-t border-[var(--rule)]">
         <div className="px-5 py-2 flex gap-1">
-          {(['all', 'active', 'running', 'paused', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
+          {(['all', 'active', 'running', 'paused', 'paused_no_quota', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
             const config = status !== 'all' ? statusConfig[status] : null;
             const isActive = statusFilter === status;
             return (
@@ -339,6 +343,8 @@ export function JobsPanel() {
                                   ? 'error'
                                   : job.status === 'active'
                                   ? 'accent'
+                                  : job.status === 'paused_no_quota'
+                                  ? 'warning'
                                   : job.status === 'paused'
                                   ? 'outline'
                                   : 'default'

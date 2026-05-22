@@ -109,6 +109,13 @@ def parse_sqlite_url(url: str) -> str:
     path = url[len(prefix):]
     if not path:
         raise ValueError("sqlite URL must include a path (e.g., sqlite:///path/to/db)")
+    # Collapse a leading run of slashes to one. Callers build the URL as
+    # `sqlite:///` + an already-absolute path, yielding `sqlite:////Users/...`
+    # (SQLAlchemy's 4-slash absolute form); stripping only `sqlite://` left a
+    # malformed `//Users/...`. macOS tolerates it, but it's wrong and shows up
+    # in logs as `database: //Users/...`. `:memory:` and relative paths untouched.
+    if path.startswith("//"):
+        path = "/" + path.lstrip("/")
     return path
 
 

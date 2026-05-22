@@ -128,7 +128,12 @@ _NON_HTML_CSP = {
 }
 
 
-@router.get("/raw/{token}/{file_path:path}")
+# methods=["GET", "HEAD"]: FastAPI's APIRoute does NOT auto-add HEAD to GET
+# routes (plain Starlette does), so a HEAD here used to 405. The frontend
+# HtmlRenderer probes this URL with `fetch(url, {method:'HEAD'})` before
+# loading the iframe to detect broken pointers (410 → self-heal); a blanket
+# 405 defeated that path. Starlette's FileResponse serves HEAD as headers-only.
+@router.api_route("/raw/{token}/{file_path:path}", methods=["GET", "HEAD"])
 async def get_raw(request: Request, token: str, file_path: str = ""):
     """Serve a file from an artifact's root directory.
 

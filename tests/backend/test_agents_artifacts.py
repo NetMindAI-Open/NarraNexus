@@ -171,6 +171,35 @@ def test_public_raw_serves_sibling_asset(setup):
     assert r.content.startswith(b"body")
 
 
+def test_public_raw_head_allowed_returns_200(setup):
+    """HEAD must be routed, not 405. FastAPI GET routes do NOT auto-add HEAD
+    (unlike plain Starlette), so the route declares methods=["GET","HEAD"].
+    The HtmlRenderer preflight `fetch(url, {method:'HEAD'})` relies on reading
+    the real status (200/410) instead of always hitting 405."""
+    client = setup["client"]
+    token = client.get("/api/agents/agent_x/artifacts/art_99999999/view-token").json()["token"]
+    r = client.head(f"/api/public/artifacts/raw/{token}/")
+    assert r.status_code == 200
+    assert r.content == b""  # HEAD: headers only, no body
+
+
+def test_public_raw_head_bad_token_is_401_not_405(setup):
+    """A bad token on HEAD must reach the handler (401). A 405 here would mean
+    HEAD was rejected at routing, before the handler ran."""
+    r = setup["client"].head("/api/public/artifacts/raw/not-a-valid-token/x")
+    assert r.status_code == 401
+
+
+def test_public_raw_head_broken_pointer_returns_410(setup):
+    """Frontend self-heal triggers on 410. HEAD must surface 410 when the
+    on-disk file is gone (live-pointer model), not 405."""
+    client = setup["client"]
+    token = client.get("/api/agents/agent_x/artifacts/art_99999999/view-token").json()["token"]
+    setup["entry"].unlink()  # file gone on disk → 410
+    r = client.head(f"/api/public/artifacts/raw/{token}/")
+    assert r.status_code == 410
+
+
 def test_public_raw_path_escape_returns_4xx(setup):
     body = setup["client"].get("/api/agents/agent_x/artifacts/art_99999999/view-token").json()
     token = body["token"]

@@ -44,6 +44,11 @@ class JobStatus(str, Enum):
     ACTIVE = "active"          # Active (scheduled job running normally)
     RUNNING = "running"        # Currently executing
     PAUSED = "paused"          # Paused (reserved)
+    PAUSED_NO_QUOTA = "paused_no_quota"  # Auto-paused: run failed because the
+    # owner's free-tier quota is exhausted AND no own provider is configured.
+    # NOT rescheduled (would re-fire every interval into the same wall — the
+    # infinite-loop bug). Auto-resumes when quota is restored or the user
+    # configures their own provider (JobTrigger periodic recheck).
     COMPLETED = "completed"    # Completed (one_off finished execution)
     FAILED = "failed"          # Execution failed
     CANCELLED = "cancelled"    # Cancelled (reserved)
