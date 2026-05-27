@@ -409,8 +409,18 @@ _register(
             Column("narrative_id", "TEXT", "VARCHAR(64)"),
             Column("monitored_job_ids", "TEXT", "JSON"),
             Column("iteration_count", "INTEGER", "INT", default="0"),
-            Column("created_at", "TEXT", "DATETIME(6)"),
-            Column("updated_at", "TEXT", "DATETIME(6)"),
+            # 2026-05-27: NOT NULL + DEFAULT added defensively. Pre-existing
+            # job rows in local sqlite DBs occasionally had created_at /
+            # updated_at = NULL (the column previously had no constraint),
+            # which then crashed job_trigger's _row_to_entity → JobModel
+            # construction with a pydantic ValidationError every poll cycle:
+            #   "Input should be a valid datetime, input_value=None"
+            # auto_migrate is additive-only and won't backfill existing NULL
+            # rows — `_row_to_entity` does that at the read boundary via
+            # `row.get(...) or datetime.now()`. The DEFAULT here prevents any
+            # FUTURE INSERT from re-creating the bug.
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_instance_jobs_job_id", ["job_id"], unique=True),

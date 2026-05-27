@@ -291,14 +291,23 @@ async def install_skill(
         f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}"
     )
 
+    def _reject(reason: str) -> HTTPException:
+        # Log every 4xx rejection with the human-readable reason so prod
+        # debugging never again requires asking the user to open DevTools.
+        logger.warning(
+            f"skill install rejected: agent_id={agent_id} user_id={user_id} "
+            f"source={source} reason={reason!r}"
+        )
+        return HTTPException(status_code=400, detail=reason)
+
     if source not in ["github", "zip"]:
-        raise HTTPException(status_code=400, detail="source must be 'github' or 'zip'")
+        raise _reject("source must be 'github' or 'zip'")
 
     if source == "github" and not url:
-        raise HTTPException(status_code=400, detail="url is required when source=github")
+        raise _reject("url is required when source=github")
 
     if source == "zip" and not file:
-        raise HTTPException(status_code=400, detail="file is required when source=zip")
+        raise _reject("file is required when source=zip")
 
     try:
         skill_module = _get_skill_module(agent_id, user_id)
@@ -354,7 +363,7 @@ async def install_skill(
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise _reject(str(e))
     except Exception as e:
         logger.exception(f"Failed to install skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -42,7 +42,13 @@ pub async fn check_and_install_update(app: AppHandle) -> Result<String, String> 
             log::info!("[updater] already up to date");
             Ok("up_to_date".to_string())
         }
-        Err(e) => Err(format!("update check failed: {e}")),
+        // Return the underlying reqwest / updater error as-is — callers
+        // wrap with their own context ("Update check failed.\n\n{e}" in
+        // the manual flow, log "[updater] startup check: {e}" silently
+        // in the startup flow). Adding "update check failed:" here too
+        // produced the duplicated "Update check failed.\n\nupdate check
+        // failed: <real error>" dialog seen in v1.7.7.
+        Err(e) => Err(e.to_string()),
     }
 }
 

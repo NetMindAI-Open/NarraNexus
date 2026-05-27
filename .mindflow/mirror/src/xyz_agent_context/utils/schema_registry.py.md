@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-14
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — instance_jobs.created_at/updated_at NOT NULL + DEFAULT
+
+`instance_jobs` table had `created_at` / `updated_at` columns with no
+constraint and no DEFAULT. Some code paths INSERTed rows leaving
+those columns NULL, which then crashed `job_trigger`'s pydantic
+`JobModel` validation (see [[job_repository]] companion fix). Added
+`nullable=False` + `default="(datetime('now'))"` so future INSERTs
+can't recreate the bug. `auto_migrate` is additive-only — existing
+NULL rows in already-deployed sqlite DBs are handled at the read
+boundary by `_row_to_entity` defensively coercing None to
+`datetime.now()`.
 
 ## 2026-05-14 — artifact pointer model
 

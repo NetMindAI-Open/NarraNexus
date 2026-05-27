@@ -766,6 +766,40 @@ export interface LarkCredentialResponse extends ApiResponse {
   data: LarkCredentialData | null;
 }
 
+/**
+ * Structured Lark/Feishu bind failure — translator-rendered.
+ *
+ * Mirrors `_lark_error_translator.ErrorTranslation` on the backend. Allows the
+ * frontend to render a "title + explanation + actionable hint + clickable
+ * console link" card instead of dumping raw lark-cli stderr into a red div.
+ * Present on bind / re-bind responses when `success: false` AND the backend
+ * recognised the error class. Absent on legacy paths or unknown errors —
+ * frontend should fall back to the plain `error` string in that case.
+ */
+export interface LarkErrorDetail {
+  code: string;
+  severity: 'error' | 'warning' | 'info' | string;
+  title: string;
+  message: string;
+  action_hint: string;
+  console_url: string;
+  raw_message: string;
+}
+
+/**
+ * Non-blocking observation surfaced after a successful bind — e.g. an
+ * optional scope is missing, or the event-subscription probe couldn't
+ * confirm WS delivery within its timeout. UI renders as a yellow
+ * callout so the user knows what to fix later, without blocking bind.
+ */
+export interface LarkBindWarning {
+  kind: string;        // 'scope_optional_missing' | 'event_probe_<kind>' | ...
+  severity: 'warning' | 'info' | string;
+  title: string;
+  message: string;
+  raw_error?: string;
+}
+
 export interface LarkBindResponse extends ApiResponse {
   data?: {
     profile_name: string;
@@ -775,6 +809,8 @@ export interface LarkBindResponse extends ApiResponse {
     owner_open_id: string;
     owner_name: string;
   };
+  error_detail?: LarkErrorDetail;
+  warnings?: LarkBindWarning[];
 }
 
 export interface LarkAuthLoginResponse extends ApiResponse {

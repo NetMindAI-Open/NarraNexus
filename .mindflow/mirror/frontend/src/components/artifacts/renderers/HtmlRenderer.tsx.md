@@ -4,6 +4,38 @@ last_verified: 2026-05-27
 stub: false
 ---
 
+## 2026-05-27 — Tauri-IPC blob path (P0 fix: dmg white screen)
+
+The P0 that took 4 rounds to actually kill. After the `frame-ancestors`
++ CORP `cross-origin` backend fix and the workspace-root blob fallback,
+the dmg iframe was *still* white. Real root cause: WKWebView blocks
+**any** HTTP subresource loaded from the HTTPS `tauri.localhost` parent
+as "active mixed content" — `fetch()` from JS is blocked too, so the
+blob fallback's `fetchArtifactBlobUrl()` also silently died.
+
+Fix: in Tauri mode, fetch artifact bytes through the new
+`fetch_artifact_via_backend` Rust command (see [[artifact_fetch.rs]]
+and [[tauri.ts]]). Rust-originated HTTP isn't subject to WKWebView's
+block. The renderer's blob-fetch effect now tries Tauri IPC first and
+falls back to `fetchArtifactBlobUrl` only if IPC isn't available
+(browser mode, or any future IPC regression).
+
+Same change widens `useBlobIframe` to `isWorkspaceRootEntry(...) ||
+isTauri()`. In Tauri mode **all** HTML artifacts go through the blob
+iframe path now, not just workspace-root single-file. The tradeoff:
+a multi-file artifact's sibling `./style.css` won't resolve off a
+`blob:` URL (no base href), but the entry HTML at least renders —
+strictly better than a white frame, and a follow-up can rewrite asset
+URLs if multi-file Tauri rendering becomes a priority. Cloud / browser
+behaviour is unchanged (workspace-root → blob; subfolder → raw URL
+iframe so sibling assets resolve via the directory URL).
+
+Diagnostic overlay added (folded `<details>` in the bottom-right
+corner) showing `useBlobIframe`, `blobSource` (`tauri-ipc` vs
+`http-fetch`), `url`, `iframeSrc`, errors — gives a state readout
+even when devtools aren't attached. Was the missing eye during the
+4-round debug.
+
 ## 2026-05-27 — break the Dismiss-modal loop (P0 fix)
 
 The HEAD-probe useEffect previously depended on `[url, heal]`. The

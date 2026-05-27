@@ -64,6 +64,11 @@ pub fn run() {
             commands::auth::get_claude_login_status,
             commands::deep_link::consume_pending_deep_link,
             commands::updater::check_and_install_update,
+            // Artifact bytes proxy — fetches local /api/public/artifacts/...
+            // through Rust so WKWebView's mixed-content blocker can't kill
+            // the HTML artifact iframe load in the dmg. See
+            // commands/artifact_fetch.rs for the full rationale.
+            commands::artifact_fetch::fetch_artifact_via_backend,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a
@@ -76,7 +81,15 @@ pub fn run() {
             // the first iteration of.
             let port_conflicts = sidecar::port_preflight::check_required_ports();
             if !port_conflicts.is_empty() {
-                sidecar::port_preflight::show_conflict_dialog_and_exit(&port_conflicts);
+                // 2026-05-27: was `show_conflict_dialog_and_exit`. The new
+                // `resolve_or_exit` first checks whether the conflicting
+                // PIDs are NarraNexus's own orphaned sidecars (from a
+                // force-quit / crash that bypassed ExitRequested) and
+                // offers to terminate them in-place. Third-party holders
+                // still get the "please close the other program" exit.
+                // Returns only on successful auto-cleanup; otherwise
+                // exits cleanly.
+                sidecar::port_preflight::resolve_or_exit(&port_conflicts);
             }
 
             // Set DATABASE_URL so the Python backend picks up the correct SQLite path

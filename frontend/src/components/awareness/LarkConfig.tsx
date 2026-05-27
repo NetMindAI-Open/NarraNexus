@@ -12,7 +12,15 @@ import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertC
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
-import type { LarkCredentialData } from '@/types';
+import type { LarkCredentialData, LarkErrorDetail, LarkBindWarning } from '@/types';
+
+// App ID validation regex — matches the `cli_<16+ alphanumeric>` pattern
+// the Lark/Feishu developer console mints. Catches the most common user
+// typo (pasting a non-app-id, or missing the cli_ prefix) before the
+// request even leaves the browser.
+const APP_ID_PATTERN = /^cli_[a-zA-Z0-9_-]{8,}$/;
+
+import type { ChannelConfigProps } from './IMChannelsSection';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
 
@@ -26,6 +34,14 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState('');
+  // Structured error from the translator (populated alongside `error` when
+  // the backend recognises the failure class). When present, takes precedence
+  // over the plain `error` string for richer rendering.
+  const [errorDetail, setErrorDetail] = useState<LarkErrorDetail | null>(null);
+  // Non-blocking observations from the post-bind scope check / event probe.
+  // Populated after a successful bind so the user can see "yes you're
+  // bound, but heads up about X".
+  const [warnings, setWarnings] = useState<LarkBindWarning[]>([]);
 
   // Bind form state
   const [appId, setAppId] = useState('');
@@ -64,6 +80,8 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // Reset all state on agent change
   useEffect(() => {
     setError('');
+    setErrorDetail(null);
+    setWarnings([]);
     setCredential(null);
     setAppId('');
     setAppSecret('');
@@ -84,11 +102,24 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     };
   }, [fetchCredential]);
 
+  // Local validation of App ID format — returns user-facing hint or '' if ok.
+  // The backend will validate too, but catching it here avoids a server
+  // round-trip and a cryptic generic error.
+  const appIdValidationError = appId && !APP_ID_PATTERN.test(appId)
+    ? "App ID should start with 'cli_' followed by ≥8 alphanumeric characters. Copy it from the developer console's Credentials & Basic Info page."
+    : '';
+
   // Bind bot
   const handleBind = async () => {
     if (!agentId || !appId || !appSecret) return;
+    if (appIdValidationError) {
+      setError(appIdValidationError);
+      return;
+    }
     setActionLoading(true);
     setError('');
+    setErrorDetail(null);
+    setWarnings([]);
     try {
       const res = await api.bindLarkBot(agentId, appId, appSecret, brand, ownerEmail);
       if (!mountedRef.current) return;
@@ -96,13 +127,23 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         setAppId('');
         setAppSecret('');
         setOwnerEmail('');
+        // Surface any non-blocking warnings (missing optional scopes,
+        // event probe could not confirm, etc.) — bind itself succeeded.
+        setWarnings(res.warnings || []);
         await fetchCredential();
         onBindStateChange?.();
       } else {
         setError(res.error || 'Failed to bind bot');
+        // error_detail is populated by the translator when the backend
+        // recognises the failure class — surfaces a structured card instead
+        // of the raw lark-cli stderr that used to fill the red div.
+        setErrorDetail(res.error_detail || null);
       }
     } catch (e: unknown) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : 'Failed to bind bot');
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : 'Failed to bind bot');
+        setErrorDetail(null);
+      }
     } finally {
       if (mountedRef.current) setActionLoading(false);
     }
@@ -224,11 +265,95 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         </button>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error && (
-          <div role="alert" className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2">
-            <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-            {error}
+        {/*
+          Non-blocking warnings from the post-bind scope check / event
+          probe. Yellow callout — bind succeeded, but these are things
+          the user may want to fix later. Cleared on the next bind /
+          agent switch.
+        */}
+        {warnings.length > 0 && (
+          <div
+            role="status"
+            className="text-sm text-[var(--text-primary)] border border-[var(--color-yellow-500)] p-3 space-y-2 bg-[var(--color-yellow-500)]/5"
+          >
+            {warnings.map((w, idx) => (
+              <div key={`${w.kind}-${idx}`} className="space-y-1">
+                <div className="flex items-start gap-2 font-medium">
+                  <AlertCircle
+                    className="w-4 h-4 flex-shrink-0 mt-0.5 text-[var(--color-yellow-500)]"
+                    aria-hidden="true"
+                  />
+                  <span>{w.title}</span>
+                </div>
+                {w.message && (
+                  <div className="text-xs pl-6 opacity-90">{w.message}</div>
+                )}
+                {w.raw_error && (
+                  <details className="text-xs pl-6 opacity-60">
+                    <summary className="cursor-pointer">Technical details</summary>
+                    <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px]">
+                      {w.raw_error}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            ))}
           </div>
+        )}
+        {/*
+          Structured error card (translator output). Renders a "what went wrong
+          + what to do + click here" layout for recognised error classes.
+          Falls back to the plain `error` string when error_detail is absent.
+        */}
+        {errorDetail ? (
+          <div
+            role="alert"
+            className="text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-3 space-y-2"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" aria-hidden="true" />
+              <div className="font-medium">{errorDetail.title}</div>
+            </div>
+            {errorDetail.message && (
+              <div className="text-xs pl-6 opacity-90">{errorDetail.message}</div>
+            )}
+            {errorDetail.action_hint && (
+              <div className="text-xs pl-6 text-[var(--text-secondary)]">
+                <span className="font-medium text-[var(--text-primary)]">What to do: </span>
+                {errorDetail.action_hint}
+              </div>
+            )}
+            {errorDetail.console_url && (
+              <a
+                href={errorDetail.console_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs pl-6 inline-flex items-center gap-1 text-[var(--accent-primary)] hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                Open the relevant developer console page
+              </a>
+            )}
+            {errorDetail.raw_message && (
+              <details className="text-xs pl-6 opacity-60">
+                <summary className="cursor-pointer">Technical details</summary>
+                <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px]">
+                  {errorDetail.code ? `[${errorDetail.code}] ` : ''}
+                  {errorDetail.raw_message}
+                </pre>
+              </details>
+            )}
+          </div>
+        ) : (
+          error && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 text-sm text-[var(--color-red-500)] border border-[var(--color-red-500)] p-2"
+            >
+              <AlertCircle className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+              {error}
+            </div>
+          )
         )}
 
         {/* State 1: No bot bound */}
@@ -244,9 +369,19 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                   placeholder="App ID (e.g. cli_xxx)"
                   value={appId}
                   onChange={(e) => setAppId(e.target.value)}
-                  className="text-sm"
+                  className={`text-sm ${appIdValidationError ? 'border-[var(--color-red-500)]' : ''}`}
                   aria-label="App ID"
+                  aria-invalid={!!appIdValidationError}
+                  aria-describedby={appIdValidationError ? 'app-id-error' : undefined}
                 />
+                {appIdValidationError && (
+                  <div
+                    id="app-id-error"
+                    className="text-[10px] text-[var(--color-red-500)] mt-1"
+                  >
+                    {appIdValidationError}
+                  </div>
+                )}
               </label>
               <label className="block">
                 <span className="sr-only">App Secret</span>
@@ -296,7 +431,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             </div>
             <Button
               onClick={handleBind}
-              disabled={actionLoading || !appId || !appSecret}
+              disabled={actionLoading || !appId || !appSecret || !!appIdValidationError}
               className="w-full"
               size="sm"
             >
@@ -410,6 +545,59 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
 
             <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
               <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind
+            </Button>
+          </div>
+        )}
+
+        {/*
+          State 5: brand_mismatch — set by lark_trigger when the WebSocket
+          subscriber observes Feishu/Lark error 1000040351. The bot is
+          bound but WILL NOT receive messages until re-bound with the
+          correct platform. The watcher won't restart the trigger
+          (auth_status is excluded from AUTH_STATUSES_BOT_ACTIVE), so
+          the only recovery path is unbind + re-bind with the other
+          brand selected.
+        */}
+        {credential && credential.auth_status === 'brand_mismatch' && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm">
+                <span className="text-[var(--text-primary)] font-medium">
+                  {credential.bot_name || credential.app_id}
+                </span>
+                <span className="text-[var(--text-secondary)] ml-2">
+                  ({credential.brand === 'feishu' ? 'Feishu' : 'Lark'})
+                </span>
+              </div>
+              <span className="flex items-center gap-1 text-xs text-[var(--color-red-500)]">
+                <AlertCircle className="w-3 h-3" aria-hidden="true" /> Brand mismatch
+              </span>
+            </div>
+            <div
+              role="alert"
+              className="text-xs text-[var(--text-primary)] border border-[var(--color-red-500)] p-3 space-y-2 bg-[var(--color-red-500)]/5"
+            >
+              <div className="font-medium">
+                Wrong platform selected — the bot will not receive messages.
+              </div>
+              <div>
+                You selected{' '}
+                <span className="font-mono">
+                  {credential.brand === 'feishu' ? 'Feishu (open.feishu.cn)' : 'Lark (open.larksuite.com)'}
+                </span>{' '}
+                but the App ID is registered on the other platform. The
+                WebSocket subscriber was rejected with error 1000040351.
+              </div>
+              <div className="text-[var(--text-secondary)]">
+                <span className="font-medium text-[var(--text-primary)]">What to do:</span>{' '}
+                Unbind, then re-bind and pick{' '}
+                <span className="font-mono">
+                  {credential.brand === 'feishu' ? 'Lark (International)' : 'Feishu (mainland China)'}
+                </span>.
+              </div>
+            </div>
+            <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
+              <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind with correct platform
             </Button>
           </div>
         )}

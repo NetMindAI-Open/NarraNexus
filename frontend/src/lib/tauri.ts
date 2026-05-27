@@ -208,3 +208,54 @@ export async function openExternal(url: string): Promise<boolean> {
     return false;
   }
 }
+
+interface ArtifactBytesIpc {
+  status: number;
+  content_type: string;
+  bytes_base64: string;
+}
+
+/**
+ * Fetch an artifact's bytes through the Rust side instead of `fetch()`.
+ *
+ * Why this exists
+ *   In the dmg the webview origin is `https://tauri.localhost` (HTTPS) and
+ *   the backend serves `http://localhost:8000` (HTTP). WKWebView treats
+ *   the http resource as "active mixed content" and blocks it silently —
+ *   iframe loads AND `fetch()` from JS. The result was a white artifact
+ *   tab (P0 reported 2026-05-27).
+ *
+ *   HTTP requests originated by Rust are not subject to the WKWebView
+ *   mixed-content blocker. This helper invokes the
+ *   `fetch_artifact_via_backend` Tauri command which uses `reqwest` from
+ *   the Rust process to pull the artifact bytes, ships them back over the
+ *   IPC channel as base64, and we reconstruct a Blob + `blob:` URL the
+ *   sandboxed iframe can load same-origin.
+ *
+ * Returns
+ *   - blob: URL on success — caller MUST `URL.revokeObjectURL()` it when
+ *     done (typically in the same useEffect's cleanup).
+ *   - null when not running in Tauri / IPC channel missing / command
+ *     errored / non-200 status. Caller should fall back to a plain
+ *     `fetch()` in that case.
+ */
+export async function fetchArtifactViaTauri(url: string): Promise<string | null> {
+  if (!isTauri()) return null;
+  const invoke = _getInvoke();
+  if (!invoke) return null;
+  try {
+    const resp = (await invoke('fetch_artifact_via_backend', { url })) as ArtifactBytesIpc;
+    if (!resp || resp.status !== 200) {
+      console.warn(`[tauri.fetchArtifact] non-200 status: ${resp?.status}`);
+      return null;
+    }
+    const binary = atob(resp.bytes_base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: resp.content_type || 'application/octet-stream' });
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    console.error('[tauri.fetchArtifact] IPC failed:', e);
+    return null;
+  }
+}

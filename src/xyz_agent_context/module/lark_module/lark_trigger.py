@@ -732,6 +732,58 @@ class LarkTrigger(ChannelTriggerBase):
                     time.monotonic() - ws_start_monotonic
                     if ws_start_monotonic > 0 else 0.0
                 )
+                # Brand-mismatch detection (B.1 in the lark-binding-wizard
+                # work): error code 1000040351 = "Incorrect domain name" =
+                # the user selected one platform (Feishu/Lark) but the
+                # App ID is registered on the other. Re-trying in a hot
+                # loop will just hit the same error every backoff cycle,
+                # so we mark the credential as brand_mismatch (excluded
+                # from AUTH_STATUSES_BOT_ACTIVE → trigger skips it on
+                # next watcher tick) and surface the state to UI + agent.
+                # See _lark_credential_manager for the full state list.
+                err_text = f"{type(e).__name__}: {e}"
+                if "1000040351" in err_text or "Incorrect domain" in err_text:
+                    # LarkCredentialManager is already imported at module level
+                    # (line 60). Re-importing it inside this function makes
+                    # Python treat the name as a *local* throughout the whole
+                    # function scope — so line 580's `await
+                    # LarkCredentialManager(self._db).get_credential(...)` hit
+                    # UnboundLocalError on the very first iteration of the
+                    # subscribe loop (the LarkTrigger crash in 2026-05-27
+                    # dmg + cloud logs). Only AUTH_STATUS_BRAND_MISMATCH is
+                    # the genuinely lazy import here.
+                    from ._lark_credential_manager import AUTH_STATUS_BRAND_MISMATCH
+                    try:
+                        mgr = LarkCredentialManager(self.db)
+                        await mgr.update_auth_status(
+                            cred.agent_id, AUTH_STATUS_BRAND_MISMATCH
+                        )
+                        logger.warning(
+                            f"LarkTrigger: brand mismatch detected for "
+                            f"{cred.profile_name} (agent={cred.agent_id}). "
+                            f"Marked auth_status=brand_mismatch so the watcher "
+                            f"won't restart this subscriber. User must re-bind."
+                        )
+                    except Exception as inner_exc:  # noqa: BLE001
+                        logger.exception(
+                            f"LarkTrigger: failed to persist brand_mismatch "
+                            f"for {cred.profile_name}: {inner_exc}"
+                        )
+                    await self._audit(
+                        EVENT_TRANSPORT_DISCONNECTED,
+                        agent_id=cred.agent_id,
+                        app_id=cred.app_id,
+                        details={
+                            "ran_seconds": ran_seconds,
+                            "error": err_text,
+                            "auth_status_set": "brand_mismatch",
+                            "next_backoff_seconds": 0,
+                        },
+                    )
+                    # Skip backoff/restart — the next watcher tick will
+                    # see auth_status not in AUTH_STATUSES_BOT_ACTIVE and
+                    # leave this credential alone until user re-binds.
+                    return
                 backoff = _compute_next_backoff(
                     current=backoff,
                     ran_seconds=ran_seconds,
@@ -748,7 +800,7 @@ class LarkTrigger(ChannelTriggerBase):
                     details={
                         "ran_seconds": ran_seconds,
                         "next_backoff_seconds": backoff,
-                        "error": f"{type(e).__name__}: {e}",
+                        "error": err_text,
                     },
                 )
 

@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — defensive None→now() for created_at / updated_at
+
+Real prod incident (Owner dmg, 2026-05-27 18:46): `job_trigger`'s
+poll loop crashed every cycle with
+  `2 validation errors for JobModel`
+  `created_at: Input should be a valid datetime, input_value=None`
+  `updated_at: Input should be a valid datetime, input_value=None`
+because some pre-existing job rows in the local sqlite DB had
+NULL `created_at`/`updated_at` (the columns previously had no NOT
+NULL / DEFAULT constraint — see companion fix in [[schema_registry]]).
+JobModel itself requires `datetime` (not `Optional[datetime]`), so
+the None passed to the pydantic constructor was a hard rejection.
+
+`_row_to_entity` now coerces NULL via `row.get("created_at") or
+datetime.now()` at the row→entity boundary. The model stays strict
+(no `Optional` ripple through downstream consumers); the DB
+columns get NOT NULL + DEFAULT for new INSERTs (in schema_registry);
+old NULL rows still load via this fallback. Belt-and-braces — once
+all existing NULLs naturally get UPDATEd by future writes the
+fallback becomes dead code.
 
 ## 2026-05-22 — get_jobs_by_status (no-quota resume, #6)
 

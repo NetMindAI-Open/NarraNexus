@@ -1,7 +1,62 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — REQUIRED_PORTS expanded to cover ALL sidecar ports
+
+Real incident (Owner dmg, 2026-05-27 18:46): after force-quitting
+the previous instance the next launch's port preflight passed (it
+only checked 4 ports: 8000/8100/7801/7830) — but orphaned MCP
+servers were still holding 7802-7808/7820/7831/7832 AND the
+LarkTrigger health endpoint was still on 47831. Every MCP module
+then failed to bind with `[Errno 48] address already in use`, the
+MCP umbrella process shut down, and the desktop app silently lost
+every MCP tool.
+
+`REQUIRED_PORTS` now covers all 14 ports the sidecar stack binds
+(8000/8100 + 7801/7802/7803/7804/7806/7807/7808/7820/7830/7831/7832
++ 47831). Combined with the `resolve_or_exit` orphan-cleanup, the
+next launch now positively detects + offers to clean every port the
+previous instance might have leaked, not just the "primary four".
+
+## 2026-05-27 — orphan sidecar auto-cleanup (resolve_or_exit)
+
+P0 from Owner: Force-Quit / app crash bypasses `ExitRequested`,
+leaving Python sidecars holding 8000 / 8100. Next launch the user
+sees the existing "port conflict, please close the other program"
+dialog with no idea those processes are NarraNexus's own.
+
+Solution: classify each conflict's PID against a curated list of
+NarraNexus sidecar command-line patterns. If **all** conflicts are
+our orphans, offer a single "Clean up & launch" dialog → SIGTERM
++ 1.5s wait + SIGKILL fallback → re-check ports → continue startup.
+If **any** conflict is third-party, fall through to the existing
+"close the other program" exit (we never auto-kill what we didn't
+spawn).
+
+API changes:
+- `PortConflict` now exposes `pid: Option<u32>` + `command: Option<String>`
+  + `is_our_orphan()` instead of the old `holder: Option<String>` flat
+  string. `holder_label()` builds the human display when needed.
+- New `resolve_or_exit(conflicts)` — primary entry point from
+  `lib.rs::setup`. Either returns (after successful cleanup) or
+  exits 1.
+- Old `show_conflict_dialog_and_exit` kept as a deprecated shim that
+  routes through `resolve_or_exit`, for back-compat with any caller
+  that might still reference it.
+
+Classifier heuristic (`is_narranexus_sidecar_cmdline`): cmdline
+contains one of the curated module-launch markers (e.g.
+`backend.main`, `xyz_agent_context.utils.sqlite_proxy`,
+`xyz_agent_context.module.module_runner`, lark/slack/telegram
+trigger modules) OR the bundled-python bundle-path
+(`NarraNexus.app/Contents/Resources/resources/python`). Anything
+outside this whitelist is treated as third-party.
+
+Sanity unit tests in `#[cfg(test)] mod tests` cover the classifier
+(recognises all sidecar shapes, rejects third-party python /
+jupyter / django / node) and the `holder_label()` formatting.
 
 ## 2026-05-22 — added show_startup_failure_dialog_and_exit
 

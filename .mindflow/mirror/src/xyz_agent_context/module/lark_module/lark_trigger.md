@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — capture brand_mismatch (WS error 1000040351) at runtime
+
+The SDK WebSocket subscriber loop now checks every caught exception
+for `1000040351` / `"Incorrect domain name"`. On match we mark the
+credential's `auth_status=brand_mismatch` (see [[_lark_credential_manager]])
+and return immediately from the subscribe loop — no backoff/restart.
+`AUTH_STATUSES_BOT_ACTIVE` excludes brand_mismatch, so the watcher
+won't pick it up again on the next tick. The frontend renders a
+dedicated re-bind card ([[LarkConfig]] State 5), and the agent prompt
+([[lark_module]]) is now aware of this state so it can tell users
+"you picked the wrong platform" when they complain about a silent
+bot.
+
+Previously this error was caught by the generic `except Exception`
+branch, which would hot-loop the SDK with the same domain mismatch
+every backoff cycle (effective DoS on the user's bind state and
+forever-silent bot).
 
 ## 2026-05-21 — `resolve_sender_name` resolves via owner user token
 

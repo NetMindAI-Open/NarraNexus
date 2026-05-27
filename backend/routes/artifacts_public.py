@@ -47,9 +47,24 @@ router = APIRouter()
 
 SAFE_HEADERS = {
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "no-referrer",
-    "Cross-Origin-Resource-Policy": "same-origin",
+    # 2026-05-27: was `same-origin`. The dmg embeds artifacts as an
+    # iframe whose parent is the Tauri webview (`https://tauri.localhost`)
+    # while the artifact bytes come from `http://localhost:8000` —
+    # different origin, so `Cross-Origin-Resource-Policy: same-origin`
+    # made the browser DISCARD every artifact response and rendered the
+    # iframe blank ("artifact 白屏" P0 reported 2026-05-27). The HMAC
+    # token in the URL path is the auth (anyone with it can read), so
+    # `cross-origin` is correct here — there is no orgin-bound trust.
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    # `X-Frame-Options: SAMEORIGIN` was removed in the same change. It is
+    # the all-or-nothing legacy header (no way to allow a SPECIFIC parent
+    # origin), so it blocked the dmg iframe load outright. Embedding is
+    # now controlled with surgical precision by the `frame-ancestors`
+    # directive in the entry response's CSP (see `_csp_for_html` and the
+    # non-HTML entry branch below); only the parent origin the request's
+    # Referer/Origin header identifies — typically `tauri.localhost`,
+    # cloud agent host, or vite dev — is allowed to frame us.
 }
 
 
@@ -104,6 +119,7 @@ def _csp_for_html(origin: str) -> str:
     CSP `'self'` matches nothing. A host-source (e.g. `https://app.example`)
     matches by URL host independent of the document's origin.
     """
+    ancestors = _frame_ancestors(origin)
     return (
         f"default-src 'none'; "
         f"script-src {origin} 'unsafe-inline'; "
@@ -114,18 +130,43 @@ def _csp_for_html(origin: str) -> str:
         f"connect-src {origin}; "
         f"frame-src 'none'; "
         f"object-src 'none'; "
-        f"base-uri 'none'"
+        f"base-uri 'none'; "
+        # Who is allowed to embed this artifact in an iframe. Replaces the
+        # blunt `X-Frame-Options: SAMEORIGIN` removed from SAFE_HEADERS —
+        # SAMEORIGIN had no way to express "the dmg's tauri.localhost is
+        # OK even though we're served from localhost:8000". `frame-ancestors`
+        # is the modern surgical version and accepts the parent origin we
+        # detected from Referer/Origin. 2026-05-27.
+        f"frame-ancestors {ancestors}"
     )
 
 
-_NON_HTML_CSP = {
-    "application/vnd.echarts+json": "default-src 'none'",
-    "text/csv": "default-src 'none'",
-    "text/markdown": "default-src 'none'",
-    "image/png": "default-src 'none'; img-src 'self'",
-    "image/jpeg": "default-src 'none'; img-src 'self'",
-    "application/pdf": "default-src 'none'; object-src 'self'",
-}
+def _frame_ancestors(origin: str) -> str:
+    """Allowed iframe parents for local desktop/dev plus the request origin."""
+    allowed = [
+        origin,
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+    ]
+    return " ".join(dict.fromkeys(allowed))
+
+
+def _non_html_csp(kind: str, origin: str) -> str:
+    """CSP for a non-HTML artifact entry (chart JSON / CSV / markdown / image /
+    PDF). Same `frame-ancestors {origin}` allowance as `_csp_for_html` — these
+    are also embedded inside the dmg's webview iframe, so without the directive
+    the SAMEORIGIN-style default would block them too. 2026-05-27."""
+    body = {
+        "application/vnd.echarts+json": "default-src 'none'",
+        "text/csv": "default-src 'none'",
+        "text/markdown": "default-src 'none'",
+        "image/png": "default-src 'none'; img-src 'self'",
+        "image/jpeg": "default-src 'none'; img-src 'self'",
+        "application/pdf": "default-src 'none'; object-src 'self'",
+    }.get(kind, "default-src 'none'")
+    return f"{body}; frame-ancestors {_frame_ancestors(origin)}"
 
 
 # methods=["GET", "HEAD"]: FastAPI's APIRoute does NOT auto-add HEAD to GET
@@ -184,7 +225,10 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         os.path.join(base, f"{art.agent_id}_{art.user_id}")
     )
     if artifact_root == workspace_root and file_path:
-        raise HTTPException(404, "sibling assets not served for workspace-root entries")
+        if os.path.normpath(file_path) == os.path.basename(entry_abs):
+            file_path = ""
+        else:
+            raise HTTPException(404, "sibling assets not served for workspace-root entries")
 
     if file_path:
         requested = os.path.realpath(os.path.join(artifact_root, file_path))
@@ -210,7 +254,7 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
     if is_entry and art.kind == "text/html":
         csp = _csp_for_html(_app_origin(request))
     elif is_entry:
-        csp = _NON_HTML_CSP.get(art.kind, "default-src 'none'")
+        csp = _non_html_csp(art.kind, _app_origin(request))
     else:
         # Asset under an HTML artifact's root. CSP on a sub-resource response
         # doesn't govern further loading (only the document's CSP does), so a

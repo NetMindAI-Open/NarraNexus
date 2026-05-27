@@ -344,6 +344,8 @@ if [ -n "${SKIP_LARK_SKILLS:-}" ]; then
     echo "  SKIP_LARK_SKILLS=1 set — skipping skill pack bundle."
     echo "  End users will need network on first launch for lark features"
     echo "  (sidecar/lark_preflight.rs v1 npx fallback kicks in)."
+    printf 'Lark skill pack intentionally omitted from this local build.\n' \
+        > "$SKILL_BUNDLE_DIR/placeholder.txt"
 else
     echo ""
     echo "  Pre-installing Lark skill pack into bundle (5 min timeout)..."

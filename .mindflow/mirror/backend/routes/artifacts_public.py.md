@@ -1,8 +1,43 @@
 ---
 code_file: backend/routes/artifacts_public.py
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — fix dmg artifact white-screen (embed-blocking headers)
+
+P0 incident (Owner dmg, 2026-05-27): every artifact tab rendered as a
+white iframe. Root cause was two embed-blocking headers SAFE_HEADERS
+carried unconditionally:
+
+1. `X-Frame-Options: SAMEORIGIN` — legacy all-or-nothing header.
+   The dmg's webview parent is `https://tauri.localhost`; the iframe
+   loads from `http://localhost:8000` — different origin, so SAMEORIGIN
+   refused render. SAMEORIGIN has no syntax to allow a specific
+   parent, so it had to go.
+2. `Cross-Origin-Resource-Policy: same-origin` — made the browser
+   *discard* the response when the requester (iframe parent) was on a
+   different origin.
+
+Fix:
+- Removed `X-Frame-Options` from SAFE_HEADERS entirely. Surgical
+  replacement is the new `frame-ancestors {parent_origin}` directive
+  added to the entry CSP (both `_csp_for_html` and the new
+  `_non_html_csp` helper). The parent origin is the value
+  `_app_origin(request)` already computes from Referer/Origin headers
+  — `https://tauri.localhost` for dmg, cloud agent host for cloud,
+  vite dev origin for local dev.
+- Changed CORP to `cross-origin`. Auth is the HMAC token in the URL
+  path; there is no origin-bound trust to enforce here.
+- The `_NON_HTML_CSP` dict became `_non_html_csp(kind, origin)`
+  function so it can interpolate the parent origin in the
+  frame-ancestors directive for every artifact kind (chart / csv /
+  markdown / image / pdf).
+
+Regression test pin in `tests/backend/test_artifacts_public_headers.py`
+covers: X-Frame-Options absent, CORP cross-origin, CSP frame-ancestors
+present in both html and non-html entries, fallback for unknown kinds,
+sanity case with a cloud-style origin.
 
 ## 2026-05-22 — raw route accepts HEAD (kills 405)
 

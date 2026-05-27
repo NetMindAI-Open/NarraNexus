@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 stub: false
 ---
 
@@ -36,6 +36,10 @@ POST `/{skill_name}/study` 和 GET `/{skill_name}/study` 需要在 GET `/{skill_
 **zip 安装用临时目录**
 
 zip 文件上传时先保存到 `tempfile.mkdtemp()` 创建的临时目录，解压安装后用 `finally` 块清理临时目录。这防止了磁盘空间泄露。
+
+**所有 4xx 拒绝点统一过 `_reject()` helper**
+
+`install_skill` 把每条返回 400 的路径都收敛到一个 nested 闭包 `_reject(reason)`，里面先 `logger.warning(...)` 带上 agent_id / user_id / source / reason，然后才 raise HTTPException。这是为了关闭一个真实事故里暴露的「日志黑洞」：之前 `raise HTTPException(400, detail=str(e))` 直接抛出去，detail 只塞进 HTTP 响应体，服务端日志里就只剩 access log 的 `status=400`，prod 排查时无法判断是哪条规则在拒。改用 helper 之后，每一次 400 都必有一条 WARNING 留底，不需要再让用户去翻 Network。透传给前端的 detail 文本不变，行为零变化。
 
 ## Gotcha / 边界情况
 

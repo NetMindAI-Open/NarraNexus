@@ -757,7 +757,11 @@ class SkillModule(XYZBaseModule):
             # Find the directory containing SKILL.md
             skill_root = self._find_skill_root(temp_dir)
             if not skill_root:
-                raise ValueError("Invalid skill: SKILL.md not found in zip")
+                raise ValueError(
+                    "Invalid skill package: SKILL.md not found. "
+                    "Place SKILL.md at the zip root, or inside a single "
+                    "top-level subfolder (e.g. my-skill/SKILL.md)."
+                )
 
             # Parse skill info
             skill_md = skill_root / "SKILL.md"
@@ -800,11 +804,15 @@ class SkillModule(XYZBaseModule):
         """Extract a skill archive while rejecting zip-slip style paths."""
         max_entries = 500
         max_uncompressed_bytes = 100 * 1024 * 1024
+        max_uncompressed_mb = max_uncompressed_bytes // (1024 * 1024)
 
         with zipfile.ZipFile(zip_file_path, "r") as zip_ref:
             members = zip_ref.infolist()
             if len(members) > max_entries:
-                raise ValueError("Invalid skill package: too many files")
+                raise ValueError(
+                    f"Invalid skill package: too many files "
+                    f"({len(members)} entries, limit is {max_entries})."
+                )
 
             total_uncompressed = 0
             target_root = target_dir.resolve(strict=False)
@@ -812,11 +820,17 @@ class SkillModule(XYZBaseModule):
                 member_path = validate_zip_member_path(member.filename)
                 total_uncompressed += member.file_size
                 if total_uncompressed > max_uncompressed_bytes:
-                    raise ValueError("Invalid skill package: uncompressed size is too large")
+                    raise ValueError(
+                        f"Invalid skill package: uncompressed size exceeds the "
+                        f"{max_uncompressed_mb} MB limit."
+                    )
 
                 destination = (target_dir / member_path).resolve(strict=False)
                 if target_root not in destination.parents and destination != target_root:
-                    raise ValueError("Invalid skill package: path traversal not allowed")
+                    raise ValueError(
+                        f"Invalid skill package: path traversal not allowed "
+                        f"(offending entry: {member.filename!r})."
+                    )
 
                 if member.is_dir():
                     destination.mkdir(parents=True, exist_ok=True)

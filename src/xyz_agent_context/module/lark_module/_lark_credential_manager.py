@@ -50,7 +50,17 @@ AUTH_STATUS_NOT_LOGGED_IN = "not_logged_in"
 AUTH_STATUS_BOT_READY = "bot_ready"            # Bot identity works, user OAuth not done
 AUTH_STATUS_USER_LOGGED_IN = "user_logged_in"  # User completed OAuth, all features available
 AUTH_STATUS_EXPIRED = "expired"                # Credential validation failed
-# Statuses that mean "bot identity works, safe to start WebSocket trigger"
+# Set by lark_trigger when the WebSocket subscriber observes error
+# 1000040351 ("Incorrect domain name") — the user selected one platform
+# (Feishu/Lark) but the App ID is registered on the other. The bot is
+# bound but WILL NOT receive any messages. Surfaced to the frontend so
+# LarkConfig can render a "re-bind with correct brand" prompt; surfaced
+# to the agent so it can tell the user when they complain.
+AUTH_STATUS_BRAND_MISMATCH = "brand_mismatch"
+# Statuses that mean "bot identity works, safe to start WebSocket trigger".
+# brand_mismatch is INTENTIONALLY excluded — restarting the trigger only
+# triggers the same domain-mismatch error in a hot loop. The bind has to
+# be redone with the correct brand to recover.
 AUTH_STATUSES_BOT_ACTIVE = {AUTH_STATUS_BOT_READY, AUTH_STATUS_USER_LOGGED_IN}
 
 

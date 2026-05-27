@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-05-19
+last_verified: 2026-05-27
 ---
 
 # skill_module.py — SkillModule 主体
@@ -23,6 +23,8 @@ last_verified: 2026-05-19
 **工作空间规则按部署模式分叉（`WORKSPACE_RULES_CLOUD` / `WORKSPACE_RULES_LOCAL`）**：NarraNexus 同时跑在共享云端和用户自己的机器上，两种环境的约束根本不同——云端必须严格沙箱（workspace-only、禁全局安装、凭证不出技能目录），本地是用户自己机器应该放松（允许全局安装，但附带「告诉用户装了什么」的 advisory）。`_resolve_workspace_rules(ctx_data)` 在 `get_instructions` 时根据 `ctx_data.deployment_mode`（由 BasicInfoModule 填）选择一个块渲染进模板。缺省时 fallback 到云端（更严格的那份），宁可过严也不能让本地版提示意外流入云端 Agent。对应的硬约束由 `agent_framework/_tool_policy_guard.py` 在 PreToolUse hook 里强制执行（工作空间越界 / 全局安装等），两者需同步改动。
 
 **扫描包含无 SKILL.md 的目录**：`_scan_skills()` 不只扫描有 `SKILL.md` 的标准技能目录，也扫描只有 `.skill_meta.json` 的目录（Agent 自行创建的技能）。这支持了 Agent 自主学习和创建新技能的场景，而不仅限于从 ClawHub 安装的标准技能。
+
+**install_skill 的拒因消息必须具体可操作**：每个 ValueError 都必须告诉用户「哪里出了问题 + 应该怎么改」。例如 SKILL.md 缺失时不能只说 "SKILL.md not found"，要补上「放在 zip 根目录或者唯一的顶层子文件夹下」；超出文件数限制时要带上实际 count 和上限；超出大小时要带上 MB 单位的上限。原因：这条消息会经由 `routes/skills.py` 透传给前端的错误提示，是用户唯一能看到的反馈，不能让他们去翻 Network 才知道为什么失败。配套的服务端日志在 `routes/skills.py` 的 `_reject()` 里——拒绝点统一打 `WARNING`，留下 prod 排查的 breadcrumb。
 
 ## Gotcha / 边界情况
 

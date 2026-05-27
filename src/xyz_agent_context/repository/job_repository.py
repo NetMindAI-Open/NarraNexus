@@ -1334,8 +1334,18 @@ class JobRepository(BaseRepository[JobModel]):
             narrative_id=row.get("narrative_id"),  # Feature 3.1
             monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitor Job pattern
             iteration_count=row.get("iteration_count", 0),  # 2026-01-21: ONGOING execution count
-            created_at=row.get("created_at"),
-            updated_at=row.get("updated_at"),
+            # Defensive coercion (2026-05-27): some pre-existing job rows in
+            # local sqlite DBs were inserted with NULL `created_at`/`updated_at`
+            # because the column definitions in schema_registry never required
+            # NOT NULL or a DEFAULT. JobModel itself requires `datetime`
+            # (not Optional), so the old NULLs cause a hard pydantic
+            # ValidationError that crashes the whole job_trigger poll loop:
+            #   "Input should be a valid datetime, input_value=None"
+            # Coerce here at the row→entity boundary so the loop survives the
+            # corrupt rows. Companion fix in schema_registry makes future
+            # rows NOT NULL with a default of `datetime('now')`.
+            created_at=row.get("created_at") or datetime.now(),
+            updated_at=row.get("updated_at") or datetime.now(),
         )
 
     def _entity_to_row(self, entity: JobModel) -> Dict[str, Any]:

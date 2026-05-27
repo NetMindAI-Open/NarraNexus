@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-05-14
+last_verified: 2026-05-27
 stub: true
 ---
+
+## 2026-05-27 — LarkErrorDetail (translator output)
+
+`LarkBindResponse` now optionally carries `error_detail: LarkErrorDetail`
+on failure. Field names match the backend `_lark_error_translator`
+`ErrorTranslation` dataclass 1:1 so the JSON round-trip works without
+adapters. `LarkConfig.tsx` renders this as a structured card with
+title/message/action_hint/console_url; falls back to plain `error`
+when absent.
 
 ## 2026-05-14 — FileInfo becomes a recursive tree node
 

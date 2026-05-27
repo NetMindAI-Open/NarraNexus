@@ -1,6 +1,6 @@
 [package]
 name = "narranexus"
-version = "1.7.5"
+version = "1.7.10"
 edition = "2021"
 
 [lib]
@@ -15,7 +15,7 @@ tauri-build = { version = "2", features = [] }
 # constructor is cfg-gated behind `image-ico`/`image-png`. The tray icon is a
 # PNG, so without this feature `from_bytes` silently disappears and the desktop
 # build fails with E0599 "no function named from_bytes".
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 # Prevents a second NarraNexus instance from spawning a duplicate sidecar
@@ -39,3 +39,16 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # fallback. tokio's Child::kill is SIGKILL-only, which gives Python sidecars
 # zero chance to flush DB / sockets / loguru's enqueue=True buffer.
 libc = "0.2"
+# Used by commands::artifact_fetch to proxy artifact bytes through Rust so
+# the dmg's WKWebView (https://tauri.localhost) doesn't get blocked by
+# mixed-content trying to load http://localhost:8000. Already transitively
+# pulled in by tauri-plugin-updater, so making it a direct dep adds no
+# compile-time cost. Localhost-only — no TLS feature needed.
+reqwest = { version = "0.12", default-features = false, features = ["http2"] }
+# Used by commands::artifact_fetch to ship binary artifact bytes to the
+# frontend over the JSON IPC channel.
+base64 = "0.22"
+# Used by commands::artifact_fetch::validate to parse + whitelist URLs
+# (host / port / path) before reqwest fetches them, blocking the command
+# from being abused as a generic SSRF.
+url = "2"

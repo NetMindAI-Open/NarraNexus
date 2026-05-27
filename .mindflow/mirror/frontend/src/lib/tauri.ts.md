@@ -4,6 +4,26 @@ last_verified: 2026-05-27
 stub: false
 ---
 
+## 2026-05-27 — fetchArtifactViaTauri(url)
+
+New helper that invokes the `fetch_artifact_via_backend` Rust command
+(see [[artifact_fetch.rs]]) to pull artifact bytes through Rust's
+reqwest instead of the JS `fetch()`. Reason: in the dmg the webview
+parent is `https://tauri.localhost` (HTTPS) and the backend is
+`http://localhost:8000` (HTTP) — WKWebView blocks the latter as
+"active mixed content" and the artifact panel rendered as a white
+iframe (P0 2026-05-27). Rust-originated HTTP isn't subject to that
+block. The helper decodes the base64 body the Rust side ships and
+returns a `blob:` URL the caller can set on an iframe; the blob URL
+is same-origin to the parent so the iframe load isn't itself mixed
+content.
+
+Returns `null` when not in Tauri / IPC missing / Rust returned
+non-200 / IPC errored, so callers can transparently fall back to the
+plain `fetch()` path (HtmlRenderer's blob-fetch effect does exactly
+that). Caller is responsible for `URL.revokeObjectURL()` on the
+returned blob URL (HtmlRenderer revokes in its effect cleanup).
+
 ## 2026-05-27 — openExternal(url)
 
 New helper that invokes `plugin:shell|open` so `<a target="_blank">`

@@ -1,3 +1,9 @@
+---
+code_file: src/xyz_agent_context/utils/file_safety.py
+last_verified: 2026-05-27
+stub: false
+---
+
 # file_safety.py
 
 Validation helpers that guard against path traversal and oversized uploads before any file is written to disk.
@@ -22,10 +28,14 @@ Two flows in the application accept user-supplied filenames: the API upload endp
 
 **`validate_zip_member_path` rejects empty parts and `..`.** ZIP-slip attacks typically use entries like `../../evil`. The validator rejects any member path containing an empty part, `.`, or `..` in any segment, not just the final one.
 
+**`validate_zip_member_path` normalizes backslashes before checking.** Windows Explorer's "Send to → Compressed folder" produces ZIP archives whose entry names contain `\` separators (e.g. `skill\SKILL.md`). The ZIP spec (APPNOTE 6.3 §4.4.17.1) requires `/`, but real-world archives violate this routinely. We `replace("\\", "/")` BEFORE running the traversal/absolute-path checks so legitimate Windows-zipped skill packages install cleanly. The same `..` / absolute / empty-part rules then fire on the normalized path — traversal defense is unchanged.
+
+**Traversal errors include the offending entry name.** Both `absolute paths` and `path traversal` ValueErrors carry the raw `member_name` in their message (e.g. `(offending entry: '../../etc/evil.txt')`). This is so prod operators reading rejection logs can immediately see which zip entry was bad without needing the raw archive.
+
 ## Gotchas
 
-**`sanitize_filename` strips the directory component, not just traversal dots.** A filename like `subdir/file.txt` has `Path("subdir/file.txt").name == "file.txt"`, which does not equal the original, so it is rejected with "path traversal not allowed". Filenames must be plain names without any directory separators, even legitimate ones.
+**`sanitize_filename` strips the directory component, not just traversal dots.** A filename like `subdir/file.txt` has `Path("subdir/file.txt").name == "file.txt"`, which does not equal the original, so it is rejected with "path traversal not allowed". Filenames must be plain names without any directory separators, even legitimate ones. (Note: `sanitize_filename` still blanket-rejects `\` in its input because it validates a single-segment filename, not a zip path. Only `validate_zip_member_path` normalizes backslashes — those two callers have different semantics on purpose.)
 
 **`enforce_max_bytes` takes the size in bytes, not the file object.** The caller must determine the size before calling this function (e.g., `len(content)` or from a `Content-Length` header). There is no streaming check.
 
-**New-contributor trap.** On Windows, `Path(filename).name` handles both forward and backward slashes. On Linux, a filename containing a backslash is treated as a single path segment with a backslash in its name, so the check `if "/" in normalized or "\\" in normalized` provides the cross-platform safety that `Path.name` alone does not.
+**Windows drive-letter paths are still relative after normalization.** A zip entry like `C:\foo\bar` normalizes to `C:/foo/bar`, which `PurePosixPath.is_absolute()` reports `False`. In practice, Windows-created skill zips don't contain drive-letter paths (the zip stores paths relative to the source), so this is a non-issue — but if it ever appears, the entry would be extracted into a `C:` subdirectory under the target. Not a security risk (still confined), just ugly.

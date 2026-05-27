@@ -46,6 +46,8 @@ async def setup(db_client, monkeypatch, tmp_path):
     entry.write_text("<p>hello</p>", encoding="utf-8")
     asset = root / "style.css"
     asset.write_text("body{font:1em monospace}", encoding="utf-8")
+    root_entry = workspace / "bisection_method.html"
+    root_entry.write_text("<p>single file</p>", encoding="utf-8")
 
     from xyz_agent_context.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
@@ -86,6 +88,19 @@ async def setup(db_client, monkeypatch, tmp_path):
         updated_at=datetime.now(timezone.utc),
     )
     await repo.create(art)
+    root_art = Artifact(
+        artifact_id="art_rootfile",
+        agent_id="agent_x",
+        user_id="user_y",
+        session_id="sess_1",
+        title="single file",
+        kind="text/html",
+        file_path="agent_x_user_y/bisection_method.html",
+        size_bytes=root_entry.stat().st_size,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    await repo.create(root_art)
 
     app = FastAPI()
     app.include_router(agents_router, prefix="/api/agents")
@@ -98,6 +113,7 @@ async def setup(db_client, monkeypatch, tmp_path):
         "workspace": workspace,
         "root": root,
         "entry": entry,
+        "root_entry": root_entry,
         "asset": asset,
         "base": base,
     }
@@ -181,6 +197,22 @@ def test_public_raw_head_allowed_returns_200(setup):
     r = client.head(f"/api/public/artifacts/raw/{token}/")
     assert r.status_code == 200
     assert r.content == b""  # HEAD: headers only, no body
+
+
+def test_public_raw_workspace_root_entry_basename_alias_returns_entry(setup):
+    """A single-file artifact at workspace root is served at both the directory
+    raw URL and its basename URL. Some WebView paths request the latter; it must
+    not be treated as a sibling asset leak."""
+    client = setup["client"]
+    token = client.get("/api/agents/agent_x/artifacts/art_rootfile/view-token").json()["token"]
+
+    r = client.get(f"/api/public/artifacts/raw/{token}/bisection_method.html")
+    assert r.status_code == 200
+    assert b"single file" in r.content
+
+    head = client.head(f"/api/public/artifacts/raw/{token}/bisection_method.html")
+    assert head.status_code == 200
+    assert head.content == b""
 
 
 def test_public_raw_head_bad_token_is_401_not_405(setup):
