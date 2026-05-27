@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-04-10
+last_verified: 2026-05-25
 stub: false
 ---
 
@@ -31,6 +31,8 @@ stub: false
 **`ProgressMessage.step`** is a string like `"1.0"`, `"2.1"`, `"3"`. The step numbering follows the AgentRuntime pipeline steps (Steps 1-8). There is no validation that step values are unique or monotonically increasing within a single execution. Frontend code that tries to sort or group by step value must handle arbitrary string ordering.
 
 **`ErrorMessage.error_type`** is a free-form string (`"api_error"` by default). There is no enum constraining its values. The frontend uses this for display styling and routing to error-specific handling, but if a new error type is introduced on the backend, the frontend may not have a matching handler.
+
+**`ErrorMessage.severity`** IS an enum (`"fatal" | "recoverable" | "recovered" | "recovered_after_reply"`). The two `recovered*` values were added 2026-05-25 for the fallback-context redesign: they signal "a fatal-class error happened but we masked it with a user-facing reply" — `recovered` for fallback-generated replies, `recovered_after_reply` for errors that hit *after* the agent already sent its own reply. Frontend should render the reply normally and surface the badge as a warning rather than as a primary error.
 
 ## New-joiner traps
 

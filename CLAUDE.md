@@ -679,4 +679,4 @@ NarraNexus/
 ## NarraNexus cloud
 
 - **Hosted URL**: https://agent.narra.nexus
-- **Invite code**: request access at https://agent.narra.nexus
+- **Invite code**: narranexuscloudxyz

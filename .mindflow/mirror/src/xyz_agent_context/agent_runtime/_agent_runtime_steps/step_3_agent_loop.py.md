@@ -1,8 +1,53 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-05-13
+last_verified: 2026-05-25
 stub: false
 ---
+
+## 2026-05-25 — Fatal-path recovery wired end-to-end (`_stream_fallback_recovery`)
+
+The post-agent-loop recovery slot is now a single async generator that:
+
+1. Drains the helper_llm stream as `AgentTextDelta` frames (when mode is `no_reply` or `after_error`).
+2. Emits a synthetic `send_message_to_user_directly` `ProgressMessage` carrying `details.reply_via=helper_llm_{mode}` if any content streamed — downstream `chat_module._split_user_visible_response` picks this up like an organic reply, so persistence works without special-casing.
+3. Yields the captured `ErrorMessage` LAST with computed severity (`recovered` / `recovered_after_reply` / `fatal`). The frontend reduces synthetic tool calls into `responseParts` first; yielding the error first would briefly flip `displayContent` to the error string before the synthetic lands.
+
+The `except Exception` in the main agent-loop body **no longer yields** the ErrorMessage immediately — it stashes `{error_type, error_message}` into `captured_error` so the recovery generator can place it after the recovered reply. `_generate_fallback_reply_stream` now accepts the full context (system prompts + chat history + agent_loop_response + final_output + error_info) and uses one of two prompt templates (`_FALLBACK_NO_REPLY_INSTRUCTIONS` / `_FALLBACK_AFTER_ERROR_INSTRUCTIONS`); `_build_helper_user_input` assembles the user-input payload via tagged XML-ish sections so the LLM can navigate the context without re-instantiating the agent persona.
+
+Rename: synthetic `details.reply_via` switched from `helper_llm_fallback` to `helper_llm_no_reply` / `helper_llm_after_error` so the UI can distinguish the two recovery modes. `chat_module` now copies any `helper_llm_*` tag onto the persisted row (was strict equality on `helper_llm_fallback`).
+
+Contract is pinned by `tests/agent_runtime/test_fallback_streaming_order.py`.
+
+## 2026-05-25 — Mode-aware fallback decision (`_should_run_helper_llm_fallback`)
+
+Return shape changed from `(bool, str)` to `(mode | None, str)`:
+
+- `"no_reply"` — chat turn ended cleanly without `send_message_to_user_directly`; helper_llm runs to write the missing reply.
+- `"after_error"` — chat turn hit a fatal mid-stream and no organic reply was sent yet; helper_llm runs with full context (system prompts + completed tool results + error info) to produce a recovery reply. (Wired in T4.)
+- `"partial_reply_then_error"` — fatal hit AFTER an organic reply; helper_llm does NOT run (we already spoke), but the caller surfaces a `recovered_after_reply` ErrorMessage. (Wired in T4.)
+- `None` with `skip_reason` — `non_chat_trigger` / `cancellation_requested` / `already_replied_via_tool`.
+
+The decision function is now the single point of truth for "what should this turn do at the recovery slot." Contract is pinned by `tests/agent_runtime/test_helper_llm_fallback_decision.py`.
+
+## 2026-05-25 — Fallback prompt serializer added (`_serialize_agent_loop_for_prompt`)
+
+Pure helper that renders `agent_loop_response` (raw runtime frames) into
+a flat ordered plain-text block for the helper_llm fallback prompt. Sits
+beside `_should_run_helper_llm_fallback` — both are no-IO, no-async, so
+the recovery prompt assembly is unit-testable end-to-end without
+spinning up the full async generator.
+
+Per-entry cap defaults to 4 KB, total cap to 32 KB. When total exceeds
+the cap, oldest entries drop first (with an `[... earlier activity
+omitted ...]` marker) because the recovery reply needs recent activity
+more than ancient setup. Adjacent `AgentTextDelta` frames coalesce into
+one `[assistant_text]` block so the LLM sees coherent text instead of
+the delta soup that's natural for streaming. See spec
+`reference/self_notebook/specs/2026-05-25-fallback-llm-context-design.md`
+for the bigger redesign this enables (fatal-path recovery with full
+context).
+
+Contract is pinned by `tests/agent_runtime/test_fallback_prompt_assembly.py`.
 
 ## 2026-05-13 — Phase B caller migration (generator-based ResponseProcessor)
 

@@ -11,7 +11,7 @@
  * URL minted via `useArtifactRawUrl`. No auth header is needed on the fetch.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Artifact } from '@/types/artifact';
@@ -33,6 +33,12 @@ export default function MarkdownRenderer({ artifact }: Props) {
   const [text, setText] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+  // attempt() via ref so the load effect's deps stay `[url]` — see
+  // HtmlRenderer for the bug story (Dismiss-modal loop, 2026-05-25).
+  const attemptRef = useRef(heal.attempt);
+  useEffect(() => {
+    attemptRef.current = heal.attempt;
+  }, [heal.attempt]);
 
   useEffect(() => {
     if (heal.recoveryVersion > 0) reload();
@@ -50,11 +56,11 @@ export default function MarkdownRenderer({ artifact }: Props) {
         if (cancelled) return;
         const msg = String(e);
         setError(msg);
-        if (msg.includes('fetch failed: 410')) heal.attempt();
+        if (msg.includes('fetch failed: 410')) attemptRef.current();
       }
     })();
     return () => { cancelled = true; };
-  }, [url, heal]);
+  }, [url]);
 
   const content = urlError ? (
     <div className="p-4 text-red-400">Failed to load: {urlError}</div>

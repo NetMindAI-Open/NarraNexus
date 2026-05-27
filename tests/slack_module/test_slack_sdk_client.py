@@ -203,3 +203,101 @@ async def test_history_returns_empty_on_api_error(fake_client):
     fake_client.history_response = _FakeAsyncWebClient._fake_api_error("not_in_channel")
     client = SlackSDKClient("xoxb-x")
     assert await client.get_conversation_history(channel="C1") == []
+
+
+# ── Sanitiser wiring ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_message_sanitises_markdown_link(fake_client):
+    """``send_message`` must rewrite GitHub markdown to Slack mrkdwn."""
+    fake_client.chat_post_response = {"ok": True, "ts": "1.0"}
+    client = SlackSDKClient("xoxb-x")
+
+    await client.send_message(
+        channel="C1", text="see [docs](https://example.com)"
+    )
+    _, kwargs = fake_client.calls[0]
+    assert kwargs["text"] == "see <https://example.com|docs>"
+
+
+@pytest.mark.asyncio
+async def test_send_message_sanitises_cjk_adjacent_url(fake_client):
+    """``send_message`` must wrap a bare URL adjacent to CJK punct."""
+    fake_client.chat_post_response = {"ok": True, "ts": "1.0"}
+    client = SlackSDKClient("xoxb-x")
+
+    await client.send_message(channel="C1", text="访问 https://example.com，详细")
+    _, kwargs = fake_client.calls[0]
+    assert kwargs["text"] == "访问 <https://example.com>，详细"
+
+
+@pytest.mark.asyncio
+async def test_api_call_sanitises_text_on_chat_postMessage(fake_client):
+    """The agent-facing path (``slack_cli`` → ``api_call``) must also
+    sanitise. Same fix, different entry point."""
+    fake_client.api_call_response = {"ok": True, "ts": "1.0"}
+    client = SlackSDKClient("xoxb-x")
+
+    await client.api_call(
+        "chat.postMessage",
+        {"channel": "C1", "text": "[link](https://example.com)，详情"},
+    )
+    _, kwargs = fake_client.calls[0]
+    sent = kwargs["json"]
+    assert sent["text"] == "<https://example.com|link>，详情"
+
+
+@pytest.mark.asyncio
+async def test_api_call_sanitises_text_on_chat_update(fake_client):
+    fake_client.api_call_response = {"ok": True}
+    client = SlackSDKClient("xoxb-x")
+
+    await client.api_call(
+        "chat.update",
+        {"channel": "C1", "ts": "1.0", "text": "new https://x.com，更新"},
+    )
+    _, kwargs = fake_client.calls[0]
+    assert kwargs["json"]["text"] == "new <https://x.com>，更新"
+
+
+@pytest.mark.asyncio
+async def test_api_call_does_NOT_mutate_non_text_methods(fake_client):
+    """``conversations.history`` and similar methods pass ``args``
+    through verbatim — sanitiser must not run on irrelevant fields."""
+    fake_client.api_call_response = {"ok": True, "messages": []}
+    client = SlackSDKClient("xoxb-x")
+
+    args = {"channel": "C1", "limit": 20}
+    await client.api_call("conversations.history", args)
+    _, kwargs = fake_client.calls[0]
+    assert kwargs["json"] == args
+
+
+@pytest.mark.asyncio
+async def test_api_call_does_NOT_mutate_caller_args_dict(fake_client):
+    """Sanitisation must operate on a copy. The caller passed-in dict
+    is shared (e.g. tests assert on it, or the MCP layer logs it),
+    so we must not rewrite it in place."""
+    fake_client.api_call_response = {"ok": True, "ts": "1.0"}
+    client = SlackSDKClient("xoxb-x")
+
+    original_text = "see [docs](https://example.com)"
+    args = {"channel": "C1", "text": original_text}
+    await client.api_call("chat.postMessage", args)
+    # Caller's dict unchanged
+    assert args["text"] == original_text
+
+
+@pytest.mark.asyncio
+async def test_api_call_with_missing_text_field_is_passthrough(fake_client):
+    """``chat.postMessage`` with blocks-only (no text) must not crash."""
+    fake_client.api_call_response = {"ok": True, "ts": "1.0"}
+    client = SlackSDKClient("xoxb-x")
+
+    await client.api_call(
+        "chat.postMessage",
+        {"channel": "C1", "blocks": [{"type": "section"}]},
+    )
+    _, kwargs = fake_client.calls[0]
+    assert "text" not in kwargs["json"]

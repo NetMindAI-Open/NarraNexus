@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/HtmlRenderer.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — break the Dismiss-modal loop (P0 fix)
+
+The HEAD-probe useEffect previously depended on `[url, heal]`. The
+`heal` controller's identity changed on every hook state transition
+(busy → busy=false → setModalOpen(true) → user clicks Dismiss →
+setModalOpen(false) → ...), and each identity change re-fired the
+effect, re-hit HEAD 410, re-called `heal.attempt()`, and re-opened the
+modal. Net effect: an artifact whose source file was manually deleted
+from the workspace was impossible to close — the user was trapped on
+the "no matching file" dialog with refresh providing no escape.
+
+Fix: stash `heal.attempt` in an `attemptRef` and depend only on
+`[url]`. The effect now only fires when the URL itself changes (token
+re-mint, agent re-registered, etc.) — exactly when re-probing actually
+makes sense. Same pattern applied to Chart/Csv/Image/Markdown/Pdf
+renderers. See `useArtifactHeal.ts.md` for the hook-side defenses.
 
 ## 2026-05-15 — keyed on `updated_at` for live refresh on re-register
 

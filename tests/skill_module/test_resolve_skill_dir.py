@@ -7,7 +7,7 @@ agent's skills directory has been deleted or never created.
 
 Observed in EC2 mcp container logs 2026-05-19T04:35:13:
   FileNotFoundError: [Errno 2] No such file or directory:
-  '/opt/narranexus/workspaces/agent_demo00000000_user_demo/skills'
+  '/opt/narranexus/workspaces/agent_94360f6c4b98_user_xiong/skills'
 
 Root cause: `_resolve_skill_dir` guards `if not self.skills_dir` but not
 `self.skills_dir.exists()`. Falls into `for path in self.skills_dir.iterdir()`

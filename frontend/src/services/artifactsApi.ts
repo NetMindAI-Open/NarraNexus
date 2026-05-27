@@ -19,9 +19,27 @@
  */
 
 import type { Artifact } from '@/types/artifact';
+import { getApiBaseUrl } from '@/stores/runtimeStore';
 
-const base = (agentId: string) => `/api/agents/${agentId}/artifacts`;
-const userBase = (userId: string) => `/api/users/${userId}/artifacts`;
+// Every fetch URL is built by prepending `getApiBaseUrl()`. It returns
+// `''` in cloud (page origin == backend origin, so relative paths
+// resolve correctly) and `http://localhost:8000` in dmg local mode
+// (where the Tauri webview origin `tauri.localhost` is NOT the backend).
+// Without this prefix, dmg's artifacts panel silently 404'd on every
+// list / view-token / heal call — empty list, dead clicks, no panel
+// (cloud was unaffected, which masked the bug for cloud-first users).
+const base = (agentId: string) => `${getApiBaseUrl()}/api/agents/${agentId}/artifacts`;
+const userBase = (userId: string) => `${getApiBaseUrl()}/api/users/${userId}/artifacts`;
+
+// Backend mints raw_url as a path like "/api/public/artifacts/raw/<tok>/".
+// In dmg an iframe `src` or fetch against that path resolves against
+// `tauri.localhost`, not the backend — so absolutise before returning.
+// Pass-through for already-absolute URLs (defensive: future CDN-hosted
+// artifact variants must not be double-prefixed).
+function absolutiseBackendUrl(maybeRelative: string): string {
+  if (/^https?:\/\//i.test(maybeRelative)) return maybeRelative;
+  return `${getApiBaseUrl()}${maybeRelative}`;
+}
 
 export function authHeaders(): Record<string, string> {
   // Mirror the app-wide ApiClient.getAuthHeaders(): send BOTH identity headers.
@@ -134,7 +152,7 @@ export const artifactsApi = {
     });
     if (!r.ok) throw new Error(`view-token failed: ${r.status}`);
     const data: ViewToken = await r.json();
-    return data.raw_url;
+    return absolutiseBackendUrl(data.raw_url);
   },
 
   async setPinned(agentId: string, artifactId: string, pinned: boolean): Promise<Artifact> {

@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-05-13
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — bridge WS AuthError frames to narranexus:auth-expired
+
+Both `run()` and `reconnect()` onmessage handlers now call
+`isAuthErrorMessage` (see [[wsAuthError]]) at the top of the parse
+branch. On a match they `dispatchAuthExpired()` and bail — App.tsx
+listens for the event, calls configStore.logout(), and shows the
+"Your session expired" banner. Pre-fix the REST 401 path already
+dispatched this event but the WS path swallowed AuthError frames into
+the chat surface as red "Token expired" bubbles, leaving cloud users
+stranded. TODO: 2026-05-26-auto-logout-on-expired-jwt.md.
 
 ## 2026-05-13 — Reconnect: 注入触发本次 run 的 user bubble
 

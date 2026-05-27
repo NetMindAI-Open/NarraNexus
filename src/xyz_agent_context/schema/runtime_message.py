@@ -235,11 +235,21 @@ class ErrorMessage(BaseRuntimeMessage):
             user-only row and skips the assistant side.
           - "recoverable": surfaced as information for the agent to react to
             (transient rate-limit blip, single 5xx, etc.) — the agent loop
-            keeps yielding and we DON'T tear the whole turn down. Default is
-            "fatal" to preserve historical behaviour; new error sites should
-            mark themselves explicitly.
+            keeps yielding and we DON'T tear the whole turn down.
+          - "recovered": a fatal-class error happened, but the helper_llm
+            after-error fallback produced a user-facing reply that masks the
+            failure operationally. Frontend renders the reply as normal and
+            surfaces this error as a warning badge.
+          - "recovered_after_reply": the agent already called
+            send_message_to_user_directly before a fatal hit. No fallback
+            runs (we already spoke), but the badge tells the user the turn
+            didn't finish all planned work.
+          Default is "fatal" to preserve historical behaviour; new error
+          sites should mark themselves explicitly.
     """
     message_type: Literal[MessageType.ERROR] = MessageType.ERROR
     error_message: str
     error_type: str = "api_error"
-    severity: Literal["fatal", "recoverable"] = "fatal"
+    severity: Literal[
+        "fatal", "recoverable", "recovered", "recovered_after_reply"
+    ] = "fatal"

@@ -271,14 +271,25 @@ function App() {
     return () => window.removeEventListener('narranexus:quota-exceeded', handler);
   }, []);
 
-  // Stale JWT: api.ts dispatches narranexus:auth-expired when an
-  // authenticated request comes back 401 (token rejected by backend).
-  // Clear auth state via configStore so ProtectedRoute redirects to /login
-  // instead of letting the UI keep firing 401s in a broken state.
+  // Stale JWT: api.ts (REST 401) AND wsManager (WS AuthError frame) both
+  // dispatch narranexus:auth-expired when the cloud rejects the token.
+  // We logout via configStore so ProtectedRoute redirects to /login, AND
+  // surface a banner so the user understands WHY they were bounced —
+  // previously the handler was silent and the dmg user who hadn't opened
+  // the app for a week got teleported to login with no explanation, or
+  // (on the WS side) was stranded on the chat surface with red "Token
+  // expired" bubbles and no way out.
+  const [sessionExpired, setSessionExpired] = useState(false);
   useEffect(() => {
     const handler = () => {
       const { isLoggedIn, logout } = useConfigStore.getState();
-      if (isLoggedIn) logout();
+      if (isLoggedIn) {
+        logout();
+        setSessionExpired(true);
+        // Auto-dismiss after 12s — long enough to read, short enough
+        // not to clutter the freshly-rendered /login surface.
+        window.setTimeout(() => setSessionExpired(false), 12000);
+      }
     };
     window.addEventListener('narranexus:auth-expired', handler);
     return () => window.removeEventListener('narranexus:auth-expired', handler);
@@ -295,6 +306,15 @@ function App() {
         >
           Free-tier quota exhausted. Open Settings → Providers to add
           your own API key. (click to dismiss)
+        </div>
+      )}
+      {sessionExpired && (
+        <div
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+          onClick={() => setSessionExpired(false)}
+          role="alert"
+        >
+          Your session expired. Please sign in again. (click to dismiss)
         </div>
       )}
       <Suspense fallback={<PageFallback />}>

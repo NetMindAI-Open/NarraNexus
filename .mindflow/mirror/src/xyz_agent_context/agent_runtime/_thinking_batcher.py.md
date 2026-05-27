@@ -11,7 +11,7 @@ stub: false
 Claude Code CLI 把 LLM thinking 按 token 粒度往外推。Anthropic-protocol
 转发 DeepSeek-V4-Pro 时（NetMind 等聚合商），一个 ZH 字符一个 token —
 一个 13 分钟 run 会产生几千个单字符 thinking_item 事件。每个事件原样推
-WS 就会让前端 main thread 在 setState 风暴下卡顿（an operator "30 多次工具调用
+WS 就会让前端 main thread 在 setState 风暴下卡顿（Xiong "30 多次工具调用
 然后 not response" 的核心症状之一）。
 
 铁律 #16 禁止"丢内容 / 限流 / 截断"那类对用户可感知的优化。这里采用

@@ -7,8 +7,8 @@ last_verified: 2026-05-20
 ## 2026-05-20 — `_INCREMENTAL_AUTH_GUIDE`: bot-scope dead-end
 
 Extended the `--as bot` `missing_scope` bullet and added a "verify
-before declaring solved" bullet. Why: prod agent `agent_demo00000000`
-(an operator) hit `99991672 App scope not enabled` on a `--as bot`
+before declaring solved" bullet. Why: prod agent `agent_94360f6c4b98`
+(owner Xiong) hit `99991672 App scope not enabled` on a `--as bot`
 minutes call; the owner was repeatedly handed `auth login` URLs that
 can only grant USER scopes, so clicking never fixed the bot/app scope
 (which needs a developer-console enable **plus a new app-version
@@ -28,7 +28,7 @@ Follow-up bullet: an **incremental scope top-up is NOT the three-click
 binding flow** — `lark_permission_advance` is binding-only and its
 `Already completed` ≠ the needed scope is granted; a top-up is only
 `auth login --scope`(mint)→`auth login --device-code <carried code>`(poll).
-Why: prod operator minutes saga — agent called `permission_advance` every turn,
+Why: prod Xiong minutes saga — agent called `permission_advance` every turn,
 read "Already completed" as success, re-minted instead of polling the
 device_code carried in its reasoning. (Carry works — reasoning is spliced
 back across turns via meta_data.reasoning; the agent took the wrong flow.) +1 test.

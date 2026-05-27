@@ -41,6 +41,13 @@ export default function ChartRenderer({ artifact }: Props) {
   );
   const registerChartInstance = useArtifactStore((s) => s.registerChartInstance);
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+  // Stash attempt() in a ref so the load effect only re-runs when URL
+  // changes — pulling `heal` into the deps would re-fire the fetch (and
+  // open the modal again) on every hook state change. Bug: 2026-05-25.
+  const attemptRef = useRef(heal.attempt);
+  useEffect(() => {
+    attemptRef.current = heal.attempt;
+  }, [heal.attempt]);
 
   // When heal succeeds (server re-registered) the hook bumps recoveryVersion.
   // We can't just re-run the load effect on it directly — we need a fresh
@@ -75,7 +82,7 @@ export default function ChartRenderer({ artifact }: Props) {
         // self-heal flow so the user gets candidates from their workspace
         // instead of a dead "Chart failed: 410" badge.
         if (msg.includes('fetch failed: 410')) {
-          heal.attempt();
+          attemptRef.current();
         }
       }
     })();
@@ -85,7 +92,7 @@ export default function ChartRenderer({ artifact }: Props) {
       registerChartInstance(artifact.artifact_id, null);
       chart?.dispose();
     };
-  }, [url, artifact.artifact_id, registerChartInstance, heal]);
+  }, [url, artifact.artifact_id, registerChartInstance]);
 
   return (
     <>

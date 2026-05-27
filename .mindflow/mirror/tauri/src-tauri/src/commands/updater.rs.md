@@ -1,7 +1,27 @@
 ---
 code_file: tauri/src-tauri/src/commands/updater.rs
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — `run_manual_update_check` + de-Chinese dialogs
+
+New entry point `run_manual_update_check(app)` — called from the tray
+"Check for Updates…" item ([[tray]]). Wraps `check_and_install_update`
+and ALWAYS surfaces a native dialog with the result:
+- installed → restart prompt (if user declines, show "applies on next
+  launch" info dialog)
+- up-to-date → "You are already on the latest version" info dialog
+- failed → "Update check failed.\\n\\n{e}" info dialog
+
+Why a separate function instead of widening `run_startup_update_check`:
+the startup path is silent on the up-to-date / failed branches on
+purpose (user didn't ask, so flashing a dialog every launch is
+annoying). Manual click is the opposite — silence is confusing.
+
+Also de-Chinesed the existing `prompt_restart` strings (违反铁律 #1 的
+pre-existing issue, fixed in the same commit since the file was already
+being touched). New `show_info_dialog(title, body)` helper factors out
+the osascript boilerplate so both flows share one dialog primitive.
 
 # updater.rs — app auto-update (check / download / install)
 

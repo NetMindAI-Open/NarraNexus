@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-05-15
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — sub-folders default to expanded (P0 fix)
+
+`TreeNode`'s default-expand was `depth < 1`, so only top-level folders
+opened on render; sub-folders showed their name but no contents,
+easily misread as "sub-folder is ignored". P0 bug 2026-05-18 (Xinyao
+Hu). Backend returns the full recursive tree, so showing it all at
+once matches the user mental model — they can still collapse with the
+chevron. Default is now `true` regardless of depth.
+
+`TreeNode` is now a named export (in addition to the default
+`FileUpload`) so tests can render it directly without spinning up the
+zustand stores and api wrapper. Test pin in
+`__tests__/FileUpload.test.tsx`.
 
 ## 2026-05-15 — fix inner-scroll discoverability
 

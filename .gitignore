@@ -139,3 +139,8 @@ scripts/.control.sh
 
 # Local audio fixtures for manual transcription testing
 /test_assets/
+
+# Local-only scratch / test-run state — never committed.
+.tmp/
+/real_case_e2e_test/reports/
+/real_case_e2e_test/state/

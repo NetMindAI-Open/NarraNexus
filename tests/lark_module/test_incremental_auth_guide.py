@@ -391,7 +391,7 @@ def test_narranexus_specifics_rendered_only_when_stage_completed():
 
 
 # ───────────────────────────────────────────────────────────────────────────
-# 2026-05-20 — bot-scope dead-end regression (prod agent_demo00000000 / operator)
+# 2026-05-20 — bot-scope dead-end regression (prod agent_94360f6c4b98 / Xiong)
 #
 # Context: a `--as bot` call returned `99991672 App scope not enabled:
 # minutes:minutes.basic:read`. The owner was repeatedly handed `auth login`
@@ -475,7 +475,7 @@ def test_guide_requires_verifying_before_claiming_scope_resolved():
 
 
 def test_guide_separates_incremental_topup_from_three_click_binding():
-    """Root cause of the operator minutes saga (2026-05): on every turn the
+    """Root cause of the Xiong minutes saga (2026-05): on every turn the
     agent called `lark_permission_advance(user_authorized)` for an
     incremental scope top-up, read its `Already completed` as success,
     and re-minted instead of polling the carried device_code. The guide
@@ -498,7 +498,7 @@ def test_guide_distinguishes_post_scope_resource_failure_from_auth():
     permission deny / failed to query) is NOT fixable by more auth —
     it's a resource-level / Lark-side / lark-cli issue. The agent must
     stop re-minting/re-polling and tell the user, rather than loop
-    (which is what it did during the operator transcript saga after scopes
+    (which is what it did during the Xiong transcript saga after scopes
     were granted).
     """
     from xyz_agent_context.module.lark_module.lark_module import (

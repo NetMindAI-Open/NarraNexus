@@ -782,16 +782,46 @@ class LarkTrigger(ChannelTriggerBase):
 
         Extracted from `_subscribe_loop` so the processor registration
         can be asserted in isolation (see tests/lark_module/
-        test_message_read_handler.py). Production code must not skip the
-        `message_read_v1` registration — without it the SDK logs one ERROR
-        per IM read receipt.
+        test_message_read_handler.py).
+
+        ``lark_oapi.EventDispatcherHandler`` uses a strict-whitelist
+        dispatch model: any received event whose type is not in the
+        ``_processorMap`` raises ``EventException("processor not
+        found, ...")`` which the SDK logs as ERROR. There is no default
+        / catch-all handler. Lark pushes events to the bot based on
+        the app's subscription config — for any IM scope the user
+        granted, multiple event types can fire (reactions, recalls,
+        group member changes, etc.) regardless of whether we want to
+        act on them.
+
+        We register the full set of IM events the SDK knows about.
+        ``on_message_receive`` carries the real handler; everything
+        else (including ``message_read_v1`` per the original 2026-05-19
+        fix) is a no-op whose only purpose is to keep the SDK quiet.
         """
         import lark_oapi as lark
+
+        def _noop(_data):  # pragma: no cover — defensive ledger only
+            pass
 
         return (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(on_message_receive)
             .register_p2_im_message_message_read_v1(on_message_read)
+            # Defensive no-ops — without these the SDK logs an ERROR
+            # for every received event of these types. We never act on
+            # any of them today.
+            .register_p2_im_message_recalled_v1(_noop)
+            .register_p2_im_message_reaction_created_v1(_noop)
+            .register_p2_im_message_reaction_deleted_v1(_noop)
+            .register_p2_im_chat_disbanded_v1(_noop)
+            .register_p2_im_chat_updated_v1(_noop)
+            .register_p2_im_chat_access_event_bot_p2p_chat_entered_v1(_noop)
+            .register_p2_im_chat_member_bot_added_v1(_noop)
+            .register_p2_im_chat_member_bot_deleted_v1(_noop)
+            .register_p2_im_chat_member_user_added_v1(_noop)
+            .register_p2_im_chat_member_user_deleted_v1(_noop)
+            .register_p2_im_chat_member_user_withdrawn_v1(_noop)
             .build()
         )
 

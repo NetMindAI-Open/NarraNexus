@@ -1,8 +1,34 @@
 ---
 code_file: frontend/src/services/artifactsApi.ts
-last_verified: 2026-05-14
+last_verified: 2026-05-26
 stub: false
 ---
+
+## 2026-05-26 — Absolute URLs via `getApiBaseUrl()` (fix dmg blank panel)
+
+The whole API surface — `base()`, `userBase()`, and the `raw_url`
+returned by `getRawUrl()` — now goes through `getApiBaseUrl()` from
+`@/stores/runtimeStore`. The old bare-relative form (`/api/agents/...`)
+worked in cloud because the page origin == backend origin, but in the
+Tauri dmg the page is served from `tauri.localhost` while the backend
+listens on `http://localhost:8000`. Every fetch silently 404'd → empty
+artifacts list + dead clicks + the panel never opening. The bug was
+present since this module was first written (2026-04) and was masked
+for cloud-first users; the fix matches the rule already followed by
+`lib/api.ts` (which prefixes every URL with `getApiBaseUrl()`).
+
+`absolutiseBackendUrl()` defensively passes through fully-qualified
+URLs (`https?://...`) so a future CDN-hosted artifact variant won't
+get double-prefixed. Contract pinned by
+`src/services/__tests__/artifactsApi.test.ts`.
+
+The pre-fix gotcha line "**No auth headers**" below is also stale —
+`authHeaders()` exists and is called by every JWT-authed method (it
+sends both `Authorization: Bearer` and `X-User-Id`). The pre-fix
+"`base()` helper" note about constructing per call still applies, but
+now the helper also reads the runtime base URL so a mode switch
+(cloud ↔ dmg) takes effect on the very next call without any
+restart-the-process gymnastics.
 
 ## 2026-05-14-r3 — `deleteSource` dropped from `remove` / `bulkDelete`
 

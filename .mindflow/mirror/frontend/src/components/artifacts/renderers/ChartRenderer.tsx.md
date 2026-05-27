@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/ChartRenderer.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — break the Dismiss-modal loop (P0 fix)
+
+Same fix as HtmlRenderer: load effect deps go from `[url, artifact.artifact_id,
+registerChartInstance, heal]` to `[url, artifact.artifact_id,
+registerChartInstance]`, with `heal.attempt` accessed via `attemptRef`.
+Pre-fix the `heal` object's identity churn re-fired the chart fetch on every
+hook state transition and bounced the modal back open after Dismiss. See
+`useArtifactHeal.ts.md` for the cross-renderer pattern.
 
 ## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
 

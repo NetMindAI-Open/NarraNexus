@@ -1161,15 +1161,21 @@ class ChatModule(XYZBaseModule):
             messages.append(user_msg)
             asst_meta = {**assistant_meta}
             # If the upstream agent loop's helper_llm fallback fired
-            # (see step_3_agent_loop._generate_fallback_reply_stream),
-            # it emits a synthetic send_message_to_user_directly
-            # ProgressMessage tagged details.reply_via="helper_llm_fallback".
+            # (see step_3_agent_loop._stream_fallback_recovery), it
+            # emits a synthetic send_message_to_user_directly
+            # ProgressMessage tagged details.reply_via="helper_llm_*"
+            # (either helper_llm_no_reply or helper_llm_after_error).
             # Surface that tag on the persisted row so observability
-            # tooling can tell organic vs. recovered replies apart.
+            # tooling can tell organic vs. recovered replies apart, and
+            # so the UI can distinguish the two recovery modes (no_reply
+            # = info badge, after_error = warning badge).
             for r in (params.agent_loop_response or []):
                 d = getattr(r, "details", None)
-                if isinstance(d, dict) and d.get("reply_via") == "helper_llm_fallback":
-                    asst_meta["reply_via"] = "helper_llm_fallback"
+                if not isinstance(d, dict):
+                    continue
+                tag = d.get("reply_via")
+                if isinstance(tag, str) and tag.startswith("helper_llm_"):
+                    asst_meta["reply_via"] = tag
                     break
             # Stash the owner-notify portion on meta_data when the turn
             # was IM-triggered AND the agent explicitly called

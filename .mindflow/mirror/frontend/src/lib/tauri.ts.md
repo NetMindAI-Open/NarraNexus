@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/lib/tauri.ts
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — openExternal(url)
+
+New helper that invokes `plugin:shell|open` so `<a target="_blank">`
+clicks intercepted by [[externalLinkInterceptor]] actually open in
+the OS browser. Uses the same `__TAURI__.invoke` channel as the
+other helpers (no npm dep). Capability `shell:allow-open` and config
+`"shell": { "open": true }` are already wired in
+`tauri/src-tauri/capabilities/default.json` + `tauri.conf.json`.
+Browser mode returns false (caller's interceptor is itself a no-op
+in browser, so this path is dead code there but kept symmetric).
 
 ## 2026-05-22 — checkForUpdates()
 

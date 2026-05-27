@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-05-21
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — last-activity stamp now includes date context
+
+`getRowMeta` switched from `formatTime` (HH:MM:SS) to
+`formatChatTimestamp` so the row stamp differentiates today / yesterday
+/ within-week / older. Pre-fix every row showed only `HH:MM:SS` and
+the user couldn't tell whether a conversation was fresh or stale. See
+[[utils]] for the rendering table.
 
 ## 2026-05-21 — unread count uses its own durable read marker
 

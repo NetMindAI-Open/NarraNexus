@@ -161,7 +161,7 @@ string, branch 2 unmounted, and branch 1 took over. Any subsequent
 thinking deltas or tool calls kept accumulating into
 `chatStore.currentThinking` / `currentToolCalls` but had **no
 always-visible UI surface** — the reply bubble looked finished even
-when the agent was still mid-loop running more tools. The operator's P0
+when the agent was still mid-loop running more tools. Xiong's P0
 "先回复一条信息后，不再显示思考过程" (`recvjhejbs2abv`).
 
 Fix: drop the `!getUserVisibleResponse()` gate so the live activity

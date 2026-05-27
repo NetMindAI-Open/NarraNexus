@@ -981,7 +981,7 @@ _register(
 #   stretch between two type switches (tool_call / tool_output / etc.).
 #   When a non-thinking event arrives or the run ends, the buffered
 #   segment is flushed as ONE row here. Tool_call and tool_output get
-#   one row each. Decision driver: 4408 raw thinking chunks per operator-
+#   one row each. Decision driver: 4408 raw thinking chunks per Xiong-
 #   style run collapse to ~50 segment rows; total row count per run is
 #   bounded by `2 × tool_call_count + small constant` rather than by
 #   token granularity.

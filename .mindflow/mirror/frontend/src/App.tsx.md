@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-05-18
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — session-expired banner on narranexus:auth-expired
+
+The auth-expired handler now (1) logs out via configStore as before
+AND (2) sets `sessionExpired` so a top amber banner explains "Your
+session expired. Please sign in again." Auto-dismisses after 12s;
+clicking dismisses immediately. Mirrors the `quotaExceeded` banner
+pattern at the same site. Why: pre-fix the bounce-to-login was
+silent, so cloud users (especially dmg users opening the app a week
+after install) saw mysterious errors / abrupt logout with no
+explanation. The new wsManager bridge ([[wsManager]]) means WS
+AuthError frames also trigger this path, not just REST 401s.
 
 ## 2026-05-18 — deep-link receiver (Tauri-only)
 

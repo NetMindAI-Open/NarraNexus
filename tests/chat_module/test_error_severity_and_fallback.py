@@ -15,7 +15,7 @@ C) final_output fallback: when the agent produced LLM-native output but
    didn't call a registered reply tool, we persist `io_data.final_output`
    as the assistant content (with `reply_via=final_output_fallback`) so
    the next turn doesn't see "(Agent decided no response needed)" — the
-   self-reinforcing failure loop that caused much of the operator's "agent
+   self-reinforcing failure loop that caused much of Xiong's "agent
    decided no response" baseline noise.
 """
 from __future__ import annotations
@@ -221,13 +221,13 @@ async def test_helper_llm_fallback_marker_is_propagated(chat_module):
     chat_module's downstream handling of the marker."""
     synthetic_fallback = ProgressMessage(
         step="3.4.fallback",
-        title="Reply (helper_llm fallback)",
+        title="Reply (helper_llm no_reply)",
         description="Agent did not call send_message; helper_llm generated reply.",
         status=ProgressStatus.COMPLETED,
         details={
             "tool_name": "mcp__chat_module__send_message_to_user_directly",
             "arguments": {"content": "Recovered reply text."},
-            "reply_via": "helper_llm_fallback",
+            "reply_via": "helper_llm_no_reply",
         },
     )
     params = _hook_params(
@@ -249,7 +249,7 @@ async def test_helper_llm_fallback_marker_is_propagated(chat_module):
     assert row["content"] == "Recovered reply text."
     assert "internal reasoning" not in row["content"]
     # Marker propagated.
-    assert row["meta_data"].get("reply_via") == "helper_llm_fallback"
+    assert row["meta_data"].get("reply_via") == "helper_llm_no_reply"
 
 
 @pytest.mark.asyncio

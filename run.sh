@@ -324,6 +324,66 @@ check_deps() {
 
 # --- Main ---
 
+run_container_mode() {
+  # ------------------------------------------------------------------
+  # Manyfold container mode — single-process group (no tmux), all logs
+  # to stdout for `docker logs`/`kubectl logs`. Backend runs in
+  # foreground (PID 1 of the container effective process).
+  #
+  # Activated by env: RUNTIME_MODE=container (set by docker/manyfold
+  # Dockerfile). Inert outside containers.
+  # ------------------------------------------------------------------
+  echo -e "${C}NarraNexus container mode — starting services${R}"
+
+  # Defaults that make the volume layout sane regardless of where the
+  # image is built. The Dockerfile may pre-set these; respect overrides.
+  export BASE_WORKING_PATH="${BASE_WORKING_PATH:-/data/workspaces}"
+  export NEXUS_LOG_DIR="${NEXUS_LOG_DIR:-/data/logs}"
+  export DATABASE_URL="${DATABASE_URL:-sqlite:////data/nexus.db}"
+  export DASHBOARD_BIND_HOST="${DASHBOARD_BIND_HOST:-0.0.0.0}"
+
+  mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
+  mkdir -p "$(dirname /data/nexus.db)" || true
+
+  # 1. sqlite_proxy (only when DATABASE_URL is sqlite-ish)
+  if [[ "${DATABASE_URL}" == sqlite* ]]; then
+    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.sqlite_proxy_server &
+    SQLITE_PID=$!
+    # Wait up to 30s for :8100
+    for i in {1..30}; do
+      if (echo > /dev/tcp/127.0.0.1/8100) >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+  fi
+
+  # 2. MCP module runner
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.module_runner mcp &
+  # 3. Module poller
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.services.module_poller &
+  # 4. Job trigger
+  "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
+  # 5. Message bus trigger
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
+
+  # 6. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
+  exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --ws-ping-interval 30 \
+    --ws-ping-timeout 60
+}
+
+# Container detection MUST run before the normal case so docker/manyfold
+# Dockerfile CMD ["bash","run.sh"] short-circuits the deps-check path
+# (deps are baked into the image; rechecking at every container start
+# wastes 5-10s).
+if [ "${RUNTIME_MODE:-}" = "container" ] || [ "${IN_CONTAINER:-}" = "1" ]; then
+  run_container_mode
+  exit $?
+fi
+
 case "${1:-}" in
   stop)
     stop_all

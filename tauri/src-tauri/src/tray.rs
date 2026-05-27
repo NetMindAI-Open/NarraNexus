@@ -2,10 +2,12 @@
 //! AppState for later badge updates (`commands::tray::set_tray_badge`).
 use tauri::{
     image::Image,
-    menu::{Menu, MenuItem},
+    menu::{MenuBuilder, MenuItem},
     tray::{TrayIcon, TrayIconBuilder},
     App,
 };
+
+use crate::commands::updater::run_manual_update_check;
 
 // The menu-bar icon, embedded at compile time (no runtime path resolution).
 // It's the NarraNexus v2 mark rendered as a monochrome black+alpha template;
@@ -18,9 +20,33 @@ pub fn create_tray(app: &App) -> Result<TrayIcon, Box<dyn std::error::Error>> {
         MenuItem::with_id(app, "start_all", "Start All Services", true, None::<&str>)?;
     let stop_item =
         MenuItem::with_id(app, "stop_all", "Stop All Services", true, None::<&str>)?;
+    // "Check for Updates…" — manual trigger for the auto-update flow.
+    // Auto-update on startup is already wired (lib.rs setup), but a
+    // manual entry point matters because (a) users want to know they're
+    // current without restarting, and (b) the startup check runs early
+    // and silently — if it fails (network blip, signing-key mismatch)
+    // they have no other path to retry. See updater.rs for the
+    // dialog-always-shown UX.
+    let check_updates_item = MenuItem::with_id(
+        app,
+        "check_updates",
+        "Check for Updates…",
+        true,
+        None::<&str>,
+    )?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit NarraNexus", true, None::<&str>)?;
 
-    let menu = Menu::with_items(app, &[&start_item, &stop_item, &quit_item])?;
+    // MenuBuilder handles heterogeneous items (MenuItem + separators)
+    // without the `&[&dyn IsMenuItem<R>]` cast dance that Menu::with_items
+    // requires for a mixed slice.
+    let menu = MenuBuilder::new(app)
+        .item(&start_item)
+        .item(&stop_item)
+        .separator()
+        .item(&check_updates_item)
+        .separator()
+        .item(&quit_item)
+        .build()?;
 
     let icon = Image::from_bytes(TRAY_ICON_PNG)?;
 
@@ -35,6 +61,13 @@ pub fn create_tray(app: &App) -> Result<TrayIcon, Box<dyn std::error::Error>> {
             }
             "stop_all" => {
                 log::info!("Tray: Stop all services requested");
+            }
+            "check_updates" => {
+                log::info!("Tray: Check for updates requested");
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    run_manual_update_check(app).await;
+                });
             }
             "quit" => {
                 log::info!("Tray: Quit requested");

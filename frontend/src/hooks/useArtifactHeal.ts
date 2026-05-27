@@ -26,7 +26,7 @@
  * what status code came back. It just owns the modal state machine.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { artifactsApi, type HealCandidate } from '@/services/artifactsApi';
 import { useArtifactStore } from '@/stores';
 
@@ -73,9 +73,27 @@ export function useArtifactHeal(
   const [message, setMessage] = useState('');
   const upsert = useArtifactStore((s) => s.upsert);
 
+  // Dismissed-for-this-artifact latch. Renderer useEffects can fire
+  // multiple times against the same broken pointer (URL re-mints, prop
+  // churn, etc.) — once the user has explicitly dismissed the "no match"
+  // modal, suppress further auto-opens so they aren't trapped in a
+  // loop. Resets when artifactId changes (different artifact, fresh
+  // chance to heal). See useArtifactHeal.test.tsx for the contract.
+  const dismissedRef = useRef(false);
+  useEffect(() => {
+    dismissedRef.current = false;
+  }, [agentId, artifactId]);
+
+  // busyRef lets attempt() guard re-entry without re-creating the
+  // callback on every render — keeping the callback stable is what lets
+  // the returned controller object below be referentially stable.
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+
   const attempt = useCallback(
     async (workspacePath?: string) => {
-      if (busy) return;
+      if (busyRef.current) return;
+      busyRef.current = true;
       setBusy(true);
       try {
         const res = await artifactsApi.heal(agentId, artifactId, workspacePath);
@@ -90,30 +108,39 @@ export function useArtifactHeal(
           setRecoveryVersion((v) => v + 1);
         } else {
           setCandidates(res.candidates);
-          setModalOpen(true);
+          if (!dismissedRef.current) setModalOpen(true);
         }
       } catch (e) {
         setMessage(`Heal request failed: ${e}`);
         setCandidates([]);
-        setModalOpen(true);
+        if (!dismissedRef.current) setModalOpen(true);
       } finally {
+        busyRef.current = false;
         setBusy(false);
       }
     },
-    [agentId, artifactId, busy, upsert],
+    [agentId, artifactId, upsert],
   );
 
   const dismiss = useCallback(() => {
+    dismissedRef.current = true;
     setModalOpen(false);
   }, []);
 
-  return {
-    recoveryVersion,
-    busy,
-    modalOpen,
-    candidates,
-    message,
-    attempt,
-    dismiss,
-  };
+  // Memoize the controller so consumer useEffect deps like [url, heal]
+  // don't churn on every render. Without this the renderer's HEAD-410
+  // → attempt → setState cycle re-creates `heal`, the effect re-fires,
+  // and the modal can re-open immediately after dismiss.
+  return useMemo(
+    () => ({
+      recoveryVersion,
+      busy,
+      modalOpen,
+      candidates,
+      message,
+      attempt,
+      dismiss,
+    }),
+    [recoveryVersion, busy, modalOpen, candidates, message, attempt, dismiss],
+  );
 }

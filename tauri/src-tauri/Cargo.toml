@@ -1,6 +1,6 @@
 [package]
 name = "narranexus"
-version = "1.7.4"
+version = "1.7.5"
 edition = "2021"
 
 [lib]
@@ -11,7 +11,11 @@ crate-type = ["lib", "cdylib", "staticlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+# `image-png` is required for `Image::from_bytes` (tray.rs) to compile — that
+# constructor is cfg-gated behind `image-ico`/`image-png`. The tray icon is a
+# PNG, so without this feature `from_bytes` silently disappears and the desktop
+# build fails with E0599 "no function named from_bytes".
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 # Prevents a second NarraNexus instance from spawning a duplicate sidecar

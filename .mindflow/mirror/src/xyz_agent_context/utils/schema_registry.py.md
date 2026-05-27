@@ -54,7 +54,7 @@ reconcile 扫 stale 行用，后者给 `/api/auth/agents` list 加 active_run
 `(event_id, seq)` unique 复合索引让重连时的 replay 按 seq ASC 一次扫
 出全部。**永不清**——audit + 历史回看。
 
-数据量估算（operator-style 13 min run）：thinking 段约 50 行 + tool 约 80
+数据量估算（Xiong-style 13 min run）：thinking 段约 50 行 + tool 约 80
 行（call + output 各 41）+ progress / text_delta 若干 ≈ 200 行/run。
 13 万 run/年 ≈ 2600 万行，~25GB——MySQL 无压力。
 

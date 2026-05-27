@@ -1,7 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-20
+last_verified: 2026-05-25
 ---
+
+## 2026-05-25 — Accept any `helper_llm_*` reply_via tag
+
+The reply_via copy loop in `hook_persist_turn` was strict-equality on
+`"helper_llm_fallback"`. As of the fallback-context redesign the synthetic
+ProgressMessage tag is one of `helper_llm_no_reply` (clean turn, agent
+forgot to call send_message) or `helper_llm_after_error` (loop crashed
+mid-stream and helper_llm wrote a recovery reply). Persistence now
+copies any `helper_llm_*` tag onto `meta_data.reply_via`, so the UI can
+render `no_reply` as an info badge and `after_error` as a warning badge.
+T5 builds on this to relax the fatal-detection branch so a recovered
+turn is persisted as a normal user+assistant pair rather than a failed
+user-only row.
 
 ## 2026-05-20 — conversation write moved to synchronous `hook_persist_turn`
 
@@ -69,7 +82,7 @@ fallback. That fallback violated the project's thinking-vs-speaking
 design (final_output is the agent's internal reasoning, not a
 user-facing reply) and could persist meta-talk like "Let me check the
 chat history first" as the assistant's spoken line, then poison the
-next turn's context. The 5/11 product review with an operator explicitly
+next turn's context. The 5/11 product review with Xiong explicitly
 ruled out this shortcut.
 
 The real no-reply recovery now lives one layer up in
@@ -100,7 +113,7 @@ Pinned by `tests/chat_module/test_error_severity_and_fallback.py`:
 ## 2026-05-11 P0 #3 — error detail, no-reply differentiation, final_output fallback
 
 Three changes addressing the "Agent decided no response needed"
-recurring P0 (Lark recviIcuKMNuHj / the operator's 60% failure rate):
+recurring P0 (Lark recviIcuKMNuHj / Xiong's 60% failure rate):
 
 1. **`_detect_error_in_agent_loop` → `_detect_fatal_error_in_agent_loop`**.
    Only `ErrorMessage(severity="fatal")` collapses the turn into a
@@ -166,7 +179,7 @@ user message timestamp. Both the chat-history API
 `meta_data.timestamp` ascending) and the frontend timeline
 (`frontend/src/components/chat/ChatPanel.tsx`, also ascending sort)
 then rendered the greeting *under* the user's first query bubble —
-the P0 "agent主动问好的消息跑到 query 底下了" filed by an operator.
+the P0 "agent主动问好的消息跑到 query 底下了" filed by Xinyao.
 
 Fix: anchor the greeting at `event.created_at - 1ms` (or
 `utc_now() - 1ms` as defensive fallback when `params.event` is None),

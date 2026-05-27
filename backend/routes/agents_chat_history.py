@@ -474,14 +474,33 @@ async def get_simple_chat_history(
                     )
                     narrative_id = links[0].get("narrative_id") if links else None
 
+                    # working_source values that represent a real human
+                    # typing into a chat UI (as opposed to an IM channel
+                    # trigger, scheduled job, or peer-agent call). For
+                    # these, the "user" side is a genuine user message
+                    # and MUST be surfaced in the history view.
+                    #
+                    # "manyfold" was missing here originally — Manyfold's
+                    # OpenAI-compat endpoint feeds the user input via the
+                    # same `input_content` field as CHAT does, so the row
+                    # is a real user message; filtering it out left the
+                    # native UI showing only the agent's replies (the
+                    # symptom Bin哥 reported 2026-05-26).
+                    _USER_FACING_SOURCES = ("chat", "manyfold")
+
                     for msg in messages:
                         meta_data = msg.get("meta_data", {})
                         working_source = meta_data.get("working_source", "chat")
                         role = msg.get("role", "unknown")
 
-                        # For non-chat sources (job/lark/etc), only show assistant messages
-                        # (the "user" side is the trigger prompt, not a real user message)
-                        if working_source != "chat" and role != "assistant":
+                        # For non-user-facing sources (job/lark/slack/
+                        # telegram/message_bus/etc), only show assistant
+                        # messages — the "user" side is the trigger
+                        # prompt, not something a human typed.
+                        if (
+                            working_source not in _USER_FACING_SOURCES
+                            and role != "assistant"
+                        ):
                             continue
 
                         timestamp = meta_data.get("timestamp") or msg.get("created_at")
@@ -517,7 +536,16 @@ async def get_simple_chat_history(
                         # important notification while routine IM
                         # chatter stays hidden.
                         content = msg.get("content", "")
-                        if working_source != "chat" and role == "assistant":
+                        # Privacy-collapse rule applies only to truly-IM
+                        # / background sources where the assistant reply
+                        # was meant for a third party, not for the owner
+                        # viewing this chat panel. Manyfold's assistant
+                        # reply IS the user-facing answer, so leave it
+                        # alone.
+                        if (
+                            working_source not in _USER_FACING_SOURCES
+                            and role == "assistant"
+                        ):
                             owner_notify = meta_data.get("owner_notify_content", "")
                             if owner_notify:
                                 content = owner_notify

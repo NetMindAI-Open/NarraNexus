@@ -22,6 +22,24 @@ from loguru import logger
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
+from ._slack_text_sanitizer import sanitize_slack_mrkdwn
+
+# Slack Web API methods whose ``text`` field is user-visible and
+# rendered as mrkdwn. We pass these through ``sanitize_slack_mrkdwn``
+# on the way out so the agent can't accidentally ship GitHub-style
+# ``[text](url)`` links (which render as literal text in Slack) or
+# bare URLs adjacent to CJK punctuation (which get absorbed by the
+# auto-linker into a broken URL).
+_TEXT_BEARING_METHODS: frozenset[str] = frozenset(
+    {
+        "chat.postMessage",
+        "chat.update",
+        "chat.postEphemeral",
+        "chat.scheduleMessage",
+        "chat.meMessage",
+    }
+)
+
 
 class SlackSDKError(RuntimeError):
     """Raised when slack_sdk surfaces an API error.
@@ -65,7 +83,13 @@ class SlackSDKClient:
         text: str,
         thread_ts: str | None = None,
     ) -> dict[str, Any]:
-        """chat.postMessage. Returns full response dict (includes ``ts``)."""
+        """chat.postMessage. Returns full response dict (includes ``ts``).
+
+        ``text`` is run through ``sanitize_slack_mrkdwn`` so agent output
+        with GitHub markdown links or CJK-adjacent bare URLs renders
+        correctly. Idempotent on already-correct mrkdwn.
+        """
+        text = sanitize_slack_mrkdwn(text)
         try:
             resp = await self._client.chat_postMessage(
                 channel=channel, text=text, thread_ts=thread_ts
@@ -138,7 +162,17 @@ class SlackSDKClient:
         surface as Slack's native ``{"ok": false, "error": "..."}``
         envelope rather than raising — Agents already know how to read
         the envelope from the per-method skill docs.
+
+        For methods listed in ``_TEXT_BEARING_METHODS`` the ``text``
+        arg is run through ``sanitize_slack_mrkdwn`` first — same fix
+        as ``send_message`` but applied to the agent-facing path. The
+        sanitizer mutates a *copy* of ``args`` so the caller's dict is
+        not changed.
         """
+        if method in _TEXT_BEARING_METHODS and isinstance(args, dict):
+            raw_text = args.get("text")
+            if isinstance(raw_text, str) and raw_text:
+                args = {**args, "text": sanitize_slack_mrkdwn(raw_text)}
         try:
             resp = await self._client.api_call(method, json=args)
             return dict(resp.data)

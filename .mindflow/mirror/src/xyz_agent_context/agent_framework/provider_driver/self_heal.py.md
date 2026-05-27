@@ -6,7 +6,7 @@ stub: false
 
 # self_heal.py — reverse-validation + auto-repair
 
-The operator-class bug: a ``user_slots.model`` no longer present in the
+The Xiong-class bug: a ``user_slots.model`` no longer present in the
 referenced ``user_providers.models`` array. The slot keeps firing
 LLM calls, the provider keeps returning 4xx, the outer try/except
 swallows the error, the user has no idea their PM agent stopped

@@ -84,7 +84,7 @@ Receive loop 从 `asyncio.wait_for(__anext__(), IDLE_TIMEOUT_SECONDS)`
 - 如果 message 赢了 → 正常 `.result()` 取出（包括 StopAsyncIteration 自然结束）
 
 **关键修复 effect**：cancel 在 tool call 进行中（没有 message 流出）也能即时
-检测到。an operator 那种 13min run 中途 stop 不再被 receive loop 卡住。
+检测到。Xiong 那种 13min run 中途 stop 不再被 receive loop 卡住。
 
 ### SIGKILL fallback in disconnect
 

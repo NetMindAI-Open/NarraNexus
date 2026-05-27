@@ -33,6 +33,113 @@ JWT_EXPIRY_DAYS = 7
 # `InviteCodeRepository`, and `backend/routes/invite.py`.
 
 
+# =============================================================================
+# Manyfold gateway-token mode (Part 4.8 of docker-cloud-agent-design spec)
+# =============================================================================
+#
+# When ENABLE_MANYFOLD_API=1, an additional auth path opens up: any request
+# carrying ``Authorization: Bearer <MANYFOLD_GATEWAY_TOKEN>`` is trusted as
+# coming from the Manyfold platform (or the platform-issued URL fragment
+# token captured by the frontend bootstrap). This token covers three classes
+# of paths:
+#   * /v1/* (OpenAI-compat endpoints — server-to-server from Manyfold api)
+#   * /manyfold/* (custom cross-user / diagnostics endpoints)
+#   * /api/*, /ws/* when the user navigates the native UI through Manyfold's
+#     ingress (the URL fragment #token=... is captured by the frontend and
+#     stamped onto every subsequent request as an Authorization header)
+#
+# Per Owner decision 2026-05-25: container is single-user, so once the
+# gateway token matches we resolve to the "first user" in the DB as the
+# effective identity. The cross-user /manyfold/agents endpoint reads all
+# rows regardless, so this assignment only matters for /api/* surfaces.
+
+
+def _is_manyfold_api_enabled() -> bool:
+    """Manyfold API is opt-in via env. Default off — local/cloud unaffected."""
+    return os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes")
+
+
+def _manyfold_gateway_token() -> str:
+    """The shared secret platform injects + the URL fragment also carries.
+    Empty string disables the mode (must be set when ENABLE_MANYFOLD_API=1)."""
+    return os.environ.get("MANYFOLD_GATEWAY_TOKEN", "").strip()
+
+
+def _request_has_manyfold_token(request: Request) -> bool:
+    """Returns True iff Authorization header carries the gateway token.
+    Constant-time-ish comparison via secrets.compare_digest (token strings
+    are short; HMAC overkill but safe)."""
+    import secrets as _secrets
+    expected = _manyfold_gateway_token()
+    if not expected:
+        return False
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False
+    provided = auth_header[7:].strip()
+    if not provided:
+        return False
+    return _secrets.compare_digest(provided, expected)
+
+
+def _is_manyfold_path(path: str) -> bool:
+    """Paths covered by the manyfold gateway-token rule."""
+    return (
+        path.startswith("/v1/")
+        or path.startswith("/manyfold/")
+    )
+
+
+async def _resolve_manyfold_default_user_id() -> Optional[str]:
+    """Legacy fallback for Manyfold handoff URLs that don't carry a
+    ``#user=`` fragment param. Returns the first user row's id.
+
+    Replaced in the multi-Manyfold-user flow by the X-User-Id header
+    path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
+    of the frontend) keep working without 401.
+    """
+    from xyz_agent_context.utils.db_factory import get_db_client
+    db = await get_db_client()
+    row = await db.get_one("users", {})
+    return row.get("user_id") if row else None
+
+
+async def _ensure_manyfold_user_exists(user_id: str) -> None:
+    """Idempotently create a ``mf_<...>`` user row on first contact.
+
+    Triggered when the frontend `initManyfoldFragmentAuth()` decoded a
+    Manyfold-side user from the handoff URL and that user has never
+    chatted / never been provisioned via POST /manyfold/agents before
+    (rare but possible: user opens "Open Native UI" before creating any
+    agent in Manyfold).
+
+    We DO NOT clone provider config here — that requires opting in via
+    ``NARRANEXUS_INHERIT_PROVIDER_FROM`` on the agent-create path (and
+    we don't have access to that env's *value* policy at the auth
+    layer). Provider config can still be set up later through the
+    native UI's Settings → Providers flow.
+    """
+    if not user_id.startswith("mf_"):
+        return
+    from xyz_agent_context.utils.db_factory import get_db_client
+    db = await get_db_client()
+    existing = await db.get_one("users", {"user_id": user_id})
+    if existing:
+        return
+    # Display name = the manyfold-side id with the mf_ prefix stripped.
+    display_name = user_id[3:] if user_id.startswith("mf_") else user_id
+    await db.insert("users", {
+        "user_id": user_id,
+        "user_type": "local",
+        "role": "user",
+        "display_name": display_name,
+    })
+    logger.info(
+        f"[manyfold-fragment] auto-created NarraNexus user {user_id!r} "
+        f"on first native-UI access"
+    )
+
+
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
@@ -161,6 +268,7 @@ AUTH_EXEMPT_PATHS = {
     "/docs",
     "/openapi.json",
     "/health",
+    "/healthz",  # Manyfold readiness probe (no auth — platform health check)
 }
 
 # Prefixes that don't require auth
@@ -217,6 +325,71 @@ async def auth_middleware(request: Request, call_next):
     # through; CORSMiddleware will intercept and return the correct headers.
     if request.method == "OPTIONS":
         return await call_next(request)
+
+    # ---- Manyfold gateway-token mode (deployment-gated) -------------------
+    # When ENABLE_MANYFOLD_API=1, any request carrying a valid Bearer token
+    # equal to MANYFOLD_GATEWAY_TOKEN is trusted. For /v1/* and /manyfold/*
+    # (platform server-to-server) we accept the token alone — endpoint
+    # handlers resolve the real user via agent_id. For /api/* arriving with
+    # the same token (URL-fragment captured by frontend), we map to the
+    # single container user (Owner decision 2026-05-25 — container is
+    # single-user). Token mismatch falls through to existing auth rules.
+    if _is_manyfold_api_enabled():
+        path = request.url.path
+        has_token = _request_has_manyfold_token(request)
+        if _is_manyfold_path(path):
+            # /v1/* and /manyfold/* are platform-class — require the
+            # token unconditionally; never fall through to local/cloud
+            # auth rules (which would either let them pass without auth
+            # in local mode or 401 via JWT logic — both wrong here).
+            if not has_token:
+                return _json_response(401, {
+                    "detail": (
+                        "missing or invalid MANYFOLD_GATEWAY_TOKEN — "
+                        "manyfold-class endpoints require Authorization: "
+                        "Bearer <token>"
+                    ),
+                })
+            request.state.manyfold_authed = True
+            return await call_next(request)
+        if has_token and (path.startswith("/api/") or path.startswith("/ws/")):
+            # Native UI path through Manyfold ingress (or WS).
+            #
+            # Identity precedence (most-specific first):
+            #   1. X-User-Id header — set by frontend after
+            #      `initManyfoldFragmentAuth()` decoded `#user=` from
+            #      the URL fragment. This is the multi-Manyfold-user case
+            #      where the platform handed us a specific identity.
+            #   2. First user in DB — legacy "single-user container"
+            #      fallback. Kept for backwards compat with the
+            #      pre-fragment-user-param URLs.
+            #
+            # For case 1, if the requested user_id looks like our
+            # auto-generated ``mf_<x>`` shape but doesn't yet exist
+            # (this is the user's very first NarraNexus visit through
+            # the Manyfold ingress — they haven't created an agent
+            # yet so the user row was never auto-provisioned), we
+            # eagerly create them now so the native UI doesn't bounce
+            # them through some "user not found" dead-end.
+            header_uid = request.headers.get("x-user-id", "").strip()
+            user_id: Optional[str] = None
+            if header_uid:
+                user_id = header_uid
+                if header_uid.startswith("mf_"):
+                    await _ensure_manyfold_user_exists(header_uid)
+            else:
+                user_id = await _resolve_manyfold_default_user_id()
+
+            if user_id:
+                request.state.user_id = user_id
+                request.state.manyfold_authed = True
+                from xyz_agent_context.agent_framework.api_config import (
+                    set_current_user_id,
+                )
+                set_current_user_id(user_id)
+                return await call_next(request)
+            # Token valid but no user in DB yet — let normal flow continue
+            # so /api/auth/register-style paths still work.
 
     if not _is_cloud_mode():
         # Local mode: the OS user is the security boundary, so we don't

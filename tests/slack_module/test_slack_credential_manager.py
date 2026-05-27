@@ -328,7 +328,7 @@ async def test_bind_with_owner_email_resolves_user_id(
             owner_lookup={
                 "owner@example.com": {
                     "id": "U_OWNER",
-                    "real_name": "Demo Owner",
+                    "real_name": "Bin Liang",
                 },
             },
         )
@@ -341,14 +341,14 @@ async def test_bind_with_owner_email_resolves_user_id(
     )
     assert res["success"] is True
     assert res["data"]["owner_user_id"] == "U_OWNER"
-    assert res["data"]["owner_name"] == "Demo Owner"
+    assert res["data"]["owner_name"] == "Bin Liang"
 
     # And it round-trips through .get() too
     cred = await mgr.get("agent_a")
     assert cred is not None
     assert cred.owner_email == "owner@example.com"
     assert cred.owner_user_id == "U_OWNER"
-    assert cred.owner_name == "Demo Owner"
+    assert cred.owner_name == "Bin Liang"
 
 
 @pytest.mark.asyncio

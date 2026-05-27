@@ -50,6 +50,12 @@ pub async fn check_and_install_update(app: AppHandle) -> Result<String, String> 
 /// installed) offer a restart via a native dialog. Best-effort — any failure
 /// is logged and never blocks the app. Caller gates this to bundled/release
 /// builds (dev has no real release to update from).
+///
+/// "Up to date" and "check failed" branches are intentionally silent on
+/// startup — the user didn't ask for this check, so flashing a dialog
+/// every launch would be annoying. The tray menu's "Check for Updates…"
+/// entry point uses `run_manual_update_check` which always shows
+/// feedback.
 pub async fn run_startup_update_check(app: AppHandle) {
     match check_and_install_update(app.clone()).await {
         Ok(status) if status.starts_with("installed:") => {
@@ -66,20 +72,68 @@ pub async fn run_startup_update_check(app: AppHandle) {
     }
 }
 
+/// Manual "Check for Updates…" — triggered from the tray menu. ALWAYS
+/// shows a native dialog so the user knows what happened. On startup the
+/// silent path is fine (they didn't ask), but for an explicit user click
+/// silence is confusing — they don't know whether the click did nothing
+/// or whether the check failed.
+pub async fn run_manual_update_check(app: AppHandle) {
+    match check_and_install_update(app.clone()).await {
+        Ok(status) if status.starts_with("installed:") => {
+            let version = status.trim_start_matches("installed:");
+            if prompt_restart(version) {
+                log::info!("[updater] user accepted restart to apply {version}");
+                app.restart();
+            } else {
+                log::info!("[updater] update {version} will apply on next launch");
+                show_info_dialog(
+                    "NarraNexus Update",
+                    &format!(
+                        "Update {version} was installed. It will apply on the next launch."
+                    ),
+                );
+            }
+        }
+        Ok(_) => {
+            show_info_dialog(
+                "NarraNexus Update",
+                "You are already on the latest version.",
+            );
+        }
+        Err(e) => {
+            log::warn!("[updater] manual check failed: {e}");
+            show_info_dialog(
+                "NarraNexus Update",
+                &format!("Update check failed.\\n\\n{e}"),
+            );
+        }
+    }
+}
+
 /// Native restart prompt (osascript — same mechanism as the port-conflict
 /// dialog; no Tauri window required). Returns true if the user chose to
 /// restart now.
 fn prompt_restart(version: &str) -> bool {
     let msg = format!(
-        "NarraNexus 已下载新版本 {}。\\n\\n重启后生效。现在重启吗？",
+        "NarraNexus downloaded version {}.\\n\\nRestart now to apply the update?",
         version
     );
     let script = format!(
-        r#"display dialog "{}" with title "NarraNexus 更新" buttons {{"稍后", "现在重启"}} default button "现在重启""#,
+        r#"display dialog "{}" with title "NarraNexus Update" buttons {{"Later", "Restart Now"}} default button "Restart Now""#,
         msg
     );
     match Command::new("osascript").args(["-e", &script]).output() {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).contains("现在重启"),
+        Ok(out) => String::from_utf8_lossy(&out.stdout).contains("Restart Now"),
         Err(_) => false,
     }
+}
+
+/// Show a one-button OK dialog. Used by `run_manual_update_check` so the
+/// tray-click flow always surfaces a result.
+fn show_info_dialog(title: &str, body: &str) {
+    let script = format!(
+        r#"display dialog "{}" with title "{}" buttons {{"OK"}} default button "OK""#,
+        body, title
+    );
+    let _ = Command::new("osascript").args(["-e", &script]).output();
 }

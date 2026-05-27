@@ -65,6 +65,20 @@ export interface ErrorMessage extends BaseMessage {
   type: 'error';
   error_message: string;
   error_type: string;
+  /**
+   * - 'fatal': framework crashed and no recovery happened. Frontend shows
+   *   this as the primary displayContent.
+   * - 'recoverable': transient signal (rate-limit blip etc.) — the agent
+   *   loop kept going. Surfaced as info.
+   * - 'recovered': fatal-class error masked by a successful helper_llm
+   *   after-error fallback reply. Frontend renders the recovered reply
+   *   normally + a warning badge.
+   * - 'recovered_after_reply': fatal hit AFTER the agent already replied
+   *   organically; no helper_llm ran. Frontend renders the agent's own
+   *   reply + a warning badge so the user knows the turn was truncated.
+   * Optional for backwards-compat with older payloads.
+   */
+  severity?: 'fatal' | 'recoverable' | 'recovered' | 'recovered_after_reply';
   traceback?: string;
 }
 
@@ -191,7 +205,7 @@ export interface ConversationRound {
  * during streaming. Built up from the raw websocket frames by
  * chatStore.processMessage and consumed by <TurnTimeline>.
  *
- * Design (see 2026-05-12 review with an operator):
+ * Design (see 2026-05-12 review with Xiong):
  * - thinking / tool_call / tool_output / reply / native_output are the
  *   only visible block types. Other progress frames (step markers like
  *   3.5, 4, 5) are framework plumbing and don't appear in the timeline.

@@ -24,7 +24,7 @@
  *     args/output live in the right-side Execution panel.
  *
  * Solid-vs-dashed left rule is the at-a-glance tier signal; colour +
- * size rank within a tier. (2026-05-12 review with an operator established
+ * size rank within a tier. (2026-05-12 review with Xiong established
  * the chronological-blocks model; 2026-05-14 reworked the styling into
  * these tiers after thinking and native_output proved hard to tell
  * apart — the earlier "make thinking dimmer" pass was a no-op because
@@ -238,14 +238,27 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
   );
 });
 
+type FallbackKind = 'none' | 'no_reply' | 'after_error';
+
+function fallbackKindFromReplyVia(replyVia: string | undefined): FallbackKind {
+  if (replyVia === 'helper_llm_after_error') return 'after_error';
+  if (replyVia === 'helper_llm_no_reply' || replyVia === 'helper_llm_fallback') {
+    // legacy 'helper_llm_fallback' was the pre-rename name for
+    // helper_llm_no_reply; treat it the same so old persisted rows
+    // still show the info badge instead of nothing.
+    return 'no_reply';
+  }
+  return 'none';
+}
+
 const ReplyBlock = memo(function ReplyBlock({
   content,
   isStreaming,
-  isFallback,
+  fallbackKind,
 }: {
   content: string;
   isStreaming: boolean;
-  isFallback: boolean;
+  fallbackKind: FallbackKind;
 }) {
   // Tier: ANSWER (peak). Reply is the agent's authoritative, user-facing
   // speech — the one block the user should land on first. Strongest
@@ -292,9 +305,28 @@ const ReplyBlock = memo(function ReplyBlock({
       >
         <MessageSquare className="w-3 h-3" />
         <span>Reply</span>
-        {isFallback && (
-          <span className="ml-auto" style={{ color: 'var(--color-warning)' }}>
+        {fallbackKind === 'no_reply' && (
+          // Soft / informational: the agent finished thinking but didn't
+          // call the reply tool; helper_llm wrote what it should have.
+          // Nothing broke — surface the recovery via a muted accent.
+          <span
+            className="ml-auto"
+            style={{ color: 'var(--color-silicon)' }}
+            title="The agent didn't explicitly send a reply; this message was written by the fallback LLM from its reasoning."
+          >
             ↻ helper_llm fallback
+          </span>
+        )}
+        {fallbackKind === 'after_error' && (
+          // Warning: a step in this turn actually failed. helper_llm
+          // wrote a recovery reply from what completed. Tooltip carries
+          // the operational story; raw error_type stays in logs.
+          <span
+            className="ml-auto"
+            style={{ color: 'var(--color-warning)' }}
+            title="A step in this turn failed; the reply was written from the completed work plus what we know about the error."
+          >
+            ⚠ recovered after error
           </span>
         )}
       </div>
@@ -415,7 +447,7 @@ export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps)
                 key={event.id}
                 content={event.content}
                 isStreaming={isStreaming}
-                isFallback={event.reply_via === 'helper_llm_fallback'}
+                fallbackKind={fallbackKindFromReplyVia(event.reply_via)}
               />
             );
           case 'native_output':

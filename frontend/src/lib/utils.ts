@@ -65,6 +65,63 @@ export function formatDate(timestamp: number | string): string {
 }
 
 /**
+ * IM-sidebar-style timestamp for conversation lists (AgentList).
+ *
+ * Plain `formatTime` (HH:MM:SS) on the sidebar made messages from days
+ * ago indistinguishable from "this morning" — the user only saw "14:23"
+ * with no date context. This formatter is calendar-aware, mirroring
+ * WeChat / Lark / Slack:
+ *
+ *   today              → "14:23"     (no seconds — sidebar is glance-able)
+ *   yesterday          → "Yesterday"
+ *   2..6 days back     → "Wed"       (en-US short weekday)
+ *   older, same year   → "May 18"
+ *   previous year+     → "2025/05/18"
+ *
+ * Each branch returns exactly one of {time, weekday, date} so the row
+ * never gets ambiguous. "14:23" is always today; "Yesterday" is always
+ * yesterday; a weekday name is always within the past week.
+ *
+ * Locale note: project rule is no Chinese strings in code, so even the
+ * 24h time uses en-GB (always 24h without the AM/PM artifact some
+ * en-US Node builds emit even with hour12: false).
+ */
+export function formatChatTimestamp(timestamp: number | string): string {
+  const date = parseUTCTimestamp(timestamp);
+  const now = new Date();
+
+  // Calendar-day comparison in the user's local timezone — `diff_ms / 86400000`
+  // would mis-classify e.g. a 14:00 → 02:00 next-day pair as "same day".
+  const startOfLocalDay = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayDiff = Math.round(
+    (startOfLocalDay(now) - startOfLocalDay(date)) / 86_400_000,
+  );
+
+  if (dayDiff === 0) {
+    return date.toLocaleTimeString('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+  if (dayDiff === 1) {
+    return 'Yesterday';
+  }
+  if (dayDiff >= 2 && dayDiff < 7) {
+    return date.toLocaleDateString('en-US', { weekday: 'short' });
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+  // Cross-year: explicit YYYY/MM/DD so the year is unambiguous.
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}/${m}/${d}`;
+}
+
+/**
  * Format relative time (e.g., "2 minutes ago" or "in 3 hours")
  * Handles both past and future dates
  */

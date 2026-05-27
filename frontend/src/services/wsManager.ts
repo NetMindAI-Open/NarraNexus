@@ -9,6 +9,7 @@ import { useChatStore } from '@/stores/chatStore';
 import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { MOCK_ENABLED } from '@/lib/mock';
+import { dispatchAuthExpired, isAuthErrorMessage } from './wsAuthError';
 import type { Attachment, RuntimeMessage } from '@/types';
 
 interface ConnectionEntry {
@@ -91,6 +92,18 @@ class WebSocketManager {
 
         // Skip heartbeats
         if (message.type === 'heartbeat') return;
+
+        // Symmetric with REST 401: a cloud JWT can expire mid-session
+        // or land stale after a dmg upgrade. Backend closes the socket
+        // with a {type:'error', error_type:'AuthError', ...} frame —
+        // surface that as the app-wide auth-expired event so App.tsx
+        // can logout + show the "session expired" banner instead of
+        // letting the user see only a red "Token expired" chat bubble
+        // with no path to re-login.
+        if (isAuthErrorMessage(message)) {
+          dispatchAuthExpired();
+          return;
+        }
 
         store().processMessage(agentId, message);
 
@@ -204,6 +217,14 @@ class WebSocketManager {
         const raw = JSON.parse(event.data);
 
         if (raw.type === 'heartbeat') return;
+
+        // Same auth-expired bridge as the run() path — JWT can also
+        // be stale at reconnect time (user reopened the tab a week
+        // later). See wsAuthError.ts for the rationale.
+        if (isAuthErrorMessage(raw)) {
+          dispatchAuthExpired();
+          return;
+        }
 
         // Phase C: inject the user message that triggered this run
         // BEFORE any replay frames render. Backend hands us

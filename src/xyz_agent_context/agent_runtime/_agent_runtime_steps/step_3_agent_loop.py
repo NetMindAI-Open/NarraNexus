@@ -10,6 +10,7 @@ This is the processing path for complex tasks, requiring LLM implicit orchestrat
 
 from __future__ import annotations
 
+import json
 import os
 from typing import AsyncGenerator, Any, Union, TYPE_CHECKING
 
@@ -18,6 +19,7 @@ from xyz_agent_context.utils.logging import timed
 
 from xyz_agent_context.schema import (
     AgentTextDelta,
+    AgentThinking,
     ProgressMessage,
     ProgressStatus,
     PathExecutionResult,
@@ -31,44 +33,181 @@ if TYPE_CHECKING:
     from .context import RunContext
 
 
+# Default size caps for the fallback-prompt serializer. Tuned for
+# helper_llm context budget — 32 KB total leaves room for the system
+# prompt block + chat history. 4 KB per entry stops a single oversized
+# tool result from dominating.
+_DEFAULT_MAX_PER_ENTRY = 4096
+_DEFAULT_MAX_TOTAL = 32768
+_DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ...]\n"
+_EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Tail-truncate ``text`` to ``limit`` bytes, appending a clear
+    marker so the LLM knows content was dropped."""
+    if len(text) <= limit:
+        return text
+    dropped = len(text) - limit
+    return text[:limit] + f"\n[truncated {dropped} bytes]"
+
+
+def _render_entry(msg: Any, max_per_entry: int) -> str | None:
+    """Render one runtime frame as a single labelled string, or return
+    ``None`` if the frame carries nothing worth showing the fallback
+    LLM (e.g. structural progress messages with no tool/result payload).
+    """
+    if isinstance(msg, AgentTextDelta):
+        return f"[assistant_text] {msg.delta}"
+    if isinstance(msg, AgentThinking):
+        return _truncate(
+            f"[thinking] {msg.thinking_content}", max_per_entry
+        )
+    if isinstance(msg, ErrorMessage):
+        body = f"[error] {msg.error_type}: {msg.error_message}"
+        if msg.severity != "fatal":
+            body += f" (severity={msg.severity})"
+        return _truncate(body, max_per_entry)
+    if isinstance(msg, ProgressMessage):
+        details = msg.details or {}
+        tool_name = details.get("tool_name")
+        if tool_name and msg.status == ProgressStatus.RUNNING:
+            args = details.get("arguments", {})
+            try:
+                args_json = json.dumps(args, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                args_json = repr(args)
+            return _truncate(
+                f"[tool_call] {tool_name}({args_json})", max_per_entry
+            )
+        if "output" in details and msg.status == ProgressStatus.COMPLETED:
+            return _truncate(
+                f"[tool_output] {details.get('output', '')}", max_per_entry
+            )
+    return None
+
+
+def _serialize_agent_loop_for_prompt(
+    agent_loop_response: list,
+    *,
+    max_per_entry: int = _DEFAULT_MAX_PER_ENTRY,
+    max_total: int = _DEFAULT_MAX_TOTAL,
+) -> str:
+    """Render an ``agent_loop_response`` list into a flat plain-text
+    block for the fallback LLM prompt.
+
+    Why this exists separately from the streaming/persistence paths:
+    the fallback LLM needs a compact, ordered snapshot of "what
+    happened this turn so far" so it can write a recovery reply that
+    references the work the agent actually completed. The live stream
+    is too noisy (every text delta is its own frame); the persisted
+    form (chat_module) is too lossy (only the final assistant message
+    survives).
+
+    Contract:
+      - Frames render in their original order (causal sequence matters).
+      - Each entry is capped at ``max_per_entry`` bytes; truncation
+        gets a ``[truncated N bytes]`` marker.
+      - Total output is capped at ``max_total`` bytes; if exceeded,
+        oldest entries drop FIRST (with a ``[... earlier activity
+        omitted ...]`` marker prepended) — recent activity is what the
+        recovery reply needs.
+      - Adjacent ``AgentTextDelta`` frames are concatenated into one
+        ``[assistant_text]`` block (matching how the frontend renders
+        them) so the LLM sees coherent text instead of a delta soup.
+      - Frames with no useful payload (structural ProgressMessages
+        with neither tool_name nor output) are silently dropped.
+    """
+    if not agent_loop_response:
+        return _EMPTY_RESPONSE_SENTINEL
+
+    # Pass 1: coalesce adjacent AgentTextDelta into single entries so
+    # one delta stream renders as one [assistant_text] block.
+    coalesced: list[Any] = []
+    buffer: list[str] = []
+    for msg in agent_loop_response:
+        if isinstance(msg, AgentTextDelta):
+            buffer.append(msg.delta)
+            continue
+        if buffer:
+            coalesced.append(AgentTextDelta(delta="".join(buffer)))
+            buffer = []
+        coalesced.append(msg)
+    if buffer:
+        coalesced.append(AgentTextDelta(delta="".join(buffer)))
+
+    # Pass 2: render each entry (or drop if nothing meaningful).
+    rendered: list[str] = []
+    for msg in coalesced:
+        line = _render_entry(msg, max_per_entry)
+        if line is not None:
+            rendered.append(line)
+
+    if not rendered:
+        return _EMPTY_RESPONSE_SENTINEL
+
+    # Pass 3: enforce total cap by dropping oldest entries first.
+    # Compute total length including newline separators.
+    def _join(entries: list[str]) -> str:
+        return "\n".join(entries)
+
+    dropped_any = False
+    while rendered and len(_join(rendered)) > max_total:
+        rendered.pop(0)
+        dropped_any = True
+
+    body = _join(rendered) if rendered else ""
+    if dropped_any:
+        body = _DROPPED_PREFIX_MARKER + body
+    return body
+
+
 def _should_run_helper_llm_fallback(
     working_source: str,
     agent_loop_response: list,
     cancellation,
-) -> tuple[bool, str]:
-    """Decide whether the chat no-reply helper_llm fallback should run.
+) -> tuple[str | None, str]:
+    """Decide what the chat fallback path should do this turn.
 
-    Returns (should_run, skip_reason). skip_reason is informational —
-    "" when should_run is True, otherwise a short tag suitable for log
-    output and tests. Pulled out of the generator body so the four
-    skip conditions can be exercised by pure unit tests; the generator
-    just reads (should_run, reason).
+    Returns ``(mode, skip_reason)``:
 
-    Skip semantics:
-      - Out-of-scope trigger: only chat needs this fallback; message_bus
-        deliberately stays quiet, job/lark have their own reply tooling.
-      - Fatal error already on the response stream: agent loop did not
-        complete cleanly. state.final_output is partial reasoning;
-        asking helper_llm to summarise that produces a hallucinated
-        "reply" based on a half-thought. Let chat_module's failed-turn
-        path handle it instead.
-      - Cancellation requested: user pressed stop. The whole point of
-        the cancellation token is to stop work; firing the fallback
-        anyway burns helper_llm tokens for a reply the user actively
-        rejected.
-      - Already replied: at least one send_message_to_user_directly
-        tool call exists — nothing to recover.
+    - ``("no_reply", "")``: chat turn finished cleanly without
+      ``send_message_to_user_directly`` — run helper_llm to write the
+      reply the agent forgot to send. No error to surface.
+    - ``("after_error", "")``: chat turn hit a fatal mid-stream AND no
+      organic reply was sent yet — run helper_llm with full context
+      (system prompts + completed tool results + error info) so the
+      recovered reply tells the user what was achieved, what failed,
+      and a useful next step. Surface the original error as
+      severity=``recovered`` after the recovery stream completes.
+    - ``("partial_reply_then_error", "")``: chat turn hit a fatal AFTER
+      the agent already sent a real reply — do NOT invoke helper_llm
+      (the user already heard from the agent), but surface the
+      truncated execution via severity=``recovered_after_reply`` so
+      the badge tells the user the turn didn't finish all planned work.
+    - ``(None, reason)``: nothing to do. Reasons:
+        * ``"non_chat_trigger"``: out of scope — message_bus
+          deliberately stays quiet, job/lark have their own reply
+          tooling.
+        * ``"cancellation_requested"``: user pressed stop; honour it.
+          Don't burn helper_llm tokens recovering from rejected work.
+        * ``"already_replied_via_tool"``: agent did its job — clean
+          loop + organic reply, nothing to recover.
+
+    Pulled out of the generator body so each case is exercisable by
+    pure unit tests without spinning up the full async generator.
     """
     if working_source != "chat":
-        return False, "non_chat_trigger"
-
-    for r in agent_loop_response:
-        if isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal":
-            return False, "fatal_error_in_loop"
+        return None, "non_chat_trigger"
 
     if cancellation is not None and getattr(cancellation, "is_cancelled", False):
-        return False, "cancellation_requested"
+        return None, "cancellation_requested"
 
+    has_fatal = any(
+        isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
+        for r in agent_loop_response
+    )
+    has_reply = False
     for r in agent_loop_response:
         if not isinstance(r, ProgressMessage) or not r.details:
             continue
@@ -78,59 +217,332 @@ def _should_run_helper_llm_fallback(
             else ""
         )
         if "send_message_to_user_directly" in tool_name:
-            return False, "already_replied_via_tool"
+            has_reply = True
+            break
 
-    return True, ""
+    if has_fatal and has_reply:
+        return "partial_reply_then_error", ""
+    if has_fatal:
+        return "after_error", ""
+    if has_reply:
+        return None, "already_replied_via_tool"
+    return "no_reply", ""
 
 
-_FALLBACK_REPLY_INSTRUCTIONS = (
-    "You are converting an agent's internal reasoning into a direct, "
-    "user-facing reply. The agent finished its turn without invoking "
-    "the formal `send_message_to_user_directly` tool, so its raw "
-    "reasoning was never spoken to the user. Your job: read what the "
-    "agent thought and produce the single message it should have sent.\n\n"
-    "Rules:\n"
-    "- Reply in the same language as the user's question.\n"
-    "- Address the user directly, not the agent. Do NOT describe the "
-    "agent in third person.\n"
-    "- Do NOT mention tools, send_message_to_user_directly, the "
-    "agent's reasoning, this fallback path, or any internal state.\n"
-    "- Keep it natural, useful, and proportional to the user's question."
+_FALLBACK_NO_REPLY_INSTRUCTIONS = (
+    "You are the agent's voice. The agent finished thinking but didn't "
+    "call send_message_to_user_directly, so its reasoning was never "
+    "spoken to the user. Produce the single message it should have sent."
+    "\n\nRules:\n"
+    "- Reply in the user's language (match `<current_user_message>`).\n"
+    "- Address the user directly, in first person as the agent.\n"
+    "- Do NOT mention tools, send_message_to_user_directly, helper_llm, "
+    "this fallback path, or any internal state.\n"
+    "- Keep it natural, useful, and proportional to the question."
 )
 
 
-async def _generate_fallback_reply_stream(
+_FALLBACK_AFTER_ERROR_INSTRUCTIONS = (
+    "You are the agent continuing the same turn. The agent was working "
+    "on the user's request, completed some steps successfully, then a "
+    "step failed and the turn cannot finish as planned. Your job: tell "
+    "the user what was achieved, what couldn't be done, and a useful "
+    "next step they can try."
+    "\n\nRules:\n"
+    "- Reply in the user's language (match `<current_user_message>`).\n"
+    "- Speak in first person, as the agent. Never break character with "
+    "phrases like \"the system failed\" or \"an error occurred "
+    "internally\". Phrase the failure operationally: \"I tried to X "
+    "but couldn't reach Y\" / \"I got partway through Z\".\n"
+    "- Use the `<this_turn_activity>` to be concrete about what you "
+    "found in the steps that did succeed.\n"
+    "- Suggest a concrete next step: rephrasing, splitting the request, "
+    "or noting a temporary limitation if the error is clearly transient "
+    "(rate limit / timeout).\n"
+    "- Do NOT mention tool names, raw error type strings, helper_llm, "
+    "or fallback paths. Translate technical errors into operational "
+    "language.\n"
+    "- Keep it short — one paragraph plus optional next-step bullet."
+)
+
+
+def _build_helper_user_input(
+    *,
+    mode: str,
+    context_messages: list[dict],
+    agent_loop_response: list,
+    final_output: str,
     user_input: str,
-    agent_reasoning: str,
+    error_info: dict | None,
+) -> str:
+    """Construct the user-input payload fed to the helper_llm for the
+    fallback reply.
+
+    Strategy: don't replay context_messages verbatim into helper_llm —
+    re-instantiating the agent persona + every tool instruction risks
+    helper_llm trying to "tool-call" via text. Instead extract the
+    system prompts as background, render history as a transcript, and
+    render this-turn-so-far via the dedicated serializer.
+    """
+    sections: list[str] = []
+
+    system_blocks = [
+        str(m.get("content", "")).strip()
+        for m in context_messages
+        if isinstance(m, dict) and m.get("role") == "system"
+    ]
+    system_blocks = [s for s in system_blocks if s]
+    if system_blocks:
+        sections.append(
+            "<original_system_instructions>\n"
+            + "\n\n".join(system_blocks)
+            + "\n</original_system_instructions>"
+        )
+
+    history_msgs = [
+        m for m in context_messages
+        if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+    ]
+    # Drop the trailing user message if it duplicates `user_input` (the
+    # current turn's user input is shown verbatim in its own section).
+    if (
+        history_msgs
+        and history_msgs[-1].get("role") == "user"
+        and str(history_msgs[-1].get("content", "")) == user_input
+    ):
+        history_msgs = history_msgs[:-1]
+    if history_msgs:
+        rendered = "\n".join(
+            f"[{m['role']}] {str(m.get('content', '')).strip()}"
+            for m in history_msgs
+        )
+        sections.append(
+            "<conversation_history>\n"
+            + rendered
+            + "\n</conversation_history>"
+        )
+
+    sections.append(
+        "<current_user_message>\n"
+        + user_input
+        + "\n</current_user_message>"
+    )
+
+    this_turn = _serialize_agent_loop_for_prompt(agent_loop_response)
+    sections.append(
+        "<this_turn_activity>\n"
+        + this_turn
+        + "\n</this_turn_activity>"
+    )
+
+    if final_output and mode == "no_reply":
+        # In no_reply mode the agent's final reasoning IS the seed for
+        # the missing reply. In after_error mode the reasoning may be a
+        # half-thought (loop crashed mid-stream); rely on tool results
+        # in <this_turn_activity> instead.
+        sections.append(
+            "<agent_final_reasoning>\n"
+            + final_output
+            + "\n</agent_final_reasoning>"
+        )
+
+    if mode == "after_error" and error_info:
+        sections.append(
+            "<execution_error>\n"
+            f"The turn was interrupted by:\n"
+            f"  type: {error_info.get('error_type', 'unknown')}\n"
+            f"  message: {error_info.get('error_message', '')}\n"
+            "</execution_error>"
+        )
+
+    if mode == "after_error":
+        sections.append(
+            "Write a single reply to the user that names what was "
+            "achieved (concrete details from <this_turn_activity>), "
+            "what couldn't be done (translating <execution_error> into "
+            "operational language), and a useful next step."
+        )
+    else:
+        sections.append(
+            "Write the single reply the agent should send to the user."
+        )
+
+    return "\n\n".join(sections)
+
+
+async def _generate_fallback_reply_stream(
+    *,
+    mode: str,
+    context_messages: list[dict],
+    agent_loop_response: list,
+    final_output: str,
+    user_input: str,
+    error_info: dict | None,
     db,
     agent_id: str,
 ):
-    """Stream a helper_llm reply that translates the agent's internal
-    reasoning into a user-facing message. Yields str deltas.
+    """Stream a helper_llm reply for the recovery slot. Yields str
+    deltas.
+
+    Modes:
+      - ``"no_reply"``: agent finished cleanly but never called
+        send_message_to_user_directly; produce the reply it forgot to
+        send.
+      - ``"after_error"``: agent loop crashed mid-stream; produce a
+        recovery reply telling the user what was achieved, what
+        failed, and a useful next step.
 
     Wrapped in its own function for two reasons:
-    1. keeps the helper_llm import + cost-context setup out of the main
+    1. Keeps the helper_llm import + cost-context setup out of the main
        agent-loop generator body.
-    2. lets us test the fallback prompt in isolation."""
+    2. Lets us test the prompt assembly + streaming wiring in isolation.
+    """
     from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
     from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
 
     set_cost_context(agent_id, db)
     try:
         sdk = OpenAIAgentsSDK()
-        user_input_for_helper = (
-            f"User's question (literal):\n{user_input!r}\n\n"
-            f"Agent's internal reasoning this turn (may include "
-            f"meta-talk about tools — ignore that):\n{agent_reasoning}\n\n"
-            "Write the single reply the agent should send to the user."
+        instructions = (
+            _FALLBACK_AFTER_ERROR_INSTRUCTIONS
+            if mode == "after_error"
+            else _FALLBACK_NO_REPLY_INSTRUCTIONS
+        )
+        user_input_for_helper = _build_helper_user_input(
+            mode=mode,
+            context_messages=context_messages,
+            agent_loop_response=agent_loop_response,
+            final_output=final_output,
+            user_input=user_input,
+            error_info=error_info,
         )
         async for delta in sdk.llm_stream(
-            instructions=_FALLBACK_REPLY_INSTRUCTIONS,
+            instructions=instructions,
             user_input=user_input_for_helper,
         ):
             yield delta
     finally:
         clear_cost_context()
+
+
+async def _stream_fallback_recovery(
+    *,
+    fallback_mode: str | None,
+    captured_error: dict | None,
+    context_messages: list[dict],
+    agent_loop_response: list,
+    final_output: str,
+    user_input: str,
+    cancellation,
+    db,
+    agent_id: str,
+):
+    """Drive the post-agent-loop recovery phase, yielding the messages
+    the frontend should see in causal order.
+
+    Yields (when applicable, strictly in this order):
+      1. ``AgentTextDelta`` frames from the helper_llm stream.
+      2. A synthetic ``ProgressMessage`` (one) tagging the fallback as
+         a ``send_message_to_user_directly`` call so downstream
+         persistence (chat_module) records it as a normal turn. Carries
+         ``details.reply_via=helper_llm_{mode}``.
+      3. An ``ErrorMessage`` (one) if ``captured_error`` was set,
+         with severity computed from outcome:
+           - ``recovered`` — fallback produced non-empty content;
+           - ``recovered_after_reply`` — partial_reply_then_error mode
+             (helper_llm did not run, agent already spoke);
+           - ``fatal`` — fallback produced nothing and we have no
+             organic reply either.
+
+    Why the ErrorMessage comes LAST: the frontend reduces
+    ``responseParts`` from synthetic tool calls and falls back to
+    ``currentErrors`` only when no responseParts exist. If we yielded
+    ErrorMessage first, ``displayContent`` would briefly flip to the
+    error string before the synthetic send_message lands — half a
+    second of "system broke" UX even when we recovered cleanly.
+
+    The caller is responsible for appending each yielded message to
+    its own ``agent_loop_response`` (existing convention so downstream
+    hooks see the full turn).
+    """
+    fallback_full = ""
+
+    if fallback_mode in ("no_reply", "after_error"):
+        chunks: list[str] = []
+        fallback_error: Exception | None = None
+        try:
+            async for delta_text in _generate_fallback_reply_stream(
+                mode=fallback_mode,
+                context_messages=context_messages,
+                agent_loop_response=agent_loop_response,
+                final_output=final_output,
+                user_input=user_input,
+                error_info=captured_error,
+                db=db,
+                agent_id=agent_id,
+            ):
+                if (
+                    cancellation is not None
+                    and getattr(cancellation, "is_cancelled", False)
+                ):
+                    logger.info(
+                        "[FALLBACK] cancellation requested mid-stream; "
+                        f"aborting helper_llm ({fallback_mode})."
+                    )
+                    break
+                chunks.append(delta_text)
+                yield AgentTextDelta(delta=delta_text)
+        except Exception as e:  # noqa: BLE001
+            fallback_error = e
+            logger.exception(
+                f"[FALLBACK] helper_llm ({fallback_mode}) stream failed: {e}"
+            )
+
+        fallback_full = "".join(chunks).strip()
+        if fallback_full:
+            synth_details: dict = {
+                "tool_name": "mcp__chat_module__send_message_to_user_directly",
+                "arguments": {"content": fallback_full},
+                "reply_via": f"helper_llm_{fallback_mode}",
+            }
+            if fallback_error is not None:
+                synth_details["fallback_partial"] = True
+                synth_details["fallback_error"] = type(fallback_error).__name__
+            yield ProgressMessage(
+                step="3.4.fallback",
+                title=f"Reply (helper_llm {fallback_mode})",
+                description=(
+                    f"helper_llm generated a reply via {fallback_mode}"
+                    + (" (partial — stream errored)" if fallback_error else ".")
+                ),
+                status=ProgressStatus.COMPLETED,
+                details=synth_details,
+            )
+            logger.warning(
+                f"[FALLBACK] persisted reply mode={fallback_mode} "
+                f"(len={len(fallback_full)} chars, "
+                f"partial={fallback_error is not None})"
+            )
+        else:
+            logger.warning(
+                f"[FALLBACK] no content recovered mode={fallback_mode} "
+                f"(error={fallback_error!r})"
+            )
+
+    if captured_error is not None:
+        if fallback_mode == "partial_reply_then_error":
+            severity = "recovered_after_reply"
+        elif fallback_full:
+            severity = "recovered"
+        else:
+            severity = "fatal"
+        yield ErrorMessage(
+            error_message=(
+                f"Agent execution error: {captured_error.get('error_message', '')}"
+            ),
+            error_type=captured_error.get("error_type", "Exception"),
+            severity=severity,
+        )
 
 
 @timed("step.3_agent_loop")
@@ -259,6 +671,12 @@ async def step_3_agent_loop(
     if context.ctx_data and context.ctx_data.extra_data:
         skill_env_vars = context.ctx_data.extra_data.get("skill_env_vars", {})
 
+    # `captured_error` defers the ErrorMessage yield until AFTER the
+    # recovery phase, so frontend renders the recovered reply FIRST and
+    # the warning badge SECOND. Yielding ErrorMessage immediately on
+    # except would flip displayContent to the error string for the
+    # split second before the synthetic send_message lands.
+    captured_error: dict | None = None
     try:
         async for response in ClaudeAgentSDK(working_path=agent_working_path).agent_loop(
             messages=messages,
@@ -284,10 +702,10 @@ async def step_3_agent_loop(
                 agent_loop_response.append(result.message)
                 yield result.message
     except Exception as e:
-        # Before propagating the error to the frontend, drain any residual
-        # thinking buffer so the user does not lose their last partial
-        # thinking on an exception path. This is best-effort: errors here
-        # are logged but never re-raise.
+        # Before deferring the error, drain any residual thinking buffer
+        # so the user does not lose their last partial thinking on an
+        # exception path. Best-effort: errors here are logged but never
+        # re-raise.
         try:
             for result in response_processor.flush_pending(state):
                 state = response_processor.apply_state_update(state, result)
@@ -297,148 +715,61 @@ async def step_3_agent_loop(
         except Exception as flush_err:  # noqa: BLE001
             logger.warning(f"Failed to flush thinking buffer on error path: {flush_err}")
 
-        # Yield error to frontend so the user sees what went wrong
-        # (instead of a cryptic "Agent decided no response needed").
-        # Also append the ErrorMessage to agent_loop_response so
-        # downstream hooks (notably ChatModule.hook_after_event_execution)
-        # can detect the failure and avoid persisting the turn as if it
-        # had succeeded — see Bug 8.
-        #
-        # Severity is fatal: by definition we caught a framework-level
-        # exception (TimeoutError, SDK crash, cancellation we couldn't
-        # recover from). The agent cannot continue this turn. Recoverable
-        # errors (transient rate-limit signals etc.) are yielded inside
-        # response_processor without raising, and they get
-        # severity="recoverable" so chat_module doesn't kill the turn.
+        # Capture the fatal for later: the recovery phase below decides
+        # whether we surface it as severity=recovered (helper_llm wrote
+        # a usable reply), severity=recovered_after_reply (agent already
+        # spoke before crash), or severity=fatal (no recovery possible).
         error_str = str(e)
         error_type = type(e).__name__
         logger.exception(f"[AGENT-LOOP-FATAL] {error_type}: {error_str}")
-        error_msg = ErrorMessage(
-            error_message=f"Agent execution error: {error_str}",
-            error_type=error_type,
-            severity="fatal",
-        )
-        agent_loop_response.append(error_msg)
-        yield error_msg
+        captured_error = {"error_type": error_type, "error_message": error_str}
 
-    # Finalize state BEFORE inspecting it for the fallback — accessing
-    # `state.final_output` on an unfinalized state is undefined behaviour
-    # per ExecutionState's contract.
+    # Finalize state BEFORE inspecting it — accessing `state.final_output`
+    # on an unfinalized state is undefined per ExecutionState's contract.
     state = state.finalize()
 
-    # ------------- 3.4.X: No-reply fallback via helper_llm -------------
-    # When a chat-triggered turn ends without send_message_to_user_directly,
-    # the user gets a "(Agent decided no response needed)" placeholder.
-    # Per the 5/11 product review: ask helper_llm to translate the
-    # agent's reasoning into a user-facing reply, streamed through
-    # AgentTextDelta so the frontend renders it like an organic reply.
-    #
-    # Scope: only `chat`. message_bus deliberately avoids replying
-    # (prevents agent-to-agent loops); job/lark have their own reply
-    # pathways.
-    #
-    # Skip conditions (each guards a distinct failure mode):
-    #   • working_source != "chat" — out of scope.
-    #   • fatal ErrorMessage in agent_loop_response — agent loop crashed
-    #     mid-turn (CLI timeout / SDK exception); state.final_output is
-    #     likely incomplete reasoning, feeding it to helper_llm would
-    #     hallucinate a "reply" based on a half-thought. chat_module
-    #     will write the user-row-only failed-turn record instead.
-    #   • cancellation requested — user pressed stop; honouring it is
-    #     the whole point of the cancellation token.
-    #   • already sent — at least one send_message_to_user_directly
-    #     tool call exists in the response stream.
-    should_fallback, skip_reason = _should_run_helper_llm_fallback(
+    # ------------- 3.4.X: Post-loop recovery phase -------------
+    # Three modes cover the recovery slot:
+    #   - no_reply: clean loop, agent forgot to call send_message →
+    #     helper_llm writes the missing reply using the agent's
+    #     reasoning + context.
+    #   - after_error: loop crashed mid-stream with no organic reply →
+    #     helper_llm writes a recovery reply using full context
+    #     (system prompts + completed tool results + error info).
+    #   - partial_reply_then_error: loop crashed AFTER an organic reply →
+    #     no helper_llm (we already spoke), but a warning badge
+    #     surfaces the truncated execution.
+    # Out-of-scope triggers (non-chat) and cancellation are skipped.
+    fallback_mode, skip_reason = _should_run_helper_llm_fallback(
         working_source=ctx.working_source or "",
         agent_loop_response=agent_loop_response,
         cancellation=getattr(ctx, "cancellation", None),
     )
-    if not should_fallback and skip_reason != "already_replied_via_tool":
-        # already_replied is the silent-default case; the others are
-        # noteworthy enough to log so ops can see why a chat turn
-        # ended without firing the fallback.
-        logger.info(f"[NO-REPLY-FALLBACK] skipped: {skip_reason}")
-    if should_fallback:
-        logger.warning(
-            f"[NO-REPLY-FALLBACK] chat turn finished without "
-            f"send_message_to_user_directly; invoking helper_llm to "
-            f"generate a real reply (reasoning_chars={len(state.final_output)})"
+    if fallback_mode is None and skip_reason != "already_replied_via_tool":
+        logger.info(
+            f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
+            f"(captured_error={captured_error!r})"
         )
-        # `fallback_chunks` is captured in the outer scope so the
-        # `finally` block can synthesize a ProgressMessage from
-        # whatever streamed in before helper_llm failed mid-stream.
-        # Without this, a partial stream would leave the user
-        # staring at half a reply with a "(decided not to respond)"
-        # placeholder in DB — exactly the kind of state-mismatch we
-        # are trying to eliminate.
-        fallback_chunks: list[str] = []
-        fallback_error: Exception | None = None
-        try:
-            async for delta_text in _generate_fallback_reply_stream(
-                user_input=ctx.input_content,
-                agent_reasoning=state.final_output,
-                db=db_client,
-                agent_id=ctx.agent_id,
-            ):
-                if (
-                    getattr(ctx, "cancellation", None)
-                    and getattr(ctx.cancellation, "is_cancelled", False)
-                ):
-                    logger.info(
-                        "[NO-REPLY-FALLBACK] cancellation requested "
-                        "mid-stream; aborting helper_llm fallback."
-                    )
-                    break
-                fallback_chunks.append(delta_text)
-                delta_msg = AgentTextDelta(delta=delta_text)
-                agent_loop_response.append(delta_msg)
-                yield delta_msg
-        except Exception as e:
-            fallback_error = e
-            logger.exception(
-                f"[NO-REPLY-FALLBACK] helper_llm stream failed mid-flight: {e}"
-            )
+    if fallback_mode is not None:
+        logger.warning(
+            f"[FALLBACK] mode={fallback_mode} "
+            f"(reasoning_chars={len(state.final_output)}, "
+            f"captured_error={bool(captured_error)})"
+        )
 
-        fallback_full = "".join(fallback_chunks).strip()
-        if fallback_full:
-            # Synthesize a send_message_to_user_directly tool call so
-            # the downstream extractor + chat_module persists the reply
-            # normally. The reply_via tag distinguishes organic vs.
-            # recovered replies; the partial flag (only present when
-            # the stream errored mid-way) lets observability tooling
-            # spot partial recoveries that may need ops attention.
-            synth_details = {
-                "tool_name": "mcp__chat_module__send_message_to_user_directly",
-                "arguments": {"content": fallback_full},
-                "reply_via": "helper_llm_fallback",
-            }
-            if fallback_error is not None:
-                synth_details["fallback_partial"] = True
-                synth_details["fallback_error"] = type(fallback_error).__name__
-            synthetic = ProgressMessage(
-                step="3.4.fallback",
-                title="Reply (helper_llm fallback)",
-                description=(
-                    "Agent did not call send_message_to_user_directly; "
-                    "helper_llm generated a reply"
-                    + (" (partial — stream errored)" if fallback_error else ".")
-                ),
-                status=ProgressStatus.COMPLETED,
-                details=synth_details,
-            )
-            agent_loop_response.append(synthetic)
-            yield synthetic
-            logger.warning(
-                f"[NO-REPLY-FALLBACK] persisted reply "
-                f"(len={len(fallback_full)} chars, "
-                f"partial={fallback_error is not None})"
-            )
-        else:
-            logger.warning(
-                f"[NO-REPLY-FALLBACK] no content recovered "
-                f"(error={fallback_error!r}); placeholder will "
-                f"be persisted by chat_module."
-            )
+    async for msg in _stream_fallback_recovery(
+        fallback_mode=fallback_mode,
+        captured_error=captured_error,
+        context_messages=messages,
+        agent_loop_response=agent_loop_response,
+        final_output=state.final_output,
+        user_input=ctx.input_content,
+        cancellation=getattr(ctx, "cancellation", None),
+        db=db_client,
+        agent_id=ctx.agent_id,
+    ):
+        agent_loop_response.append(msg)
+        yield msg
 
     # Update 3.4 sub-step to completed status
     substeps[-1] = (

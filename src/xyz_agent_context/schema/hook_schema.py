@@ -83,6 +83,7 @@ class WorkingSource(str, Enum):
     LARK = "lark"  # Triggered by Lark/Feishu message (LarkTrigger)
     SLACK = "slack"  # Triggered by Slack message (SlackTrigger)
     TELEGRAM = "telegram"  # Triggered by Telegram message (TelegramTrigger)
+    MANYFOLD = "manyfold"  # Triggered by Manyfold platform via OpenAI-compat endpoint
 
     @classmethod
     def from_string(cls, value: str) -> "WorkingSource":
@@ -122,6 +123,7 @@ class WorkingSource(str, Enum):
             WorkingSource.LARK,
             WorkingSource.SLACK,
             WorkingSource.TELEGRAM,
+            WorkingSource.MANYFOLD,
         )
 
     def is_user_initiated(self) -> bool:

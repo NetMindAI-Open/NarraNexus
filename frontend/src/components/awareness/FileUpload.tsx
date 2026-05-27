@@ -77,7 +77,7 @@ interface TreeNodeProps {
   userId: string;
 }
 
-function TreeNode({
+export function TreeNode({
   node,
   depth,
   onDelete,
@@ -86,7 +86,13 @@ function TreeNode({
   agentId,
   userId,
 }: TreeNodeProps) {
-  const [expanded, setExpanded] = useState(depth < 1);
+  // Default ALL folders to expanded. Pre-fix this was `depth < 1`, which
+  // auto-expanded only top-level folders; sub-folders showed their name
+  // but nothing inside, easily misread as "sub-folders are ignored". The
+  // backend already returns the full recursive tree, so showing it all
+  // upfront matches user expectation. Users can still collapse with the
+  // chevron. P0 bug 2026-05-18 (Xinyao Hu).
+  const [expanded, setExpanded] = useState(true);
 
   const isFile = !node.is_dir;
   const downloadUrl = isFile ? api.workspaceFileRawUrl(agentId, node.path) : '';

@@ -1,8 +1,37 @@
 ---
 code_file: frontend/src/hooks/useArtifactHeal.ts
-last_verified: 2026-05-19
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — dismissed-latch + memoized controller (Dismiss-loop fix)
+
+P0 bug 2026-05-25 (Jiaxi Chen): the "no matching file" modal was
+impossible to close — clicking Dismiss closed the modal but the
+renderer's HEAD-410 useEffect refired immediately, called `attempt()`
+again, and reopened it. Two compounding causes:
+
+1. The hook returned a fresh object literal every render, so renderer
+   deps like `[url, heal]` churned on every state change.
+2. There was no record of "user already said no" — every attempt()
+   call that produced no candidates opened the modal again.
+
+Fix:
+- `dismissedRef` latches when the user calls `dismiss()`. Subsequent
+  `attempt()` calls suppress `setModalOpen(true)`. Reset when
+  `agentId/artifactId` changes (different artifact = fresh chance).
+- The returned controller is wrapped in `useMemo` keyed on its
+  primitive/stable members, so its identity is stable across renders
+  when no state changed. Consumer effects with `[url, heal]` deps no
+  longer churn.
+- `busyRef` mirrors `busy` so `attempt`'s `useCallback` no longer
+  depends on `busy` — keeps `attempt` stable, which keeps the memo
+  stable, which keeps consumer effects from re-firing.
+
+Renderers still take a belt-and-braces ref to `attempt` and depend
+only on `[url]` in their load effects — see HtmlRenderer.tsx.md.
+
+Tested by `frontend/src/hooks/__tests__/useArtifactHeal.test.tsx`.
 
 # useArtifactHeal.ts — shared self-heal driver for artifact renderers
 
@@ -53,3 +82,8 @@ The hook owns:
   two renderers for the same artifact would each fire their own heal. In
   practice ArtifactColumn only mounts one renderer at a time per artifact,
   so this isn't a real race.
+
+- **Don't put the whole controller into a renderer effect's deps.** Put
+  `attempt` in a ref and depend on `[url]` only. Even with the controller
+  memo'd, any internal state change (busy/modalOpen/etc) re-memoes and
+  re-fires the effect — that costs an extra HEAD per state transition.

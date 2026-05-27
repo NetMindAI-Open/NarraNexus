@@ -34,7 +34,7 @@
  *   making multi-file artifacts actually work.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { useArtifactHeal } from '@/hooks/useArtifactHeal';
@@ -55,6 +55,15 @@ export default function HtmlRenderer({ artifact }: Props) {
     artifact.updated_at,
   );
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+  // Stash the latest attempt() in a ref so the HEAD-probe effect only
+  // needs `url` in its deps. Without this the effect re-ran on every
+  // hook state change (the controller object changed identity for any
+  // setModalOpen / setBusy / setMessage call), creating an HEAD→attempt
+  // loop that the user couldn't escape via Dismiss. Bug: 2026-05-25.
+  const attemptRef = useRef(heal.attempt);
+  useEffect(() => {
+    attemptRef.current = heal.attempt;
+  }, [heal.attempt]);
 
   // Heal-success path: hook bumped recoveryVersion → re-mint the URL so
   // the iframe key changes and reloads the now-valid pointer.
@@ -73,7 +82,7 @@ export default function HtmlRenderer({ artifact }: Props) {
       try {
         const r = await fetch(url, { method: 'HEAD' });
         if (!cancelled && r.status === 410) {
-          heal.attempt();
+          attemptRef.current();
         }
       } catch {
         /* network blip — the iframe will surface its own error */
@@ -82,7 +91,7 @@ export default function HtmlRenderer({ artifact }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [url, heal]);
+  }, [url]);
 
   return (
     <>

@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-05-18
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — externalLinkInterceptor wire-up
+
+`installExternalLinkInterceptor()` runs once at boot, immediately
+after the Manyfold fragment-auth bootstrap. In Tauri it captures
+`<a target="_blank">` clicks app-wide and routes them through
+plugin-shell so the OS browser opens. In browser mode the install
+is a no-op so the default `target="_blank"` behavior is untouched.
+See [[externalLinkInterceptor]] for the rationale (TODO
+2026-05-27-dmg-external-links-dead.md).
 
 # main.tsx — React app bootstrap
 

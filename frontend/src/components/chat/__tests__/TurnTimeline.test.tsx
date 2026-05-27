@@ -73,11 +73,41 @@ describe('TurnTimeline', () => {
     expect(screen.getByText(/Hello user, here is the answer/)).not.toBeNull();
   });
 
-  test('marks helper_llm fallback replies visibly', () => {
+  test('marks helper_llm no_reply mode with the info badge', () => {
     render(
       <TurnTimeline
         events={[ev('r2', 1, 'reply', {
           content: 'Recovered reply',
+          reply_via: 'helper_llm_no_reply',
+        })]}
+      />
+    );
+    expect(screen.getByText(/helper_llm fallback/i)).not.toBeNull();
+  });
+
+  test('marks helper_llm after_error mode with the warning badge', () => {
+    render(
+      <TurnTimeline
+        events={[ev('r2a', 1, 'reply', {
+          content: 'I started but hit a snag — here is what I found.',
+          reply_via: 'helper_llm_after_error',
+        })]}
+      />
+    );
+    // Distinct text (warning) from the info badge.
+    expect(screen.getByText(/recovered after error/i)).not.toBeNull();
+    // The info badge must NOT be present for after_error replies.
+    expect(screen.queryByText(/helper_llm fallback/i)).toBeNull();
+  });
+
+  test('legacy helper_llm_fallback tag still renders the info badge', () => {
+    // Persisted rows from before the 2026-05-25 rename carry the old
+    // tag name; the UI must keep rendering them so historical replies
+    // still surface as recovered.
+    render(
+      <TurnTimeline
+        events={[ev('r2legacy', 1, 'reply', {
+          content: 'Legacy recovered reply',
           reply_via: 'helper_llm_fallback',
         })]}
       />

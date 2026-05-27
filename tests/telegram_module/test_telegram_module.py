@@ -90,7 +90,7 @@ async def test_build_extra_data_owner_match_sets_trust_signal():
     module = _make_module()
     cred = _cred(
         owner_user_id="555",
-        owner_name="Demo Owner",
+        owner_name="Bin Liang",
         owner_username="bin_liang",
     )
     ctx = _ctx(extra={"channel_tag": {"sender_id": "555"}})
@@ -209,7 +209,7 @@ async def test_get_instructions_owner_match_renders_trust_block():
                 "bot_username": "acme_bot",
                 "bot_user_id": "1001",
                 "owner_user_id": "555",
-                "owner_name": "Demo Owner",
+                "owner_name": "Bin Liang",
                 "is_owner_interacting": True,
                 "current_sender_id": "555",
                 "enabled": True,
@@ -218,7 +218,7 @@ async def test_get_instructions_owner_match_renders_trust_block():
     )
     text = await module.get_instructions(ctx)
 
-    assert "Demo Owner" in text
+    assert "Bin Liang" in text
     assert "is_owner_interacting=True" in text
     assert "may surface owner-private context" in text
 
@@ -232,7 +232,7 @@ async def test_get_instructions_owner_mismatch_renders_visitor_block():
                 "bot_username": "acme_bot",
                 "bot_user_id": "1001",
                 "owner_user_id": "555",
-                "owner_name": "Demo Owner",
+                "owner_name": "Bin Liang",
                 "is_owner_interacting": False,
                 "current_sender_id": "999",
                 "enabled": True,

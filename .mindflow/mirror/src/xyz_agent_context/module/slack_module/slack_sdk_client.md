@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_sdk_client.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-22
 ---
 
 ## Why it exists
@@ -47,6 +47,13 @@ generic ``api_call`` dispatcher that backs the agent-facing
   fine UX. We don't want a hiccup here to abort message processing.
 - **One client instance per credential / call site.** ``slack_sdk``
   clients are cheap; sharing across agents would risk bot_token mixup.
+- **Outbound text passes through ``sanitize_slack_mrkdwn``** for the
+  five message-posting methods (``chat.postMessage``, ``chat.update``,
+  ``chat.postEphemeral``, ``chat.scheduleMessage``, ``chat.meMessage``).
+  The sanitiser fixes GitHub markdown links and bare URLs adjacent to
+  CJK punctuation that LLM output frequently emits despite iron rule
+  #4 telling the agent otherwise. See ``_slack_text_sanitizer.py``
+  for the rewrite contract.
 
 ## Upstream / downstream
 

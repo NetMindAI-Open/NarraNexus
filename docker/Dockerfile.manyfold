@@ -1,0 +1,103 @@
+# syntax=docker/dockerfile:1
+#
+# NarraNexus — Manyfold integration image.
+#
+# Single Dockerfile (Owner constraint, spec Part 4.1): produces ONE image
+# that contains the full NarraNexus runtime (FastAPI backend + MCP servers
+# + sqlite_proxy + module pollers + IM triggers) plus the built frontend.
+#
+# At runtime the image is configured via env to talk to the Manyfold
+# platform; no business code is Manyfold-specific outside what
+# `ENABLE_MANYFOLD_API=1` gates.
+#
+# Build context: NarraNexus repo root.
+#
+#   docker build -f docker/Dockerfile.manyfold -t narranexus-manyfold:dev .
+#
+# Run (Manyfold-aware):
+#   docker run -d -p 8000:8000 \
+#     -e ENABLE_MANYFOLD_API=1 \
+#     -e MANYFOLD_GATEWAY_TOKEN=<token> \
+#     -e CLAUDE_CODE_OAUTH_TOKEN=<token> \
+#     -v $PWD/.tmp/data:/data \
+#     -v $PWD/.tmp/claude:/home/app/.claude \
+#     narranexus-manyfold:dev
+
+# ---------- Stage 1: Frontend build (node + Vite) ----------
+FROM node:22-slim AS frontend-build
+
+WORKDIR /app
+COPY frontend/package*.json ./frontend/
+WORKDIR /app/frontend
+RUN npm ci --no-audit --no-fund
+
+COPY frontend/ .
+RUN npm run build
+
+# ---------- Stage 2: Python runtime ----------
+FROM python:3.13-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/usr/local/bin:${PATH}" \
+    HOME=/home/app \
+    RUNTIME_MODE=container \
+    BASE_WORKING_PATH=/data/workspaces \
+    NEXUS_LOG_DIR=/data/logs \
+    DATABASE_URL=sqlite:////data/nexus.db \
+    DASHBOARD_BIND_HOST=0.0.0.0
+
+# System deps (matches docker/Dockerfile.python pattern):
+#   curl/ca-certificates: uv + claude CLI install
+#   git:                  any vcs deps uv may resolve
+#   nodejs/npm:           backend spawns the Claude Code CLI subprocess
+#   tini:                 PID 1 for clean signal handling
+#   bash:                 run.sh requires it (alpine wouldn't suffice)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        bash ca-certificates curl git tini nodejs npm gosu ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+# Claude Code CLI — hard dependency (claude-agent-sdk spawns it every turn).
+# Pinned for layer cache stability (see docker/Dockerfile.python:30-39).
+RUN npm install -g @anthropic-ai/claude-code@2.1.110 \
+ && npm cache clean --force
+
+# uv (the project's Python package manager)
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
+WORKDIR /app
+
+# Dep layer: copy lockfiles only so the heavy uv sync caches.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+
+# Project layer: full source + editable install.
+COPY . .
+RUN uv sync --frozen --no-dev \
+ && uv pip install -e .
+
+# Pull in the prebuilt frontend dist from stage 1.
+COPY --from=frontend-build /app/frontend/dist /app/frontend/dist
+
+# Persistent volume mount points (claude credentials + data dir).
+RUN mkdir -p /data /home/app/.claude /home/app/.narranexus \
+ && useradd --uid 1000 --create-home --shell /bin/bash app \
+ && chown -R app:app /data /home/app /app
+
+USER app
+
+EXPOSE 8000
+
+# Healthcheck — matches the /healthz endpoint we added (always-on, no auth).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -sf http://127.0.0.1:8000/healthz || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# run.sh detects RUNTIME_MODE=container (set above) and skips tmux,
+# starts all background services, exec'ing uvicorn in foreground.
+CMD ["bash", "/app/run.sh"]

@@ -175,3 +175,36 @@ export async function checkForUpdates(): Promise<string | null> {
   if (!invoke) return null;
   return (await invoke('check_and_install_update')) as string;
 }
+
+/**
+ * Open `url` in the OS default browser via the tauri-plugin-shell `open`
+ * command. Returns `true` if the open call succeeded, `false` otherwise
+ * (no Tauri, no invoke channel, or plugin error).
+ *
+ * Why this exists: `<a target="_blank">` in the Tauri WKWebView silently
+ * does nothing — the webview either swallows the click or tries to load
+ * the URL inside itself (CSP / cross-origin blocks it). Routing through
+ * shell.open hands the URL to the OS so the user actually lands somewhere.
+ * Used by lib/externalLinkInterceptor to intercept all external link
+ * clicks app-wide. Web/browser mode is intentionally a no-op (browsers
+ * already handle target="_blank" correctly).
+ *
+ * Capability + plugin wiring (no npm dep needed):
+ *   - Rust: tauri-plugin-shell init in tauri/src-tauri/src/lib.rs:33
+ *   - Capability: shell:allow-open in capabilities/default.json:8
+ *   - Config: "shell": { "open": true } in tauri.conf.json:53-55
+ * We invoke `plugin:shell|open` directly via __TAURI__.invoke to keep this
+ * file dependency-free (matches the other helpers above).
+ */
+export async function openExternal(url: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  const invoke = _getInvoke();
+  if (!invoke) return false;
+  try {
+    await invoke('plugin:shell|open', { path: url });
+    return true;
+  } catch (err) {
+    console.error('[tauri] openExternal failed:', err);
+    return false;
+  }
+}

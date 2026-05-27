@@ -9,7 +9,7 @@
  * approach avoids re-fetching when the same image renders in multiple cards).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Artifact } from '@/types/artifact';
 import { fetchArtifactBlobUrl } from '@/services/artifactsApi';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
@@ -29,6 +29,12 @@ export default function ImageRenderer({ artifact }: Props) {
   const [src, setSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const heal = useArtifactHeal(artifact.agent_id, artifact.artifact_id);
+  // attempt() via ref so the load effect's deps stay `[url]` — see
+  // HtmlRenderer for the bug story (Dismiss-modal loop, 2026-05-25).
+  const attemptRef = useRef(heal.attempt);
+  useEffect(() => {
+    attemptRef.current = heal.attempt;
+  }, [heal.attempt]);
 
   useEffect(() => {
     if (heal.recoveryVersion > 0) reload();
@@ -52,14 +58,14 @@ export default function ImageRenderer({ artifact }: Props) {
         if (cancelled) return;
         const msg = String(e);
         setError(msg);
-        if (msg.includes('fetch failed: 410')) heal.attempt();
+        if (msg.includes('fetch failed: 410')) attemptRef.current();
       }
     })();
     return () => {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [url, heal]);
+  }, [url]);
 
   const content = urlError ? (
     <div className="p-4 text-red-400">Failed to load: {urlError}</div>

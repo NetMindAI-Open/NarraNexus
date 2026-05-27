@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/ImageRenderer.tsx
-last_verified: 2026-05-14
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — same Dismiss-loop fix as HtmlRenderer
+
+`heal.attempt` now via `attemptRef`; load effect deps reduced to
+`[url]`. See HtmlRenderer.tsx.md + useArtifactHeal.ts.md for the
+shared bug story (modal stuck open after Dismiss, P0 2026-05-25).
 
 ## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
 
