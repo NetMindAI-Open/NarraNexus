@@ -22,8 +22,6 @@ const APP_ID_PATTERN = /^cli_[a-zA-Z0-9_-]{8,}$/;
 
 import type { ChannelConfigProps } from './IMChannelsSection';
 
-import type { ChannelConfigProps } from './IMChannelsSection';
-
 const POLLING_INTERVAL_MS = 3000;
 const POLLING_TIMEOUT_MS = 5 * 60 * 1000;
 
