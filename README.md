@@ -1,74 +1,96 @@
+<!--
+Draft: Structure A+ (Dev-focused, governance-aware) — English
+Date: 2026-05-28
+Variant of README_A — adopts a colleague's advice on the contribution section
+(see local note: README_advice.md, advice items #3, #4, #6). Clone-URL advice
+(#2) intentionally skipped per the user. AI-assistant callout (#1) tried and
+removed — the Contributing & governance section at the bottom already covers
+the AI-friendly story.
+
+Changes vs README_A.en.md:
+  - First-screen "Found a bug / need help?" sub-line under the lang switch (#6)
+  - "## Contributing" rewritten as "## Contributing & governance" — navigation
+    only, links to AGENTS.md / CLAUDE.md / GOVERNANCE.md / MAINTAINERS.md /
+    CODE_OF_CONDUCT.md / SECURITY.md / .mindflow/_overview.md, ends with
+    git-shortlog line (#3 + #4). Verbose "I made a template / Module / change
+    the code" sub-sections collapsed — those belong in CONTRIBUTING.md.
+-->
+
 <div align="center">
 
-<img src="docs/NarraNexus_logo.png" alt="NarraNexus" width="480" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-dark-mode.svg">
+  <img src="docs/images/NarraNexusLogo_v2/narra-nexus-logo-text-light-mode.svg" alt="NarraNexus" width="480" />
+</picture>
 
 <br/>
 <br/>
 
-### A framework for building **nexuses of agents**
-*Where intelligence emerges from interaction, not isolation.*
+# Don't deploy an agent from scratch. Collaborate with a professional team in one click.
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://website.narra.nexus/docs/getting-started/quick-start)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)](https://react.dev/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![MCP](https://img.shields.io/badge/MCP-Model%20Context%20Protocol-8B5CF6)](https://modelcontextprotocol.io/)
+[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexdocs/getting-started/quick-start)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 **English** | [中文](./README_zh.md)
+
+<br/>
+<sub>Found a bug or need help? · <a href="https://github.com/NetMindAI-Open/NarraNexus/issues/new/choose">Open an issue</a> · <a href="https://github.com/NetMindAI-Open/NarraNexus/discussions">Discussions</a></sub>
 
 </div>
 
 ---
 
-> Most agent frameworks focus on making agents *smarter*.
-> **NarraNexus focuses on making agents *connected*.**
+<br/>
 
-An agent in isolation is a tool. An agent with memory, identity, relationships, and goals becomes a participant in a **nexus** — a network where intelligence is a collective property, not just a model property.
+<p align="center">
+  <em>Agents that already know how to remember, collaborate, and use tools — start from a template, or compose your own.</em>
+</p>
 
-NarraNexus provides the infrastructure for this: persistent memory, relationship-aware context, task scheduling, modular capabilities, and agent-to-agent communication.
+<p align="center">
+  <img src="docs/images/hero-intro.gif" alt="A 90-second tour of NarraNexus — install, core concepts, and templates in action." width="760" />
+</p>
 
----
+<p align="center">
+  <em>A 90-second tour — install, core concepts, and templates in action.</em>
+</p>
 
-## What Makes NarraNexus Different
+<p align="center">
+  <a href="#templates">See more templates →</a>
+</p>
 
-### Persistent Context
-*Agents that remember — across sessions, conversations, and relationships.*
-
-NarraNexus agents carry context across conversations through long-term memory, event memory, and relationship-aware retrieval. They continue from past interactions instead of starting over every time.
-
-### Composable Runtime
-*Every capability is a hot-swappable module.*
-
-Core capabilities such as Memory, Awareness, Chat, RAG, Jobs, Skills, Social Network, and Matrix run as independent modules. Each module manages its own tools, data, and lifecycle, making the system easy to extend or customize.
-
-### Connected Agents
-*Built for collaboration, not just conversation.*
-
-Agents can communicate through Matrix-based messaging and use MCP tools to coordinate with other agents, external tools, and background workflows.
+<br/>
 
 ---
 
-## Quick Start
+##  Get started in 60 seconds
 
-###  Online Version (Coming soon)
-*Try NarraNexus instantly in the browser — no install needed.*
+NarraNexus is a multi-agent product — not yet another framework where you wire agents together, but a ready-to-run team of agents that already collaborate. Three deployment paths — pick whichever suits you.
 
-> **[Launch NarraNexus →](https://website.narra.nexus/)**
+### ☁️ Cloud sign-up — fastest, with a free trial quota
 
-###  Download the App (macOS only)
-*Native desktop app with auto-updater.*
+1. Open [agent.narra.nexus](https://agent.narra.nexus/login)
+2. Sign up
+3. Pick a template and go
 
-> **[Download Latest Release →](https://github.com/NetMindAI-Open/NarraNexus/releases)** — choose the file ending with `.dmg`.
+<!-- TODO: cloud sign-up demo video, ~30s -->
 
-###  Install from Source
+> [!NOTE]
+> **Running locally (desktop app or source)?** Two things to know:
+> - **Bring your own LLM API key.** The desktop app and local build run on your own key — use a Claude Code login, or grab a NetMind.AI Power key (one key, takes a minute). Configure it under **Settings** — see [Configure LLM Providers](https://narra.nexdocs/getting-started/quick-start).
+> - **Free up local ports.** Both run several local services; make sure those ports aren't already taken.
 
-#### Prerequisites
+### 💻 macOS desktop app
 
-| Dependency | Install |
-|------------|---------|
-| **Node.js** (v20+) | Install via [nvm](https://github.com/nvm-sh/nvm) (recommended): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh \| bash && nvm install 20` |
-| **uv** | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+The app bundles its own runtime — no Python / Node / Docker to install.
+
+1. [Download the app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
+2. Drag it into the Applications folder
+3. Launch → pick a template and go
+
+<!-- TODO: dmg install demo video, ~30s -->
+
+### 🛠️ From source (developers)
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -76,141 +98,123 @@ cd NarraNexus
 bash run.sh
 ```
 
-> [!TIP]
-> The script auto-detects your OS (Linux / macOS / Windows WSL2) and handles the rest of the dependencies. If either dependency is missing, `run.sh` will print the install command and exit. Install it, then re-run.
-
-
-**Once setup completes:**
-
-1. Open **`http://localhost:5173`** in your browser
-   - Choose **LOCAL** or **CLOUD (Coming soon)** mode to create an account and log in
-   - Click **SETTING** on the left panel to set up the API key — see [LLM Provider Configuration](#llm-provider-configuration)
-   - Start chatting!
-2. Open **`http://localhost:8000/docs`** for API Docs
-
-<br/>
+`run.sh` checks prerequisites (`uv` / `node` / `tmux`) and launches all local services. For the full service/port list and detailed setup, see the [dev docs](https://narra.nexdocs/getting-started/quick-start).
 
 <p align="center">
-  <img src="docs/images/install-interface.png" alt="Install Interface" />
+  <video src="docs/videos/install-local.mp4" controls width="720">
+    Your browser does not support the video tag. <a href="docs/videos/install-local.mp4">Download the demo (MP4)</a>.
+  </video>
 </p>
 
-<p align="center"><em>Setup complete — ready to open the interface</em></p>
-
-> [!NOTE]
-> For more details, see the [installation instructions](https://website.narra.nexus/docs/getting-started/quick-start) in the docs.
-
----
-## LLM Provider Configuration
-
-The agent uses three functional LLM slots:
-
-| Slot | Protocol | Purpose |
-|------|----------|---------|
-| **Agent** | Anthropic | Core reasoning — powers thinking, tool use, and multi-turn conversations |
-| **Embedding** | OpenAI | Converts text to vectors for narrative matching and semantic search |
-| **Helper LLM** | OpenAI | Lightweight tasks — entity extraction, summarization, module decisions |
-
-
-### Setup
-
-Configuration is done in two steps:
-
-1. **Add a provider**
-2. **Assign a model to each slot**
-
-### Add Providers
-
-Use **Quick Add — Preset Provider** to select a provider and paste your API key. Preset providers such as **NetMind.AI Power** can automatically create both Anthropic-compatible and OpenAI-compatible endpoints from one API key.
-
-You can also configure:
-
-| Option | What you need | Result |
-|--------|--------------|--------|
-| **NetMind.AI Power** | One API key | Creates both Anthropic and OpenAI endpoints automatically |
-| **OpenRouter / Yunwu** | One API key | Adds supported endpoints and available models |
-| **Claude Code Login** | Claude Code CLI login | Enables Claude models for the Agent slot through OAuth |
-| **Custom Anthropic** | Compatible URL and API key | Adds a custom Anthropic endpoint |
-| **Custom OpenAI** | Compatible URL and API key | Adds a custom OpenAI endpoint |
-
-Use **Update Available Models** to refresh the default model list for preset providers. Existing model entries are kept, and only missing models are added.
-
-### Assign Models
-
-After adding providers, go to **Model Assignment** and select a provider and model for each slot:
-
-| Slot | Example |
-|------|---------|
-| **Agent** | NetMind Anthropic + DeepSeek V4 Pro(more available), or Claude Code + Claude model |
-| **Embedding** | NetMind OpenAI + embedding model |
-| **Helper LLM** | NetMind OpenAI + DeepSeek V4 Pro(more available) |
-
-All three slots must be configured before the agent can work.
-
-> [!NOTE]
-> For updating LLM configuration, click **Setting** see the [installation instructions](https://website.narra.nexus/docs/getting-started/quick-start) in the docs.
+> Three doors, same place.
 
 ---
 
-## Key Features
+##  Three Core Features
 
-| Feature | Description |
-|---------|-------------|
-| **Narrative Memory** | Conversations routed into semantic storylines, retrieved by topic similarity across sessions |
-| **Hot-Swappable Modules** | Standalone capabilities (chat, social graph, RAG, jobs, skills) with their own DB, tools, and hooks |
-| **Inter-Agent Communication** | Agents coordinate via Matrix protocol — rooms, messages, @mentions, group chats |
-| **Skill Marketplace** | Browse and install skills from ClawHub via natural language |
-| **Social Network** | Entity graph tracking people, relationships, expertise, and interaction history |
-| **Job Scheduling** | One-shot, cron, periodic, and continuous tasks with dependency DAGs |
-| **RAG Knowledge Base** | Document indexing and semantic retrieval via Gemini File Search |
-| **Long-term Memory** | Episodic memory powered by EverMemOS (MongoDB + Elasticsearch + Milvus) |
-| **Cost Tracking** | Real-time metering of every LLM call with per-model cost breakdowns |
-| **Execution Transparency** | Every pipeline step visible in real time — what the agent decided, why, and what changed |
-| **Multi-LLM Support** | Claude, OpenAI, and Gemini via unified adapter layer |
-| **Desktop App** | Native desktop application with auto-updater and one-click service orchestration |
+### What an agent actually does for you.
 
-<br/>
+<p align="center">
+  <img width="1672" height="941" alt="all-v4" src="https://github.com/user-attachments/assets/52eeb6b3-c190-486c-ad4a-49bd7d7959b7" />
+</p>
 
-![Feature Showcase](docs/images/showcase-weather.gif)
-<p align="center"><em>NarraNexus in action</em></p>
 
 ---
 
-## Star History
+<a name="templates"></a>
 
-<a href="https://star-history.com/#NetMindAI-Open/NarraNexus&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NetMindAI-Open/NarraNexus&type=Date" />
- </picture>
-</a>
+##  Reference Templates
+
+Reference implementations — use them directly, or fork to customize.
+
+### Financial Morning Briefing
+
+For investors and analysts who read markets at 7am. **6 agents** deliver an analyst-grade HTML briefing to your inbox daily at 08:00 Asia/Shanghai. Not yet another news summary — a structured read on *"what is the market trading today, and should I attack, defend, or watch?"*
+
+**[narra.nexus/templates/financial-morning-briefing →](https://www.narra.nexus/templates/financial-morning-briefing)**
+
+<!-- TODO: Financial Morning Briefing template demo video, ~30s -->
+
+### KOL Assistant
+
+For content creators juggling inbound sponsorships. **4 agents** parse incoming sponsor emails, keep your CRM up to date, and monitor brand mentions across social platforms — so you spend time on the next video, not on inbox triage.
+
+**[narra.nexus/templates/kol-assistant →](https://www.narra.nexus/templates/kol-assistant)**
+
+<!-- TODO: KOL Assistant template demo video, ~30s -->
+
+### PM Bridge Bot
+
+For teams juggling internal team chat and external client communication. A single bot maintains two searchable knowledge bases — internal-only and client-shared — and auto-files every chat, doc, and meeting note into the right scope. Tone adapts per audience; language is auto-detected.
+
+**[narra.nexus/templates/pm-bridge-bot →](https://www.narra.nexus/templates/pm-bridge-bot)**
+
+<!-- TODO: PM Bridge Bot template demo video, ~30s -->
+
+### More community templates → [browse all](https://narra.nexdocs/modules/custom-modules)
+
+> *All built by NarraNexus agents themselves.*
 
 ---
 
-## Acknowledgments
+##  Honest Limitations
 
-NarraNexus's long-term memory system is built on **[EverMemOS](https://github.com/EverMind-AI/EverMemOS)**, a self-organizing memory operating system for structured long-horizon reasoning. We thank the EverMemOS team for their foundational work.
-
-> Chuanrui Hu, Xingze Gao, Zuyi Zhou, Dannong Xu, Yi Bai, Xintong Li, Hui Zhang, Tong Li, Chong Zhang, Lidong Bing, Yafeng Deng. *EverMemOS: A Self-Organizing Memory Operating System for Structured Long-Horizon Reasoning.* arXiv:2601.02163, 2026. [[Paper]](https://arxiv.org/abs/2601.02163)
+- **LLM API key**: the cloud version has a free trial quota. For daily or local use, you'll want your own LLM API key — one or two minutes to register at NetMind, OpenAI, or Anthropic.
+- **An agent isn't 100% out of the box**: it needs your corrections and feedback to get sharp. Treat it like a new hire, not a god.
+- **Collaboration isn't perfect on the first try**: complex tasks may take a couple of iterations before agents get the hang of it; some judgment calls always belong to you — the team handles the bulk, the key calls stay with you.
+- **Architecture trade-off**: each agent launches its own MCP process, adding ~100ms of startup overhead. Negligible for chat-style workflows; switch to Direct Trigger mode for high-frequency jobs.
 
 ---
 
-## Citation
+##  Community
 
-If you find NarraNexus useful, please cite it as:
+<a name="community"></a>
 
-```bibtex
-@software{narranexus2026,
-  title        = {NarraNexus: A Framework for Building Nexuses of Agents},
-  author       = {NetMind.AI},
-  year         = {2026},
-  url          = {https://github.com/NetMindAI-Open/NarraNexus},
-  license      = {CC-BY-NC-4.0}
-}
-```
+- **Discord** — [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
+- **Twitter / X** — [@NetMindAI](https://x.com/NetMindAI)
+- **Email updates** — `coming soon`
+- **Feedback** — [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
+
+---
+
+##  Contributing & governance
+
+NarraNexus is built to work well with human and AI-agent contributors alike.
+
+**Start here:**
+
+- New contributors → [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- AI coding assistants → [`AGENTS.md`](./AGENTS.md) (vendor-neutral) or [`CLAUDE.md`](./CLAUDE.md) directly
+- Project map for your AI agent → [`.mindflow/_overview.md`](./.mindflow/_overview.md)
+
+**How the project is run:**
+
+- Governance & maintainer team → [`GOVERNANCE.md`](./GOVERNANCE.md), [`MAINTAINERS.md`](./MAINTAINERS.md)
+- Community standards → [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
+- Security policy → [`SECURITY.md`](./SECURITY.md)
+
+See [`MAINTAINERS.md`](./MAINTAINERS.md) for the current maintainer team. Run `git shortlog -sn` for the full contributor list.
 
 ---
 
 ## License
 
 [CC BY-NC 4.0](./LICENSE)
+
+<!--
+Alternative hooks (kept for record):
+
+Current (A3):
+  - "Don't deploy an agent. Launch a team."  ← CURRENT (A3-en)
+  - "别只部署一个 agent。直接组一支团队。"  ← A3-zh counterpart
+
+Other candidates considered:
+  - A1: "An agent team, one click away."
+  - A2: "Launch your agent team in one click."
+  - A4: "One click. A whole agent team. Online."
+  - A5: "Beyond single-agent assistants. An agent team, one click away."
+  - A6: "A multi-agent product. Launch in one click."
+
+Merged hook (for boss's review):
+  "Most agent tools are built for developers. NarraNexus is built for everyone else."
+-->
