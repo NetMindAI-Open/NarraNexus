@@ -42,7 +42,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
 use tokio::sync::Mutex as TokioMutex;
@@ -55,7 +55,12 @@ use crate::state::AppState;
 /// `#[serde(tag = "kind", rename_all = "snake_case")]` produces JSON
 /// like `{"kind": "downloading", "downloaded": 12345, ...}` — discriminated
 /// unions the frontend Zustand store unpacks into a TypeScript union type.
-#[derive(Debug, Clone, Serialize)]
+///
+/// `Deserialize` is required because `tray.rs`'s `updater:state` event
+/// listener parses the event JSON payload back into this enum to drive
+/// the menu-item label. Forgetting this trait failed the v1.7.11 dmg
+/// build (E0277, Rust-side cargo compile) — fixed in v1.7.12.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UpdaterState {
     Idle,
@@ -82,7 +87,12 @@ pub enum UpdaterState {
         version: String,
     },
     Failed {
-        stage: &'static str, // "check" | "download" | "install"
+        // Was `&'static str` pre-v1.7.12; serde's `Deserialize` can't
+        // round-trip borrowed strings out of arbitrary JSON, so the field
+        // is an owned String now. Callers still pass string literals via
+        // `.to_string()` — the values stay the same closed set
+        // ("check" | "download" | "install").
+        stage: String,
         error: String,
     },
 }
@@ -149,7 +159,7 @@ pub async fn run_pipeline(app: AppHandle) {
             set_state(
                 &app,
                 UpdaterState::Failed {
-                    stage: "check",
+                    stage: "check".to_string(),
                     error: format!("updater not available: {e}"),
                 },
             );
@@ -169,7 +179,7 @@ pub async fn run_pipeline(app: AppHandle) {
             set_state(
                 &app,
                 UpdaterState::Failed {
-                    stage: "check",
+                    stage: "check".to_string(),
                     error:
                         "update check timed out after 30s (network unreachable or no VPN?)"
                             .to_string(),
@@ -181,7 +191,7 @@ pub async fn run_pipeline(app: AppHandle) {
             set_state(
                 &app,
                 UpdaterState::Failed {
-                    stage: "check",
+                    stage: "check".to_string(),
                     error: format!("update check failed: {e}"),
                 },
             );
@@ -305,7 +315,7 @@ pub async fn run_pipeline(app: AppHandle) {
             set_state(
                 &app,
                 UpdaterState::Failed {
-                    stage: "download",
+                    stage: "download".to_string(),
                     error: format!("download/install failed: {e}"),
                 },
             );
