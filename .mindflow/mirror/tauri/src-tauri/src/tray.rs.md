@@ -3,13 +3,40 @@ code_file: tauri/src-tauri/src/tray.rs
 last_verified: 2026-05-27
 ---
 
-## 2026-05-27 — "Check for Updates…" menu item
+## 2026-05-27 — tray item doubles as the updater state surface
+
+The tray entry was renamed `updater_action` (was `check_updates`) and
+now serves three verbs from one menu item, chosen by the current
+updater state machine value (see [[updater.rs]]):
+
+| state          | label                                  | click does          |
+|----------------|----------------------------------------|---------------------|
+| `idle`         | `Check for Updates…`                   | kick pipeline       |
+| `up_to_date`   | `Up to date (1.7.10)`                  | kick pipeline       |
+| `checking`     | `Checking for updates…`                | no-op (in-flight)   |
+| `available`    | `Update 1.7.11 found — downloading…`   | no-op (in-flight)   |
+| `downloading`  | `Downloading update (35%)`             | no-op (in-flight)   |
+| `installing`   | `Installing 1.7.11…`                   | no-op (in-flight)   |
+| `ready`        | `Restart to apply 1.7.11`              | `app.restart()`     |
+| `failed`       | `Check for Updates… (last check failed)` | kick pipeline     |
+
+The label is rewritten live by a Rust-side `app.listen("updater:state", ...)`
+subscription installed in `create_tray`. The pipeline's reentrancy
+guard ensures concurrent clicks don't pile up; we still no-op the
+click in the four in-flight states for clarity (user shouldn't have
+to wonder whether clicking again does anything).
+
+`updater_label(state)` is the pure-function mapping. Side-effect free
+on purpose so the live `set_text` from the event listener stays
+trivial.
+
+## 2026-05-27 — "Check for Updates…" menu item (initial wiring)
 
 Added a fourth tray menu item between Stop All Services and Quit, with
-a separator on each side: `Check for Updates…`. Click handler spawns
-an async task that calls [[updater]] `run_manual_update_check`, which
-always surfaces a native dialog with the result (up-to-date / installed
-/ failed) — explicit user trigger should never look silent.
+a separator on each side: `Check for Updates…`. The 2026-05-27 unified
+state-machine rewrite above replaced the original click handler (which
+spawned the deprecated `run_manual_update_check`) with state-aware
+dispatch.
 
 Why a tray entry and not an app-menu entry: macOS apps conventionally
 hide "Check for Updates" under both, but the tray menu is what the

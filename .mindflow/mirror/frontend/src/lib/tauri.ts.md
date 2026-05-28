@@ -4,6 +4,28 @@ last_verified: 2026-05-27
 stub: false
 ---
 
+## 2026-05-27 — unified auto-updater wrappers (replaces `checkForUpdates`)
+
+The single-IPC `checkForUpdates()` was retired in favour of four
+small wrappers that mirror the unified state machine in
+[[updater.rs]]:
+
+| wrapper | shape | when |
+|---------|-------|------|
+| `kickUpdaterCheck()` | `Promise<void>` | trigger the full check → download → install pipeline (returns immediately; progress arrives via events) |
+| `getUpdaterState()` | `Promise<UpdaterState \| null>` | snapshot on mount so the store recovers state if a startup-auto pipeline already transitioned before React mounted |
+| `restartForUpdate()` | `Promise<void>` | gated on `state.kind === "ready"` |
+| `listenUpdaterState(handler)` | `Promise<() => void \| null>` | subscribe to `updater:state` events; intended for [[updaterStore.ts]] only |
+
+Plus the `UpdaterState` TypeScript discriminated union type — kept
+in `lib/tauri.ts` (not the store) so any consumer can import the
+type without pulling Zustand. Hand-synced with the Rust enum;
+change one, change the other.
+
+Removed: `checkForUpdates()` (old API). Callers updated:
+[[SettingsPage.tsx]] now uses the store + `kickUpdaterCheck` /
+`restartForUpdate`.
+
 ## 2026-05-27 — fetchArtifactViaTauri(url)
 
 New helper that invokes the `fetch_artifact_via_backend` Rust command

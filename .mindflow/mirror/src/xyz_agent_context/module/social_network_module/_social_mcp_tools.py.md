@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — `search_social_network` 不再支持 `semantic`
+
+`search_type` enum 改为 `auto | exact_id | tags | keyword`（去掉了
+`semantic`）。文档增加显式说明："natural-language questions like 'who
+showed purchase intent' will not match anything that does not literally
+contain those words"——Agent 看到这条提示后会自然把 query 重写成
+关键词形式。Example 4 (自然语言查询) 整段删了。
+
+底层：参见 [[social_network_module.py]] 的 `_search_entities` 删除
+`semantic` 分支。
 
 # _social_mcp_tools.py — SocialNetworkModule MCP 工具定义
 

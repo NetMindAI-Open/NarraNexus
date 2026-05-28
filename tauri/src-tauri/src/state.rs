@@ -517,6 +517,12 @@ pub struct AppState {
     /// needed alongside the live Tauri event (cold-start race: URLs
     /// arrive in Rust before React mounts a listener).
     pub pending_deep_link: Arc<StdMutex<Option<String>>>,
+    /// Single source of truth for the auto-updater state machine. All three
+    /// entry points (startup auto-check, tray "Check for Updates…", Settings
+    /// page button) mutate this same field; the UI surfaces (global banner,
+    /// Settings panel, tray menu label) all mirror it via the `updater:state`
+    /// Tauri event. See `commands::updater` for the pipeline.
+    pub updater_state: Arc<StdMutex<crate::commands::updater::UpdaterState>>,
 }
 
 impl Default for AppState {
@@ -540,6 +546,9 @@ impl Default for AppState {
             tray_handle: Arc::new(StdMutex::new(None)),
             claude_login_pid: Arc::new(StdMutex::new(None)),
             pending_deep_link: Arc::new(StdMutex::new(None)),
+            updater_state: Arc::new(StdMutex::new(
+                crate::commands::updater::UpdaterState::Idle,
+            )),
         }
     }
 }

@@ -106,19 +106,10 @@ async def _seed_instance(
     )
 
 
-async def _seed_entity(
-    db, *, instance_id: str, entity_id: str, name: str
-) -> None:
-    await db.insert(
-        "instance_social_entities",
-        {
-            "instance_id": instance_id,
-            "entity_id": entity_id,
-            "entity_type": "person",
-            "entity_name": name,
-            "entity_description": f"desc of {name}",
-        },
-    )
+# 2026-05-27: `_seed_entity` helper removed together with the two
+# entity-type migration tests below — the social-network embedding
+# chain was retired (Owner spec), so neither status counts nor
+# rebuilds touch entity rows any more.
 
 
 @pytest.fixture
@@ -230,23 +221,9 @@ async def test_status_filters_jobs_by_user_id(
     assert stats_bob["job"]["total"] == 1
 
 
-@pytest.mark.asyncio
-async def test_status_filters_entities_via_instance_user(
-    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
-):
-    await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
-    await _seed_agent(db_client, agent_id="agent_b", created_by="bob")
-    await _seed_instance(db_client, instance_id="inst_a", agent_id="agent_a", user_id="alice")
-    await _seed_instance(db_client, instance_id="inst_b", agent_id="agent_b", user_id="bob")
-    await _seed_entity(db_client, instance_id="inst_a", entity_id="ent_1", name="Alice's friend")
-    await _seed_entity(db_client, instance_id="inst_a", entity_id="ent_2", name="Alice's colleague")
-    await _seed_entity(db_client, instance_id="inst_b", entity_id="ent_3", name="Bob's contact")
-
-    stats_alice = (await EmbeddingMigrationService(db_client, user_id="alice").get_status())["stats"]
-    stats_bob   = (await EmbeddingMigrationService(db_client, user_id="bob").get_status())["stats"]
-
-    assert stats_alice["entity"]["total"] == 2
-    assert stats_bob["entity"]["total"] == 1
+# test_status_filters_entities_via_instance_user — removed 2026-05-27
+# together with the entity-type rebuild path (Owner spec, see
+# embedding_migration_service.py for the rationale).
 
 
 @pytest.mark.asyncio
@@ -417,46 +394,8 @@ async def test_rebuild_errors_clearly_when_no_provider(db_client):
     assert rows == []
 
 
-@pytest.mark.asyncio
-async def test_status_counts_distinct_entity_ids_across_instances(
-    db_client, patched_embedding, force_new_embedding_path, patched_embedding_cfg
-):
-    """An entity_id that exists under multiple module_instances must be
-    counted ONCE, not once per instance.
-
-    Regression (debug/20260521-embedding-rebuild-retry): embeddings_store is
-    keyed on (entity_type, entity_id, model) — one vector per entity_id. But
-    the entity count used COUNT(*) over instance_social_entities JOIN
-    module_instances, which fans out to one row per (entity_id, instance_id).
-    A user whose social-network entity appears in N instances therefore
-    showed total=N but migrated=1 → a permanent "N-1 missing" that no rebuild
-    could ever close (rebuild embeds distinct ids, all already done).
-    """
-    await _seed_agent(db_client, agent_id="agent_a", created_by="alice")
-    await _seed_instance(db_client, instance_id="inst_a1", agent_id="agent_a", user_id="alice")
-    await _seed_instance(db_client, instance_id="inst_a2", agent_id="agent_a", user_id="alice")
-
-    # Same entity_id present in BOTH instances (the fan-out source) ...
-    await _seed_entity(db_client, instance_id="inst_a1", entity_id="ent_dup", name="Dup")
-    await _seed_entity(db_client, instance_id="inst_a2", entity_id="ent_dup", name="Dup")
-    # ... plus one that lives in a single instance.
-    await _seed_entity(db_client, instance_id="inst_a1", entity_id="ent_solo", name="Solo")
-
-    svc = EmbeddingMigrationService(db_client, user_id="alice")
-
-    # 2 distinct entities, not 3 (the JOIN would otherwise report 3).
-    status_before = await svc.get_status()
-    assert status_before["stats"]["entity"]["total"] == 2
-
-    await svc.rebuild_all()
-
-    status_after = await svc.get_status()
-    assert status_after["stats"]["entity"]["total"] == 2
-    assert status_after["stats"]["entity"]["migrated"] == 2
-    # The bug surfaced as a permanent missing>0 here.
-    assert status_after["stats"]["entity"]["missing"] == 0
-    assert status_after["all_done"] is True
-
-    # Exactly one embedding row per distinct entity_id (no per-instance dupes).
-    emb = await db_client.get("embeddings_store", filters={"entity_type": "entity"})
-    assert sorted(r["entity_id"] for r in emb) == ["ent_dup", "ent_solo"]
+# test_status_counts_distinct_entity_ids_across_instances — removed
+# 2026-05-27 together with the entity-type rebuild path (Owner spec).
+# The COUNT(DISTINCT entity_id) regression it pinned only mattered
+# while the entity-type rebuild path existed; we no longer count
+# entities in the migration status at all.

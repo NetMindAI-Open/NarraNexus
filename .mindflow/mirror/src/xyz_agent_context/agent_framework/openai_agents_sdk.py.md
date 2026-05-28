@@ -1,8 +1,47 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/openai_agents_sdk.py
-last_verified: 2026-04-10
+last_verified: 2026-05-28
 stub: false
 ---
+
+## 2026-05-28 — `_fallback_chat_completion` 升级成 3 层 response_format 阶梯
+
+Production bug：NarraNexusPM agent 02:39 那次 `narrative.continuity_detect`
+在 DeepSeek-V4-Flash 上返回 `structured=fallback_first_fail`，导致继承的
+fallback 走纯 prompt-engineering 路径，正则抠 JSON 偶尔抠出错误内容。
+
+修改：fallback 路径不再"光靠 prompt + 正则"，而是**3 层 response_format 阶梯**，
+按可靠性从严到松依次尝试：
+
+| 层级 | 含义 | 谁支持 |
+|---|---|---|
+| `json_schema` (strict) | API 层强制返回符合 Pydantic schema 的 JSON | OpenAI / V3.1 / V3 / Together / Anyscale |
+| `json_object` | API 层强制返回任意有效 JSON object | 上面那些 + **V4-Flash / V4-Pro** |
+| (无 response_format) | 当前的纯 prompt-engineering 路径 | 兜底 |
+
+每个 `(base_url, model)` 的能力缓存进 `_response_format_capability: dict[tuple, set[str]]`。
+某一层在某模型上抛 "response_format type unavailable" 之类 → 那一层从该模型的
+集合里 drop，后续调用不再试。Transient 错误（rate limit / 5xx / network）
+**不** downgrade 层级，原样 re-raise。
+
+NetMind 实测（`tests/agent_framework/_manual/probe_response_format.py`）：
+- V3.1 三层全支持，停在 `json_schema`，1 API hop
+- V4-Flash / V4-Pro `json_schema` → 400 "unavailable"，自动 fall to `json_object` 成功，
+  cache 学到后续只 1 hop
+- V3 三层全支持但响应包 ```json``` fences，`_extract_json_from_llm_output` 已经能剥
+
+测试覆盖：
+- `tests/agent_framework/test_structured_fallback_ladder.py` — 11 个单元测试，
+  mock OpenAI client 覆盖每一层降级路径 + cache + 错误分类
+- `tests/agent_framework/_manual/smoke_*.py` — 真打 NetMind 的 smoke
+  test（需要 `NETMIND_API_KEY` env，不进 CI 默认 run）
+
+## 2026-05-27 — `_last_llm_call_info` ContextVar 添加 `response_format` 字段
+
+3 层阶梯落到哪层会被 `_fallback_chat_completion` 记到 ContextVar 上
+（`{"structured": ..., "response_format": "json_schema" | "json_object" | "prompt_only"}`），
+调用方 / `timed()` tag 能读出来。
+
 # openai_agents_sdk.py — Helper LLM 适配层（结构化输出 + 兼容 think-block 模型）
 
 ## 为什么存在

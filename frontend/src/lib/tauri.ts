@@ -159,21 +159,97 @@ export async function consumePendingDeepLink(): Promise<string | null> {
   }
 }
 
+// ── Unified auto-updater ────────────────────────────────────────────────
+//
+// One Rust state machine drives three UI surfaces (global banner, Settings
+// panel, tray menu label). Frontend just kicks the pipeline and mirrors
+// state events; all logic lives in `commands/updater.rs`. See
+// stores/updaterStore.ts for the consumer side.
+
 /**
- * Manually trigger an app update check (desktop only). The Rust command checks
- * the release endpoint, downloads + installs a newer signed build if present,
- * and returns a status string: `'up_to_date'` or `'installed:<version>'` (the
- * installed update applies on restart). Throws on failure so the caller can
- * surface the message. Returns null when not running in Tauri.
- *
- * NOTE: the app also auto-checks on startup (Rust `run_startup_update_check`);
- * this is the explicit "Check for updates" button path.
+ * Mirror of the Rust `UpdaterState` enum. Kept synchronised by hand —
+ * change Rust → change here. Stored in lib/tauri.ts (not the store) so
+ * any consumer can import the type without pulling Zustand.
  */
-export async function checkForUpdates(): Promise<string | null> {
+export type UpdaterState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'up_to_date'; current: string; checked_at: number }
+  | { kind: 'available'; version: string; notes: string | null }
+  | {
+      kind: 'downloading';
+      downloaded: number;
+      total: number | null;
+      percent: number | null;
+    }
+  | { kind: 'installing'; version: string }
+  | { kind: 'ready'; version: string }
+  | { kind: 'failed'; stage: 'check' | 'download' | 'install'; error: string };
+
+/**
+ * Kick the unified updater pipeline: check → (if available) download →
+ * install → land at `ready`. Returns immediately; progress arrives via
+ * the `updater:state` Tauri event (subscribe with `listenUpdaterState`).
+ * Re-entrancy is guarded Rust-side, so calling while a pipeline is in
+ * flight is a harmless no-op. No-op in web/browser mode.
+ */
+export async function kickUpdaterCheck(): Promise<void> {
+  if (!isTauri()) return;
+  const invoke = _getInvoke();
+  if (!invoke) return;
+  await invoke('updater_check');
+}
+
+/**
+ * Snapshot the current updater state. Used by the store on mount to
+ * cover the case where a startup-auto pipeline already transitioned
+ * before React attached its event listener.
+ */
+export async function getUpdaterState(): Promise<UpdaterState | null> {
   if (!isTauri()) return null;
   const invoke = _getInvoke();
   if (!invoke) return null;
-  return (await invoke('check_and_install_update')) as string;
+  try {
+    return (await invoke('updater_get_state')) as UpdaterState;
+  } catch (e) {
+    console.warn('[tauri.getUpdaterState] failed:', e);
+    return null;
+  }
+}
+
+/**
+ * Restart the app to apply a downloaded update. Frontend gates the
+ * button on `state.kind === 'ready'`; the Rust side does not validate,
+ * so call this only when the state machine is actually Ready.
+ */
+export async function restartForUpdate(): Promise<void> {
+  if (!isTauri()) return;
+  const invoke = _getInvoke();
+  if (!invoke) return;
+  await invoke('updater_restart');
+}
+
+/**
+ * Subscribe to live updater state changes. Returns an unsubscribe
+ * function; null when not in Tauri / event channel missing. The
+ * `updaterStore.init()` is the only intended caller.
+ */
+export async function listenUpdaterState(
+  handler: (next: UpdaterState) => void,
+): Promise<(() => void) | null> {
+  if (!isTauri()) return null;
+  const listener = window.__TAURI__?.event?.listen;
+  if (!listener) return null;
+  try {
+    return await listener('updater:state', (ev: unknown) => {
+      // Tauri event payload type: { event, payload, id, windowLabel }
+      const payload = (ev as { payload?: UpdaterState }).payload;
+      if (payload) handler(payload);
+    });
+  } catch (e) {
+    console.warn('[tauri.listenUpdaterState] subscribe failed:', e);
+    return null;
+  }
 }
 
 /**

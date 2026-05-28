@@ -1,14 +1,38 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-05-22
+last_verified: 2026-05-27
 stub: false
 ---
 
-## 2026-05-22 — desktop-only "App updates" section
+## 2026-05-27 — UpdatesSection rewrite: full state-machine UI
 
-Added `<UpdatesSection />` (rendered only when `isTauri()`) — a "Check for
-updates" button calling `checkForUpdates()` and showing the status. The app
-also auto-checks on launch (Rust); this is the explicit manual trigger.
+`UpdatesSection` was rewritten to drive off [[updaterStore.ts]]
+(the Zustand mirror of the unified Rust state machine
+[[updater.rs]]) instead of the old single-call IPC. It now renders
+every state explicitly:
+- `idle` / `failed` / `up_to_date` → "Check for updates" button
+- `checking` / `available` → button shows spinner + status label
+- `downloading` → progress bar with `12.3 MB / 412.5 MB (3%)`
+- `installing` → spinner + "Installing X.Y.Z…"
+- `ready` → "Restart to apply X.Y.Z" button → `restartForUpdate()`
+
+Removed local `busy` / `msg` state. The store IS the state; the
+component is pure render. This means clicking "Check" in tray,
+Settings, or having the startup auto-check fire all converge on
+the same UI — the v1.7.5 issue of "Settings spinner spins forever
+with no progress" is structurally impossible now (the spinner
+either reflects `checking` (1–30 s) → next state, OR
+`downloading` with a real percentage).
+
+`formatBytes` helper for the progress label. Local to this file
+because it has no other consumer yet; promote to a shared util
+if a third caller appears.
+
+## 2026-05-22 — desktop-only "App updates" section (initial wiring)
+
+Original implementation of `<UpdatesSection />` — a single "Check for
+updates" button calling `checkForUpdates()` (deprecated). Replaced by
+the state-machine rewrite above.
 
 # SettingsPage.tsx — LLM provider and embedding configuration
 

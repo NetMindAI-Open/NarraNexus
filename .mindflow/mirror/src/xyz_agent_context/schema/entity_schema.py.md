@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/entity_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — `SocialNetworkEntity.embedding` field removed
+
+Removed together with the rest of the social-network semantic-search
+chain (Owner spec, scope B). The DB column `instance_social_entities.
+embedding` stays on the table per iron rule #6 (no risky DB changes)
+but no Python path reads or writes it any more. See [[social_network_module.py]]
+and [[social_network_repository.py]] for the call-site removals.
 
 # entity_schema.py
 

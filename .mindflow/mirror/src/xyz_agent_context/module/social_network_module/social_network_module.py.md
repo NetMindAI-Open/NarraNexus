@@ -1,7 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — semantic-search 链路全删（Owner spec, scope B）
+
+3 处直接改动：
+
+1. **`_search_entities` 的 `search_type == "semantic"` 分支删了**。
+   `auto` 已经只会路由到 `exact_id` 或 `keyword`，所以行为对调用方
+   无差异——除非显式传 `search_type="semantic"`（现在会落到 `return []`
+   兜底）。MCP 工具文档（[[_social_mcp_tools]]）同步删了 semantic
+   选项 + 自然语言查询的示例。
+
+2. **`_process_mentioned_entities` Stage 2 (vector similarity search) 整段
+   删了**。Dedup 现在是 Stage 1 (name/alias exact match) → LLM 仲裁
+   MERGE/CREATE 两步流程。后果：同人异名（"Bob" vs "Robert"）会产生
+   两条 entity 记录，靠人工 / LLM 后处理合并；这是 Owner 接受的取舍
+   （旧版 Stage 2 因为 mentioned-entity 从来不写 embedding 实际上一直在
+   裸跑，删干净比修好它更符合 YOLO 铁律 #2）。
+
+3. **`hook_after_event_execution` 不再调 `update_entity_embedding`**
+   （行 407）。`get_embedding` import 也从文件头移除。Self-user 的描述
+   依然累计更新，但不再有 embedding 副本。
 
 # social_network_module.py — SocialNetworkModule 主体
 

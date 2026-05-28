@@ -3,53 +3,99 @@ code_file: tauri/src-tauri/src/commands/updater.rs
 last_verified: 2026-05-27
 ---
 
-## 2026-05-27 — `run_manual_update_check` + de-Chinese dialogs
+## 2026-05-27 — unified state machine (rewrite, Owner spec)
 
-New entry point `run_manual_update_check(app)` — called from the tray
-"Check for Updates…" item ([[tray]]). Wraps `check_and_install_update`
-and ALWAYS surfaces a native dialog with the result:
-- installed → restart prompt (if user declines, show "applies on next
-  launch" info dialog)
-- up-to-date → "You are already on the latest version" info dialog
-- failed → "Update check failed.\\n\\n{e}" info dialog
+Previous design had three half-aligned UX paths: Settings page
+showed text in the page, tray menu and startup auto-check both
+showed osascript dialogs. Symptoms in production:
+1. Settings "Check for updates" button spun forever with no
+   progress feedback while a 400 MB download ran silently in the
+   background (the v1.7.5 incident — user thought it hung).
+2. State surfaces never agreed: clicking tray then opening
+   Settings would not show "downloading 35%", it would show idle.
+3. `updater.check()` had no hard timeout — an unreachable
+   endpoint pinned the whole pipeline indefinitely.
 
-Why a separate function instead of widening `run_startup_update_check`:
-the startup path is silent on the up-to-date / failed branches on
-purpose (user didn't ask, so flashing a dialog every launch is
-annoying). Manual click is the opposite — silence is confusing.
+Rewrite (Owner spec, 2026-05-27): **single Rust state machine,
+three UI entry points all feed it, three UI surfaces all mirror
+it via the `updater:state` event**.
 
-Also de-Chinesed the existing `prompt_restart` strings (违反铁律 #1 的
-pre-existing issue, fixed in the same commit since the file was already
-being touched). New `show_info_dialog(title, body)` helper factors out
-the osascript boilerplate so both flows share one dialog primitive.
+State machine:
+```
+Idle → Checking → UpToDate { current, checked_at }
+              ├─→ Available { version, notes? }
+              │     └─→ Downloading { downloaded, total?, percent? }
+              │           └─→ Installing { version }
+              │                 └─→ Ready { version }  → user clicks Restart → app.restart()
+              └─→ Failed { stage, error } (from any stage)
+```
 
-# updater.rs — app auto-update (check / download / install)
+Key invariants:
+- **Auto-install (Q1=A in design)**: once `Available` is reached
+  the pipeline downloads + installs without asking. The "ask" is
+  the Ready banner at the end. By the time the user sees the
+  banner the bytes are already on disk — restart is instant.
+- **250 ms progress throttle (Q3)**: without it, ~16 KB-per-chunk
+  callbacks on a 400 MB bundle emit ~25 k events and wedge the
+  IPC / WS channel.
+- **30 s check timeout**: the v1.7.5 incident proved reqwest's
+  default infinite connect timeout is too generous. After 30 s
+  the pipeline transitions to `Failed{stage:"check"}` and the UI
+  stops spinning.
+- **Reentrancy guard**: a `tokio::sync::Mutex::try_lock` around
+  the pipeline so a second click while one is in flight is a
+  no-op, not a queued duplicate run.
 
-## Why it exists / why Rust
+### IPC surface
 
-Drives `tauri_plugin_updater` (already registered in `lib.rs`) to check the
-release endpoint, download + install a newer **signed** build, and offer a
-restart. Implemented in Rust on purpose: the frontend deliberately ships NO
-`@tauri-apps/*` npm deps (web/cloud build stays clean), so doing it in JS would
-mean adding those deps or hand-rolling the updater plugin's `Update` resource
-protocol over `invoke`. Rust uses `UpdaterExt` directly.
+| command | purpose |
+|---------|---------|
+| `updater_check` | Kick a fresh check → download → install pipeline. Returns immediately; progress arrives via the `updater:state` event. |
+| `updater_get_state` | Snapshot the current state. Frontend calls on mount to recover state if a startup-auto pipeline already transitioned before React attached its listener. |
+| `updater_restart` | Restart the app. Frontend gates on `state.kind === "ready"`. |
 
-## Surface
-- `check_and_install_update(app) -> Result<String,String>` — the `#[tauri::command]`
-  behind the Settings "Check for updates" button (frontend invokes it via
-  `lib/tauri.ts::checkForUpdates`). Returns `"up_to_date"` / `"installed:<v>"`.
-- `run_startup_update_check(app)` — spawned on startup by `lib.rs` (bundled
-  builds only); silently checks + installs, then `prompt_restart` (osascript,
-  same mechanism as `port_preflight`) offers `app.restart()`.
+### Internal
 
-## Requires (else the check just errors + logs, never blocks the app)
-- `tauri.conf.json` `plugins.updater.pubkey` non-empty (the updater public key).
-- The build signed with `TAURI_SIGNING_PRIVATE_KEY` and `latest.json` +
-  `NarraNexus.app.tar.gz` published at the `endpoints` URL — see
-  `build-desktop.yml` "Build + sign updater artifact". The private key lives in
-  GitHub Secrets, never in the repo.
+- `run_pipeline(app)` — the shared check → download → install
+  routine all three entry points call (startup hook, tray click,
+  Settings button).
+- `run_startup_pipeline(app)` — thin wrapper called from
+  `lib.rs::setup` (bundled only). Just forwards to
+  `run_pipeline`; kept as a separate symbol so the startup
+  call-site has a self-documenting name.
+- `set_state(app, next)` — mutates `AppState.updater_state` AND
+  emits `updater:state` in one step. Every transition goes
+  through here so UI surfaces never see a stale store.
+
+## Upstream / downstream
+
+**Subscribed to `updater:state`** (UI mirrors of the state):
+- Rust [[tray]] listens and rewrites the "Check for Updates…"
+  menu-item label live (Downloading 35% → Restart to apply 1.7.11).
+- Frontend [[updaterStore.ts]] hydrates the Zustand store + drives
+  [[UpdateBanner.tsx]] (global top-center pill, shown only on
+  `kind:"ready"`) and [[SettingsPage.tsx]]'s `UpdatesSection`
+  (full state machine UI with progress bar).
+
+**Calls into**: `tauri_plugin_updater` (`UpdaterExt::updater` →
+`check()` → `download_and_install(on_chunk, on_done)`). Plugin is
+registered in [[lib]].
+
+## Requires (else `Failed{stage:"check"}` and the app keeps working)
+
+- `tauri.conf.json` `plugins.updater.pubkey` non-empty.
+- Build signed with `TAURI_SIGNING_PRIVATE_KEY` + `latest.json`
+  + `NarraNexus.app.tar.gz` published at the `endpoints` URL.
+- VPN or general network reachability for the
+  `https://github.com/NetMindAI-Open/...` endpoint. Without it
+  the 30 s timeout fires and the UI reflects
+  `Failed{stage:"check"}` instead of spinning forever.
 
 ## Gotcha
-The installed update applies on the **next launch / restart** (download_and_install
-replaces the bundle; the running process keeps the old code). That's why the
-startup path offers a restart.
+
+The installed update applies on the **next launch / restart** —
+`download_and_install` replaces the bundle on disk, but the
+running process keeps the old code mapped. That is why the Ready
+state requires an explicit user-triggered `app.restart()`. We do
+not auto-restart even in the silent startup path: the user might
+be mid-conversation.

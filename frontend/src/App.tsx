@@ -8,9 +8,11 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
+import { useUpdaterStore } from '@/stores/updaterStore';
 import { api } from '@/lib/api';
 import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
+import UpdateBanner from '@/components/UpdateBanner';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
@@ -295,9 +297,22 @@ function App() {
     return () => window.removeEventListener('narranexus:auth-expired', handler);
   }, []);
 
+  // Bring the unified auto-updater store online once per app load.
+  // No-op on web/cloud. The store fetches the current snapshot AND
+  // subscribes to live `updater:state` events; the global
+  // `<UpdateBanner />` mounted below then surfaces the Ready state at
+  // the top of every page. Teardown on unmount keeps StrictMode happy
+  // (idempotent — `init()` guards against double-mount internally).
+  useEffect(() => {
+    const store = useUpdaterStore.getState();
+    store.init();
+    return () => useUpdaterStore.getState().teardown();
+  }, []);
+
   return (
     <>
       <MockBanner />
+      <UpdateBanner />
       {quotaExceeded && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"

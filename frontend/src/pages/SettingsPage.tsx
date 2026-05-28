@@ -8,15 +8,15 @@
  * NM-bracketed regions instead of plain `<h2>` headings.
  */
 
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Upload, Users, RefreshCw } from 'lucide-react';
+import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
 import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
-import { isTauri, checkForUpdates } from '@/lib/tauri';
+import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
+import { useUpdaterStore } from '@/stores/updaterStore';
 
 function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   return (
@@ -31,41 +31,141 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
   );
 }
 
-// Desktop-only: manual "Check for updates". The app also auto-checks on launch
-// (Rust run_startup_update_check); this gives the user an explicit trigger.
+// Desktop-only updates panel. Renders the live state of the unified
+// updater state machine (Rust commands/updater.rs). All three entry
+// points (startup auto, tray menu, this button) feed the same
+// pipeline; this is just the most detailed surface — Settings shows
+// each stage explicitly with a progress bar, while the global banner
+// (App.tsx) only surfaces on Ready.
+//
+// State → UI:
+//   idle / failed     → "Check for updates" button
+//   checking          → spinner + "Checking GitHub…"
+//   up_to_date        → ✓ "You're on vX (latest)" + small "Check again"
+//   available         → spinner + "Update vY found, starting download"
+//   downloading       → progress bar + bytes + percent
+//   installing        → spinner + "Installing vY…"
+//   ready             → ✓ "Update vY installed" + "Restart now" button
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 function UpdatesSection() {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const state = useUpdaterStore((s) => s.state);
+
   const onCheck = async () => {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const r = await checkForUpdates();
-      if (r === 'up_to_date') setMsg("You're on the latest version.");
-      else if (r && r.startsWith('installed:'))
-        setMsg(`Update ${r.slice('installed:'.length)} installed — restart to apply.`);
-      else setMsg('Update check complete.');
-    } catch (e) {
-      setMsg(`Update check failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setBusy(false);
-    }
+    // No local busy state — the store's `kind === 'checking'` is the
+    // single source of truth, so the UI stays in sync whether the
+    // pipeline was kicked from here, the tray, or startup.
+    await kickUpdaterCheck();
   };
+
+  const inFlight =
+    state.kind === 'checking' ||
+    state.kind === 'available' ||
+    state.kind === 'downloading' ||
+    state.kind === 'installing';
+
   return (
     <section>
       <SectionHeader
         label="App updates"
-        hint="Check for and install the latest NarraNexus desktop build. Updates are signed and apply on restart."
+        hint="Check for and install the latest NarraNexus desktop build. Updates are signed, downloaded in the background, and apply on restart."
       />
-      <div className="flex items-center gap-3">
-        <Button onClick={onCheck} disabled={busy} variant="outline" className="gap-2">
-          <RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />
-          {busy ? 'Checking…' : 'Check for updates'}
-        </Button>
-        {msg && (
-          <span className="text-sm" style={{ color: 'var(--nm-ink70)' }}>
-            {msg}
-          </span>
+      <div className="space-y-3">
+        {/* Primary action row */}
+        <div className="flex items-center gap-3">
+          {state.kind === 'ready' ? (
+            <Button onClick={() => restartForUpdate()} className="gap-2">
+              <Download className="w-4 h-4" />
+              Restart to apply {state.version}
+            </Button>
+          ) : (
+            <Button
+              onClick={onCheck}
+              disabled={inFlight}
+              variant="outline"
+              className="gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 ${inFlight ? 'animate-spin' : ''}`} />
+              {state.kind === 'checking'
+                ? 'Checking…'
+                : state.kind === 'available'
+                  ? `Update ${state.version} found…`
+                  : state.kind === 'downloading'
+                    ? 'Downloading…'
+                    : state.kind === 'installing'
+                      ? `Installing ${state.version}…`
+                      : 'Check for updates'}
+            </Button>
+          )}
+        </div>
+
+        {/* State-specific detail row */}
+        {state.kind === 'up_to_date' && (
+          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--nm-ink70)' }}>
+            <CheckCircle2 className="w-4 h-4 text-[var(--accent-primary)]" />
+            <span>
+              You're on <b>{state.current}</b> — that's the latest version.
+            </span>
+          </div>
+        )}
+
+        {state.kind === 'downloading' && (
+          <div className="space-y-1.5 max-w-md">
+            <div className="text-xs" style={{ color: 'var(--nm-ink70)' }}>
+              {state.total != null
+                ? `${formatBytes(state.downloaded)} of ${formatBytes(state.total)}${
+                    state.percent != null ? ` (${state.percent}%)` : ''
+                  }`
+                : `${formatBytes(state.downloaded)} downloaded`}
+            </div>
+            <div
+              className="w-full h-1.5 rounded-full overflow-hidden"
+              style={{ backgroundColor: 'var(--nm-line)' }}
+            >
+              <div
+                className="h-full transition-all duration-300"
+                style={{
+                  width: state.percent != null ? `${state.percent}%` : '20%',
+                  backgroundColor: 'var(--accent-primary)',
+                  // Indeterminate look when total unknown: subtle stripe
+                  // animation. percent==null is the only branch that
+                  // doesn't have its width tied to real progress, so we
+                  // leave a 20% bar pulsing as "something is happening".
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {state.kind === 'installing' && (
+          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--nm-ink70)' }}>
+            <RefreshCw className="w-4 h-4 animate-spin" />
+            <span>Installing {state.version} — almost done…</span>
+          </div>
+        )}
+
+        {state.kind === 'ready' && (
+          <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--nm-ink70)' }}>
+            <CheckCircle2 className="w-4 h-4 text-[var(--accent-primary)]" />
+            <span>
+              <b>{state.version}</b> downloaded — restart to finish.
+            </span>
+          </div>
+        )}
+
+        {state.kind === 'failed' && (
+          <div className="flex items-start gap-2 text-sm" style={{ color: 'var(--color-red-500)' }}>
+            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div>
+              <div>Update {state.stage} failed.</div>
+              <div className="text-xs opacity-80 mt-1 break-words">{state.error}</div>
+            </div>
+          </div>
         )}
       </div>
     </section>

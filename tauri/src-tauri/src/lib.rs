@@ -63,7 +63,14 @@ pub fn run() {
             commands::auth::cancel_claude_login,
             commands::auth::get_claude_login_status,
             commands::deep_link::consume_pending_deep_link,
-            commands::updater::check_and_install_update,
+            // Unified auto-updater (Owner spec 2026-05-27). One state
+            // machine, three UI entry points (startup hook below, tray
+            // menu, Settings button) all kick the same pipeline; every
+            // UI surface mirrors `updater:state` Tauri events. See
+            // commands/updater.rs for the full machine.
+            commands::updater::updater_check,
+            commands::updater::updater_get_state,
+            commands::updater::updater_restart,
             // Artifact bytes proxy — fetches local /api/public/artifacts/...
             // through Rust so WKWebView's mixed-content blocker can't kill
             // the HTML artifact iframe load in the dmg. See
@@ -184,14 +191,18 @@ pub fn run() {
                 }
             });
 
-            // Auto-update check (bundled/release only — dev has no real release
-            // to update from). Non-blocking: runs in the background and, if a
-            // newer signed build is published, downloads + installs it and
-            // offers a restart. Any failure is logged, never blocks the app.
+            // Auto-update check (bundled/release only — dev has no real
+            // release to update from). Non-blocking. Kicks the unified
+            // updater pipeline; the state machine's `updater:state`
+            // events flow to the frontend, which picks them up on mount
+            // via `updater_get_state` + the live listener (see frontend
+            // stores/updaterStore). The global banner only surfaces at
+            // state.kind === "ready", so a silent up-to-date check is
+            // invisible — exactly the auto-check UX we want.
             if crate::state::is_bundled() {
                 let app_handle_upd = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
-                    commands::updater::run_startup_update_check(app_handle_upd).await;
+                    commands::updater::run_startup_pipeline(app_handle_upd).await;
                 });
             }
 

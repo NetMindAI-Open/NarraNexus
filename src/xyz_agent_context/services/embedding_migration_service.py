@@ -261,29 +261,10 @@ def _job_source_text(row: dict) -> str:
     return prepare_job_text_for_embedding(title, description, payload)
 
 
-def _entity_source_text(row: dict) -> str:
-    """
-    Cross-ref: module/social_network_module/_entity_updater.py → update_entity_embedding()
-    """
-    parts = []
-    name = row.get("entity_name", "") or ""
-    desc = row.get("entity_description", "") or ""
-    tags_raw = row.get("tags", "")
-    if name:
-        parts.append(f"Name: {name}")
-    if desc:
-        parts.append(f"Description: {desc}")
-    if tags_raw:
-        if isinstance(tags_raw, str):
-            try:
-                tags_raw = _json.loads(tags_raw)
-            except (ValueError, TypeError):
-                pass
-        if isinstance(tags_raw, list) and tags_raw:
-            parts.append(f"Tags: {', '.join(str(t) for t in tags_raw)}")
-        elif isinstance(tags_raw, str) and tags_raw:
-            parts.append(f"Tags: {tags_raw}")
-    return "\n".join(parts)
+# 2026-05-27: `_entity_source_text` (and the entity-type rebuild path
+# that called it) was removed together with the social-network
+# semantic-search chain. The `entity` rows already in `embeddings_store`
+# are dormant — nothing writes new ones, nothing reads them.
 
 
 # =============================================================================
@@ -304,10 +285,6 @@ _EVENT_TEXT_FILTER = (
 _JOB_TEXT_FILTER = (
     "(title IS NOT NULL AND TRIM(title) != '') "
     "OR (description IS NOT NULL AND TRIM(description) != '')"
-)
-_ENTITY_TEXT_FILTER = (
-    "(entity_name IS NOT NULL AND TRIM(entity_name) != '') "
-    "OR (entity_description IS NOT NULL AND TRIM(entity_description) != '')"
 )
 
 
@@ -334,22 +311,9 @@ def _job_count_sql() -> str:
     )
 
 
-def _entity_count_sql() -> str:
-    """Entities owned by user (via module_instances.user_id).
-
-    COUNT(DISTINCT entity_id), not COUNT(*): the same entity_id can appear
-    under multiple module_instances (one social-network instance per agent),
-    so the JOIN fans out to one row per (entity_id, instance_id). But
-    embeddings_store is keyed on (entity_type, entity_id, model) — one vector
-    per entity_id. Counting raw rows would over-count and leave a permanent
-    "N missing" the rebuild can never close. Must stay in sync with
-    `_user_entity_ids('entity')` (also DISTINCT).
-    """
-    return (
-        "SELECT COUNT(DISTINCT ise.entity_id) AS cnt FROM instance_social_entities ise "
-        "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
-        f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})"
-    )
+# 2026-05-27: `_entity_count_sql` removed with the rest of the
+# entity-type rebuild path; the status view no longer surfaces an
+# "entity" row.
 
 
 # =============================================================================
@@ -507,7 +471,10 @@ class EmbeddingMigrationService:
             await self._rebuild_narratives(model)
             await self._rebuild_events(model)
             await self._rebuild_jobs(model)
-            await self._rebuild_entities(model)
+            # 2026-05-27: entity-type rebuild removed together with the
+            # social-network semantic-search chain. The embeddings_store
+            # rows for entity_type='entity' are now dormant — no writer
+            # creates them and no reader consults them.
 
             progress.finished = True
             logger.info(
@@ -545,15 +512,24 @@ class EmbeddingMigrationService:
         return bool(rows)
 
     def _status_queries(self) -> list[tuple[str, str]]:
+        # 2026-05-27: "entity" was removed together with the
+        # social-network semantic-search chain. The status report no
+        # longer surfaces an "entity" row because there is no expected
+        # vector count to compare against (no writer creates them, no
+        # reader consults them).
         return [
             ("narrative", _narrative_count_sql()),
             ("event", _event_count_sql()),
             ("job", _job_count_sql()),
-            ("entity", _entity_count_sql()),
         ]
 
     async def _user_entity_ids(self, entity_type: str) -> list[str]:
-        """Return the ID list for a given entity_type, scoped to this user."""
+        """Return the ID list for a given entity_type, scoped to this user.
+
+        2026-05-27: the `"entity"` branch was removed together with the
+        social-network semantic-search chain. Callers no longer pass
+        `entity_type="entity"`.
+        """
         if entity_type == "narrative":
             sql = (
                 "SELECT n.narrative_id FROM narratives n "
@@ -576,17 +552,6 @@ class EmbeddingMigrationService:
             )
             rows = await self.db.execute(sql, (self.user_id,), fetch=True)
             return [r["job_id"] for r in rows]
-        if entity_type == "entity":
-            # DISTINCT — entity_id can recur across module_instances; the
-            # embedding store holds one vector per entity_id (see
-            # _entity_count_sql).
-            sql = (
-                "SELECT DISTINCT ise.entity_id FROM instance_social_entities ise "
-                "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
-                f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})"
-            )
-            rows = await self.db.execute(sql, (self.user_id,), fetch=True)
-            return [r["entity_id"] for r in rows]
         return []
 
     # ---- Data cleanup (scoped to user's entities) ----
@@ -599,8 +564,10 @@ class EmbeddingMigrationService:
 
         Scope is always constrained to the user — we never touch other users' data.
         """
-        # 1. Sentinel rows for this user's entity_ids under this model
-        for entity_type in ("narrative", "event", "job", "entity"):
+        # 1. Sentinel rows for this user's entity_ids under this model.
+        # 2026-05-27: "entity" dropped together with social-network
+        # semantic-search chain.
+        for entity_type in ("narrative", "event", "job"):
             ids = await self._user_entity_ids(entity_type)
             if not ids:
                 continue
@@ -664,17 +631,11 @@ class EmbeddingMigrationService:
         )
         await self._process_rows(entity_type, model, rows, "job_id", _job_source_text)
 
-    async def _rebuild_entities(self, model: str) -> None:
-        entity_type = "entity"
-        rows = await self.db.execute(
-            "SELECT ise.entity_id, ise.entity_name, ise.entity_description, ise.tags "
-            "FROM instance_social_entities ise "
-            "JOIN module_instances mi ON mi.instance_id = ise.instance_id "
-            f"WHERE mi.user_id = %s AND ({_ENTITY_TEXT_FILTER})",
-            (self.user_id,),
-            fetch=True,
-        )
-        await self._process_rows(entity_type, model, rows, "entity_id", _entity_source_text)
+    # 2026-05-27: `_rebuild_entities` was removed together with the
+    # social-network semantic-search chain. `_entity_source_text`,
+    # `_ENTITY_TEXT_FILTER`, and `_entity_count_sql` above are kept for
+    # the moment as dead code — they will be cleaned up in a follow-up
+    # if no other caller appears.
 
     # ---- Core batch processor ----
 

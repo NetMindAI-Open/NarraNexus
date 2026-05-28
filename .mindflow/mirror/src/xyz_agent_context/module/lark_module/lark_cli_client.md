@@ -1,8 +1,66 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_cli_client.py
 stub: false
-last_verified: 2026-05-21
+last_verified: 2026-05-28
 ---
+
+## 2026-05-28 — set CWD to agent workspace when spawning lark-cli (P0 fix)
+
+Production bug 2026-05-28: NarraNexusPM agent ran `vc +notes
+--minute-tokens X` to grab a Lark transcript. lark-cli wrote the
+transcript to `./artifact-<title>/transcript.txt` (per the lark-vc
+SKILL docs — `--output-dir` defaults to `.`). The agent's `Read`
+tool then tried to load it and failed with "outside agent
+workspace" — because the subprocess inherited the MCP container's
+CWD (`/app/`), not the agent's workspace at
+`/opt/narranexus/workspaces/<agent>_<user>/`.
+
+I had initially mis-attributed the cause to HOME (the lark workspace
+isolation). HOME is what `lark-cli` uses for config + OAuth tokens
+— it isn't where downloads go. **Downloads go to CWD.** That's the
+critical detail.
+
+### Fix
+1. Module-level helper `_resolve_agent_workspace_cwd(agent_id, db)`
+   resolves `agents.created_by` → `user_id`, computes the workspace
+   path via `attachment_storage.get_workspace_path(agent_id, user_id)`,
+   ensures it exists, and returns the `Path`. Result is cached in
+   `_agent_user_id_cache` (immutable per agent) so subsequent calls
+   don't re-query the DB.
+2. `_run_with_agent_id` calls the helper and forwards the result as
+   the new `cwd=` parameter on `_exec_lark_cli`.
+3. `_exec_lark_cli` passes `cwd=str(cwd) if cwd else None` into
+   `asyncio.create_subprocess_exec`.
+
+### Volumes (confirmed via `docker inspect narranexus-mcp`)
+Both the MCP container (writer) and the backend container (reader)
+mount the same `narranexus-app_workspaces` Docker volume at
+`/opt/narranexus/workspaces` → writing from MCP and reading from
+backend works without any further plumbing.
+
+### Generalization
+The same pattern applies to ANY future MCP tool that shells out to
+a CLI which writes default-relative paths: pass `cwd=agent_workspace`
+when spawning. Audited callers of `create_subprocess_exec` /
+`subprocess.run` across the module/ tree (2026-05-28):
+- `_lark_event_probe.py` — health probe, no file outputs (skipped)
+- `_lark_mcp_tools.py::_finalize_setup` — pre-bind, no agent
+  workspace exists yet (intentionally inherits parent CWD)
+- `common_tools/web_search_*` — read stdout, no file outputs
+- `skill_module::install_skill` — uses tempfile + shutil.move into
+  the agent workspace explicitly (already correct)
+
+Only `_run_with_agent_id` needed the CWD fix.
+
+### Regression / E2E tests
+- `tests/lark_module/test_lark_cli_cwd.py` — 7 tests:
+  - cwd kwarg threads to `create_subprocess_exec`
+  - cwd=None preserves legacy behaviour
+  - `_resolve_agent_workspace_cwd` happy path + cache + orphan +
+    DB error fallback
+  - end-to-end: real Python helper subprocess writes
+    `./marker.txt` inside the cwd we asked for (proves the OS-level
+    plumbing, not just the kwargs)
 
 ## 2026-05-21 — `get_user` defaults to `--as user`
 

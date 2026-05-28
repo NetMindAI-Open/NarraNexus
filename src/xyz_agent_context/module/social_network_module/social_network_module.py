@@ -32,7 +32,6 @@ from xyz_agent_context.schema import (
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient
-from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 
 # Repository
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity, InstanceRepository
@@ -45,7 +44,6 @@ from xyz_agent_context.module.social_network_module._social_mcp_tools import cre
 from xyz_agent_context.module.social_network_module._entity_updater import (
     summarize_new_entity_info,
     append_to_entity_description,
-    update_entity_embedding,
     update_interaction_stats,
     should_update_persona,
     infer_persona,
@@ -404,7 +402,6 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             if new_summary and new_summary.strip():
                 logger.info(f"            New summary generated: {new_summary[:100]}...")
                 await append_to_entity_description(repo, user_id, instance_id, new_summary)
-                await update_entity_embedding(repo, user_id, instance_id)
 
             # 3. Update interaction stats (always)
             await update_interaction_stats(repo, user_id, instance_id)
@@ -447,18 +444,25 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
 
     async def _process_mentioned_entities(self, repo, instance_id: str, mentioned: list) -> None:
         """
-        3-stage dedup pipeline for entities extracted from conversation.
+        2-stage dedup pipeline for entities extracted from conversation.
 
         For each mentioned entity:
-          Stage 1: Exact name+alias match → if 1 match, UPDATE
-          Stage 2: Vector similarity search (threshold + topK) → if candidates, go to Stage 3
-          Stage 3: LLM merge decision → MERGE or CREATE_NEW
+          Stage 1: Exact name+alias match → if 1 match, UPDATE; if >1, ask
+                   LLM to MERGE / CREATE_NEW
+          Stage 2: No match found → CREATE_NEW
+
+        Note (2026-05-27): the previous Stage 2 "vector similarity search"
+        was removed together with the rest of the semantic / embedding
+        chain (Owner spec). Entities with different spellings of the same
+        person (e.g. "Bob" vs "Robert") now produce separate rows; merge
+        them manually if it matters. The pre-existing user-facing
+        `search_social_network` is keyword-only (LIKE on name / description
+        / tags / aliases), which makes the embedding write path dead
+        weight that we are no longer paying for.
         """
         from xyz_agent_context.module.social_network_module._entity_updater import (
             append_to_entity_description,
             decide_merge_or_create,
-            DEDUP_SIMILARITY_THRESHOLD,
-            DEDUP_TOP_K,
         )
 
         for mentioned_entity in mentioned:
@@ -503,35 +507,6 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     )
                     if decision == "MERGE" and matched:
                         existing = matched
-
-                # ── STAGE 2: Vector similarity search ──
-                if not existing:
-                    try:
-                        embed_text = f"{mentioned_entity.name} {mentioned_entity.summary}".strip()
-                        if embed_text:
-                            query_embedding = await get_embedding(embed_text)
-                            sim_results = await repo.semantic_search(
-                                instance_id=instance_id,
-                                query_embedding=query_embedding,
-                                limit=DEDUP_TOP_K,
-                                min_similarity=DEDUP_SIMILARITY_THRESHOLD,
-                            )
-                            if sim_results:
-                                # ── STAGE 3: Single LLM call with all candidates ──
-                                sim_entities = [e for e, _ in sim_results]
-                                for e, score in sim_results:
-                                    logger.info(
-                                        f"            Stage 2 candidate: '{e.entity_name}' "
-                                        f"(similarity={score:.3f})"
-                                    )
-                                decision, matched = await decide_merge_or_create(
-                                    mentioned_entity.name, mentioned_entity.summary,
-                                    candidate_aliases, sim_entities,
-                                )
-                                if decision == "MERGE" and matched:
-                                    existing = matched
-                    except Exception as e:
-                        logger.warning(f"            Stage 2 vector search failed: {e}")
 
                 # ── UPDATE existing or CREATE NEW ──
                 if existing:
@@ -772,6 +747,10 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             ]
 
         # Keyword: search by name, description, keywords, aliases
+        # 2026-05-27: also the destination of `auto` since the only other
+        # historical option (`semantic`) was removed together with the
+        # entity-embedding chain. Anything that does not look like an
+        # ID (handled in the exact_id branch above) falls here.
         if search_type == "keyword":
             entities = await repo.keyword_search(
                 instance_id=instance_id,
@@ -789,32 +768,6 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
                     "interaction_count": e.interaction_count,
                 }
                 for e in entities
-            ]
-
-        # Semantic: semantic search (Feature 2.3)
-        if search_type == "semantic":
-            # Generate embedding for query text
-            query_embedding = await get_embedding(search_keyword)
-
-            # Execute semantic search
-            results_with_scores = await repo.semantic_search(
-                instance_id=instance_id,
-                query_embedding=query_embedding,
-                limit=10,  # Get more results, later limited by top_k
-                min_similarity=0.3
-            )
-
-            return [
-                {
-                    "entity_id": e.entity_id,
-                    "entity_name": e.entity_name,
-                    "entity_description": e.entity_description,
-                    "keywords": e.keywords or [],
-                    "contact_info": e.contact_info or {},
-                    "relationship_strength": e.relationship_strength,
-                    "similarity_score": round(score, 3),  # Semantic similarity score
-                }
-                for e, score in results_with_scores
             ]
 
         return []

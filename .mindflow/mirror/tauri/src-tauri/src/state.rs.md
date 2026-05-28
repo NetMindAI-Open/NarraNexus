@@ -1,7 +1,23 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-05-18
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — `updater_state` field (unified auto-updater)
+
+`AppState` gains `updater_state: Arc<StdMutex<UpdaterState>>` —
+the single source of truth for the unified updater state machine
+(see [[updater.rs]] for the enum + pipeline). All three entry
+points (startup auto-check in lib.rs, tray "Check for Updates…"
+in tray.rs, Settings page button via `updater_check` IPC) mutate
+this same field; the UI surfaces (global banner / Settings panel
+via [[updaterStore.ts]] / tray menu label via the listener in
+[[tray.rs]]) all mirror it via the `updater:state` Tauri event.
+
+`std::sync::Mutex` (not tokio) because state writes are quick
+and never span await boundaries — every `set_state` in
+updater.rs locks → mutates → emits → drops the guard.
+Initialised at `UpdaterState::Idle` in `AppState::default`.
 
 ## 2026-05-18 — `pending_deep_link` field
 

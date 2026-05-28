@@ -618,6 +618,87 @@ Full command list: see the `Makefile` (`make help`).
 
 ---
 
+## Release workflow (multi-repo: dmg + cloud)
+
+Shipping a new release follows 7 steps. **Steps 1–2 run autonomously
+by the AI. The Owner (Bin哥) gives a single "go" signal to release the
+batch; on that signal the AI runs steps 3–7 straight through without
+asking again between them.** This means the Owner inspects the diff on
+the feature branch BEFORE saying "go" — that is the one review window;
+once granted, the pipeline executes end-to-end (cloud deploys included,
+both repos rebuilt, Lark notification on completion).
+
+| # | Step | Who | Triggers |
+|---|------|-----|----------|
+| 1 | Branch off `dev` (`feat/<topic>` / `fix/<topic>` / `hotfix/<topic>`) | AI autonomous | — |
+| 2 | Implement + self-test green (ruff / `tsc -b` / vitest / pytest), push the feature branch (Owner reviews on GitHub) | AI autonomous | feature-branch CI |
+| 3 | Squash-merge feature → `dev` → push `origin dev` | AI on Owner "go" | Deploy NarraNexus (dev env) |
+| 4 | Squash-merge `dev` → `main` → push `origin main` | AI on the same "go" | Deploy NarraNexus (prod) |
+| 5 | Bump the 5 version anchors + tag `vX.Y.Z` → push tag | AI on the same "go" | protagolabs Build Desktop App (dmg) |
+| 6 | Worktree-isolated squash `protagolabs/main` → `upstream/main` → ref-spec push tag | AI on the same "go" | upstream Build Desktop App (dmg) |
+| 7 | Build completes → notify Owner on Lark (download link + failure-log screenshot if any) | AI autonomous | — |
+
+**Owner abort points**: between any two of steps 3–7 the AI may still
+pause and surface a result if something looks wrong (e.g. a build
+fails, a cloud deploy returns an error, a squash auto-merge produces
+a conflict the AI cannot resolve safely). Otherwise the pipeline runs
+unattended.
+
+### The 5 version anchors must move together
+```
+frontend/package.json            "version"
+frontend/package-lock.json       "version" (top + packages[""])
+pyproject.toml                   version
+tauri/src-tauri/Cargo.toml       version
+tauri/src-tauri/tauri.conf.json  "version"
+```
+Every release commit must verify these 5 numbers match. If they
+diverge, the sidebar version chip, the Tauri updater version
+comparison, and the Cargo crate version will disagree.
+
+### Upstream worktree isolation (step 6 — mandatory)
+Pushing to `upstream` MUST go through a **temporary worktree** (e.g.
+`/tmp/upstream-sync`) so the main worktree's `CLAUDE.md`
+skip-worktree state is not disturbed:
+
+1. `git worktree add /tmp/upstream-sync upstream/main`
+2. Inside the worktree, `git merge --squash origin/main`; resolve
+   every conflict with `--theirs` to take `origin/main`'s version.
+3. **Scan for dup artifacts squash auto-merge tends to leave** —
+   duplicate `import` lines and duplicate function definitions are
+   the recurring offenders. We have already paid this tax twice:
+   `LarkConfig.tsx` duplicated `import type { ChannelConfigProps }`
+   (TS2300), and `port_preflight.rs` duplicated
+   `show_startup_failure_dialog_and_exit` (Rust E0428). Verify
+   `grep -c` on key definitions returns 1.
+4. Push the tag via `git push upstream <sha>:refs/tags/vX.Y.Z`
+   (refspec form) — avoids the local `vX.Y.Z` tag collision that
+   already exists from the protagolabs push.
+5. After pushing, `git worktree remove --force /tmp/upstream-sync`.
+6. Run `git ls-files -v CLAUDE.md` and verify `S` (skip-worktree)
+   is still set — that's the local guard against accidentally
+   committing personal annotations to `CLAUDE.md`.
+
+### Commit author / co-author constraint
+- Never list `Claude` or any AI name in the author or co-author
+  trailer of any commit.
+- Commit bodies state **what and why**, not "X engineer-days" or any
+  human-time estimate (binding rule #17).
+
+### Failure / retry
+- If a build fails *after* the tag was pushed: **bump to the next
+  version number** and re-release. Do not force-update a tag that
+  already exists. Precedent: v1.7.9 build failed (no artifacts
+  shipped) → bumped to v1.7.10 instead of moving the v1.7.9 tag.
+- Tag may only be force-moved (`git push <remote> :refs/tags/vX.Y.Z`
+  + re-push) when **zero release artifacts were ever produced** for
+  that tag and no one could have consumed them.
+- Every failed build requires `gh run view <runId> --log-failed`
+  before concluding the cause. Don't guess from the failure summary
+  alone.
+
+---
+
 ## Directory layout reference
 
 ```

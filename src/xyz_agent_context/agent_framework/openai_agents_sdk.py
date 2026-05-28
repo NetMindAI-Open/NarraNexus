@@ -88,6 +88,78 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
 _structured_output_blocklist: set[str] = set()
 
 
+# ── Provider × model capability map for the prompt-fallback path ─────────
+#
+# When the Agents SDK structured-output path fails for a model
+# (`_structured_output_blocklist`), we fall back to chat.completions.create
+# with `response_format`. There are three increasingly-lenient levels we
+# try, in this order:
+#
+#   1. ``response_format = {"type": "json_schema", "json_schema": …}``
+#      Strict schema enforcement at the API layer. Most reliable when the
+#      provider supports it (OpenAI, Anyscale, Together, DeepSeek-V3.1
+#      do; DeepSeek-V4 series rejects with 400 "response_format type
+#      unavailable").
+#   2. ``response_format = {"type": "json_object"}``
+#      Forces the API to return SOME valid JSON object (no prose). The
+#      provider doesn't validate the schema, but our subsequent
+#      `_extract_json_from_llm_output` + `validate_json` does. Supported
+#      by every DeepSeek model we have tested on NetMind, plus the
+#      official OpenAI endpoint.
+#   3. No ``response_format``
+#      The original prompt-engineering-only path. Last resort.
+#
+# We cache per-(base_url, model) which levels we have proven NOT to work
+# so subsequent calls skip the failed attempts. The cache only grows on
+# clear "unsupported" errors — transient network / 5xx failures do NOT
+# downgrade a level.
+#
+# Key: (base_url, model_name). Value: the set of levels still believed
+# to work for this combination. Default (key absent) means "no probe
+# yet, try them all in order".
+_response_format_capability: dict[tuple[str, str], set[str]] = {}
+
+
+def _capability_key(model_name: str) -> tuple[str, str]:
+    return ((openai_config.base_url or "").rstrip("/"), model_name)
+
+
+def _allowed_levels(key: tuple[str, str]) -> set[str]:
+    """Return the set of response_format levels still believed to work
+    for this (base_url, model). Defaults to ALL when no probe yet."""
+    return _response_format_capability.get(key, {"json_schema", "json_object"})
+
+
+def _mark_unsupported(key: tuple[str, str], level: str) -> None:
+    """Drop a level from the capability set after the API rejected it
+    with a clear 'unsupported response_format type' error."""
+    current = set(_allowed_levels(key))
+    current.discard(level)
+    _response_format_capability[key] = current
+    logger.info(
+        f"[StructuredFallback] cached unsupported: provider={key[0]} "
+        f"model={key[1]} level={level} (remaining={sorted(current) or 'none'})"
+    )
+
+
+def _is_response_format_unsupported_error(exc: Exception) -> bool:
+    """Detect whether an error is provider saying 'I don't support
+    this response_format type'. Heuristic — matches the patterns we
+    have observed in production. False positives are safe (worst case
+    we cache a non-existent capability), false negatives just waste
+    one retry attempt next call."""
+    msg = str(exc).lower()
+    if "response_format" in msg or "response format" in msg:
+        return True
+    # NetMind's exact wording for the V4 series rejection.
+    if "this response_format type is unavailable" in msg:
+        return True
+    # OpenAI-style schema rejections (json_schema strict mismatches).
+    if "json_schema" in msg and ("unavailable" in msg or "unsupported" in msg):
+        return True
+    return False
+
+
 _OFFICIAL_OPENAI_BASE_URLS = {"", "https://api.openai.com/v1", "https://api.openai.com/v1/"}
 
 
@@ -371,20 +443,39 @@ class OpenAIAgentsSDK:
         reasoning_effort: Optional[str] = None,
     ):
         """
-        Direct chat completion with prompt-guided JSON extraction.
+        Direct chat completion with API-level structured output enforcement.
 
-        Appends JSON schema to the prompt so the model knows the expected format,
-        then parses the response manually.
+        For ``output_type`` calls, walks a 3-level fallback ladder so the
+        most provider-reliable structured-output mechanism is tried first:
+
+          1. ``response_format = json_schema`` (strict). Provider rejects
+             anything that does not match the Pydantic schema exactly.
+          2. ``response_format = json_object``. Provider guarantees the
+             response is parseable JSON; schema validation happens client-
+             side via Pydantic.
+          3. No ``response_format``. Original prompt-engineering-only path
+             — model is asked to return JSON; we regex-extract.
+
+        Per-(base_url, model) capabilities are cached: a level that fails
+        with an "unsupported response_format type" error is dropped from
+        future attempts. Transient / network errors do NOT downgrade.
+
+        Pre-2026-05-28 this method only did level 3, which made DeepSeek-V4
+        responses unreliable (it would happily return JSON-in-prose, the
+        regex would mostly work, but inconsistent answers across calls
+        polluted downstream judgments like ``ContinuityDetector``).
         """
-        # Build messages
+        # ── 1. Build messages (schema hint goes into the prompt either way —
+        # cheap insurance, especially for the level-3 prompt-only path).
         system_prompt = instructions
+        schema_obj: Optional[dict] = None
         if output_type:
-            schema = output_type.model_json_schema()
+            schema_obj = output_type.model_json_schema()
             system_prompt += (
-                "\n\nYou MUST respond with ONLY a valid JSON object matching this schema. "
-                "No markdown, no code blocks, no explanation, no <think> tags. "
-                "ONLY the raw JSON object.\n"
-                f"Schema: {json.dumps(schema, ensure_ascii=False)}"
+                "\n\nYou MUST respond with ONLY a valid JSON object matching "
+                "this schema. No markdown, no code blocks, no explanation, "
+                "no <think> tags. ONLY the raw JSON object.\n"
+                f"Schema: {json.dumps(schema_obj, ensure_ascii=False)}"
             )
 
         messages = [
@@ -392,38 +483,86 @@ class OpenAIAgentsSDK:
             {"role": "user", "content": user_input},
         ]
 
-        # Only pass max_tokens when explicitly configured in model catalog;
-        # otherwise let the API use its own default to avoid invalid_value errors.
-        token_kwargs = {}
+        # ── 2. Build base kwargs (max_tokens / reasoning_effort)
+        token_kwargs: dict = {}
         if max_tokens is not None:
             token_kwargs["max_completion_tokens"] = max_tokens
         if reasoning_effort:
-            # chat.completions API accepts reasoning_effort as a top-level
-            # string for reasoning-capable models (gpt-5*, o-series).
             token_kwargs["reasoning_effort"] = reasoning_effort
 
-        try:
-            resp = await client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                **token_kwargs,
-            )
-        except Exception:
-            # Fallback: some older providers only support max_tokens
-            fallback_kwargs = {"max_tokens": max_tokens} if max_tokens is not None else {}
-            if reasoning_effort:
-                fallback_kwargs["reasoning_effort"] = reasoning_effort
-            resp = await client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                **fallback_kwargs,
-            )
+        # ── 3. Single attempt that ALSO handles the max_completion_tokens →
+        # max_tokens fallback for older providers. Returns the API response.
+        async def _do_call(extra_kwargs: dict):
+            try:
+                return await client.chat.completions.create(
+                    model=model_name, messages=messages,
+                    **token_kwargs, **extra_kwargs,
+                )
+            except Exception as primary_err:
+                # If the failure is response_format-shaped, bubble it up
+                # so the caller can downgrade levels instead of silently
+                # discarding it via the max_tokens fallback.
+                if _is_response_format_unsupported_error(primary_err):
+                    raise
+                # Otherwise, try the legacy max_tokens parameter (some
+                # older providers don't accept max_completion_tokens).
+                legacy_kwargs = {}
+                if max_tokens is not None:
+                    legacy_kwargs["max_tokens"] = max_tokens
+                if reasoning_effort:
+                    legacy_kwargs["reasoning_effort"] = reasoning_effort
+                return await client.chat.completions.create(
+                    model=model_name, messages=messages,
+                    **legacy_kwargs, **extra_kwargs,
+                )
 
+        # ── 4. Walk the response_format ladder (skipped entirely when
+        # output_type is None — that's the chat-completion-as-plain-text
+        # path, no parsing needed).
+        resp = None
+        chosen_level = "prompt_only"  # default; used for logging only
+        if output_type and schema_obj is not None:
+            key = _capability_key(model_name)
+            allowed = _allowed_levels(key)
+            ladder: list[tuple[str, dict]] = []
+            if "json_schema" in allowed:
+                ladder.append((
+                    "json_schema",
+                    {"response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": output_type.__name__,
+                            "strict": True,
+                            "schema": schema_obj,
+                        },
+                    }},
+                ))
+            if "json_object" in allowed:
+                ladder.append((
+                    "json_object",
+                    {"response_format": {"type": "json_object"}},
+                ))
+
+            for level, extra in ladder:
+                try:
+                    resp = await _do_call(extra)
+                    chosen_level = level
+                    break
+                except Exception as e:
+                    if _is_response_format_unsupported_error(e):
+                        _mark_unsupported(key, level)
+                        continue  # try next level
+                    # Genuine error (rate limit, 5xx, network) — re-raise.
+                    raise
+
+        # Level 3 (or non-structured): no response_format flag.
+        if resp is None:
+            resp = await _do_call({})
+
+        # ── 5. Cost accounting
         raw_content = resp.choices[0].message.content or ""
         input_tokens = getattr(resp.usage, "prompt_tokens", 0) or 0
         output_tokens = getattr(resp.usage, "completion_tokens", 0) or 0
-
-        # Record cost
         _agent_id, _db = self._resolve_cost_context(None, None)
         if _agent_id and _db:
             try:
@@ -436,18 +575,38 @@ class OpenAIAgentsSDK:
                 logger.warning(f"Failed to record cost: {e}")
 
         if not output_type:
-            # No parsing needed, return a simple wrapper
             return _SimpleResult(raw_content, resp)
 
-        # Parse JSON from response
+        # ── 6. Parse JSON. `_extract_json_from_llm_output` strips
+        # ```json fences, <think> blocks, and finds the outermost {...}.
+        # When level == "json_object" or "json_schema" the API already
+        # guarantees JSON, but providers like DeepSeek-V3 still wrap
+        # their json_object response in ```json fences, so the extractor
+        # stays useful.
         json_str = _extract_json_from_llm_output(raw_content)
         if json_str is None:
+            logger.warning(
+                f"[StructuredFallback] could not extract JSON via {chosen_level} "
+                f"from {model_name}: head={raw_content[:200]!r}"
+            )
             raise ValueError(
-                f"Could not extract JSON from LLM response: {raw_content[:200]}"
+                f"Could not extract JSON from LLM response (level={chosen_level}, "
+                f"model={model_name}): {raw_content[:200]}"
             )
 
         adapter = TypeAdapter(output_type)
-        parsed = adapter.validate_json(json_str)
+        try:
+            parsed = adapter.validate_json(json_str)
+        except Exception as e:
+            logger.warning(
+                f"[StructuredFallback] schema validation failed via "
+                f"{chosen_level} on {model_name}: {e!r} json={json_str[:200]!r}"
+            )
+            raise
+        # Stash the chosen level on the contextvar so callers / tests can
+        # introspect (currently mostly used by logging-aware timed() tags).
+        existing = _last_llm_call_info.get() or {}
+        _last_llm_call_info.set({**existing, "response_format": chosen_level})
         return _ParsedResult(parsed, raw_content, resp)
 
     def _resolve_cost_context(self, agent_id, db):

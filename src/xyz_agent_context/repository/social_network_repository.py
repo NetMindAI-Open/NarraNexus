@@ -45,8 +45,12 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
     table_name = "instance_social_entities"
     id_field = "id"
 
-    # JSON fields (2026-01-15 Feature 2.2.1: added related_job_ids; Persona: added extra_data; Feature 2.3: added embedding)
-    _json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "embedding", "aliases"}
+    # JSON fields (2026-01-15 Feature 2.2.1: added related_job_ids;
+    # Persona: added extra_data). The `embedding` column is left on the
+    # table schema as a dormant column but is no longer in this read/write
+    # set since 2026-05-27 (semantic search removed; see _row_to_entity
+    # and _entity_to_row below for the same scrub).
+    _json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "aliases"}
 
     async def get_entity(
         self,
@@ -267,77 +271,10 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
 
         return [self._row_to_entity(row) for row in results]
 
-    async def semantic_search(
-        self,
-        instance_id: str,
-        query_embedding: List[float],
-        limit: int = 10,
-        min_similarity: float = 0.3
-    ) -> List[tuple[SocialNetworkEntity, float]]:
-        """
-        Search entities by semantic vector (Feature 2.3)
-
-        Calculates cosine similarity at the application layer for sorting (MySQL does not natively support vector operations).
-
-        Args:
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            query_embedding: Embedding vector of the query text
-            limit: Result count limit
-            min_similarity: Minimum similarity threshold (0-1)
-
-        Returns:
-            List of (SocialNetworkEntity, similarity_score) tuples, sorted by similarity descending
-
-        Examples:
-            query_embedding = await get_embedding("Who recently showed purchase intent?")
-            results = await repo.semantic_search(instance_id, query_embedding)
-            for entity, score in results:
-                print(f"{entity.entity_name}: {score:.3f}")
-        """
-        logger.debug(f"    → SocialNetworkRepository.semantic_search({instance_id})")
-
-        # Get all entities for this instance
-        query = f"""
-            SELECT * FROM {self.table_name}
-            WHERE instance_id = %s
-        """
-
-        results = await self._db.execute(
-            query,
-            params=(instance_id,),
-            fetch=True
-        )
-
-        if not results:
-            return []
-
-        from xyz_agent_context.agent_framework.llm_api.embedding import cosine_similarity
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
-            use_embedding_store,
-            get_stored_embeddings_batch,
-        )
-
-        entity_ids = [row.get("entity_id") for row in results if row.get("entity_id")]
-        new_system = use_embedding_store()
-        store_vectors: dict = {}
-        if new_system:
-            store_vectors = await get_stored_embeddings_batch("entity", entity_ids)
-
-        entities_with_scores = []
-        for row in results:
-            entity = self._row_to_entity(row)
-            if new_system:
-                vector = store_vectors.get(entity.entity_id) if entity.entity_id else None
-            else:
-                vector = entity.embedding
-            if vector:
-                similarity = cosine_similarity(query_embedding, vector)
-                if similarity >= min_similarity:
-                    entities_with_scores.append((entity, similarity))
-
-        # Sort by similarity descending and take the top limit results
-        entities_with_scores.sort(key=lambda x: x[1], reverse=True)
-        return entities_with_scores[:limit]
+    # 2026-05-27: `semantic_search` removed together with the
+    # entity-embedding chain (Owner spec). Callers use `keyword_search`
+    # below; multi-spelling dedup of mentioned entities now relies on
+    # name/alias exact match only (Stage 1) + LLM disambiguation.
 
     async def keyword_search(
         self,
@@ -580,8 +517,11 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         Refactoring notes (2026-01-15 Feature 2.2.1):
         - Added related_job_ids field parsing
 
-        Refactoring notes (2026-01-16 Feature 2.3):
-        - Added embedding field parsing
+        Refactoring notes (2026-05-27):
+        - Removed embedding field parsing (semantic search removed).
+          The column stays in the DB schema but we no longer round-trip
+          it through the entity model — old rows just keep stale vectors
+          that nothing reads.
         """
         # Parse JSON fields
         identity_info = self._parse_json_field(row.get("identity_info"), {})
@@ -591,7 +531,6 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         expertise_domains = self._parse_json_field(row.get("expertise_domains"), [])
         related_job_ids = self._parse_json_field(row.get("related_job_ids"), [])
         extra_data = self._parse_json_field(row.get("extra_data"), {})
-        embedding = self._parse_json_field(row.get("embedding"), None)
 
         return SocialNetworkEntity(
             id=row.get("id"),
@@ -610,7 +549,6 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
             keywords=keywords,
             expertise_domains=expertise_domains,
             related_job_ids=related_job_ids,
-            embedding=embedding,
             persona=row.get("persona"),
             extra_data=extra_data,
             created_at=row.get("created_at"),
@@ -624,8 +562,10 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
         Refactoring notes (2026-01-15 Feature 2.2.1):
         - Added related_job_ids field serialization
 
-        Refactoring notes (2026-01-16 Feature 2.3):
-        - Added embedding field serialization
+        Refactoring notes (2026-05-27):
+        - Removed embedding serialization (semantic search removed).
+          The `embedding` column stays on the schema but no longer
+          receives writes from the entity object path.
         """
         return {
             "instance_id": entity.instance_id,
@@ -643,7 +583,6 @@ class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
             "tags": json.dumps(entity.keywords, ensure_ascii=False),  # Python 'keywords' → DB column 'tags'
             "expertise_domains": json.dumps(entity.expertise_domains, ensure_ascii=False),
             "related_job_ids": json.dumps(entity.related_job_ids, ensure_ascii=False),
-            "embedding": json.dumps(entity.embedding, ensure_ascii=False) if entity.embedding else None,
             "persona": entity.persona,
             "extra_data": json.dumps(entity.extra_data, ensure_ascii=False),
         }

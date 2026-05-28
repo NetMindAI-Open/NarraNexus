@@ -29,8 +29,76 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from typing import Optional
 
 from loguru import logger
+
+
+# ── Agent workspace CWD resolution (2026-05-28) ──────────────────────────
+#
+# When lark-cli is spawned for an agent-scoped call we want its CWD to be
+# the agent's workspace directory. Reason: a number of lark-cli commands
+# (e.g. `vc +notes --minute-tokens`, `drive +download`, `mail
+# +attachments-download`) write files at a default `./<thing>` path —
+# relative to the child process' CWD. If we don't set CWD, the child
+# inherits the MCP container's CWD (typically `/app/`), which is not
+# mounted into the backend container where the agent's Read tool lives,
+# so the resulting file is unreachable to the agent.
+#
+# The agent workspace path is the same one `tool_policy_guard` uses to
+# sandbox the agent's Read tool: `{settings.base_working_path}/
+# {agent_id}_{user_id}`. Both the MCP container and the backend container
+# have the same volume mount, so writing there from MCP and reading from
+# backend works out of the box.
+#
+# user_id lookup: `agents.created_by` (immutable per agent), cached in a
+# process-local dict to avoid an extra DB round-trip on every lark-cli call.
+_agent_user_id_cache: dict[str, str] = {}
+
+
+async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
+    """Return the agent's workspace dir to use as the subprocess CWD.
+
+    Returns None if:
+      - the agent has no `created_by` (orphaned bind / corrupted row)
+      - the workspace path can't be ensured (filesystem error)
+    Callers MUST tolerate None — they fall back to inheriting the parent
+    CWD (the pre-2026-05-28 behaviour), which is wrong for downloads but
+    safe for everything else.
+    """
+    user_id = _agent_user_id_cache.get(agent_id)
+    if user_id is None:
+        try:
+            from xyz_agent_context.repository import AgentRepository
+            repo = AgentRepository(db)
+            agent = await repo.get_agent(agent_id)
+            if agent is None or not agent.created_by:
+                logger.debug(
+                    f"[lark-cli] no created_by for {agent_id}; "
+                    f"subprocess will inherit parent CWD"
+                )
+                return None
+            user_id = agent.created_by
+            _agent_user_id_cache[agent_id] = user_id
+        except Exception as e:
+            logger.debug(f"[lark-cli] could not resolve user_id for {agent_id}: {e}")
+            return None
+
+    try:
+        from xyz_agent_context.utils.attachment_storage import (
+            get_workspace_path as _get_agent_workspace_path,
+        )
+        ws = _get_agent_workspace_path(agent_id, user_id)
+        # Ensure the directory exists. The agent runtime usually creates it
+        # at first run, but for a lark-cli call that happens before the
+        # agent has ever produced an artifact (e.g. fresh agent + first
+        # transcript download) we need to mkdir to give lark-cli somewhere
+        # to write.
+        ws.mkdir(parents=True, exist_ok=True)
+        return ws
+    except Exception as e:
+        logger.debug(f"[lark-cli] workspace path resolution failed for {agent_id}: {e}")
+        return None
 
 
 class LarkCLIClient:
@@ -51,7 +119,10 @@ class LarkCLIClient:
 
         Looks up the credential, ensures the workspace is hydrated from DB
         (creating or rebuilding config.json if needed), and runs the CLI
-        with HOME=workspace.
+        with HOME=lark_workspace (config isolation) + CWD=agent_workspace
+        (so any file outputs lark-cli writes via default `./...` paths land
+        inside the agent's Read-tool sandbox; 2026-05-28 fix for the
+        "transcript downloaded to a path I can't read" P0).
 
         Special case: `config init --new` (interactive app creation) is
         called BEFORE the credential exists, so it bypasses hydration and
@@ -89,9 +160,12 @@ class LarkCLIClient:
             return {"success": False, "error": err}
 
         env = get_home_env(agent_id)
+        cwd = await _resolve_agent_workspace_cwd(agent_id, db)
         cmd = ["lark-cli"] + args
-        logger.debug(f"lark-cli [{agent_id}/{cred.profile_name}]: {' '.join(cmd)}")
-        return await self._exec_lark_cli(cmd, stdin_data, timeout, env=env)
+        logger.debug(
+            f"lark-cli [{agent_id}/{cred.profile_name}] cwd={cwd}: {' '.join(cmd)}"
+        )
+        return await self._exec_lark_cli(cmd, stdin_data, timeout, env=env, cwd=cwd)
 
     # =========================================================================
     # Hydration: reconcile workspace config.json with DB
@@ -186,8 +260,19 @@ class LarkCLIClient:
         stdin_data: str,
         timeout: float,
         env: dict | None = None,
+        cwd: Path | str | None = None,
     ) -> dict:
-        """Spawn lark-cli, collect stdout, parse JSON, handle errors."""
+        """Spawn lark-cli, collect stdout, parse JSON, handle errors.
+
+        ``cwd`` controls the child's working directory. Caller passes the
+        agent workspace path so lark-cli's default-relative file outputs
+        (``./artifact-<title>/transcript.txt`` and similar) land in the
+        agent's Read-tool sandbox instead of whatever the MCP process'
+        CWD happens to be (which used to be ``/app/`` — outside any
+        readable mount). ``None`` means inherit the parent's CWD —
+        only the lifecycle / setup flows that have no agent attached
+        should use that.
+        """
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -195,6 +280,7 @@ class LarkCLIClient:
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.PIPE if stdin_data else None,
                 env=env,
+                cwd=str(cwd) if cwd is not None else None,
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(input=stdin_data.encode() if stdin_data else None),

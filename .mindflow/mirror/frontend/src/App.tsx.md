@@ -4,6 +4,18 @@ last_verified: 2026-05-27
 stub: false
 ---
 
+## 2026-05-27 — UpdateBanner mount + updaterStore init
+
+App.tsx now (1) mounts [[UpdateBanner.tsx]] at the root (outside the
+router so it surfaces from every page) and (2) calls
+`useUpdaterStore.getState().init()` in a useEffect on App mount to
+bring the unified auto-updater state mirror online. `teardown()` runs
+in the effect cleanup to keep StrictMode happy. Both are no-ops on
+web/cloud (the store's `init()` early-returns at `isTauri() === false`,
+and the banner only renders on `state.kind === "ready"` which never
+happens in browser mode). See [[updaterStore.ts]] for the bridge to
+the Rust state machine [[updater.rs]].
+
 ## 2026-05-27 — session-expired banner on narranexus:auth-expired
 
 The auth-expired handler now (1) logs out via configStore as before

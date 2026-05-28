@@ -2,7 +2,7 @@
 @file_name: _entity_updater.py
 @author: NetMind.AI
 @date: 2026-03-06
-@description: Entity description, embedding, and persona update logic
+@description: Entity description and persona update logic.
 
 Extracted from SocialNetworkModule to separate LLM-powered entity update
 operations from the module's hook orchestration and MCP interface.
@@ -10,12 +10,18 @@ operations from the module's hook orchestration and MCP interface.
 Contains:
 - summarize_new_entity_info: LLM conversation summarization
 - append_to_entity_description: Cumulative description update with compression
-- update_entity_embedding: Embedding vector regeneration
 - compress_description: LLM description compression
 - update_interaction_stats: Interaction counter increment
 - should_update_persona: Persona refresh condition check
 - infer_persona: LLM persona inference
 - update_entity_persona: Persona DB write
+- extract_mentioned_entities: LLM batch extraction
+- decide_merge_or_create: LLM dedup decision
+
+2026-05-27: removed `update_entity_embedding` and the dedup
+`DEDUP_SIMILARITY_THRESHOLD` / `DEDUP_TOP_K` constants together with
+the semantic-search chain (Owner spec). Mentioned-entity dedup now
+relies on Stage 1 (name/alias exact match) + LLM disambiguation only.
 """
 
 from typing import List, Optional
@@ -25,7 +31,6 @@ from pydantic import BaseModel, Field
 
 from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity
-from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 from xyz_agent_context.module.social_network_module.prompts import (
     ENTITY_SUMMARY_INSTRUCTIONS,
     DESCRIPTION_COMPRESSION_INSTRUCTIONS,
@@ -81,10 +86,9 @@ class DedupDecision(BaseModel):
 
 
 # ── Dedup Pipeline ──────────────────────────────────────────────────────────
-
-# Similarity threshold for vector-based dedup candidate retrieval
-DEDUP_SIMILARITY_THRESHOLD = 0.6
-DEDUP_TOP_K = 3
+#
+# 2026-05-27: the vector-similarity dedup stage was removed. Pipeline is
+# now Stage 1 (exact name/alias match) → LLM disambiguation only.
 
 
 async def decide_merge_or_create(
@@ -328,47 +332,10 @@ async def append_to_entity_description(
         logger.exception(f"Error appending to entity_description: {e}")
 
 
-async def update_entity_embedding(
-    repo: SocialNetworkRepository,
-    entity_id: str,
-    instance_id: str,
-) -> None:
-    """
-    Update entity's embedding vector based on entity_name + entity_description + tags.
-    """
-    try:
-        entity = await repo.get_entity(entity_id=entity_id, instance_id=instance_id)
-        if not entity:
-            logger.warning(f"Entity {entity_id} not found, cannot update embedding")
-            return
-
-        text_parts = []
-        if entity.entity_name:
-            text_parts.append(f"Name: {entity.entity_name}")
-        if entity.entity_description:
-            text_parts.append(f"Description: {entity.entity_description}")
-        if entity.keywords:
-            text_parts.append(f"Keywords: {', '.join(entity.keywords)}")
-
-        embedding_text = "\n".join(text_parts)
-        if not embedding_text.strip():
-            logger.debug("No content for embedding generation, skipping")
-            return
-
-        embedding = await get_embedding(embedding_text)
-        await repo.update_entity_info(
-            entity_id=entity_id,
-            instance_id=instance_id,
-            updates={"embedding": embedding}
-        )
-        # Dual-write to embeddings_store
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
-        await store_embedding("entity", entity_id, embedding, source_text=embedding_text)
-
-        logger.info(f"Updated embedding for entity {entity_id} (dim={len(embedding)})")
-
-    except Exception as e:
-        logger.exception(f"Error updating entity embedding: {e}")
+# 2026-05-27: `update_entity_embedding` was removed together with the
+# semantic-search chain. Mentioned entities and the self-user no longer
+# carry a per-entity embedding; the only search path is keyword LIKE
+# over name / description / tags / aliases.
 
 
 async def compress_description(long_description: str) -> str:

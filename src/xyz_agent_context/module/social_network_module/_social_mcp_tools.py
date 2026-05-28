@@ -173,25 +173,40 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
         top_k: int = 5
     ) -> dict:
         """
-        Search your social network for people. Supports exact lookup, tag search, and semantic search.
+        Search your social network for people. Supports exact ID lookup,
+        keyword fuzzy match (over name / description / tags / aliases),
+        and explicit tag-only search.
+
+        Note (2026-05-27): semantic / embedding-based search was removed.
+        Phrase your query as keywords found in the person's name,
+        description, tags, or aliases — natural-language questions like
+        "who showed purchase intent?" will not match anything that does
+        not literally contain those words.
 
         Args:
             agent_id: The ID of the agent who owns this social network
             search_keyword: Can be:
                 - Exact entity_id: "user_alice_123", "entity_bob_456"
-                - Person's name: "Alice", "Bob"
+                - Person's name (substring OK): "Alice", "Bob"
                 - Tag: "expert:推荐系统", "architect", "familiar:机器学习"
-                - Natural language query (for semantic search): "谁最近表现出购买意向？"
-            search_type: Type of search - 'auto' (recommended), 'exact_id', 'tags', 'semantic'
-                - 'auto': Automatically detects if it's an entity_id or tag/name
-                - 'exact_id': Force exact entity_id lookup
-                - 'tags': Search by tags only
-                - 'semantic': Natural language semantic search using embeddings
+                - Any keyword that should appear in name / description
+                  / tags / aliases
+            search_type: Type of search — 'auto' (recommended),
+                'exact_id', 'tags', 'keyword'.
+                - 'auto': Detects an entity_id (prefix `user_`,
+                  `entity_`, or `agent_`) and routes to exact_id;
+                  otherwise falls back to keyword.
+                - 'exact_id': Force exact entity_id lookup.
+                - 'tags': Match against tags only.
+                - 'keyword': LIKE-substring match on
+                  name / description / tags / aliases (same path
+                  `auto` falls through to).
             top_k: Number of results to return (default: 5, ignored for exact_id)
 
         Returns:
-            Search results with matching entities and their information (INCLUDING contact_info)
-            For semantic search, results also include 'similarity_score' (0-1)
+            Search results with matching entities and their information
+            (INCLUDING contact_info, so you usually don't need to call
+            get_contact_info afterward).
 
         Example 1 - Find specific person by entity_id:
             search_social_network(
@@ -214,16 +229,6 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
                 search_type="tags",
                 top_k=5
             )
-
-        Example 4 - Semantic search (natural language):
-            search_social_network(
-                agent_id="your_agent_id",
-                search_keyword="谁最近表现出购买意向？",
-                search_type="semantic",
-                top_k=5
-            )
-
-        Note: Results include contact_info, so you usually don't need to call get_contact_info afterward.
         """
         await setup_mcp_llm_context(agent_id)
         temp_module, instance_id, error = await _get_instance_and_module(agent_id)

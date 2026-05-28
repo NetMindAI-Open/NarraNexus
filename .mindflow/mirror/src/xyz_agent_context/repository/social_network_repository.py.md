@@ -1,14 +1,28 @@
 ---
 code_file: src/xyz_agent_context/repository/social_network_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 stub: false
 ---
+
+## 2026-05-27 — semantic-search chain removed (Owner spec, scope B)
+
+`semantic_search()` (cosine similarity over per-entity embedding vectors)
+was deleted. The repo's search surface is now two methods only:
+`search_by_tags` and `keyword_search` (`LIKE` over name / description /
+tags / aliases). `_json_fields`, `_row_to_entity`, and `_entity_to_row`
+also stopped round-tripping the `embedding` column — the DB column
+stays dormant per iron rule #6 (no risky DB changes), but no Python
+path reads or writes it any more.
+
+See [[social_network_module.py]] for the caller-side removals
+(`_search_entities` semantic branch, Stage 2 dedup) and
+[[_entity_updater.py]] for the deletion of `update_entity_embedding`.
 
 # social_network_repository.py
 
 ## Why it exists
 
-`SocialNetworkRepository` manages the `instance_social_entities` table — the agent's knowledge graph of people and other agents it has interacted with. It provides three distinct search mechanisms: tag-based search using `JSON_SEARCH`, keyword full-text search using `LIKE`, and semantic vector search using cosine similarity. This is the most query-rich repository in the system.
+`SocialNetworkRepository` manages the `instance_social_entities` table — the agent's knowledge graph of people and other agents it has interacted with. It exposes two search mechanisms: tag-based search using `JSON_SEARCH`, and keyword fuzzy search using `LIKE` over name / description / tags / aliases. (Semantic vector search was removed 2026-05-27 — see the note above.)
 
 ## Upstream / Downstream
 

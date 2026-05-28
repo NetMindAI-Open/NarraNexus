@@ -1,26 +1,39 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_entity_updater.py
-last_verified: 2026-04-10
+last_verified: 2026-05-27
 ---
+
+## 2026-05-27 — semantic-search 链路全删（Owner spec, scope B）
+
+`update_entity_embedding`、`DEDUP_SIMILARITY_THRESHOLD`、`DEDUP_TOP_K` 都
+被删了。Mentioned-entity 的 dedup 现在只剩 **Stage 1 (name/alias exact
+match) → LLM 拍板 MERGE/CREATE**，不再做向量相似度检索 ("Bob" vs
+"Robert" 异名同人会产生两条记录，后续靠人工/LLM 合并)。
+
+同时 `get_embedding` import 也被删，文件不再依赖
+`agent_framework.llm_api.embedding`。
+
+为什么这么彻底——参见 [[social_network_module.py]] 的 2026-05-27 条目和
+[[social_network_repository.py]] 的同期改动。
 
 # _entity_updater.py — LLM 驱动的实体更新管道
 
 ## 为什么存在
 
-从 `social_network_module.py` 分离出来（2026-03-06），把所有"需要调用 LLM 来更新实体信息"的逻辑集中维护。`social_network_module.py` 里的 `hook_after_event_execution` 只做编排——它调用这里的函数来完成摘要生成、描述追加、向量更新、Persona 推断等具体操作。
+从 `social_network_module.py` 分离出来（2026-03-06），把所有"需要调用 LLM 来更新实体信息"的逻辑集中维护。`social_network_module.py` 里的 `hook_after_event_execution` 只做编排——它调用这里的函数来完成摘要生成、描述追加、Persona 推断等具体操作。
 
-六个核心操作：
+核心操作（2026-05-27 修订）：
 1. `summarize_new_entity_info`：从本次对话提炼新信息（LLM）
 2. `append_to_entity_description`：追加到 `entity_description`，超长时自动压缩（LLM）
-3. `update_entity_embedding`：基于最新描述重新生成向量
-4. `update_interaction_stats`：递增 `interaction_count`，更新 `last_interaction_time`
-5. `should_update_persona` / `infer_persona` / `update_entity_persona`：按条件触发的 Persona 推断（LLM）
-6. `extract_mentioned_entities`：从对话中批量提取提及的其他实体（LLM）
+3. `update_interaction_stats`：递增 `interaction_count`，更新 `last_interaction_time`
+4. `should_update_persona` / `infer_persona` / `update_entity_persona`：按条件触发的 Persona 推断（LLM）
+5. `extract_mentioned_entities`：从对话中批量提取提及的其他实体（LLM）
+6. `decide_merge_or_create`：dedup 阶段的 LLM 仲裁（MERGE / CREATE_NEW）
 
 ## 上下游关系
 
 - **被谁用**：`SocialNetworkModule.hook_after_event_execution()` 按顺序调用这里的函数
-- **依赖谁**：`OpenAIAgentsSDK.llm_function(output_type=...)`（所有 LLM 调用）；`SocialNetworkRepository`（DB 读写）；`get_embedding()`（向量生成）；`prompts.py` 里的四个 LLM 提示词（`ENTITY_SUMMARY_INSTRUCTIONS` 等）
+- **依赖谁**：`OpenAIAgentsSDK.llm_function(output_type=...)`（所有 LLM 调用）；`SocialNetworkRepository`（DB 读写）；`prompts.py` 里的 LLM 提示词（`ENTITY_SUMMARY_INSTRUCTIONS` 等）
 
 ## 设计决策
 

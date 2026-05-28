@@ -113,11 +113,10 @@ class SocialNetworkEntity(BaseModel):
         description="List of associated Job IDs, for reverse lookup of all Jobs related to this Entity"
     )
 
-    # === Semantic search (Feature 2.3 - Entity semantic search) ===
-    embedding: Optional[List[float]] = Field(
-        default=None,
-        description="Entity semantic vector (generated from entity_name + entity_description + keywords, for semantic search)"
-    )
+    # 2026-05-27: the `embedding` field was removed together with the
+    # semantic-search chain (Owner spec). The underlying DB column stays
+    # in the schema_registry as a dormant column but the entity model no
+    # longer round-trips it.
 
     # Persona (communication style guide)
     persona: Optional[str] = Field(
