@@ -28,7 +28,7 @@ AI 助手 callout（#1）试过后撤掉 —— 底部的"贡献与治理"已经
 # 别从零搭一个 Agent。一键和一支专业团队协作。
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexdocs/getting-started/quick-start)
+[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://www.narra.nexus/docs/getting-started/quick-start)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 [English](./README.md) | **中文**
@@ -76,14 +76,14 @@ NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 fram
 
 > [!NOTE]
 > **想在本地跑（桌面端或源码）？** 两件事要知道：
-> - **需要你自己的 LLM API key。** 桌面端和本地 build 都用你自己的 key —— 可以用 Claude Code 登录，或申请一个 NetMind.AI Power key（一个 key，一分钟搞定）。在 **Settings** 里配置 —— 见 [Configure LLM Providers](https://narra.nexdocs/getting-started/quick-start)。
+> - **需要你自己的 LLM API key。** 桌面端和本地 build 都用你自己的 key —— 可以用 Claude Code 登录，或申请一个 NetMind.AI Power key（一个 key，一分钟搞定）。在 **Settings** 里配置 —— 见 [Configure LLM Providers](https://www.narra.nexus/docs/getting-started/quick-start)。
 > - **本地端口要空着。** 两种方式都会起若干本地 service，确认对应端口没被占用。
 
 ### 💻 macOS 桌面应用
 
 桌面端自带 runtime —— 不用装 Python / Node / Docker。
 
-1. [下载 app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
+1. [下载 app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest/download/NarraNexus.dmg)
 2. 拖入 Applications 文件夹
 3. 启动 → 选一个 template，开始
 
@@ -97,7 +97,7 @@ cd NarraNexus
 bash run.sh
 ```
 
-`run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://narra.nexdocs/getting-started/quick-start)。
+`run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://www.narra.nexus/docs/getting-started/quick-start)。
 
 <p align="center">
   <video src="docs/videos/install-local.mp4" controls width="720">
@@ -164,7 +164,7 @@ bash run.sh
 
 <!-- TODO: PM Bridge Bot template demo video, ~30s -->
 
-### 更多社区贡献的 template → [浏览全部](https://narra.nexdocs/modules/custom-modules)
+### 更多社区贡献的 template → [浏览全部](https://www.narra.nexus/templates)
 
 > *全部由 NarraNexus agent 自主完成。*
 

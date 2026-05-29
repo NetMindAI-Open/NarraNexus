@@ -29,7 +29,7 @@ Changes vs README_A.en.md:
 # Don't deploy an agent from scratch. Collaborate with a professional team in one click.
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://narra.nexdocs/getting-started/quick-start)
+[![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://www.narra.nexus/docs/getting-started/quick-start)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 **English** | [中文](./README_zh.md)
@@ -77,14 +77,14 @@ NarraNexus is a multi-agent product — not yet another framework where you wire
 
 > [!NOTE]
 > **Running locally (desktop app or source)?** Two things to know:
-> - **Bring your own LLM API key.** The desktop app and local build run on your own key — use a Claude Code login, or grab a NetMind.AI Power key (one key, takes a minute). Configure it under **Settings** — see [Configure LLM Providers](https://narra.nexdocs/getting-started/quick-start).
+> - **Bring your own LLM API key.** The desktop app and local build run on your own key — use a Claude Code login, or grab a NetMind.AI Power key (one key, takes a minute). Configure it under **Settings** — see [Configure LLM Providers](https://www.narra.nexus/docs/getting-started/quick-start).
 > - **Free up local ports.** Both run several local services; make sure those ports aren't already taken.
 
 ### 💻 macOS desktop app
 
 The app bundles its own runtime — no Python / Node / Docker to install.
 
-1. [Download the app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest)
+1. [Download the app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest/download/NarraNexus.dmg)
 2. Drag it into the Applications folder
 3. Launch → pick a template and go
 
@@ -98,7 +98,7 @@ cd NarraNexus
 bash run.sh
 ```
 
-`run.sh` checks prerequisites (`uv` / `node` / `tmux`) and launches all local services. For the full service/port list and detailed setup, see the [dev docs](https://narra.nexdocs/getting-started/quick-start).
+`run.sh` checks prerequisites (`uv` / `node` / `tmux`) and launches all local services. For the full service/port list and detailed setup, see the [dev docs](https://www.narra.nexus/docs/getting-started/quick-start).
 
 <p align="center">
   <video src="docs/videos/install-local.mp4" controls width="720">
@@ -151,7 +151,7 @@ For teams juggling internal team chat and external client communication. A singl
 
 <!-- TODO: PM Bridge Bot template demo video, ~30s -->
 
-### More community templates → [browse all](https://narra.nexdocs/modules/custom-modules)
+### More community templates → [browse all](https://www.narra.nexus/templates)
 
 > *All built by NarraNexus agents themselves.*
 
