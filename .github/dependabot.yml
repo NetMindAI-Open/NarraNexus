@@ -1,8 +1,9 @@
 version: 2
 
 # Keep dependencies fresh without burying maintainers in PRs.
-# Weekly cadence, grouped by ecosystem so security patches don't sit
-# behind a tide of minor bumps.
+# Weekly cadence, grouped by ecosystem so a tide of minor/patch bumps
+# collapses into a single PR per ecosystem instead of one PR each.
+# Security patches still surface on their own normal schedule.
 
 updates:
   # GitHub Actions used in .github/workflows/
@@ -15,6 +16,9 @@ updates:
     labels: ["chore"]
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      github-actions:
+        update-types: ["minor", "patch"]
 
   # Frontend (Vite / React).
   - package-ecosystem: npm
@@ -26,6 +30,9 @@ updates:
     labels: ["chore"]
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      frontend:
+        update-types: ["minor", "patch"]
     ignore:
       # Major bumps create churn; we'll pick those up manually.
       - dependency-name: "*"
@@ -42,6 +49,9 @@ updates:
     labels: ["chore"]
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      python:
+        update-types: ["minor", "patch"]
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
