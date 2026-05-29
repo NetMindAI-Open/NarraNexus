@@ -207,7 +207,7 @@ jobs:
       # Always upload as artifact so branch builds (signing tests) can be
       # downloaded and verified locally with codesign / spctl / stapler.
       - name: Upload DMG as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: NarraNexus-dmg
           path: |
