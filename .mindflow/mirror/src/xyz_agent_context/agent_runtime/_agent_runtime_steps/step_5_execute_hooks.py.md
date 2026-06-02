@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_5_execute_hooks.py
-last_verified: 2026-05-20
+last_verified: 2026-05-29
 stub: false
 ---
 

@@ -63,6 +63,20 @@ def _cap_message_body(text: str) -> str:
     return text[:MAX_MESSAGE_BODY_CHARS] + _TRUNCATION_SUFFIX
 
 
+def build_channel_anchor(sender_name: Optional[str], message_body: str) -> str:
+    """Build the clean retrieval anchor for an IM channel turn.
+
+    The execution prompt (see ``build_prompt``) is 6 sections of
+    history/profile/members/instructions — embedding all of it diluted the
+    narrative retrieval vector in prod. The anchor keeps ONLY the interaction
+    counterpart's name + this-turn body, so the query vector matches the
+    write-side anchors (which are all tiny). See the 2026-06-01 design doc.
+    """
+    name = (sender_name or "").strip() or "Unknown"
+    body = (message_body or "").strip() or "(non-text message)"
+    return f"[From {name}] {body}"
+
+
 @dataclass
 class ChannelHistoryConfig:
     """
@@ -216,21 +230,27 @@ class ChannelContextBuilderBase(ABC):
         # Step 4-5: Room members
         room_members_section = await self._build_members_section(info)
 
-        # Step 6: Assemble full template
-        # TODO [Narrative Continuity Coupling]:
-        # The output of this method becomes the AgentRuntime input_content and is
-        # stored as session.last_query. A counterpart function `_extract_core_content()`
-        # in `narrative/_narrative_impl/continuity.py` strips this template to extract
-        # the core message body for topic continuity detection.
-        # If you change CHANNEL_MESSAGE_EXECUTION_TEMPLATE or the section assembly
-        # (especially Conversation History format with `[timestamp] @sender:` lines),
-        # you MUST update `_extract_core_content()` accordingly.
+        # Step 6: Assemble the full EXECUTION prompt.
+        # Narrative retrieval / continuity no longer parse this template — they
+        # use the clean anchor from build_retrieval_anchor() (sender_display_name
+        # + message_body). The old _extract_core_content template-stripping (and
+        # its [ts] @sender: regex coupling) was removed. See 2026-06-01 design.
         return CHANNEL_MESSAGE_EXECUTION_TEMPLATE.format(
             **info,
             sender_profile_section=sender_profile_section,
             conversation_history_section=conversation_history_section,
             room_members_section=room_members_section,
         )
+
+    async def build_retrieval_anchor(self) -> str:
+        """Clean anchor for narrative retrieval / event embedding — only the
+        sender name + this-turn body, none of build_prompt's history / profile
+        / members / instruction sections. See the 2026-06-01 design doc."""
+        info = await self.get_message_info()
+        body = info.get("message_body", "")
+        if body:
+            body = _cap_message_body(body)
+        return build_channel_anchor(info.get("sender_display_name"), body)
 
     # === Internal methods ===
 

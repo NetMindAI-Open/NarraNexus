@@ -27,19 +27,15 @@ export function InboxPanel() {
     const nextId = expandedRoomId === roomId ? null : roomId;
     setExpandedRoomId(nextId);
 
-    if (nextId) {
-      const room = agentRooms.find((r) => r.room_id === nextId);
-      if (room && room.unread_count > 0 && room.messages.length > 0 && agentId) {
-        const latest = [...room.messages].sort((a, b) => {
-          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return tb - ta;
-        })[0];
-        if (latest?.message_id) {
-          api.markAgentMessageRead(latest.message_id, agentId)
-            .then(() => refreshAgentInbox(agentId, true))
-            .catch(() => { /* non-fatal */ });
-        }
+    // 2026-05-28: clicking the channel row (either direction) clears
+    // ALL of that channel's unread via the room-level endpoint. See
+    // AgentInboxPanel for the rationale.
+    if (agentId && roomId) {
+      const room = agentRooms.find((r) => r.room_id === roomId);
+      if (room && room.unread_count > 0) {
+        api.markAgentRoomRead(roomId, agentId)
+          .then(() => refreshAgentInbox(agentId, true))
+          .catch(() => { /* non-fatal */ });
       }
     }
   };

@@ -43,3 +43,11 @@ EVENT_WORKER_TIMEOUT = "worker_timeout"
 # ─── Inbox / observability ────────────────────────────────────────────────
 EVENT_INBOX_WRITE_FAILED = "inbox_write_failed"
 EVENT_HEARTBEAT = "heartbeat"
+
+# ─── Attachment ingestion (Phase 1a) ─────────────────────────────────────
+# Emitted by ChannelTriggerBase.fetch_attachments and _persist_attachment
+# when handling inbound media (PDFs, images, voice memos, etc.). See
+# .claude/PRPs/plans/im-multimodal-ingest.plan.md for the full design.
+EVENT_INGRESS_DROPPED_OVERSIZED = "ingress_dropped_oversized"
+EVENT_ATTACHMENT_FETCH_FAILED = "attachment_fetch_failed"
+EVENT_ATTACHMENT_PERSISTED = "attachment_persisted"

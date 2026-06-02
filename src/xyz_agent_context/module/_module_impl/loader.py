@@ -53,7 +53,6 @@ class ModuleLoader:
     """
 
     DEFAULT_MODULE_LIST = [
-        "MemoryModule",
         "AwarenessModule",
         "ChatModule",
         "BasicInfoModule",
@@ -658,7 +657,6 @@ class ModuleLoader:
         short_uuid = uuid4().hex[:8]
         # Module prefix mapping
         prefix_map = {
-            "MemoryModule": "memory",
             "ChatModule": "chat",
             "JobModule": "job",
             "SocialNetworkModule": "social",

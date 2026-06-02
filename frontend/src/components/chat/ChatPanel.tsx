@@ -11,7 +11,7 @@
  * - 2026-03-17: Unified timeline (removed history/session split)
  */
 
-import { useState, useRef, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
@@ -250,11 +250,28 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const initialScrollPendingRef = useRef(false);
 
   const {
-    messages, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls,
-    currentEvents,
+    messages,
+    currentAssistantMessage: _rtAssistantMessage,
+    currentThinking: _rtThinking,
+    currentSteps: _rtSteps,
+    currentToolCalls: _rtToolCalls,
+    currentEvents: _rtEvents,
     isStreaming, addUserMessage, startStreaming,
     setActiveAgent,
   } = useChatStore();
+
+  // Render-rate throttle (iron rule #16). The five streaming values update
+  // on EVERY delta during a streaming storm; wrapping them in React 18
+  // useDeferredValue lets React coalesce render bursts into fewer commits
+  // when the main thread is busy, while ALWAYS converging to the latest
+  // value — nothing is dropped or reordered. `messages` stays immediate
+  // (low-frequency; the timeline dedup depends on it). Pure render
+  // scheduling — the chatStore delta-merge logic is untouched.
+  const currentAssistantMessage = useDeferredValue(_rtAssistantMessage);
+  const currentThinking = useDeferredValue(_rtThinking);
+  const currentSteps = useDeferredValue(_rtSteps);
+  const currentToolCalls = useDeferredValue(_rtToolCalls);
+  const currentEvents = useDeferredValue(_rtEvents);
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
 
   // Read artifact list at component scope so it can be safely passed into

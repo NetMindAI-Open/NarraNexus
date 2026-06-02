@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/dashboard.py
-last_verified: 2026-05-13
+last_verified: 2026-06-01
 stub: true
 ---
+
+## 2026-06-01 — pause/resume use the portable core (batch ③)
+
+`pause_job` / `resume_job` keep their ownership-auth checks but now delegate the
+state transition to `job_recovery.pause_job` / `resume_job` instead of raw
+`UPDATE … datetime('now')` SQL (SQLite-only — broken on prod MySQL). `resume`
+now also handles paused_no_quota / cooling / blocked_failed and recomputes
+next_run + clears backoff (was: only `paused` → `pending`).
 
 ## 2026-05-13 — local 多用户隔离修复
 

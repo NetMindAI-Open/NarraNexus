@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/inbox/InboxPanel.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-28
 stub: false
 ---
+
+## 2026-05-28 — clicking the channel row clears that channel's unread
+
+Same click-to-clear refactor as [[AgentInboxPanel.tsx]] —
+`toggleRoom` now always calls `api.markAgentRoomRead(roomId, agentId)`
+when the room has unread, regardless of expand direction or
+loaded-message count. See the AgentInboxPanel mirror for the full
+rationale + the backend endpoint design.
 
 # InboxPanel.tsx — LEGACY: Older inbox panel (not currently mounted)
 

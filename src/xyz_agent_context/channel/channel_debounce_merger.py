@@ -115,18 +115,35 @@ class ChannelDebounceMerger:
           view of the conversation.
         - Bodies join with newlines, in arrival order, skipping empties.
         - Media URLs concatenate.
+        - ``raw["attachment_refs"]`` lists concatenate, in arrival order
+          (Phase 1a: lets fetch_attachments download every burst-attached
+          file in one agent turn instead of dropping all but the last).
 
         Returns a NEW ParsedMessage. Never mutates the inputs — earlier
         merger versions mutated ``latest`` in place, which leaked into
         dedup-store entries and (under a shutdown timer/flush_all race)
-        could cause the same merged payload to be dispatched twice.
+        could cause the same merged payload to be dispatched twice. The
+        ``raw`` dict is also copied; otherwise concatenating attachment
+        refs would mutate the latest message's ``raw`` in place.
         """
         if len(messages) == 1:
             return messages[0]
         latest = messages[-1]
         bodies = [m.content for m in messages if m.content]
+        merged_refs: list = []
+        for m in messages:
+            refs = (m.raw or {}).get("attachment_refs") or []
+            if isinstance(refs, list):
+                merged_refs.extend(refs)
+        # Fresh raw dict so we don't mutate latest.raw — start from a copy
+        # of the latest message's raw (preserves platform-specific fields
+        # subclasses may have stashed), then overlay the merged refs.
+        merged_raw = dict(latest.raw or {})
+        if merged_refs:
+            merged_raw["attachment_refs"] = merged_refs
         return replace(
             latest,
             content="\n".join(bodies) if bodies else "",
             media_urls=[u for m in messages for u in m.media_urls],
+            raw=merged_raw,
         )

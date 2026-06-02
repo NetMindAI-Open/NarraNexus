@@ -12,7 +12,7 @@ Responsibilities:
 """
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 from loguru import logger
 
@@ -809,6 +809,39 @@ class JobRepository(BaseRepository[JobModel]):
         )
         return [self._row_to_entity(row) for row in results]
 
+    async def find_long_running_jobs(self, threshold_minutes: int = 30) -> List[JobModel]:
+        """Read-only: RUNNING jobs whose started_at is older than the threshold.
+
+        Used for DIAGNOSTICS only (铁律 #14: a long-running agent_loop is a
+        legitimate first-class scenario — we surface it for alerting but must
+        NEVER force-recover it mid-run, which would both interrupt valid work
+        and duplicate execution). Orphan recovery of RUNNING jobs happens only
+        at process start (recover_all_running_jobs).
+        """
+        threshold = utc_now() - timedelta(minutes=threshold_minutes)
+        # Filter in Python rather than via a SQL datetime-string comparison:
+        # SQLite stores datetimes with a 'T' separator (isoformat) but binds a
+        # datetime param with a space separator, so `started_at < %s` compares
+        # wrong lexicographically ('T' > ' '). Native MySQL DATETIME wouldn't
+        # have this issue, but Python filtering is correct on both backends and
+        # RUNNING rows are few (≈ worker count).
+        rows = await self._db.execute(
+            f"SELECT * FROM {self.table_name} WHERE status = %s",
+            params=(JobStatus.RUNNING.value,),
+            fetch=True,
+        )
+        out: List[JobModel] = []
+        for row in (rows or []):
+            job = self._row_to_entity(row)
+            sa = job.started_at
+            if sa is None:
+                continue
+            if sa.tzinfo is None:
+                sa = sa.replace(tzinfo=timezone.utc)
+            if sa < threshold:
+                out.append(job)
+        return out
+
     async def recover_stuck_jobs(self, timeout_minutes: int = 30) -> int:
         """
         Recover stuck tasks
@@ -1334,6 +1367,11 @@ class JobRepository(BaseRepository[JobModel]):
             narrative_id=row.get("narrative_id"),  # Feature 3.1
             monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitor Job pattern
             iteration_count=row.get("iteration_count", 0),  # 2026-01-21: ONGOING execution count
+            # 2026-06-01: resilience / backoff state
+            consecutive_failure_count=row.get("consecutive_failure_count", 0) or 0,
+            cooldown_until=row.get("cooldown_until"),
+            paused_reason=row.get("paused_reason"),
+            paused_at=row.get("paused_at"),
             # Defensive coercion (2026-05-27): some pre-existing job rows in
             # local sqlite DBs were inserted with NULL `created_at`/`updated_at`
             # because the column definitions in schema_registry never required
@@ -1387,6 +1425,11 @@ class JobRepository(BaseRepository[JobModel]):
             "narrative_id": entity.narrative_id,  # Feature 3.1
             "monitored_job_ids": json.dumps(entity.monitored_job_ids) if entity.monitored_job_ids else None,  # 2026-01-21
             "iteration_count": entity.iteration_count,  # 2026-01-21
+            # 2026-06-01: resilience / backoff state
+            "consecutive_failure_count": entity.consecutive_failure_count,
+            "cooldown_until": entity.cooldown_until,
+            "paused_reason": entity.paused_reason,
+            "paused_at": entity.paused_at,
             "created_at": entity.created_at,
             "updated_at": entity.updated_at,
         }

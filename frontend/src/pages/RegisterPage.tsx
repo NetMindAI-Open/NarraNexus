@@ -196,7 +196,7 @@ export function RegisterPage() {
           <p className="text-xs -mt-1" style={{ color: 'var(--nm-ink50)' }}>
             No invite code?{' '}
             <a
-              href="https://website.narra.nexus/invite"
+              href="https://www.narra.nexus/invite"
               target="_blank"
               rel="noopener noreferrer"
               className="underline underline-offset-2"

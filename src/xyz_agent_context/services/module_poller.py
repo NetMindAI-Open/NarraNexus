@@ -75,6 +75,9 @@ from xyz_agent_context.repository import (
     InstanceNarrativeLinkRepository,
 )
 
+# L2 observability — see services/service_audit.py
+from xyz_agent_context.services.service_audit import ServiceAuditor
+
 
 @dataclass
 class CompletedInstanceInfo:
@@ -134,6 +137,10 @@ class ModulePoller:
         self._workers: List[asyncio.Task] = []
         self._poller_task: Optional[asyncio.Task] = None
 
+        # L2 observability — stale heartbeat reveals a wedged poll loop
+        # that L1 "process alive" cannot catch (incident lesson #4).
+        self.audit = ServiceAuditor("module_poller")
+
         logger.info(
             f"ModulePoller initialized: poll_interval={poll_interval}s, "
             f"max_workers={max_workers}"
@@ -184,6 +191,7 @@ class ModulePoller:
         logger.info(f"   Poll interval: {self.poll_interval} seconds")
         logger.info(f"   Max workers: {self.max_workers}")
         self.running = True
+        await self.audit.started({"poll_interval": self.poll_interval})
 
         # Start Workers
         for i in range(self.max_workers):
@@ -213,6 +221,7 @@ class ModulePoller:
         """
         logger.info("Stopping ModulePoller gracefully...")
         self.running = False
+        await self.audit.stopped()
 
         # Wait for queue to drain (up to 30 seconds)
         try:
@@ -256,12 +265,16 @@ class ModulePoller:
         while self.running:
             try:
                 await self._poll_and_enqueue()
+                # Throttled L2 heartbeat — a stale row means the loop wedged
+                # though the process is still alive (incident lesson #4).
+                await self.audit.heartbeat()
                 await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
                 logger.debug("Poller cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Poller error: {e}")
+                await self.audit.error(str(e))
                 await asyncio.sleep(self.poll_interval)
 
     async def _worker(self, worker_id: int) -> None:

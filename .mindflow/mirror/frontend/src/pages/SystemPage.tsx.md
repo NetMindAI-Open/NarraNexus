@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/pages/SystemPage.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-28
 stub: false
 ---
+
+## 2026-05-28 — replaced event subscriptions with single poll tick
+
+Pre-fix this page subscribed to `platform.onHealthUpdate` and
+`platform.onLog` for live updates. But the Tauri Rust side never
+emits `health-update` or `log-entry` events, so the subscription
+attempts threw `"Tauri runtime not available"` — silently caught and
+discarded. The result was a page that only ever showed processes
+(via the 3 s poll) and never showed health bars or live logs.
+
+Rewrite: drop the two subscriptions, single async `poll()` callback
+fetches services + health + logs in sequence on the same 3 s
+interval. Logs are dedup-merged into the existing buffer (keyed on
+`serviceId|timestamp|stream|message`) so re-polls don't duplicate
+entries. The buffer is capped at 500 entries — the prior code did
+the same but only on the never-fired subscription path.
+
+`handleStartAll` / `handleStopAll` / `handleRestart` now call `poll()`
+directly after the mutation so the user sees the result without
+waiting up to 3 s for the next tick.
 
 # SystemPage.tsx — Service health monitor and log viewer
 

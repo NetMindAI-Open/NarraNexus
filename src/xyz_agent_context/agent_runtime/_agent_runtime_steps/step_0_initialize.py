@@ -97,7 +97,8 @@ async def step_0_initialize(
     # 0.3 Create Event record
     # =========================================================================
     event = await event_service.create_event(
-        ctx.agent_id, ctx.user_id, ctx.input_content
+        ctx.agent_id, ctx.user_id, ctx.input_content,
+        retrieval_anchor=ctx.trigger_extra_data.get("retrieval_anchor"),
     )
     ctx.event = event
     ctx.substeps_0.append(f"[0.3] ✓ Event: {event.id}")

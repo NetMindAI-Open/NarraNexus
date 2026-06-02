@@ -42,6 +42,21 @@ if TYPE_CHECKING:
     from xyz_agent_context.schema.module_schema import InstanceStatus
 
 
+def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) -> str:
+    """Pick the text to embed for narrative retrieval / continuity.
+
+    A trigger that knows how (chat / IM channel / message bus) passes a clean
+    ``retrieval_anchor`` = "[From <name>] <this-turn body>". When present we
+    embed that, so the query vector matches the tiny write-side anchors instead
+    of the noisy full execution prompt. When absent/blank we fall back to the
+    raw ``input_content`` (still capped by the embedding token guard). See the
+    2026-06-01 design doc.
+    """
+    if retrieval_anchor and retrieval_anchor.strip():
+        return retrieval_anchor
+    return input_content
+
+
 class NarrativeService:
     """
     Narrative Unified Service - Main interface for AgentRuntime
@@ -118,6 +133,7 @@ class NarrativeService:
         session: Optional[ConversationSession] = None,
         awareness: Optional[str] = None,
         is_user_chat: bool = True,
+        retrieval_anchor: Optional[str] = None,
     ) -> NarrativeSelectionResult:
         """
         Select the appropriate Narratives
@@ -153,6 +169,10 @@ class NarrativeService:
         max_narratives = max_narratives or config.MAX_NARRATIVES_IN_CONTEXT
         logger.info("NarrativeService.select() started")
 
+        # Embed/match against the clean anchor (sender + this-turn body) when a
+        # trigger provided one; else the raw input_content. See 2026-06-01 design.
+        query_text = resolve_retrieval_text(retrieval_anchor, input_content)
+
         # Continuity detection — wrapped in timed() so its LLM call (and
         # any embedding fetch the detector does internally) is visible
         # as a discrete slice of step.1 instead of getting lumped into
@@ -175,7 +195,7 @@ class NarrativeService:
 
                     with timed("narrative.continuity_detect") as t:
                         result = await detector.detect(
-                            current_query=input_content,
+                            current_query=query_text,
                             session=session,
                             current_narrative=current_narrative,
                             awareness=awareness
@@ -200,7 +220,7 @@ class NarrativeService:
         query_embedding = None
         try:
             with timed("narrative.query_embedding"):
-                query_embedding = await get_embedding(input_content)
+                query_embedding = await get_embedding(query_text)
         except Exception:
             pass
 
@@ -263,7 +283,7 @@ class NarrativeService:
             # Not continuous or continuity detection failed: retrieve Top-K
             with timed("narrative.retrieve_top_k"):
                 retrieval_result = await self._retrieval.retrieve_top_k(
-                    query=input_content,
+                    query=query_text,
                     user_id=user_id,
                     agent_id=agent_id,
                     top_k=max_narratives
@@ -282,7 +302,7 @@ class NarrativeService:
         # exchange, not against whatever cron job or bus ping ran in between.
         if session and narratives and is_user_chat:
             from datetime import datetime, timezone
-            session.last_query = input_content
+            session.last_query = query_text
             session.last_query_embedding = query_embedding
             session.current_narrative_id = narratives[0].id
             session.query_count += 1

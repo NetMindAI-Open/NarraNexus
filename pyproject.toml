@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xyz-agent-context"
-version = "1.7.12"
+version = "1.7.13"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
 license = {text = "CC-BY-NC-4.0"}
@@ -35,6 +35,7 @@ dependencies = [
     "aiohttp>=3.9.0",
     "ddgs>=9.0.0",
     "websockets>=15.0.1",
+    "tiktoken>=0.13.0",
 ]
 
 [tool.hatch.build.targets.wheel]

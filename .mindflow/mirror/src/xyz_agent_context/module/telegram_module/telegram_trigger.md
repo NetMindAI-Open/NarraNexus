@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_trigger.py
 stub: false
-last_verified: 2026-05-11
+last_verified: 2026-05-20
 ---
 
 ## Why it exists
@@ -49,11 +49,25 @@ Telegram-specific reasons it differs from the Slack trigger:
   would clutter the inbox.
 - **Empty-replies show as ``"(stayed silent)"``.** Distinguishes "agent
   ran but produced no message" from "agent crashed" in the inbox.
-- **Phase 4 is text-only on ingress.** ``parse_event`` returns ``None``
-  for any update without ``text`` (photos, voice, files, stickers,
-  etc.). Outbound multimodal still works via ``tg_cli``. Re-enabling
-  ingress is a Phase 5+ scope decision (see
-  ``reference/self_notebook/todo/2026-05-09-multimodal-im-ingest.md``).
+- **Phase 1a — multimodal ingestion enabled.** ``parse_event`` now
+  extracts ``document`` / ``photo`` / ``voice`` / ``audio`` / ``video``
+  payloads into ``raw["attachment_refs"]`` and falls back to ``caption``
+  for ``content`` when ``text`` is empty. Stickers / locations /
+  contacts / polls still return ``None`` (out of scope). ``photo`` is a
+  ``PhotoSize[]`` — the trigger picks ``[-1]`` (largest).
+  ``caption_entities`` are merged with ``entities`` so @-mentions
+  inside captioned media are still detected.
+- **``fetch_attachments`` (Phase 1a override).** Iterates
+  ``raw["attachment_refs"]``, calls ``TelegramSDKClient.download_file``
+  (two-step ``getFile`` → binary GET) per ref, then hands bytes to the
+  base's ``_persist_attachment``. Never-raises: failures audit and skip
+  while remaining refs still flow. Three failure modes get distinct
+  audit events: backend ``max_upload_bytes`` exceeded
+  (``EVENT_INGRESS_DROPPED_OVERSIZED``), Telegram 20 MB platform cap
+  hit (same event, different ``reason``), network/getFile errors
+  (``EVENT_ATTACHMENT_FETCH_FAILED``). Success →
+  ``EVENT_ATTACHMENT_PERSISTED`` with ``has_transcript`` so ops can
+  spot STT regressions for audio.
 - **``allowed_updates=["message"]``.** Phase 4 ignores
   ``edited_message`` / ``callback_query`` / ``inline_query``.
 - **``chat_type`` collapses supergroup/channel into ``GROUP``** —

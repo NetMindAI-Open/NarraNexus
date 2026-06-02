@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_context_builder_base.py
-last_verified: 2026-04-10
+last_verified: 2026-06-01
 stub: false
 ---
 
@@ -18,7 +18,7 @@ stub: false
 
 **依赖谁**：`channel_prompts.py` 里的五个模板字符串（`CHANNEL_MESSAGE_EXECUTION_TEMPLATE` 等）；`SocialNetworkRepository`（通过 `get_sender_entity()` 查发件人档案，默认实现返回 None，子类可重写）；`ChannelHistoryConfig` dataclass 控制历史记录行为。
 
-**下游**：`build_prompt()` 的返回值会作为 AgentRuntime 的 `input_content` 传入，并被存到 `session.last_query`。因此输出格式会被 `narrative/_narrative_impl/continuity.py` 的 `_extract_core_content()` 解析——那里有硬编码的 `[Matrix · ...]` 模式匹配。
+**下游**：`build_prompt()` 的返回值是 **执行 prompt**，作为 AgentRuntime 的 `input_content`。另有 `build_retrieval_anchor()`（2026-06-01 新增）产出**干净检索锚点** `[From <name>] <body>`，由 trigger 放进 `trigger_extra_data["retrieval_anchor"]`，narrative 检索/continuity 只 embed 这个锚点（不再解析执行 prompt）。
 
 ## 设计决策
 
@@ -26,13 +26,13 @@ stub: false
 
 群成员列表（`get_room_members()`）只在成员超过 2 人时才渲染到 prompt 里，1:1 DM 不需要显示成员列表。
 
-`build_prompt()` 方法上有一段 TODO 注释，明确标注了它与 `continuity.py/_extract_core_content()` 的耦合点。这是刻意保留的"耦合警告"，提醒任何修改这里格式的人必须同步检查那边。
+`build_retrieval_anchor()`（2026-06-01）用 `get_message_info()` 的结构化字段（`sender_display_name` + `message_body`）直接组锚点，**不解析** execution 模板——因此 build_prompt 的模板格式与 narrative 检索解耦了（旧的 `_extract_core_content` 正则耦合已删除，它在 prod 早已因模板漂移而失效）。
 
 历史记录截断策略是从最旧的消息开始删，最后一条消息（待回复的那条，用 ▶ 标记）永远不被截断。
 
 ## Gotcha / 边界情况
 
-`_format_messages()` 里的时间戳格式 `[{ts}] {sender}:\n    {body}` 是被 `_extract_core_content()` 里的正则表达式 `_MATRIX_LAST_MSG_RE` 所依赖的格式。如果修改了这里的格式（比如去掉方括号或换行），正则表达式会失效，连续性检测会收到未剥离的完整 prompt，导致 LLM 被渠道元信息干扰，判断质量下降。
+`_format_messages()` 的时间戳格式曾被 `continuity._extract_core_content()` 的正则依赖；该函数 2026-06-01 已删除（continuity 改用结构化锚点），所以这层格式耦合不复存在。`_format_messages` 现在只服务于 execution prompt 的历史记录段。
 
 `ChannelHistoryConfig.history_max_chars` 默认 3000 字符，超出后旧消息被截断。截断时会在开头插入 `"  ... (earlier messages truncated)"` 提示，但这个提示本身会占用 chars 计数，极端情况下可能导致即使截断了还是超出，陷入循环——这个 bug 目前未修复。
 

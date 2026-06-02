@@ -15,7 +15,7 @@
  *   - does NOT start with "/\\" (some browsers normalize \\ → /)
  *
  * Note we deliberately allow ":" anywhere after the first character so
- * paths like /app/templates/install?url=https%3A%2F%2Fwebsite.narra.nexus/...
+ * paths like /app/templates/install?url=https%3A%2F%2Fwww.narra.nexus/...
  * pass validation. After useSearchParams decodes, the embedded URL
  * surfaces as literal "https://..." in the query string — harmless,
  * since the browser only navigates to the path portion (everything

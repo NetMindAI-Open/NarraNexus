@@ -208,7 +208,7 @@ async def step_4_persist_results(
                     )
                     rebound = 0
                     for m in (getattr(ctx, "module_list", None) or []):
-                        if type(m).__name__ == "ChatModule":
+                        if m.provides_chat_history():
                             m.instance_id = target_chat_id
                             m.instance_ids = [target_chat_id]
                             rebound += 1

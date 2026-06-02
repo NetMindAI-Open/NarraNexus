@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_1_select_narrative.py
-last_verified: 2026-05-19
+last_verified: 2026-05-29
 stub: false
 ---
 

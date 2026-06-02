@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/job_schema.py
-last_verified: 2026-05-22
+last_verified: 2026-06-01
 stub: false
 ---
+
+## 2026-06-01 — resilience states + backoff fields (batch ②)
+
+`JobStatus` gains three values, modelling "non-terminal, can't run now, blocked
+on a specific guard" (recovery = that guard re-passing, all arbitrated in
+JobTrigger): `COOLING` (transient-failure backoff; time-recovered), `BLOCKED`
+(unmet job dependencies), `BLOCKED_FAILED` (a prerequisite FAILED and policy is
+"block"). `JobModel` gains `consecutive_failure_count`, `cooldown_until`,
+`paused_reason` (no_quota / repeated_failure / dependency_failed / user),
+`paused_at`. All additive (enum strings + nullable/default columns) → 铁律 #6
+safe. See `job_trigger.py` for the state machine and
+`2026-06-01-job-scheduler-resilience-design.md`.
 
 ## 2026-05-22 — JobStatus.PAUSED_NO_QUOTA (#6)
 
@@ -21,6 +33,8 @@ enum value (string) → safe per 铁律 #6. Mirrors: `job_trigger.py` (pause/res
 Background tasks (Jobs) are a first-class concept in NexusAgent — they allow the agent to do work on the user's behalf on a schedule or with a delay, without blocking real-time conversation. This file defines the entire data contract for that system: how jobs are described (`JobModel`), how triggers are configured (`TriggerConfig`), and how the LLM reports back what happened after each execution (`JobExecutionResult`, `OngoingExecutionResult`).
 
 **v2 timezone protocol (2026-04-21):** `TriggerConfig` now enforces a `timezone` field for all time-bearing triggers. `run_at` is strictly naive (no tzinfo). IANA validation is performed via `zoneinfo.ZoneInfo`. This is the v2 timezone protocol per spec `2026-04-21-job-timezone-redesign-design.md`.
+
+**`TriggerConfig.immediate()` (2026-06-01):** canonical "fire now" one_off trigger — `run_at` = current UTC wall-clock as a naive datetime + `timezone="UTC"`. Added because `/api/jobs/complex` hand-built `{"trigger_type":"immediate","run_at":utc_now()}`, violating the contract three ways (no such field `trigger_type`; aware `run_at` rejected by `run_at_must_be_naive`; missing `timezone`) so that endpoint failed every time. Always use `immediate()` instead of hand-rolling an immediate-trigger dict.
 
 ## Upstream / Downstream
 

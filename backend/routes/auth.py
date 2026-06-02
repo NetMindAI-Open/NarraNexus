@@ -111,6 +111,19 @@ def _run_is_live(ar_row: dict, now: Optional[datetime] = None) -> bool:
     return (now - parsed) <= timedelta(seconds=_RUN_STALE_AFTER_S)
 
 
+def _schedule_login_rearm(user_id: str) -> None:
+    """On login, kick a background edge-recovery: if the user is now provider-
+    ready (e.g. they topped up / fixed config while away), revive their
+    PAUSED_NO_QUOTA jobs. Non-blocking — login responds immediately."""
+    try:
+        from xyz_agent_context.module.job_module.job_recovery import (
+            schedule_user_no_quota_rearm,
+        )
+        schedule_user_no_quota_rearm(user_id)
+    except Exception:  # noqa: BLE001 — never let recovery wiring break login
+        pass
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
@@ -159,6 +172,7 @@ async def login(request: LoginRequest):
             await user_repo.update_last_login(request.user_id)
             token = create_token(request.user_id, role)
             logger.info(f"User {request.user_id} logged in (cloud, role={role})")
+            _schedule_login_rearm(request.user_id)
             return LoginResponse(
                 success=True,
                 user_id=request.user_id,
@@ -169,6 +183,7 @@ async def login(request: LoginRequest):
             # Local mode: user_id only
             await user_repo.update_last_login(request.user_id)
             logger.info(f"User {request.user_id} logged in (local)")
+            _schedule_login_rearm(request.user_id)
             return LoginResponse(
                 success=True,
                 user_id=request.user_id,

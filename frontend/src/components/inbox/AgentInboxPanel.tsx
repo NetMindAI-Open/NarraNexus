@@ -16,7 +16,6 @@ import { BracketEmptyState } from '@/components/nm';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
-import type { InboxRoom } from '@/types/api';
 
 // Local KPI card was removed — this panel now uses the shared <StatStrip />.
 
@@ -47,22 +46,18 @@ export function AgentInboxPanel() {
     const nextId = expandedRoomId === roomId ? null : roomId;
     setExpandedRoomId(nextId);
 
-    // When opening a room with unread messages, advance the read cursor to
-    // the latest message. Backend updates last_read_at; we refresh inbox
-    // afterward so badges disappear without requiring a manual reload.
-    if (nextId) {
-      const room: InboxRoom | undefined = rooms.find((r) => r.room_id === nextId);
-      if (room && room.unread_count > 0 && room.messages.length > 0 && agentId) {
-        const latest = [...room.messages].sort((a, b) => {
-          const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
-          const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
-          return tb - ta;
-        })[0];
-        if (latest?.message_id) {
-          api.markAgentMessageRead(latest.message_id, agentId)
-            .then(() => refreshAgentInbox(agentId, true))
-            .catch(() => { /* non-fatal: badge will refresh on next poll */ });
-        }
+    // 2026-05-28: clicking the channel row (either direction — expand
+    // OR collapse) clears ALL of that channel's unread. Previously we
+    // only marked the latest VISIBLE message as read, which silently
+    // left a tail behind when `room.messages` was capped at 50 but
+    // `unread_count` was 100+. The room-level endpoint advances
+    // `last_read_at` to NOW server-side so the badge always zeroes out.
+    if (agentId && roomId) {
+      const room = rooms.find((r) => r.room_id === roomId);
+      if (room && room.unread_count > 0) {
+        api.markAgentRoomRead(roomId, agentId)
+          .then(() => refreshAgentInbox(agentId, true))
+          .catch(() => { /* non-fatal: badge will refresh on next poll */ });
       }
     }
   };

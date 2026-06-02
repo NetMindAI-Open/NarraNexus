@@ -35,17 +35,22 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_audit_events import (
+    EVENT_ATTACHMENT_FETCH_FAILED,
+    EVENT_ATTACHMENT_PERSISTED,
+    EVENT_INGRESS_DROPPED_OVERSIZED,
+)
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
     ChannelHistoryConfig,
 )
 from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
     ChatType,
@@ -295,15 +300,93 @@ class TelegramTrigger(ChannelTriggerBase):
             self._sdk_clients.pop(key, None)
 
     def parse_event(self, raw: dict) -> Optional[ParsedMessage]:
-        """Telegram update → ParsedMessage. None means "skip"."""
+        """Telegram update → ParsedMessage. None means "skip".
+
+        Phase 1a: media support added — ``document``, ``photo``, ``voice``,
+        ``audio``, ``video`` payloads are converted to platform-neutral
+        refs in ``raw["attachment_refs"]`` and ``fetch_attachments``
+        downloads them. ``content`` carries the message text or
+        ``caption`` (when only media + caption arrived). Returns ``None``
+        only when neither text nor a supported attachment exists
+        (stickers, locations, contact cards — still out of scope).
+        """
         msg = raw.get("message")
         if not msg:
             # We only allowed "message" updates; ignore everything else.
             return None
-        text = msg.get("text", "") or ""
-        if not text:
-            # Phase 4 is text-only. Skip media/voice/file/sticker/etc.
-            # (See reference/self_notebook/todo/2026-05-09-multimodal-im-ingest.md.)
+
+        # Telegram puts plain text in ``text``; media-only messages put
+        # the framing line (if any) in ``caption``. Treat them
+        # interchangeably for ``ParsedMessage.content``.
+        text = msg.get("text", "") or msg.get("caption", "") or ""
+
+        # Build attachment refs in priority order. Telegram messages
+        # carry exactly one media kind, so the ``elif`` cascade is fine.
+        refs: list[dict[str, Any]] = []
+        content_type = MessageContentType.TEXT
+        if "document" in msg:
+            doc = msg["document"]
+            refs.append({
+                "kind": "document",
+                "platform_ref": doc.get("file_id", ""),
+                "original_name": doc.get("file_name") or doc.get("file_id", "file"),
+                "mime_hint": doc.get("mime_type", "") or "",
+                "size_hint": int(doc.get("file_size", 0) or 0),
+            })
+            content_type = MessageContentType.FILE
+        elif isinstance(msg.get("photo"), list) and msg["photo"]:
+            # photo is a list of PhotoSize — pick the LAST entry (largest).
+            # Each PhotoSize has file_id / file_unique_id / file_size.
+            largest = msg["photo"][-1] or {}
+            unique = largest.get("file_unique_id") or largest.get("file_id", "photo")
+            refs.append({
+                "kind": "photo",
+                "platform_ref": largest.get("file_id", ""),
+                "original_name": f"{unique}.jpg",
+                "mime_hint": "image/jpeg",
+                "size_hint": int(largest.get("file_size", 0) or 0),
+            })
+            content_type = MessageContentType.IMAGE
+        elif "voice" in msg:
+            v = msg["voice"]
+            unique = v.get("file_unique_id") or v.get("file_id", "voice")
+            refs.append({
+                "kind": "voice",
+                "platform_ref": v.get("file_id", ""),
+                "original_name": f"{unique}.ogg",
+                "mime_hint": v.get("mime_type", "") or "audio/ogg",
+                "size_hint": int(v.get("file_size", 0) or 0),
+            })
+            content_type = MessageContentType.AUDIO
+        elif "audio" in msg:
+            a = msg["audio"]
+            unique = a.get("file_unique_id") or a.get("file_id", "audio")
+            # Telegram audio has optional file_name (only present for
+            # uploaded MP3s with metadata) — fall back to unique id + ext.
+            ext = ".mp3"
+            refs.append({
+                "kind": "audio",
+                "platform_ref": a.get("file_id", ""),
+                "original_name": a.get("file_name") or f"{unique}{ext}",
+                "mime_hint": a.get("mime_type", "") or "audio/mpeg",
+                "size_hint": int(a.get("file_size", 0) or 0),
+            })
+            content_type = MessageContentType.AUDIO
+        elif "video" in msg:
+            v = msg["video"]
+            unique = v.get("file_unique_id") or v.get("file_id", "video")
+            refs.append({
+                "kind": "video",
+                "platform_ref": v.get("file_id", ""),
+                "original_name": v.get("file_name") or f"{unique}.mp4",
+                "mime_hint": v.get("mime_type", "") or "video/mp4",
+                "size_hint": int(v.get("file_size", 0) or 0),
+            })
+            content_type = MessageContentType.VIDEO
+
+        # Drop only when there's nothing actionable at all.
+        # Sticker / location / contact / poll / dice fall through to here.
+        if not text and not refs:
             return None
 
         from_user = msg.get("from", {})
@@ -326,9 +409,11 @@ class TelegramTrigger(ChannelTriggerBase):
         last = from_user.get("last_name", "") or ""
         sender_name = " ".join(p for p in (first, last) if p) or sender_id
 
-        # Mentions: parse "entities" of type "mention" / "text_mention"
+        # Mentions: parse "entities" of type "mention" / "text_mention".
+        # For media messages with a caption, entities live under
+        # ``caption_entities`` instead — merge both sources.
         mentions: list[str] = []
-        for ent in msg.get("entities", []):
+        for ent in (msg.get("entities") or []) + (msg.get("caption_entities") or []):
             if not isinstance(ent, dict):
                 continue
             etype = ent.get("type", "")
@@ -353,13 +438,22 @@ class TelegramTrigger(ChannelTriggerBase):
         reply_to_id = reply_msg.get("message_id")
         reply_to_str: Optional[str] = str(reply_to_id) if reply_to_id is not None else None
 
+        # Stash refs in ``raw`` so fetch_attachments can read them later
+        # without polluting the canonical ParsedMessage schema. We make
+        # a shallow copy first (``raw = dict(raw)``) so the caller's dict
+        # is never mutated — matches the immutability contract used by
+        # SlackTrigger and LarkTrigger's parse_event implementations.
+        if refs:
+            raw = dict(raw)
+            raw["attachment_refs"] = refs
+
         return ParsedMessage(
             message_id=str(msg["message_id"]),
             chat_id=chat_id,
             sender_id=sender_id,
             sender_name=sender_name,
             content=text,
-            content_type=MessageContentType.TEXT,
+            content_type=content_type,
             chat_type=chat_type,
             timestamp_ms=int(msg.get("date", 0)) * 1000,
             reply_to_message_id=reply_to_str,
@@ -367,6 +461,178 @@ class TelegramTrigger(ChannelTriggerBase):
             mentions=mentions,
             raw=raw,
         )
+
+    async def fetch_attachments(  # type: ignore[override]
+        self, message: ParsedMessage, credential: TelegramCredential
+    ) -> list[Attachment]:
+        """Download every attachment ref via Telegram's two-step bot API.
+
+        Never-raises. Per-ref failures (network, oversized, missing
+        file_path) are audited and skipped; remaining successful
+        downloads still flow to the agent.
+        """
+        refs = (message.raw or {}).get("attachment_refs") or []
+        if not refs:
+            return []
+
+        # Pull the cached long-poll SDK client. Watcher populates this
+        # in connect(); if it's missing (very early in start(), tests
+        # that exercise fetch_attachments directly), fall back to a
+        # short-lived client so the hook stays usable in isolation.
+        key = self._subscriber_key(credential)
+        client = self._sdk_clients.get(key)
+        own_client = client is None
+        if own_client:
+            client = TelegramSDKClient(credential.bot_token)
+
+        from backend.config import settings as backend_settings
+        max_bytes = backend_settings.max_upload_bytes
+
+        out: list[Attachment] = []
+        try:
+            for ref in refs:
+                platform_ref = ref.get("platform_ref") or ""
+                if not platform_ref:
+                    continue
+                size_hint = int(ref.get("size_hint", 0) or 0)
+                original_name = ref.get("original_name") or platform_ref
+                mime_hint = ref.get("mime_hint", "") or ""
+
+                # Backend cap pre-check. Telegram's 20 MB platform cap is
+                # enforced by the SDK; this catches the (rarer) case where
+                # backend cap is tighter than 20 MB.
+                if size_hint and size_hint > max_bytes:
+                    logger.info(
+                        f"[telegram:{credential.agent_id}] refusing oversized "
+                        f"attachment {original_name!r}: size_hint={size_hint} "
+                        f"> max_upload_bytes={max_bytes}"
+                    )
+                    await self._audit(
+                        EVENT_INGRESS_DROPPED_OVERSIZED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "size_hint": size_hint,
+                            "max_upload_bytes": max_bytes,
+                            "reason": "backend_max_upload_bytes",
+                        },
+                    )
+                    continue
+
+                try:
+                    raw_bytes, _file_path = await client.download_file(
+                        platform_ref, size_hint=size_hint or None
+                    )
+                except TelegramSDKError as e:
+                    # ``oversized`` from the SDK is a separate audit event so
+                    # ops can distinguish "Telegram 20MB platform cap" from
+                    # "general fetch failure".
+                    if e.code == "oversized":
+                        await self._audit(
+                            EVENT_INGRESS_DROPPED_OVERSIZED,
+                            message_id=message.message_id,
+                            agent_id=credential.agent_id,
+                            app_id=getattr(credential, "app_id", ""),
+                            chat_id=message.chat_id,
+                            sender_id=message.sender_id,
+                            details={
+                                "platform_ref": platform_ref,
+                                "size_hint": size_hint,
+                                "reason": "telegram_bot_20mb_cap",
+                            },
+                        )
+                    else:
+                        logger.warning(
+                            f"[telegram:{credential.agent_id}] download_file "
+                            f"failed for {platform_ref!r}: {e.code}: {e}"
+                        )
+                        await self._audit(
+                            EVENT_ATTACHMENT_FETCH_FAILED,
+                            message_id=message.message_id,
+                            agent_id=credential.agent_id,
+                            app_id=getattr(credential, "app_id", ""),
+                            chat_id=message.chat_id,
+                            sender_id=message.sender_id,
+                            details={
+                                "platform_ref": platform_ref,
+                                "error": f"{e.code}:{e}",
+                            },
+                        )
+                    continue
+
+                # Post-download size sanity check (in case size_hint was 0
+                # or lying).
+                if len(raw_bytes) > max_bytes:
+                    await self._audit(
+                        EVENT_INGRESS_DROPPED_OVERSIZED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "actual_size": len(raw_bytes),
+                            "max_upload_bytes": max_bytes,
+                            "reason": "post_download_oversize",
+                        },
+                    )
+                    continue
+
+                try:
+                    att = await self._persist_attachment(
+                        agent_id=credential.agent_id,
+                        raw_bytes=raw_bytes,
+                        original_name=original_name,
+                        mime_hint=mime_hint,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        f"[telegram:{credential.agent_id}] persist failed for "
+                        f"{original_name!r}: {type(e).__name__}: {e}"
+                    )
+                    await self._audit(
+                        EVENT_ATTACHMENT_FETCH_FAILED,
+                        message_id=message.message_id,
+                        agent_id=credential.agent_id,
+                        app_id=getattr(credential, "app_id", ""),
+                        chat_id=message.chat_id,
+                        sender_id=message.sender_id,
+                        details={
+                            "platform_ref": platform_ref,
+                            "error": f"persist:{type(e).__name__}:{e}",
+                        },
+                    )
+                    continue
+
+                out.append(att)
+                await self._audit(
+                    EVENT_ATTACHMENT_PERSISTED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "file_id": att.file_id,
+                        "mime_type": att.mime_type,
+                        "size_bytes": att.size_bytes,
+                        "category": att.category.value,
+                        "has_transcript": bool(att.transcript),
+                    },
+                )
+        finally:
+            if own_client:
+                try:
+                    await client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+
+        return out
 
     async def is_echo(
         self, message: ParsedMessage, credential: TelegramCredential
@@ -561,7 +827,3 @@ class TelegramTrigger(ChannelTriggerBase):
             f"Sorry, I hit an error processing your message: "
             f"{getattr(error, 'message', '') or 'unknown'}"
         )
-
-
-# Convenience for `re` users — keep import explicit to avoid lint warning
-_ = re  # currently unused at module scope, retained for future entity parsing

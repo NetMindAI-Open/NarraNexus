@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/lib/platform.ts
-last_verified: 2026-04-10
+last_verified: 2026-05-28
 stub: false
 ---
+
+## 2026-05-28 — TauriBridge fully wired (was Phase-4 stub)
+
+Every method on `TauriBridge` except `getLogs` used to `throw "Tauri
+runtime not available"`. `SystemPage` therefore always rendered the
+"Platform not available" empty state even in the dmg, even though
+all the Rust `#[tauri::command]` functions were registered and
+working. This wires them up:
+
+- `getServiceStatus` → `invoke("get_service_status")`
+- `getHealthStatus` (new) → `invoke("get_health_status")`
+- `startAllServices` → `invoke("start_all_services")`
+- `stopAllServices` → `invoke("stop_all_services")`
+- `restartService(id)` → `invoke("restart_service", { serviceId: id })`
+- `getAppMode` / `getAppConfig` → `invoke("get_app_mode" / "get_app_config")`
+- `openExternal` → `invoke("plugin:shell|open", { path: url })`
+
+Removed: `onHealthUpdate` and `onLog` subscription stubs — Rust does
+not emit these events. [[SystemPage.tsx]] polls instead.
+
+Also fixed a latent bug in the previous `getLogs` mapping: it accessed
+`e.service_id` (snake_case) on a JSON payload that arrives camelCase
+(Rust `LogEntry` has `#[serde(rename_all = "camelCase")]`), so every
+log line silently lost its `serviceId`. Now declared `LogEntry[]`
+directly with no remap.
 
 # platform.ts — PlatformBridge abstraction for Tauri vs web
 

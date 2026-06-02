@@ -81,8 +81,10 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, form
 
 # Repository
 from xyz_agent_context.repository import JobRepository
+from xyz_agent_context.services.service_audit import ServiceAuditor
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from zoneinfo import ZoneInfo
+from datetime import timedelta, timezone
 
 # Context builder (extracted: dependency outputs, social network, narrative, prompt assembly)
 from xyz_agent_context.module.job_module._job_context_builder import build_execution_prompt
@@ -124,6 +126,32 @@ def _is_no_quota_failure(result: Dict[str, Any]) -> bool:
         return True
     msg = (result.get("error") or "").lower()
     return any(m in msg for m in _NO_QUOTA_ERROR_MARKERS)
+
+
+# Transient-failure backoff (batch ②, 2026-06-01). A non-quota run failure
+# (network / 5xx / timeout / anything not in _NO_QUOTA_*) is treated as
+# transient: the job goes to COOLING with an exponentially growing cooldown and
+# retries when it elapses, instead of immediately rescheduling (which let a
+# persistently-failing job spin every interval). After _MAX_CONSECUTIVE_FAILURES
+# in a row it escalates to FAILED rather than cooling forever. A success resets
+# the counter. (铁律 #14: this spaces SCHEDULER retries, never caps a running
+# agent_loop — only a run that finished AND failed accrues backoff.)
+_BACKOFF_BASE_SECONDS = 60
+_BACKOFF_CAP_SECONDS = 3600
+_MAX_CONSECUTIVE_FAILURES = 8
+
+# PAUSED_NO_QUOTA recovery is edge-triggered (login / quota grant / preference
+# toggle / provider save call rearm_user_no_quota_jobs). The poll scan is only a
+# backstop for missed edges, so it runs at this low interval instead of every
+# 60s cycle (high-frequency scanning was the oscillation amplifier).
+_NO_QUOTA_BACKSTOP_INTERVAL_S = 900  # 15 minutes
+
+
+def _compute_cooldown_seconds(consecutive_failures: int) -> int:
+    """Exponential backoff: base · 2^(n-1), clamped to the cap.
+    n=1→60s, 2→120s, 3→240s, … capped at 3600s (1h)."""
+    n = max(1, consecutive_failures)
+    return min(_BACKOFF_BASE_SECONDS * (2 ** (n - 1)), _BACKOFF_CAP_SECONDS)
 
 
 class JobTrigger:
@@ -168,6 +196,12 @@ class JobTrigger:
         self._db = database_client  # May be None, lazy-loaded
         self.running = False
 
+        # Low-frequency backstop bookkeeping: the PAUSED_NO_QUOTA resume scan is
+        # only a safety net now (primary recovery is edge-triggered from the
+        # provider-mutation routes). Running it every poll cycle was wasteful and
+        # was the 2026-05-31 oscillation amplifier. Gate it to a slow interval.
+        self._last_no_quota_backstop = None
+
         # Repository (lazy initialization)
         self._job_repo: Optional[JobRepository] = None
 
@@ -176,6 +210,12 @@ class JobTrigger:
         self._running_jobs: Set[str] = set()  # Set of currently executing job_ids, prevents duplicate enqueue
         self._workers: List[asyncio.Task] = []
         self._poller_task: Optional[asyncio.Task] = None
+
+        # L2 observability — see services/service_audit.py. The cumulative
+        # enqueue counter rides the heartbeat detail so a frozen count in a
+        # stale heartbeat exposes a wedged poll loop (incident lesson #4).
+        self.audit = ServiceAuditor("job_trigger")
+        self._enqueued_total = 0
 
         logger.info(
             f"JobTrigger initialized: poll_interval={poll_interval}s, "
@@ -238,6 +278,7 @@ class JobTrigger:
             logger.warning(f"Startup recovery: recovered {recovered} stuck running jobs")
 
         self.running = True
+        await self.audit.started({"poll_interval": self.poll_interval})
 
         # Start Workers
         for i in range(self.max_workers):
@@ -267,6 +308,7 @@ class JobTrigger:
         """
         logger.info("Stopping JobTrigger gracefully...")
         self.running = False
+        await self.audit.stopped({"enqueued_total": self._enqueued_total})
 
         # Wait for queue to drain (max 30 seconds)
         try:
@@ -310,12 +352,17 @@ class JobTrigger:
         while self.running:
             try:
                 await self._poll_and_enqueue()
+                # Throttled L2 heartbeat carrying the cumulative enqueue
+                # counter — a stale row with a frozen count means the loop
+                # wedged though the process is still alive (lesson #4).
+                await self.audit.heartbeat({"enqueued_total": self._enqueued_total})
                 await asyncio.sleep(self.poll_interval)
             except asyncio.CancelledError:
                 logger.debug("Poller cancelled")
                 break
             except Exception as e:
                 logger.exception(f"Poller error: {e}")
+                await self.audit.error(str(e))
                 await asyncio.sleep(self.poll_interval)
 
     async def _worker(self, worker_id: int) -> None:
@@ -360,16 +407,22 @@ class JobTrigger:
         try:
             repo = self._get_job_repo()
 
-            # 1. First recover stuck tasks
-            recovered = await repo.recover_stuck_jobs(
-                timeout_minutes=self.job_timeout_minutes
-            )
-            if recovered > 0:
-                logger.info(f"Recovered {recovered} stuck jobs")
+            # 1. Diagnose long-running jobs (铁律 #14: surface for alerting,
+            # never force-recover a legitimate long agent_loop). Orphans left by
+            # a killed process are recovered at startup (recover_all_running_jobs).
+            await self._diagnose_long_running_jobs()
 
-            # 1.5 Resume jobs auto-paused for no-quota whose owner can now run
-            # again (quota restored or own provider configured) — #6 resume path.
-            await self._resume_eligible_no_quota_jobs()
+            # 1.5 Backstop only: scan PAUSED_NO_QUOTA at a low frequency to
+            # catch edge signals that were missed. Primary recovery is
+            # edge-triggered from the provider-mutation routes (see job_recovery).
+            now_ts = utc_now()
+            last = self._last_no_quota_backstop
+            if last is None or (now_ts - last).total_seconds() >= _NO_QUOTA_BACKSTOP_INTERVAL_S:
+                self._last_no_quota_backstop = now_ts
+                await self._resume_eligible_no_quota_jobs()
+
+            # 1.6 Re-arm COOLING jobs whose backoff cooldown has elapsed.
+            await self._rearm_cooled_jobs()
 
             # 2. Query jobs due for execution
             due_jobs = await repo.get_due_jobs()
@@ -384,6 +437,7 @@ class JobTrigger:
                 if job.job_id not in self._running_jobs:
                     self._running_jobs.add(job.job_id)
                     await self._job_queue.put(job)
+                    self._enqueued_total += 1
                     enqueued += 1
                 else:
                     logger.debug(f"Job {job.job_id} already running, skipped")
@@ -395,30 +449,31 @@ class JobTrigger:
             logger.exception(f"Error in poll_and_enqueue: {e}")
 
     async def _user_can_run(self, user_id: str) -> bool:
-        """Would a run for this user now resolve a provider? True if the system
-        free-tier quota is available OR the user has a complete own provider.
-        Mirrors ProviderResolver's success conditions cheaply (no agent loop) so
-        the poller can decide when to lift a PAUSED_NO_QUOTA. Respects 铁律 #15:
-        own-provider users always pass, so their jobs never stay paused."""
+        """Would a run for this user resolve a provider right now?
+
+        Delegates to the single classifier (`ProviderResolver.classify` via
+        `classify_provider_for_user`) so this resume gate can never drift from
+        the runtime again — that drift was the root cause of the 2026-05-31
+        pause/resume oscillation. The OLD implementation checked
+        "quota.check() OR own-provider-complete", which IGNORED
+        `prefer_system_override`: a user opted in to the (exhausted) free tier
+        who also had an own provider was judged runnable, resumed, then
+        rejected by the runtime (it will not silently spend their own key) —
+        forever.
+
+        铁律 #15 is still honoured: opted-out own-provider users pass via
+        USER_OK; the platform never overrides the user's provider choice. It
+        only stops resuming a job into a run the runtime will refuse.
+        """
         try:
-            from xyz_agent_context.agent_framework.quota_service import QuotaService
-            if await QuotaService.default().check(user_id):
-                return True
-        except Exception as e:  # noqa: BLE001 — quota subsystem optional/unbootstrapped
-            logger.debug(f"_user_can_run quota check failed for {user_id}: {e}")
-        try:
-            from xyz_agent_context.agent_framework.user_provider_service import (
-                UserProviderService,
-            )
             from xyz_agent_context.agent_framework.provider_resolver import (
-                _is_user_config_complete,
+                classify_provider_for_user,
+                is_runnable,
             )
-            cfg = await UserProviderService(self.db).get_user_config(user_id)
-            if _is_user_config_complete(cfg):
-                return True
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"_user_can_run provider check failed for {user_id}: {e}")
-        return False
+            return is_runnable(await classify_provider_for_user(user_id, self.db))
+        except Exception as e:  # noqa: BLE001 — quota/provider subsystem optional/unbootstrapped
+            logger.debug(f"_user_can_run classify failed for {user_id}: {e}")
+            return False
 
     async def _resume_eligible_no_quota_jobs(self) -> int:
         """Flip PAUSED_NO_QUOTA jobs back to ACTIVE when the owner can run again.
@@ -456,22 +511,66 @@ class JobTrigger:
             logger.exception(f"Error resuming PAUSED_NO_QUOTA jobs: {e}")
             return 0
 
-    async def _get_due_jobs(self) -> List[JobModel]:
-        """
-        Query jobs that are due for execution.
-
-        Finds jobs where:
-        - next_run_time <= now()
-        - status in (PENDING, ACTIVE)
-
-        Returns:
-            List of JobModel instances ready for execution
-        """
+    async def _rearm_cooled_jobs(self) -> int:
+        """Flip COOLING jobs back to ACTIVE once their backoff cooldown has
+        elapsed (time-based recovery — unlike PAUSED_NO_QUOTA, a cooling job's
+        blocker is purely the clock, so polling is the natural trigger). The
+        consecutive-failure count is preserved so a job that keeps failing keeps
+        escalating its backoff and eventually hits the FAILED cap. next_run_time
+        was set to cooldown_until when the job entered COOLING, so the re-armed
+        job is immediately due."""
         try:
-            return await self._get_job_repo().get_due_jobs()
+            repo = self._get_job_repo()
+            cooling = await repo.get_jobs_by_status(JobStatus.COOLING)
+            if not cooling:
+                return 0
+            now = utc_now()
+            rearmed = 0
+            for job in cooling:
+                cu = job.cooldown_until
+                if cu is not None:
+                    # Normalize to aware-UTC so the comparison is correct
+                    # whether the DB round-tripped a naive or aware datetime.
+                    if cu.tzinfo is None:
+                        cu = cu.replace(tzinfo=timezone.utc)
+                    if cu > now:
+                        continue  # still cooling
+                await repo.update_job(job.job_id, {
+                    "status": JobStatus.ACTIVE.value,
+                    "cooldown_until": None,
+                })
+                rearmed += 1
+                logger.info(f"Job {job.job_id} re-armed from COOLING (retry)")
+            if rearmed:
+                logger.info(f"Re-armed {rearmed} job(s) from COOLING")
+            return rearmed
         except Exception as e:
-            logger.exception(f"Error getting due jobs: {e}")
-            return []
+            logger.exception(f"Error re-arming COOLING jobs: {e}")
+            return 0
+
+    async def _diagnose_long_running_jobs(self) -> int:
+        """Surface jobs that have been RUNNING longer than the timeout as a
+        diagnostic WARNING — but DO NOT touch them (铁律 #14: long agent_loops
+        are legitimate; force-recovering one would interrupt valid work and
+        duplicate execution). Returns the number flagged. An operator can alert
+        on these log lines; a genuinely orphaned RUNNING row (killed process) is
+        reset at the next process start by recover_all_running_jobs."""
+        try:
+            repo = self._get_job_repo()
+            long_running = await repo.find_long_running_jobs(
+                threshold_minutes=self.job_timeout_minutes
+            )
+            for job in long_running:
+                logger.warning(
+                    f"[diagnostic] Job {job.job_id} has been RUNNING > "
+                    f"{self.job_timeout_minutes}min (started_at={job.started_at}). "
+                    f"Not force-recovering (铁律 #14) — verify the agent_loop is "
+                    f"alive, not hung."
+                )
+            return len(long_running)
+        except Exception as e:
+            logger.exception(f"Error diagnosing long-running jobs: {e}")
+            return 0
 
     # =========================================================================
     # Job Execution
@@ -793,6 +892,61 @@ The task was executed but produced no text output.
                     f"{result.get('error_type') or result.get('error')}"
                 )
                 return
+
+            # Transient failure (not quota): exponential backoff via COOLING,
+            # escalating to FAILED after the consecutive-failure cap. This
+            # replaces the old "any failure reschedules straight to ACTIVE",
+            # which let a persistently-failing job spin every interval.
+            if not result.get("success", True):
+                new_count = (job.consecutive_failure_count or 0) + 1
+                err = result.get("error")
+                if new_count >= _MAX_CONSECUTIVE_FAILURES:
+                    await repo.update_job(job.job_id, {
+                        "status": JobStatus.FAILED.value,
+                        "consecutive_failure_count": new_count,
+                        "paused_reason": "repeated_failure",
+                        "paused_at": now,
+                        "last_error": err,
+                    })
+                    await repo.clear_next_run(job.job_id)
+                    if job.instance_id:
+                        await self._update_instance_failed(job.instance_id)
+                    logger.warning(
+                        f"Job {job.job_id} FAILED after {new_count} consecutive "
+                        f"transient failures: {err}"
+                    )
+                    return
+
+                cooldown_secs = _compute_cooldown_seconds(new_count)
+                retry_at = now + timedelta(seconds=cooldown_secs)
+                tz_name = (job.trigger_config.timezone if job.trigger_config else None) or "UTC"
+                retry_local = retry_at.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None).isoformat()
+                await repo.update_job(job.job_id, {
+                    "status": JobStatus.COOLING.value,
+                    "consecutive_failure_count": new_count,
+                    "cooldown_until": retry_at,
+                    "next_run_time": retry_at,
+                    "next_run_at_local": retry_local,
+                    "next_run_tz": tz_name,
+                    "last_error": err,
+                })
+                # Do NOT touch instance status: a COOLING job has not reached a
+                # terminal state, so dependents stay blocked until it finally
+                # succeeds (completed) or gives up (failed).
+                logger.warning(
+                    f"Job {job.job_id} cooling (failure {new_count}/"
+                    f"{_MAX_CONSECUTIVE_FAILURES}), retry at {retry_local} ({tz_name})"
+                )
+                return
+
+            # Success: clear any prior transient-failure backoff state before the
+            # normal complete/reschedule branching below.
+            if (job.consecutive_failure_count or 0) > 0 or job.cooldown_until is not None:
+                await repo.update_job(job.job_id, {
+                    "consecutive_failure_count": 0,
+                    "cooldown_until": None,
+                    "paused_reason": None,
+                })
 
             # Handle based on job type
             if job.job_type == JobType.ONE_OFF:

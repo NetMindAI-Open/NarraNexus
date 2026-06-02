@@ -28,6 +28,9 @@ const STATE_META: Record<
   blocked:  { icon: '🟠', label: 'blocked', cls: 'text-[var(--color-yellow-500)]' },
   paused:   { icon: '🟡', label: 'paused',  cls: 'text-[var(--color-yellow-500)]' },
   failed:   { icon: '🔴', label: 'failed',  cls: 'text-[var(--color-red-500)]' },
+  cooling:         { icon: '🕒', label: 'retrying',  cls: 'text-[var(--color-yellow-500)]' },
+  paused_no_quota: { icon: '🟡', label: 'no quota',  cls: 'text-[var(--color-yellow-500)]' },
+  blocked_failed:  { icon: '🔴', label: 'dep failed', cls: 'text-[var(--color-red-500)]' },
 };
 
 export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
@@ -166,7 +169,7 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
                 onClick={(e) => runAction(e, () => api.pauseJob(jobId), 'Pause')}
               />
             )}
-            {state === 'paused' && (
+            {(state === 'paused' || state === 'paused_no_quota' || state === 'cooling' || state === 'blocked_failed') && (
               <ActionBtn
                 label={action ?? 'Resume'}
                 onClick={(e) => runAction(e, () => api.resumeJob(jobId), 'Resume')}

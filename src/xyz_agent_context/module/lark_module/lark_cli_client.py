@@ -28,6 +28,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import re
+import tempfile
+
+# Validate format of Lark identifiers (message_id, file_key, image_key)
+# before they enter the resource-fetch URL. Lark's actual IDs are
+# alphanumeric with underscore/hyphen prefixes (om_xxx, file_v3_xxx,
+# img_xxxxx). create_subprocess_exec prevents shell injection, but a
+# message_id like "om_x/../../../admin" would still construct an
+# unintended URL path. Hard-gate the format here.
+_LARK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 from pathlib import Path
 from typing import Optional
 
@@ -114,6 +125,8 @@ class LarkCLIClient:
         agent_id: str,
         stdin_data: str = "",
         timeout: float = 60.0,
+        *,
+        capture_binary: bool = False,
     ) -> dict:
         """Single routing entrypoint for every agent-scoped lark-cli call.
 
@@ -127,6 +140,12 @@ class LarkCLIClient:
         Special case: `config init --new` (interactive app creation) is
         called BEFORE the credential exists, so it bypasses hydration and
         goes straight to `_run_with_home`.
+
+        When ``capture_binary=True``, stdout is treated as a status
+        channel rather than a JSON payload — used by binary endpoints
+        like ``api GET /open-apis/im/v1/messages/.../resources/...``
+        which write the response body to ``--output <path>``. See
+        ``fetch_message_resource``.
         """
         is_init_new = (
             len(args) >= 3
@@ -165,7 +184,14 @@ class LarkCLIClient:
         logger.debug(
             f"lark-cli [{agent_id}/{cred.profile_name}] cwd={cwd}: {' '.join(cmd)}"
         )
-        return await self._exec_lark_cli(cmd, stdin_data, timeout, env=env, cwd=cwd)
+        return await self._exec_lark_cli(
+            cmd,
+            stdin_data,
+            timeout,
+            env=env,
+            cwd=cwd,
+            capture_binary=capture_binary,
+        )
 
     # =========================================================================
     # Hydration: reconcile workspace config.json with DB
@@ -261,6 +287,8 @@ class LarkCLIClient:
         timeout: float,
         env: dict | None = None,
         cwd: Path | str | None = None,
+        *,
+        capture_binary: bool = False,
     ) -> dict:
         """Spawn lark-cli, collect stdout, parse JSON, handle errors.
 
@@ -272,6 +300,21 @@ class LarkCLIClient:
         readable mount). ``None`` means inherit the parent's CWD —
         only the lifecycle / setup flows that have no agent attached
         should use that.
+
+        Two stdout-handling modes (orthogonal to ``cwd``):
+
+        - **text mode** (``capture_binary=False``, default): parse stdout
+          as JSON and return ``{"success": True, "data": <parsed>}``. This
+          is the mode used by every existing call site.
+
+        - **binary mode** (``capture_binary=True``): the caller passed
+          ``--output <path>`` so lark-cli writes the response body to
+          disk and emits an empty stdout (success) or a JSON error
+          envelope (failure). Stdout is therefore NOT JSON on success
+          and must not be parsed. Returns ``{"success": True}`` (no
+          ``data``) on success; the caller is responsible for reading
+          ``--output``. Phase 1c added this mode for
+          ``fetch_message_resource``.
         """
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -313,6 +356,11 @@ class LarkCLIClient:
             except (json.JSONDecodeError, AttributeError):
                 pass
             return {"success": False, "error": error_msg, "error_data": error_data}
+
+        if capture_binary:
+            # Bytes went to --output; stdout is a status channel and is
+            # expected to be empty on success. Do NOT parse as JSON.
+            return {"success": True}
 
         try:
             data = json.loads(stdout_str) if stdout_str else {}
@@ -407,3 +455,79 @@ class LarkCLIClient:
             args.extend(["--user-id", user_id])
         args.extend(["--page-size", str(limit)])
         return await self._run_with_agent_id(args, agent_id)
+
+    async def fetch_message_resource(
+        self,
+        agent_id: str,
+        *,
+        message_id: str,
+        file_key: str,
+        resource_type: str,
+        timeout: float = 60.0,
+    ) -> bytes:
+        """Download a message resource binary via ``api GET .../resources/...``.
+
+        Lark's IM resource endpoint returns raw bytes (PDF, image, audio,
+        etc.) rather than JSON. We invoke lark-cli with ``--output
+        <tmpfile>`` so the bytes land on disk; the subprocess wrapper's
+        new ``capture_binary=True`` mode then skips stdout JSON-parsing.
+
+        ``resource_type`` ∈ {``file``, ``image``, ``audio``, ``video``,
+        ``media``}. See Lark docs:
+        https://open.larksuite.com/document/server-docs/im-v1/message/get-2
+
+        Raises ``RuntimeError`` on any failure (CLI error, empty output,
+        lark-cli not installed, bad identifier format). Callers in
+        ``LarkTrigger.fetch_attachments`` catch + audit + skip the ref,
+        preserving the never-raise contract at the trigger boundary.
+        """
+        # Validate identifier format BEFORE building the URL. The values
+        # originate from Lark events which we don't fully control;
+        # create_subprocess_exec already blocks shell injection, but a
+        # malformed message_id like "om_x/../../../admin" would still
+        # construct an unintended URL path. ``_LARK_ID_PATTERN`` accepts
+        # only the alphanumeric / underscore / hyphen format Lark actually
+        # uses for message_id / file_key / image_key.
+        if not _LARK_ID_PATTERN.match(message_id):
+            raise RuntimeError(
+                f"invalid message_id format: {message_id!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+        if not _LARK_ID_PATTERN.match(file_key):
+            raise RuntimeError(
+                f"invalid file_key format: {file_key!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
+            tmp_path = tmp.name
+        try:
+            args = [
+                "api", "GET",
+                f"/open-apis/im/v1/messages/{message_id}/resources/{file_key}",
+                "--params", json.dumps({"type": resource_type}),
+                "--output", tmp_path,
+            ]
+            result = await self._run_with_agent_id(
+                args, agent_id, timeout=timeout, capture_binary=True,
+            )
+            if not result.get("success"):
+                raise RuntimeError(
+                    f"lark-cli resource fetch failed: {result.get('error', 'unknown')}"
+                )
+            try:
+                raw = Path(tmp_path).read_bytes()
+            except OSError as e:
+                raise RuntimeError(
+                    f"lark-cli reported success but output file unreadable: {e}"
+                ) from e
+            if not raw:
+                raise RuntimeError(
+                    "lark-cli reported success but output file is empty"
+                )
+            return raw
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass

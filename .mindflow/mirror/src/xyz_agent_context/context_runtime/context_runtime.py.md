@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-05-20
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — EverMemOS removed
+
+The "Relevant Memory" prompt section is gone. `build_complete_system_prompt`
+and `run()` no longer take `relevant_episodes`; `_build_relevant_memory_prompt`
+was deleted; `_build_auxiliary_narratives_prompt` no longer takes
+`evermemos_memories` (it now renders only the auxiliary narrative summaries).
+System prompt is now: temporal context → main narrative → module instructions
+→ bootstrap. Long-term memory is the current narrative's full history, surfaced
+by [[chat_module.py]] as the unified timeline (see note below).
 
 ## 2026-05-20 (Fix #2 P1) — render the unified timeline; drop the cross-narrative system-prompt section
 

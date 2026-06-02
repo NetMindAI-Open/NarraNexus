@@ -46,6 +46,21 @@ POLL_MAX_INTERVAL = 120
 POLL_STEP_UP = 15
 
 
+def build_bus_anchor(messages: List[BusMessage]) -> str:
+    """Build the clean retrieval anchor for a bus turn.
+
+    The execution prompt (_build_prompt) wraps peer messages in a per-turn
+    ~1217-char Owner-Relay boilerplate + From/Time metadata — bus was the only
+    real 400 source in prod. The anchor keeps ONLY each peer's body (tagged
+    with the sender agent), so the narrative query vector is clean. Oversized
+    backlogs are still capped downstream by the embedding token guard.
+    See the 2026-06-01 design doc.
+    """
+    return "\n".join(
+        f"[From agent {m.from_agent}] {m.content}" for m in messages
+    )
+
+
 class MessageBusTrigger:
     """
     Background poller that processes pending MessageBus messages.
@@ -290,13 +305,16 @@ class MessageBusTrigger:
                 f"for channel {channel_id} ({len(messages)} messages)"
             )
 
-            # Call AgentRuntime
+            # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
+            # only, no Owner-Relay boilerplate) for narrative embedding — the
+            # execution `prompt` is far noisier. See 2026-06-01 design.
             response_text = await self._invoke_runtime(
                 agent_id=agent_id,
                 sender_agent_id=trigger_message.from_agent,
                 prompt=prompt,
                 channel_id=channel_id,
                 trigger_message_id=trigger_message.message_id,
+                retrieval_anchor=build_bus_anchor(messages),
             )
 
             # On success: advance cursor
@@ -332,6 +350,9 @@ class MessageBusTrigger:
     def _build_prompt(
         self, messages: List[BusMessage], owner_user_id: str = ""
     ) -> str:
+        # NOTE: this builds the full EXECUTION prompt (peer messages + the
+        # repeated Owner-Relay boilerplate). For narrative retrieval, embed
+        # build_bus_anchor(messages) instead — see the 2026-06-01 design doc.
         """
         Build a prompt from a list of pending messages.
 
@@ -409,6 +430,7 @@ class MessageBusTrigger:
         prompt: str,
         channel_id: str,
         trigger_message_id: str = "",
+        retrieval_anchor: str = "",
     ) -> str:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -436,6 +458,7 @@ class MessageBusTrigger:
             working_source=WorkingSource.MESSAGE_BUS,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
+                "retrieval_anchor": retrieval_anchor,
                 "trigger_id": (
                     f"bus_{trigger_message_id}"
                     if trigger_message_id

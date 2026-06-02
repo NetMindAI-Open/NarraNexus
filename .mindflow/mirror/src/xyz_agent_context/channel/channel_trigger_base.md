@@ -17,12 +17,42 @@ principle (see ``.mindflow/project/references/architecture.md``).
 
 ## Design decisions
 
-- **6 abstract methods + 2 PUSH stubs.** Subclasses implement
-  ``connect``, ``parse_event``, ``is_echo``, ``resolve_sender_name``,
-  ``create_context_builder``, ``load_active_credentials`` and nothing
-  else. PUSH-mode stubs (``handle_webhook``, ``verify_webhook``)
-  raise ``NotImplementedError`` until Phase 6 — they exist now only so
-  the future webhook routes can locate them via the base contract.
+- **6 abstract methods + 1 optional hook + 2 PUSH stubs.** Subclasses
+  implement ``connect``, ``parse_event``, ``is_echo``,
+  ``resolve_sender_name``, ``create_context_builder``,
+  ``load_active_credentials``. The optional ``fetch_attachments`` hook
+  (added in Phase 1a, default returns ``[]``) lets channels with media
+  ingestion override without forcing text-only channels to do anything.
+  PUSH-mode stubs (``handle_webhook``, ``verify_webhook``) raise
+  ``NotImplementedError`` until Phase 6.
+- **``_persist_attachment`` helper.** Lives in the base because the
+  download → MIME sniff → on-disk store → optional STT path is fully
+  channel-agnostic. Each channel subclass downloads bytes from its own
+  SDK then hands them to this helper. Workspace path resolution mirrors
+  WS upload exactly (``_resolve_agent_owner(agent_id) or agent_id``)
+  so the agent's Read tool finds the file at the same path the
+  attachment was written to.
+- **Attachment list flows via ``trigger_extra_data["attachments"]``.**
+  Mirrors ``backend/routes/websocket.py:644-648`` so ChatModule's
+  ``hook_data_gathering`` (which reads
+  ``ctx_data.extra_data["attachments"]``) treats IM-uploaded and
+  WS-uploaded files identically. The base only sets the key when the
+  list is non-empty — keeps text-only audits noise-free.
+
+- **Caption-less file uploads MUST flow** (Phase 1b regression-fix).
+  The empty-content guard in ``_process_message``:
+  ``if not message.content.strip(): return`` was originally written
+  in Phase 1a when ParsedMessage was text-only — an empty content
+  was a clear no-op. Phase 1b made files first-class, but the guard
+  wasn't updated. Real-world failure mode: user drag-drops a PDF
+  into Slack DM without typing anything → ``text=""`` +
+  ``files=[...]``. parse_event correctly extracted ``attachment_refs``
+  into ``raw``, but the base guard cut the message off BEFORE
+  ``fetch_attachments`` could ever run, with NO audit row at all
+  (the audit trail just stopped at ``debounce_merged``). The guard
+  now keeps the early-return only when BOTH ``content`` is empty
+  AND ``raw["attachment_refs"]`` is empty. Pin tested by
+  ``tests/channel/test_attachment_fetch_pipeline.py::test_caption_less_file_upload_still_processed``.
 - **Lazy AgentRuntime import.** Eager top-level import causes a
   circular load: ``channel/__init__.py`` re-exports
   ``ChannelTriggerBase`` for ergonomic use, but

@@ -36,6 +36,238 @@ roster). Fix in two parts:
   only fail. This is the accepted boundary — bot-only binds stay
   anonymous until the owner finishes Click 3.
 
+## 2026-05-21 — Phase 1c T9b/c/d: attachment ingestion wired into Lark trigger
+
+### Scope
+
+Lark **fully overrides** `_process_message` (the base class's machinery
+for fetch_attachments + extra_data injection doesn't run on Lark code
+paths). To make the 1a base abstraction reach Lark users we had to:
+
+1. Extend `parse_event` to populate `raw["attachment_refs"]` for
+   image / file / audio / media message_types.
+2. Override `fetch_attachments` with a Lark-specific implementation
+   that goes through `_cli.fetch_message_resource` (added in T8).
+3. Edit Lark's `_process_message` override to call `fetch_attachments`
+   after the echo filter and before `_build_and_run_agent`.
+4. Thread the returned `Attachment` list through
+   `_build_and_run_agent` into `trigger_extra_data["attachments"]`
+   so ChatModule's `hook_data_gathering` can synthesize the Read-tool
+   markers the same way the WS upload route does.
+5. Update the empty-content guard in `_process_message` to allow
+   caption-less file uploads — the same fix Phase 1b applied to the
+   base class in `a00adbd`, now mirrored here because Lark's override
+   has its own copy of the guard.
+
+### Files added to `parse_event` output
+
+`parse_event` now mutates a SHALLOW COPY of the input raw dict (never
+the caller's reference) and adds `attachment_refs` for media messages:
+
+| message_type | ref shape                                                   |
+|--------------|-------------------------------------------------------------|
+| `image`      | kind=image, platform_ref=image_key, name="<key>.png", mime="image/png" |
+| `file`       | kind=file,  platform_ref=file_key,  name=file_name, size=file_size  |
+| `audio`      | kind=audio, platform_ref=file_key,  name=file_name or `audio_<msg>` |
+| `media`      | kind=media, platform_ref=file_key,  name=file_name or `media_<msg>` |
+| `sticker`    | (skipped — platform asset, not user upload)                  |
+| `text`/`post`| (no refs)                                                    |
+
+Every ref also carries `lark_message_id` and `lark_resource_type`
+because Lark's IM resource download URL needs `(message_id, file_key, type)`
+all three — unlike Slack which gives us `url_private` standalone.
+
+### `fetch_attachments` implementation
+
+Per-ref pipeline:
+
+1. **Pre-check `size_hint > max_upload_bytes`** → audit
+   `EVENT_INGRESS_DROPPED_OVERSIZED` (`reason: "backend_max_upload_bytes"`).
+   Only image/file/media events carry `file_size`; audio omits it, so
+   this gate fires only for `file` type in practice.
+2. **`_cli.fetch_message_resource(agent_id, message_id, file_key, resource_type)`** —
+   wraps `lark-cli api GET .../resources/... --output <tmp>`. Returns
+   bytes; raises `RuntimeError` on CLI failure.
+3. **Post-download cap** — since lark-cli has no streaming mode, the
+   bytes are on disk before we can size-gate. Re-check `len(bytes)`
+   against `max_upload_bytes` and audit
+   `EVENT_INGRESS_DROPPED_OVERSIZED` (`reason: "post_download_cap"`)
+   on miss. This is the catch-net for `audio` / `media` / `image`
+   where `size_hint=0` at event time.
+4. **`_persist_attachment`** (inherited from base) — MIME sniff +
+   on-disk store + Whisper STT for `audio/*` MIME.
+5. **Audit `EVENT_ATTACHMENT_PERSISTED`** with file_id / mime / size /
+   category / has_transcript.
+
+Never-raises per the base contract: every failure is audited (as
+`EVENT_ATTACHMENT_FETCH_FAILED` for stage in {fetch, persist} or
+`EVENT_INGRESS_DROPPED_OVERSIZED` for size gates) and the next ref
+in the list continues. The trigger's `_process_message` also wraps
+the whole `fetch_attachments` call in `try/except` for double safety
+— matches Slack's pattern.
+
+### `_process_message` integration point
+
+The new call lands AFTER sender resolution + sanitization but BEFORE
+the agent run:
+
+```python
+# Empty-content guard now also allows attachment_refs to keep caption-
+# less drag-drops alive.
+has_refs = bool((message.raw or {}).get("attachment_refs"))
+if (not message.content or not message.content.strip()) and not has_refs:
+    return
+
+# ...sender_name resolution...
+
+# Phase 1c T9d
+attachments: list[Attachment] = []
+try:
+    attachments = await self.fetch_attachments(message, cred)
+except Exception as e:
+    # audit + degrade to text-only run
+
+output_text = await self._build_and_run_agent(
+    cred, message, sender_name, attachments=attachments,
+)
+```
+
+### `_build_and_run_agent` signature change
+
+Added a **keyword-only** parameter:
+
+```python
+async def _build_and_run_agent(
+    self, cred, message=None, sender_name=None,
+    event=None, chat_id=None, sender_id=None, text=None, message_id=None,
+    *,
+    attachments: Optional[list[Attachment]] = None,
+) -> str:
+```
+
+When `attachments` is non-empty, the method appends them to
+`trigger_extra_data["attachments"]` as JSON-serialized dicts — same
+shape as `backend/routes/websocket.py` produces and `ChatModule.hook_data_gathering`
+already consumes. Backward-compat is preserved: the legacy 7-arg call
+shape used by older tests still works (attachments defaults to None).
+
+### Why no Phase 2 refactor
+
+Tempting to make Lark stop overriding `_process_message` and inherit
+the base's instead. That's explicitly out of scope:
+
+- The base's `_process_message` doesn't call `_send_friendly_error_reply`
+  via `lark_cli`, doesn't write the Lark-flavored audit details, and
+  doesn't handle the dict-or-ParsedMessage legacy signature that 146
+  existing Lark tests rely on.
+- Phase 2 in the PRP plan owns that refactor; Phase 1c only ships
+  multimodal ingest with minimal surgery.
+
+### Tests
+
+`tests/lark_module/test_lark_attachment_ingest.py` (16 tests):
+
+- parse_event populates the right ref for each of image/file/audio/media
+- parse_event populates no refs for text/post/sticker
+- parse_event handles missing image_key / file_size defensively
+- fetch_attachments empty refs → []
+- fetch_attachments happy path persists PDF (mocked lark-cli + persist)
+- fetch_attachments oversized pre-check audits and skips, never calls lark-cli
+- fetch_attachments post-download cap audits and skips, never calls persist
+- fetch_attachments CLI failure audits and continues
+- fetch_attachments persist failure audits and continues
+- fetch_attachments never raises even on RuntimeError from cli
+
+Plus 4 new tests in `test_lark_parse_event.py` for the raw-dict-not-mutated
++ refs-superset invariants of T9b.
+
+## 2026-05-21 — Phase 1c T9a: `parse_event` JSON-fallback bug fix
+
+### The bug
+
+Before this commit, `parse_event` did:
+
+```python
+text = content_str
+if text.startswith("{"):
+    try:
+        text = json.loads(text).get("text", text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+```
+
+For `message_type == "text"` this works (Lark sends `{"text": "..."}`).
+But for `file` / `image` / `audio` / `media` / `sticker` messages, the
+content payload has NO top-level `"text"` key:
+
+```jsonc
+// file message:
+{"file_key": "file_v3_xxxxxxxxxxxxxxxx", "file_name": "report.pdf", "file_size": 154823}
+// image message:
+{"image_key": "img_v3_xxxxxxxxxxxxxxxx"}
+```
+
+`json.loads(payload).get("text", text)` falls back to `text` — the
+**original JSON string**. So `ParsedMessage.content` ended up holding
+the raw JSON, which then leaked into the agent's prompt as user-visible
+content. Real-world symptom: the agent received literal
+`{"file_key":"...","file_name":"report.pdf"}` instead of an empty
+caption + an attachment ref, and replied to the JSON.
+
+This bug was independent of (but bundled with) the multimodal ingestion
+work — Phase 1c needed to touch the same parse_event lines, so 治本不
+治标 (CLAUDE.md 铁律 #5) said fix both in one pass.
+
+### The fix
+
+Branch on `message_type`, route to typed extractors:
+
+- `text` payload with `"text"` key → return the text (also catches any
+  future message type that still carries `text` at top level)
+- `post` payload → `_extract_post_text(payload)` (mirrors the walker in
+  `_preview_message_content`)
+- everything else → empty string. File metadata flows via
+  `raw["attachment_refs"]` in Phase 1c T9b/c/d, NOT through the prompt body.
+
+New helpers (both `@staticmethod` on `LarkTrigger`):
+
+- `_extract_user_visible_content(content_str, message_type) -> str` —
+  dispatcher; handles JSON parse-failure / plain-string / empty fallback.
+- `_extract_post_text(payload) -> str` — flattens multi-language post
+  payloads to title + segment texts.
+
+Kept `_preview_message_content` (the audit-log preview) untouched to
+avoid risk of breaking the existing audit format; the two walkers
+diverge intentionally (preview is 160-char capped, content is full).
+
+### Tests
+
+`tests/lark_module/test_lark_parse_event.py` (20 tests):
+
+- happy path for `text` (ASCII, unicode, empty text field)
+- regression pins: `file`, `image`, `audio`, `media`, `sticker` MUST
+  produce empty content (this is the bug pin — TDD'd RED→GREEN)
+- `post` extraction (title + nested segments + multi-language picking)
+- edge cases: unknown type with text field still extracts, malformed
+  JSON doesn't crash, missing fields don't crash, plain-string content
+  still passes through (legacy fixtures)
+- `raw` dict preserved verbatim on `ParsedMessage.raw` (downstream
+  `is_echo` still reads `sender_type` etc.)
+
+### Why not refactor `_preview_message_content` to share code
+
+It WOULD save ~20 lines, but:
+
+1. The preview helper's 160-char truncation + flattening pipeline is
+   subtly different from full-content extraction (preview wants gist;
+   content wants user-visible).
+2. Touching it risks regressing the audit-log format — the preview is
+   embedded in `lark_trigger_audit.details.content_preview` and ops
+   tooling greps on its shape.
+3. The duplication is ~15 lines of trivial dict-walking. Cost low.
+
+Keep them separate; revisit only if a third caller appears.
+
 ## 2026-05-19 (PM) — `_ws_loop_exception_filter` now `loop.stop()`s instead of swallowing
 
 ### Incident that exposed it

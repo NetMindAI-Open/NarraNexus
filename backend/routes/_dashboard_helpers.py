@@ -264,7 +264,13 @@ async def fetch_last_activity(agent_ids: list[str]) -> dict[str, str | None]:
     return result
 
 
-_LIVE_JOB_STATES = ("running", "active", "pending", "blocked", "paused", "failed")
+# 2026-06-01: include the resilience states (cooling / paused_no_quota /
+# blocked_failed) so the dashboard surfaces them instead of silently dropping
+# them at the WHERE filter (paused_no_quota was already an invisible gap).
+_LIVE_JOB_STATES = (
+    "running", "active", "pending", "blocked", "paused", "failed",
+    "cooling", "paused_no_quota", "blocked_failed",
+)
 
 
 async def fetch_jobs(agent_ids: list[str]) -> dict[str, dict[str, list[dict]]]:

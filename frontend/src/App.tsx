@@ -103,7 +103,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn) {
     // Preserve the URL the user was trying to reach so LoginPage can send
     // them back after auth. This is what makes "Install in NarraNexus →
-    // Cloud" from website.narra.nexus land on the import page, not /chat.
+    // Cloud" from www.narra.nexus land on the import page, not /chat.
     // RegisterPage does NOT read `next` yet — fresh signups still land on
     // the default. Tracked as a known edge case.
     const next = encodeURIComponent(location.pathname + location.search);

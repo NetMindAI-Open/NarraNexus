@@ -1,10 +1,16 @@
 """
-@file_name: event_memory_module.py
+@file_name: event_memory_repository.py
 @author: NetMind.AI
 @date: 2025-12-09
-@description: Event Memory Module
+@description: Event Memory Repository — narrative-level memory persistence.
 
-This module is an infrastructure module that provides Narrative-level Memory storage capabilities for other Modules.
+Data-access layer (NOT a Module) providing narrative-level Memory storage.
+Historically this lived under module/event_memory_module/ and subclassed
+XYZBaseModule, which made ChatModule import a sibling "module" — a false
+iron-rule-#3 violation, since it was never registered in MODULE_MAP and
+its Module hooks were never scheduled. It is in fact pure data access, so
+it now lives in repository/ as EventMemoryRepository with a plain
+constructor (no Module base, no get_config/get_mcp_config).
 
 Design Principles:
 ==================
@@ -15,7 +21,7 @@ Based on the Module Memory layered design (see requirements/narrative_refactor/m
    - Not related to this module
 
 2. Narrative-level data: Isolated by narrative_id, belongs to a specific storyline
-   - Managed centrally by this module (EventMemoryModule)
+   - Managed centrally by this module (EventMemoryRepository)
    - Stored in json_format_event_memory_{module_name} tables
    - This is the Module Instance's "memory", determining differences between instances
 
@@ -38,8 +44,8 @@ Table Structure:
 
 Usage:
 ======
-Other Modules can use EventMemoryModule in the following ways:
-1. Create an EventMemoryModule instance in __init__
+Other Modules can use EventMemoryRepository in the following ways:
+1. Create an EventMemoryRepository instance in __init__
 2. Call search_json_format_memory in hook_data_gathering to retrieve Memory
 3. Call add_json_format_memory in hook_after_event_execution to store Memory
 4. Call update_report_memory in hook_after_event_execution to update reports
@@ -48,16 +54,14 @@ Other Modules can use EventMemoryModule in the following ways:
 from typing import Optional, Dict, Any, List
 from loguru import logger
 
-from xyz_agent_context.module import XYZBaseModule
-from xyz_agent_context.schema import MCPServerConfig, ModuleConfig
 from xyz_agent_context.utils import DatabaseClient
 
 
-class EventMemoryModule(XYZBaseModule):
+class EventMemoryRepository:
     """
-    Event Memory Module
+    Event Memory Repository — narrative-level memory persistence.
 
-    Provides Narrative-level Memory storage capabilities for other Modules.
+    Provides Narrative-level Memory storage capabilities for Modules.
 
     Core Responsibilities:
     1. Manage {module_name}_json_format_event_memory tables (structured Memory)
@@ -68,6 +72,7 @@ class EventMemoryModule(XYZBaseModule):
     - Each Module's Narrative-level data is stored in independent tables
     - Table name format: {module_name}_json_format_event_memory
     - All data is isolated by narrative_id
+    - Plain data-access class (no Module base): callers inject the db client.
     """
 
     def __init__(
@@ -76,23 +81,12 @@ class EventMemoryModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None
     ):
-        super().__init__(agent_id, user_id, database_client)
-        self.instructions = ""
+        self.agent_id = agent_id
+        self.user_id = user_id
+        self.db = database_client
 
         # Cache of already-checked tables
         self._checked_tables: set = set()
-
-    def get_config(self) -> ModuleConfig:
-        return ModuleConfig(
-            name="EventMemoryModule",
-            priority=99,  # High priority (infrastructure module)
-            enabled=True,
-            description="Provides Narrative-level Memory storage capabilities"
-        )
-
-    async def get_mcp_config(self) -> Optional[MCPServerConfig]:
-        """EventMemoryModule does not provide an MCP Server"""
-        return None
 
     # ================================================================================================
     # JSON Format Memory - Structured Memory Storage
@@ -164,10 +158,10 @@ class EventMemoryModule(XYZBaseModule):
         try:
             await self.db.execute(create_sql, fetch=False)
             self._checked_tables.add(table_name)
-            logger.info(f"EventMemoryModule: created table {table_name} successfully")
+            logger.info(f"EventMemoryRepository: created table {table_name} successfully")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to create table {table_name}: {e}")
+            logger.exception(f"EventMemoryRepository: failed to create table {table_name}: {e}")
             return False
 
     async def ensure_json_format_table(self, module_name: str) -> bool:
@@ -226,10 +220,10 @@ class EventMemoryModule(XYZBaseModule):
 
         try:
             await self.db.execute(upsert_sql, params=(narrative_id, memory_json), fetch=False)
-            logger.debug(f"EventMemoryModule: saved {module_name} Memory successfully, narrative_id={narrative_id}")
+            logger.debug(f"EventMemoryRepository: saved {module_name} Memory successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to save {module_name} Memory: {e}")
+            logger.exception(f"EventMemoryRepository: failed to save {module_name} Memory: {e}")
             return False
 
     async def search_json_format_memory(
@@ -268,7 +262,7 @@ class EventMemoryModule(XYZBaseModule):
             return None
 
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to query {module_name} Memory: {e}")
+            logger.exception(f"EventMemoryRepository: failed to query {module_name} Memory: {e}")
             return None
 
     async def delete_json_format_memory(
@@ -299,10 +293,10 @@ class EventMemoryModule(XYZBaseModule):
 
         try:
             await self.db.execute(delete_sql, params=(narrative_id,), fetch=False)
-            logger.debug(f"EventMemoryModule: deleted {module_name} Memory successfully, narrative_id={narrative_id}")
+            logger.debug(f"EventMemoryRepository: deleted {module_name} Memory successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to delete {module_name} Memory: {e}")
+            logger.exception(f"EventMemoryRepository: failed to delete {module_name} Memory: {e}")
             return False
 
     def _get_json_format_table_name(self, module_name: str) -> str:
@@ -399,10 +393,10 @@ class EventMemoryModule(XYZBaseModule):
                 ]:
                     await self.db.execute(idx_sql, fetch=False)
             self._checked_tables.add(table_name)
-            logger.info(f"EventMemoryModule: created table {table_name} successfully")
+            logger.info(f"EventMemoryRepository: created table {table_name} successfully")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to create table {table_name}: {e}")
+            logger.exception(f"EventMemoryRepository: failed to create table {table_name}: {e}")
             return False
 
     async def update_report_memory(
@@ -450,10 +444,10 @@ class EventMemoryModule(XYZBaseModule):
                 params=(narrative_id, module_name, report_memory),
                 fetch=False
             )
-            logger.debug(f"EventMemoryModule: updated {module_name} status report successfully, narrative_id={narrative_id}")
+            logger.debug(f"EventMemoryRepository: updated {module_name} status report successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to update {module_name} status report: {e}")
+            logger.exception(f"EventMemoryRepository: failed to update {module_name} status report: {e}")
             return False
 
     async def get_report_memory(
@@ -500,7 +494,7 @@ class EventMemoryModule(XYZBaseModule):
             return {row["module_name"]: row["report_memory"] for row in result}
 
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to get status report: {e}")
+            logger.exception(f"EventMemoryRepository: failed to get status report: {e}")
             return None
 
     async def delete_report_memory(
@@ -536,10 +530,10 @@ class EventMemoryModule(XYZBaseModule):
 
         try:
             await self.db.execute(delete_sql, params=params, fetch=False)
-            logger.debug(f"EventMemoryModule: deleted status report successfully, narrative_id={narrative_id}")
+            logger.debug(f"EventMemoryRepository: deleted status report successfully, narrative_id={narrative_id}")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to delete status report: {e}")
+            logger.exception(f"EventMemoryRepository: failed to delete status report: {e}")
             return False
 
     # ================================================================================================
@@ -613,10 +607,10 @@ class EventMemoryModule(XYZBaseModule):
         try:
             await self.db.execute(create_sql, fetch=False)
             self._checked_tables.add(table_name)
-            logger.info(f"EventMemoryModule: created table {table_name} successfully")
+            logger.info(f"EventMemoryRepository: created table {table_name} successfully")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to create table {table_name}: {e}")
+            logger.exception(f"EventMemoryRepository: failed to create table {table_name}: {e}")
             return False
 
     async def ensure_instance_json_format_table(self, module_name: str) -> bool:
@@ -674,10 +668,10 @@ class EventMemoryModule(XYZBaseModule):
 
         try:
             await self.db.execute(upsert_sql, params=(instance_id, memory_json), fetch=False)
-            logger.debug(f"EventMemoryModule: saved {module_name} Instance Memory successfully, instance_id={instance_id}")
+            logger.debug(f"EventMemoryRepository: saved {module_name} Instance Memory successfully, instance_id={instance_id}")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to save {module_name} Instance Memory: {e}")
+            logger.exception(f"EventMemoryRepository: failed to save {module_name} Instance Memory: {e}")
             return False
 
     async def search_instance_json_format_memory(
@@ -716,7 +710,7 @@ class EventMemoryModule(XYZBaseModule):
             return None
 
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to query {module_name} Instance Memory: {e}")
+            logger.exception(f"EventMemoryRepository: failed to query {module_name} Instance Memory: {e}")
             return None
 
     async def delete_instance_json_format_memory(
@@ -747,10 +741,10 @@ class EventMemoryModule(XYZBaseModule):
 
         try:
             await self.db.execute(delete_sql, params=(instance_id,), fetch=False)
-            logger.debug(f"EventMemoryModule: deleted {module_name} Instance Memory successfully, instance_id={instance_id}")
+            logger.debug(f"EventMemoryRepository: deleted {module_name} Instance Memory successfully, instance_id={instance_id}")
             return True
         except Exception as e:
-            logger.exception(f"EventMemoryModule: failed to delete {module_name} Instance Memory: {e}")
+            logger.exception(f"EventMemoryRepository: failed to delete {module_name} Instance Memory: {e}")
             return False
 
     def _get_instance_json_format_table_name(self, module_name: str) -> str:

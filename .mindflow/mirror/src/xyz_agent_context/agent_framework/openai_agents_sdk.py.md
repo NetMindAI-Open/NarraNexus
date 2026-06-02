@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/openai_agents_sdk.py
-last_verified: 2026-05-28
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — self-downgrade events audited to DB (E2)
+
+`_audit_framework_downgrade(event_type, detail)` writes permanent
+downgrade events to the `service_audit` table (service="llm_framework")
+so they survive docker restart and are queryable (incident lesson #4/#5).
+Fired at: blocklist add (`agents_sdk_blocklisted`) and `_mark_unsupported`
+(`response_format_level_unsupported`). Best-effort, never raises.
+
+## 2026-05-29 — A1/A2 (blocklist isolation + slot model)
+
+Blocklist keyed by (base_url, model); only a clear "unsupported
+response_format" error blocklists (transient/5xx never do — lesson #3).
+`_resolve_model` honors the user's concrete slot model over a call-site
+hint (rule #15; hints are OpenAI-catalog names that 404 on third-party
+endpoints).
 
 ## 2026-05-28 — `_fallback_chat_completion` 升级成 3 层 response_format 阶梯
 

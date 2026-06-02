@@ -135,7 +135,8 @@ async def agents_status(request: Request, response: Response):
         # v2.1.1: queue counts (all 6 live states, no overlap — see fetch_jobs)
         queue_counts = {
             s: len(per_state.get(s, []))
-            for s in ("running", "active", "pending", "blocked", "paused", "failed")
+            for s in ("running", "active", "pending", "blocked", "paused", "failed",
+                      "cooling", "paused_no_quota", "blocked_failed")
         }
         queue_counts["total"] = sum(queue_counts.values())
 
@@ -143,7 +144,8 @@ async def agents_status(request: Request, response: Response):
         # a queue_status tag. Each job appears EXACTLY ONCE (was a v2.1 bug).
         pending_jobs_items: list[dict] = []
         seen_job_ids: set[str] = set()
-        for qstate in ("pending", "active", "blocked", "paused", "failed"):
+        for qstate in ("pending", "active", "blocked", "paused", "failed",
+                       "cooling", "paused_no_quota", "blocked_failed"):
             for j in per_state.get(qstate, []):
                 if j["job_id"] in seen_job_ids:
                     continue  # belt-and-suspenders dedup
@@ -509,17 +511,12 @@ async def pause_job(job_id: str, request: Request):
     agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
-    if rows[0]["status"] not in ("active", "pending"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"cannot pause from status={rows[0]['status']}",
-        )
-    await db.execute(
-        "UPDATE instance_jobs SET status='paused', updated_at=datetime('now') "
-        "WHERE job_id=%s",
-        (job_id,),
-        fetch=False,
-    )
+    # Portable core (repository, not backend-specific SQL) — also keeps pause
+    # semantics consistent with the JobTrigger state machine.
+    from xyz_agent_context.module.job_module.job_recovery import pause_job as _pause
+    ok, detail = await _pause(job_id, db)
+    if not ok:
+        raise HTTPException(status_code=400, detail=detail)
     return {"success": True, "job_id": job_id, "new_status": "paused"}
 
 
@@ -538,15 +535,10 @@ async def resume_job(job_id: str, request: Request):
     agent = await _assert_agent_visible(viewer_id, rows[0]["agent_id"])
     if agent["created_by"] != viewer_id:
         raise HTTPException(status_code=403, detail="not owned")
-    if rows[0]["status"] != "paused":
-        raise HTTPException(
-            status_code=400,
-            detail=f"cannot resume from status={rows[0]['status']}",
-        )
-    await db.execute(
-        "UPDATE instance_jobs SET status='pending', updated_at=datetime('now') "
-        "WHERE job_id=%s",
-        (job_id,),
-        fetch=False,
-    )
-    return {"success": True, "job_id": job_id, "new_status": "pending"}
+    # Portable core: handles paused / paused_no_quota / cooling / blocked_failed,
+    # recomputes next_run, clears backoff state, flips to ACTIVE.
+    from xyz_agent_context.module.job_module.job_recovery import resume_job as _resume
+    ok, detail = await _resume(job_id, db)
+    if not ok:
+        raise HTTPException(status_code=400, detail=detail)
+    return {"success": True, "job_id": job_id, "new_status": "active"}

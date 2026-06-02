@@ -51,6 +51,12 @@ const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor:
   // Surfaced here (not via a notification) so users see why a scheduled job
   // stopped firing; it auto-resumes once quota is restored or a provider added.
   paused_no_quota: { icon: Pause, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'No quota' },
+  // Transient-failure backoff: auto-retries when the cooldown elapses.
+  cooling: { icon: Clock, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'Retrying' },
+  // Waiting on prerequisite jobs.
+  blocked: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Blocked' },
+  // A prerequisite job failed and this job's policy is "block".
+  blocked_failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', label: 'Dep failed' },
   completed: { icon: CheckCircle, color: 'text-[var(--color-success)]', bgColor: 'bg-[var(--color-success)]/10', label: 'Completed' },
   failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', label: 'Failed' },
   cancelled: { icon: Ban, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Cancelled' },
@@ -92,6 +98,8 @@ export function JobsPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+  const [resumingJobId, setResumingJobId] = useState<string | null>(null);
+  const [pausingJobId, setPausingJobId] = useState<string | null>(null);
   const [failedExpanded, setFailedExpanded] = useState(false);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
@@ -175,6 +183,58 @@ export function JobsPanel() {
     return ['pending', 'active', 'running'].includes(status);
   };
 
+  const canResume = (status: string) => {
+    return ['paused', 'paused_no_quota', 'cooling', 'blocked_failed'].includes(status);
+  };
+
+  const canPause = (status: string) => {
+    return ['active', 'pending'].includes(status);
+  };
+
+  const handlePauseJob = async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    setPausingJobId(jobId);
+    try {
+      const res = await api.pauseJob(jobId);
+      if (res.success) {
+        refreshJobs(agentId, userId);
+      } else {
+        await alert({ title: 'Pause failed', message: 'Failed to pause job', danger: true });
+      }
+    } catch (err) {
+      console.error('Pause job error:', err);
+      await alert({ title: 'Pause failed', message: 'Failed to pause job. Please try again.', danger: true });
+    } finally {
+      setPausingJobId(null);
+    }
+  };
+
+  const handleResumeJob = async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    setResumingJobId(jobId);
+    try {
+      const res = await api.resumeJob(jobId);
+      if (res.success) {
+        refreshJobs(agentId, userId);
+      } else {
+        await alert({
+          title: 'Resume failed',
+          message: 'Failed to resume job',
+          danger: true,
+        });
+      }
+    } catch (err) {
+      console.error('Resume job error:', err);
+      await alert({
+        title: 'Resume failed',
+        message: 'Failed to resume job. Please try again.',
+        danger: true,
+      });
+    } finally {
+      setResumingJobId(null);
+    }
+  };
+
   return (
     <Card variant="glass" className="flex flex-col h-full">
       {confirmDialog}
@@ -246,7 +306,7 @@ export function JobsPanel() {
       {viewMode === 'list' && (
         <ScrollArea horizontal hideScrollbar className="border-t border-[var(--rule)]">
         <div className="px-5 py-2 flex gap-1">
-          {(['all', 'active', 'running', 'paused', 'paused_no_quota', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
+          {(['all', 'active', 'running', 'paused', 'paused_no_quota', 'cooling', 'blocked_failed', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
             const config = status !== 'all' ? statusConfig[status] : null;
             const isActive = statusFilter === status;
             return (
@@ -368,6 +428,12 @@ export function JobsPanel() {
                               isCancelling={isCancelling}
                               canCancel={canCancel(job.status)}
                               onCancel={handleCancelJob}
+                              canResume={canResume(job.status)}
+                              isResuming={resumingJobId === job.job_id}
+                              onResume={handleResumeJob}
+                              canPause={canPause(job.status)}
+                              isPausing={pausingJobId === job.job_id}
+                              onPause={handlePauseJob}
                             />
                           )}
                         </div>

@@ -460,12 +460,14 @@ class InstanceFactory:
                 InstanceStatus.IN_PROGRESS.value, "in_progress"
             ]
             if inst and inst.status in valid_statuses:
-                # For ChatModule, only load current user's instances
-                # Other users' ChatModule instances should not be loaded into the hook execution list
-                # Agent can query any user's history via get_chat_history(instance_id=...)
-                if inst.module_class == "ChatModule" and inst.user_id != user_id:
+                # Chat-history modules are per-user: only load the current
+                # user's instances. Other users' chat instances stay out of
+                # the hook execution list (the agent can still query any
+                # user's history via get_chat_history(instance_id=...)).
+                from xyz_agent_context.module import module_class_provides_chat_history
+                if module_class_provides_chat_history(inst.module_class) and inst.user_id != user_id:
                     logger.debug(
-                        f"Skipping other user's ChatModule instance: {inst_id} "
+                        f"Skipping other user's chat instance: {inst_id} "
                         f"(belongs to {inst.user_id}, current user is {user_id})"
                     )
                     continue

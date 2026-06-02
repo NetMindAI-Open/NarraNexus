@@ -56,6 +56,7 @@ from __future__ import annotations
 import hashlib
 from typing import Dict, List, Optional
 
+import tiktoken
 from loguru import logger
 
 # Retry utility for API calls
@@ -80,6 +81,28 @@ def _is_rate_limit_error(e: Exception) -> bool:
         return True
     msg = str(e).lower()
     return "429" in msg or "rate limit" in msg or "too many requests" in msg
+
+
+def _is_context_length_error(e: Exception) -> bool:
+    """True when an embedding call failed because the input exceeded the
+    model's maximum context (token) length.
+
+    This is the twin of ``_is_rate_limit_error``: a 400 of this kind is NOT
+    transient and must NOT enter the back-off retry loop. Instead the caller
+    truncates the input and retries once (see ``_make_embedding_request``).
+    We duck-type on the message text so it works across providers (OpenAI,
+    bge-m3 aggregators, …) which all phrase the error differently — 铁律 #9.
+    Rate-limit / other 400s must not match.
+    """
+    msg = str(e).lower()
+    markers = (
+        "maximum context length",
+        "maximum context",
+        "context_length_exceeded",
+        "reduce the length",
+        "too many tokens",
+    )
+    return any(m in msg for m in markers)
 
 
 # Retry policy for embedding API calls: transient network faults plus provider
@@ -126,8 +149,47 @@ MODEL_DIMENSIONS: Dict[str, int] = {
     "text-embedding-ada-002": 1536,
 }
 
-# Maximum tokens per request (approximate)
+# Maximum tokens per embedding request. This is a provider-agnostic safety
+# net measured in TOKENS, not characters (NarraNexus is CJK-heavy; char count
+# misleads). Set just below the ~8191/8192 limit shared by text-embedding-3
+# and bge-m3, leaving headroom so the truncated text never tips over.
 MAX_TOKENS_PER_REQUEST = 8000
+
+
+# Conservative, provider-agnostic token counter. We always use cl100k_base:
+# it splits CJK finer than bge-m3's XLM-R tokenizer, so its count is an UPPER
+# bound — truncating to a cl100k budget keeps a bge-m3 request safely under
+# its own limit too. We never assume the caller's model is an OpenAI one
+# (铁律 #9); cl100k is just a measuring stick, not an API coupling. The
+# reactive `_is_context_length_error` retry covers any residual disagreement.
+_TOKEN_ENCODER = None
+
+
+def _get_token_encoder():
+    """Lazily build and cache the cl100k_base encoder (first call loads the
+    BPE file; subsequent calls are free)."""
+    global _TOKEN_ENCODER
+    if _TOKEN_ENCODER is None:
+        _TOKEN_ENCODER = tiktoken.get_encoding("cl100k_base")
+    return _TOKEN_ENCODER
+
+
+def _count_tokens(text: str) -> int:
+    """Conservative token count for ``text`` (cl100k_base)."""
+    return len(_get_token_encoder().encode(text))
+
+
+def _truncate_to_token_budget(
+    text: str, max_tokens: int = MAX_TOKENS_PER_REQUEST
+) -> str:
+    """Return ``text`` unchanged if within ``max_tokens``, else the prefix that
+    fits exactly ``max_tokens`` tokens. Decoding a token prefix is safe across
+    multibyte boundaries — tiktoken decode handles partial sequences."""
+    enc = _get_token_encoder()
+    tokens = enc.encode(text)
+    if len(tokens) <= max_tokens:
+        return text
+    return enc.decode(tokens[:max_tokens])
 
 # Cache size limit
 CACHE_SIZE = 1000
@@ -315,14 +377,8 @@ class EmbeddingClient:
         """Generate cache key from text."""
         return hashlib.md5(f"{self.model}:{text}".encode()).hexdigest()
 
-    @with_retry(**_EMBED_RETRY)
-    async def _make_embedding_request(self, text: str) -> List[float]:
-        """
-        Make embedding API request with retry.
-
-        This is an internal method that handles the actual API call
-        with automatic retry for transient failures.
-        """
+    async def _embed_once(self, text: str) -> List[float]:
+        """Single embeddings.create round-trip (no retry, no truncation)."""
         create_kwargs: dict = {"model": self.model, "input": text}
         # Don't pass dimensions — let each model use its native output size.
         # Passing catalog dimensions across model switches causes 400 errors.
@@ -330,6 +386,34 @@ class EmbeddingClient:
         # Record embedding cost if tracking context is set
         await self._try_record_cost(getattr(response, "usage", None))
         return response.data[0].embedding
+
+    @with_retry(**_EMBED_RETRY)
+    async def _make_embedding_request(self, text: str) -> List[float]:
+        """
+        Make embedding API request with retry + token-length guard.
+
+        Two-layer length safety (see 2026-06-01 design doc):
+          - Proactive: truncate to MAX_TOKENS_PER_REQUEST tokens before sending
+            (cl100k is a conservative upper bound across providers — 铁律 #9).
+          - Reactive: if a provider still raises a context-length 400 (its
+            tokenizer disagreed with our estimate), halve and retry ONCE. A
+            context-length 400 is not transient, so it never enters the 429
+            back-off loop (_EMBED_RETRY) — we handle it locally here.
+        """
+        text = _truncate_to_token_budget(text, MAX_TOKENS_PER_REQUEST)
+        try:
+            return await self._embed_once(text)
+        except Exception as e:
+            if _is_context_length_error(e):
+                half = max(1, _count_tokens(text) // 2)
+                logger.warning(
+                    f"[Embedding] context-length 400 from provider; "
+                    f"retrying once truncated to {half} tokens"
+                )
+                return await self._embed_once(
+                    _truncate_to_token_budget(text, half)
+                )
+            raise
 
     async def embed(self, text: str) -> List[float]:
         """
@@ -460,6 +544,10 @@ class EmbeddingClient:
         This is an internal method that handles the actual API call
         with automatic retry for transient failures.
         """
+        # Proactively cap each text to the token budget (same guard as the
+        # single-text path). Batch inputs are usually short, controlled text
+        # (job defs, etc.), so we don't add the reactive retry here.
+        texts = [_truncate_to_token_budget(t, MAX_TOKENS_PER_REQUEST) for t in texts]
         create_kwargs: dict = {"model": self.model, "input": texts}
         # Don't pass dimensions — let each model use its native output size.
         response = await self._client.embeddings.create(**create_kwargs)
@@ -658,9 +746,12 @@ def prepare_job_text_for_embedding(
         parts.append(f"Description: {description}")
 
     if payload:
-        # Truncate payload if too long (keep first 500 chars)
-        payload_text = payload[:500] if len(payload) > 500 else payload
-        parts.append(f"Task: {payload_text}")
+        # Embed the FULL payload. payload is the job's execution instruction —
+        # the highest-signal field for "which job is this". The old [:500]
+        # truncation cut 65% of prod jobs and is unnecessary: title+desc+payload
+        # full measures at most ~2672 tokens in prod (well under the 8000-token
+        # safety net in _make_embedding_request). See the 2026-06-01 design doc.
+        parts.append(f"Task: {payload}")
 
     return "\n".join(parts)
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import aiohttp
 from loguru import logger
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
@@ -61,6 +62,12 @@ class SlackSDKClient:
         if not bot_token:
             raise ValueError("bot_token must be provided")
         self._client = AsyncWebClient(token=bot_token)
+        # Stored separately for direct aiohttp use in `download_url` —
+        # slack_sdk's AsyncWebClient doesn't expose the token via a
+        # public attribute we can rely on, and files.url_private is a
+        # plain HTTPS GET (not a Web API method) that needs the
+        # ``Authorization: Bearer <token>`` header set ourselves.
+        self._bot_token = bot_token
 
     @property
     def web(self) -> AsyncWebClient:
@@ -185,3 +192,113 @@ class SlackSDKClient:
         except Exception as e:  # pragma: no cover — defensive
             logger.exception(f"[slack] api_call({method}) unexpected error")
             return {"ok": False, "error": f"client_exception:{type(e).__name__}", "method": method}
+
+    # ------------------------------------------------------------------
+    # File ingestion (Phase 1b — attachment download)
+    # ------------------------------------------------------------------
+
+    async def files_info(self, file_id: str) -> dict[str, Any]:
+        """files.info — hydrate a file id into its full metadata dict.
+
+        Slack ``message`` events with ``subtype="file_share"`` sometimes
+        carry only ``files[0].id`` without ``url_private`` / ``mimetype``
+        populated (delivery order / event compression). When the
+        trigger needs a download URL it isn't already seeing, this method
+        fetches the canonical file object.
+
+        Raises ``SlackSDKError`` on upstream failure. Returns the
+        ``file`` sub-object (not the wrapping ``{ok, file}`` envelope).
+
+        TODO (Phase 2 cleanup): Slack ``files.info`` is Tier-3
+        rate-limited (~50/min). In a burst of caption-less multi-file
+        uploads this method is called serially per file with no retry /
+        backoff — a rate-limit error simply audits ``attachment_fetch_failed``
+        and skips the file. Acceptable for Phase 1b (rare path, never-raise
+        contract honored), but a structured retry with exponential backoff
+        on ``rate_limited`` error code would let bursts succeed.
+        """
+        try:
+            resp = await self._client.files_info(file=file_id)
+            return dict(resp.data.get("file", {}))
+        except SlackApiError as e:
+            code = (e.response.get("error") if e.response else "") or "unknown"
+            raise SlackSDKError(code, f"files.info failed: {code}") from e
+
+    async def download_url(
+        self,
+        url: str,
+        *,
+        max_bytes: int,
+        timeout_seconds: float = 60.0,
+    ) -> bytes:
+        """Stream-download a Slack-hosted file with Bearer auth.
+
+        ``url`` is typically ``files[].url_private`` from a message event
+        or ``files_info`` response. Slack-hosted file URLs require the
+        ``Authorization: Bearer xoxb-...`` header — the underlying
+        ``AsyncWebClient`` doesn't expose this fetch path so we use
+        aiohttp directly here.
+
+        ``max_bytes`` enforces a per-attachment cap during streaming. We
+        check after each 64 KB chunk and raise as soon as we cross the
+        threshold so a hostile / mis-sized file can't OOM the trigger
+        process. Slack-hosted files can be 1 GB+ — without this gate
+        a single voice memo could exhaust worker memory.
+
+        ``trust_env=True`` honours ``HTTPS_PROXY`` / ``NO_PROXY`` env
+        vars the same way the Telegram SDK does — matters for CN devs
+        reaching ``files.slack.com`` through a local proxy. (Slack files
+        are sometimes served from ``files.slack.com`` which can be
+        slow / occasionally blocked from mainland China without a
+        relay.) See ``aiohttp`` doc — default is ``False``, which means
+        env-var proxy config is silently ignored.
+
+        Raises ``SlackSDKError`` on HTTP non-2xx, network error, or
+        oversize.
+
+        TODO (Phase 2 cleanup): a fresh ``aiohttp.ClientSession`` is
+        created per call. For a Slack DM with N files (multi-file
+        upload), this opens / tears down N sessions serially — each
+        with its own SSL handshake. Slack file downloads are infrequent
+        enough that this is fine for Phase 1b, but a long-lived shared
+        session (or session-per-credential pool) would amortize the
+        SSL cost. Defer until we observe real throughput pain.
+        """
+        headers = {"Authorization": f"Bearer {self._bot_token}"}
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds)
+        try:
+            async with aiohttp.ClientSession(
+                timeout=timeout, trust_env=True
+            ) as session:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status != 200:
+                        raise SlackSDKError(
+                            f"http_{resp.status}",
+                            f"download failed: HTTP {resp.status}",
+                        )
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in resp.content.iter_chunked(64 * 1024):
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise SlackSDKError(
+                                "oversized",
+                                f"file exceeds max_bytes={max_bytes} during stream",
+                            )
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+        except aiohttp.ClientError as e:
+            raise SlackSDKError(
+                f"client_error:{type(e).__name__}",
+                f"download network error: {e}",
+            ) from e
+        except SlackSDKError:
+            raise
+        except Exception as e:  # noqa: BLE001 — defensive
+            logger.exception(
+                f"[slack] download_url unexpected error: {url[:80]}"
+            )
+            raise SlackSDKError(
+                f"client_exception:{type(e).__name__}",
+                f"download unexpected: {e}",
+            ) from e

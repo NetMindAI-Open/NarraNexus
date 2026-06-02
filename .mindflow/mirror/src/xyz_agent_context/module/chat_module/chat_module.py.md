@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-25
+last_verified: 2026-05-29
 ---
+
+## 2026-05-29 — decoupled from sibling EventMemoryModule (iron rule #3)
+
+`self.event_memory_module` is now an `EventMemoryRepository` (from the
+repository layer), not the former sibling `EventMemoryModule`. The
+attribute name is kept for test compatibility; only the underlying class
+moved (module/ → repository/). ChatModule no longer imports any sibling
+Module. The EverMemOS-based long-term semantic memory it used to mention
+is gone (removed 2026-05-29); long-term memory is now the current
+narrative's full history surfaced as the unified timeline.
 
 ## 2026-05-25 — Accept any `helper_llm_*` reply_via tag
 

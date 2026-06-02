@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/repository/narrative_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — paged user-filter scan (F2)
+
+`get_by_agent_user` / `get_with_embedding` filter by user_id in Python
+(user_id lives in the narrative_info JSON actors, not a column). They no
+longer fetch a fixed `limit*2` window — that lost recall under high
+tenancy. Both now delegate to `_scan_agent_filter_user`, which pages the
+agent's narratives (newest first) until `limit` matches / rows exhaust /
+`_USER_FILTER_MAX_SCAN`. Deliberately NO JSON SQL: the regex MySQL→SQLite
+translator only special-cases the participant-typed `JSON_CONTAINS` form
+(see get_narratives_by_participant), so an id-only match would have meant
+extending that fragile translator. Paged Python filter is portable and
+safe. `get_with_embedding(user_id=None)` keeps the simple bounded fetch.
 
 # narrative_repository.py
 

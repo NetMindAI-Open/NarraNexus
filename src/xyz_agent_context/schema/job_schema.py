@@ -19,7 +19,7 @@ Job lifecycle:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone as _dt_tz
 from enum import Enum
 from typing import ClassVar, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -49,6 +49,15 @@ class JobStatus(str, Enum):
     # NOT rescheduled (would re-fire every interval into the same wall — the
     # infinite-loop bug). Auto-resumes when quota is restored or the user
     # configures their own provider (JobTrigger periodic recheck).
+    COOLING = "cooling"        # Transient failure: backing off. cooldown_until
+    # holds the earliest retry time; the poller re-arms it to ACTIVE when the
+    # cooldown elapses. consecutive_failure_count tracks the retry budget; once
+    # it reaches the cap the job escalates to FAILED instead of cooling again.
+    BLOCKED = "blocked"        # Waiting on unmet job dependencies (prerequisite
+    # jobs not yet COMPLETED). Re-armed to ACTIVE when dependencies are satisfied.
+    BLOCKED_FAILED = "blocked_failed"  # A prerequisite job FAILED and this job's
+    # on_dependency_failure policy is "block". Re-armed if the prerequisite later
+    # succeeds, or cleared by the user.
     COMPLETED = "completed"    # Completed (one_off finished execution)
     FAILED = "failed"          # Execution failed
     CANCELLED = "cancelled"    # Cancelled (reserved)
@@ -168,6 +177,23 @@ class TriggerConfig(BaseModel):
                 "is set. Use IANA name like 'Asia/Shanghai'."
             )
         return self
+
+    @classmethod
+    def immediate(cls) -> "TriggerConfig":
+        """Canonical "fire now" one_off trigger.
+
+        run_at is the current UTC wall-clock as a NAIVE datetime (tzinfo lives
+        in the timezone field, per the run_at_must_be_naive contract); with
+        timezone='UTC', compute_next_run resolves it to "now". Use this instead
+        of hand-building a trigger dict so no caller ever attaches tzinfo or
+        omits timezone — the root cause of the /api/jobs/complex failure where
+        a hand-rolled {"trigger_type": "immediate", "run_at": utc_now()} was
+        rejected by the naive-run_at validator.
+        """
+        return cls(
+            run_at=datetime.now(_dt_tz.utc).replace(tzinfo=None),
+            timezone="UTC",
+        )
 
     # === ONGOING Configuration (added 2026-01-21) ===
     end_condition: Optional[str] = Field(
@@ -355,6 +381,33 @@ class JobModel(BaseModel):
     iteration_count: int = Field(
         default=0,
         description="ONGOING type: Current number of executions"
+    )
+
+    # === Resilience / backoff (added 2026-06-01) ===
+    consecutive_failure_count: int = Field(
+        default=0,
+        description="Consecutive transient-failure count. Drives exponential "
+        "backoff (COOLING) and escalation to FAILED at the cap. Reset to 0 on "
+        "any successful run."
+    )
+
+    cooldown_until: Optional[datetime] = Field(
+        default=None,
+        description="Earliest UTC time a COOLING job may retry. get_due_jobs "
+        "ignores jobs still cooling; the poller re-arms them to ACTIVE once "
+        "this passes."
+    )
+
+    paused_reason: Optional[str] = Field(
+        default=None,
+        max_length=32,
+        description="Why a non-running, non-terminal job is paused: "
+        "no_quota / repeated_failure / dependency_failed / user."
+    )
+
+    paused_at: Optional[datetime] = Field(
+        default=None,
+        description="When the job entered its current paused/blocked state."
     )
 
     # === Metadata ===

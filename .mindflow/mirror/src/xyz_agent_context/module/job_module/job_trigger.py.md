@@ -3,6 +3,81 @@ code_file: src/xyz_agent_context/module/job_module/job_trigger.py
 last_verified: 2026-05-22
 ---
 
+## 2026-06-01 — edge recovery backstop + long-running diagnostic (batch ②b)
+
+Poll step 1 no longer force-recovers RUNNING jobs older than 30min
+(`recover_stuck_jobs`) — that would interrupt a legitimate long agent_loop AND
+duplicate it (铁律 #14). Replaced with `_diagnose_long_running_jobs()` (via
+`repo.find_long_running_jobs`, read-only): it logs a WARNING per long-runner for
+alerting but never resets them. Orphan RUNNING rows from a killed process are
+still reset at startup by `recover_all_running_jobs` (the only safe time).
+
+Poll step 1.5 (`_resume_eligible_no_quota_jobs`) is now gated to a low-frequency
+backstop (`_NO_QUOTA_BACKSTOP_INTERVAL_S`, 15min) instead of running every 60s
+cycle. Primary PAUSED_NO_QUOTA recovery is edge-triggered from the
+provider-mutation routes via `job_recovery.rearm_user_no_quota_jobs`.
+
+NOTE: `find_long_running_jobs` filters in Python, not via a SQL datetime-string
+comparison — SQLite stores datetimes with a 'T' separator but binds a datetime
+param with a space, so `started_at < %s` compares wrong ('T' > ' '). This is a
+latent SQLite-only bug `get_due_jobs` / `recover_stuck_jobs` share (masked by
+native MySQL DATETIME in prod); Python filtering is correct on both backends.
+
+## 2026-06-01 — transient-failure backoff via COOLING (batch ②)
+
+Before: `_finalize_job_execution` ignored `success` on the non-quota path, so a
+run that *failed* for a transient reason (network / 5xx / timeout) rescheduled
+straight to ACTIVE and re-fired every interval; a one_off failure was even
+marked COMPLETED (hiding the failure). Now a non-quota failure goes to `COOLING`
+with `cooldown_until = now + _compute_cooldown_seconds(n)` (exp backoff: 60s ×2,
+cap 1h) and `next_run_time = cooldown_until`; `consecutive_failure_count` is
+incremented; at `_MAX_CONSECUTIVE_FAILURES` (8) it escalates to `FAILED`
+(`paused_reason=repeated_failure`) instead of cooling forever. A success resets
+the counter and clears cooldown before the normal complete/reschedule branch.
+
+`_rearm_cooled_jobs()` (poll step 1.6, symmetric with the no-quota resume step)
+flips `COOLING → ACTIVE` once `cooldown_until <= now` — **time-based** recovery,
+so polling is the natural trigger (contrast PAUSED_NO_QUOTA, which is
+state-change/edge recovered). A COOLING job's instance status is deliberately
+left untouched (not terminal) so dependents stay blocked until it finally
+succeeds or gives up.
+
+铁律 #14: this spaces SCHEDULER retries, never caps a running agent_loop — only
+a run that finished AND failed accrues backoff. New `instance_jobs` columns
+(`consecutive_failure_count`, `cooldown_until`, `paused_reason`, `paused_at`)
+are additive (auto_migrate); JobStatus gains `COOLING` / `BLOCKED` /
+`BLOCKED_FAILED` (code-only, VARCHAR column unchanged — 铁律 #6).
+
+## 2026-06-01 — resume gate unified onto the single provider classifier (oscillation fix)
+
+The 2026-05-22 resume gate `_user_can_run` reimplemented the provider decision
+tree as "`QuotaService.check()` OR own-provider-complete". That **ignored
+`prefer_system_override`** and so disagreed with the runtime: a user opted in to
+the free tier (`prefer_system_override=1`, the default) whose quota was
+exhausted but who *also* had a complete own provider was judged "can run" →
+resumed `PAUSED_NO_QUOTA → ACTIVE` → picked up → runtime routed to the exhausted
+free tier and raised `SystemDefaultUnavailable` (it will NOT silently fall back
+to the user's own key) → re-paused. Every poll cycle. Prod 2026-05-31 logged
+~1828 pause / ~1826 resume over 72h for 4 such jobs (elricwan, haili, two test
+users — all `prefer_system_override=1` + exhausted + own provider).
+
+Fix: `_user_can_run` now delegates to `provider_resolver.classify_provider_for_user`
+(→ `ProviderResolver.classify` → `ProviderAvailability`) and returns
+`is_runnable(verdict)`. The resume gate, the HTTP path (`resolve`) and — by
+construction — the runtime now share ONE classifier, so they cannot drift again.
+For the regression case the verdict is `FREE_TIER_EXHAUSTED` → `is_runnable` is
+False → the job stays `PAUSED_NO_QUOTA` until the user tops up / configures a
+provider / disables the toggle. On any classifier error the gate is
+conservatively False (don't resume into an unknown state).
+
+铁律 #15 still honoured: opted-out own-provider users pass via `USER_OK`; the
+platform never overrides the user's choice — it only stops resuming a job into a
+run the runtime is guaranteed to refuse.
+
+(Design: `reference/self_notebook/specs/2026-06-01-job-scheduler-resilience-design.md`,
+batch ①. Remaining batches — cooling/backoff, edge-triggered recovery, pause/resume
+API + notifications + frontend — are not yet implemented.)
+
 ## 2026-05-22 — no-quota auto-pause + resume (#6 infinite-loop fix)
 
 A run that failed because the owner's free-tier quota is exhausted (and no own

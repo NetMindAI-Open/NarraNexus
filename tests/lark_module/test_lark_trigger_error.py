@@ -81,6 +81,11 @@ class _FakeCtxBuilder:
     async def build_prompt(self, _history_config):
         return "user prompt goes here"
 
+    async def build_retrieval_anchor(self):
+        # Real builders inherit this from ChannelContextBuilderBase; the fake
+        # provides it so _build_and_run_agent can attach the narrative anchor.
+        return "[From Alice] user prompt goes here"
+
 
 class _ErrorRuntime:
     """AgentRuntime stand-in that yields one ERROR message and stops."""

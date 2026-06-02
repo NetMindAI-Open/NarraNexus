@@ -38,7 +38,6 @@ from xyz_agent_context.module.chat_module.chat_module import ChatModule
 from xyz_agent_context.module.social_network_module.social_network_module import SocialNetworkModule
 from xyz_agent_context.module.job_module.job_module import JobModule
 from xyz_agent_context.module.skill_module.skill_module import SkillModule
-from xyz_agent_context.module.memory_module.memory_module import MemoryModule
 from xyz_agent_context.module.message_bus_module.message_bus_module import MessageBusModule
 from xyz_agent_context.module.lark_module.lark_module import LarkModule
 from xyz_agent_context.module.slack_module.slack_module import SlackModule
@@ -51,7 +50,6 @@ from xyz_agent_context.module.common_tools_module.common_tools_module import Com
 # module/gemini_rag_module/ for the RAG file management API
 # (backend/routes/agents_rag.py uses RAGFileService directly).
 MODULE_MAP = {
-    "MemoryModule": MemoryModule,  # Highest priority, ensures execution before other modules
     "AwarenessModule": AwarenessModule,
     "BasicInfoModule": BasicInfoModule,
     "ChatModule": ChatModule,
@@ -64,6 +62,20 @@ MODULE_MAP = {
     "TelegramModule": TelegramModule,
     "CommonToolsModule": CommonToolsModule,
 }
+
+
+def module_class_provides_chat_history(module_class: str) -> bool:
+    """Capability lookup by module-class name (iron rule #4 / decoupling).
+
+    The pipeline stores instances by `module_class` string, so it can't call
+    a method on a live object. This maps the stored name to the module's
+    `provides_chat_history()` capability flag via MODULE_MAP, letting the
+    orchestration layer find the chat-bearing module without hard-coding
+    `== "ChatModule"`. Unknown names → False.
+    """
+    cls = MODULE_MAP.get(module_class)
+    return bool(cls and cls.provides_chat_history())
+
 
 # =============================================================================
 # Rebuild ModuleInstance model to resolve forward references
@@ -117,6 +129,7 @@ __all__ = [
 
     # ===== Module mapping =====
     "MODULE_MAP",
+    "module_class_provides_chat_history",
 
     # ===== Core services =====
     "ModuleService",

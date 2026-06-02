@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-04-10
+last_verified: 2026-05-28
 stub: false
 ---
+
+## 2026-05-28 — clicking the channel row clears that channel's unread
+
+Pre-fix `toggleRoom` only marked the latest VISIBLE message as read
+when the user EXPANDED a room (collapse → nothing happens, no
+messages loaded → nothing happens, latest has no message_id →
+nothing happens). Combined with the 50-message cap on the inbox
+list, channels with > 50 unread had a residual tail that the badge
+never zeroed.
+
+New behavior: every click (expand OR collapse) calls
+`api.markAgentRoomRead(roomId, agentId)` → backend advances
+`last_read_at` to NOW → all that channel's unread cleared. Then
+`refreshAgentInbox` is fired so the badge disappears without
+waiting for the next poll.
+
+The same change was made to [[InboxPanel.tsx]] — both panels share
+this UX.
 
 # AgentInboxPanel.tsx — Matrix MessageBus inbox with dashboard KPIs
 

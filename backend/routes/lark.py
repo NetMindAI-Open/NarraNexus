@@ -27,6 +27,7 @@ from xyz_agent_context.module.lark_module._lark_credential_manager import (
 )
 from xyz_agent_context.module.lark_module._lark_service import (
     do_bind,
+    do_unbind,
     determine_auth_status,
 )
 from xyz_agent_context.module.lark_module.lark_cli_client import LarkCLIClient
@@ -236,6 +237,11 @@ async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any
 
     POST not DELETE: some proxies strip DELETE bodies. See
     ``backend/routes/slack.py:unbind_slack_bot`` for rationale.
+
+    All cleanup logic lives in
+    ``xyz_agent_context.module.lark_module._lark_service.do_unbind`` so
+    the MCP tool ``lark_unbind`` can do the identical thing without
+    duplicating the bus-channel reap.
     """
     auth_err = await _verify_agent_ownership(request, body.agent_id)
     if auth_err:
@@ -243,42 +249,16 @@ async def unbind_lark_bot(request: Request, body: AgentRequest) -> dict[str, Any
 
     db = await _get_db()
     mgr = LarkCredentialManager(db)
-    cred = await mgr.get_credential(body.agent_id)
-
-    if not cred:
-        return {"success": False, "error": "No Lark bot bound to this agent."}
-
-    # Remove CLI profile (keychain entry + workspace config.json) then
-    # nuke the workspace directory itself.
-    try:
-        await _cli.profile_remove(body.agent_id)
-    except Exception:
-        pass  # Best-effort — workspace may already be gone
-    from xyz_agent_context.module.lark_module._lark_workspace import cleanup_workspace
-    cleanup_workspace(body.agent_id)
-
-    # Remove DB record
-    await mgr.delete_credential(body.agent_id)
-
-    # Clean up Inbox data: remove this agent from all lark_ channels
-    try:
-        all_members = await db.get("bus_channel_members", {"agent_id": body.agent_id})
-        lark_channel_ids = [
-            m["channel_id"] for m in all_members
-            if m.get("channel_id", "").startswith("lark_")
-        ]
-        for cid in lark_channel_ids:
-            await db.delete("bus_channel_members", {
-                "channel_id": cid, "agent_id": body.agent_id
-            })
-            remaining = await db.get("bus_channel_members", {"channel_id": cid})
-            if not remaining:
-                await db.delete("bus_messages", {"channel_id": cid})
-                await db.delete("bus_channels", {"channel_id": cid})
-    except Exception as e:
-        logger.warning(f"Failed to clean up Lark inbox data: {e}")
-
-    logger.info(f"Lark bot unbound: agent={body.agent_id}")
+    result = await do_unbind(mgr, body.agent_id, db)
+    if not result.get("success"):
+        # Surface the message field (or the raw error code) to keep the
+        # legacy "No Lark bot bound to this agent." UX intact.
+        return {
+            "success": False,
+            "error": result.get("message") or result.get("error", "unknown"),
+        }
+    # Legacy response shape: ``{"success": True}`` — kept so frontend
+    # LarkConfig.tsx doesn't need to change.
     return {"success": True}
 
 

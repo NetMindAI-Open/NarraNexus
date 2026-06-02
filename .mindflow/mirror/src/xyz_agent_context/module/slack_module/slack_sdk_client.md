@@ -75,3 +75,30 @@ generic ``api_call`` dispatcher that backs the agent-facing
 - Tokens are passed in plaintext to ``AsyncWebClient(token=...)``.
   Storage is base64'd on disk (see ``_slack_credential_manager.py``);
   in-memory once decoded.
+
+## Phase 1b additions (attachment ingestion)
+
+- **``files_info(file_id)``** — hydrates a bare file id into the full
+  metadata dict (mime, size, url_private, ...). Called by
+  ``SlackTrigger.fetch_attachments`` when the original message event
+  delivered ``files[]`` without ``url_private`` populated. Raises
+  ``SlackSDKError`` on upstream failure so the caller can audit
+  precisely which stage broke.
+
+- **``download_url(url, *, max_bytes)``** — Slack file URLs require
+  ``Authorization: Bearer xoxb-...`` and ``AsyncWebClient`` doesn't
+  expose this fetch path, so we go to ``aiohttp`` directly. Three
+  defences live in this method:
+  1. **``trust_env=True``** on the session — same fix as
+     ``telegram_sdk_client`` Phase 1a; honours
+     ``HTTPS_PROXY`` / ``NO_PROXY`` env vars so CN devs can reach
+     ``files.slack.com`` through a local proxy. aiohttp's default
+     ``trust_env=False`` silently ignores those.
+  2. **Stream-cap during ``iter_chunked``** — Slack-hosted files
+     can be 1 GB+; without an inline cap one voice memo could OOM
+     a worker. We raise ``SlackSDKError("oversized", ...)`` as soon
+     as cumulative bytes cross ``max_bytes`` mid-stream.
+  3. **Wrap aiohttp.ClientError** into ``SlackSDKError`` with
+     ``code="client_error:<TypeName>"`` so the trigger's never-raise
+     audit-and-skip path catches network failures uniformly with
+     HTTP non-2xx and other Slack errors.

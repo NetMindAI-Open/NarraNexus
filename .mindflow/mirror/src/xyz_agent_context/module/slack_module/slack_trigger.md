@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_trigger.py
 stub: false
-last_verified: 2026-05-12
+last_verified: 2026-05-21
 ---
 
 ## Why it exists
@@ -34,12 +34,20 @@ an ``asyncio.Queue``.
   ``U...``) which we stored on the credential. They are different
   identifiers — getting it wrong silently causes the bot to reply to
   itself.
-- **Subtype filter (``_IGNORED_SUBTYPES``) is conservative for Phase
-  3.** ``message_changed``/``deleted`` skipped (no edit-react UX yet),
-  ``file_share`` skipped (file ingestion is a future phase),
-  ``thread_broadcast`` skipped (would otherwise produce duplicate
-  events for one user message). Re-enable methodically as features
-  land.
+- **Subtype filter (``_IGNORED_SUBTYPES``) — INITIAL ASSUMPTION WRONG,
+  CORRECTED IN-PHASE.** ``message_changed``/``deleted`` skipped (no
+  edit-react UX yet), ``thread_broadcast`` skipped (would otherwise
+  produce duplicate events for one user message). **``file_share`` is
+  NOT in the ignore list** — the original Phase 1b commit included it
+  based on the assumption that modern Slack delivers DM files as a
+  regular ``message.im`` event with ``files[]`` populated and that
+  ``file_share`` was a legacy duplicate. Real CN-dev manual smoke
+  proved this wrong: text-only "hi" went through, but text + PDF
+  produced ZERO audit rows. The truth is **``file_share`` IS the
+  canonical delivery envelope** for DM file uploads — Slack sends one
+  envelope per upload with ``subtype="file_share"`` AND ``files[...]``
+  populated. Filtering it eats every inbound file event. Pin tested in
+  ``test_slack_attachment_ingest.py::test_parse_event_file_share_subtype_now_processed``.
 - **Phase 5 channel-type allow-list
   (``_ACCEPTED_MESSAGE_CHANNEL_TYPES = {"im", "mpim"}``).** Reply
   policy in channels is "only when @-mentioned". Slack delivers
@@ -97,7 +105,85 @@ an ``asyncio.Queue``.
 - ``ChatType.GROUP if chat_id.startswith(("C", "G"))`` — Slack DMs
   start with ``D``. Keep the prefix logic; ``app_mention`` events
   always come from ``C`` (public channels).
-- Phase 3 maps every accepted event to ``MessageContentType.TEXT``,
-  even when there are file attachments. Attachment handling is a
-  later phase — bumping the type without the rest of the pipeline
-  would break the agent's reply path.
+- Phase 1b now derives ``content_type`` from the primary attachment's
+  mime: ``image/*`` → IMAGE, ``audio/*`` → AUDIO, ``video/*`` → VIDEO,
+  anything else → FILE. Text-only messages still get TEXT. The
+  Anthropic-style ``Read`` tool in the agent SDK uses this hint as a
+  rendering signal; the rest of the pipeline doesn't branch on it,
+  so the historical "everything is TEXT" choice is no longer needed.
+
+## Phase 1b additions (attachment ingestion)
+
+- **``parse_event`` extracts ``files[]`` into
+  ``raw["attachment_refs"]``**. Each file entry produces one ref
+  dict carrying ``platform_ref`` (Slack ``file.id``),
+  ``original_name``, ``mime_hint``, ``size_hint``, and the
+  ``url_private`` if Slack delivered it inline. Multi-file uploads
+  produce multiple refs; malformed entries (string, missing id) are
+  skipped without breaking the whole event. A message with no text
+  AND no refs returns ``None`` (sticker / system event analogue).
+
+- **``fetch_attachments`` override**. Per-ref pipeline:
+  1. Pre-check ``size_hint > max_upload_bytes`` → audit
+     ``EVENT_INGRESS_DROPPED_OVERSIZED`` (``reason: "backend_max_upload_bytes"``).
+  2. If ``url_private`` is missing from the event, call
+     ``files.info`` to hydrate it. Slack occasionally ships file
+     events with only ``file.id`` populated during high-traffic
+     windows; ``files_info`` recovery is the canonical workaround.
+  3. ``download_url`` with stream-cap = ``max_upload_bytes``. Streaming
+     cap raises ``SlackSDKError("oversized")`` mid-stream — audited
+     as ``EVENT_INGRESS_DROPPED_OVERSIZED`` with
+     ``reason: "stream_cap_exceeded"`` so ops can tell platform-cap
+     refusals from network failures.
+  4. Hand bytes to ``ChannelTriggerBase._persist_attachment`` (MIME
+     sniff + on-disk store + Whisper STT for audio/*).
+
+  Never-raises: per-ref failures audit and skip; partial successes
+  still flow to the agent. Pin tested in
+  ``test_slack_attachment_ingest.py::test_fetch_attachments_partial_success``.
+
+- **``SocketModeClient`` proxy plumbing (Phase 1b follow-up).**
+  ``connect`` now reads ``HTTPS_PROXY`` / ``HTTP_PROXY`` env vars at
+  subscriber-start time and passes ``proxy=`` to ``SocketModeClient``.
+  Why: slack_sdk's SocketModeClient builds its own aiohttp
+  ClientSession internally and **does NOT honour the ``trust_env``
+  flag** the way our SDK clients do. Without an explicit ``proxy=``,
+  the wss to ``wss-primary.slack.com`` bypasses any local proxy. In
+  restrictive networks (mainland China is the canonical case) the
+  TCP/TLS handshake to ``wss-primary.slack.com`` usually succeeds —
+  Slack's edge IPs aren't blanket-blocked — but the ongoing event
+  frames are dropped / reordered by middleboxes. The result is a
+  "connected but no events" zombie: ``transport_connected`` fires,
+  ``socket mode connected, team=X`` logs once, then ``stale.
+  Reconnecting... reason: disconnected for 182+ seconds`` repeats
+  indefinitely with zero ingress_processed audit rows in between.
+  Outbound ``chat.postMessage`` keeps working because the
+  ``SlackSDKClient.web`` aiohttp session is independent and honours
+  the env vars. Symptom signature: agent self-test message succeeds
+  but inbound is silent.
+
+## Known Slack-server quirks observed during smoke (2026-05-21)
+
+These are **server-side** behaviors with no code remediation — recorded
+so the next operator doesn't waste time hunting our pipeline when the
+symptom is actually Slack drop-on-send.
+
+1. **No buffering during "subscription off" windows.** Socket Mode is
+   live-only. Messages sent while Event Subscriptions are disabled (or
+   while the socket is between sessions) are dropped at Slack's server
+   and never replayed on reconnect. ``conversations.history`` still
+   returns them because it's a Web API — but the event bus is gone.
+   Symptom: missing audit row + present Slack-side message.
+   Reproduced during 1b smoke: ~10 messages sent before the operator
+   completed reinstall + Event-Subscriptions toggle → 0 ingress rows.
+
+2. **File-event warm-up after fresh ``files:read`` grant.** Even when
+   text-only ``message.im`` events arrive instantly post-reinstall,
+   file-bearing events (``message`` + ``files[]``) silently drop for
+   ~1–5 minutes. The socket is alive, the scope is present in
+   ``auth.test``, and ``conversations.history`` shows the upload — but
+   Socket Mode never fires for the event during the window.
+   Reproduced 2026-05-21 in Protagolabs workspace: ``Transcript.pdf``
+   sent ~3 minutes after reinstall produced no audit; the next PDF
+   sent ~3 minutes later succeeded with no other change. Mitigation:
+   re-send. No code fix; the symptom self-resolves.

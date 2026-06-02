@@ -75,6 +75,7 @@ class EventCRUD:
         trigger_type: TriggerType = TriggerType.CHAT,
         narrative_id: Optional[str] = None,
         save_to_db: bool = True,
+        retrieval_anchor: Optional[str] = None,
     ) -> Event:
         """
         Create an Event
@@ -99,6 +100,10 @@ class EventCRUD:
             trigger_source=user_id,
             env_context={
                 "input": input_content,
+                # Clean retrieval anchor for event-vector embedding (write-side),
+                # kept alongside the raw input. Falls back to input when no
+                # trigger anchor was supplied. See 2026-06-01 design doc.
+                "anchor": retrieval_anchor or input_content,
                 "timestamp": now.isoformat(),
             },
             module_instances=[],

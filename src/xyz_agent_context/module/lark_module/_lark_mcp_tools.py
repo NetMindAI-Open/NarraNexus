@@ -812,6 +812,37 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         return await do_bind(mgr, agent_id, app_id, app_secret, brand, owner_email)
 
     @mcp.tool()
+    async def lark_unbind(agent_id: str) -> dict:
+        """Unbind the Lark/Feishu bot from this agent.
+
+        Removes the credential row, the lark-cli keychain entry, the
+        per-agent workspace directory, and every ``lark_<chat_id>``
+        Inbox channel the agent participated in. The running
+        ``LarkTrigger`` notices the credential deletion via its
+        watcher and tears down the WebSocket subscriber within a few
+        seconds.
+
+        Use when the user says any of:
+          - "解绑 / unbind / 取消绑定 / disconnect Lark / remove Lark bot"
+          - "I want to bind a different Lark bot" — unbind first,
+            then call ``lark_bind``/``lark_setup`` with the new one
+          - Manual recovery after a failed bind: returns
+            ``no_credential`` if nothing was bound, which is also
+            useful as a "make sure it's clean before retrying" probe.
+
+        Returns:
+          - on success: ``{"success": True, "data": {"unbound": True}}``
+          - if nothing was bound: ``{"success": False,
+            "error": "no_credential",
+            "message": "No Lark bot bound to this agent."}``
+        """
+        from ._lark_service import do_unbind
+
+        db = await XYZBaseModule.get_mcp_db_client()
+        mgr = LarkCredentialManager(db)
+        return await do_unbind(mgr, agent_id, db)
+
+    @mcp.tool()
     async def lark_permission_advance(agent_id: str, event: str = "") -> dict:
         """Single entry for Lark three-click permission lifecycle.
 

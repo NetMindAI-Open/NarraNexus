@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-05-27
+last_verified: 2026-06-01
 stub: false
 ---
+
+## 2026-06-01 — resilience fields + find_long_running_jobs (batch ②)
+
+`_row_to_entity` / `_entity_to_row` now carry the four backoff/pause columns
+(`consecutive_failure_count`, `cooldown_until`, `paused_reason`, `paused_at`).
+New read-only `find_long_running_jobs(threshold_minutes)` returns RUNNING jobs
+older than the threshold for DIAGNOSTICS only (铁律 #14 — never force-recover).
+It filters in Python, NOT via SQL `started_at < %s`: SQLite stores datetimes
+with a 'T' separator but binds a datetime param with a space, so the string
+comparison is wrong ('T' > ' '). Native MySQL DATETIME is fine, but Python
+filtering is correct on both. (The same latent SQLite bug affects `get_due_jobs`
+and `recover_stuck_jobs`, which still use the SQL comparison — out of scope here,
+prod is MySQL.)
 
 ## 2026-05-27 — defensive None→now() for created_at / updated_at
 

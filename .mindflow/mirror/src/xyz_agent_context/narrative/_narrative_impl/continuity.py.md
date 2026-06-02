@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/continuity.py
-last_verified: 2026-05-20
+last_verified: 2026-06-01
 stub: false
 ---
 
@@ -21,11 +21,13 @@ continuity ≠ same Narrative: the user may keep talking but switch topic.
 
 ## 设计决策
 
-**Channel-template stripping** (`_extract_core_content`): IM messages arrive
-wrapped in `[Lark · sender · ids]` + conversation-history boilerplate. The
-detector strips that down to the core message so the LLM judges business
-content, not room IDs. Coupling note in the source: depends on `ChannelTag`
-/ channel-context formats.
+**Clean anchors in, no stripping** (2026-06-01): `current_query` / `last_query`
+/ `last_response` now arrive as clean retrieval anchors (`[From <name>] <body>`)
+from `NarrativeService.select` (which reads `retrieval_anchor` off the trigger's
+`extra_data`). The old `_extract_core_content` template-stripping (regex over
+`[Lark · …]` headers + `[ts] @sender:` history) was **deleted** — its regex had
+drifted from the live channel template and stripped nothing in prod (ratio
+100%). See the 2026-06-01 embedding-anchor design doc.
 
 ## 2026-05-20 — anchor to the last *visible* message (query OR response)
 

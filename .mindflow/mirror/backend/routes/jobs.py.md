@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/jobs.py
-last_verified: 2026-04-21
+last_verified: 2026-06-01
 stub: false
 ---
+
+## 2026-06-01 — enum-derived status filter (batch ③)
+
+The `GET /` status filter now derives `valid_statuses` from the JobStatus enum,
+so the new states (paused_no_quota / cooling / blocked / blocked_failed / paused)
+are accepted automatically. NOTE: pause/resume endpoints live on the **dashboard
+route** (`/api/dashboard/jobs/{id}/pause|resume`, which has ownership auth), NOT
+here — an earlier attempt added unauthenticated ones here and they were removed
+to avoid the auth gap + duplication. The shared portable core is
+`job_recovery.pause_job` / `resume_job`.
 
 # routes/jobs.py — Job 管理路由
 

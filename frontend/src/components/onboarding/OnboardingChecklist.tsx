@@ -39,7 +39,7 @@ import type { OnboardingProgress } from '@/types';
 // The templates marketplace lives on the marketing site, not in-app.
 // "Apply a template" opens it in a new tab; the user picks a template and
 // installs it back into the app via the deep-link / cloud install flow.
-const WEBSITE_TEMPLATES_URL = 'https://website.narra.nexus/templates';
+const WEBSITE_TEMPLATES_URL = 'https://www.narra.nexus/templates';
 
 interface StepRow {
   key: string;

@@ -332,3 +332,84 @@ def determine_auth_status(auth_data: dict) -> str:
         return AUTH_STATUS_BOT_READY
 
     return AUTH_STATUS_NOT_LOGGED_IN
+
+
+async def do_unbind(
+    mgr: LarkCredentialManager,
+    agent_id: str,
+    db: Any,
+) -> dict[str, Any]:
+    """Core unbind logic shared between HTTP route and MCP tool.
+
+    Order matters:
+      1. Verify the credential exists (early ``no_credential`` if not —
+         the caller can render a friendlier message than a generic 404).
+      2. Best-effort CLI profile remove (clears keychain entry +
+         workspace ``config.json``).
+      3. Best-effort workspace directory cleanup (the symlinked
+         ``Library/Preferences`` if any, plus the dir itself).
+      4. Delete the DB credential row. The running ``LarkTrigger``'s
+         credential watcher notices the deletion and tears down the
+         WebSocket subscriber.
+      5. Bus channel cleanup — remove the agent from every ``lark_``
+         channel and reap empty channels (drop ``bus_messages`` +
+         ``bus_channels`` when no member remains). Without this,
+         re-binding leaves orphaned inbox rows that confuse the next
+         binding's first-message dedup.
+
+    Steps 2 and 3 swallow exceptions because the keychain entry or
+    workspace dir may already be gone (e.g. half-failed bind). DB +
+    bus cleanup are NOT best-effort — failure there leaves a leaked
+    credential row that the next bind would collide with.
+
+    Returns ``{"success": True, "data": {"unbound": True}}`` on
+    success, ``{"success": False, "error": "..."}`` on failure (e.g.
+    no credential to unbind).
+    """
+    from ._lark_workspace import cleanup_workspace
+
+    cred = await mgr.get_credential(agent_id)
+    if not cred:
+        return {
+            "success": False,
+            "error": "no_credential",
+            "message": "No Lark bot bound to this agent.",
+        }
+
+    # Best-effort CLI / workspace cleanup. The CLI profile may already
+    # be gone (manual edit, half-failed bind, etc.) and we don't want
+    # an OSError there to leave the DB row stuck.
+    try:
+        await _cli.profile_remove(agent_id)
+    except Exception as e:  # noqa: BLE001 — best-effort cleanup
+        logger.debug(f"lark unbind: profile_remove ignored: {e}")
+    try:
+        cleanup_workspace(agent_id)
+    except Exception as e:  # noqa: BLE001 — best-effort cleanup
+        logger.debug(f"lark unbind: cleanup_workspace ignored: {e}")
+
+    await mgr.delete_credential(agent_id)
+
+    # Bus channel cleanup — the user can re-bind to a different bot
+    # later, and stale ``lark_<chat_id>`` channel rows would break
+    # dedup on the next first message.
+    try:
+        all_members = await db.get("bus_channel_members", {"agent_id": agent_id})
+        lark_channel_ids = [
+            m["channel_id"]
+            for m in all_members
+            if m.get("channel_id", "").startswith("lark_")
+        ]
+        for cid in lark_channel_ids:
+            await db.delete(
+                "bus_channel_members", {"channel_id": cid, "agent_id": agent_id}
+            )
+            remaining = await db.get("bus_channel_members", {"channel_id": cid})
+            if not remaining:
+                await db.delete("bus_messages", {"channel_id": cid})
+                await db.delete("bus_channels", {"channel_id": cid})
+    except Exception as e:  # noqa: BLE001 — log + continue
+        logger.warning(f"lark unbind: bus channel cleanup failed: {e}")
+
+    logger.info(f"Lark bot unbound: agent={agent_id}")
+    return {"success": True, "data": {"unbound": True}}

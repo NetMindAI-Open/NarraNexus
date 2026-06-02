@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-05-25
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — pluggable driver + EverMemOS removed
+
+The agent loop is now obtained via `get_agent_loop_driver(working_path=...)`
+(framework registry, iron rule #9) — do NOT instantiate `ClaudeAgentSDK`
+directly here; register a driver instead (see [[agent_loop_driver.py]]).
+The former EverMemOS episode await (`ctx.evermemos_task` → `relevant_episodes`
+→ `context_runtime.run`) was removed.
 
 ## 2026-05-25 — Fatal-path recovery wired end-to-end (`_stream_fallback_recovery`)
 

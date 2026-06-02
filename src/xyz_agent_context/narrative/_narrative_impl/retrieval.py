@@ -27,7 +27,6 @@ from .default_narratives import (
     ensure_default_narratives,
     build_default_narrative_id_pattern,
 )
-from xyz_agent_context.utils.evermemos import get_evermemos_client
 from xyz_agent_context.utils.logging import timed
 
 # Use common utilities from utils
@@ -125,7 +124,6 @@ class NarrativeRetrieval:
             user_id=user_id,
             agent_id=agent_id,
             top_k=config.NARRATIVE_SEARCH_TOP_K,
-            query_text=query  # Needed for EverMemOS mode
         )
 
         # Enhance scores using recent Events
@@ -556,70 +554,26 @@ class NarrativeRetrieval:
         logger.debug(f"[NarrativeSelect] VectorStore found {len(results)} candidates")
         return results
 
-    # Legacy _search method kept for backward compat (used by retrieve_top_k_by_embedding)
     async def _search(
         self,
         query_embedding: List[float],
         user_id: str,
         agent_id: str,
         top_k: int,
-        query_text: str = ""
     ) -> Tuple[List[NarrativeSearchResult], str]:
         """
-        Vector search
-
-        Supports two modes:
-        1. EverMemOS mode (config.EVERMEMOS_ENABLED=True):
-           - Calls EverMemOS HTTP API for semantic retrieval
-           - Requires query_text parameter
-        2. Native vector retrieval mode (default):
-           - Uses local VectorStore for vector similarity search
-           - Uses query_embedding parameter
+        Native vector search via local VectorStore.
 
         Args:
             query_embedding: Query embedding vector
             user_id: User ID
             agent_id: Agent ID
             top_k: Number of results to return
-            query_text: Query text (needed for EverMemOS mode)
 
         Returns:
-            Tuple[List of NarrativeSearchResult, retrieval method identifier]
-            Retrieval method identifier: "evermemos", "vector", "fallback_vector"
+            Tuple[List of NarrativeSearchResult, retrieval method identifier "vector"]
         """
-        # EverMemOS mode (with fallback)
-        # Strategy: Prefer EverMemOS; if it returns empty results, fall back to native vector retrieval
-        # This allows normal retrieval during EverMemOS data accumulation period
-        if config.EVERMEMOS_ENABLED:
-            if not query_text:
-                logger.warning("EverMemOS mode requires query_text, falling back to native vector retrieval")
-            else:
-                try:
-                    evermemos = get_evermemos_client(agent_id, user_id)
-
-                    # Query the set of narrative_ids owned by the current agent
-                    # Used for Agent isolation of pending_messages (via group_id matching)
-                    db_client = await get_db_client()
-                    from xyz_agent_context.repository import NarrativeRepository
-                    narrative_repo = NarrativeRepository(db_client)
-                    agent_narratives = await narrative_repo.get_by_agent(agent_id)
-                    agent_narrative_ids = {n.id for n in agent_narratives}
-
-                    results = await evermemos.search_narratives(
-                        query=query_text,
-                        top_k=top_k,
-                        agent_narrative_ids=agent_narrative_ids
-                    )
-                    if results:
-                        logger.info(f"[EverMemOS] Retrieval successful: {len(results)} candidate Narratives")
-                        return results, "evermemos"
-                    else:
-                        # EverMemOS returned empty results, data may still be processing
-                        logger.info("[EverMemOS] Returned 0 results, falling back to native vector retrieval (data may still be processing)")
-                except Exception as e:
-                    logger.exception(f"EverMemOS retrieval failed, falling back to native vector retrieval: {e}")
-
-        # Native vector retrieval mode (default / fallback)
+        # Native vector retrieval via local VectorStore.
         db_client = await get_db_client()
 
         filters = {"user_id": user_id, "agent_id": agent_id}
@@ -631,10 +585,8 @@ class NarrativeRetrieval:
             db_client=db_client
         )
 
-        # Determine if this is fallback or default vector retrieval
-        retrieval_method = "fallback_vector" if config.EVERMEMOS_ENABLED else "vector"
-        logger.debug(f"[Native vector retrieval] Found {len(results)} candidate Narratives (method={retrieval_method})")
-        return results, retrieval_method
+        logger.debug(f"[Vector retrieval] Found {len(results)} candidate Narratives")
+        return results, "vector"
 
     async def _enhance_with_events(
         self,
@@ -708,7 +660,10 @@ class NarrativeRetrieval:
                         for event in missing_events:
                             if not event or not event.env_context:
                                 continue
-                            input_text = event.env_context.get("input", "")
+                            input_text = (
+                                event.env_context.get("anchor")
+                                or event.env_context.get("input", "")
+                            )
                             if not input_text:
                                 continue
                             try:

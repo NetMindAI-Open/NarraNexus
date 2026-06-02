@@ -88,7 +88,6 @@ class ContextRuntime:
         query_embedding: Optional[List[float]] = None,
         created_job_ids: Optional[List[str]] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
-        relevant_episodes: Optional[List] = None,  # EverMemOS episodes (fetched in parallel upstream)
     ) -> ContextRuntimeOutput:
         logger.info("    ┌─ ContextRuntime.run() started")
         logger.info(f"    │ Narratives: {len(narrative_list)}, Instances: {len(active_instances)}")
@@ -148,14 +147,13 @@ class ContextRuntime:
 
         logger.info(f"    │ ✅ Built {len(module_instructions_list)} Module instructions (deduped from {len(active_instances)} instances)")
 
-        # Step 4: Build the complete System Prompt (including Narrative + Relevant Memory + Modules)
+        # Step 4: Build the complete System Prompt (Narrative + Modules)
         logger.info("    │ Step 1-4: Building Complete System Prompt")
         system_prompt = await self.build_complete_system_prompt(
             narrative_list=narrative_list,
             selected_events=selected_events,
             module_instructions_list=module_instructions_list,
             ctx_data=ctx_data,
-            relevant_episodes=relevant_episodes,
         )
         logger.info(f"    │ ✅ System Prompt built: {len(system_prompt)} characters")
 
@@ -305,16 +303,14 @@ class ContextRuntime:
         selected_events: List[Event],
         module_instructions_list: List[ModuleInstructions],
         ctx_data: ContextData,
-        relevant_episodes: Optional[List] = None,
     ) -> str:
         """
         Build the complete System Prompt.
 
-        Prompt structure (after decoupling):
+        Prompt structure:
         1. Narrative Info - main Narrative metadata
-        2. Relevant Memory - EverMemOS episodes (decoupled, query-relevant)
-        3. Module Instructions - Instructions from each Module
-        4. Bootstrap Injection (first 3 turns only)
+        2. Module Instructions - Instructions from each Module
+        3. Bootstrap Injection (first 3 turns only)
         (Short-term memory appended later in build_input_for_framework)
 
         Args:
@@ -322,7 +318,6 @@ class ContextRuntime:
             selected_events: List of selected Events (currently unused)
             module_instructions_list: List of Module instructions
             ctx_data: Context data
-            relevant_episodes: EverMemOS episodes retrieved by query (decoupled)
 
         Returns:
             The complete system prompt string
@@ -352,14 +347,6 @@ class ContextRuntime:
             narrative_prompt = await narrative_service.combine_main_narrative_prompt(main_narrative)
             prompt_parts.append(narrative_prompt)
             logger.debug(f"        Added Narrative prompt: {len(narrative_prompt)} chars")
-
-        # ========================================================================
-        # Part 2: Relevant Memory (EverMemOS episodes — decoupled from narrative)
-        # ========================================================================
-        if relevant_episodes:
-            memory_section = self._build_relevant_memory_prompt(relevant_episodes)
-            prompt_parts.append(memory_section)
-            logger.debug(f"        Added Relevant Memory: {len(memory_section)} chars ({len(relevant_episodes)} episodes)")
 
         # ========================================================================
         # Part 3: Module Instructions
@@ -439,73 +426,27 @@ class ContextRuntime:
         now_local = now_local_dt.replace(tzinfo=None).isoformat(timespec="seconds")
         return USER_TEMPORAL_CONTEXT.format(user_tz=user_tz, now_local=now_local)
 
-    def _build_relevant_memory_prompt(self, episodes: List) -> str:
-        """
-        Build the Relevant Memory section from EverMemOS episodes.
-
-        Episodes are a flat list ranked by query relevance (decoupled from narrative).
-        Each episode has: episode_text (full content), summary, score, timestamp.
-        Uses full content — no truncation per episode, only top_k limit on count.
-        """
-        if not episodes:
-            return ""
-
-        section = "## Relevant Memory (from past conversations)\n\n"
-        section += "The following are semantically relevant memories from your past conversations, "
-        section += "retrieved based on the current query. Use them for context when responding.\n\n"
-
-        for i, ep in enumerate(episodes, 1):
-            # Prefer full episode_text, fall back to summary
-            content = ep.episode_text if ep.episode_text else ep.summary
-            if not content:
-                continue
-
-            section += f"### Memory {i}"
-            if ep.timestamp:
-                section += f" ({ep.timestamp})"
-            section += "\n"
-            section += f"{content}\n\n"
-
-        return section
-
-    # Legacy method — kept for backward compatibility, may be removed
     async def _build_auxiliary_narratives_prompt(
         self,
         auxiliary_summaries: List[Dict[str, Any]],
-        evermemos_memories: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Build the summary Prompt for auxiliary Narratives.
 
-        Phase 3 enhancement: If evermemos_memories contains relevant content summaries for a Narrative,
-        add a Related Content field to help the LLM understand the specific content related to the current query within that topic.
-
         Args:
             auxiliary_summaries: List of auxiliary Narrative summaries
-            evermemos_memories: EverMemOS cache data (optional)
 
         Returns:
             Formatted auxiliary Narratives Prompt
         """
         prompt = AUXILIARY_NARRATIVES_HEADER
         for i, summary in enumerate(auxiliary_summaries):
-            narrative_id = summary.get('narrative_id', 'Unknown')
             prompt += f"""
 ### Related Narrative {i + 1}
 - Name: {summary.get('name', 'Unknown')}
 - Summary: {summary.get('topic_hint', 'No summary available')}
 - Event Count: {summary.get('event_count', 0)}
 """
-            # Phase 3: Add Related Content (if available)
-            if evermemos_memories and narrative_id in evermemos_memories:
-                episode_summaries = evermemos_memories[narrative_id].get("episode_summaries", [])
-                if episode_summaries:
-                    prompt += "- Related Content:\n"
-                    for episode_summary in episode_summaries[:3]:  # Show at most 3 entries
-                        # Truncate overly long summaries
-                        truncated = episode_summary[:150] + "..." if len(episode_summary) > 150 else episode_summary
-                        prompt += f"  - {truncated}\n"
-
         return prompt
 
     async def _build_module_instructions_prompt(

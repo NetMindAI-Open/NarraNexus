@@ -9,7 +9,7 @@
  * bridge is not yet available (Tauri not built).
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Play, Square } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
 import { BracketEmptyState, BracketSectionLabel } from '@/components/nm';
@@ -24,6 +24,11 @@ import type {
   ServiceHealth,
 } from '@/types/platform';
 import type { ServiceStatus } from '@/components/system/ServiceCard';
+
+/** Stable key for de-duping log entries across polls. */
+function logKey(e: LogEntry): string {
+  return `${e.serviceId}|${e.timestamp}|${e.stream}|${e.message}`;
+}
 
 /** Map ProcessInfo + ServiceHealth into the unified status the card expects */
 function resolveStatus(
@@ -47,11 +52,13 @@ export function SystemPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [platformError, setPlatformError] = useState<string | null>(null);
 
-  const unsubHealthRef = useRef<(() => void) | null>(null);
-  const unsubLogRef = useRef<(() => void) | null>(null);
-
-  // Fetch service status
-  const fetchStatus = useCallback(async () => {
+  // Single poll tick that fetches services + health + logs in parallel.
+  // 2026-05-28: replaced the prior `onHealthUpdate` / `onLog` event
+  // subscriptions (which threw because Rust never emitted those events).
+  // 3 s tick matches the previous service-status poll cadence — slow
+  // enough not to spam the IPC channel, fast enough that a manual
+  // start/stop is visible within ~one tick.
+  const poll = useCallback(async () => {
     try {
       const procs = await platform.getServiceStatus();
       setProcesses(procs);
@@ -60,56 +67,54 @@ export function SystemPage() {
       setPlatformError(
         err instanceof Error ? err.message : 'Platform not available',
       );
+      // Don't try the other endpoints if the first fails — the platform
+      // bridge is unavailable as a whole.
+      setIsLoading(false);
+      return;
     } finally {
       setIsLoading(false);
     }
-  }, []);
-
-  // Fetch initial logs
-  const fetchLogs = useCallback(async () => {
+    try {
+      const h = await platform.getHealthStatus();
+      setHealth(h);
+    } catch {
+      // Health endpoint failure is non-fatal; cards fall back to the
+      // process-level status from getServiceStatus above.
+    }
     try {
       const entries = await platform.getLogs();
-      setLogs(entries);
+      // Dedup-merge: keep at most last 500. New entries are appended
+      // ordered by their natural log timestamps (ProcessManager already
+      // emits them chronologically).
+      setLogs((prev) => {
+        const seen = new Set(prev.map(logKey));
+        const merged = [...prev];
+        for (const e of entries) {
+          const k = logKey(e);
+          if (!seen.has(k)) {
+            merged.push(e);
+            seen.add(k);
+          }
+        }
+        return merged.length > 500 ? merged.slice(-500) : merged;
+      });
     } catch {
-      // Logs not available — not critical
+      // Logs not available — non-critical
     }
   }, []);
 
-  // Subscribe to health updates and log stream
   useEffect(() => {
-    fetchStatus();
-    fetchLogs();
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [poll]);
 
-    // Poll every 3 seconds
-    const interval = setInterval(fetchStatus, 3000);
-
-    // Subscribe to real-time events
-    try {
-      unsubHealthRef.current = platform.onHealthUpdate((h) => setHealth(h));
-    } catch {
-      // Subscription not available
-    }
-
-    try {
-      unsubLogRef.current = platform.onLog((entry) =>
-        setLogs((prev) => [...prev.slice(-499), entry]),
-      );
-    } catch {
-      // Subscription not available
-    }
-
-    return () => {
-      clearInterval(interval);
-      unsubHealthRef.current?.();
-      unsubLogRef.current?.();
-    };
-  }, [fetchStatus, fetchLogs]);
-
-  // Service actions
+  // Service actions — after a mutation, kick a poll immediately so the
+  // user sees the result without waiting for the next 3 s tick.
   const handleStartAll = async () => {
     try {
       await platform.startAllServices();
-      await fetchStatus();
+      await poll();
     } catch {
       // Platform not available
     }
@@ -118,7 +123,7 @@ export function SystemPage() {
   const handleStopAll = async () => {
     try {
       await platform.stopAllServices();
-      await fetchStatus();
+      await poll();
     } catch {
       // Platform not available
     }
@@ -127,7 +132,7 @@ export function SystemPage() {
   const handleRestart = async (serviceId: string) => {
     try {
       await platform.restartService(serviceId);
-      await fetchStatus();
+      await poll();
     } catch {
       // Platform not available
     }

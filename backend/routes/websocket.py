@@ -641,6 +641,9 @@ async def websocket_agent_run(websocket: WebSocket):
                 pass_mcp_urls=mcp_urls,
                 trigger_extra_data={
                     "trigger_id": f"ws_{_session_id[:8]}",
+                    # Front-end chat input is already a clean user message —
+                    # use it directly as the narrative retrieval anchor.
+                    "retrieval_anchor": request.input_content or "",
                     **(
                         {"attachments": request.attachments}
                         if request.attachments

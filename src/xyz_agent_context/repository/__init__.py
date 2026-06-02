@@ -36,6 +36,7 @@ from .user_repository import UserRepository
 from .agent_repository import AgentRepository
 from .rag_store_repository import RAGStoreRepository
 from .agent_message_repository import AgentMessageRepository
+from .event_memory_repository import EventMemoryRepository
 
 # Instance-related Repositories (ModuleInstance decoupled)
 from .instance_repository import InstanceRepository
@@ -80,6 +81,7 @@ __all__ = [
     "InboxRepository",
     # Agent Message
     "AgentMessageRepository",
+    "EventMemoryRepository",
     # MCP
     "MCPRepository",
     "MCPUrl",

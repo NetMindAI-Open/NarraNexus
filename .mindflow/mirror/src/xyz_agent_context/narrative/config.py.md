@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-05-06
+last_verified: 2026-05-29
 stub: false
 ---
+
+> 2026-05-29：删除全部 `EVERMEMOS_*` 常量（EverMemOS 整体移除）。Narrative
+> 检索现在无条件走本地 VectorStore，没有外部检索后端开关。
 
 # config.py — Narrative 系统所有可调参数的中央控制台
 

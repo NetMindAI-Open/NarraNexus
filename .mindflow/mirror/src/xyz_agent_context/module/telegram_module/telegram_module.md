@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_module.py
 stub: false
-last_verified: 2026-05-10
+last_verified: 2026-05-21
 ---
 
 ## Why it exists
@@ -53,10 +53,20 @@ not the abstraction failing.
   one missed escape returns 400 Bad Request and the agent looks
   broken. Phase 4 stays plain-text; opting into MarkdownV2 is a
   future call.
-- **Iron rule 6: text-only ingress (Phase 4).** ``parse_event`` drops
-  photos/voice/files/stickers silently. Outbound media still works via
-  ``tg_cli`` (no curated skill md, but the methods work) — the rule
-  scopes the *receive* side, not the *send* side.
+- **Iron rule 7: inbound attachments SUPPORTED (Phase 1a).** Updated
+  from the original "text-only" rule. ``parse_event`` extracts
+  documents / photos / voice / audio / video into
+  ``raw["attachment_refs"]``; ``fetch_attachments`` downloads bytes
+  via ``download_file`` and persists them through ``_persist_attachment``
+  on the base. The instruction text now explains the
+  ``[User uploaded <kind>: ...path=... transcript=...]`` marker shape
+  so the agent uses the built-in ``Read`` tool against the absolute
+  path (multimodal — returns PDF / image content blocks natively).
+  Stickers / locations / contacts / polls remain ignored. **Keeping
+  this rule's text in lockstep with the trigger's ``parse_event``
+  coverage matters** — if Phase 2 adds sticker support, this prompt
+  must be updated in the same commit or the agent will keep telling
+  users they can't send stickers.
 - **MCP port 7832.** Continues the channel-port range (Slack=7831,
   Telegram=7832). Picked from the inventory in
   ``module_runner.MODULE_PORTS``.

@@ -88,6 +88,12 @@ async def grant(request: Request, payload: GrantRequest) -> dict:
     q = await quota_svc.grant(
         payload.user_id, payload.input_tokens, payload.output_tokens
     )
+    # Edge-triggered recovery: a quota top-up can make the user runnable — revive
+    # their PAUSED_NO_QUOTA jobs in the background (non-blocking).
+    from xyz_agent_context.module.job_module.job_recovery import (
+        schedule_user_no_quota_rearm,
+    )
+    schedule_user_no_quota_rearm(payload.user_id)
     return _quota_to_dict(q)
 
 

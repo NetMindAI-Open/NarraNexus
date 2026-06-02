@@ -258,19 +258,6 @@ class ContinuityResult(BaseModel):
     weighted_score: Optional[float] = None  # Weighted final score
 
 
-class EpisodeResult(BaseModel):
-    """
-    EverMemOS Episode Search Result (decoupled from Narrative)
-
-    Returned by EverMemOSClient.search_episodes() — a flat list of relevant episodes,
-    not grouped by narrative. Used for the Relevant Memory section in the prompt.
-    """
-    episode_text: str = ""      # Full episode content
-    summary: str = ""           # Episode summary
-    score: float = 0.0          # RRF relevance score (raw, not scaled)
-    timestamp: str = ""         # Episode creation time
-
-
 class NarrativeSearchResult(BaseModel):
     """
     Narrative Search Result
@@ -280,8 +267,6 @@ class NarrativeSearchResult(BaseModel):
     narrative_id: str  # Narrative ID
     similarity_score: float  # Similarity score (0-1)
     rank: int  # Rank (1 = most relevant)
-    episode_summaries: List[str] = []    # EverMemOS episode summaries (for LLM judge and Context injection)
-    episode_contents: List[str] = []    # EverMemOS episode raw contents (for short-term memory dedup)
 
 
 class NarrativeSelectionResult(BaseModel):

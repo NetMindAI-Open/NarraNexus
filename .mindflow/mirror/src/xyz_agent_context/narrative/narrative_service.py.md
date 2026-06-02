@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-05-20
+last_verified: 2026-06-01
 stub: false
 ---
+
+## 2026-06-01 — embed a clean retrieval anchor, not the execution prompt
+
+`select()` gained a `retrieval_anchor` param. `resolve_retrieval_text(anchor,
+input_content)` (module-level) picks `anchor` when a trigger supplied one
+(`[From <name>] <body>`), else falls back to raw `input_content`. The resulting
+`query_text` is what gets embedded (query vector), passed to continuity
+detection, handed to `retrieve_top_k(query=…)`, and stored as
+`session.last_query`. Motivation: IM/bus triggers were embedding the full
+execution prompt (history + sender profile + instruction boilerplate), which
+diluted the query vector and, for the bus, blew past the embedding token limit
+(the only real 400 source in prod). Anchors are produced per-trigger and carried
+via `trigger_extra_data["retrieval_anchor"]` → `ctx.trigger_extra_data` →
+`step_1_select_narrative`. See the 2026-06-01 embedding-anchor design doc.
 
 ## 2026-05-20 — continuity keys off the last *visible* message (query OR response)
 

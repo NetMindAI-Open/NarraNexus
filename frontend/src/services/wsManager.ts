@@ -15,13 +15,31 @@ import type { Attachment, RuntimeMessage } from '@/types';
 interface ConnectionEntry {
   ws: WebSocket;
   completed: boolean;
+  // Auto-reconnect context (A3). Populated once the server sends
+  // `run_started` so a passive disconnect (WiFi blip, laptop sleep) can
+  // re-attach to the still-alive BackgroundRun via the Phase C reconnect
+  // protocol instead of silently stranding a long-running agent.
+  runId?: string;
+  userId?: string;
+  agentName?: string;
+  onComplete?: OnCompleteCallback;
 }
 
 type OnCompleteCallback = (agentId: string) => void;
 
+// Capped exponential backoff for passive-disconnect reconnects. NO attempt
+// ceiling (iron rule #14: long-running agents are first-class — we keep
+// retrying through an outage as long as the backend run may still be alive);
+// the cap just stops a tight loop.
+const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 30000];
+
 class WebSocketManager {
   private connections = new Map<string, ConnectionEntry>();
   private onCompleteCallbacks = new Map<string, OnCompleteCallback>();
+  // Pending backoff timers for auto-reconnect, keyed by agentId, so an
+  // intentional close() can cancel a scheduled retry.
+  private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private reconnectAttempts = new Map<string, number>();
 
   /** Start a new agent run via WebSocket */
   run(
@@ -64,8 +82,17 @@ class WebSocketManager {
     const wsUrl = `${getWsBaseUrl()}/ws/agent/run?x_user_id=${encodeURIComponent(userId)}`;
     const ws = new WebSocket(wsUrl);
 
-    const entry: ConnectionEntry = { ws, completed: false };
+    const entry: ConnectionEntry = {
+      ws,
+      completed: false,
+      userId,
+      agentName,
+      onComplete: options?.onComplete,
+    };
     this.connections.set(agentId, entry);
+    // A fresh run() supersedes any pending reconnect backoff for this agent.
+    this._clearReconnectTimer(agentId);
+    this.reconnectAttempts.delete(agentId);
 
     const store = useChatStore.getState;
 
@@ -105,6 +132,14 @@ class WebSocketManager {
           return;
         }
 
+        // Capture run_id so a later passive disconnect can re-attach to
+        // the still-alive BackgroundRun (A3). A successful run also clears
+        // the backoff counter — this connection reached the server fine.
+        if (message.type === 'run_started' && message.run_id) {
+          entry.runId = message.run_id;
+          this.reconnectAttempts.delete(agentId);
+        }
+
         store().processMessage(agentId, message);
 
         if (message.type === 'complete') {
@@ -129,13 +164,61 @@ class WebSocketManager {
       if (this.connections.get(agentId) === entry) {
         this.connections.delete(agentId);
       }
-
-      if (!entry.completed) {
-        // Unexpected disconnect — stop streaming with error state
-        console.warn(`[wsManager] WebSocket closed unexpectedly for ${agentId}`);
-        store().stopStreaming(agentId, agentName);
-      }
+      this._handleUnexpectedClose(agentId, entry);
     };
+  }
+
+  /**
+   * Common passive-disconnect handler for both run() and reconnect() WS.
+   *
+   * If the close was intentional (completed === true, set by a `complete`
+   * frame or close()), do nothing. Otherwise, if we captured a run_id, the
+   * backend BackgroundRun is (iron rule #14) very likely still alive — so
+   * schedule a backoff reconnect rather than stranding the user on a frozen
+   * "stopped" UI. Only when there's no run_id to reconnect with (the socket
+   * died before `run_started`) do we fall back to stopStreaming.
+   */
+  private _handleUnexpectedClose(agentId: string, entry: ConnectionEntry): void {
+    if (entry.completed) return;
+
+    if (entry.runId && entry.userId) {
+      console.warn(`[wsManager] passive disconnect for ${agentId} — scheduling reconnect`);
+      this._scheduleReconnect(agentId, entry);
+    } else {
+      // No live run to re-attach to — surface the stop as before.
+      console.warn(`[wsManager] WebSocket closed unexpectedly for ${agentId} (no run_id, not reconnecting)`);
+      useChatStore.getState().stopStreaming(agentId, entry.agentName);
+    }
+  }
+
+  private _clearReconnectTimer(agentId: string): void {
+    const t = this.reconnectTimers.get(agentId);
+    if (t !== undefined) {
+      clearTimeout(t);
+      this.reconnectTimers.delete(agentId);
+    }
+  }
+
+  private _scheduleReconnect(agentId: string, entry: ConnectionEntry): void {
+    // Cancel any already-pending retry (avoid stacking timers).
+    this._clearReconnectTimer(agentId);
+
+    const attempt = this.reconnectAttempts.get(agentId) ?? 0;
+    const delay = RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)];
+    this.reconnectAttempts.set(agentId, attempt + 1);
+
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(agentId);
+      // If something re-ran or closed this agent in the meantime, the
+      // connections map will hold a different (or no) entry; bail out.
+      if (this.connections.has(agentId)) return;
+      console.info(`[wsManager] reconnect attempt ${attempt + 1} for ${agentId} (run ${entry.runId})`);
+      this.reconnect(agentId, entry.userId!, entry.runId!, {
+        agentName: entry.agentName,
+        onComplete: entry.onComplete,
+      });
+    }, delay);
+    this.reconnectTimers.set(agentId, timer);
   }
 
   /**
@@ -195,7 +278,17 @@ class WebSocketManager {
     const wsUrl = `${getWsBaseUrl()}/ws/agent/run?x_user_id=${encodeURIComponent(userId)}`;
     const ws = new WebSocket(wsUrl);
 
-    const entry: ConnectionEntry = { ws, completed: false };
+    // Carry reconnect context so a passive disconnect of the reconnect WS
+    // itself re-schedules another backoff retry (a flapping network keeps
+    // retrying, iron rule #14).
+    const entry: ConnectionEntry = {
+      ws,
+      completed: false,
+      runId,
+      userId,
+      agentName,
+      onComplete: options?.onComplete,
+    };
     this.connections.set(agentId, entry);
 
     const store = useChatStore.getState;
@@ -252,6 +345,9 @@ class WebSocketManager {
               Number.isFinite(tsMs) ? tsMs : undefined,
             );
           }
+          // Successfully re-attached — reset the backoff counter so a
+          // later disconnect starts fresh at the shortest delay (A3).
+          this.reconnectAttempts.delete(agentId);
           // Record the run id (and backfill it onto the user message just
           // added) so the reconnected turn's messages dedup against the
           // persisted history rows by exact (role, event_id). The fresh-run
@@ -288,10 +384,9 @@ class WebSocketManager {
       if (this.connections.get(agentId) === entry) {
         this.connections.delete(agentId);
       }
-      if (!entry.completed) {
-        console.warn(`[wsManager] reconnect WS closed unexpectedly for ${agentId}`);
-        store().stopStreaming(agentId, agentName);
-      }
+      // Passive disconnect of the reconnect WS → schedule another backoff
+      // retry (a flapping network keeps retrying, iron rule #14).
+      this._handleUnexpectedClose(agentId, entry);
     };
   }
 

@@ -84,8 +84,13 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
     return None
 
 
-# Models that have failed structured output — skip Agents SDK for these
-_structured_output_blocklist: set[str] = set()
+# Provider x model combos whose Agents SDK structured-output path returned
+# a CLEAR "unsupported" error. Keyed by (base_url, model) — see
+# `_capability_key` — so the same model name on a different provider is
+# judged independently (no cross-provider contamination). Only clear
+# capability errors land here; transient network / 5xx failures never do,
+# so a single blip cannot permanently downgrade a model (incident lesson #3).
+_structured_output_blocklist: set[tuple[str, str]] = set()
 
 
 # ── Provider × model capability map for the prompt-fallback path ─────────
@@ -140,6 +145,25 @@ def _mark_unsupported(key: tuple[str, str], level: str) -> None:
         f"[StructuredFallback] cached unsupported: provider={key[0]} "
         f"model={key[1]} level={level} (remaining={sorted(current) or 'none'})"
     )
+
+
+async def _audit_framework_downgrade(event_type: str, detail: dict) -> None:
+    """Best-effort DB audit of a framework self-downgrade (incident lesson
+    #4/#5). The platform silently re-routing to a slower/fallback path is
+    exactly the kind of degradation that vanishes from logs on docker
+    restart and is otherwise invisible. Writes to the shared `service_audit`
+    table under service="llm_framework". NEVER raises — a logger-only
+    fallback covers any audit failure (the observer must not break the
+    observed)."""
+    try:
+        from xyz_agent_context.repository.service_audit_repository import (
+            ServiceAuditRepository,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+        repo = ServiceAuditRepository(await get_db_client())
+        await repo.record("llm_framework", event_type, detail)
+    except Exception as e:  # noqa: BLE001 — audit is advisory
+        logger.warning(f"[StructuredFallback] downgrade audit write failed: {e}")
 
 
 def _is_response_format_unsupported_error(exc: Exception) -> bool:
@@ -252,9 +276,15 @@ class OpenAIAgentsSDK:
             f"output_type={output_type.__name__ if output_type else 'None'}"
         )
 
-        # Try Agents SDK structured output (skip if model is blocklisted)
+        # Try Agents SDK structured output (skip if this provider x model
+        # is blocklisted). On failure we always fall through to the fallback
+        # for THIS call, but only PERMANENTLY blocklist when the error
+        # clearly says the model can't do structured output — a transient
+        # blip must not strand the model on the fallback path forever
+        # (incident lesson #3).
         first_attempt_failed = False
-        if output_type and model_name not in _structured_output_blocklist:
+        cap_key = _capability_key(model_name)
+        if output_type and cap_key not in _structured_output_blocklist:
             try:
                 result = await self._try_agents_sdk(
                     openai_client, model_name, instructions, user_input,
@@ -266,12 +296,28 @@ class OpenAIAgentsSDK:
                 )
                 return result
             except Exception as e:
-                _structured_output_blocklist.add(model_name)
                 first_attempt_failed = True
-                logger.info(
-                    f"Model '{model_name}' does not support structured output, "
-                    f"added to blocklist (will use fallback from now on): {e}"
-                )
+                if _is_response_format_unsupported_error(e):
+                    _structured_output_blocklist.add(cap_key)
+                    logger.info(
+                        f"[StructuredFallback] Agents SDK structured output "
+                        f"unsupported for provider={cap_key[0]} model={model_name}; "
+                        f"blocklisted, using fallback henceforth: {e}"
+                    )
+                    await _audit_framework_downgrade(
+                        "agents_sdk_blocklisted",
+                        {
+                            "base_url": cap_key[0],
+                            "model": model_name,
+                            "error": str(e)[:500],
+                        },
+                    )
+                else:
+                    logger.info(
+                        f"[StructuredFallback] Agents SDK attempt failed for "
+                        f"model={model_name} (transient/other — NOT blocklisted, "
+                        f"will retry SDK next call): {e}"
+                    )
 
         # Fallback: direct chat completion + manual JSON parsing
         result = await self._fallback_chat_completion(
@@ -551,6 +597,15 @@ class OpenAIAgentsSDK:
                 except Exception as e:
                     if _is_response_format_unsupported_error(e):
                         _mark_unsupported(key, level)
+                        await _audit_framework_downgrade(
+                            "response_format_level_unsupported",
+                            {
+                                "base_url": key[0],
+                                "model": key[1],
+                                "level": level,
+                                "error": str(e)[:500],
+                            },
+                        )
                         continue  # try next level
                     # Genuine error (rate limit, 5xx, network) — re-raise.
                     raise

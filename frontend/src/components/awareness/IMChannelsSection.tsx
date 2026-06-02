@@ -9,7 +9,7 @@
  * IM_CHANNELS — no other change required here.
  */
 
-import { useCallback, useState, type ComponentType } from 'react';
+import { useCallback, useEffect, useState, type ComponentType } from 'react';
 import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
@@ -98,6 +98,24 @@ export function IMChannelsSection() {
     setConnectedMap(Object.fromEntries(entries));
   }, [agentId]);
 
+  // Pre-fetch on mount and whenever the active agent changes, so the
+  // Level-1 collapsed summary ("X/Y connected") shows the real count
+  // immediately. Without this the count is stuck at 0/3 until the user
+  // expands the section, which made bindings made elsewhere (agent
+  // chat, frontend Bind button while the section was collapsed, prior
+  // session) look like they hadn't taken effect.
+  //
+  // react-hooks/set-state-in-effect flags this because refreshConnected
+  // calls setConnectedMap. The rule prefers Suspense / React Query /
+  // SWR for server-state mount fetches; we use raw useEffect across
+  // this codebase (see LarkConfig, SlackConfig) so adopting that here
+  // would be an out-of-scope refactor. Disabling per-call with the
+  // rationale logged.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshConnected();
+  }, [refreshConnected]);
+
   // Collapse any inline-expanded channel when the agent changes — different
   // agents have different binding states so prior expansion is no longer
   // relevant. Done via "render-time set" (allowed by react-hooks rules) rather
@@ -111,8 +129,12 @@ export function IMChannelsSection() {
   const handleToggleSection = useCallback(() => {
     setSectionOpen((open) => {
       const nextOpen = !open;
-      // Only fetch when transitioning to open. Cheap (2 GET calls) and we
-      // want fresh status whenever the user reveals the panel.
+      // Refresh again on each open so a stale state from earlier in
+      // the session (binding changed in another tab, MCP-triggered
+      // bind/unbind from the agent chat) gets corrected as soon as
+      // the user reveals the panel. The initial mount fetch lives in
+      // the useEffect above — this is the "user is actively looking
+      // at it again" refresh.
       if (nextOpen) {
         void refreshConnected();
       }

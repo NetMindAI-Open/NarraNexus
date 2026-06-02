@@ -53,6 +53,60 @@ class NarrativeRepository(BaseRepository[Narrative]):
     table_name = "narratives"
     id_field = "narrative_id"
 
+    # Page size + hard ceiling for the paged user-filter scan (see
+    # _scan_agent_filter_user). The page balances round-trips vs overfetch;
+    # the ceiling bounds worst-case work for an agent with a huge number of
+    # narratives where the target user has very few (or zero) matches.
+    _USER_FILTER_PAGE = 200
+    _USER_FILTER_MAX_SCAN = 5000
+
+    async def _scan_agent_filter_user(
+        self,
+        agent_id: str,
+        user_id: str,
+        limit: int,
+        require_embedding: bool = False,
+    ) -> List[Narrative]:
+        """Page through an agent's narratives (newest first) and collect up
+        to `limit` whose actors include `user_id`.
+
+        Replaces the old "fetch limit*2, filter in memory" approach, which
+        silently dropped recall once an agent accumulated more than ~limit*2
+        narratives across all its users. Scans in pages until enough matches
+        are found, the rows are exhausted, or `_USER_FILTER_MAX_SCAN` rows
+        have been examined. No JSON SQL — portable across MySQL and SQLite.
+        """
+        narratives: List[Narrative] = []
+        scanned = 0
+        offset = 0
+        while len(narratives) < limit and scanned < self._USER_FILTER_MAX_SCAN:
+            rows = await self._db.get(
+                self.table_name,
+                filters={"agent_id": agent_id},
+                limit=self._USER_FILTER_PAGE,
+                offset=offset,
+                order_by="updated_at DESC",
+            )
+            if not rows:
+                break  # rows exhausted
+            offset += len(rows)
+            scanned += len(rows)
+            for row in rows:
+                if require_embedding and not row.get("routing_embedding"):
+                    continue
+                try:
+                    narrative = self._row_to_entity(row)
+                    if any(actor.id == user_id for actor in narrative.narrative_info.actors):
+                        narratives.append(narrative)
+                        if len(narratives) >= limit:
+                            break
+                except Exception as e:
+                    logger.warning(f"Failed to parse Narrative: {e}")
+                    continue
+            if len(rows) < self._USER_FILTER_PAGE:
+                break  # last page
+        return narratives
+
     async def get_by_agent_user(
         self,
         agent_id: str,
@@ -62,8 +116,14 @@ class NarrativeRepository(BaseRepository[Narrative]):
         """
         Get all Narratives associated with a specific Agent and User
 
-        Note: Since user_id is stored in the actors of the narrative_info JSON,
-        we first query by agent_id and then filter by user_id in memory.
+        Note: user_id lives inside the narrative_info JSON actors array, so
+        the user filter is applied in Python. To avoid a recall cliff under
+        high tenancy (one agent serving many users — a fixed `limit*2`
+        prefetch could miss the target user's narratives entirely), we
+        page through the agent's narratives by updated_at and keep scanning
+        until we have `limit` matches or the rows are exhausted. This is
+        dialect-agnostic (no JSON SQL needed, works on both MySQL and
+        SQLite) and bounded by `_USER_FILTER_MAX_SCAN`.
 
         Args:
             agent_id: Agent ID
@@ -75,27 +135,11 @@ class NarrativeRepository(BaseRepository[Narrative]):
         """
         logger.debug(f"    → NarrativeRepository.get_by_agent_user({agent_id}, {user_id})")
 
-        # First query by agent_id (fetch extra for filtering)
-        rows = await self._db.get(
-            self.table_name,
-            filters={"agent_id": agent_id},
-            limit=limit * 2,
-            order_by="updated_at DESC"
+        narratives = await self._scan_agent_filter_user(
+            agent_id=agent_id,
+            user_id=user_id,
+            limit=limit,
         )
-
-        # Filter Narratives containing user_id in memory
-        narratives = []
-        for row in rows:
-            try:
-                narrative = self._row_to_entity(row)
-                # Check if user_id is in actors
-                if any(actor.id == user_id for actor in narrative.narrative_info.actors):
-                    narratives.append(narrative)
-                    if len(narratives) >= limit:
-                        break
-            except Exception as e:
-                logger.warning(f"Failed to parse Narrative: {e}")
-                continue
 
         logger.debug(f"    ← NarrativeRepository.get_by_agent_user: {len(narratives)} found")
         return narratives
@@ -275,34 +319,35 @@ class NarrativeRepository(BaseRepository[Narrative]):
         """
         logger.debug(f"    → NarrativeRepository.get_with_embedding({agent_id})")
 
-        # Query all narratives for this agent
-        rows = await self._db.get(
-            self.table_name,
-            filters={"agent_id": agent_id},
-            limit=limit * 2,
-            order_by="updated_at DESC"
-        )
-
-        narratives = []
-        for row in rows:
-            # Skip entries without embedding
-            if not row.get("routing_embedding"):
-                continue
-
-            try:
-                narrative = self._row_to_entity(row)
-
-                # If user_id is specified, check if it matches
-                if user_id:
-                    if not any(actor.id == user_id for actor in narrative.narrative_info.actors):
-                        continue
-
-                narratives.append(narrative)
-                if len(narratives) >= limit:
-                    break
-            except Exception as e:
-                logger.warning(f"Failed to parse Narrative: {e}")
-                continue
+        if user_id:
+            # Paged scan + user filter (avoids the limit*2 recall cliff under
+            # high tenancy); only keep rows that carry a routing_embedding.
+            narratives = await self._scan_agent_filter_user(
+                agent_id=agent_id,
+                user_id=user_id,
+                limit=limit,
+                require_embedding=True,
+            )
+        else:
+            # No user filter: a single bounded fetch is sufficient. Overfetch
+            # a bit to absorb rows without an embedding, then cap at limit.
+            rows = await self._db.get(
+                self.table_name,
+                filters={"agent_id": agent_id},
+                limit=limit * 2,
+                order_by="updated_at DESC",
+            )
+            narratives = []
+            for row in rows:
+                if not row.get("routing_embedding"):
+                    continue
+                try:
+                    narratives.append(self._row_to_entity(row))
+                    if len(narratives) >= limit:
+                        break
+                except Exception as e:
+                    logger.warning(f"Failed to parse Narrative: {e}")
+                    continue
 
         logger.debug(f"    ← NarrativeRepository.get_with_embedding: {len(narratives)} found")
         return narratives

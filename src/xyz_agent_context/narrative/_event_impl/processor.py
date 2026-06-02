@@ -80,9 +80,16 @@ class EventProcessor:
             if generate_embedding:
                 current_event = await self._crud.load_by_id(event_id)
                 if current_event:
-                    input_content = current_event.env_context.get("input", "")
+                    # Prefer the clean retrieval anchor (sender + this-turn body)
+                    # so the event vector is homogeneous with the query vector;
+                    # fall back to raw input for events created before anchors
+                    # existed. See 2026-06-01 design doc.
+                    embed_source = (
+                        current_event.env_context.get("anchor")
+                        or current_event.env_context.get("input", "")
+                    )
                     embedding, embedding_text = await self._generate_embedding(
-                        input_content, final_output
+                        embed_source, final_output
                     )
                     if embedding:
                         update_data["event_embedding"] = json.dumps(embedding)

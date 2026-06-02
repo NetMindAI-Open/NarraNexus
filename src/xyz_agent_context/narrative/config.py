@@ -271,42 +271,6 @@ class NarrativeConfig:
     # Purpose: For subsequent analysis and parameter tuning
     LOG_SIMILARITY_SCORES = True
 
-    # ==================== EverMemOS Integration Configuration ====================
-
-    # Whether to enable EverMemOS retrieval
-    # Description: When True, uses EverMemOS for Narrative retrieval
-    #      When False, uses the original vector retrieval logic
-    # Note: Ensure EverMemOS service is deployed and running before enabling.
-    # Disabled by default — cloud deploy does not currently run an EverMemOS
-    # instance; flip back to True after the service is provisioned.
-    EVERMEMOS_ENABLED = False
-
-    # EverMemOS service address
-    # Description: EverMemOS HTTP API service address
-    # Default: http://localhost:1995
-    # Can be overridden via environment variable EVERMEMOS_BASE_URL
-    EVERMEMOS_BASE_URL = "http://localhost:1995"
-
-    # EverMemOS request timeout (seconds)
-    # Description: HTTP request timeout
-    # Recommended: 30
-    EVERMEMOS_TIMEOUT = 30
-
-    # EverMemOS retrieval Top-K
-    # Description: Maximum number of Narratives returned by EverMemOS retrieval
-    # Recommended: 10 (internally fetches more, aggregates and returns Top-K)
-    EVERMEMOS_SEARCH_TOP_K = 10
-
-    # EverMemOS episodes per Narrative
-    # Description: Used for Auxiliary Narratives' episode_summaries
-    # Recommended: 5 (up to 5 summaries per auxiliary Narrative)
-    EVERMEMOS_EPISODE_SUMMARIES_PER_NARRATIVE = 5
-
-    # EverMemOS episode contents per Narrative
-    # Description: Used for long-term memory episode_contents (raw conversations)
-    # Recommended: 30 (long-term memory for current Narrative)
-    EVERMEMOS_EPISODE_CONTENTS_PER_NARRATIVE = 30
-
 
 # Export config instance (singleton)
 config = NarrativeConfig()

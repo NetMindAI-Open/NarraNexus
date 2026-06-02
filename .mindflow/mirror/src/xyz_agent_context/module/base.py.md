@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-05-20
+last_verified: 2026-05-29
 ---
+
+## 2026-05-29 — capability flags (decouple orchestration from class names)
+
+Added `provides_chat_history()` classmethod (default False). Capability
+flags let the pipeline reason about WHAT a module does without hard-coding
+WHICH class (`type(m).__name__ == "ChatModule"`). It's a classmethod so it
+works on both a live object and a class-name string via MODULE_MAP (see
+`module.module_class_provides_chat_history`). ChatModule overrides it to
+True. New capabilities should follow this same pattern rather than adding
+class-name checks in the orchestration layer.
 
 ## 2026-05-20 — new `hook_persist_turn` (synchronous, next-turn-critical)
 

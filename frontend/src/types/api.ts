@@ -9,7 +9,7 @@ export interface ApiResponse {
 }
 
 // Job types
-export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'completed' | 'failed' | 'blocked' | 'cancelled';
+export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'cooling' | 'blocked' | 'blocked_failed' | 'completed' | 'failed' | 'cancelled';
 export type JobType = 'one_off' | 'scheduled' | 'ongoing';
 
 export interface TriggerConfig {
@@ -598,7 +598,7 @@ export interface JobProgress {
   estimated_pct?: number | null;
 }
 
-export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed';
+export type JobQueueStatus = 'pending' | 'active' | 'blocked' | 'paused' | 'failed' | 'cooling' | 'paused_no_quota' | 'blocked_failed';
 
 export interface SessionInfoResp {
   session_id: string;

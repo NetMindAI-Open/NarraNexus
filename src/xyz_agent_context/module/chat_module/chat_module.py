@@ -26,7 +26,7 @@ from loguru import logger
 
 # Module (same package)
 from xyz_agent_context.module import XYZBaseModule, mcp_host
-from xyz_agent_context.module.event_memory_module import EventMemoryModule
+from xyz_agent_context.repository import EventMemoryRepository
 
 # Schema
 from xyz_agent_context.schema import (
@@ -202,7 +202,7 @@ class ChatModule(XYZBaseModule):
        - get_chat_history: Retrieve past conversations for a specific Chat Instance
 
     Dual-track memory loading (2026-01-21 P1-2):
-    - Long-term memory: Current Narrative's EverMemOS semantically relevant history (2026-02-09 optimization)
+    - Long-term memory: current Narrative's full conversation history
     - Short-term memory: User's recent cross-Narrative conversations (most recent K messages, no time limit)
     """
 
@@ -215,7 +215,6 @@ class ChatModule(XYZBaseModule):
     # view_narrative tool cover whatever the cap drops.
     SHORT_TERM_MAX_MESSAGES = 30     # latest cross-narrative rows by time (candidates)
     MERGED_HISTORY_MAX = 30          # final unified-timeline cap (current + cross, by time)
-    # Note: Long-term memory count is controlled by EverMemOS retrieval top_k (see narrative/config.py)
 
     def __init__(
         self,
@@ -228,8 +227,11 @@ class ChatModule(XYZBaseModule):
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
 
+        # Narrative-level memory persistence. Depends on the repository
+        # layer directly (modules → repository is the allowed direction);
+        # importing a sibling Module would violate iron rule #3.
         if if_use_event_memory:
-            self.event_memory_module = EventMemoryModule(agent_id, user_id, database_client)
+            self.event_memory_module = EventMemoryRepository(agent_id, user_id, database_client)
         else:
             self.event_memory_module = None
 
@@ -249,6 +251,12 @@ class ChatModule(XYZBaseModule):
             enabled=True,
             description="Provides messaging capabilities (chat conversation + history retrieval)"
         )
+
+    @classmethod
+    def provides_chat_history(cls) -> bool:
+        """ChatModule is the per-user carrier of chat history. The pipeline
+        uses this capability flag instead of naming ChatModule directly."""
+        return True
 
     # ============================================================================= MCP Server
 

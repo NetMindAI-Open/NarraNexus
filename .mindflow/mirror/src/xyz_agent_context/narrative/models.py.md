@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-04-10
+last_verified: 2026-05-29
 stub: false
 ---
+
+> 2026-05-29：删除 `EpisodeResult`，并从 `NarrativeSearchResult` 去掉
+> `episode_summaries` / `episode_contents` 字段（EverMemOS 整体移除）。
 
 # models.py — Narrative 模块所有数据模型的唯一来源
 

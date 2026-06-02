@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-04-23
+last_verified: 2026-05-22
 ---
+
+## 2026-05-22 — add `lark_unbind` to close the bind/unbind symmetry
+
+Agents on natural-language "解绑 / unbind / disconnect" intents
+replied: "Lark module currently has no unbind tool, I cannot
+disconnect directly." Slack already had `slack_unbind`; Lark had
+`lark_bind`, `lark_setup`, `lark_status` but no symmetrical
+`lark_unbind` — unbinding was reachable only via the HTTP route
+`POST /api/lark/unbind`, which an agent can't call.
+
+Added `lark_unbind(agent_id)` calling the freshly-extracted
+`_lark_service.do_unbind`. The HTTP route was refactored to call the
+same helper so the cleanup logic (CLI profile, workspace, DB row,
+bus channel reap) doesn't duplicate.
+
+The `lark_module.get_instructions` prompt now ships a
+`_LIFECYCLE_LINE` (rendered in the bound-state path) and a parallel
+note in `_NO_BOT_INSTRUCTION` telling the agent the tool exists and
+to confirm intent before calling (iron rule #7 covers destructive
+actions — unbind drops credentials + Inbox channel rows).
 
 ## 2026-04-23 (2/2) — trim docstring to hints + pointers
 

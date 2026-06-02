@@ -376,30 +376,7 @@ class AgentRuntime:
                 )
                 return
 
-            # =============================================================================
-            # Launch EverMemOS episode search in parallel (decoupled from narrative selection)
-            # Runs concurrently with Steps 1, 1.5, 2. Awaited before Step 3.2.
-            # =============================================================================
             import asyncio
-            import time as _time
-
-            async def _fetch_evermemos_episodes():
-                from xyz_agent_context.narrative import config as narrative_config
-                if not narrative_config.EVERMEMOS_ENABLED:
-                    return []
-                try:
-                    from xyz_agent_context.utils.evermemos import get_evermemos_client
-                    _start = _time.monotonic()
-                    client = get_evermemos_client(agent_id, user_id)
-                    episodes = await client.search_episodes(query=input_content, top_k=20)
-                    elapsed = _time.monotonic() - _start
-                    logger.info(f"[EverMemOS-Search] {len(episodes)} episodes retrieved in {elapsed:.1f}s")
-                    return episodes
-                except Exception as e:
-                    logger.warning(f"[EverMemOS-Search] Failed (non-fatal): {e}")
-                    return []
-
-            ctx.evermemos_task = asyncio.create_task(_fetch_evermemos_episodes())
 
             # =============================================================================
             # Step 1: Select Narrative

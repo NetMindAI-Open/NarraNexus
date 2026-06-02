@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/SlackConfig.tsx
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-06-01
 ---
 
 ## Why it exists
@@ -43,19 +43,32 @@ talking to Slack within ~5 seconds.
   B if you switch tabs mid-paste).
 - **Setup disclosure embeds the full Slack App Manifest.** Without it,
   users hit ``missing_scope`` failures because Slack's manual app
-  configuration requires ~16 OAuth scopes + 5 event subscriptions +
-  Socket Mode + bot user — easy to miss any one. The manifest
-  pre-configures everything in a single paste. The YAML lives as a
-  module-level constant ``SLACK_APP_MANIFEST_YAML`` at the top of the
-  file.
+  configuration requires the full scope/event/Socket-Mode/bot-user set
+  — easy to miss any one. The manifest pre-configures everything in a
+  single paste. The YAML lives as a module-level constant
+  ``SLACK_APP_MANIFEST_YAML`` at the top of the file and currently
+  declares **18 bot scopes** + 3 ``bot_events`` + ``socket_mode_enabled``.
+  ``files:read`` / ``files:write`` are part of the 18 — they were added
+  for **multimodal attachment ingest** (Phase 1b); without them Slack
+  rejects the file-download calls the trigger makes on inbound uploads.
+- **Manifest guidance tells users which fields are theirs to edit.**
+  The disclosure step explicitly calls out that
+  ``display_information.name`` (workspace admin app name) and
+  ``features.bot_user.display_name`` (the bot's DM / @-mention name) are
+  placeholders the user may rename, while the scopes / events /
+  ``socket_mode_enabled`` bits must be pasted as-is. The placeholder
+  callout exists because the previous copy read as "paste verbatim",
+  which made owners think the visible ``NarraNexus`` strings were
+  fixed.
 - **Manifest YAML is duplicated with the backend.** Backend source of
   truth is ``src/xyz_agent_context/module/slack_module/slack_module.py``
   ``SLACK_APP_MANIFEST_YAML``. Hard-coding here avoids one API
   round-trip on every disclosure expand. When Slack adds a scope we
-  need, ``grep "channels:history" src/ frontend/src`` finds both
-  copies — the diff stays small. If divergence becomes painful (e.g.
-  scope churn picks up), promote to a single ``GET /api/slack/manifest``
-  endpoint.
+  need, ``grep "files:read" src/ frontend/src`` finds both copies — the
+  diff stays small. The ``files:read`` / ``files:write`` addition was
+  exactly this: edit both constants in lock-step. If divergence becomes
+  painful (e.g. scope churn picks up), promote to a single
+  ``GET /api/slack/manifest`` endpoint.
 
 ## Upstream / downstream
 
@@ -81,3 +94,8 @@ talking to Slack within ~5 seconds.
 - ``team_name`` falls back to ``team_id`` falls back to ``"Slack"`` —
   ``auth.test`` should always populate ``team_name`` but the chain
   guards against partial Slack responses.
+- The rendered setup copy still says "~16 OAuth scopes" while the
+  manifest now declares 18. It's an approximate ("~") count in
+  user-facing prose, not a functional value — the paste is the source
+  of truth, so the number drift is cosmetic. Bump the prose if it
+  starts to mislead, but don't treat it as the scope count.

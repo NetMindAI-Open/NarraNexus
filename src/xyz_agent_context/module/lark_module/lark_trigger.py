@@ -37,9 +37,12 @@ from xyz_agent_context.agent_runtime.run_collector import RunError, collect_run
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_INBOX_WRITE_FAILED,
+    EVENT_ATTACHMENT_FETCH_FAILED,
+    EVENT_ATTACHMENT_PERSISTED,
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_ECHO,
     EVENT_INGRESS_DROPPED_HISTORIC,
+    EVENT_INGRESS_DROPPED_OVERSIZED,
     EVENT_INGRESS_DROPPED_UNBOUND,
     EVENT_INGRESS_PROCESSED,
     EVENT_TRANSPORT_BACKOFF,
@@ -52,6 +55,7 @@ from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
 from xyz_agent_context.repository.channel_seen_message_repository import (
     ChannelSeenMessageRepository,
 )
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
 from xyz_agent_context.utils.db_factory import get_db_client
@@ -392,23 +396,43 @@ class LarkTrigger(ChannelTriggerBase):
     def parse_event(self, raw: dict) -> Optional[ParsedMessage]:
         """Convert a Lark dict event → ``ParsedMessage``.
 
-        Lark content arrives as a JSON-encoded string for text messages
-        (``'{"text": "hi"}'``); we extract the inner text. The full raw
-        dict is stashed in ``ParsedMessage.raw`` so ``is_echo`` can read
-        Lark-specific fields like ``sender_type``.
+        Lark content arrives as a JSON-encoded string whose shape depends
+        on ``message_type``:
+
+          - ``text``   → ``{"text": "..."}``                   — extract ``text``
+          - ``post``   → ``{"<lang>": {"title", "content"}}``  — walk segments
+          - ``file`` / ``image`` / ``audio`` / ``media`` /
+            ``sticker``                                        — payload carries
+            file/image metadata only, NO user-visible text. ``content`` MUST
+            be empty (file metadata flows via ``raw["attachment_refs"]`` in
+            Phase 1c, NOT through the prompt body).
+
+        Historical bug pinned by ``tests/lark_module/test_lark_parse_event.py``:
+        the previous implementation did ``json.loads(text).get("text", text)``
+        for any content starting with ``{``. For file/image/etc messages
+        there is no top-level ``text`` key, so the fallback returned the
+        original JSON STRING — which then leaked into the agent's prompt
+        as ``{"file_key":"...","file_name":"..."}`` gibberish. Phase 1c T9a
+        fixes this by branching on ``message_type`` and routing each kind
+        to a typed extractor.
         """
         msg_id = raw.get("message_id", raw.get("id", ""))
         chat_id = raw.get("chat_id", "")
         sender_id = raw.get("sender_id", "")
         sender_name = raw.get("sender_name", "Unknown")
-        content_str = raw.get("content", "")
+        content_str = raw.get("content", "") or ""
+        message_type = raw.get("message_type", "") or ""
 
-        text = content_str
-        if text.startswith("{"):
-            try:
-                text = json.loads(text).get("text", text)
-            except (json.JSONDecodeError, TypeError):
-                pass
+        content = self._extract_user_visible_content(content_str, message_type)
+
+        # Phase 1c T9b: extract attachment refs from media-type messages
+        # so the base's _persist_attachment can download + store them.
+        # Mutates a shallow copy of raw so the upstream caller's dict
+        # stays untouched.
+        refs = self._extract_attachment_refs(content_str, message_type, msg_id)
+        if refs:
+            raw = dict(raw)
+            raw["attachment_refs"] = refs
 
         try:
             create_time_ms = int(raw.get("create_time", "0") or 0)
@@ -420,10 +444,340 @@ class LarkTrigger(ChannelTriggerBase):
             chat_id=chat_id,
             sender_id=sender_id,
             sender_name=sender_name,
-            content=text.strip(),
+            content=content.strip(),
             timestamp_ms=create_time_ms,
             raw=raw,
         )
+
+    @staticmethod
+    def _extract_attachment_refs(
+        content_str: str, message_type: str, msg_id: str
+    ) -> list[dict]:
+        """Parse Lark media-message content into normalized attachment refs.
+
+        Returns a list of zero or one ref dicts (Lark messages carry at
+        most one resource per ``message_type``). Each ref shape:
+
+            {
+                "kind":               "image" | "file" | "audio" | "media",
+                "platform_ref":       <file_key or image_key>,
+                "original_name":      <filename or synthesized>,
+                "mime_hint":          <best guess; "" if unknown>,
+                "size_hint":          <bytes or 0 if not provided>,
+                "lark_message_id":    <msg_id>,        # needed for resource fetch URL
+                "lark_resource_type": <"file"|"image"|"audio"|"media">,
+            }
+
+        ``sticker`` is intentionally skipped — Lark stickers are reusable
+        platform assets (emoji-like), not user uploads, and there's no
+        useful target for the agent's Read tool. text / post produce no
+        refs (their content already lives in ``ParsedMessage.content``).
+
+        Note on ``lark_resource_type``: Lark's "video+audio" container is
+        ``media`` (which is what ``message_type`` reports). There is no
+        Lark message_type named ``"video"`` at the time of writing — if
+        Lark ever adds a pure-video type, both ``message_type`` and the
+        resource_type would shift accordingly. Earlier docstring versions
+        listed ``"video"`` here speculatively; removed to avoid implying
+        the code emits a kind it never produces.
+        """
+        if message_type not in ("image", "file", "audio", "media"):
+            return []
+        if not content_str.startswith("{"):
+            return []
+        try:
+            payload = json.loads(content_str)
+        except (json.JSONDecodeError, TypeError):
+            return []
+        if not isinstance(payload, dict):
+            return []
+
+        if message_type == "image":
+            image_key = payload.get("image_key") or ""
+            if not image_key:
+                return []
+            return [{
+                "kind": "image",
+                "platform_ref": image_key,
+                # Lark doesn't ship a filename for inline images — synth
+                # a name from the key so the Read marker reads naturally.
+                "original_name": f"{image_key}.png",
+                # Lark's inline images are PNG-encoded by default; libmagic
+                # in _persist_attachment corrects the hint from the actual
+                # bytes if the platform got it wrong.
+                "mime_hint": "image/png",
+                "size_hint": 0,
+                "lark_message_id": msg_id,
+                "lark_resource_type": "image",
+            }]
+
+        if message_type == "file":
+            file_key = payload.get("file_key") or ""
+            if not file_key:
+                return []
+            try:
+                size_hint = int(payload.get("file_size", 0) or 0)
+            except (ValueError, TypeError):
+                size_hint = 0
+            return [{
+                "kind": "file",
+                "platform_ref": file_key,
+                "original_name": payload.get("file_name") or file_key,
+                # Lark events don't include MIME; libmagic in
+                # _persist_attachment will sniff from the actual bytes.
+                "mime_hint": "",
+                "size_hint": size_hint,
+                "lark_message_id": msg_id,
+                "lark_resource_type": "file",
+            }]
+
+        # audio / media (video-with-audio): payload carries file_key + duration.
+        file_key = payload.get("file_key") or ""
+        if not file_key:
+            return []
+        return [{
+            "kind": message_type,
+            "platform_ref": file_key,
+            "original_name": payload.get("file_name") or f"{message_type}_{msg_id}",
+            "mime_hint": "",
+            "size_hint": 0,
+            "lark_message_id": msg_id,
+            "lark_resource_type": message_type,
+        }]
+
+    # Lark message_types that NEVER carry user-visible text in their payload.
+    # The check below short-circuits these BEFORE inspecting payload["text"]
+    # because some platforms occasionally include a ``text`` field for
+    # display metadata (e.g. sticker descriptions, file captions in the
+    # platform UI) that is NOT user-typed and MUST NOT enter the agent
+    # prompt. Without this guard a sticker payload with
+    # ``{"file_key":"stk_x","text":"smile"}`` would leak "smile" as if the
+    # user had typed it. Defense: hard-gate on message_type first.
+    _NO_USER_TEXT_MESSAGE_TYPES = frozenset({
+        "image", "file", "audio", "media", "sticker",
+    })
+
+    @staticmethod
+    def _extract_user_visible_content(content_str: str, message_type: str) -> str:
+        """Pull the human-readable text out of a Lark ``content`` field.
+
+        Returns ``""`` for media-only messages so their metadata never
+        leaks into the agent prompt. Plain (non-JSON) ``content_str`` is
+        passed through unchanged so legacy fixtures keep working.
+
+        Order of checks is load-bearing:
+          1. Hard-gate on ``_NO_USER_TEXT_MESSAGE_TYPES``. These types
+             never produce user text regardless of what their payload
+             carries.
+          2. ``post`` → walk segments.
+          3. Any other type with a top-level ``text`` field → use it.
+             Covers ``text`` and any future Lark type whose payload
+             still includes ``text``.
+        """
+        if not content_str:
+            return ""
+        if not content_str.startswith("{"):
+            # Plain text content (legacy test fixtures, or non-JSON payloads).
+            return content_str
+        try:
+            payload = json.loads(content_str)
+        except (json.JSONDecodeError, TypeError):
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        if message_type in LarkTrigger._NO_USER_TEXT_MESSAGE_TYPES:
+            # Known media — payload may carry a ``text`` field (sticker
+            # description, file caption metadata) but it is NOT user
+            # input. Refuse to surface it.
+            return ""
+        if message_type == "post":
+            return LarkTrigger._extract_post_text(payload)
+        if "text" in payload:
+            return payload.get("text", "") or ""
+        return ""
+
+    @staticmethod
+    def _extract_post_text(payload: dict) -> str:
+        """Flatten a Lark ``post``-type payload to a single text string.
+
+        Lark post payloads are multi-language:
+            {"zh_cn": {"title": "...", "content": [[seg, seg], [seg]]}}
+        Each line is a list of segments, each segment is a dict possibly
+        carrying a ``text`` field. We return the first non-empty language
+        block's title + concatenated segment texts. Mirrors the walker in
+        ``_preview_message_content`` (kept separate so the preview helper
+        can stay frozen — refactoring it risks regressing the audit log).
+        """
+        for lang_block in payload.values():
+            if not isinstance(lang_block, dict):
+                continue
+            title = lang_block.get("title", "") or ""
+            body_bits: list[str] = []
+            for line in lang_block.get("content", []) or []:
+                if not isinstance(line, list):
+                    continue
+                for seg in line:
+                    if isinstance(seg, dict):
+                        body_bits.append(seg.get("text", "") or "")
+            text = (title + " " + " ".join(body_bits)).strip()
+            if text:
+                return text
+        return ""
+
+    # ────────────────────────────────────────────────────────────────────
+    # Phase 1c T9c: attachment ingest override
+    # ────────────────────────────────────────────────────────────────────
+
+    async def fetch_attachments(  # type: ignore[override]
+        self, message: ParsedMessage, credential: LarkCredential
+    ) -> list[Attachment]:
+        """Download every Lark resource ref via lark-cli and persist.
+
+        Never-raises. Per-ref failures (CLI error, oversized, persist
+        error) are audited as ``EVENT_ATTACHMENT_FETCH_FAILED`` or
+        ``EVENT_INGRESS_DROPPED_OVERSIZED`` and skipped; remaining refs
+        still flow. Mirrors the contract on
+        ``ChannelTriggerBase.fetch_attachments``.
+        """
+        refs = (message.raw or {}).get("attachment_refs") or []
+        if not refs:
+            return []
+
+        from backend.config import settings as backend_settings
+        max_bytes = backend_settings.max_upload_bytes
+
+        out: list[Attachment] = []
+        for ref in refs:
+            platform_ref = ref.get("platform_ref") or ""
+            if not platform_ref:
+                continue
+            lark_message_id = ref.get("lark_message_id") or message.message_id
+            resource_type = ref.get("lark_resource_type") or ref.get("kind") or "file"
+            original_name = ref.get("original_name") or platform_ref
+            mime_hint = ref.get("mime_hint", "") or ""
+            try:
+                size_hint = int(ref.get("size_hint", 0) or 0)
+            except (ValueError, TypeError):
+                size_hint = 0
+
+            # Pre-check backend cap (only available when message_type=file).
+            if size_hint and size_hint > max_bytes:
+                logger.info(
+                    f"[lark:{credential.agent_id}] refusing oversized "
+                    f"attachment {original_name!r}: size_hint={size_hint} "
+                    f"> max_upload_bytes={max_bytes}"
+                )
+                await self._audit(
+                    EVENT_INGRESS_DROPPED_OVERSIZED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "platform_ref": platform_ref,
+                        "size_hint": size_hint,
+                        "max_upload_bytes": max_bytes,
+                        "reason": "backend_max_upload_bytes",
+                    },
+                )
+                continue
+
+            try:
+                raw_bytes = await self._cli.fetch_message_resource(
+                    credential.agent_id,
+                    message_id=lark_message_id,
+                    file_key=platform_ref,
+                    resource_type=resource_type,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[lark:{credential.agent_id}] resource fetch failed for "
+                    f"{platform_ref!r}: {type(e).__name__}: {e}"
+                )
+                await self._audit(
+                    EVENT_ATTACHMENT_FETCH_FAILED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "platform_ref": platform_ref,
+                        "stage": "fetch_message_resource",
+                        "error": f"{type(e).__name__}:{e}",
+                    },
+                )
+                continue
+
+            # Post-download cap (lark-cli has no streaming mode; the
+            # bytes are already on disk by the time we check size).
+            if len(raw_bytes) > max_bytes:
+                logger.info(
+                    f"[lark:{credential.agent_id}] dropping oversized "
+                    f"downloaded attachment {original_name!r}: "
+                    f"{len(raw_bytes)} > {max_bytes}"
+                )
+                await self._audit(
+                    EVENT_INGRESS_DROPPED_OVERSIZED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "platform_ref": platform_ref,
+                        "actual_bytes": len(raw_bytes),
+                        "max_upload_bytes": max_bytes,
+                        "reason": "post_download_cap",
+                    },
+                )
+                continue
+
+            try:
+                att = await self._persist_attachment(
+                    agent_id=credential.agent_id,
+                    raw_bytes=raw_bytes,
+                    original_name=original_name,
+                    mime_hint=mime_hint,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[lark:{credential.agent_id}] persist failed for "
+                    f"{original_name!r}: {type(e).__name__}: {e}"
+                )
+                await self._audit(
+                    EVENT_ATTACHMENT_FETCH_FAILED,
+                    message_id=message.message_id,
+                    agent_id=credential.agent_id,
+                    app_id=getattr(credential, "app_id", ""),
+                    chat_id=message.chat_id,
+                    sender_id=message.sender_id,
+                    details={
+                        "platform_ref": platform_ref,
+                        "stage": "persist",
+                        "error": f"{type(e).__name__}:{e}",
+                    },
+                )
+                continue
+
+            out.append(att)
+            await self._audit(
+                EVENT_ATTACHMENT_PERSISTED,
+                message_id=message.message_id,
+                agent_id=credential.agent_id,
+                app_id=getattr(credential, "app_id", ""),
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={
+                    "file_id": att.file_id,
+                    "mime_type": att.mime_type,
+                    "size_bytes": att.size_bytes,
+                    "category": att.category.value,
+                    "has_transcript": bool(att.transcript),
+                },
+            )
+        return out
 
     async def _is_echo(
         self, credential: LarkCredential, raw: dict, sender_id: str = ""
@@ -1203,7 +1557,14 @@ class LarkTrigger(ChannelTriggerBase):
             )
             return
 
-        if not message.content or not message.content.strip():
+        # Empty-content guard: drop only when there's NEITHER text NOR
+        # attachment_refs. Phase 1c made files first-class — a user can
+        # drag in a PDF/image/audio with no caption (very common) and the
+        # upload MUST still trigger the agent. Mirrors the same fix
+        # applied to ChannelTriggerBase._process_message in
+        # ``a00adbd fix(channel): allow caption-less file uploads``.
+        has_refs = bool((message.raw or {}).get("attachment_refs"))
+        if (not message.content or not message.content.strip()) and not has_refs:
             return
 
         # Resolve sender name + sanitize
@@ -1218,8 +1579,30 @@ class LarkTrigger(ChannelTriggerBase):
             f"{sender_name} ({message.sender_id}): {message.content[:100]}"
         )
 
+        # Phase 1c T9d: attachment ingest. Never-raise — failures degrade
+        # to a text-only agent run while preserving the audit trail.
+        attachments: list[Attachment] = []
+        try:
+            attachments = await self.fetch_attachments(message, cred)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"LarkTrigger [{cred.profile_name}] fetch_attachments raised: "
+                f"{type(e).__name__}: {e}"
+            )
+            await self._audit(
+                EVENT_ATTACHMENT_FETCH_FAILED,
+                message_id=message.message_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={"error": f"{type(e).__name__}: {e}"},
+            )
+
         # Build context, run agent, get output text
-        output_text = await self._build_and_run_agent(cred, message, sender_name)
+        output_text = await self._build_and_run_agent(
+            cred, message, sender_name, attachments=attachments,
+        )
 
         # Write to inbox via the channel writer
         try:
@@ -1261,6 +1644,8 @@ class LarkTrigger(ChannelTriggerBase):
         sender_id: Optional[str] = None,
         text: Optional[str] = None,
         message_id: Optional[str] = None,
+        *,
+        attachments: Optional[list[Attachment]] = None,
     ) -> str:
         """Build prompt, run AgentRuntime, extract output text.
 
@@ -1319,20 +1704,37 @@ class LarkTrigger(ChannelTriggerBase):
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
         runtime = AgentRuntime()
+        # Clean retrieval anchor for narrative embedding. Graceful: the anchor is
+        # a retrieval optimization, so its failure must never break the agent run
+        # (narrative falls back to input_content). See 2026-06-01 design.
+        try:
+            _anchor = await builder.build_retrieval_anchor()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"build_retrieval_anchor failed; using input fallback: {e}")
+            _anchor = None
+        trigger_extra_data: dict[str, Any] = {
+            "channel_tag": channel_tag.to_dict(),
+            "retrieval_anchor": _anchor,
+            "trigger_id": (
+                f"lark_{message.message_id}"
+                if message.message_id
+                else "lark_unknown"
+            ),
+        }
+        # Phase 1c T9d: only attach when non-empty — matches base/Slack/WS
+        # patterns so ChatModule's ``ctx_data.extra_data.get("attachments")``
+        # check behaves identically across all upload sources.
+        if attachments:
+            trigger_extra_data["attachments"] = [
+                a.model_dump(mode="json") for a in attachments
+            ]
         result = await collect_run(
             runtime,
             agent_id=agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=WorkingSource.LARK,
-            trigger_extra_data={
-                "channel_tag": channel_tag.to_dict(),
-                "trigger_id": (
-                    f"lark_{message.message_id}"
-                    if message.message_id
-                    else "lark_unknown"
-                ),
-            },
+            trigger_extra_data=trigger_extra_data,
         )
 
         if result.is_error:

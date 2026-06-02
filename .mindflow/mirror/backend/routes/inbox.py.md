@@ -1,8 +1,34 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-05-19
+last_verified: 2026-05-28
 stub: false
 ---
+
+## 2026-05-28 — POST /rooms/{room_id}/read (room-level mark-all-read)
+
+New endpoint for the "click the channel row → clear that channel's
+unread" UX in [[AgentInboxPanel.tsx]] / [[InboxPanel.tsx]].
+
+Why not reuse `PUT /{message_id}/read`: `get_agent_inbox` caps each
+channel's `messages[]` array at 50 entries, but `unread_count` is
+computed against ALL `bus_messages` rows. A channel with 100 unread
++ only 50 loaded → marking the latest VISIBLE message left a 50-item
+unread tail behind, the badge never zeroed. The room-level endpoint
+advances `bus_channel_members.last_read_at` to NOW (server UTC ISO
+8601), guaranteeing zero residual unread regardless of how many
+messages were in the response.
+
+Guards:
+- Caller must be a member of the channel (`bus_channel_members` row
+  exists) — otherwise returns `{success: False, error: ...}` rather
+  than silently passing a zero-row UPDATE.
+- UPDATE keeps the same `last_read_at IS NULL OR last_read_at < %s`
+  monotonic guard the per-message endpoint uses, so clock skew or a
+  parallel update that already advanced past us is not rolled back.
+- Idempotent: re-clicking a fully-read channel is a no-op at the DB
+  level (the guard NOPs).
+
+Test pin: `tests/backend/test_inbox_mark_room_read.py` (6 cases).
 
 # routes/inbox.py — Agent 收件箱路由
 

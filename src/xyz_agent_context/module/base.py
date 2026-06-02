@@ -206,6 +206,28 @@ MCPs: {mcp_tools}
         pass
 
     # =========================================================================
+    # Capability flags
+    # =========================================================================
+    #
+    # Capability flags let the orchestration layer reason about WHAT a module
+    # does without hard-coding WHICH concrete class does it (e.g. avoid
+    # `type(m).__name__ == "ChatModule"`). A capability flag is a classmethod
+    # so it can be queried from both a live module object and a class-name
+    # string (via MODULE_MAP) — see module.module_class_provides_chat_history.
+
+    @classmethod
+    def provides_chat_history(cls) -> bool:
+        """Whether this module is the per-user carrier of chat history /
+        conversation persistence.
+
+        The pipeline uses this to find the chat-bearing instance, re-bind
+        chat persistence on narrative routing, and skip other users'
+        chat instances during hook loading — all without naming ChatModule
+        directly. Default False; the chat module overrides to True.
+        """
+        return False
+
+    # =========================================================================
     # Hooks
     # =========================================================================
 

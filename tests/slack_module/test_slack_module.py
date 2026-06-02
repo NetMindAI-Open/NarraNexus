@@ -102,6 +102,31 @@ async def test_get_instructions_returns_no_bot_block_when_unbound():
 
 
 @pytest.mark.asyncio
+async def test_no_bot_block_clarifies_manifest_name_fields_are_editable():
+    """Reported 2026-05-22: when binding from scratch, the user sees a
+    YAML manifest with a hard-coded ``name: NarraNexus Agent`` and the
+    surrounding prompt said "paste this verbatim". They didn't realise
+    the name was a placeholder, OR which of the two name fields
+    (app name vs bot display name) corresponded to what they'd see in
+    Slack. The prompt now spells out both fields and tells the agent
+    to surface that they're editable."""
+    module = _make_module()
+    text = await module.get_instructions(_ctx(extra=None))
+
+    # "verbatim" wording removed — it was the source of the confusion
+    assert "verbatim" not in text
+
+    # Both name fields named so the agent can disambiguate for the user
+    assert "display_information.name" in text
+    assert "features.bot_user.display_name" in text
+
+    # Editability surfaced — accept either "rename" or "edit"
+    # wording to keep the assertion non-brittle
+    lower = text.lower()
+    assert "rename" in lower or "editable" in lower or "edit" in lower
+
+
+@pytest.mark.asyncio
 async def test_get_instructions_returns_full_block_when_slack_info_present():
     module = _make_module()
     ctx = _ctx(

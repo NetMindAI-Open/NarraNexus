@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/safe-return.ts
-last_verified: 2026-05-18
+last_verified: 2026-06-01
 stub: false
 ---
 
@@ -26,7 +26,7 @@ cheap prefix check expresses exactly that.
 
 **`:` is deliberately allowed after the first character.** Template-install
 links carry an encoded URL in the query string
-(`/app/templates/install?url=https%3A%2F%2Fwebsite.narra.nexus/...`). Once
+(`/app/templates/install?url=https%3A%2F%2Fwww.narra.nexus/...`). Once
 `useSearchParams` decodes it, the embedded `https://` surfaces as literal text
 in the query — harmless, because the browser only navigates to the path
 portion; everything after `?` is just data handed to the page.

@@ -714,7 +714,7 @@ The user is a **product designer at NetMind** with a strong typographic sensibil
 
 **Known collaborators**
 - Dana Kim (PM, internal) · fast-paced
-- Prof. A. Researcher (University) · formal register
+- Prof. Chen Li (Tsinghua) · formal register
 - Ops Team · incident response
 `.trim();
 

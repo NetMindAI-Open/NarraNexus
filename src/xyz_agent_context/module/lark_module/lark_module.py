@@ -132,7 +132,20 @@ _NO_BOT_INSTRUCTION = (
     "  2. Their Lark/Feishu email (so \"me/my/I\" can resolve to open_id).\n\n"
     "Then call `mcp__lark_module__lark_setup(agent_id, brand, owner_email)`. "
     "If the user is pasting an existing `cli_xxx` app_id + secret, use "
-    "`lark_bind` instead.\n"
+    "`lark_bind` instead.\n\n"
+    "If the user instead asks to **unbind / 解绑 / disconnect** when "
+    "nothing is bound, call `mcp__lark_module__lark_unbind(agent_id)` "
+    "anyway — it returns ``no_credential`` and confirms the clean state.\n"
+)
+
+
+_LIFECYCLE_LINE = (
+    "**Lifecycle**: To switch to a different Lark bot or fully "
+    "disconnect, call `mcp__lark_module__lark_unbind(agent_id)`. "
+    "It removes the credential row, the CLI keychain entry, the "
+    "per-agent workspace, and every `lark_<chat_id>` Inbox channel — "
+    "**destructive** per iron rule #7, so confirm intent before "
+    "calling (one short \"确认解绑 / confirm unbind?\" turn is enough).\n"
 )
 
 _THREE_CLICK_BACKGROUND = (
@@ -540,7 +553,9 @@ class LarkModule(ChannelModuleBase):
                 f"## Lark/Feishu Integration\n\n"
                 f"Bot **{bot_name}** ({brand_display}) credentials are expired. "
                 f"Ask the user to re-bind via the frontend LarkConfig panel, "
-                f"or call `mcp__lark_module__lark_setup` to create a fresh app.\n\n"
+                f"or call `mcp__lark_module__lark_setup` to create a fresh app. "
+                f"To drop the expired binding entirely, call "
+                f"`mcp__lark_module__lark_unbind(agent_id)`.\n\n"
                 + _IRON_RULES
             )
 
@@ -708,6 +723,7 @@ class LarkModule(ChannelModuleBase):
             f"{incremental_auth_guide}"
             f"{delivery_guide}"
             f"{skill_section}"
+            f"\n{_LIFECYCLE_LINE}\n"
             f"{_IRON_RULES}"
         )
 

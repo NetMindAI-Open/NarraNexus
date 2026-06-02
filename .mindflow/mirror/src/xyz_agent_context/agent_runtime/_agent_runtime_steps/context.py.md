@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/context.py
-last_verified: 2026-04-10
+last_verified: 2026-05-29
 stub: false
 ---
+
+> 2026-05-29：删除 `evermemos_task` 字段（EverMemOS 整体移除）。
+
 # context.py — AgentRuntime 执行流水线的共享状态容器
 
 ## 为什么存在

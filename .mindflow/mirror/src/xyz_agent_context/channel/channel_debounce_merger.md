@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_debounce_merger.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-20
 ---
 
 ## Why it exists
@@ -20,11 +20,17 @@ inspired by OpenClaw's pattern, missing from NarraNexus today.
   has been quiet for the full window — no "merge after N messages"
   heuristic that would be hard to tune.
 - **Last message wins on metadata.** ``message_id`` and
-  ``timestamp_ms`` come from the latest submission; only the content
-  bodies and media URLs concatenate. Reasoning: if the user wrote
-  three messages, the last one is the most current view of the
-  conversation, and stale earlier message_ids are not useful for
-  ack tracking.
+  ``timestamp_ms`` come from the latest submission; content bodies,
+  media URLs, and ``raw["attachment_refs"]`` lists all concatenate.
+  Reasoning: if the user wrote three messages, the last one is the
+  most current view of the conversation, and stale earlier
+  message_ids are not useful for ack tracking.
+- **Attachment refs are concatenated, NOT replaced** (Phase 1a). When
+  a user sends three messages within the window, each carrying a
+  different attachment, all three downloads happen in the merged
+  ``fetch_attachments`` pass. ``_merge`` deep-copies ``raw`` from the
+  latest message before appending so input messages stay immutable
+  (regression from an earlier merger version that mutated in place).
 - **``asyncio.get_running_loop()``, not ``get_event_loop()``.** The
   merger is created inside the trigger's main loop and must crash
   loudly if a caller forgets to wire it up correctly. ``get_event_loop``

@@ -409,6 +409,13 @@ _register(
             Column("narrative_id", "TEXT", "VARCHAR(64)"),
             Column("monitored_job_ids", "TEXT", "JSON"),
             Column("iteration_count", "INTEGER", "INT", default="0"),
+            # 2026-06-01: resilience / backoff state (job-scheduler redesign).
+            # auto_migrate is additive — these land as nullable/default columns
+            # on existing rows.
+            Column("consecutive_failure_count", "INTEGER", "INT", default="0"),
+            Column("cooldown_until", "TEXT", "DATETIME(6)"),
+            Column("paused_reason", "TEXT", "VARCHAR(32)"),
+            Column("paused_at", "TEXT", "DATETIME(6)"),
             # 2026-05-27: NOT NULL + DEFAULT added defensively. Pre-existing
             # job rows in local sqlite DBs occasionally had created_at /
             # updated_at = NULL (the column previously had no constraint),
@@ -1088,6 +1095,36 @@ _register(
             Index("idx_lark_trigger_audit_event_type", ["event_type"]),
             Index("idx_lark_trigger_audit_agent_id", ["agent_id"]),
             Index("idx_lark_trigger_audit_message_id", ["message_id"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# service_audit — generic L2 observability for long-running background loops
+# (JobTrigger, ModulePoller, and any future poller). incident lesson #4/#5:
+# the EC2 pollers had only L1 ("process alive") visibility; a wedged poll
+# coroutine looked healthy while no work happened. The channel side already
+# had lark_trigger_audit; this generalises the same black-box recorder so
+# any service shares one table, keyed by `service`.
+#
+# Event vocabulary: started / stopped / heartbeat / error. A stale-or-
+# missing heartbeat row (frozen counters in `detail`) reveals a stuck loop.
+# `detail` is JSON so new fields never need a migration. Append-only.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="service_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("service", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("event_type", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("detail", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_service_audit_service_time", ["service", "created_at"]),
+            Index("idx_service_audit_event_type", ["event_type"]),
         ],
     )
 )

@@ -5,13 +5,21 @@
 @description: Agent Inbox API — exposes MessageBus channels and messages to the frontend
 
 Endpoints:
-  GET  /api/agent-inbox              — list channels with messages for an agent
-  PUT  /api/agent-inbox/{message_id}/read — mark a message as read
+  GET  /api/agent-inbox                          — list channels with messages for an agent
+  PUT  /api/agent-inbox/{message_id}/read        — mark a single message as read
+  POST /api/agent-inbox/rooms/{room_id}/read     — mark ALL messages in the room read
+
+The room-level endpoint exists because the inbox list caps each channel
+at 50 messages but `unread_count` is computed against ALL messages, so
+marking only the latest VISIBLE message leaves any older-unread tail
+behind. Click-the-channel UX (2026-05-28) calls the room-level endpoint
+so the badge always disappears regardless of how many messages were
+sitting unread.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Query
@@ -218,10 +226,14 @@ async def get_agent_inbox(
 @router.put("/{message_id}/read")
 async def mark_message_read(message_id: str, agent_id: str = Query(...)):
     """
-    Mark a message as read by advancing the read cursor.
+    Mark a single message as read by advancing the read cursor to that
+    message's timestamp.
 
-    Finds the message, then updates the agent's last_read_at cursor
-    for that channel to the message's timestamp.
+    NOTE: this only clears messages up to and including `message_id`.
+    For "clear the whole channel" semantics (e.g. the user clicked the
+    channel row and may not have scrolled through every unread tail),
+    use `POST /rooms/{room_id}/read` instead — it advances the cursor
+    to NOW without needing a message_id.
     """
     try:
         db = await _get_db()
@@ -246,4 +258,67 @@ async def mark_message_read(message_id: str, agent_id: str = Query(...)):
 
     except Exception as e:
         logger.exception(f"[mark_message_read] Error: {e}", exc_info=True)
+        return {"success": False, "error": str(e), "marked_count": 0}
+
+
+@router.post("/rooms/{room_id}/read")
+async def mark_room_read(room_id: str, agent_id: str = Query(...)):
+    """
+    Mark **every** message in a channel as read by advancing the agent's
+    `last_read_at` cursor to NOW. Click-the-channel UX (2026-05-28).
+
+    Why we don't reuse `PUT /{message_id}/read`: the inbox list caps each
+    channel's `messages` array at 50, but `unread_count` is computed
+    against ALL messages in `bus_messages`. If a channel has 100 unread,
+    advancing to the 50th VISIBLE message's timestamp still leaves the
+    50 older-unread messages behind (their `created_at` is OLDER than
+    the visible-latest, so the LIKE-comparison in `unread_count` calc
+    keeps them unread). Advancing to NOW guarantees zero residual unread.
+
+    Idempotent — re-clicking a fully-read channel is a no-op (the
+    UPDATE's last_read_at-only-advances guard handles the equal case).
+
+    Returns ``{"success": True, "channel_id": "...", "last_read_at": "..."}``.
+    The frontend just re-fetches the inbox afterwards; we don't bother
+    recomputing the unread_count delta here.
+    """
+    try:
+        db = await _get_db()
+
+        # Make sure the channel exists AND the agent is actually a member —
+        # otherwise the UPDATE would silently match zero rows and the
+        # caller would think their click "succeeded". A clear 404/400 is
+        # a much better signal than silent acceptance.
+        member = await db.get_one(
+            "bus_channel_members",
+            {"channel_id": room_id, "agent_id": agent_id},
+        )
+        if not member:
+            return {
+                "success": False,
+                "error": f"agent {agent_id} is not a member of channel {room_id}",
+                "marked_count": 0,
+            }
+
+        # Server time, in the same ISO format the cursor compares against
+        # (lexicographic ordering works because we normalise everywhere
+        # via `_to_iso`). Microsecond precision matches the DB column.
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        await db.execute(
+            "UPDATE bus_channel_members SET last_read_at = %s "
+            "WHERE channel_id = %s AND agent_id = %s "
+            "AND (last_read_at IS NULL OR last_read_at < %s)",
+            (now_iso, room_id, agent_id, now_iso),
+            fetch=False,
+        )
+
+        return {
+            "success": True,
+            "channel_id": room_id,
+            "last_read_at": now_iso,
+        }
+
+    except Exception as e:
+        logger.exception(f"[mark_room_read] Error: {e}", exc_info=True)
         return {"success": False, "error": str(e), "marked_count": 0}

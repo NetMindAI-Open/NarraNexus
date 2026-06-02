@@ -221,6 +221,24 @@ class ApiClient {
     );
   }
 
+  /**
+   * Mark every message in a channel as read (advance `last_read_at` to
+   * NOW server-side). Used by the "click the channel row to clear its
+   * unread badge" UX — 2026-05-28.
+   *
+   * Why not loop over `markAgentMessageRead`: the inbox response caps
+   * messages per channel at 50 but `unread_count` is computed against
+   * ALL messages, so marking the latest VISIBLE message can leave an
+   * unread tail. The room-level endpoint advances the cursor to NOW
+   * directly, guaranteeing zero residual unread.
+   */
+  async markAgentRoomRead(roomId: string, agentId: string): Promise<MarkReadResponse> {
+    return this.request<MarkReadResponse>(
+      `/api/agent-inbox/rooms/${encodeURIComponent(roomId)}/read?agent_id=${encodeURIComponent(agentId)}`,
+      { method: 'POST' }
+    );
+  }
+
   // Agents API
   async getAwareness(agentId: string): Promise<AwarenessResponse> {
     return this.request<AwarenessResponse>(`/api/agents/${encodeURIComponent(agentId)}/awareness`);

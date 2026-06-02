@@ -80,9 +80,11 @@ async def test_finalize_pauses_on_quota_failure(db_client):
 
 
 @pytest.mark.asyncio
-async def test_finalize_reschedules_on_transient_failure(db_client):
-    """Transient (non-quota) failures must NOT pause — they reschedule so the
-    next interval can succeed (existing behavior, unchanged)."""
+async def test_finalize_cools_on_transient_failure(db_client):
+    """Transient (non-quota) failures must NOT pause for quota, and (since batch
+    ②) no longer reschedule straight to ACTIVE either — they enter COOLING with
+    exponential backoff so a persistently-failing job stops spinning every
+    interval. See test_failure_backoff for the full backoff behavior."""
     repo = JobRepository(db_client)
     await _insert_job(db_client, "job_t1")
     trigger = JobTrigger(database_client=db_client)
@@ -96,7 +98,7 @@ async def test_finalize_reschedules_on_transient_failure(db_client):
     })
 
     row = await db_client.get_one("instance_jobs", {"job_id": "job_t1"})
-    assert row["status"] == JobStatus.ACTIVE.value  # rescheduled, not paused
+    assert row["status"] == JobStatus.COOLING.value  # backoff, not paused, not active
 
 
 @pytest.mark.asyncio

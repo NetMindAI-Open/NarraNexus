@@ -61,8 +61,9 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
                         logger.info(f"  → Current instance: {instance.instance_id} (user_chat)")
                         break
             else:
+                from xyz_agent_context.module import module_class_provides_chat_history
                 for instance in active_instances:
-                    if instance.module_class == "ChatModule":
+                    if module_class_provides_chat_history(instance.module_class):
                         current_instance = instance
                         logger.info(f"  → Current instance: {instance.instance_id} (chat_fallback)")
                         break

@@ -58,6 +58,8 @@ oauth_config:
       - channels:read
       - chat:write
       - chat:write.public
+      - files:read
+      - files:write
       - groups:history
       - groups:read
       - im:history
@@ -297,8 +299,15 @@ export function SlackConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                       , click <strong>Create New App</strong> → <strong>From an app manifest</strong>, pick your workspace.
                     </li>
                     <li>
-                      Paste the YAML below into the manifest editor, click{' '}
-                      <strong>Next</strong> → <strong>Create</strong>. Slack will pre-configure ~16 OAuth scopes, 5 event subscriptions, Socket Mode, and the bot user.
+                      Paste the YAML below into the manifest editor. You can edit{' '}
+                      <code>display_information.name</code> (the app name in your
+                      workspace admin) and{' '}
+                      <code>features.bot_user.display_name</code> (the bot's name
+                      in DMs and @-mentions) — the defaults are placeholders. Leave
+                      the scopes / events / <code>socket_mode_enabled</code>{' '}
+                      bits as-is. Then click <strong>Next</strong> →{' '}
+                      <strong>Create</strong>. Slack will pre-configure ~16 OAuth
+                      scopes, 5 event subscriptions, Socket Mode, and the bot user.
                     </li>
                     <li>
                       On the app page, click <strong>Install App</strong> →{' '}

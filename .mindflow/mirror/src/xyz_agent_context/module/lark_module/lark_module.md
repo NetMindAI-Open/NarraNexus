@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-05-20
+last_verified: 2026-05-22
 ---
+
+## 2026-05-22 — surface `lark_unbind` in the prompt
+
+Agent told user "Lark module currently has no unbind tool" on a
+natural-language "解绑" request. Root cause was missing MCP tool
+(fixed in `_lark_mcp_tools.py` — see that mirror md), but the
+prompt also never named the tool, so even after adding it the agent
+might not surface it on the right intents.
+
+Added `_LIFECYCLE_LINE` and inserted it into the bound-state prompt
+assembly just above `_IRON_RULES`. Mentions the tool name, the
+intent triggers (`switch to a different Lark bot`, `disconnect`),
+the destructive footprint (credential + CLI keychain + workspace +
+all `lark_<chat_id>` Inbox channels), and ties the confirm-first
+requirement back to iron rule #7. `_NO_BOT_INSTRUCTION` also got
+a parallel sentence so a "解绑" intent when nothing is bound
+returns a deterministic `no_credential` envelope instead of the
+agent inventing an answer. The expired-credential branch also
+mentions `lark_unbind` as an option to drop the dead binding.
 
 ## 2026-05-20 — `_INCREMENTAL_AUTH_GUIDE`: bot-scope dead-end
 

@@ -26,13 +26,14 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
-from xyz_agent_context.utils import utc_now, format_for_api
+from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.schema import (
     JobStatus,
     JobResponse,
     JobListResponse,
     JobDetailResponse,
+    TriggerConfig,
 )
 
 
@@ -168,8 +169,10 @@ async def list_jobs(
         # Build filter conditions — always scoped to the caller.
         filters = {"agent_id": agent_id, "user_id": user_id}
         if status:
-            # Validate status value
-            valid_statuses = ["pending", "active", "running", "completed", "failed", "blocked", "cancelled"]
+            # Validate status value (derive from the enum so new states —
+            # paused_no_quota / cooling / blocked / blocked_failed / paused —
+            # are accepted automatically).
+            valid_statuses = [s.value for s in JobStatus]
             if status not in valid_statuses:
                 return JobListResponse(
                     success=False,
@@ -380,7 +383,7 @@ async def create_job_complex(request: CreateJobComplexRequest):
                 title=job.title,
                 description=job.description or "",
                 job_type="one_off",
-                trigger_config={"trigger_type": "immediate", "run_at": utc_now()},
+                trigger_config=TriggerConfig.immediate().model_dump(mode="json"),
                 payload=payload_str,
                 dependencies=depends_on_job_ids if depends_on_job_ids else None,
             )

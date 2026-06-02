@@ -15,6 +15,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Play,
+  Pause,
 } from 'lucide-react';
 import { Button, Badge, ScrollArea } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/utils';
@@ -28,6 +30,18 @@ interface JobExpandedDetailProps {
   canCancel: boolean;
   /** 取消 Job 回调 */
   onCancel: (e: React.MouseEvent, jobId: string) => void;
+  /** 该状态是否允许恢复（暂停 / 无配额 / 退避 / 依赖失败） */
+  canResume?: boolean;
+  /** 当前是否正在恢复 */
+  isResuming?: boolean;
+  /** 恢复 Job 回调 */
+  onResume?: (e: React.MouseEvent, jobId: string) => void;
+  /** 该状态是否允许手动暂停（active / pending） */
+  canPause?: boolean;
+  /** 当前是否正在暂停 */
+  isPausing?: boolean;
+  /** 暂停 Job 回调 */
+  onPause?: (e: React.MouseEvent, jobId: string) => void;
 }
 
 /** 点击复制文本，显示短暂的勾号反馈 */
@@ -74,6 +88,12 @@ export function JobExpandedDetail({
   isCancelling,
   canCancel,
   onCancel,
+  canResume = false,
+  isResuming = false,
+  onResume,
+  canPause = false,
+  isPausing = false,
+  onPause,
 }: JobExpandedDetailProps) {
   const [payloadExpanded, setPayloadExpanded] = useState(false);
 
@@ -298,28 +318,72 @@ export function JobExpandedDetail({
         </div>
       )}
 
-      {/* 9. Cancel Button */}
-      {canCancel && (
-        <div className="pt-3 border-t border-[var(--border-subtle)]">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(e) => onCancel(e, job.job_id)}
-            disabled={isCancelling}
-            className="text-[var(--color-error)] hover:bg-[var(--color-error)]/10 hover:shadow-[0_0_10px_var(--color-error)/20]"
-          >
-            {isCancelling ? (
-              <>
-                <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                Cancelling...
-              </>
-            ) : (
-              <>
-                <Ban className="w-3 h-3 mr-1.5" />
-                Cancel Job
-              </>
-            )}
-          </Button>
+      {/* 9. Actions */}
+      {(canCancel || canResume || canPause) && (
+        <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center gap-2">
+          {canPause && onPause && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => onPause(e, job.job_id)}
+              disabled={isPausing}
+              className="text-[var(--accent-secondary)] hover:bg-[var(--accent-secondary)]/10"
+            >
+              {isPausing ? (
+                <>
+                  <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                  Pausing...
+                </>
+              ) : (
+                <>
+                  <Pause className="w-3 h-3 mr-1.5" />
+                  Pause
+                </>
+              )}
+            </Button>
+          )}
+          {canResume && onResume && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => onResume(e, job.job_id)}
+              disabled={isResuming}
+              className="text-[var(--accent-primary)] hover:bg-[var(--accent-glow)]"
+            >
+              {isResuming ? (
+                <>
+                  <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                  Resuming...
+                </>
+              ) : (
+                <>
+                  <Play className="w-3 h-3 mr-1.5" />
+                  Resume
+                </>
+              )}
+            </Button>
+          )}
+          {canCancel && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => onCancel(e, job.job_id)}
+              disabled={isCancelling}
+              className="text-[var(--color-error)] hover:bg-[var(--color-error)]/10 hover:shadow-[0_0_10px_var(--color-error)/20]"
+            >
+              {isCancelling ? (
+                <>
+                  <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                  Cancelling...
+                </>
+              ) : (
+                <>
+                  <Ban className="w-3 h-3 mr-1.5" />
+                  Cancel Job
+                </>
+              )}
+            </Button>
+          )}
         </div>
       )}
     </div>

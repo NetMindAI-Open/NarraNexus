@@ -23,6 +23,14 @@ from loguru import logger
 
 
 _API_BASE = "https://api.telegram.org/bot"
+_FILE_BASE = "https://api.telegram.org/file/bot"
+
+# Telegram's bot API caps downloadable file size at 20 MiB. This is a
+# PLATFORM limit, separate from ``backend.config.settings.max_upload_bytes``
+# — even if the user configured a higher backend cap, getFile will refuse
+# any file larger than this with ``file is too big``. Document the constant
+# here so the pre-check error message is self-explanatory.
+TELEGRAM_BOT_DOWNLOAD_CAP_BYTES = 20 * 1024 * 1024
 
 
 class TelegramSDKError(RuntimeError):
@@ -49,12 +57,31 @@ class TelegramSDKClient:
         self._session: Optional[aiohttp.ClientSession] = None
 
     @property
-    def base_url(self) -> str:
+    def _base_url(self) -> str:
+        """Bot API base URL with token embedded — INTERNAL ONLY.
+
+        Leading underscore is load-bearing: this string contains the
+        bot's auth credential in its path (``https://api.telegram.org/bot{TOKEN}``).
+        Printing it anywhere (logger, error message, exception repr) leaks
+        the credential. The download_file path constructs URLs separately
+        using ``_FILE_BASE`` so that path stays safe even when callers
+        get ad-hoc with this property.
+        """
         return f"{_API_BASE}{self._bot_token}"
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(timeout=self._timeout)
+            # ``trust_env=True`` makes aiohttp honour the standard
+            # ``HTTP_PROXY`` / ``HTTPS_PROXY`` / ``NO_PROXY`` env vars
+            # (and ``~/.netrc`` for HTTP auth). Without this flag aiohttp
+            # IGNORES those vars by default — a long-standing gotcha that
+            # breaks every CN developer trying to reach ``api.telegram.org``
+            # through a local Clash / V2Ray HTTP proxy. Setting it here
+            # makes proxy support fully opt-in via the environment, with
+            # zero code change required on the caller side.
+            self._session = aiohttp.ClientSession(
+                timeout=self._timeout, trust_env=True
+            )
         return self._session
 
     async def close(self) -> None:
@@ -84,7 +111,7 @@ class TelegramSDKClient:
         rather than raising — agents read the envelope per the
         per-method skill docs.
         """
-        url = f"{self.base_url}/{method}"
+        url = f"{self._base_url}/{method}"
         try:
             session = await self._ensure_session()
             async with session.post(url, json=args) as resp:
@@ -214,3 +241,69 @@ class TelegramSDKClient:
         if not resp.get("ok"):
             return {}
         return resp.get("result", {})
+
+    # ------------------------------------------------------------------
+    # File download (Phase 1a — attachment ingestion)
+    # ------------------------------------------------------------------
+
+    async def download_file(
+        self, file_id: str, *, size_hint: Optional[int] = None
+    ) -> tuple[bytes, str]:
+        """Two-step Telegram bot download.
+
+        Step 1 — ``getFile(file_id)`` returns metadata including
+        ``file_path``. Step 2 — HTTP GET against
+        ``https://api.telegram.org/file/bot{TOKEN}/{file_path}`` returns
+        the raw bytes.
+
+        ``size_hint`` (the ``file_size`` from the incoming Update) gates a
+        pre-check against ``TELEGRAM_BOT_DOWNLOAD_CAP_BYTES``. Without the
+        gate, oversized files only fail at the getFile step with a generic
+        ``file is too big`` upstream error — slower and harder to surface
+        to the user.
+
+        Returns ``(raw_bytes, file_path)``.
+
+        Raises ``TelegramSDKError`` on any failure (oversized refusal,
+        getFile non-ok, HTTP non-2xx). Callers catch this in
+        ``TelegramTrigger.fetch_attachments`` and audit via
+        ``EVENT_ATTACHMENT_FETCH_FAILED`` / ``EVENT_INGRESS_DROPPED_OVERSIZED``.
+        """
+        if size_hint and size_hint > TELEGRAM_BOT_DOWNLOAD_CAP_BYTES:
+            raise TelegramSDKError(
+                "oversized",
+                f"file exceeds Telegram bot download cap "
+                f"({size_hint} > {TELEGRAM_BOT_DOWNLOAD_CAP_BYTES})",
+            )
+
+        info = await self.api_call("getFile", {"file_id": file_id})
+        if not info.get("ok"):
+            raise TelegramSDKError(
+                info.get("error", "getFile_failed"), "getFile failed"
+            )
+        file_path = (info.get("result") or {}).get("file_path", "")
+        if not file_path:
+            raise TelegramSDKError(
+                "no_file_path", "Telegram returned no file_path"
+            )
+
+        # Build the URL using _FILE_BASE — NOT self._base_url which points at
+        # the JSON API. The token must be embedded in the URL path here;
+        # no Authorization header is used. We deliberately do NOT log this
+        # URL — it leaks the bot token. The caller logs file_id only.
+        url = f"{_FILE_BASE}{self._bot_token}/{file_path}"
+        session = await self._ensure_session()
+        try:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    raise TelegramSDKError(
+                        f"http_{resp.status}",
+                        f"binary fetch failed with status {resp.status}",
+                    )
+                data = await resp.read()
+        except aiohttp.ClientError as e:
+            raise TelegramSDKError(
+                f"client_error:{type(e).__name__}",
+                f"binary fetch network error: {e}",
+            ) from e
+        return data, file_path

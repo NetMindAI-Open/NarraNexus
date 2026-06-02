@@ -99,9 +99,6 @@ class RunContext:
     # ===== Jobs Created This Round (set in Step 2.5.3, for context passing) =====
     created_job_ids: List[str] = field(default_factory=list)
 
-    # ===== EverMemOS (decoupled — async task launched at Step 0) =====
-    evermemos_task: Optional[Any] = None  # asyncio.Task for parallel episode search
-
     # ===== Markdown and Trajectory =====
     markdown_history: str = ""
     previous_instances: List[Any] = field(default_factory=list)

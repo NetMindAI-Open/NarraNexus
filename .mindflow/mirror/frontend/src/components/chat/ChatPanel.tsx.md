@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-22
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — defer streaming values to throttle render bursts (F5)
+
+The five high-frequency streaming values from chatStore
+(currentAssistantMessage / currentThinking / currentSteps /
+currentToolCalls / currentEvents) are read into `_rt*` locals then wrapped
+in `useDeferredValue` so React coalesces a streaming storm into fewer
+commits while always converging to the latest value (iron rule #16:
+throttle render rate, never drop/reorder content). `messages` stays
+immediate (the timeline dedup depends on it). Pure render-scheduling —
+the chatStore delta-merge logic is untouched. Effect (fewer renders under
+load) is only observable via real-browser profiling.
 
 ## 2026-05-22 — chat input extracted to <Composer> (typing-lag fix)
 

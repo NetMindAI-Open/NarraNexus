@@ -216,10 +216,32 @@ _TELEGRAM_IRON_RULES = """\
 5. Never include the user's bot token in messages or logs.
 6. Look up unknown Telegram methods via ``tg_skill(method)`` BEFORE
    calling ``tg_cli`` — the skill doc has the exact arg shape.
-7. Phase 4 is text-only: bot will not RECEIVE photos/voice/files
-   (silently dropped at trigger). If the user wants you to SEND media,
-   you can call ``sendPhoto`` / ``sendDocument`` / ``sendVoice`` etc.
-   directly via ``tg_cli`` (no curated skill md, but the methods work).
+7. **Inbound attachments are SUPPORTED.** The bot RECEIVES documents
+   (PDF / DOCX / TXT / CSV / ...), photos (JPG / PNG / ...), audio /
+   voice memos, and videos. Each file is downloaded to the agent's
+   workspace and surfaced in the chat history as a
+   ``[User uploaded <kind>: name=..., path=/.../att_XXXXXXXX.<ext>,
+   mime=..., — use Read tool to view]`` marker.
+
+   - To VIEW an uploaded file, call your built-in ``Read`` tool against
+     the absolute ``path=`` shown in the marker. Read is multimodal:
+     PDFs and images return native content blocks; text / code / data
+     files return their text contents directly.
+   - For audio / voice memos the marker carries an extra
+     ``transcript=...`` field if Whisper transcription succeeded.
+     **Use the transcript directly** — it IS the spoken content.
+     If ``transcript=`` is absent or empty the file is still on disk
+     but transcription was unavailable (no OpenAI-compatible provider
+     configured) — say so, do NOT fabricate spoken content.
+   - Stickers, locations, contacts, polls and game messages are still
+     ignored at the trigger layer (out of scope).
+   - Telegram bots cannot download files larger than 20 MiB. The user
+     will see a friendly refusal for oversized uploads — you do not
+     need to apologise further.
+
+   To SEND media back to the user, call ``sendPhoto`` / ``sendDocument``
+   / ``sendVoice`` etc. via ``tg_cli`` (no curated skill md but the
+   methods work).
 """
 
 

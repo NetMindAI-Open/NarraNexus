@@ -7,6 +7,16 @@
  * Provides a unified interface for platform-specific operations.
  * Detects runtime (Tauri desktop vs web browser) and returns
  * the appropriate bridge implementation.
+ *
+ * 2026-05-28 — `TauriBridge` was a half-built Phase-4 placeholder
+ * (every method except `getLogs` threw "Tauri runtime not available").
+ * The Rust side already exposes get_service_status, get_health_status,
+ * start_all_services, stop_all_services, restart_service, get_logs in
+ * `lib.rs::invoke_handler`, so wiring them up is a one-to-one mapping
+ * via `invoke()`. The `onHealthUpdate` / `onLog` event-subscription
+ * methods stay as no-ops because Rust does not emit these events;
+ * `SystemPage` was updated to poll `getHealthStatus()` + `getLogs()`
+ * on its existing 3 s interval instead.
  */
 
 import type {
@@ -20,12 +30,11 @@ import type {
 export interface PlatformBridge {
   // Service management (local mode only)
   getServiceStatus(): Promise<ProcessInfo[]>;
+  getHealthStatus(): Promise<OverallHealth>;
   startAllServices(): Promise<void>;
   stopAllServices(): Promise<void>;
   restartService(id: string): Promise<void>;
   getLogs(serviceId?: string): Promise<LogEntry[]>;
-  onHealthUpdate(cb: (health: OverallHealth) => void): () => void;
-  onLog(cb: (entry: LogEntry) => void): () => void;
 
   // App lifecycle
   getAppMode(): Promise<AppMode>;
@@ -37,83 +46,83 @@ export interface PlatformBridge {
 }
 
 /**
- * Tauri desktop bridge (placeholder for Phase 4)
+ * Lazy-imported invoke helper. Tauri's `@tauri-apps/api` is a desktop-only
+ * runtime dep, deliberately NOT declared in `package.json` so the cloud
+ * `vite build` stays free of desktop-only code. The dynamic import is
+ * guarded by `window.__TAURI__` so it only runs inside the Tauri webview.
  *
- * All methods throw until the Tauri runtime integration is built.
+ * `@ts-ignore` + `@vite-ignore` together keep:
+ *   - `tsc -b` happy (it can't see the optional types)
+ *   - Vite's static analyzer happy (it can't follow the path)
+ */
+async function tauriInvoke<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  type TauriCore = {
+    invoke: <U>(c: string, a?: Record<string, unknown>) => Promise<U>;
+  };
+  const tauriCorePath = '@tauri-apps/api/core';
+  const mod = (await import(/* @vite-ignore */ tauriCorePath)) as TauriCore;
+  return mod.invoke<T>(cmd, args);
+}
+
+/**
+ * Tauri desktop bridge — fully wired to the Rust `invoke_handler` commands
+ * in `tauri/src-tauri/src/commands/`.
  */
 class TauriBridge implements PlatformBridge {
   async getServiceStatus(): Promise<ProcessInfo[]> {
-    throw new Error('Tauri runtime not available');
+    // Rust returns `Vec<ProcessInfo>` serialised with
+    // `#[serde(rename_all = "camelCase")]`, so the JSON shape already
+    // matches the TS `ProcessInfo` interface exactly.
+    return await tauriInvoke<ProcessInfo[]>('get_service_status');
+  }
+
+  async getHealthStatus(): Promise<OverallHealth> {
+    // Same camelCase mapping — JSON shape matches `OverallHealth` directly.
+    return await tauriInvoke<OverallHealth>('get_health_status');
   }
 
   async startAllServices(): Promise<void> {
-    throw new Error('Tauri runtime not available');
+    await tauriInvoke<void>('start_all_services');
   }
 
   async stopAllServices(): Promise<void> {
-    throw new Error('Tauri runtime not available');
+    await tauriInvoke<void>('stop_all_services');
   }
 
-  async restartService(_id: string): Promise<void> {
-    throw new Error('Tauri runtime not available');
+  async restartService(id: string): Promise<void> {
+    // Tauri auto-converts the camelCase argument key to snake_case to
+    // match the Rust `service_id: String` parameter name.
+    await tauriInvoke<void>('restart_service', { serviceId: id });
   }
 
   async getLogs(serviceId?: string): Promise<LogEntry[]> {
-    // Wired to the Rust command in tauri/src-tauri/src/commands/health.rs
-    // (registered as `get_logs` in lib.rs's invoke_handler).
-    // @tauri-apps/api is a desktop-only optional runtime dep, intentionally
-    // not declared in package.json. This branch only runs when
-    // window.__TAURI__ is present (i.e. inside the Tauri webview); the cloud
-    // `tsc -b && vite build` skips type resolution (@ts-expect-error) and
-    // static bundling (@vite-ignore).
-    type TauriCore = {
-      invoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-    };
-    // Indirect through a variable so Rollup can't statically resolve the
-    // module (combined with @vite-ignore to silence Vite's plugin warning).
-    const tauriCorePath = '@tauri-apps/api/core';
-    const { invoke } = (await import(/* @vite-ignore */ tauriCorePath)) as TauriCore;
-    type RustLogEntry = {
-      service_id: string;
-      timestamp: number;
-      stream: string;
-      message: string;
-    };
-    const raw = await invoke<RustLogEntry[]>('get_logs', {
+    // camelCase JSON keys (per the serde directive on Rust LogEntry) —
+    // pre-2026-05-28 code did `e.service_id` which silently produced
+    // undefined serviceId values in the log viewer.
+    return await tauriInvoke<LogEntry[]>('get_logs', {
       serviceId: serviceId ?? null,
     });
-    return raw.map((e) => ({
-      serviceId: e.service_id,
-      timestamp: e.timestamp,
-      stream: (e.stream === 'stderr' ? 'stderr' : 'stdout') as
-        | 'stdout'
-        | 'stderr',
-      message: e.message,
-    }));
-  }
-
-  onHealthUpdate(_cb: (health: OverallHealth) => void): () => void {
-    throw new Error('Tauri runtime not available');
-  }
-
-  onLog(_cb: (entry: LogEntry) => void): () => void {
-    throw new Error('Tauri runtime not available');
   }
 
   async getAppMode(): Promise<AppMode> {
-    throw new Error('Tauri runtime not available');
+    return await tauriInvoke<AppMode>('get_app_mode');
   }
 
   async getAppConfig(): Promise<AppConfig> {
-    throw new Error('Tauri runtime not available');
+    return await tauriInvoke<AppConfig>('get_app_config');
   }
 
   isLocalMode(): boolean {
     return true;
   }
 
-  async openExternal(_url: string): Promise<void> {
-    throw new Error('Tauri runtime not available');
+  async openExternal(url: string): Promise<void> {
+    // Routes through tauri-plugin-shell — same path the global
+    // `<a target="_blank">` interceptor uses (see lib/tauri.ts::openExternal).
+    await tauriInvoke<void>('plugin:shell|open', { path: url });
   }
 }
 
@@ -124,6 +133,10 @@ class TauriBridge implements PlatformBridge {
  */
 class WebBridge implements PlatformBridge {
   async getServiceStatus(): Promise<ProcessInfo[]> {
+    throw new Error('Not available in web mode');
+  }
+
+  async getHealthStatus(): Promise<OverallHealth> {
     throw new Error('Not available in web mode');
   }
 
@@ -195,14 +208,6 @@ class WebBridge implements PlatformBridge {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  onHealthUpdate(_cb: (health: OverallHealth) => void): () => void {
-    throw new Error('Not available in web mode');
-  }
-
-  onLog(_cb: (entry: LogEntry) => void): () => void {
-    throw new Error('Not available in web mode');
-  }
-
   async getAppMode(): Promise<AppMode> {
     return 'cloud-web';
   }
@@ -229,7 +234,7 @@ class WebBridge implements PlatformBridge {
  * Checks for the Tauri global to decide between desktop and web modes.
  */
 function detectPlatform(): PlatformBridge {
-  if ((window as any).__TAURI__) {
+  if ((window as { __TAURI__?: unknown }).__TAURI__) {
     return new TauriBridge();
   }
   return new WebBridge();

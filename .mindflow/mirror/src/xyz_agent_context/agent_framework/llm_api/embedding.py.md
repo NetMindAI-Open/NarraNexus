@@ -34,7 +34,8 @@ Narrative 选择、Job 语义检索、实体相似度匹配等功能都需要把
 
 ## Gotcha / 边界情况
 
-- `prepare_job_text_for_embedding()` 把 Job 的 title/description/payload 合并后截断到 500 字——这个截断策略对非常长的 payload 可能损失语义。这是性能和精度的权衡，不是 bug。
+- `prepare_job_text_for_embedding()` 把 Job 的 title/description/payload **全量**合并（2026-06-01 起去掉了 `payload[:500]` 截断——prod 实测 title+desc+payload 全量最长 ~2672 token，远低于 8000-token 守卫；旧的 500 字截断砍掉了 65% job 的执行指令，损失了区分度最高的语义）。
+- **token 守卫（2026-06-01）**：`_make_embedding_request` / `_make_batch_embedding_request` 调 API 前用 `_truncate_to_token_budget`（tiktoken cl100k 作 provider-agnostic 保守上界）按 token 截到 `MAX_TOKENS_PER_REQUEST`（8000）。`MAX_TOKENS_PER_REQUEST` 语义是 **token 不是字符**。单条路径还有 reactive 兜底：真 400（`_is_context_length_error`）时截半重试一次，覆盖 bge-m3 等 tokenizer 与 cl100k 的差异。设计见 reference/self_notebook/specs/2026-06-01-embedding-anchor-redesign-design.md。
 - `with_retry` 装饰器只重试 `ConnectionError`、`TimeoutError`、`OSError`，不重试 API 认证错误（`AuthenticationError` 等），认证失败会直接抛出。
 - `embed_batch` 在 batch 结果映射回原始位置时如果有缓存 hit，`results` 数组会有 `None` 空洞，最后用 `[r for r in results if r is not None]` 过滤，如果某个位置的 embed 失败了也会被静默跳过，导致返回列表长度与输入不等。
 

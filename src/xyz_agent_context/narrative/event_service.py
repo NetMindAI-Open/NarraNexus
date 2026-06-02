@@ -94,7 +94,8 @@ class EventService:
         self,
         agent_id: str,
         user_id: str,
-        input_content: str
+        input_content: str,
+        retrieval_anchor: Optional[str] = None,
     ) -> Event:
         """
         Create an Event and save to database
@@ -113,7 +114,8 @@ class EventService:
             user_id=user_id,
             input_content=input_content,
             trigger_type=TriggerType.CHAT,
-            save_to_db=True
+            save_to_db=True,
+            retrieval_anchor=retrieval_anchor,
         )
 
     # =========================================================================

@@ -91,4 +91,11 @@ async def update_my_preference(
         raise HTTPException(status_code=401, detail="Authentication required")
 
     q = await quota_svc.set_preference(user_id, payload.prefer_system_override)
+    # Edge-triggered recovery: toggling the free-tier preference can make the
+    # user runnable again (e.g. switching to a configured own provider) — revive
+    # their PAUSED_NO_QUOTA jobs in the background (non-blocking).
+    from xyz_agent_context.module.job_module.job_recovery import (
+        schedule_user_no_quota_rearm,
+    )
+    schedule_user_no_quota_rearm(user_id)
     return _quota_to_dict(q)

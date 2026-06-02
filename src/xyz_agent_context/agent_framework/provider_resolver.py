@@ -33,6 +33,7 @@ pattern-matches on this string to decide which remediation UI to show.
 """
 from __future__ import annotations
 
+from enum import Enum
 from typing import Optional
 
 from xyz_agent_context.agent_framework.api_config import (
@@ -54,6 +55,39 @@ from xyz_agent_context.schema.provider_schema import (
 
 
 _REQUIRED_SLOTS = ("agent", "embedding", "helper_llm")
+
+
+class ProviderAvailability(str, Enum):
+    """Verdict of the provider-resolution decision tree, WITHOUT building any
+    config or raising. The single source of truth shared by every caller that
+    needs to know "can this user resolve a usable provider right now":
+
+    - the HTTP path (`ProviderResolver.resolve` maps each verdict to a config
+      or a `ProviderResolverError`),
+    - the job resume gate (`JobTrigger._user_can_run` → `is_runnable`).
+
+    Having one classifier eliminates the drift that caused the 2026-05-31
+    pause/resume oscillation, where the resume gate reimplemented the tree and
+    disagreed with the runtime (it ignored `prefer_system_override`).
+    """
+
+    SYSTEM_OK = "system_ok"                    # free tier has budget → route system
+    USER_OK = "user_ok"                        # opted out + complete own config → route user
+    FREE_TIER_EXHAUSTED = "free_tier_exhausted"  # opted in, no budget, but has own config
+    QUOTA_EXCEEDED = "quota_exceeded"          # opted in, no budget, no own provider
+    NO_PROVIDER = "no_provider"                # opted out, own config missing/incomplete
+    SYSTEM_DISABLED = "system_disabled"        # feature off (local mode) → not gated, passthrough
+
+
+def is_runnable(verdict: ProviderAvailability) -> bool:
+    """True when a run for this verdict would resolve a provider. The three
+    exhaustion/missing verdicts are NOT runnable — the runtime would refuse,
+    so the resume gate must refuse too."""
+    return verdict in (
+        ProviderAvailability.SYSTEM_OK,
+        ProviderAvailability.USER_OK,
+        ProviderAvailability.SYSTEM_DISABLED,
+    )
 
 
 class ProviderResolverError(Exception):
@@ -122,6 +156,42 @@ class ProviderResolver:
         self.system_provider_svc = system_provider_svc
         self.quota_svc = quota_svc
 
+    async def classify(self, user_id: str) -> ProviderAvailability:
+        """Decide WHICH provider a run for this user would resolve, WITHOUT
+        building any config, mutating ContextVars, or raising.
+
+        This is the single source of truth for the decision tree. ``resolve``
+        maps the verdict to a config/exception; the job resume gate maps it via
+        ``is_runnable``. Service-call order (is_enabled → quota.get →
+        get_user_config → quota.check, the last only on the opted-in branch) is
+        deliberate: it preserves the strict-no-op laziness on the disabled path
+        and never probes quota on the opt-out path.
+        """
+        # Branch 0: feature disabled (local mode / env not set) — strict no-op.
+        if not self.system_provider_svc.is_enabled():
+            return ProviderAvailability.SYSTEM_DISABLED
+
+        quota = await self.quota_svc.get(user_id)
+        prefer_system = quota is not None and quota.prefer_system_override
+
+        has_own = _is_user_config_complete(
+            await self.user_provider_svc.get_user_config(user_id)
+        )
+
+        if prefer_system:
+            # Branch 1: user opted in to the free tier — honour it even if they
+            # also configured an own provider (the runtime will NOT fall back
+            # to it; that asymmetry is what the resume gate must respect).
+            if await self.quota_svc.check(user_id):
+                return ProviderAvailability.SYSTEM_OK
+            return (
+                ProviderAvailability.FREE_TIER_EXHAUSTED if has_own
+                else ProviderAvailability.QUOTA_EXCEEDED
+            )
+
+        # Branch 2: opted out (or no quota row) — own provider only.
+        return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
+
     async def resolve(
         self, user_id: str
     ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig, str]]:
@@ -132,39 +202,29 @@ class ProviderResolver:
         feature is disabled (local mode / env not set) — in that case the
         caller keeps whatever global/desktop config is already in effect.
 
-        Raises the same gating errors as :meth:`resolve_and_set`
-        (``FreeTierExhaustedError`` / ``QuotaExceededError`` /
-        ``NoProviderConfiguredError``). Background jobs that need a provider
-        outside the request path (e.g. the embedding rebuild) call this and
-        build their own client from the returned config, instead of relying
-        on a ContextVar that only exists inside the HTTP request task.
+        Thin mapping over :meth:`classify`: verdict → config or
+        ``ProviderResolverError``. Background jobs that need a provider outside
+        the request path (e.g. the embedding rebuild) call this and build their
+        own client from the returned config.
         """
-        # Branch 0: feature disabled (local mode or env not set).
-        if not self.system_provider_svc.is_enabled():
+        verdict = await self.classify(user_id)
+
+        if verdict == ProviderAvailability.SYSTEM_DISABLED:
             return None
-
-        quota = await self.quota_svc.get(user_id)
-        prefer_system = quota is not None and quota.prefer_system_override
-
-        user_cfg = await self.user_provider_svc.get_user_config(user_id)
-        has_own = _is_user_config_complete(user_cfg)
-
-        if prefer_system:
-            # Branch 1: user opted in to free tier.
-            if await self.quota_svc.check(user_id):
-                claude, openai, embedding = _llm_config_to_dataclasses(
-                    self.system_provider_svc.get_config()
-                )
-                return claude, openai, embedding, "system"
-            if has_own:
-                raise FreeTierExhaustedError(user_id)
-            raise QuotaExceededError(user_id)
-
-        # Branch 2: opted out (or no quota row).
-        if has_own:
+        if verdict == ProviderAvailability.SYSTEM_OK:
+            claude, openai, embedding = _llm_config_to_dataclasses(
+                self.system_provider_svc.get_config()
+            )
+            return claude, openai, embedding, "system"
+        if verdict == ProviderAvailability.USER_OK:
+            user_cfg = await self.user_provider_svc.get_user_config(user_id)
             claude, openai, embedding = _llm_config_to_dataclasses(user_cfg)
             return claude, openai, embedding, "user"
-        raise NoProviderConfiguredError(user_id)
+        if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
+            raise FreeTierExhaustedError(user_id)
+        if verdict == ProviderAvailability.QUOTA_EXCEEDED:
+            raise QuotaExceededError(user_id)
+        raise NoProviderConfiguredError(user_id)  # NO_PROVIDER
 
     async def resolve_and_set(self, user_id: str) -> None:
         """Resolve the user's configs and push them onto the request ContextVars.
@@ -178,6 +238,23 @@ class ProviderResolver:
         claude, openai, embedding, source = resolved
         set_user_config(claude, openai, embedding)
         set_provider_source(source)
+
+
+async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
+    """Wire the default services and return the classification verdict, for
+    non-HTTP callers that don't already hold a ``ProviderResolver`` — the job
+    resume gate and the (future) edge-recovery hooks. Keeps every caller on the
+    one decision tree.
+    """
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=SystemProviderService.instance(),
+        quota_svc=QuotaService.default(),
+    )
+    return await resolver.classify(user_id)
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:

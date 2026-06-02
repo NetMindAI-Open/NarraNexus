@@ -132,3 +132,35 @@ isolation transparently.
 - `_exec_lark_cli` is private; external callers must go through
   `_run_with_agent_id` (typical), `_run_with_home` (config init --new),
   or the business methods (`send_message`, `get_user`, etc.).
+
+## Phase 1c additions — binary download path
+
+- **`capture_binary` kwarg on `_exec_lark_cli` (+ forwarded by
+  `_run_with_agent_id`).** When set, stdout is treated as a status
+  channel rather than a JSON payload. lark-cli's `api ... --output
+  <path>` writes the response body to disk and emits an empty stdout
+  on success (or a JSON error envelope on failure); parsing an empty
+  string as JSON would have raised, so the new mode skips that step
+  and returns `{"success": True}` with no `data` field. Error handling
+  is unchanged — non-zero exit still surfaces the JSON error envelope
+  the same way the text path does.
+
+- **`fetch_message_resource(agent_id, *, message_id, file_key,
+  resource_type, timeout=60.0) -> bytes`.** Async wrapper around
+  `api GET /open-apis/im/v1/messages/{id}/resources/{key}` with
+  `--params {"type": "..."}` and `--output <tmpfile>`. Reads the
+  tmpfile back as bytes, cleans up in `finally` (so both success and
+  error paths leave no leaked temp files). Raises `RuntimeError` on
+  CLI failure / empty output / unreadable file — the trigger's
+  `fetch_attachments` catches and audits, preserving never-raise at
+  the trigger boundary.
+
+  `resource_type ∈ {"file", "image", "audio", "video", "media"}` per
+  Lark's IM resource endpoint contract.
+
+  Uses `tempfile.NamedTemporaryFile(delete=False)` to obtain a path
+  the CLI can write to under the current process's `/tmp`; explicit
+  `os.unlink` in `finally`. The PRP plan flagged the option to use
+  the workspace's tmp subdir under disk-pressure, but the default
+  is fine for most attachments and avoids a hard dependency on the
+  workspace being hydrated before fetch.

@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-05-22
 ---
 
 ## Why it exists
@@ -34,10 +34,14 @@ on demand.
   ``data.enabled`` / ``data.is_active`` truthiness convention differs
   (Slack uses ``enabled``, Lark uses ``is_active``). Pushing the
   decision into the entry keeps the section component dumb.
-- **Status fetch only on open.** ``handleToggleSection`` calls
-  ``refreshConnected`` only when transitioning to ``open=true``.
-  Two GETs (one per channel) — cheap, but no reason to pay them on
-  every render.
+- **Status fetched on mount AND on every section open.** Originally
+  the fetch was lazy (only on open) but that left the Level-1
+  collapsed badge stuck at ``0/3 connected`` until the user clicked
+  to expand — bindings created via agent chat, in a prior session,
+  or by another tab looked broken. As of 2026-05-22 a mount-time
+  ``useEffect`` does the initial fetch so the count is correct on
+  first paint. The toggle-time fetch is preserved as a cheap
+  "user is actively looking at it again, refresh stale" path.
 - **Render-time agent-change detection collapses inline panels.**
   Switching ``agentId`` while a channel was expanded would show stale
   config — we close the inline panel immediately. The pattern uses
@@ -61,11 +65,19 @@ on demand.
 
 ## Gotchas
 
-- ``connectedCount`` is computed from the cached ``connectedMap`` set
-  by the last refresh. Binding/unbinding inside a child config panel
-  does NOT auto-refresh this count — the user has to click "Refresh
-  status" or collapse + re-expand. Acceptable today; if it becomes
-  jarring, expose a callback prop down to the child configs.
+- ``connectedCount`` is computed from the cached ``connectedMap``,
+  which is refreshed on: mount, agent change (``agentId`` dep in
+  ``refreshConnected``), section open, and any child config's
+  ``onBindStateChange`` callback (bind / unbind / test). The
+  Level-1 count is now correct without user interaction.
+- The mount-time ``useEffect`` calling ``refreshConnected`` is
+  silently flagged by ``react-hooks/set-state-in-effect`` because
+  the callback chain reaches ``setConnectedMap``. The rule prefers
+  Suspense / React Query / SWR for server-state fetches; the rest
+  of this codebase (LarkConfig, SlackConfig, TelegramConfig) uses
+  raw ``useEffect`` for the same pattern. Adopting Suspense here
+  alone would be inconsistent — disabled with a per-call comment
+  and rationale in the source.
 - ``refreshConnected`` swallows errors and falls back to ``false`` for
   that channel. Misleading if the API is down — the user sees "not
   bound" instead of "unknown / error". Watch for this in support.

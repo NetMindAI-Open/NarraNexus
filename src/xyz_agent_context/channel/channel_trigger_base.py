@@ -69,6 +69,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_WORKER_TIMEOUT,
     EVENT_INBOX_WRITE_FAILED,
     EVENT_HEARTBEAT,
+    EVENT_ATTACHMENT_FETCH_FAILED,
 )
 from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
@@ -83,9 +84,14 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
+from xyz_agent_context.schema.attachment_schema import (
+    Attachment,
+    derive_category_from_mime,
+)
 from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
+from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
 
 
 # Used by sanitize_display_name to strip C0/C1 controls (newlines, tabs,
@@ -300,6 +306,145 @@ class ChannelTriggerBase(ABC):
         self, credential: Any, message: ParsedMessage
     ) -> AsyncIterator[None]:
         yield
+
+    # ────────────────────────────────────────────────────────────────────
+    # Attachment ingestion (Phase 1a)
+    # ────────────────────────────────────────────────────────────────────
+
+    async def fetch_attachments(
+        self, message: ParsedMessage, credential: Any
+    ) -> list[Attachment]:
+        """Download platform attachment refs and persist them locally.
+
+        Subclasses for channels that support media (Telegram / Slack /
+        Lark) override this; channels with no media support inherit the
+        no-op default and the trigger flow stays text-only.
+
+        Contract:
+          - Read platform-specific refs from ``message.raw["attachment_refs"]``
+            (populated by the subclass's ``parse_event``).
+          - For each ref: call the platform SDK to fetch bytes, then
+            ``_persist_attachment`` to land them on disk and assemble an
+            ``Attachment``.
+          - Return the list (empty when no refs / all failed).
+          - **NEVER raise.** Failures must be swallowed, audited via
+            ``EVENT_ATTACHMENT_FETCH_FAILED``, and reduced to the
+            partial-result list. The agent run continues against
+            ``message.content`` text — attachment loss is graceful
+            degradation, not a worker crash. Mirrors the never-raise
+            contract on ``ChannelModuleBase.hook_data_gathering``.
+
+        Cross-platform ``kind`` field vocabulary is INTENTIONALLY
+        non-normalized: each subclass uses its platform's native taxonomy:
+          - Telegram: ``"document"`` / ``"photo"`` / ``"voice"`` /
+            ``"audio"`` / ``"video"``
+          - Slack:    ``"file"`` (single value — Slack treats every
+            upload as a generic file)
+          - Lark:     ``"image"`` / ``"file"`` / ``"audio"`` / ``"media"``
+        The base class does NOT read ``kind`` anywhere. If you add
+        cross-channel logic that switches on it, you MUST normalize
+        first; otherwise the same ``"file"`` upload behaves differently
+        across platforms. Cross-platform normalization is deferred to a
+        post-Phase-2 cleanup (would touch all three subclass parsers).
+        """
+        return []
+
+    async def _persist_attachment(
+        self,
+        *,
+        agent_id: str,
+        raw_bytes: bytes,
+        original_name: str,
+        mime_hint: str,
+    ) -> Attachment:
+        """Sniff MIME, store on disk, run Whisper STT for audio/*,
+        return a fully-populated Attachment Pydantic model.
+
+        MIME tier:  libmagic > platform hint > mimetypes.guess > octet-stream.
+        STT:        same TranscriptionService used by the WS upload route
+                    (see ``backend/routes/agents_attachments.py``).
+                    Never-raise contract — transcript stays ``None`` on
+                    failure / provider unavailable / non-audio MIME.
+
+        Owner resolution: ``user_id`` is the agent OWNER (per
+        ``agents.created_by``), not the IM sender. This matches the
+        existing ``_build_and_run_agent`` fallback so attachment writes
+        and Read-tool lookups target the same workspace path.
+        """
+        user_id = await self._resolve_agent_owner(agent_id) or agent_id
+        mime_type = self._sniff_mime(raw_bytes, mime_hint, original_name)
+        file_id, on_disk = store_uploaded_attachment(
+            agent_id,
+            user_id,
+            raw_bytes=raw_bytes,
+            original_name=original_name,
+            mime_type=mime_type,
+        )
+
+        transcript: Optional[str] = None
+        if mime_type.startswith("audio/"):
+            try:
+                # Lazy import to keep the channel layer free of agent_framework
+                # dependencies at import time.
+                from xyz_agent_context.agent_framework.transcription import (
+                    TranscriptionService,
+                )
+
+                svc = TranscriptionService.instance()
+                if await svc.is_available(user_id):
+                    transcript = await svc.transcribe(
+                        file_path=str(on_disk),
+                        file_id=file_id,
+                        agent_id=agent_id,
+                        user_id=user_id,
+                    )
+                    if transcript:
+                        logger.info(
+                            f"[{self.channel_name}:{agent_id}] transcribed "
+                            f"file_id={file_id} chars={len(transcript)}"
+                        )
+            except Exception as e:  # noqa: BLE001
+                # Never-raise: STT failure must not block attachment flow.
+                logger.warning(
+                    f"[{self.channel_name}:{agent_id}] STT failed for "
+                    f"file_id={file_id}: {type(e).__name__}: {e}"
+                )
+
+        return Attachment(
+            file_id=file_id,
+            mime_type=mime_type,
+            original_name=original_name,
+            size_bytes=len(raw_bytes),
+            category=derive_category_from_mime(mime_type),
+            transcript=transcript,
+        )
+
+    @staticmethod
+    def _sniff_mime(raw_bytes: bytes, hint: str, filename: str) -> str:
+        """Tiered MIME sniff: libmagic > platform hint > extension > octet-stream.
+
+        Mirrors ``backend/routes/agents_attachments.py:_sniff_mime_type``
+        tiering so IM uploads and WS uploads classify the same way.
+        libmagic is optional — when unavailable we fall through cleanly
+        to the platform hint.
+        """
+        try:
+            import magic  # type: ignore[import-not-found]
+
+            sniffed = magic.from_buffer(raw_bytes, mime=True)
+            if sniffed and sniffed != "application/octet-stream":
+                return sniffed
+        except ImportError:
+            # python-magic not installed; fall through.
+            pass
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"libmagic sniff failed: {e}; falling back to hint")
+        if hint:
+            return hint
+        import mimetypes
+
+        guessed, _ = mimetypes.guess_type(filename or "")
+        return guessed or "application/octet-stream"
 
     # ────────────────────────────────────────────────────────────────────
     # PUSH mode stubs (Phase 6)
@@ -847,7 +992,16 @@ class ChannelTriggerBase(ABC):
             )
             return
 
-        if not message.content or not message.content.strip():
+        # Empty-content guard. Originally written for Phase 1a when ParsedMessage
+        # was text-only — at that point an empty content was a clear no-op.
+        # Phase 1b made files a first-class message kind: a user can upload a
+        # PDF / image / voice memo with NO caption (very common, especially on
+        # Slack drag-drop), in which case message.content is "" but
+        # message.raw["attachment_refs"] is non-empty and the upload MUST
+        # still trigger the agent. So the guard now keeps the early-return
+        # only when there's NEITHER text NOR attachment refs.
+        has_refs = bool((message.raw or {}).get("attachment_refs"))
+        if (not message.content or not message.content.strip()) and not has_refs:
             return
 
         # Name resolution + sanitization
@@ -861,9 +1015,29 @@ class ChannelTriggerBase(ABC):
             f"{message.content[:100]}"
         )
 
+        # Attachment ingestion (Phase 1a). Never-raise: any failure
+        # degrades to text-only run while preserving the audit trail.
+        attachments: list[Attachment] = []
+        try:
+            attachments = await self.fetch_attachments(message, credential)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}[{app_id}] fetch_attachments raised: "
+                f"{type(e).__name__}: {e}"
+            )
+            await self._audit(
+                EVENT_ATTACHMENT_FETCH_FAILED,
+                message_id=message.message_id,
+                agent_id=agent_id,
+                app_id=app_id,
+                chat_id=message.chat_id,
+                sender_id=message.sender_id,
+                details={"error": f"{type(e).__name__}: {e}"},
+            )
+
         async with self.processing_indicator(credential, message):
             output_text = await self._build_and_run_agent(
-                credential, message, sender_name
+                credential, message, sender_name, attachments=attachments
             )
 
         try:
@@ -893,9 +1067,21 @@ class ChannelTriggerBase(ABC):
             )
 
     async def _build_and_run_agent(
-        self, credential: Any, message: ParsedMessage, sender_name: str
+        self,
+        credential: Any,
+        message: ParsedMessage,
+        sender_name: str,
+        *,
+        attachments: Optional[list[Attachment]] = None,
     ) -> str:
-        """Build prompt via subclass's context builder, run AgentRuntime, return text."""
+        """Build prompt via subclass's context builder, run AgentRuntime, return text.
+
+        ``attachments`` is the list returned by ``fetch_attachments``
+        (may be empty). When non-empty it is serialised into
+        ``trigger_extra_data["attachments"]`` so ChatModule's
+        ``hook_data_gathering`` can synthesise markers into chat_history.
+        Mirrors ``backend/routes/websocket.py`` which uses the same key.
+        """
         # Lazy import — see top-of-file comment about circular dependency.
         from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
         from xyz_agent_context.agent_runtime.run_collector import collect_run
@@ -904,6 +1090,15 @@ class ChannelTriggerBase(ABC):
 
         builder = self.create_context_builder(message, credential, agent_id)
         prompt = await builder.build_prompt(self._history_config)
+        # Clean retrieval anchor (sender + this-turn body) for narrative
+        # embedding — not the full tagged execution prompt. Graceful: the anchor
+        # is a retrieval optimization, so its failure must never break the agent
+        # run (narrative falls back to input_content). See 2026-06-01 design.
+        try:
+            anchor = await builder.build_retrieval_anchor()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"build_retrieval_anchor failed; using input fallback: {e}")
+            anchor = None
 
         # Build ChannelTag — generic channel string is enough for any
         # channel we can't represent via a ChannelTag factory method yet.
@@ -922,6 +1117,23 @@ class ChannelTriggerBase(ABC):
         # the fix here for free.
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
+        extra_data: dict[str, Any] = {
+            "channel_tag": channel_tag.to_dict(),
+            "retrieval_anchor": anchor,
+            "trigger_id": (
+                f"{self.channel_name}_{message.message_id}"
+                if message.message_id
+                else f"{self.channel_name}_unknown"
+            ),
+        }
+        # Only set "attachments" when non-empty — matches the WS route
+        # pattern in backend/routes/websocket.py:644-648 so ChatModule's
+        # downstream `.get("attachments")` check behaves identically.
+        if attachments:
+            extra_data["attachments"] = [
+                a.model_dump(mode="json") for a in attachments
+            ]
+
         runtime = AgentRuntime()
         result = await collect_run(
             runtime,
@@ -929,14 +1141,7 @@ class ChannelTriggerBase(ABC):
             user_id=owner_user_id,
             input_content=tagged_prompt,
             working_source=self.working_source,
-            trigger_extra_data={
-                "channel_tag": channel_tag.to_dict(),
-                "trigger_id": (
-                    f"{self.channel_name}_{message.message_id}"
-                    if message.message_id
-                    else f"{self.channel_name}_unknown"
-                ),
-            },
+            trigger_extra_data=extra_data,
         )
 
         if result.is_error:

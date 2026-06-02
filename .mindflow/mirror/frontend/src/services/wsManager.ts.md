@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-05-27
+last_verified: 2026-05-29
 stub: false
 ---
+
+## 2026-05-29 — auto-reconnect on passive disconnect (A3)
+
+An unexpected onclose (not a `complete` frame, not an explicit close())
+no longer just stopStreaming. If run() captured a run_id (from the
+`run_started` frame, stored on ConnectionEntry), wsManager schedules a
+capped-exponential-backoff (1→2→4→8→16→30s, RECONNECT_BACKOFF_MS) retry
+that re-attaches to the still-alive BackgroundRun via the existing Phase C
+reconnect() path. NO attempt ceiling (iron rule #14); the cap only stops
+a tight loop. The reconnect WS carries the same context so ITS own
+onclose re-arms the backoff (flapping networks keep retrying);
+run_reconnect resets the counter. No run_id → stopStreaming fallback
+(unchanged). reconnectTimers / reconnectAttempts maps track pending
+retries; close()/closeAll() cancel them. **Gotcha**: close() must NOT
+reset reconnectAttempts (reconnect() calls close() internally — resetting
+there would defeat backoff growth); the counter resets via run() / a
+successful re-attach instead.
 
 ## 2026-05-27 — bridge WS AuthError frames to narranexus:auth-expired
 
