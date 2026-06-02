@@ -73,7 +73,18 @@ const ScrollArea = React.forwardRef<
   ) => (
     <ScrollAreaPrimitive.Root
       ref={ref}
-      className={cn('relative overflow-hidden', className)}
+      // `flex flex-col` is required for `max-h-*` ScrollAreas to actually
+      // scroll. Radix sizes the Viewport as `height: 100%` (see h-full below);
+      // CSS resolves that to `auto` when the Root's own height is `auto` —
+      // which is exactly the case for a Root constrained ONLY by `max-height`
+      // (and not a definite `h-full`/`flex-1`). The Viewport then grows to the
+      // full content height and the Root just CLIPS it via overflow:hidden —
+      // no scrollbar, no wheel scroll. Making the Root a flex column gives the
+      // single in-flow child (the Viewport) a definite height bounded by the
+      // Root's max-height, so it scrolls. Safe for every usage: the Scrollbar
+      // and Corner are `position: absolute` (out of flow), so the Viewport is
+      // the only flex item; h-full / flex-1 / horizontal Roots are unaffected.
+      className={cn('relative overflow-hidden flex flex-col', className)}
       // `scrollHideDelay` 600ms feels less twitchy than the 300ms default.
       scrollHideDelay={600}
       {...props}

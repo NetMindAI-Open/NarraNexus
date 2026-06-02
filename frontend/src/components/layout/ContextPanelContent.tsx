@@ -31,13 +31,7 @@ interface ContextPanelContentProps {
 
 export function ContextPanelContent({ activeTab }: ContextPanelContentProps) {
   return (
-    <div className="flex-1 min-h-0 flex flex-col animate-fade-in" key={activeTab}>
-      {/* `flex flex-col` is load-bearing: each panel is a `Card` sized with
-          `h-full`, which only resolves against a parent that establishes a
-          definite-height flex column. MainLayout's wrapper is already
-          `flex flex-col`, but this intermediate div sat in between as a plain
-          block — breaking the height chain so the panels' inner ScrollArea
-          had no bounded height and clipped (instead of scrolled) overflow. */}
+    <div className="flex-1 min-h-0 animate-fade-in" key={activeTab}>
       <Suspense fallback={<PanelFallback />}>
         {activeTab === 'runtime' && <RuntimePanel />}
         {activeTab === 'awareness' && <AwarenessPanel />}
