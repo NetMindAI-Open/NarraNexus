@@ -195,7 +195,13 @@ function RootRedirect() {
   if (checking) {
     return <PageFallback />;
   }
-  if (needsSetup) {
+  // Only local installs walk the user through provider setup on first
+  // login. Cloud (cloud-web / cloud-app) starts every account on the
+  // system free-tier quota (SystemProviderService), so a fresh cloud user
+  // can chat immediately — the provider screen confused users who had no
+  // key to enter. They can still add their own provider later from
+  // Settings; the onboarding checklist + quota panel surface that path.
+  if (needsSetup && mode === 'local') {
     return <Navigate to="/setup" replace />;
   }
   return <Navigate to="/app/chat" replace />;

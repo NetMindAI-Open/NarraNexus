@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-05-29
+last_verified: 2026-06-02
 stub: false
 ---
+
+## 2026-06-02 — reconnect `run_ended` must clear isStreaming (stuck "Acting…" fix)
+
+The reconnect onmessage handler ran the `translated === null` early-return
+guard BEFORE its terminal-frame block, so `run_ended` (which
+`translateReconnectFrame` absorbs to null) returned early and never set
+`entry.completed` / fired onComplete / called `stopStreaming`. Symptom: a
+run that finished *during the outage that triggered the reconnect* replays
+its history, the server sends `run_ended`, the client drops it, and the
+session stays `isStreaming = true` forever — the "Acting…" spinner spins
+until a manual page refresh. Fix: hoist the `run_ended` / `complete` block
+above the translate/early-return, and for `run_ended` call
+`stopStreaming(agentId, agentName)` directly (`complete` still reaches
+stopStreaming through processMessage as a live frame; stopStreaming is
+idempotent via its `!isStreaming` guard, so the double path is safe). This
+is a root-cause fix, NOT a timeout — no iron-rule #14/#15 ceiling; we
+simply stop dropping the server's own terminal signal. This also covers the
+"complete frame lost on the fresh-run WS" case: that path reconnects, and
+the reconnect now retrieves `run_ended` and clears the spinner.
 
 ## 2026-05-29 — auto-reconnect on passive disconnect (A3)
 

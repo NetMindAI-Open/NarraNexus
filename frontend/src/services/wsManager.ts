@@ -357,6 +357,27 @@ class WebSocketManager {
           store().setCurrentRunId(agentId, runId);
         }
 
+        // Honor terminal lifecycle frames BEFORE the translate/early-return
+        // guard below. `run_ended` is the terminal frame the backend sends
+        // when the run we reconnected to has ALREADY finished — which is the
+        // common case, since the run typically finished during the very
+        // outage that triggered this reconnect. translateReconnectFrame()
+        // absorbs `run_ended` to null (it's protocol metadata), so if the
+        // `translated === null` guard ran first we'd `return` without ever
+        // clearing `isStreaming` — leaving the "Acting…" spinner spinning
+        // until a manual page refresh. `complete` is a live frame that still
+        // reaches stopStreaming via processMessage below, so we only have to
+        // stop the stream ourselves for `run_ended`.
+        if (raw.type === 'run_ended' || raw.type === 'complete') {
+          entry.completed = true;
+          const cb = this.onCompleteCallbacks.get(agentId);
+          cb?.(agentId);
+          this.onCompleteCallbacks.delete(agentId);
+          if (raw.type === 'run_ended') {
+            store().stopStreaming(agentId, agentName);
+          }
+        }
+
         // Translate Phase C reconnect-mode frames into RuntimeMessage
         // shapes the existing chatStore.processMessage already knows
         // how to render. live frames pass through untouched.
@@ -364,13 +385,6 @@ class WebSocketManager {
         if (translated === null) return;
 
         store().processMessage(agentId, translated as RuntimeMessage);
-
-        if (raw.type === 'run_ended' || raw.type === 'complete') {
-          entry.completed = true;
-          const cb = this.onCompleteCallbacks.get(agentId);
-          cb?.(agentId);
-          this.onCompleteCallbacks.delete(agentId);
-        }
       } catch (e) {
         console.error(`[wsManager] Failed to parse reconnect message for ${agentId}:`, e);
       }

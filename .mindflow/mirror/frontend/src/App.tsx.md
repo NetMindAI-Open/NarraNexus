@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-05-27
+last_verified: 2026-06-02
 stub: false
 ---
+
+## 2026-06-02 — cloud skips first-login provider setup
+
+`RootRedirect`'s setup gate is now `needsSetup && mode === 'local'` (was
+just `needsSetup`). Cloud accounts (`cloud-web` / `cloud-app`) boot on the
+system free-tier quota ([[system_provider_service]] / QuotaService), so a
+fresh cloud user can chat with zero configuration; the provider screen only
+confused users who had no API key to paste. Local installs have no system
+provider, so they still must configure one — the gate keeps `/setup` for
+`mode === 'local'` only. Cloud users can still add a personal provider later
+from Settings (the onboarding checklist + quota panel point them there).
 
 ## 2026-05-27 — UpdateBanner mount + updaterStore init
 
