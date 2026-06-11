@@ -1,7 +1,24 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-05-18
+last_verified: 2026-06-10
 ---
+## 2026-06-10 — Agent slot reasoning dropdowns (Thinking / Reasoning Effort)
+
+The agent slot card gained two selects bound to the framework-neutral
+SlotConfig params: Thinking (Auto/On/Off) and Reasoning Effort
+(Auto/Low/Medium/High/Max). Auto = '' = the backend adapter passes
+nothing (framework default — today's behavior). Wiring notes:
+
+- `handleLocalSlotChange` now PRESERVES the effective reasoning params
+  when the provider/model dropdowns change — switching model must not
+  silently reset the knobs.
+- `handleLocalReasoningChange` stages a param change; it no-ops until a
+  provider is selected (the selects are disabled in that state).
+- `handleApply` always sends `thinking`/`reasoning_effort` in the PUT
+  body (PUT semantics: '' resets to auto server-side).
+- Rendered only for `slot.key === 'agent'`; helper_llm doesn't get the
+  knobs yet (its OpenAI adapter mapping is future work).
+
 
 ## 2026-05-18 — `authFetch` 必须发 `X-User-Id`（修跨用户写入 bug）
 

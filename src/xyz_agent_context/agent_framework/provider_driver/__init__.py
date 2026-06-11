@@ -10,7 +10,7 @@ paths (`ProviderResolver` for HTTP traffic + `_get_user_llm_configs_strict`
 for background triggers) into one. Each row of `user_providers` carries
 a `driver_type` column; this package dispatches on that column to a
 single `Driver` implementation that knows how to build the three
-LLM config dataclasses (`ClaudeConfig` / `OpenAIConfig` / `EmbeddingConfig`)
+LLM config dataclasses (`ClaudeConfig` / `OpenAIConfig`)
 for that row.
 
 Public entry points

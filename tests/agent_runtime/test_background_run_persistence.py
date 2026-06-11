@@ -195,6 +195,38 @@ async def test_finalize_writes_terminal_state_and_removes_from_registry(db_clien
 
 
 @pytest.mark.asyncio
+async def test_finalize_broadcasts_terminal_complete_frame(db_client):
+    """The live WS path has no other end-of-run signal: subscribers must
+    receive a `complete` frame (with the terminal state) before the
+    broadcaster closes. Without it the frontend treats the server-side
+    close as a passive disconnect and spins up the reconnect machinery
+    on every normal turn end (duplicate user bubble + stuck spinner)."""
+    await _seed_events_row(db_client, "evt_run6")
+    active_runs: dict = {}
+    bg = BackgroundRun(
+        agent_id="agent_test",
+        user_id="u_test",
+        input_preview="",
+        db=db_client,
+        active_runs=active_runs,
+    )
+    await bg._on_run_id_assigned("evt_run6")
+
+    sub = bg.broadcaster.subscribe("ws-live")
+
+    bg.state = STATE_COMPLETED
+    await bg._finalize()
+
+    received = []
+    async for e in sub:
+        received.append(e)
+
+    completes = [e for e in received if e.get("type") == "complete"]
+    assert len(completes) == 1
+    assert completes[0]["state"] == STATE_COMPLETED
+
+
+@pytest.mark.asyncio
 async def test_broadcaster_current_thinking_buffer_reflects_segment(db_client):
     """While a thinking segment is being accumulated, the broadcaster's
     current_thinking_buffer must mirror it so a mid-segment subscriber

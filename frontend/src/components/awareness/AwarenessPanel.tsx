@@ -17,7 +17,18 @@ import { FileUpload } from './FileUpload';
 import { IMChannelsSection } from './IMChannelsSection';
 import type { SocialNetworkEntity } from '@/types';
 
-export function AwarenessPanel() {
+export type AwarenessSectionId = 'awareness' | 'workspace' | 'channels' | 'social';
+
+interface AwarenessPanelProps {
+  /** Skip the outer Card chrome + duplicate title when hosted inside the
+   *  bookmark drawer. Functional actions are kept. */
+  embedded?: boolean;
+  /** Atomic mode: render exactly ONE section (bookmark-strip IA:
+   *  one small tab = one content). Omit for the legacy full stack. */
+  section?: AwarenessSectionId;
+}
+
+export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProps = {}) {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editedAwareness, setEditedAwareness] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -160,14 +171,17 @@ export function AwarenessPanel() {
     return { totalChats, avgStrength: Math.round(avgStrength * 100), strongConnections };
   }, [chatHistoryEvents, socialNetworkList]);
 
+  const CardShell = embedded ? 'div' : Card;
   return (
     <>
-      <Card className="flex flex-col h-full">
-        <CardHeader>
+      <CardShell className="flex flex-col h-full">
+        <CardHeader className={cn(embedded && 'justify-end py-1')}>
+          {!embedded && (
           <CardTitle>
             <Brain />
             Context
           </CardTitle>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -179,7 +193,8 @@ export function AwarenessPanel() {
           </Button>
         </CardHeader>
 
-        {/* Stat strip — rule-separated, no nested boxes */}
+        {/* Stat strip (social metrics) — only with the social section */}
+        {(!section || section === 'social') && (
         <StatStrip
           items={[
             { label: 'Contacts', value: socialNetworkList.length, icon: Users },
@@ -187,10 +202,12 @@ export function AwarenessPanel() {
             { label: 'Strong', value: networkMetrics.strongConnections, icon: TrendingUp, tone: 'success', subtext: `${networkMetrics.avgStrength}% avg` },
           ]}
         />
+        )}
 
         <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
         <ScrollArea className="h-full">
           {/* ── Section: Agent Awareness ── */}
+          {(!section || section === 'awareness') && (
           <section className="px-5 pt-5 pb-6">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em]">
@@ -257,19 +274,25 @@ export function AwarenessPanel() {
               />
             )}
           </section>
+          )}
 
           {/* ── Section: Workspace ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
+          {(!section || section === 'workspace') && (
+          <section className={cn('px-5 py-5', !section && 'border-t border-[var(--rule)]')}>
             <FileUpload />
           </section>
+          )}
 
           {/* ── Section: IM Channels (Lark / Slack / Telegram) ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
+          {(!section || section === 'channels') && (
+          <section className={cn('px-5 py-5', !section && 'border-t border-[var(--rule)]')}>
             <IMChannelsSection />
           </section>
+          )}
 
           {/* ── Section: Social Network ── */}
-          <section className="px-5 pt-5 pb-6 border-t border-[var(--rule)]">
+          {(!section || section === 'social') && (
+          <section className={cn('px-5 pt-5 pb-6', !section && 'border-t border-[var(--rule)]')}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em]">
                 <Network className="w-3 h-3" />
@@ -407,10 +430,11 @@ export function AwarenessPanel() {
               )
             )}
           </section>
+          )}
 
         </ScrollArea>
         </CardContent>
-      </Card>
+      </CardShell>
 
       {/* Edit Awareness Modal */}
       <Dialog

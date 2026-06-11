@@ -140,7 +140,6 @@ class InstanceSyncService:
         """
         from xyz_agent_context.repository import JobRepository
         from xyz_agent_context.schema.job_schema import JobType, TriggerConfig
-        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding, prepare_job_text_for_embedding
 
         job_repo = JobRepository(self.db)
         created_job_ids = []
@@ -262,16 +261,8 @@ class InstanceSyncService:
                     next_run_local = next_run.local
                     next_run_tz_final = next_run.tz
 
-            # Generate embedding
-            embedding_text = prepare_job_text_for_embedding(
-                job_config.title,
-                inst.description,
-                job_config.payload
-            )
-            embedding = await get_embedding(embedding_text)
-            # Dual-write to embeddings_store
-            from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
-            await store_embedding("job", job_id, embedding, source_text=embedding_text)
+            # Job retrieval is BM25 keyword search (search_keyword) — no embedding
+            # is written. embeddings_store "job" rows are retired.
 
             # Extract related_entity_id (Feature 2.2, changed to single value)
             related_entity_id = getattr(job_config, 'related_entity_id', None)
@@ -303,7 +294,6 @@ class InstanceSyncService:
                     next_run_time=next_run_utc,
                     next_run_at_local=next_run_local,
                     next_run_tz=next_run_tz_final,
-                    embedding=embedding,
                     related_entity_id=related_entity_id,  # Feature 2.2 (single value)
                     narrative_id=narrative_id  # Feature 3.1
                 )
@@ -599,7 +589,7 @@ class InstanceSyncService:
             from xyz_agent_context.module import generate_instance_id
 
             instance_repo = InstanceRepository(self.db)
-            social_repo = SocialNetworkRepository(self.db)
+            social_repo = SocialNetworkRepository(self.db, agent_id)
 
             # 1. Get or create SocialNetworkModule instance
             instances = await instance_repo.get_by_agent(

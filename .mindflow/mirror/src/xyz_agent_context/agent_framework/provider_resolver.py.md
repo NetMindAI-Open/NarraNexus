@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-06-01
+last_verified: 2026-06-11
 ---
 
 # Intent
@@ -24,6 +24,13 @@ had an own provider was judged runnable, resumed, then rejected by the runtime
 (which will NOT silently spend their own key), forever. That was the 2026-05-31
 prod pause/resume oscillation. Extracting `classify` makes the gate and the
 runtime physically incapable of disagreeing.
+
+## 2026-06-11 — resolve_and_set_provider_for_user
+
+Module-level twin of `classify_provider_for_user` that also SETS the
+ContextVars — for background jobs outside the HTTP request path (memory
+consolidation worker). Same decision tree, same exceptions; local mode
+is a strict no-op.
 
 ## The decision tree (`classify`)
 

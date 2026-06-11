@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-05-20
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — atomic `section` prop
+
+`section?: 'awareness'|'workspace'|'channels'|'social'` renders exactly
+ONE section (bookmark-strip atomic IA: one tab = one content; the
+stacked all-sections view remains the default for any legacy callers).
+Stat strip only renders with the social section. Edit modal stays with
+the awareness section.
+
+## 2026-06-10 — embedded mode
+
+`embedded` prop swaps the Card shell for a plain div and hides the
+duplicate title when hosted in the bookmark drawer's
+[[AgentProfilePanel]]; Edit/Refresh actions and the internal sections
+(Workspace / IM Channels / Social) are untouched. Default rendering
+unchanged.
 
 ## 2026-05-20 — Save button contrast fix (invisible "black blob")
 

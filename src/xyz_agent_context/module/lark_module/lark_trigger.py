@@ -1704,7 +1704,7 @@ class LarkTrigger(ChannelTriggerBase):
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
         runtime = AgentRuntime()
-        # Clean retrieval anchor for narrative embedding. Graceful: the anchor is
+        # Clean retrieval anchor for narrative routing. Graceful: the anchor is
         # a retrieval optimization, so its failure must never break the agent run
         # (narrative falls back to input_content). See 2026-06-01 design.
         try:

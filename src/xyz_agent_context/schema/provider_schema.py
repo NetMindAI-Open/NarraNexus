@@ -6,7 +6,7 @@
 
 Defines the schema for the multi-provider LLM configuration system.
 Users can configure multiple providers (NetMind, OpenAI, Anthropic, or custom)
-and assign them to different functional slots (agent, embedding, helper_llm).
+and assign them to different functional slots (agent, helper_llm).
 
 Core concepts:
 - Provider: A connection to an LLM service (api_key + base_url + protocol)
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -53,7 +53,6 @@ class ProviderSource(str, Enum):
 class SlotName(str, Enum):
     """Functional slots in the system, each requiring an LLM provider"""
     AGENT = "agent"              # Main Agent Loop (dialogue)
-    EMBEDDING = "embedding"      # Vector embedding generation
     HELPER_LLM = "helper_llm"   # Auxiliary LLM calls (entity extraction, narrative update, etc.)
 
 
@@ -111,9 +110,23 @@ class SlotConfig(BaseModel):
 
     The provider's protocol must match the slot's required protocol
     (validated by ProviderRegistry).
+
+    Reasoning params are framework-NEUTRAL (rule #9): the slot never stores
+    a provider dialect ("adaptive", "minimal", ...). Each agent-framework
+    adapter owns the mapping from these values to its own wire format and
+    clamps values outside its vocabulary (with a log line, never an error —
+    rule #15: we don't police the user's provider choice).
     """
     provider_id: str = Field(..., description="Reference to ProviderConfig.provider_id")
     model: str = Field(..., description="Model name, e.g. 'BAAI/bge-m3'")
+    thinking: Literal["", "on", "off"] = Field(
+        default="",
+        description="Neutral thinking switch: '' = auto (adapter passes nothing)",
+    )
+    reasoning_effort: Literal["", "low", "medium", "high", "max"] = Field(
+        default="",
+        description="Neutral reasoning-effort level: '' = auto (adapter passes nothing)",
+    )
 
 
 # =============================================================================
@@ -133,7 +146,7 @@ class LLMConfig(BaseModel):
     )
     slots: dict[str, SlotConfig] = Field(
         default_factory=dict,
-        description="Map of slot name -> SlotConfig (keys: agent, embedding, helper_llm)",
+        description="Map of slot name -> SlotConfig (keys: agent, helper_llm)",
     )
 
 
@@ -143,7 +156,6 @@ class LLMConfig(BaseModel):
 
 SLOT_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
     SlotName.AGENT: [ProviderProtocol.ANTHROPIC],
-    SlotName.EMBEDDING: [ProviderProtocol.OPENAI],
     SlotName.HELPER_LLM: [ProviderProtocol.OPENAI],
 }
 """

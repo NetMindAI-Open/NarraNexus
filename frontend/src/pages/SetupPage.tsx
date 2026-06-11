@@ -9,7 +9,7 @@
  * Both local and cloud modes use this page.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowRight, SkipForward } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
@@ -25,6 +25,16 @@ export function SetupPage() {
   const userId = useConfigStore((s) => s.userId);
   const [providerCount, setProviderCount] = useState(0);
   const [loaded, setLoaded] = useState(false);
+
+  // Funnel: user reached the setup page. React StrictMode double-invokes
+  // effects in dev, so a ref guard ensures setup_entered fires exactly once
+  // per mount. Fire-and-forget.
+  const enteredFired = useRef(false);
+  useEffect(() => {
+    if (enteredFired.current) return;
+    enteredFired.current = true;
+    api.trackFunnelEvent('setup_entered').catch(() => {});
+  }, []);
 
   // Check current provider count on mount and after changes. Routed
   // through api.getProviders so identity travels in the X-User-Id /
@@ -45,7 +55,11 @@ export function SetupPage() {
     check();
   }, [userId]);
 
-  const handleDone = () => {
+  // Funnel: which event fires depends on WHICH button the user pressed, not on
+  // provider count — the "Skip for now" button is a skip, the primary
+  // "Done / Get Started" button is a completion. Fire-and-forget.
+  const finishSetup = (event: 'setup_completed' | 'setup_skipped') => {
+    api.trackFunnelEvent(event).catch(() => {});
     navigate('/app/chat', { replace: true });
   };
 
@@ -82,12 +96,12 @@ export function SetupPage() {
       {/* Footer actions */}
       <div className="flex items-center justify-center gap-4 py-6 border-t border-[var(--border-default)]">
         {providerCount === 0 && (
-          <Button variant="ghost" onClick={handleDone}>
+          <Button variant="ghost" onClick={() => finishSetup('setup_skipped')}>
             <SkipForward className="w-4 h-4 mr-1" />
             Skip for now
           </Button>
         )}
-        <Button variant="accent" onClick={handleDone}>
+        <Button variant="accent" onClick={() => finishSetup('setup_completed')}>
           {providerCount > 0 ? 'Get Started' : 'Done'}
           <ArrowRight className="w-4 h-4 ml-1" />
         </Button>

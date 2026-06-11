@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-05-13
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — reconnect 对「僵尸 running 行」回 run_ended 而不是 warning
+
+`_handle_reconnect` 在 `state=='running'` 且本进程 `active_runs` 没有
+这个 run 时，原来一律发 `reconnect_warning` + 关 WS。前端把这个关闭当
+被动断线 → 对同一个死 run_id 无限退避重连，spinner 卡死只能刷新。
+
+现在先用共享的 `run_is_live(events_row)`（background_run.py 的心跳新
+鲜度规则，和 agents 列表 active_run 过滤同一条）区分两种情况：
+
+- **心跳已过期**（进程死在 `_finalize` 之前 / terminal 写库失败留下的
+  孤儿行）→ 回 `run_ended(state='failed', error_message='Run lost…')`，
+  前端正常 stopStreaming 收敛。只读判定，不改 DB 行（startup reconcile
+  仍负责修正孤儿行）。
+- **心跳新鲜**（run 真活在另一个 backend 实例上）→ 维持原
+  `reconnect_warning` 行为。
+
+## 2026-06-09 — funnel redesign: no analytics in websocket.py
+
+`_fire_terminal_accessed` and its call site on the fresh-run path were
+deleted as part of the lean-funnel redesign. `EVENT_TERMINAL_ACCESSED` is
+no longer part of the funnel. `websocket.py` now carries zero funnel
+instrumentation — the nearest surviving funnel event is
+`message_round_trip_succeeded`, which is emitted by the background run layer
+(not here).
 
 ## 2026-05-13 — Reconnect 协议带回用户输入（dedup-safe）
 

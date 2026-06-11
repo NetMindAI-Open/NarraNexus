@@ -67,9 +67,9 @@ def build_channel_anchor(sender_name: Optional[str], message_body: str) -> str:
     """Build the clean retrieval anchor for an IM channel turn.
 
     The execution prompt (see ``build_prompt``) is 6 sections of
-    history/profile/members/instructions — embedding all of it diluted the
-    narrative retrieval vector in prod. The anchor keeps ONLY the interaction
-    counterpart's name + this-turn body, so the query vector matches the
+    history/profile/members/instructions — feeding all of it into routing
+    diluted the narrative match in prod. The anchor keeps ONLY the interaction
+    counterpart's name + this-turn body, so the query matches the
     write-side anchors (which are all tiny). See the 2026-06-01 design doc.
     """
     name = (sender_name or "").strip() or "Unknown"
@@ -243,7 +243,7 @@ class ChannelContextBuilderBase(ABC):
         )
 
     async def build_retrieval_anchor(self) -> str:
-        """Clean anchor for narrative retrieval / event embedding — only the
+        """Clean anchor for narrative retrieval — only the
         sender name + this-turn body, none of build_prompt's history / profile
         / members / instruction sections. See the 2026-06-01 design doc."""
         info = await self.get_message_info()

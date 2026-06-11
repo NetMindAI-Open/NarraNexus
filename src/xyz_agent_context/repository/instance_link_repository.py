@@ -91,7 +91,24 @@ class InstanceNarrativeLinkRepository(BaseRepository[InstanceNarrativeLink]):
             linked_at=utc_now(),
         )
 
-        return await self.insert(link)
+        try:
+            return await self.insert(link)
+        except Exception as e:  # noqa: BLE001 — re-raised unless it's THIS race
+            # Race: the find_one above said "not linked", but a concurrent run
+            # (e.g. the JobTrigger poller and a chat turn both syncing the same
+            # agent↔narrative — common once an agent has many jobs) inserted the
+            # same (instance_id, narrative_id) pair before us, tripping the
+            # composite UNIQUE constraint. That is exactly the state we wanted —
+            # the link now exists — so treat it as a no-op (return 0). Anything
+            # that is NOT this duplicate-key collision is re-raised untouched.
+            msg = str(e).lower()
+            if "unique constraint failed" in msg or "duplicate entry" in msg:
+                logger.debug(
+                    f"    link({instance_id}, {narrative_id}) lost an insert race "
+                    f"— link already created concurrently; treating as existing."
+                )
+                return 0
+            raise
 
     async def unlink(
         self,

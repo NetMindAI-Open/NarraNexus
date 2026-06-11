@@ -454,34 +454,6 @@ export interface MCPValidateAllResponse extends ApiResponse {
   failed: number;
 }
 
-// RAG File Management types
-export type RAGFileStatus = 'pending' | 'uploading' | 'completed' | 'failed';
-
-export interface RAGFileInfo {
-  filename: string;
-  size: number;
-  modified_at: string;
-  upload_status: RAGFileStatus;
-  error_message?: string;
-}
-
-export interface RAGFileListResponse extends ApiResponse {
-  files: RAGFileInfo[];
-  total_count: number;
-  completed_count: number;
-  pending_count: number;
-}
-
-export interface RAGFileUploadResponse extends ApiResponse {
-  filename?: string;
-  size?: number;
-  upload_status?: string;
-}
-
-export interface RAGFileDeleteResponse extends ApiResponse {
-  filename?: string;
-}
-
 // Cost types
 export interface CostModelBreakdown {
   cost: number;
@@ -520,41 +492,6 @@ export interface CostResponse extends ApiResponse {
   summary?: CostSummary;
   records: CostRecord[];
   total_count: number;
-}
-
-// Embedding Status types
-export interface EmbeddingEntityStats {
-  total: number;
-  migrated: number;
-  missing: number;
-}
-
-export interface EmbeddingMigrationProgress {
-  is_running: boolean;
-  current_model: string;
-  total: Record<string, number>;
-  completed: Record<string, number>;
-  failed: Record<string, number>;
-  total_count: number;
-  completed_count: number;
-  progress_pct: number;
-  error: string | null;
-  finished: boolean;
-}
-
-export interface EmbeddingStatusData {
-  model: string;
-  stats: Record<string, EmbeddingEntityStats>;
-  all_done: boolean;
-  migration: EmbeddingMigrationProgress;
-}
-
-export interface EmbeddingStatusResponse extends ApiResponse {
-  data: EmbeddingStatusData;
-}
-
-export interface EmbeddingRebuildResponse extends ApiResponse {
-  message?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -59,9 +59,6 @@ class ContextData(BaseModel):
     deployment_mode: Optional[str] = None  # "cloud" | "local"
     deployment_context: Optional[str] = None  # Full prose block for the prompt
 
-    # RAG Module data (populated by GeminiRAGModule)
-    rag_keywords: Optional[List[str]] = None  # Knowledge base keyword list
-
     # For storing arbitrary extra data (Modules can add custom fields)
     extra_data: Dict[str, Any] = {}
 

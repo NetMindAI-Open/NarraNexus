@@ -916,53 +916,6 @@ class ChatModule(XYZBaseModule):
 
         return short_term_messages
 
-    async def _embed_message_pair(
-        self,
-        instance_id: str,
-        message_index: int,
-        user_content: str,
-        assistant_content: str,
-        event_id: str = "",
-    ) -> None:
-        """
-        Embed a user+assistant message pair and store for Part B retrieval.
-
-        The content is stored in the same format used for prompt context building:
-        "User: {user_content}\nAssistant: {assistant_content}"
-        """
-        from xyz_agent_context.utils.db_factory import get_db_client
-        from xyz_agent_context.repository.chat_message_embedding_repository import (
-            ChatMessageEmbeddingRepository,
-        )
-        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
-
-        # Build content in prompt format
-        content = f"User: {user_content}\nAssistant: {assistant_content}"
-
-        # Generate embedding (truncate source text for embedding to ~500 chars)
-        source_text = content[:500]
-        embedding = await get_embedding(source_text)
-
-        if not embedding:
-            return
-
-        db = await get_db_client()
-        repo = ChatMessageEmbeddingRepository(db)
-        await repo.upsert(
-            instance_id=instance_id,
-            message_index=message_index,
-            content=content,
-            embedding=embedding,
-            source_text=source_text,
-            event_id=event_id,
-            role="pair",
-        )
-
-        logger.debug(
-            f"[ChatHistory-B] Embedded message pair: instance={instance_id}, "
-            f"index={message_index}, content_len={len(content)}"
-        )
-
     async def hook_persist_turn(self, params: HookAfterExecutionParams) -> None:
         """
         Synchronous, next-turn-critical persistence: write THIS turn's
@@ -974,7 +927,7 @@ class ChatModule(XYZBaseModule):
         write — the next turn's hook_data_gathering is guaranteed to see this
         exchange. (This is the fix for the short-reply "amnesia": previously the
         write lived in the backgrounded hook_after_event_execution, which could
-        lag seconds-to-tens-of-seconds.) The heavy Part-B embedding is NOT here;
+        lag seconds-to-tens-of-seconds.)
         it is deferred to the background hook_after_event_execution below.
 
         Note: assistant messages store the content parameter from the
@@ -1229,6 +1182,9 @@ class ChatModule(XYZBaseModule):
         }
         await self.event_memory_module.add_instance_json_format_memory(module_name, instance_id, memory)
 
+        # (chat is no longer mirrored into memory_chat — the per-interaction
+        # search index is built once in step_4 as kind="event"; design §5.)
+
         logger.debug(
             f"ChatModule.hook_after_event_execution: Conversation record saved successfully, "
             f"instance_id={instance_id}, total messages={len(messages)}"
@@ -1263,52 +1219,3 @@ class ChatModule(XYZBaseModule):
         #         module_name=module_name,
         #         report_memory=report,
         #     )
-
-    async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:
-        """
-        Background enrichment (runs AFTER the WS closes): embed THIS turn's
-        user+assistant pair for Part-B semantic retrieval.
-
-        The conversation row itself was already written synchronously in
-        hook_persist_turn, so nothing the next turn needs lives here. Embedding
-        calls the embedding model (heavy) and is non-next-turn-critical, so it
-        stays in the background phase. The pair is located by event_id (robust to
-        a later turn having appended more messages before this background task
-        runs).
-        """
-        instance_id = self.instance_id
-        if not instance_id or not self.event_memory_module:
-            return
-
-        memory = await self.event_memory_module.search_instance_json_format_memory(
-            self.config.name, instance_id
-        )
-        messages = memory.get("messages", []) if memory else []
-        if not messages:
-            return
-
-        # Locate this turn's assistant message by event_id (most recent match).
-        asst_idx = None
-        assistant_content = None
-        for i in range(len(messages) - 1, -1, -1):
-            m = messages[i]
-            meta = m.get("meta_data") or {}
-            if meta.get("event_id") == params.event_id and m.get("role") == "assistant":
-                asst_idx = i
-                assistant_content = m.get("content")
-                break
-
-        if asst_idx is None or not assistant_content:
-            return
-
-        try:
-            await self._embed_message_pair(
-                instance_id=instance_id,
-                message_index=asst_idx,
-                user_content=params.input_content,
-                assistant_content=assistant_content,
-                event_id=params.event_id,
-            )
-        except Exception as e:
-            logger.warning(f"[ChatHistory-B] Embedding failed (non-fatal): {e}")
-

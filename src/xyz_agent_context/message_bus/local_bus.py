@@ -87,6 +87,22 @@ class LocalMessageBus(MessageBusService):
             "mentions": json.dumps(mentions) if mentions else None,
             "created_at": _now_iso(),
         })
+        # Index the message into the unified search layer (memory_bus), under the
+        # sender, pointing back to the message. Append-only — bus is objective
+        # message history (like chat); no update/dedup (design §10-C). Recipient-
+        # side recall of INBOUND messages is largely covered by the per-turn
+        # interaction index (a bus message that triggers a turn becomes that
+        # turn's input); per-recipient fan-out is a possible follow-up.
+        try:
+            from loguru import logger
+            from xyz_agent_context.memory import MemoryEngine
+            if (content or "").strip():
+                await MemoryEngine(self._db, from_agent).index(
+                    "bus", msg_id, content, scope_type="agent",
+                    tags=[f"channel:{to_channel}"],
+                )
+        except Exception as e:  # noqa: BLE001 — index is best-effort enrichment
+            logger.warning(f"bus index failed (non-fatal): {e}")
         return msg_id
 
     async def get_messages(

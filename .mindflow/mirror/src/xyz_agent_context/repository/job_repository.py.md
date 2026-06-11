@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-06-01
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — job search index (projection)
+
+`create_job` now also writes a `memory_job` index (title + description + `source_ref`→job) so jobs are findable via `remember`; `update_job_fields` RE-INDEXES when title/description change, keeping the searchable surface fresh. Status and schedule stay live in `instance_jobs` — the index never holds them; the agent fetches current state via `job_retrieval_by_id` through the pointer. Index writes are best-effort.
 
 ## 2026-06-01 — resilience fields + find_long_running_jobs (batch ②)
 

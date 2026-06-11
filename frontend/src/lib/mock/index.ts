@@ -33,9 +33,6 @@ import type {
   MCPUpdateRequest,
   MCPValidateResponse,
   MCPValidateAllResponse,
-  RAGFileListResponse,
-  RAGFileUploadResponse,
-  RAGFileDeleteResponse,
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
@@ -45,8 +42,6 @@ import type {
   CreateUserResponse,
   UpdateTimezoneResponse,
   CostResponse,
-  EmbeddingStatusResponse,
-  EmbeddingRebuildResponse,
   DashboardResponse,
   ApiResponse,
   LarkCredentialResponse,
@@ -68,10 +63,8 @@ import {
   mockChatMessages,
   mockSkills,
   mockMCPs,
-  mockRAGFiles,
   mockCostSummary,
   mockAwareness,
-  mockEmbeddingStatus,
   mockDashboardAgents,
 } from './fixtures';
 
@@ -118,7 +111,6 @@ const ok = <T,>(data: T): Promise<T> => delay(data);
 const state = {
   jobs: [...mockJobs],
   mcps: [...mockMCPs],
-  ragFiles: [...mockRAGFiles],
   awareness: mockAwareness,
 };
 
@@ -376,28 +368,6 @@ export const mockApi = {
     });
   },
 
-  /* ─ RAG ─ */
-  async listRAGFiles(): Promise<RAGFileListResponse> {
-    return ok({
-      success: true,
-      files: state.ragFiles,
-      total_count: state.ragFiles.length,
-      completed_count: state.ragFiles.filter((f) => f.upload_status === 'completed').length,
-      pending_count: state.ragFiles.filter((f) => f.upload_status === 'pending' || f.upload_status === 'uploading').length,
-    });
-  },
-  async uploadRAGFile(_agentId: string, _userId: string, file: File): Promise<RAGFileUploadResponse> {
-    state.ragFiles = [
-      { filename: file.name, size: file.size, modified_at: new Date().toISOString(), upload_status: 'uploading' },
-      ...state.ragFiles,
-    ];
-    return ok({ success: true, filename: file.name, size: file.size, upload_status: 'uploading' });
-  },
-  async deleteRAGFile(_agentId: string, _userId: string, filename: string): Promise<RAGFileDeleteResponse> {
-    state.ragFiles = state.ragFiles.filter((f) => f.filename !== filename);
-    return ok({ success: true, filename });
-  },
-
   /* ─ Skills ─ */
   async listSkills(): Promise<SkillListResponse> {
     return ok(mockSkills);
@@ -434,15 +404,9 @@ export const mockApi = {
     return ok({ success: true });
   },
 
-  /* ─ Costs / embeddings / dashboard ─ */
+  /* ─ Costs / dashboard ─ */
   async getCosts(_agentId: string, _days: number = 7): Promise<CostResponse> {
     return ok({ success: true, summary: mockCostSummary, records: [], total_count: 0 });
-  },
-  async getEmbeddingStatus(): Promise<EmbeddingStatusResponse> {
-    return ok({ success: true, data: mockEmbeddingStatus });
-  },
-  async rebuildEmbeddings(): Promise<EmbeddingRebuildResponse> {
-    return ok({ success: true, message: 'Rebuild scheduled (mock).' });
   },
   async getDashboardStatus(): Promise<DashboardResponse> {
     return ok({ success: true, agents: mockDashboardAgents });

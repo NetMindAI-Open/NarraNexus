@@ -1,8 +1,94 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-05-21
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — run-liveness helper moved to background_run.py (shared)
+
+The `_parse_db_utc` / `_run_is_live` heartbeat-freshness rule (running
+events row trusted only while `last_event_at` is within 3 missed beats)
+moved to `background_run.py` as `parse_db_utc` / `run_is_live`, because
+the WS reconnect path now needs the SAME answer to "is this run actually
+alive?" (see websocket.py 2026-06-10 entry — zombie running rows must be
+reported as `run_ended`, not reconnect-looped). auth.py keeps a local
+`_run_is_live = run_is_live` alias; behavior of the agents-list
+active_run filter is unchanged.
+
+## 2026-06-08 — account deletion clears memory_* by agent_id
+
+Account deletion dropped `instance_social_entities` from `instance_sub_tables` and added a loop deleting every `memory_<kind>` table by agent_id (using `MEMORY_KINDS`), so a deleted account leaves no orphan rows in the unified memory store.
+
+## 2026-06-10 — analytics endpoints: identity from middleware only (review fix)
+
+PR #24 review hardening. All three analytics endpoints (`GET/PUT
+/settings/analytics`, `POST /funnel`) now derive the user exclusively from
+`request.state.user_id` via the shared `_require_request_user()` helper
+(401 when absent). `SetAnalyticsOptOutRequest` lost its `user_id` field and
+`FunnelEventRequest` lost `properties`:
+
+- Opt-out previously trusted a client-supplied `user_id` (query/body), so
+  any authenticated user could read or flip another user's privacy
+  preference. Now impossible by shape — the request can't name a target.
+- The funnel endpoint previously forwarded an arbitrary client `properties`
+  dict to PostHog, letting a client override the server-derived `surface`
+  (dict.setdefault doesn't protect present keys) or inject junk. The
+  setup_* events carry no payload by design, so client properties are no
+  longer accepted at all.
+
+Frontend `api.ts` methods changed in the same commit (no user_id param, no
+properties param). Tests: `test_user_settings_routes.py` (per-user
+isolation + 401), `test_funnel_capture.py` (client properties ignored).
+
+## 2026-06-09 — funnel redesign: /api/auth/funnel endpoint (setup_* events)
+
+Added `POST /api/auth/funnel` for the three pure-UI setup events
+(`setup_entered`, `setup_skipped`, `setup_completed`). These events have no
+backend signal, so the frontend reports them through this endpoint.
+
+Key design decisions:
+- **Identity from middleware only** (`request.state.user_id`, set by
+  `auth_middleware`). The body never carries identity — prevents a user from
+  spoofing events onto another user's funnel.
+- **Whitelist only** — `_ALLOWED_FUNNEL_EVENTS` (a `frozenset`) accepts only
+  the three `setup_*` constants. Any other event name returns 400. This
+  prevents the endpoint from becoming a generic event firehose.
+- **Delegates to `track()`** — inherits opt-out, distinct_id hashing, and the
+  surface label exactly like every other funnel event. Never raises.
+- `FunnelEventRequest` is a small inline `BaseModel` with `event: str` and
+  `properties: dict | None`.
+
+`create_agent` no longer emits any analytics (`EVENT_AGENT_CREATED` is
+removed). The funnel no longer tracks agent creation.
+
+## 2026-06-08 — analytics opt-out endpoints
+
+Added `GET /api/auth/settings/analytics` and `PUT /api/auth/settings/analytics`
+for the frontend privacy toggle. Both delegate to `UserSettingsRepository`
+(new dependency added this task). The GET returns `{"opted_out": bool}` where
+the absence of a user_settings row means `false` (opted in by default). The
+PUT accepts `{"user_id", "opted_out"}` and upserts the row.
+
+`SetAnalyticsOptOutRequest` is a small Pydantic `BaseModel` defined inline
+(not in `schema/` — it has two fields and no reuse elsewhere). `BaseModel` and
+`UserSettingsRepository` are imported at the top of the file alongside the
+existing imports.
+
+Tests: `tests/backend/test_user_settings_routes.py`.
+
+## 2026-06-08 — funnel: signed_up event
+
+`create_user` calls `identify_user` + `track(EVENT_SIGNED_UP)` on the
+success path. Additive instrumentation — best-effort, never raises.
+
+The `identify_user` traits deliberately carry only `role` — NOT
+`display_name`. The analytics layer hashes the distinct_id, so shipping the
+raw display name as a person trait would re-leak exactly the identity the
+hash is meant to hide. Keep identity-bearing fields out of traits.
+
+`create_agent` carries no analytics instrumentation. `EVENT_AGENT_CREATED`
+was removed in the 2026-06-09 funnel redesign; create_agent is not a
+tracked funnel milestone.
 
 ## 2026-05-21 — onboarding checklist endpoints
 

@@ -145,6 +145,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Write-only PostHog ingest key, read at compile time by
+          # process_manager.rs via option_env!. Absent on forks/PRs → the
+          # built app falls back to NullSink (no telemetry). Set this repo
+          # secret to enable telemetry from official release builds only.
+          NARRA_POSTHOG_KEY: ${{ secrets.NARRA_POSTHOG_KEY }}
 
       - name: Normalize artifact filenames (stable name across versions)
         run: |

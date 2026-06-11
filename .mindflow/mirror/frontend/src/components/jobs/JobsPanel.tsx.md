@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/jobs/JobsPanel.tsx
-last_verified: 2026-04-21
+last_verified: 2026-06-10
 ---
 
 # JobsPanel.tsx — Root orchestrator for the Jobs panel
@@ -9,6 +9,15 @@ The single place where view-mode switching, status filtering, inline expand,
 and cancel are coordinated. It is intentionally large because those concerns
 interact: cancelling a running job must also close the expand row and refresh
 the list.
+
+## 2026-06-10 — embedded mode + onJobResolved callback
+
+Two additive props for the bookmark-drawer ActivityPanel ([[ActivityPanel]]):
+`embedded` drops the outer Card + duplicate title (host section already
+names the panel; functional actions like Refresh stay), and
+`onJobResolved(jobId)` fires after a successful cancel/resume so the
+bookmark layer can clear a failed job's 'attention' state. Default
+rendering is byte-identical for existing call sites.
 
 ## Why it exists
 

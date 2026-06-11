@@ -65,7 +65,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
         agent_id: str,
         user_id: str,
         limit: int,
-        require_embedding: bool = False,
     ) -> List[Narrative]:
         """Page through an agent's narratives (newest first) and collect up
         to `limit` whose actors include `user_id`.
@@ -92,8 +91,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
             offset += len(rows)
             scanned += len(rows)
             for row in rows:
-                if require_embedding and not row.get("routing_embedding"):
-                    continue
                 try:
                     narrative = self._row_to_entity(row)
                     if any(actor.id == user_id for actor in narrative.narrative_info.actors):
@@ -299,59 +296,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
 
         logger.debug(f"    ← NarrativeRepository.get_narratives_by_participant: {len(narratives)} found")
         return narratives
-
-    async def get_with_embedding(
-        self,
-        agent_id: str,
-        user_id: Optional[str] = None,
-        limit: int = 100
-    ) -> List[Narrative]:
-        """
-        Get Narratives that have routing_embedding (for vector retrieval)
-
-        Args:
-            agent_id: Agent ID
-            user_id: User ID (optional, for filtering)
-            limit: Maximum number of results
-
-        Returns:
-            List of Narratives with embeddings
-        """
-        logger.debug(f"    → NarrativeRepository.get_with_embedding({agent_id})")
-
-        if user_id:
-            # Paged scan + user filter (avoids the limit*2 recall cliff under
-            # high tenancy); only keep rows that carry a routing_embedding.
-            narratives = await self._scan_agent_filter_user(
-                agent_id=agent_id,
-                user_id=user_id,
-                limit=limit,
-                require_embedding=True,
-            )
-        else:
-            # No user filter: a single bounded fetch is sufficient. Overfetch
-            # a bit to absorb rows without an embedding, then cap at limit.
-            rows = await self._db.get(
-                self.table_name,
-                filters={"agent_id": agent_id},
-                limit=limit * 2,
-                order_by="updated_at DESC",
-            )
-            narratives = []
-            for row in rows:
-                if not row.get("routing_embedding"):
-                    continue
-                try:
-                    narratives.append(self._row_to_entity(row))
-                    if len(narratives) >= limit:
-                        break
-                except Exception as e:
-                    logger.warning(f"Failed to parse Narrative: {e}")
-                    continue
-
-        logger.debug(f"    ← NarrativeRepository.get_with_embedding: {len(narratives)} found")
-        return narratives
-
     def _row_to_entity(self, row: Dict[str, Any]) -> Narrative:
         """
         Convert a database row to a Narrative object
@@ -363,7 +307,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
         - dynamic_summary: JSON -> List[DynamicSummaryEntry]
         - env_variables: JSON -> Dict
         - topic_keywords: JSON -> List[str]
-        - routing_embedding: JSON -> List[float]
         """
         # Parse JSON fields
         narrative_info_data = self._parse_json_field(row.get("narrative_info"), {})
@@ -377,11 +320,8 @@ class NarrativeRepository(BaseRepository[Narrative]):
         # Parse routing index fields
         topic_keywords = self._parse_json_field(row.get("topic_keywords"), [])
         topic_hint = row.get("topic_hint", "") or ""
-        routing_embedding = self._parse_json_field(row.get("routing_embedding"), None)
 
         # Parse timestamps
-        embedding_updated_at = self._parse_datetime_field(row.get("embedding_updated_at"))
-        events_since_last_embedding_update = row.get("events_since_last_embedding_update", 0) or 0
 
         # Reconstruct nested objects
         narrative_info = NarrativeInfo(**narrative_info_data)
@@ -410,9 +350,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
             # Routing index fields
             topic_keywords=topic_keywords,
             topic_hint=topic_hint,
-            routing_embedding=routing_embedding,
-            embedding_updated_at=embedding_updated_at,
-            events_since_last_embedding_update=events_since_last_embedding_update,
         )
 
     def _entity_to_row(self, entity: Narrative) -> Dict[str, Any]:
@@ -426,7 +363,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
         - dynamic_summary: List[DynamicSummaryEntry] -> JSON
         - env_variables: Dict -> JSON
         - topic_keywords: List[str] -> JSON
-        - routing_embedding: List[float] -> JSON
         """
         return {
             "narrative_id": entity.id,
@@ -454,9 +390,6 @@ class NarrativeRepository(BaseRepository[Narrative]):
             # Routing index fields
             "topic_keywords": json.dumps(entity.topic_keywords, ensure_ascii=False),
             "topic_hint": entity.topic_hint,
-            "routing_embedding": json.dumps(entity.routing_embedding) if entity.routing_embedding else None,
-            "embedding_updated_at": entity.embedding_updated_at.isoformat() if entity.embedding_updated_at else None,
-            "events_since_last_embedding_update": entity.events_since_last_embedding_update,
         }
 
     @staticmethod

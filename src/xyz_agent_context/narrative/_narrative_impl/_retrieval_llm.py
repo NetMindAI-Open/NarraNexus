@@ -160,7 +160,7 @@ async def llm_judge_unified(
                     user_input += f"Examples: {', '.join(candidate['examples'][:3])}\n"
                 user_input += "\n"
 
-        # 2. Search results (with Phase 1 matched_content from EverMemOS)
+        # 2. Search results (BM25 keyword candidates)
         if search_candidates:
             user_input += "## Existing Topics:\n\n"
             for i, candidate in enumerate(search_candidates):

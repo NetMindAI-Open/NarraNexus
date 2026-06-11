@@ -37,7 +37,10 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
         "instance_id": "instance",
         "agent_id": "agent",
     },
-    "instance_social_entities": {
+    # Bundle-internal key for the social-entities export (social_entities.json).
+    # Entities live in memory_entity now, but the bundle still carries the same
+    # flat per-entity records; this names the id-bearing fields for rewrite/scrub.
+    "social_entities": {
         "instance_id": "instance",
     },
     "instance_jobs": {
@@ -49,9 +52,6 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
         # agent_id within the same closure; treat as agent for v1. Polymorphic
         # case (entity_type != 'agent') is left intact via fallback regex pass.
         "related_entity_id": "agent",
-    },
-    "instance_rag_store": {
-        "instance_id": "instance",
     },
     "instance_narrative_links": {
         "instance_id": "instance",

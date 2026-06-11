@@ -264,7 +264,7 @@ MCPs: {mcp_tools}
         manifested as the agent "forgetting" the turn it just had).
 
         Keep this CHEAP — it adds latency to every turn's completion. Anything
-        heavy and non-next-turn-critical (embeddings, entity extraction, LLM
+        heavy and non-next-turn-critical (entity extraction, LLM
         summaries, job analysis) belongs in `hook_after_event_execution`.
 
         Default: no-op. Most modules don't need synchronous persistence.
@@ -280,7 +280,7 @@ MCPs: {mcp_tools}
         fire-and-forget task. The user has already seen the response; nothing the
         next turn strictly needs may live only here (see `hook_persist_turn`).
 
-        Use for heavy, non-next-turn-critical work: embeddings, entity
+        Use for heavy, non-next-turn-critical work: entity
         extraction, memory summarization, external-system updates, job-completion
         callbacks.
 

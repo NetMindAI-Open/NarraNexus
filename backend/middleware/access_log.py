@@ -55,7 +55,6 @@ _SKIP_PREFIXES: tuple[str, ...] = (
 # get them all back without redeploying.
 _HIGH_VOLUME_GET_PREFIXES: tuple[str, ...] = (
     "/api/agent-inbox",
-    "/api/providers/embeddings/status",
     "/api/agents/",  # simple-chat-history, awareness, social-network, jobs, etc.
     "/api/auth/agents",  # frontend re-fetches the agent list per page nav
     "/api/jobs",         # JobsPanel polls per-agent job lists on a timer

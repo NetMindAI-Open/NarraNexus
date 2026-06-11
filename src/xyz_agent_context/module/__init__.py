@@ -43,12 +43,9 @@ from xyz_agent_context.module.lark_module.lark_module import LarkModule
 from xyz_agent_context.module.slack_module.slack_module import SlackModule
 from xyz_agent_context.module.telegram_module.telegram_module import TelegramModule
 from xyz_agent_context.module.common_tools_module.common_tools_module import CommonToolsModule
+from xyz_agent_context.module.general_memory_module.general_memory_module import GeneralMemoryModule
 
 # Module mapping table.
-# GeminiRAGModule is NOT registered here — its per-user API key is not yet
-# routed through the ContextVar system. The module source code remains in
-# module/gemini_rag_module/ for the RAG file management API
-# (backend/routes/agents_rag.py uses RAGFileService directly).
 MODULE_MAP = {
     "AwarenessModule": AwarenessModule,
     "BasicInfoModule": BasicInfoModule,
@@ -61,6 +58,7 @@ MODULE_MAP = {
     "SlackModule": SlackModule,
     "TelegramModule": TelegramModule,
     "CommonToolsModule": CommonToolsModule,
+    "GeneralMemoryModule": GeneralMemoryModule,
 }
 
 

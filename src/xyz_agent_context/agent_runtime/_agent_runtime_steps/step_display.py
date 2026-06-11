@@ -96,18 +96,6 @@ TOOL_DISPLAY_CONFIG: Dict[str, Dict[str, str]] = {
         "desc_template": "query={query}",
     },
 
-    # RAG tools
-    "rag_query": {
-        "icon": "📖",
-        "name": "rag_query",
-        "desc_template": "query={query}",
-    },
-    "rag_upload": {
-        "icon": "📤",
-        "name": "rag_upload",
-        "desc_template": "file={file_name}",
-    },
-
     # Chat tools
     "send_message_to_user_directly": {
         "icon": "💬",

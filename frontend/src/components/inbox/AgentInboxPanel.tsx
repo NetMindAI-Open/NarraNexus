@@ -19,7 +19,13 @@ import { api } from '@/lib/api';
 
 // Local KPI card was removed — this panel now uses the shared <StatStrip />.
 
-export function AgentInboxPanel() {
+interface AgentInboxPanelProps {
+  /** Skip the outer Card chrome + duplicate title when hosted inside the
+   *  bookmark drawer's ActivityPanel. Functional actions are kept. */
+  embedded?: boolean;
+}
+
+export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {}) {
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
   const [loadedAll, setLoadedAll] = useState(false);
 
@@ -84,9 +90,10 @@ export function AgentInboxPanel() {
       .sort((a, b) => toTime(b.latest_at) - toTime(a.latest_at));
   }, [rooms]);
 
-  return (
-    <Card className="flex flex-col h-full">
-      <CardHeader>
+  const inner = (
+    <>
+      <CardHeader className={cn(embedded && 'justify-end py-1')}>
+        {!embedded && (
         <CardTitle>
           <Inbox />
           Agent Inbox
@@ -96,6 +103,7 @@ export function AgentInboxPanel() {
             </span>
           )}
         </CardTitle>
+        )}
         <div className="flex items-center gap-1">
           {!loadedAll && rooms.length > 0 && (
             <Button
@@ -246,8 +254,14 @@ export function AgentInboxPanel() {
         </div>
         </ScrollArea>
       </CardContent>
-    </Card>
+    </>
   );
+
+  if (embedded) {
+    return <div className="flex flex-col h-full">{inner}</div>;
+  }
+
+  return <Card className="flex flex-col h-full">{inner}</Card>;
 }
 
 export default AgentInboxPanel;

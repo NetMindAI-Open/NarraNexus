@@ -333,6 +333,11 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
 
         ctx_data.jobs_information = await self._format_jobs_information([], existing)
 
+        # Sales scenario: append tasks targeting the current user that
+        # SocialNetworkModule (runs earlier) flagged via extra_data. No-op on
+        # non-sales turns. See _inject_related_jobs_context for the data flow.
+        await self._inject_related_jobs_context(ctx_data)
+
         if jobs_map:
             logger.info(f"JobModule: {len(existing)} active jobs for user {current_user_id}")
 
@@ -432,17 +437,34 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
 
         return f"| {job.title} | `{job.job_id}` | {status} | {trigger} |"
 
-        # === Plan C: Read related_job_ids from extra_data and load Job context ===
-        # SocialNetworkModule has already written related_job_ids to extra_data above
+    async def _inject_related_jobs_context(self, ctx_data: ContextData) -> None:
+        """Surface a target user's related sales tasks into ``jobs_information``.
+
+        SocialNetworkModule.hook_data_gathering — a capability module, which the
+        sequential data-gathering order runs *before* JobModule — writes the
+        current entity's ``related_job_ids`` into ``ctx_data.extra_data``. Here we
+        load those Jobs and append a "Related Tasks" section so the Agent is aware
+        of tasks that target this user but are NOT in their own active-job table
+        above (e.g. a task another sales manager created against this lead).
+
+        Also stashes the rendered text in ``extra_data["related_jobs_context"]``
+        for SocialNetworkModule.hook_after_event_execution's persona inference.
+
+        No-op when no related_job_ids were written (non-sales turns), so this is
+        safe to call unconditionally from the hook.
+        """
         related_job_ids = ctx_data.extra_data.get("related_job_ids", [])
-        if related_job_ids:
-            logger.info(f"          → JobModule: Found related_job_ids in extra_data: {related_job_ids}")
-            related_jobs_context = await self._load_related_jobs_context(related_job_ids, ctx_data)
-            if related_jobs_context:
-                ctx_data.extra_data["related_jobs_context"] = related_jobs_context
-                # Also add to jobs_information so Agent can see it in instructions
-                entity_name = ctx_data.extra_data.get("current_entity_name", "this user")
-                ctx_data.jobs_information += f"""
+        if not related_job_ids:
+            return
+
+        logger.info(f"          → JobModule: found related_job_ids in extra_data: {related_job_ids}")
+        related_jobs_context = await self._load_related_jobs_context(related_job_ids, ctx_data)
+        if not related_jobs_context:
+            return
+
+        ctx_data.extra_data["related_jobs_context"] = related_jobs_context
+        entity_name = ctx_data.extra_data.get("current_entity_name", "this user")
+        ctx_data.jobs_information += f"""
 
 ###### Related Tasks for {entity_name}
 
@@ -450,9 +472,7 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
 
 {related_jobs_context}
 """
-                logger.info(f"          → JobModule: Injected related jobs context for {len(related_job_ids)} jobs")
-
-        return ctx_data
+        logger.info(f"          → JobModule: injected related jobs context for {len(related_job_ids)} jobs")
 
     async def _load_related_jobs_context(self, job_ids: List[str], ctx_data: ContextData) -> Optional[str]:
         """

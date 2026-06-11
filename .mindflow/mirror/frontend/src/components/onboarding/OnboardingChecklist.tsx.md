@@ -1,10 +1,17 @@
 ---
 code_file: frontend/src/components/onboarding/OnboardingChecklist.tsx
-last_verified: 2026-06-01
+last_verified: 2026-06-10
 stub: false
 ---
 
 # OnboardingChecklist.tsx — new-user "getting started" card
+
+## 2026-06-10 — "Meet your bookmark strip" step
+
+New passive step (no CTA): done once the user has opened the bookmark
+drawer at least once (`bookmark_drawer_opened_v1` localStorage flag,
+written by MainLayout's ChatView on first open). Read per render —
+same-tab staleness until next re-render is acceptable for a hint.
 
 ## Why it exists
 

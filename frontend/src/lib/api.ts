@@ -29,9 +29,6 @@ import type {
   MCPUpdateRequest,
   MCPValidateResponse,
   MCPValidateAllResponse,
-  RAGFileListResponse,
-  RAGFileUploadResponse,
-  RAGFileDeleteResponse,
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
@@ -46,8 +43,6 @@ import type {
   SkillStudyResponse,
   CostResponse,
   SkillEnvConfigResponse,
-  EmbeddingStatusResponse,
-  EmbeddingRebuildResponse,
   DashboardResponse,
   ApiResponse,
   LarkCredentialResponse,
@@ -385,6 +380,38 @@ class ApiClient {
     });
   }
 
+  /** Get the current user's analytics opt-out preference. Identity travels
+   *  in the auth header; the server derives the user from it. Returns false
+   *  when no row exists (opted in by default). */
+  async getAnalyticsOptOut(): Promise<boolean> {
+    const r = await this.request<{ opted_out: boolean }>(
+      '/api/auth/settings/analytics',
+    );
+    return Boolean(r.opted_out);
+  }
+
+  /** Set the current user's analytics opt-out preference. */
+  async setAnalyticsOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/analytics',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
+  }
+
+  /** Report a frontend funnel event (setup page UI actions). Identity comes
+   *  from the auth header server-side; no client properties are accepted
+   *  (the server stamps surface etc. itself). Best-effort: callers should
+   *  not block on it (fire-and-forget with a .catch). */
+  async trackFunnelEvent(event: string): Promise<void> {
+    await this.request<{ success: boolean }>('/api/auth/funnel', {
+      method: 'POST',
+      body: JSON.stringify({ event }),
+    });
+  }
+
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
   }
@@ -635,39 +662,6 @@ class ApiClient {
     );
   }
 
-  // RAG File Management API — identity from X-User-Id / JWT headers.
-  async listRAGFiles(agentId: string): Promise<RAGFileListResponse> {
-    return this.request<RAGFileListResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files`
-    );
-  }
-
-  async uploadRAGFile(agentId: string, file: File): Promise<RAGFileUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/rag-files`;
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-      headers: this.getAuthHeaders(),
-      // Don't set Content-Type header - browser will set it with boundary for FormData
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
-  async deleteRAGFile(agentId: string, filename: string): Promise<RAGFileDeleteResponse> {
-    return this.request<RAGFileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files/${encodeURIComponent(filename)}`,
-      { method: 'DELETE' }
-    );
-  }
-
   // Skills Management API — identity from X-User-Id / JWT headers.
   async listSkills(agentId: string, includeDisabled: boolean = false): Promise<SkillListResponse> {
     const params = new URLSearchParams({
@@ -838,20 +832,6 @@ class ApiClient {
     };
   }> {
     return this.request(`/api/providers`);
-  }
-
-  // Embedding Status API (per-user)
-  async getEmbeddingStatus(userId: string): Promise<EmbeddingStatusResponse> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<EmbeddingStatusResponse>(`/api/providers/embeddings/status${qs}`);
-  }
-
-  async rebuildEmbeddings(userId: string): Promise<EmbeddingRebuildResponse> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<EmbeddingRebuildResponse>(
-      `/api/providers/embeddings/rebuild${qs}`,
-      { method: 'POST' },
-    );
   }
 
   /** Backfill the latest default models from the catalog into existing providers.

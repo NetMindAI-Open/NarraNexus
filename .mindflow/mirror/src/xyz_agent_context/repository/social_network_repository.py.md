@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/repository/social_network_repository.py
-last_verified: 2026-05-27
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — entity folded into the unified memory engine (overhaul task 1)
+
+The repo NO LONGER owns `instance_social_entities` (table retired /
+tombstoned in schema_registry). Entities now live solely in the engine's
+`memory_entity` table; this class is a **thin adapter** over
+`MemoryRepository("entity")` mapping `SocialNetworkEntity ↔ MemoryRecord`.
+This kills the old "source table + incomplete mirror" dual-write
+(`_feed_entity_to_engine`, now deleted) that made third-party / un-touched
+entities invisible to `remember` (TODO-unified-memory-overhaul.md §2-P0).
+
+Mapping: `content_text` = name+aliases+description+keywords (DERIVED, so an
+entity is findable by NAME via unified recall/grep, not just by description);
+structured truth in `attributes`; `scope_type="instance"` /
+`scope_id=instance_id` (instance isolation); `record_id =
+mem_ent_+sha1(instance:entity)[:24]`. `agent_id` is needed only on
+`add_entity` (new rows) so unified recall — which filters by agent_id —
+finds them; it's a constructor arg write paths supply and read paths omit.
+Public method signatures are unchanged so callers don't move. Adjacent code
+still reading `instance_social_entities` directly (the bundle export/import)
+is pending the broader memory_* bundling work (overhaul task 3).
 
 ## 2026-05-27 — semantic-search chain removed (Owner spec, scope B)
 
@@ -22,7 +43,7 @@ See [[social_network_module.py]] for the caller-side removals
 
 ## Why it exists
 
-`SocialNetworkRepository` manages the `instance_social_entities` table — the agent's knowledge graph of people and other agents it has interacted with. It exposes two search mechanisms: tag-based search using `JSON_SEARCH`, and keyword fuzzy search using `LIKE` over name / description / tags / aliases. (Semantic vector search was removed 2026-05-27 — see the note above.)
+`SocialNetworkRepository` is the agent's knowledge graph of people and other agents it has interacted with. As of 2026-06-08 it stores entities in the unified `memory_entity` table (see the top note), not its own table. It exposes `keyword_search` / `search_by_tags` / `search_by_name_or_alias` (fuzzy/exact match over name / description / keywords / aliases). (Semantic vector search was removed 2026-05-27 — see the note above.)
 
 ## Upstream / Downstream
 

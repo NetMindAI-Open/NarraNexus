@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_module.py
-last_verified: 2026-04-10
+last_verified: 2026-06-05
 ---
 
 # job_module.py — JobModule 实现
@@ -23,6 +23,8 @@ JobModule 是 AgentRuntime 侧的 Job 管理入口。它做三件事：在数据
 ## 设计决策
 
 **用户过滤逻辑**：`hook_data_gathering` 里的 `_collect_jobs` 根据 `current_user_id` 过滤，只展示与当前用户相关的 Job（`related_entity_id == user_id` 或 `user_id == creator` 或无 related_entity_id）。这防止了销售经理看到自己针对其他客户的 Job 时，那些 Job 出现在客户的对话上下文里。
+
+**关联任务注入（销售场景，跨模块数据流）**：`hook_data_gathering` 在格式化完用户自己的活跃 Job 表后，调用 `_inject_related_jobs_context`，把"以当前用户为目标对象、但不在其自有 Job 列表里"的销售任务追加成一个 *Related Tasks* 段落。数据流靠**顺序 hook + 共享 ctx_data**：SocialNetworkModule（capability 模块，在 active_instances 顺序里排在 JobModule 这个 task/虚拟实例之前）的 `hook_data_gathering` 先把 `entity.related_job_ids` 写进 `ctx_data.extra_data`；JobModule 随后读取、用 `_load_related_jobs_context` 载入 Job 详情、追加进 `jobs_information`，并把渲染文本回存到 `extra_data["related_jobs_context"]` 供 SocialNetworkModule 的 `hook_after_event_execution` 做 persona 推断。**依赖前提**：data_gathering 默认 sequential 模式（`parallel_data_gathering=False`）——parallel 模式下每个模块拿 ctx_data 深拷贝、事后才 merge，这条 Social→Job 的 extra_data 交接会失效。无 `related_job_ids` 时该方法是 no-op，非销售轮次零开销。
 
 **虚拟 JobModule 实例保证 MCP 工具可访问**：如果 LLM 决策没有选择任何 JobModule 实例，`ModuleLoader._ensure_job_module_available()` 会插入一个空 `instance_id` 的虚拟实例，保证 `job_create` 工具始终可用（否则 Agent 想创建 Job 但找不到工具）。虚拟实例的 `instance_id` 是空字符串，`hook_after_event_execution` 里会忽略它。
 

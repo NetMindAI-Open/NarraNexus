@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel
 
@@ -21,7 +21,6 @@ from xyz_agent_context.agent_framework.model_catalog import (
     get_all_known_models,
     get_default_models,
     get_suggested_models,
-    get_known_embedding_models,
     OFFICIAL_BASE_URLS,
 )
 from xyz_agent_context.schema.provider_schema import (
@@ -55,6 +54,11 @@ class AddProviderRequest(BaseModel):
 class SetSlotRequest(BaseModel):
     provider_id: str
     model: str
+    # Framework-neutral reasoning params (see provider_schema.SlotConfig).
+    # "" = auto. PUT semantics: the UI always sends the current values;
+    # omitted fields reset to auto.
+    thinking: str = ""
+    reasoning_effort: str = ""
 
 
 class UpdateModelsRequest(BaseModel):
@@ -163,8 +167,8 @@ async def add_provider(req: AddProviderRequest, request: Request):
         # Hot-reload for current process (local mode)
         try:
             from xyz_agent_context.agent_framework.api_config import get_user_llm_configs, set_user_config
-            claude, openai_cfg, emb = await get_user_llm_configs(uid)
-            set_user_config(claude, openai_cfg, emb)
+            claude, openai_cfg = await get_user_llm_configs(uid)
+            set_user_config(claude, openai_cfg)
         except Exception:
             pass
 
@@ -265,7 +269,10 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
     uid = _get_user_id(request)
     try:
         service = await _get_service()
-        config = await service.set_slot(uid, slot_name, req.provider_id, req.model)
+        config = await service.set_slot(
+            uid, slot_name, req.provider_id, req.model,
+            thinking=req.thinking, reasoning_effort=req.reasoning_effort,
+        )
 
         errors = []
         for s in SlotName:
@@ -275,8 +282,8 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
         # Hot-reload for current process
         try:
             from xyz_agent_context.agent_framework.api_config import get_user_llm_configs, set_user_config
-            claude, openai_cfg, emb = await get_user_llm_configs(uid)
-            set_user_config(claude, openai_cfg, emb)
+            claude, openai_cfg = await get_user_llm_configs(uid)
+            set_user_config(claude, openai_cfg)
         except Exception:
             pass
 
@@ -309,7 +316,6 @@ async def get_catalog():
             "anthropic": get_suggested_models("anthropic"),
             "openai": get_suggested_models("openai"),
         },
-        "embedding_models": get_known_embedding_models(),
         "official_base_urls": {protocol: list(urls) for protocol, urls in OFFICIAL_BASE_URLS.items()},
         "slot_protocols": {slot.value: [p.value for p in protos] for slot, protos in SLOT_REQUIRED_PROTOCOLS.items()},
     }
@@ -427,63 +433,5 @@ async def get_claude_status(request: Request):
     return {"success": True, "data": result}
 
 
-# =============================================================================
-# Embedding Migration
-# =============================================================================
-
-@router.get("/embeddings/status")
-async def get_embedding_status(
-    request: Request,
-    user_id: str = Query(..., description="User ID to scope the status"),
-):
-    """
-    Per-user embedding migration status.
-
-    Returns counts of entities (narrative / event / job / entity) that
-    belong to `user_id` and whether each has an embedding for that user's
-    active model. Concurrent status checks by different users do not
-    interfere with each other.
-    """
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.services.embedding_migration_service import EmbeddingMigrationService
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    db = await get_db_client()
-    resolver = getattr(request.app.state, "provider_resolver", None)
-    service = EmbeddingMigrationService(db, user_id=user_id, resolver=resolver)
-    status = await service.get_status()
-    return {"success": True, "data": status}
-
-
-@router.post("/embeddings/rebuild")
-async def rebuild_embeddings(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    user_id: str = Query(..., description="User ID whose entities to rebuild"),
-):
-    """
-    Kick off a background rebuild of this user's missing embeddings.
-
-    Each user has an independent `MigrationProgress`; starting a rebuild
-    for user A does not block user B. If the same user already has a
-    rebuild running, the request is a no-op.
-    """
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.services.embedding_migration_service import (
-        EmbeddingMigrationService,
-        get_migration_progress,
-    )
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id is required")
-    progress = get_migration_progress(user_id)
-    if progress.is_running:
-        return {
-            "success": False,
-            "error": "Migration already in progress",
-            "data": progress.to_dict(),
-        }
-    db = await get_db_client()
-    resolver = getattr(request.app.state, "provider_resolver", None)
-    service = EmbeddingMigrationService(db, user_id=user_id, resolver=resolver)
-    background_tasks.add_task(service.rebuild_all)
-    return {"success": True, "message": "Embedding rebuild started"}
+# Embedding migration routes (/embeddings/status, /embeddings/rebuild) removed —
+# embeddings are retired (narrative/memory routing is BM25).

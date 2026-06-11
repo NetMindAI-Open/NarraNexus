@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-06-02
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — run_reconnect 注入幂等 + 终结性 reconnect 错误帧停止重连循环
+
+两个修复，配合后端同日的「`_finalize` 广播终结 `complete` 帧」
+（background_run.py.md）：
+
+1. **user-bubble 注入改为幂等**。2026-05-13 的注入逻辑假设 reconnect
+   只发生在"重开 tab"场景（session 是空的）；但 A3 auto-reconnect 在
+   **同一个 tab** 内被动断线后也走这条路，session 里已经有这条 prompt
+   —— 再注入一次就是用户看到的"我发的消息变两条"（直到下一次
+   history 轮询用 event_id dedup 合并回去）。现在注入前检查 session：
+   已存在 `role=user && event_id===runId` 的消息（run_started 在断线
+   前到达过），或队尾是 event-id-less 且内容相同的 user 消息（断在
+   run_started 之前）→ 跳过注入。
+2. **终结性协议错误不再无限重连**。后端 reconnect 预检失败
+   （`NotFound` / `Forbidden` / `DBError`）会发 error 帧后关 WS；原来
+   这个关闭被当作被动断线 → 对同一个死 run_id 无限退避重连，
+   isStreaming 卡 true（"Starting up…" 转圈到刷新）。现在精确匹配这三
+   个 error_type：标记 entry.completed、把 error 帧交给 processMessage
+   呈现、stopStreaming 收敛。其他 error 帧（agent 运行期错误 / replay
+   error）行为不变（精确异常过滤，lessons #3）。
+
+测试：wsManager.reconnect.test.ts 新增 4 例（fresh-tab 注入保持、
+event_id 幂等、event-id-less 幂等、NotFound 终止循环）。
 
 ## 2026-06-02 — reconnect `run_ended` must clear isStreaming (stuck "Acting…" fix)
 

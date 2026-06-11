@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from loguru import logger
+from pydantic import ValidationError
 
 from xyz_agent_context.schema.provider_schema import (
     AuthType,
@@ -92,10 +93,41 @@ class UserProviderService:
         slot_rows = await self.db.get("user_slots", filters={"user_id": user_id})
         slots = {}
         for row in slot_rows:
-            slots[row["slot_name"]] = SlotConfig(
-                provider_id=row["provider_id"],
-                model=row["model"],
-            )
+            # params_json holds the framework-neutral per-slot params
+            # (thinking, reasoning_effort, ...). Pre-migration rows have
+            # NULL; corrupt or out-of-vocabulary content degrades to auto
+            # ("") rather than failing the whole config load — a broken
+            # tuning knob must never take the agent offline.
+            params: dict = {}
+            raw_params = row.get("params_json")
+            if raw_params:
+                try:
+                    parsed = json.loads(raw_params)
+                    if isinstance(parsed, dict):
+                        params = parsed
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"user_slots.params_json for user={user_id} "
+                        f"slot={row['slot_name']} is not valid JSON; "
+                        f"falling back to auto params"
+                    )
+            try:
+                slot = SlotConfig(
+                    provider_id=row["provider_id"],
+                    model=row["model"],
+                    thinking=params.get("thinking", ""),
+                    reasoning_effort=params.get("reasoning_effort", ""),
+                )
+            except ValidationError:
+                logger.warning(
+                    f"user_slots.params_json for user={user_id} "
+                    f"slot={row['slot_name']} has out-of-vocabulary values "
+                    f"{params}; falling back to auto params"
+                )
+                slot = SlotConfig(
+                    provider_id=row["provider_id"], model=row["model"]
+                )
+            slots[row["slot_name"]] = slot
 
         return LLMConfig(providers=providers, slots=slots)
 
@@ -144,7 +176,10 @@ class UserProviderService:
                 "auth_type": "oauth",
                 "api_key": "",
                 "base_url": "",
-                "models": json.dumps(["claude-opus-4-7", "claude-sonnet-4-6"]),
+                # CLI family aliases → auto-track the latest Claude release (the
+                # OAuth path runs `claude --model opus|sonnet|haiku`), so no
+                # manual version bump on each new model. See model_catalog.py.
+                "models": json.dumps(["opus", "sonnet", "haiku"]),
                 # OAuth funnels through official Anthropic → server tools OK.
                 "supports_anthropic_server_tools": True,
             }, now)
@@ -158,18 +193,6 @@ class UserProviderService:
                 models = get_default_models("user", card_type)
             else:
                 models = list(models)
-            # Always surface the official embedding models for an OpenAI-protocol
-            # provider (api.openai.com OR an OpenAI-compatible forward), so the
-            # embedding slot has candidates even when the user listed only chat
-            # models. Vendor presets (NetMind etc.) carry their own embeddings
-            # via _build_dual_providers and never reach this branch.
-            if card_type == "openai":
-                from xyz_agent_context.agent_framework.model_catalog import (
-                    get_default_embedding_models,
-                )
-                for _em in get_default_embedding_models("openai"):
-                    if _em not in models:
-                        models.append(_em)
             # Auto-detect: only the official api.anthropic.com host serves
             # the server-side tool suite (WebSearch etc.). User can flip
             # this later via the edit-provider flow if they front official
@@ -242,11 +265,39 @@ class UserProviderService:
     # Slots
     # =========================================================================
 
-    async def set_slot(self, user_id: str, slot_name: str, provider_id: str, model: str) -> LLMConfig:
-        """Assign a provider + model to a slot for a user."""
+    async def set_slot(
+        self,
+        user_id: str,
+        slot_name: str,
+        provider_id: str,
+        model: str,
+        thinking: str = "",
+        reasoning_effort: str = "",
+    ) -> LLMConfig:
+        """Assign a provider + model (+ neutral reasoning params) to a slot.
+
+        PUT semantics: every call writes the FULL param set. Omitted params
+        reset to "" (auto) — the UI always sends the current dropdown values.
+        """
         # Validate slot name
         if slot_name not in [s.value for s in SlotName]:
             raise ValueError(f"Invalid slot: {slot_name}")
+
+        # Validate the neutral params through the schema (rejects dialect
+        # words like "adaptive"/"minimal" before they reach storage).
+        params_model = SlotConfig(
+            provider_id=provider_id,
+            model=model,
+            thinking=thinking,  # type: ignore[arg-type]
+            reasoning_effort=reasoning_effort,  # type: ignore[arg-type]
+        )
+        params_json = json.dumps(
+            {
+                "thinking": params_model.thinking,
+                "reasoning_effort": params_model.reasoning_effort,
+            },
+            sort_keys=True,
+        )
 
         # Validate provider exists for this user
         prov = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
@@ -264,7 +315,8 @@ class UserProviderService:
         if existing:
             await self.db.update("user_slots",
                 {"user_id": user_id, "slot_name": slot_name},
-                {"provider_id": provider_id, "model": model, "updated_at": now}
+                {"provider_id": provider_id, "model": model,
+                 "params_json": params_json, "updated_at": now}
             )
         else:
             await self.db.insert("user_slots", {
@@ -272,6 +324,7 @@ class UserProviderService:
                 "slot_name": slot_name,
                 "provider_id": provider_id,
                 "model": model,
+                "params_json": params_json,
                 "updated_at": now,
             })
 
