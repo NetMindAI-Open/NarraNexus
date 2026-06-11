@@ -4,7 +4,7 @@
 @date: 2026-05-29
 @description: F2 regression — paged user-filter scan must not lose recall.
 
-NarrativeRepository.get_by_agent_user / get_with_embedding store user_id
+NarrativeRepository.get_by_agent_user stores user_id
 inside the narrative_info JSON actors, so the user filter is applied in
 Python. The old implementation fetched only `limit*2` newest rows then
 filtered, which silently dropped a user's narratives once the agent
@@ -27,8 +27,7 @@ from xyz_agent_context.narrative.models import (
 )
 
 
-def _make_narrative(nid: str, agent_id: str, user_id: str, updated_at: datetime,
-                    with_embedding: bool = False) -> Narrative:
+def _make_narrative(nid: str, agent_id: str, user_id: str, updated_at: datetime) -> Narrative:
     return Narrative(
         id=nid,
         type=NarrativeType.CHAT,
@@ -40,7 +39,6 @@ def _make_narrative(nid: str, agent_id: str, user_id: str, updated_at: datetime,
             actors=[NarrativeActor(id=user_id, type=NarrativeActorType.USER)],
         ),
         event_ids=[],
-        routing_embedding=[0.1, 0.2, 0.3] if with_embedding else None,
         created_at=updated_at,
         updated_at=updated_at,
     )
@@ -91,22 +89,3 @@ async def test_get_by_agent_user_respects_limit(repo):
     assert all(n.id.startswith("nar_u_") for n in found)
     assert len({n.id for n in found}) == 4
 
-
-@pytest.mark.asyncio
-async def test_get_with_embedding_user_filter_recall(repo):
-    agent = "agent_F2c"
-    base = datetime(2026, 5, 1, tzinfo=timezone.utc)
-    # newest: other users WITH embedding
-    for i in range(30):
-        await repo.save(_make_narrative(
-            f"nar_o_{i:03d}", agent, f"ou_{i}",
-            base + timedelta(hours=100 + i), with_embedding=True,
-        ))
-    # oldest: target user WITH embedding
-    for i in range(2):
-        await repo.save(_make_narrative(
-            f"nar_t_{i}", agent, "target", base + timedelta(hours=i),
-            with_embedding=True,
-        ))
-    found = await repo.get_with_embedding(agent, user_id="target", limit=10)
-    assert {n.id for n in found} == {"nar_t_0", "nar_t_1"}

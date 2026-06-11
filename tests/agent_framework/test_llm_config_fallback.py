@@ -68,7 +68,6 @@ def _valid_system_cfg() -> LLMConfig:
         },
         slots={
             "agent": SlotConfig(provider_id="system_default_anthropic", model="claude-sonnet-4-5"),
-            "embedding": SlotConfig(provider_id="system_default_openai", model="emb-sys"),
             "helper_llm": SlotConfig(provider_id="system_default_openai", model="gpt-sys"),
         },
     )
@@ -120,14 +119,12 @@ async def test_raises_when_quota_exhausted():
 async def test_success_sets_context_vars_and_returns_dataclasses():
     _stub_sys(enabled=True, cfg=_valid_system_cfg())
     svc = _stub_quota(has_budget=True)
-    claude, openai_cfg, embedding = await _use_system_default_strict("usr_y", svc)
+    claude, openai_cfg = await _use_system_default_strict("usr_y", svc)
 
     assert claude.api_key == "sk-system"
     assert claude.model == "claude-sonnet-4-5"
     assert openai_cfg.api_key == "sk-system"
     assert openai_cfg.model == "gpt-sys"
-    assert embedding.api_key == "sk-system"
-    assert embedding.model == "emb-sys"
 
     # ContextVars tagged so cost_tracker's post-call hook deducts to the
     # right user's quota.

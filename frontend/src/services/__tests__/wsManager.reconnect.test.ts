@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { wsManager } from '../wsManager';
+import { useChatStore } from '@/stores/chatStore';
 
 // ---- Mock WebSocket ----------------------------------------------------
 class MockWebSocket {
@@ -91,6 +92,87 @@ describe('wsManager A3 — auto-reconnect on passive disconnect', () => {
     first.triggerClose(); // server closes after complete
     vi.advanceTimersByTime(60000);
     expect(MockWebSocket.instances).toHaveLength(1);
+  });
+
+  it('run_reconnect injects the user bubble on a fresh-tab reconnect', () => {
+    useChatStore.getState().clearAll();
+    wsManager.reconnect(AGENT, USER, 'r_inj1');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    ws.triggerMessage({
+      type: 'run_reconnect',
+      run_id: 'r_inj1',
+      state: 'running',
+      input_content: 'hello there',
+      input_timestamp: '2026-06-10T00:00:00',
+    });
+
+    const msgs = useChatStore.getState().agentSessions[AGENT]?.messages ?? [];
+    expect(msgs.filter((m) => m.role === 'user' && m.content === 'hello there')).toHaveLength(1);
+  });
+
+  it('run_reconnect does NOT duplicate the prompt the session already holds (event_id match)', () => {
+    // Simulate the fresh-run flow that precedes an auto-reconnect:
+    // the user sent the message in THIS tab and run_started stamped it.
+    useChatStore.getState().clearAll();
+    useChatStore.getState().addUserMessage(AGENT, 'hello there');
+    useChatStore.getState().startStreaming(AGENT);
+    useChatStore.getState().setCurrentRunId(AGENT, 'r_inj2');
+
+    wsManager.reconnect(AGENT, USER, 'r_inj2');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    ws.triggerMessage({
+      type: 'run_reconnect',
+      run_id: 'r_inj2',
+      state: 'running',
+      input_content: 'hello there',
+      input_timestamp: '2026-06-10T00:00:00',
+    });
+
+    const msgs = useChatStore.getState().agentSessions[AGENT]?.messages ?? [];
+    expect(msgs.filter((m) => m.role === 'user' && m.content === 'hello there')).toHaveLength(1);
+  });
+
+  it('run_reconnect does NOT duplicate a trailing event-id-less prompt with the same content', () => {
+    // Same as above but the socket died BEFORE run_started — the local
+    // user message never got its event_id backfilled.
+    useChatStore.getState().clearAll();
+    useChatStore.getState().addUserMessage(AGENT, 'hello there');
+    useChatStore.getState().startStreaming(AGENT);
+
+    wsManager.reconnect(AGENT, USER, 'r_inj3');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    ws.triggerMessage({
+      type: 'run_reconnect',
+      run_id: 'r_inj3',
+      state: 'running',
+      input_content: 'hello there',
+      input_timestamp: '2026-06-10T00:00:00',
+    });
+
+    const msgs = useChatStore.getState().agentSessions[AGENT]?.messages ?? [];
+    expect(msgs.filter((m) => m.role === 'user' && m.content === 'hello there')).toHaveLength(1);
+  });
+
+  it('terminal reconnect error (NotFound) stops streaming and does not retry', () => {
+    useChatStore.getState().clearAll();
+    wsManager.reconnect(AGENT, USER, 'r_gone');
+    const ws = MockWebSocket.instances[0];
+    ws.triggerOpen();
+    expect(useChatStore.getState().isAgentStreaming(AGENT)).toBe(true);
+
+    ws.triggerMessage({
+      type: 'error',
+      error_type: 'NotFound',
+      error_message: "Run 'r_gone' not found",
+    });
+    ws.triggerClose(); // server closes right after the error frame
+
+    vi.advanceTimersByTime(120_000);
+    expect(MockWebSocket.instances).toHaveLength(1); // no reconnect loop
+    expect(useChatStore.getState().isAgentStreaming(AGENT)).toBe(false); // spinner cleared
   });
 
   it('backoff grows across repeated passive disconnects', () => {

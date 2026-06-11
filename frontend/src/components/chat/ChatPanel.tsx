@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { Send, Square, Loader2, Sparkles, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
+import { CostPopover } from '@/components/cost/CostPopover';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd, RingAvatar } from '@/components/nm';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
@@ -31,7 +32,6 @@ import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { AudioRecorder } from './AudioRecorder';
-import { EmbeddingBanner } from '@/components/ui/EmbeddingBanner';
 import { ArtifactInlineBadge } from '@/components/artifacts';
 import type { Attachment, SimpleChatMessage, AgentToolCall } from '@/types';
 
@@ -795,22 +795,27 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </BracketSectionLabel>
         </div>
 
-        {isStreaming && (
-          <span
-            className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em]"
-            style={{
-              color: 'var(--color-warning)',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            <Sparkles className="w-3 h-3 animate-pulse" />
-            Processing
+        <div className="flex items-center gap-3 shrink-0">
+          {isStreaming && (
+            <span
+              className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em]"
+              style={{
+                color: 'var(--color-warning)',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              <Sparkles className="w-3 h-3 animate-pulse" />
+              Processing
+            </span>
+          )}
+          {/* Cost chip — a proper header member (it used to float
+              absolutely over this corner and collided with the
+              Processing indicator during runs). */}
+          <span data-help-id="chat.cost">
+            <CostPopover />
           </span>
-        )}
+        </div>
       </div>
-
-      {/* Embedding rebuild warning banner */}
-      <EmbeddingBanner />
 
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and
@@ -821,6 +826,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           element it always did. */}
       <ScrollArea
         className="flex-1 min-h-0"
+        data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
         viewportClassName="p-5"
         onViewportScroll={(e) => {
@@ -1100,7 +1106,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        <div className="flex gap-2.5 items-stretch">
+        <div className="flex gap-2.5 items-stretch" data-help-id="chat.composer">
           <input
             ref={fileInputRef}
             type="file"

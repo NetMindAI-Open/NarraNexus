@@ -1,8 +1,30 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-05-18
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
+
+SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and
+`reasoning_effort: ""|low|medium|high|max` ("" = auto = adapter passes
+nothing). They are deliberately NOT provider dialect (no "adaptive"/
+"minimal"): NarraNexus will adapt more frameworks (Codex, pi, ...), so the
+slot stores semantics and each agent-framework adapter owns the mapping +
+clamping (rule #9). Persisted as `user_slots.params_json` (cloud) and via
+the normal LLMConfig JSON dump (local llm_config.json) — both backends
+expose them through the same set_slot(..., thinking=, reasoning_effort=)
+signature with PUT semantics (omitted = reset to auto). Corrupt or
+out-of-vocabulary stored params degrade to auto with a warning instead of
+failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
+
+
+## 2026-06-09 — funnel redesign: providers.py carries no analytics
+
+`llm_slot_configured` was removed entirely from the lean funnel redesign.
+`providers.py` has no analytics instrumentation — no event is emitted from
+any route here. The service layer (`UserProviderService`) is also clean.
+The mid-funnel events tracking LLM configuration detail were cut to simplify
+the funnel to 5 lean events.
 
 ## 2026-05-18 — 关掉 query 参数 user_id 这条 identity channel
 

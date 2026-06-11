@@ -85,7 +85,6 @@ class ContextRuntime:
         active_instances: List,  # Changed to active_instances (module already bound)
         input_content: str,  # Added: current user input
         working_source: Union[WorkingSource, str] = WorkingSource.CHAT,
-        query_embedding: Optional[List[float]] = None,
         created_job_ids: Optional[List[str]] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
     ) -> ContextRuntimeOutput:
@@ -198,7 +197,6 @@ class ContextRuntime:
         self,
         narrative_list: List[Narrative],
         ctx_data: ContextData,
-        query_embedding: Optional[List[float]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Event], ContextData]:
         """
         Extract data from Narratives (enhanced version: supports multiple Narratives + intelligent Event selection).
@@ -237,9 +235,7 @@ class ContextRuntime:
         if main_narrative.event_ids:
             selected_events = await event_service.select_events_for_context(
                 narrative_event_ids=main_narrative.event_ids,
-                query_embedding=query_embedding,
                 max_recent=config.MAX_RECENT_EVENTS,
-                max_relevant=config.MAX_RELEVANT_EVENTS,
                 max_total=config.MAX_EVENTS_IN_CONTEXT
             )
             

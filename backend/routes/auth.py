@@ -15,11 +15,24 @@ Provides endpoints for:
 
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
+from xyz_agent_context.analytics import track, identify_user
+from xyz_agent_context.analytics.events import (
+    EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
+    EVENT_SETUP_COMPLETED, PROP_METHOD,
+)
+
+# Whitelist of frontend-reportable funnel events. The setup_* events are pure
+# UI actions (page view, skip/done clicks) that have no backend signal, so the
+# frontend reports them via POST /api/auth/funnel. Whitelisting stops the
+# endpoint from being a generic event firehose.
+_ALLOWED_FUNNEL_EVENTS = frozenset({
+    EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED, EVENT_SETUP_COMPLETED,
+})
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
@@ -54,61 +67,23 @@ from backend.auth import (
     resolve_current_user_id,
 )
 from xyz_agent_context.utils import is_valid_timezone
-from xyz_agent_context.utils.timezone import utc_now
-from xyz_agent_context.agent_runtime.background_run import HEARTBEAT_INTERVAL_S
+from xyz_agent_context.agent_runtime.background_run import run_is_live
 from xyz_agent_context.settings import settings as app_settings
 
-from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
+from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
 from typing import Optional
 
 
 router = APIRouter()
 
 
-# An events row stuck at state='running' is only surfaced as an agent's
-# active_run while its heartbeat is fresh. BackgroundRun bumps
-# last_event_at every HEARTBEAT_INTERVAL_S (30s); after 3 missed beats the
-# run is considered dead — its task died without _finalize (process killed
-# mid-run, or the terminal DB write failed) and the in-memory active_runs
-# registry no longer holds it. The startup reconcile only flips such rows
-# on the NEXT restart, so without this filter the sidebar avatar pulses
-# "running" forever for an agent that is not running.
-#
-# This is a read-side liveness filter only — it never stops or mutates a
-# run. A genuinely long-running agent keeps beating and stays live, so long
-# agent_loops remain a first-class case (CLAUDE.md 铁律 #14).
-_RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
-
-
-def _parse_db_utc(ts) -> Optional[datetime]:
-    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
-    returns datetime) into a tz-aware UTC datetime. Returns None when the
-    value is absent or unparseable."""
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-    if isinstance(ts, str):
-        try:
-            dt = datetime.fromisoformat(ts.rstrip("Z"))
-        except ValueError:
-            return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return None
-
-
-def _run_is_live(ar_row: dict, now: Optional[datetime] = None) -> bool:
-    """Whether a 'running' events row still has a fresh heartbeat. Falls
-    back to started_at when the first beat hasn't fired yet. Fails open
-    (treats as live) when no parseable timestamp exists, so we never hide a
-    run that might genuinely be running."""
-    now = now or utc_now()
-    parsed = _parse_db_utc(ar_row.get("last_event_at")) or _parse_db_utc(
-        ar_row.get("started_at")
-    )
-    if parsed is None:
-        return True
-    return (now - parsed) <= timedelta(seconds=_RUN_STALE_AFTER_S)
+# Heartbeat-freshness liveness rule for events rows stuck at
+# state='running' — shared with the WS reconnect path so "is this run
+# actually alive?" has one answer. See run_is_live in background_run.py.
+# Without this filter the sidebar avatar pulses "running" forever for an
+# agent whose run task died without _finalize.
+_run_is_live = run_is_live
 
 
 def _schedule_login_rearm(user_id: str) -> None:
@@ -685,7 +660,7 @@ async def delete_agent(
     2. Narrative Memory dynamic tables
     3. Jobs
     4. Instance-Narrative Links
-    5. Instance subsidiary data (social_entities, awareness, rag_store, module_report_memory)
+    5. Instance subsidiary data (social_entities, awareness, module_report_memory)
     6. Module Instances
     7. Events
     8. Narratives
@@ -813,10 +788,10 @@ async def delete_agent(
                 stats["instance_narrative_links"] = cnt
 
         # 7. Instance subsidiary data (by instance_id)
+        #     (instance_social_entities retired — entities now live in
+        #      memory_entity, cleaned by agent_id in the memory sweep below.)
         instance_sub_tables = [
-            "instance_social_entities",
             "instance_awareness",
-            "instance_rag_store",
             "instance_module_report_memory",
             "instance_json_format_memory",
             # Was missing — separate single-row-per-instance memory table
@@ -825,9 +800,6 @@ async def delete_agent(
             # `module_report_memory` is also keyed by instance_id (per-instance
             # report blob, distinct from instance_module_report_memory).
             "module_report_memory",
-            # Embedding tables: chat_message_embeddings is keyed by instance_id;
-            # leaving them creates orphan vectors that pollute RAG retrieval.
-            "chat_message_embeddings",
         ]
         if instance_ids:
             ph = ", ".join(["%s"] * len(instance_ids))
@@ -844,6 +816,24 @@ async def delete_agent(
                 except Exception:
                     # Table may not exist, skip
                     pass
+
+        # 7b. Unified memory tables (by agent_id) — observation/entity/chat/...
+        # are all agent-scoped; without this an account deletion would leave
+        # orphaned memory rows (entities, learned facts, etc.).
+        from xyz_agent_context.utils.schema_registry import MEMORY_KINDS
+        for _kind in MEMORY_KINDS:
+            _tbl = f"memory_{_kind}"
+            try:
+                result = await db_client.execute(
+                    f"DELETE FROM `{_tbl}` WHERE agent_id = %s",
+                    (agent_id,),
+                    fetch=False,
+                )
+                cnt = result if isinstance(result, int) else 0
+                if cnt > 0:
+                    stats[_tbl] = cnt
+            except Exception:
+                pass  # Table may not exist on older DBs — skip.
 
         # 8. Module Instances (by agent_id)
         result = await db_client.execute(
@@ -1032,43 +1022,6 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"bus cascade cleanup failed (non-critical): {e}")
 
-        # 14d. Embeddings store rows for entities this agent owned.
-        # entity_type is 'event' / 'narrative' / 'rag' depending on what was embedded.
-        # We deleted the underlying events / narratives / rag rows above, leaving
-        # vector blobs behind that pollute RAG/semantic search. Sweep them now.
-        try:
-            event_ids = []  # collected from events we just deleted? we only have agent_id
-            # Easiest: delete by entity_type + the parent rows we already wiped.
-            # Because we already cascaded events/narratives/rag, any vectors keyed
-            # to an entity_id that no longer exists is orphaned. We can't trivially
-            # match on agent_id (embeddings_store has no agent_id col), so we sweep
-            # by joining against the deleted parent IDs we still have in memory:
-            #
-            # `nar_rows` and `inst_rows` already collected the IDs above; events
-            # we don't have a list of (we just DELETE'd by agent_id). Cheap option:
-            # use a NOT EXISTS sweep against current parent tables.
-            for entity_type, parent_table, parent_pk in (
-                ("event", "events", "event_id"),
-                ("narrative", "narratives", "narrative_id"),
-                ("rag", "instance_rag_store", "id"),
-            ):
-                if is_sqlite:
-                    sweep_sql = (
-                        f"DELETE FROM embeddings_store WHERE entity_type = ? "
-                        f"AND entity_id NOT IN (SELECT {parent_pk} FROM {parent_table})"
-                    )
-                else:
-                    sweep_sql = (
-                        f"DELETE FROM embeddings_store WHERE entity_type = %s "
-                        f"AND entity_id NOT IN (SELECT {parent_pk} FROM {parent_table})"
-                    )
-                e_res = await db_client.execute(sweep_sql, (entity_type,), fetch=False)
-                e_cnt = e_res if isinstance(e_res, int) else 0
-                if e_cnt > 0:
-                    stats[f"embeddings_store({entity_type})"] = e_cnt
-        except Exception as e:
-            logger.warning(f"embeddings_store sweep failed (non-critical): {e}")
-
         # 14e. Orphan inbox entries pointing at deleted events
         try:
             if is_sqlite:
@@ -1148,6 +1101,18 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
+        # Only non-identifying traits — the distinct_id is hashed and we
+        # deliberately do NOT ship display_name, so no real names reach
+        # PostHog.
+        await identify_user(
+            user_id=request.user_id,
+            traits={"role": "individual"},
+        )
+        await track(
+            user_id=request.user_id,
+            event=EVENT_SIGNED_UP,
+            properties={PROP_METHOD: "create_user"},
+        )
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
@@ -1297,3 +1262,68 @@ async def update_onboarding(request: UpdateOnboardingRequest):
     except Exception as e:
         logger.exception(f"Error updating onboarding state: {e}")
         return OnboardingResponse(success=False, error=str(e))
+
+
+# =============================================================================
+# Analytics opt-out
+# =============================================================================
+
+
+def _require_request_user(http_request: Request) -> str:
+    """Identity for the analytics endpoints comes from auth_middleware
+    (request.state.user_id) — never from the query string or body — so one
+    user can't read or flip another user's privacy preference."""
+    uid = getattr(http_request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return uid
+
+
+class SetAnalyticsOptOutRequest(BaseModel):
+    opted_out: bool
+
+
+@router.get("/settings/analytics")
+async def get_analytics_opt_out(http_request: Request):
+    """Return whether the current user has opted out of product analytics.
+
+    No-row means not opted out (tracking on by default).
+    """
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    return {"opted_out": await repo.is_analytics_opted_out(uid)}
+
+
+@router.put("/settings/analytics")
+async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
+                                http_request: Request):
+    """Set the current user's analytics opt-out preference."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    await repo.set_analytics_opt_out(uid, request.opted_out)
+    return {"success": True, "opted_out": request.opted_out}
+
+
+class FunnelEventRequest(BaseModel):
+    event: str
+
+
+@router.post("/funnel")
+async def track_funnel_event(request: FunnelEventRequest, http_request: Request):
+    """Report a frontend-originated funnel event (setup page UI actions).
+
+    Identity comes from auth_middleware (request.state.user_id) — never the
+    body — so events can't be spoofed onto another user. Only whitelisted
+    setup_* events are accepted, and no client-supplied properties are
+    forwarded: the setup_* events carry no payload by design, so accepting a
+    properties dict would only let a client inject arbitrary data (or
+    override the server-derived `surface`) into PostHog. track() applies
+    opt-out, distinct_id hashing, and the surface label, and never raises.
+    """
+    uid = _require_request_user(http_request)
+    if request.event not in _ALLOWED_FUNNEL_EVENTS:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown funnel event: {request.event}"
+        )
+    await track(user_id=uid, event=request.event)
+    return {"success": True}

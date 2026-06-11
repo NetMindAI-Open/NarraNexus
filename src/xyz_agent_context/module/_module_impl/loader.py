@@ -69,6 +69,7 @@ class ModuleLoader:
     CORE_ALWAYS_LOAD = [
         "SkillModule",
         "CommonToolsModule",
+        "GeneralMemoryModule",  # unified memory: learns observations + injects cross-kind recall every turn
     ]
 
     @classmethod

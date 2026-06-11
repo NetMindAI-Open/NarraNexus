@@ -4,7 +4,7 @@ Narrative retrieval implementation
 @file_name: retrieval.py
 @author: NetMind.AI
 @date: 2025-12-22
-@description: Vector retrieval, LLM confirmation, score enhancement
+@description: BM25 keyword retrieval + LLM unified match for narrative routing.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from ..models import (
     NarrativeSelectionResult,
     NarrativeType,
 )
-from .vector_store import VectorStore
 from .crud import NarrativeCRUD
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
@@ -30,11 +29,6 @@ from .default_narratives import (
 from xyz_agent_context.utils.logging import timed
 
 # Use common utilities from utils
-from xyz_agent_context.agent_framework.llm_api.embedding import (
-    get_embedding,
-    cosine_similarity,
-    compute_average_embedding,
-)
 from xyz_agent_context.utils.text import extract_keywords, truncate_text
 from xyz_agent_context.utils.db_factory import get_db_client
 from ._retrieval_llm import (
@@ -55,10 +49,8 @@ class NarrativeRetrieval:
     Narrative Retrieval
 
     Responsibilities:
-    - Vector similarity search
-    - LLM match confirmation
-    - Recent Event score enhancement
-    - Retrieve or create Narrative
+    - BM25 keyword search over the agent's narratives
+    - LLM unified-match confirmation / new-narrative creation
     """
 
     def __init__(self, agent_id: str):
@@ -70,7 +62,6 @@ class NarrativeRetrieval:
         """
         self.agent_id = agent_id
         self._crud = NarrativeCRUD(agent_id)
-        self._vector_store = VectorStore()
         self._event_service = None  # Dependency injection
 
     def set_database_client(self, db_client: "AsyncDatabaseClient"):
@@ -80,100 +71,6 @@ class NarrativeRetrieval:
     def set_event_service(self, event_service):
         """Inject EventService"""
         self._event_service = event_service
-
-    @property
-    def vector_store(self) -> VectorStore:
-        """Get the vector store"""
-        return self._vector_store
-
-    async def retrieve_or_create(
-        self,
-        query: str,
-        user_id: str,
-        agent_id: str,
-        narrative_type: NarrativeType = NarrativeType.CHAT
-    ) -> Tuple[Narrative, bool]:
-        """
-        Retrieve or create a Narrative
-
-        Workflow:
-        1. Generate Query embedding
-        2. Vector search
-        3. Check similarity threshold
-        4. Threshold met -> Return matched Narrative
-        5. Threshold not met -> Create new Narrative
-
-        Args:
-            query: User query
-            user_id: User ID
-            agent_id: Agent ID
-            narrative_type: Narrative type
-
-        Returns:
-            Tuple[Narrative, bool]: (Narrative, is_new)
-        """
-        logger.info(f"Retrieving Narrative: query='{query[:50]}...'")
-
-        # Generate Query embedding
-        query_embedding = await get_embedding(query)
-        logger.debug(f"Generated Query embedding (dim={len(query_embedding)})")
-
-        # Search for similar Narratives
-        search_results, _ = await self._search(
-            query_embedding=query_embedding,
-            user_id=user_id,
-            agent_id=agent_id,
-            top_k=config.NARRATIVE_SEARCH_TOP_K,
-        )
-
-        # Enhance scores using recent Events
-        if search_results:
-            search_results = await self._enhance_with_events(
-                search_results=search_results,
-                query_embedding=query_embedding
-            )
-
-        # Evaluate match results
-        if search_results:
-            best_match = search_results[0]
-            best_score = best_match.similarity_score
-
-            # High confidence match
-            if best_score >= config.NARRATIVE_MATCH_HIGH_THRESHOLD:
-                logger.info(f"High confidence match: {best_match.narrative_id} (score={best_score:.2f})")
-                narrative = await self._crud.load_by_id(best_match.narrative_id)
-                if narrative:
-                    return narrative, False
-
-            # Low confidence - create new
-            elif best_score < config.NARRATIVE_MATCH_LOW_THRESHOLD:
-                logger.info(f"Low confidence, creating new topic (score={best_score:.2f})")
-
-            # Middle range - LLM confirmation
-            elif config.NARRATIVE_MATCH_USE_LLM:
-                candidates = await self._prepare_candidates(search_results[:3])
-                llm_result = await self._llm_confirm(query, candidates)
-                if llm_result["matched_id"]:
-                    narrative = await self._crud.load_by_id(llm_result["matched_id"])
-                    if narrative:
-                        return narrative, False
-
-            # Middle range but LLM not enabled
-            else:
-                if best_score >= config.NARRATIVE_MATCH_THRESHOLD:
-                    narrative = await self._crud.load_by_id(best_match.narrative_id)
-                    if narrative:
-                        return narrative, False
-
-        # Create new Narrative
-        narrative = await self._create_with_embedding(
-            query=query,
-            query_embedding=query_embedding,
-            user_id=user_id,
-            agent_id=agent_id,
-            narrative_type=narrative_type
-        )
-        return narrative, True
 
     async def retrieve_top_k(
         self,
@@ -188,10 +85,9 @@ class NarrativeRetrieval:
 
         Workflow:
         0. Ensure default Narratives exist
-        1. Generate Query embedding
-        2. Vector search Top-K
-        3. Enhance scores using recent Events
-        4. Two-tier threshold judgment:
+        1. BM25 keyword search over the agent's narratives (name + summary +
+           topic_keywords); add PARTICIPANT narratives at a neutral score
+        2. Two-tier threshold judgment:
            a) High confidence (>= high threshold) -> Return Top-K directly
            b) Low confidence (< high threshold) -> LLM unified judgment (search results + default Narratives)
               - Match default type -> Return 1 default Narrative
@@ -225,79 +121,43 @@ class NarrativeRetrieval:
         if has_participant_narratives:
             logger.info(f"P0-4: User is a PARTICIPANT in {len(participant_narratives)} Narratives")
 
-        # Step 1: Generate Query embedding (this is a second embedding
-        # call — the service-level one above embedded input_content for
-        # continuity; this one re-embeds the same query for retrieval.
-        # The embedding cache should make this near-zero on a cache hit.)
-        with timed("narrative.retrieve.embed_query"):
-            query_embedding = await get_embedding(query)
-        logger.debug(f"Generated Query embedding (dim={len(query_embedding)})")
-
-        # Step 2: Search for similar Narratives (VectorStore only — EverMemOS decoupled)
-        with timed("narrative.retrieve.vector_search"):
-            search_results = await self._vector_search(
-                query_embedding=query_embedding,
+        # Step 1: Search for candidate Narratives by KEYWORD (BM25 over each
+        # narrative's name + summary + topic keywords). BM25 casts the net
+        # over the agent's real narratives — including non-default ones — then
+        # the LLM unified-match tier below arbitrates. Reuses the same BM25 the
+        # MemoryEngine uses, so narrative routing and memory recall share one
+        # ranking implementation. Zero vectors.
+        with timed("narrative.retrieve.keyword_search"):
+            search_results = await self._keyword_search(
+                query=query,
                 user_id=user_id,
                 agent_id=agent_id,
                 top_k=max(top_k * 2, config.NARRATIVE_SEARCH_TOP_K),
             )
-        retrieval_method = "vector"
-        logger.info(f"[NarrativeSelect] VectorStore search returned {len(search_results)} candidates")
+        retrieval_method = "keyword"
+        logger.info(f"[NarrativeSelect] Keyword(BM25) search returned {len(search_results)} candidates")
 
-        # Step 2.5 (P0-4): Add PARTICIPANT Narratives to candidate list (if not already in search results)
-        # This is key: participant_narratives come from Narratives created by other users; vector search won't return them
+        # Step 1.5 (P0-4): Add PARTICIPANT Narratives to candidate list (if not already in search results)
+        # This is key: participant_narratives come from Narratives created by other users; keyword search won't return them
         existing_narrative_ids = {r.narrative_id for r in search_results}
-        # Resolve vectors against the currently-active embedding model so we
-        # never cosine_similarity across mismatched dimensions (which used to
-        # crash with `shapes (1024,) and (1536,) not aligned` when the DB
-        # held narratives embedded under an older model).
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
-            use_embedding_store,
-            get_stored_embedding,
-        )
-        _new_system = use_embedding_store()
         for narrative in participant_narratives:
             if narrative.id not in existing_narrative_ids:
-                # Score defaults to 0.5 (neutral) when we can't produce a
-                # dimension-matched vector — same behaviour as before for
-                # narratives with no embedding at all.
-                score = 0.5
-                candidate_vec: Optional[List[float]] = None
-                if _new_system:
-                    candidate_vec = await get_stored_embedding("narrative", narrative.id)
-                if candidate_vec is None:
-                    candidate_vec = narrative.routing_embedding
-                if candidate_vec and len(candidate_vec) == len(query_embedding):
-                    score = cosine_similarity(query_embedding, candidate_vec)
-                elif candidate_vec:
-                    logger.warning(
-                        f"  Skipping PARTICIPANT Narrative {narrative.id} cosine "
-                        f"(stored dim={len(candidate_vec)}, query dim={len(query_embedding)}); "
-                        f"using neutral score 0.5"
-                    )
-
-                # rank will be recalculated after resorting; use 999 as placeholder
+                # Embeddings retired: participant narratives enter the candidate
+                # pool with a neutral score; the LLM unified-match tier below
+                # arbitrates their relevance. (No cosine scoring.)
                 search_results.append(NarrativeSearchResult(
                     narrative_id=narrative.id,
-                    similarity_score=score,
+                    similarity_score=0.5,
                     rank=999
                 ))
-                logger.info(f"  Added PARTICIPANT Narrative: {narrative.id} (score={score:.2f})")
+                logger.info(f"  Added PARTICIPANT Narrative: {narrative.id} (neutral score 0.5)")
 
         # Re-sort (by similarity descending) and update rank
         search_results.sort(key=lambda x: x.similarity_score, reverse=True)
         for i, result in enumerate(search_results):
             result.rank = i + 1
 
-        # Step 3: Enhance scores using recent Events
-        if search_results:
-            with timed("narrative.retrieve.enhance_events"):
-                search_results = await self._enhance_with_events(
-                    search_results=search_results,
-                    query_embedding=query_embedding
-                )
-
-        # Step 4: Two-tier threshold judgment
+        # Step 2: Two-tier threshold judgment
         best_score = search_results[0].similarity_score if search_results else None
         all_scores = {r.narrative_id: r.similarity_score for r in search_results}
 
@@ -314,8 +174,7 @@ class NarrativeRetrieval:
 
             return NarrativeSelectionResult(
                 narratives=narratives,
-                query_embedding=query_embedding,
-                selection_reason=f"High confidence match, vector similarity {best_score:.2f} >= {config.NARRATIVE_MATCH_HIGH_THRESHOLD}",
+                selection_reason=f"High confidence match, BM25 score {best_score:.2f} >= {config.NARRATIVE_MATCH_HIGH_THRESHOLD}",
                 selection_method="high_confidence",
                 is_new=False,
                 best_score=best_score,
@@ -335,7 +194,7 @@ class NarrativeRetrieval:
             # Call unified LLM judgment (considers search results, default Narratives, and PARTICIPANT Narratives)
             # This is the slow path — wrap in timed() so the dual cost
             # (LLM call + extra DB loads inside _llm_unified_match) is
-            # visible separately from the vector_search above.
+            # visible separately from the BM25 keyword search above.
             with timed("narrative.retrieve.llm_unified_match") as t:
                 result = await self._llm_unified_match(
                     query=query,
@@ -343,7 +202,6 @@ class NarrativeRetrieval:
                     agent_id=agent_id,
                     user_id=user_id,
                     top_k=top_k,
-                    query_embedding=query_embedding,
                     narrative_type=narrative_type,
                     best_score=best_score,
                     participant_narratives=participant_narratives,  # P0-4: Pass PARTICIPANT Narratives
@@ -363,9 +221,8 @@ class NarrativeRetrieval:
         # LLM not enabled - Create new Narrative directly
         else:
             logger.info("LLM not enabled, creating new topic directly")
-            new_narrative = await self._create_with_embedding(
+            new_narrative = await self._create_narrative(
                 query=query,
-                query_embedding=query_embedding,
                 user_id=user_id,
                 agent_id=agent_id,
                 narrative_type=narrative_type
@@ -373,7 +230,6 @@ class NarrativeRetrieval:
 
             return NarrativeSelectionResult(
                 narratives=[new_narrative],
-                query_embedding=query_embedding,
                 selection_reason="LLM not enabled, created new topic directly",
                 selection_method="new_created",
                 is_new=True,
@@ -382,89 +238,6 @@ class NarrativeRetrieval:
                 retrieval_method=retrieval_method,
                 # evermemos_memories removed — EverMemOS decoupled from narrative selection
             )
-
-    async def retrieve_auxiliary_narratives(
-        self,
-        query_embedding: List[float],
-        user_id: str,
-        agent_id: str,
-        exclude_narrative_ids: List[str],
-        top_k: int
-    ) -> List[Narrative]:
-        """
-        Retrieve auxiliary Narratives (excluding specified Narratives)
-
-        Args:
-            query_embedding: Query embedding
-            user_id: User ID
-            agent_id: Agent ID
-            exclude_narrative_ids: List of Narrative IDs to exclude
-            top_k: Number of results to return
-
-        Returns:
-            List of Narratives
-        """
-        # Search for similar Narratives
-        search_results, _ = await self._search(
-            query_embedding=query_embedding,
-            user_id=user_id,
-            agent_id=agent_id,
-            top_k=top_k * 2  # Search more candidates
-        )
-
-        # Enhance scores using recent Events
-        if search_results:
-            search_results = await self._enhance_with_events(
-                search_results=search_results,
-                query_embedding=query_embedding
-            )
-
-        # Load auxiliary Narratives (excluding specified ones)
-        narratives = []
-        exclude_set = set(exclude_narrative_ids)
-        for result in search_results:
-            if result.narrative_id not in exclude_set:
-                narrative = await self._crud.load_by_id(result.narrative_id)
-                if narrative and len(narratives) < top_k:
-                    narratives.append(narrative)
-
-        return narratives
-
-    async def retrieve_top_k_by_embedding(
-        self,
-        query_embedding: List[float],
-        user_id: str,
-        agent_id: str,
-        top_k: int
-    ) -> List[NarrativeSearchResult]:
-        """
-        Retrieve Top-K Narratives by embedding (returns search results, does not load full objects)
-
-        Args:
-            query_embedding: Query embedding
-            user_id: User ID
-            agent_id: Agent ID
-            top_k: Number of results to return
-
-        Returns:
-            List of NarrativeSearchResult (sorted)
-        """
-        # Search for similar Narratives
-        search_results, _ = await self._search(
-            query_embedding=query_embedding,
-            user_id=user_id,
-            agent_id=agent_id,
-            top_k=top_k
-        )
-
-        # Enhance scores using recent Events
-        if search_results:
-            search_results = await self._enhance_with_events(
-                search_results=search_results,
-                query_embedding=query_embedding
-            )
-
-        return search_results[:top_k]
 
     async def _ensure_default_narratives(self, agent_id: str, user_id: str) -> None:
         """
@@ -519,199 +292,44 @@ class NarrativeRetrieval:
             )
             # Do not raise exception, allow continued execution (default Narrative creation failure should not block main flow)
 
-    async def _vector_search(
+    async def _keyword_search(
         self,
-        query_embedding: List[float],
+        query: str,
         user_id: str,
         agent_id: str,
         top_k: int,
     ) -> List[NarrativeSearchResult]:
+        """BM25 keyword retrieval over the agent's narratives — the non-vector
+        BM25 keyword search over the agent's narratives.
+
+        Ranks each narrative by query overlap on its name + current_summary +
+        description + topic_keywords, using the same BM25 the MemoryEngine uses.
+        Scores are normalized monotonically into (0,1) so the existing two-tier
+        threshold still applies: weak matches fall through to the LLM tier;
+        strong keyword matches may direct-return.
         """
-        VectorStore-only search for narrative selection (decoupled from EverMemOS).
+        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
 
-        Uses routing_embedding cosine similarity to find candidate narratives.
+        narratives = await self._crud.load_by_agent_user(agent_id, user_id, limit=100)
+        items: List[tuple] = []
+        for n in narratives:
+            info = n.narrative_info
+            text = " ".join(
+                p for p in (
+                    getattr(info, "name", ""),
+                    getattr(info, "current_summary", ""),
+                    getattr(info, "description", ""),
+                    " ".join(n.topic_keywords or []),
+                ) if p
+            )
+            items.append((n.id, text))
 
-        Args:
-            query_embedding: Query embedding vector
-            user_id: User ID
-            agent_id: Agent ID
-            top_k: Number of results to return
-
-        Returns:
-            List of NarrativeSearchResult sorted by similarity
-        """
-        db_client = await get_db_client()
-
-        filters = {"user_id": user_id, "agent_id": agent_id}
-        results = await self._vector_store.search(
-            query_embedding=query_embedding,
-            filters=filters,
-            top_k=top_k,
-            min_score=config.VECTOR_SEARCH_MIN_SCORE,
-            db_client=db_client
-        )
-
-        logger.debug(f"[NarrativeSelect] VectorStore found {len(results)} candidates")
-        return results
-
-    async def _search(
-        self,
-        query_embedding: List[float],
-        user_id: str,
-        agent_id: str,
-        top_k: int,
-    ) -> Tuple[List[NarrativeSearchResult], str]:
-        """
-        Native vector search via local VectorStore.
-
-        Args:
-            query_embedding: Query embedding vector
-            user_id: User ID
-            agent_id: Agent ID
-            top_k: Number of results to return
-
-        Returns:
-            Tuple[List of NarrativeSearchResult, retrieval method identifier "vector"]
-        """
-        # Native vector retrieval via local VectorStore.
-        db_client = await get_db_client()
-
-        filters = {"user_id": user_id, "agent_id": agent_id}
-        results = await self._vector_store.search(
-            query_embedding=query_embedding,
-            filters=filters,
-            top_k=top_k,
-            min_score=config.VECTOR_SEARCH_MIN_SCORE,
-            db_client=db_client
-        )
-
-        logger.debug(f"[Vector retrieval] Found {len(results)} candidate Narratives")
-        return results, "vector"
-
-    async def _enhance_with_events(
-        self,
-        search_results: List[NarrativeSearchResult],
-        query_embedding: List[float]
-    ) -> List[NarrativeSearchResult]:
-        """Enhance scores using recent Events.
-
-        Performance: previously this re-embedded every recent event's input
-        text by calling the embedding API one-at-a-time, which dominated
-        step.1 latency (4-7s on a real run). We now bulk-read pre-computed
-        vectors from `embeddings_store` (which is dual-written every time
-        an event is persisted in step 4) and only fall back to the API
-        for the rare case where the active embedding model has no stored
-        vector for a given event yet — typically because the operator just
-        switched embedding models. Those fallbacks write through to the
-        store so the next call is a hit.
-
-        Cross-model safety: `get_stored_embeddings_batch` is keyed by
-        `(entity_type, entity_id, model)`, so a deployment that has used
-        text-embedding-3-small in the past and switches to -3-large will
-        re-embed only the events whose -large vectors are missing — no
-        risk of cosine'ing across mismatched dimensions.
-        """
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
-            get_stored_embeddings_batch,
-            store_embedding,
-        )
-
-        weight = config.RECENT_EVENTS_WEIGHT
-        max_events = config.MATCH_RECENT_EVENTS_COUNT
-
-        enhanced_results = []
-
-        for result in search_results:
-            narrative_id = result.narrative_id
-            topic_score = result.similarity_score
-
-            try:
-                narrative = await self._crud.load_by_id(narrative_id)
-
-                if narrative and narrative.event_ids and self._event_service:
-                    recent_event_ids = narrative.event_ids[-max_events:]
-
-                    # Fast path: batch read from embeddings_store. One DB
-                    # round-trip for the whole batch under the active
-                    # embedding model.
-                    stored = await get_stored_embeddings_batch(
-                        "event", recent_event_ids
-                    )
-
-                    event_embeddings: list[list[float]] = []
-                    missing_event_ids = [
-                        eid for eid in recent_event_ids if eid not in stored
-                    ]
-
-                    # Pull vectors that were already stored (the common
-                    # case after the first turn under each model).
-                    for eid in recent_event_ids:
-                        vec = stored.get(eid)
-                        if vec and len(vec) == len(query_embedding):
-                            event_embeddings.append(vec)
-
-                    # Slow path: re-embed only the events that have no
-                    # vector under the current model yet, and write
-                    # through so we don't pay this cost again next turn.
-                    if missing_event_ids:
-                        missing_events = await self._event_service.load_events_from_db(
-                            missing_event_ids
-                        )
-                        for event in missing_events:
-                            if not event or not event.env_context:
-                                continue
-                            input_text = (
-                                event.env_context.get("anchor")
-                                or event.env_context.get("input", "")
-                            )
-                            if not input_text:
-                                continue
-                            try:
-                                emb = await get_embedding(input_text)
-                                if len(emb) == len(query_embedding):
-                                    event_embeddings.append(emb)
-                                # Persist for future turns even if the
-                                # cosine path skipped it (a different
-                                # query dim wouldn't make this vector
-                                # unusable for *other* future queries).
-                                await store_embedding(
-                                    "event",
-                                    event.id,
-                                    emb,
-                                    source_text=input_text,
-                                )
-                            except Exception as exc:
-                                logger.debug(
-                                    f"Re-embed fallback failed for event "
-                                    f"{event.id}: {exc}"
-                                )
-
-                    if event_embeddings:
-                        avg_embedding = compute_average_embedding(event_embeddings)
-                        events_score = cosine_similarity(query_embedding, avg_embedding)
-                        final_score = topic_score * (1 - weight) + events_score * weight
-
-                        enhanced_results.append(NarrativeSearchResult(
-                            narrative_id=narrative_id,
-                            similarity_score=final_score,
-                            rank=0
-                        ))
-                        continue
-
-                enhanced_results.append(result)
-
-            except Exception as e:
-                logger.debug(f"Enhancement failed for {narrative_id}: {e}")
-                enhanced_results.append(result)
-
-        # Re-sort
-        enhanced_results.sort(key=lambda x: x.similarity_score, reverse=True)
-        for i, result in enumerate(enhanced_results):
-            result.rank = i + 1
-
-        return enhanced_results
-
-
+        scores = bm25_rank(query, items)
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
+        return [
+            NarrativeSearchResult(narrative_id=nid, similarity_score=s / (s + 1.0), rank=i + 1)
+            for i, (nid, s) in enumerate(ranked)
+        ]
 
     async def _llm_unified_match(
         self,
@@ -720,7 +338,6 @@ class NarrativeRetrieval:
         agent_id: str,
         user_id: str,
         top_k: int,
-        query_embedding: List[float],
         narrative_type: NarrativeType,
         best_score: Optional[float],
         participant_narratives: Optional[List[Narrative]] = None,  # P0-4: PARTICIPANT Narratives
@@ -744,11 +361,10 @@ class NarrativeRetrieval:
 
         Args:
             query: User query
-            search_results: Vector search results
+            search_results: BM25 keyword search results
             agent_id: Agent ID
             user_id: User ID
             top_k: Number of results to return
-            query_embedding: Query embedding vector
             narrative_type: Narrative type
             best_score: Best match score
             participant_narratives: P0-4 - Narratives where user is a PARTICIPANT
@@ -756,7 +372,7 @@ class NarrativeRetrieval:
         Returns:
             NarrativeSelectionResult
         """
-        # 1. Prepare search result candidates (narrative metadata only — no EverMemOS episodes)
+        # 1. Prepare search result candidates (narrative metadata only)
         all_scores = {r.narrative_id: r.similarity_score for r in search_results}
         search_candidates = []
 
@@ -840,7 +456,6 @@ class NarrativeRetrieval:
 
                 return NarrativeSelectionResult(
                     narratives=[matched_narrative] if matched_narrative else [],
-                    query_embedding=query_embedding,
                     selection_reason=f"LLM matched default Narrative: {reason}",
                     selection_method="default_narrative_matched",
                     is_new=False,
@@ -857,7 +472,6 @@ class NarrativeRetrieval:
 
                 return NarrativeSelectionResult(
                     narratives=[matched_narrative] if matched_narrative else [],
-                    query_embedding=query_embedding,
                     selection_reason=f"LLM matched PARTICIPANT Narrative: {reason}",
                     selection_method="participant_narrative_matched",
                     is_new=False,
@@ -884,7 +498,6 @@ class NarrativeRetrieval:
 
                 return NarrativeSelectionResult(
                     narratives=narratives,
-                    query_embedding=query_embedding,
                     selection_reason=f"LLM matched search result: {reason}",
                     selection_method="llm_confirmed",
                     is_new=False,
@@ -896,9 +509,8 @@ class NarrativeRetrieval:
 
         # 5. No match, create new Narrative
         logger.info("LLM determined no match with any Narrative, creating new topic")
-        new_narrative = await self._create_with_embedding(
+        new_narrative = await self._create_narrative(
             query=query,
-            query_embedding=query_embedding,
             user_id=user_id,
             agent_id=agent_id,
             narrative_type=narrative_type
@@ -906,7 +518,6 @@ class NarrativeRetrieval:
 
         return NarrativeSelectionResult(
             narratives=[new_narrative],
-            query_embedding=query_embedding,
             selection_reason=f"LLM determined new topic: {llm_result.get('reason', 'No match')}",
             selection_method="new_created",
             is_new=True,
@@ -998,16 +609,15 @@ class NarrativeRetrieval:
             logger.exception(f"PARTICIPANT Narratives: Query failed: {e}")
             return []
 
-    async def _create_with_embedding(
+    async def _create_narrative(
         self,
         query: str,
-        query_embedding: List[float],
         user_id: str,
         agent_id: str,
         narrative_type: NarrativeType
     ) -> Narrative:
-        """Create a Narrative with embedding"""
-        # Extract keywords
+        """Create a new Narrative from the query (BM25 routing surface only)."""
+        # Extract keywords (the BM25 routing surface)
         topic_keywords = extract_keywords(query)
 
         # Generate topic hint
@@ -1025,27 +635,13 @@ class NarrativeRetrieval:
             description=f"Created based on query: {query}"
         )
 
-        # Set routing index fields
-        from datetime import datetime, timezone
+        # BM25 routing surface (name + summary + topic_keywords). Embedding
+        # fields (routing_embedding / embedding_updated_at / VectorStore /
+        # embeddings_store) are retired — narrative routing is vector-free.
         narrative.topic_keywords = topic_keywords
         narrative.topic_hint = topic_hint
-        narrative.routing_embedding = query_embedding
-        narrative.embedding_updated_at = datetime.now(timezone.utc)
-        narrative.events_since_last_embedding_update = 0
 
-        # Save
         await self._crud.save(narrative)
-
-        # Add to VectorStore
-        await self._vector_store.add(
-            narrative_id=narrative.id,
-            embedding=query_embedding,
-            metadata={"user_id": user_id, "agent_id": agent_id}
-        )
-
-        # Dual-write to embeddings_store
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
-        await store_embedding("narrative", narrative.id, query_embedding, source_text=topic_hint)
 
         logger.info(f"Created new Narrative: {narrative.id}")
         return narrative

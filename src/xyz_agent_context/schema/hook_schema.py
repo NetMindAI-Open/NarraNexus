@@ -250,7 +250,7 @@ class HookAfterExecutionParams:
     ctx_data: Optional[Any] = None  # ContextData, using Any to avoid circular imports
     instance: Optional["ModuleInstance"] = None  # Currently executing instance
 
-    # === Narrative related (for EverMemOS writing, etc.) ===
+    # === Narrative related (for MemoryModule writing, etc.) ===
     event: Optional["Event"] = None  # Current Event object
     narrative: Optional["Narrative"] = None  # Main Narrative object
 

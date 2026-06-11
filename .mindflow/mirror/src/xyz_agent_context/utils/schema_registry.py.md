@@ -1,8 +1,71 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-27
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — user_slots.params_json column
+
+`user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one
+extensible JSON object for framework-neutral per-slot params (currently
+thinking + reasoning_effort; future per-slot knobs reuse it without another
+migration). NULL = all params auto. Purely additive — auto_migrate() adds
+it on next startup of every process.
+
+
+## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
+
+The unified-memory refactor dropped the entire embedding/RAG subsystem
+(retrieval is now BM25 + grep, see [[record]] "No embeddings anywhere"). This
+registry therefore NO LONGER declares:
+
+- **whole tables**: `embeddings_store`, `chat_message_embeddings`,
+  `instance_rag_store`
+- **columns on shared/active tables**: `narratives.routing_embedding` /
+  `embedding_updated_at` / `events_since_last_embedding_update`,
+  `events.event_embedding` / `embedding_text`, `*.capability_embedding`, etc.
+
+`auto_migrate` is **additive-only** (it iterates the REGISTRY and does
+CREATE/ADD/INDEX IF NOT EXISTS; it never enumerates the live DB to DROP
+extras — binding rule #6). So on every **already-deployed** database (cloud
+MySQL + local `run.sh`/DMG SQLite) those tables and columns **remain in place
+as orphaned zombie data**. This is intentional and safe:
+
+- no live code path reads/writes them (verified: zero embedding-table refs +
+  zero deleted-module imports across `src/` + `backend/`);
+- every dropped column on an active table was nullable or carried a DEFAULT
+  (the only NOT NULL one, `events_since_last_embedding_update`, had
+  `default=0`), so new code's INSERTs (which omit them) are never rejected.
+
+Cost: a little disk, zero functional impact. **DEFERRED (buffering):** a future
+explicit, idempotent cleanup migration (`mNNNN`: `DROP TABLE IF EXISTS
+embeddings_store / chat_message_embeddings / instance_rag_store`, drop the dead
+columns) should run through the versioned `migrations/` ledger — NOT through
+`auto_migrate` — so the destructive step is audited, run-once, and Owner-
+authorized (rules #6/#12). Not done in this release on purpose.
+
+## 2026-06-09 — schema_migrations ledger table
+
+Added the `schema_migrations` TableDef (migration_id PK / applied_at /
+app_version / notes) — the run-once ledger for the versioned data-migration
+runner (see migrations/ [[__init__]]). `auto_migrate` creates it like any other
+table, so the runner (which fires right after auto_migrate at startup) can
+read/write it.
+
+## 2026-06-08 — source_ref column + MEMORY_KINDS
+
+The `memory_<kind>` table definition (`_memory_kind_table`) gained an additive `source_ref` column (TEXT/JSON) for the projection pointer. `MEMORY_KINDS` enumerates the memory kinds (event/narrative/chat/entity/bus/job/observation) used by account-deletion and bundle paths. `instance_social_entities` TableDef is KEPT (bundle round-trip builds a fresh DB via auto_migrate and still needs it), but no live code path writes it any more — entities live in `memory_entity` (see [[social_network_repository]]).
+
+## 2026-06-08 — user_settings table (analytics opt-out)
+
+New table `user_settings` — per-user flat-column preferences. First consumer:
+`analytics_opt_out` (TINYINT(1), default 0). A missing row means "not opted
+out" — read path in `UserSettingsRepository.is_analytics_opted_out` returns
+`False` when no row exists. Insert-or-update pattern in
+`set_analytics_opt_out`: single `get_one` + branch on existence; `updated_at`
+is not updated in-band because `db.update` uses parameterized placeholders
+(the raw SQL expression `(datetime('now'))` would be stored as literal text).
+New columns can be added via the registry as new preferences appear —
+`auto_migrate` is additive.
 
 ## 2026-05-27 — instance_jobs.created_at/updated_at NOT NULL + DEFAULT
 

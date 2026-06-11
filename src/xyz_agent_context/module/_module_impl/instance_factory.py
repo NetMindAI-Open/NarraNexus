@@ -439,12 +439,6 @@ class InstanceFactory:
         """
         logger.debug(f"Loading instances for narrative: {narrative_id}")
 
-        # Historical module classes that may still have stale DB records —
-        # skip them at load time. GeminiRAGModule source code still exists
-        # (for RAG file management) but is not registered in MODULE_MAP
-        # until per-user Gemini API key support is wired through ContextVar.
-        DISABLED_MODULES = {"GeminiRAGModule"}
-
         # 1. Public instances (Agent level)
         public_instances = await self._instance_repo.get_public_instances(agent_id)
 
@@ -473,17 +467,11 @@ class InstanceFactory:
                     continue
                 linked_instances.append(inst)
 
-        # 3. Merge, deduplicate, and filter disabled modules
+        # 3. Merge and deduplicate
         seen_ids = set()
         result = []
         for inst in public_instances + linked_instances:
             if inst.instance_id in seen_ids:
-                continue
-            if inst.module_class in DISABLED_MODULES:
-                logger.debug(
-                    f"Skipping disabled module instance: {inst.instance_id} "
-                    f"({inst.module_class})"
-                )
                 continue
             seen_ids.add(inst.instance_id)
             result.append(inst)
@@ -510,9 +498,6 @@ class InstanceFactory:
 
         # Check for missing module types and create them
         existing_classes = {inst.module_class for inst in existing}
-        # GeminiRAGModule is intentionally excluded — the module is temporarily
-        # disabled pending per-user Gemini API key support via ContextVar.
-        # Existing RAG instances in the database are ignored at load time too.
         creators = {
             "AwarenessModule": self._create_awareness_instance,
             "SocialNetworkModule": self._create_social_network_instance,

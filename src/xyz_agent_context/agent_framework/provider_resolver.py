@@ -38,7 +38,6 @@ from typing import Optional
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
-    EmbeddingConfig,
     OpenAIConfig,
     set_provider_source,
     set_user_config,
@@ -54,7 +53,7 @@ from xyz_agent_context.schema.provider_schema import (
 )
 
 
-_REQUIRED_SLOTS = ("agent", "embedding", "helper_llm")
+_REQUIRED_SLOTS = ("agent", "helper_llm")
 
 
 class ProviderAvailability(str, Enum):
@@ -194,17 +193,17 @@ class ProviderResolver:
 
     async def resolve(
         self, user_id: str
-    ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig, str]]:
+    ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, str]]:
         """Resolve a user's effective LLM configs WITHOUT mutating ContextVars.
 
-        Returns ``(claude, openai, embedding, source)`` where ``source`` is
+        Returns ``(claude, openai, source)`` where ``source`` is
         ``"system"`` or ``"user"``, or ``None`` when the system-default
         feature is disabled (local mode / env not set) — in that case the
         caller keeps whatever global/desktop config is already in effect.
 
         Thin mapping over :meth:`classify`: verdict → config or
         ``ProviderResolverError``. Background jobs that need a provider outside
-        the request path (e.g. the embedding rebuild) call this and build their
+        the request path call this and build their
         own client from the returned config.
         """
         verdict = await self.classify(user_id)
@@ -212,14 +211,14 @@ class ProviderResolver:
         if verdict == ProviderAvailability.SYSTEM_DISABLED:
             return None
         if verdict == ProviderAvailability.SYSTEM_OK:
-            claude, openai, embedding = _llm_config_to_dataclasses(
+            claude, openai = _llm_config_to_dataclasses(
                 self.system_provider_svc.get_config()
             )
-            return claude, openai, embedding, "system"
+            return claude, openai, "system"
         if verdict == ProviderAvailability.USER_OK:
             user_cfg = await self.user_provider_svc.get_user_config(user_id)
-            claude, openai, embedding = _llm_config_to_dataclasses(user_cfg)
-            return claude, openai, embedding, "user"
+            claude, openai = _llm_config_to_dataclasses(user_cfg)
+            return claude, openai, "user"
         if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
             raise FreeTierExhaustedError(user_id)
         if verdict == ProviderAvailability.QUOTA_EXCEEDED:
@@ -230,13 +229,13 @@ class ProviderResolver:
         """Resolve the user's configs and push them onto the request ContextVars.
 
         Thin wrapper over :meth:`resolve` — the HTTP request path uses this so
-        downstream LLM/embedding clients pick up the right provider implicitly.
+        downstream LLM clients pick up the right provider implicitly.
         """
         resolved = await self.resolve(user_id)
         if resolved is None:
             return
-        claude, openai, embedding, source = resolved
-        set_user_config(claude, openai, embedding)
+        claude, openai, source = resolved
+        set_user_config(claude, openai)
         set_provider_source(source)
 
 
@@ -255,6 +254,28 @@ async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
         quota_svc=QuotaService.default(),
     )
     return await resolver.classify(user_id)
+
+
+async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
+    """Wire the default services and push the user's effective LLM config
+    onto this task's ContextVars — the background-job twin of the
+    auth_middleware path, for callers that run OUTSIDE any HTTP request
+    (memory consolidation worker; future lifespan jobs).
+
+    Local mode / system-provider disabled: strict no-op, the global
+    llm_config.json / .env fallback stays in effect (iron rule #7).
+    Quota / no-provider verdicts raise the same ProviderResolverError
+    subclasses the request path uses — callers isolate, never drop data.
+    """
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=SystemProviderService.instance(),
+        quota_svc=QuotaService.default(),
+    )
+    await resolver.resolve_and_set(user_id)
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
@@ -279,7 +300,7 @@ def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
 
 def _llm_config_to_dataclasses(
     cfg: LLMConfig,
-) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """Convert an LLMConfig (slot-addressed) into the three dataclasses
     set_user_config expects. Assumes the caller already verified completeness
     via `_is_user_config_complete` (or that the system config is valid).
@@ -308,12 +329,4 @@ def _llm_config_to_dataclasses(
         model=helper_slot.model,
     )
 
-    emb_slot = cfg.slots["embedding"]
-    emb_prov = cfg.providers[emb_slot.provider_id]
-    embedding = EmbeddingConfig(
-        api_key=emb_prov.api_key,
-        base_url=emb_prov.base_url,
-        model=emb_slot.model,
-    )
-
-    return claude, openai, embedding
+    return claude, openai

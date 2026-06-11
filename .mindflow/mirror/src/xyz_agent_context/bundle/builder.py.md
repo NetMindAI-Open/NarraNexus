@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-05-19
+last_verified: 2026-06-09
 stub: false
 ---
+
+## 2026-06-09 — manifest stamps the live app version
+
+`narranexus_version_exported` was a stale hardcoded `"1.3.4"`; it now reads
+`_current_app_version()` → the package `__version__` (= pyproject
+`[project].version`, e.g. 1.7.12), so every export records exactly which build
+produced it. `bundle_format_version` is unchanged (still "1.1" — the on-disk
+format is untouched).
+
+## 2026-06-08 — social entities exported via the repo
+
+Social-network export no longer reads `instance_social_entities` directly; it goes through `SocialNetworkRepository.get_all_entities` (which now reads `memory_entity`) via an `_entity_to_flat` helper. The scrubbed bundle key is `social_entities`. Keeps export aligned with the entity-into-engine fold.
 
 ## 2026-05-19 — "Disable chat history" 还漏了 ChatModule 的主消息存储表
 

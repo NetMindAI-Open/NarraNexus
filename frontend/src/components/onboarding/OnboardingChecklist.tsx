@@ -147,6 +147,16 @@ export function OnboardingChecklist() {
       cta: templateDone ? undefined : 'Browse templates',
       onAction: openTemplates,
     },
+    {
+      key: 'bookmarks',
+      label: 'Meet your bookmark strip',
+      hint: 'Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes.',
+      // Done once the user has opened the drawer at least once
+      // (ChatView writes the flag on first open). Read per render —
+      // the checklist re-renders on every navigation anyway.
+      done: typeof window !== 'undefined'
+        && window.localStorage.getItem('bookmark_drawer_opened_v1') === '1',
+    },
   ];
 
   const completedCount = steps.filter((s) => s.done).length;

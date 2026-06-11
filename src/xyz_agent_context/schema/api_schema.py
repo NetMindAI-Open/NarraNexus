@@ -10,7 +10,6 @@ Includes:
 - Auth related: LoginRequest, LoginResponse, AgentInfo, etc.
 - Agents related: AwarenessResponse, SocialNetworkEntityInfo, etc.
 - Jobs related: JobResponse, JobListResponse, etc.
-- RAG File related: RAGFileInfo, etc.
 - MCP related: MCPInfo, MCPCreateRequest, etc.
 - Files related: FileInfo, FileListResponse, etc.
 """
@@ -568,42 +567,6 @@ class JobDetailResponse(BaseModel):
     job: Optional[JobResponse] = None
     error: Optional[str] = None
 
-
-# ===== RAG File Schemas =====
-
-class RAGFileInfo(BaseModel):
-    """RAG file information with upload status"""
-    filename: str
-    size: int
-    modified_at: str
-    upload_status: str  # "pending", "uploading", "completed", "failed"
-    error_message: Optional[str] = None
-
-
-class RAGFileListResponse(BaseModel):
-    """Response for RAG file list"""
-    success: bool
-    files: List[RAGFileInfo] = []
-    total_count: int = 0
-    completed_count: int = 0
-    pending_count: int = 0
-    error: Optional[str] = None
-
-
-class RAGFileUploadResponse(BaseModel):
-    """Response for RAG file upload"""
-    success: bool
-    filename: Optional[str] = None
-    size: Optional[int] = None
-    upload_status: Optional[str] = None
-    error: Optional[str] = None
-
-
-class RAGFileDeleteResponse(BaseModel):
-    """Response for RAG file deletion"""
-    success: bool
-    filename: Optional[str] = None
-    error: Optional[str] = None
 
 
 # ===== Cost Schemas =====

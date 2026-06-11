@@ -61,9 +61,9 @@ export const useConfigStore = create<ConfigState>()(
         // refetches against the right identity. teamsStore is the only
         // store currently using zustand persist for per-user data — see
         // its frontmatter and `partialize: { teams, loaded }`. Without
-        // this reset, TeamFilterBar's `if (!loaded) refresh()` guard
-        // (TeamFilterBar.tsx:28-30) keeps showing the previous user's
-        // team chips because `loaded` survives in localStorage.
+        // this reset, AgentList's `if (!teamsLoaded) teamsRefresh()` guard
+        // keeps showing the previous user's team sections because
+        // `loaded` survives in localStorage.
         if (prevUserId !== userId) {
           useTeamsStore.setState({ teams: [], loaded: false });
         }

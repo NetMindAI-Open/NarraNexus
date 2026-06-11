@@ -45,7 +45,6 @@ def test_disabled_in_local_mode_even_with_full_env(monkeypatch):
     monkeypatch.setenv("SYSTEM_DEFAULT_LLM_SOURCE", "netmind")
     monkeypatch.setenv("SYSTEM_DEFAULT_LLM_API_KEY", "sk-test")
     monkeypatch.setenv("SYSTEM_DEFAULT_LLM_AGENT_MODEL", "claude-sonnet-4-5")
-    monkeypatch.setenv("SYSTEM_DEFAULT_LLM_EMBEDDING_MODEL", "BAAI/bge-m3")
     monkeypatch.setenv("SYSTEM_DEFAULT_LLM_HELPER_MODEL", "gpt-4o-mini")
     svc = SystemProviderService.instance()
     assert svc.is_enabled() is False
@@ -58,7 +57,6 @@ def test_disabled_when_api_key_empty(monkeypatch):
         SYSTEM_DEFAULT_LLM_API_KEY="",
         SYSTEM_DEFAULT_LLM_SOURCE="netmind",
         SYSTEM_DEFAULT_LLM_AGENT_MODEL="claude-sonnet-4-5",
-        SYSTEM_DEFAULT_LLM_EMBEDDING_MODEL="BAAI/bge-m3",
         SYSTEM_DEFAULT_LLM_HELPER_MODEL="gpt-4o-mini",
     )
     svc = SystemProviderService.instance()
@@ -72,8 +70,7 @@ def test_disabled_when_slot_model_missing(monkeypatch):
         SYSTEM_DEFAULT_LLM_API_KEY="sk-test",
         SYSTEM_DEFAULT_LLM_SOURCE="netmind",
         SYSTEM_DEFAULT_LLM_AGENT_MODEL="claude-sonnet-4-5",
-        SYSTEM_DEFAULT_LLM_EMBEDDING_MODEL=None,
-        SYSTEM_DEFAULT_LLM_HELPER_MODEL="gpt-4o-mini",
+        SYSTEM_DEFAULT_LLM_HELPER_MODEL=None,
     )
     svc = SystemProviderService.instance()
     assert svc.is_enabled() is False
@@ -86,7 +83,6 @@ def test_disabled_when_source_invalid(monkeypatch):
         SYSTEM_DEFAULT_LLM_API_KEY="sk-test",
         SYSTEM_DEFAULT_LLM_SOURCE="not-a-real-source",
         SYSTEM_DEFAULT_LLM_AGENT_MODEL="claude-sonnet-4-5",
-        SYSTEM_DEFAULT_LLM_EMBEDDING_MODEL="BAAI/bge-m3",
         SYSTEM_DEFAULT_LLM_HELPER_MODEL="gpt-4o-mini",
     )
     svc = SystemProviderService.instance()
@@ -102,15 +98,13 @@ def test_enabled_and_config_constructed_when_all_env_set(monkeypatch):
         SYSTEM_DEFAULT_LLM_ANTHROPIC_BASE_URL="https://api.netmind.ai/anthropic",
         SYSTEM_DEFAULT_LLM_OPENAI_BASE_URL="https://api.netmind.ai/openai/v1",
         SYSTEM_DEFAULT_LLM_AGENT_MODEL="claude-sonnet-4-5",
-        SYSTEM_DEFAULT_LLM_EMBEDDING_MODEL="BAAI/bge-m3",
         SYSTEM_DEFAULT_LLM_HELPER_MODEL="gpt-4o-mini",
     )
     svc = SystemProviderService.instance()
     assert svc.is_enabled() is True
     cfg = svc.get_config()
-    assert set(cfg.slots.keys()) == {"agent", "embedding", "helper_llm"}
+    assert set(cfg.slots.keys()) == {"agent", "helper_llm"}
     assert cfg.slots["agent"].model == "claude-sonnet-4-5"
-    assert cfg.slots["embedding"].model == "BAAI/bge-m3"
     assert cfg.slots["helper_llm"].model == "gpt-4o-mini"
     keys = {p.api_key for p in cfg.providers.values()}
     assert keys == {"sk-test"}

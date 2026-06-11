@@ -141,8 +141,6 @@ class Settings(BaseSettings):
     # dev server, Electron bundle, and CLI scripts.
     base_working_path: str = str(Path.home() / ".nexusagent" / "workspaces")
 
-    # ===== Embedding =====
-    openai_embedding_model: str = "text-embedding-3-small"
 
     # ===== Export Paths =====
     narrative_markdown_path: str = str(Path.home() / ".nexusagent" / "data" / "narratives")

@@ -2,622 +2,332 @@
 @file_name: social_network_repository.py
 @author: NetMind.AI
 @date: 2025-12-02
-@description: Social Network Repository - Data access layer for social network entities
+@description: Social Network Repository — entity data access over the UNIFIED memory engine.
 
-Responsibilities:
-- CRUD operations for social network entities
-- Search entities by tags
-- Relationship strength and interaction count updates
+Refactor (2026-06-08, unified-memory overhaul task 1):
+- Entities now live in ONE home: the engine's ``memory_entity`` table. The
+  legacy ``instance_social_entities`` table is retired (tombstoned in
+  schema_registry). This kills the old "source table + incomplete mirror"
+  dual-write that made third-party / un-touched entities invisible to
+  ``remember`` (see TODO-unified-memory-overhaul.md §2-P0).
+- This class keeps its public surface (get/add/update/search/...) and the
+  ``SocialNetworkEntity`` domain object, but every method now maps that object
+  to/from a ``MemoryRecord`` and operates on ``MemoryRepository("entity")``.
+
+Mapping (SocialNetworkEntity ↔ MemoryRecord):
+- record_id   : deterministic from (instance_id, entity_id) → stable get/upsert
+- scope        : scope_type="instance", scope_id=instance_id (instance isolation)
+- subtype      : entity_type (user|agent|group)
+- content_text : DERIVED searchable blob (name + aliases + description + keywords)
+                 so unified recall/grep can find an entity by NAME, not just
+                 by description text.
+- tags         : keywords (also feeds tags_any filtering)
+- attributes   : the structured truth (entity_id, name, aliases, identity_info,
+                 contact_info, familiarity, persona, related_job_ids, ...).
+                 `_record_to_entity` reconstructs the entity from here, never
+                 from content_text.
+
+`agent_id` is required only for WRITES of NEW rows (so unified `remember`, which
+recalls by agent_id, can find the entity). Read/search/related-job-id-update
+paths don't need it — they filter by scope_id or re-upsert a loaded record.
 """
 
+import hashlib
 import json
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from loguru import logger
 
-from .base import BaseRepository
+from xyz_agent_context.memory._memory_impl.repository import MemoryRepository
+from xyz_agent_context.memory.record import MemoryRecord, SCOPE_INSTANCE
 from xyz_agent_context.schema import SocialNetworkEntity
+from xyz_agent_context.utils.timezone import utc_now
+
+_KIND = "entity"
 
 
-class SocialNetworkRepository(BaseRepository[SocialNetworkEntity]):
+def _record_id(instance_id: str, entity_id: str) -> str:
+    """Deterministic, collision-safe record id for (instance, entity)."""
+    h = hashlib.sha1(f"{instance_id}\x00{entity_id}".encode("utf-8")).hexdigest()[:24]
+    return f"mem_ent_{h}"
+
+
+def _compose_text(name: Optional[str], description: Optional[str],
+                  aliases: List[str], keywords: List[str]) -> str:
+    """Build the searchable content_text: name + aliases first so an entity is
+    findable by name/alias via BM25/grep, then the description, then keywords."""
+    parts: List[str] = []
+    if name:
+        parts.append(name)
+    if aliases:
+        parts.append(" ".join(a for a in aliases if a))
+    if description:
+        parts.append(description)
+    if keywords:
+        parts.append(" ".join(k for k in keywords if k))
+    return "\n".join(p for p in parts if p)
+
+
+class SocialNetworkRepository:
+    """Social entity store, backed by the unified memory engine (kind=entity).
+
+    NOT a BaseRepository anymore — it adapts SocialNetworkEntity onto
+    MemoryRepository. Public method signatures are unchanged so callers don't
+    move; the only addition is the optional ``agent_id`` constructor arg, which
+    write paths supply and read paths can omit.
     """
-    Social Network Repository implementation
 
-    Refactoring notes:
-    - Uses the instance_social_entities table
-    - Data isolation via instance_id
-
-    Usage example:
-        repo = SocialNetworkRepository(db_client)
-
-        # Get a single entity
-        entity = await repo.get_entity("user_123", "social_abc123")
-
-        # Get all social network entities for an Instance
-        entities = await repo.get_all_entities("social_abc123")
-
-        # Add an entity
-        await repo.add_entity(entity)
-
-        # Search by tags
-        results = await repo.search_by_tags("social_abc123", "expert:recommendation")
-    """
-
-    table_name = "instance_social_entities"
-    id_field = "id"
-
-    # JSON fields (2026-01-15 Feature 2.2.1: added related_job_ids;
-    # Persona: added extra_data). The `embedding` column is left on the
-    # table schema as a dormant column but is no longer in this read/write
-    # set since 2026-05-27 (semantic search removed; see _row_to_entity
-    # and _entity_to_row below for the same scrub).
-    _json_fields = {"identity_info", "contact_info", "tags", "expertise_domains", "related_job_ids", "extra_data", "aliases"}
-
-    async def get_entity(
-        self,
-        entity_id: str,
-        instance_id: str
-    ) -> Optional[SocialNetworkEntity]:
-        """
-        Get a social network entity
-
-        Args:
-            entity_id: Entity ID
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-
-        Returns:
-            SocialNetworkEntity or None
-        """
-        logger.debug(f"    → SocialNetworkRepository.get_entity({entity_id}, {instance_id})")
-        return await self.find_one({
-            "entity_id": entity_id,
-            "instance_id": instance_id
-        })
-
-    async def get_all_entities(
-        self,
-        instance_id: str,
-        entity_type: Optional[str] = None,
-        limit: int = 100
-    ) -> List[SocialNetworkEntity]:
-        """
-        Get all social network entities for an Instance
-
-        Args:
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            entity_type: Entity type filter (optional)
-            limit: Result count limit
-
-        Returns:
-            List of SocialNetworkEntity
-        """
-        logger.debug(f"    → SocialNetworkRepository.get_all_entities({instance_id})")
-
-        filters = {"instance_id": instance_id}
-        if entity_type:
-            filters["entity_type"] = entity_type
-
-        return await self.find(
-            filters=filters,
-            limit=limit,
-            order_by="updated_at DESC"
-        )
-
-    async def add_entity(
-        self,
-        entity_id: str,
-        entity_type: str,
-        instance_id: str,
-        entity_name: Optional[str] = None,
-        aliases: Optional[List[str]] = None,
-        entity_description: Optional[str] = None,
-        identity_info: Optional[Dict[str, Any]] = None,
-        contact_info: Optional[Dict[str, Any]] = None,
-        keywords: Optional[List[str]] = None,
-        expertise_domains: Optional[List[str]] = None,
-        familiarity: str = "known_of",
-    ) -> int:
-        """
-        Add a social network entity
-
-        Args:
-            entity_id: Entity ID
-            entity_type: Entity type (user | agent | group)
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            entity_name: Entity name
-            aliases: Cross-system IDs and alternate names
-            entity_description: Entity description
-            identity_info: Identity information dictionary
-            contact_info: Contact information dictionary
-            keywords: Keyword list (stored as 'tags' column in DB)
-            expertise_domains: Expertise domain list
-            familiarity: Familiarity level (direct | known_of)
-
-        Returns:
-            Inserted record ID
-        """
-        logger.debug(f"    → SocialNetworkRepository.add_entity({entity_id})")
-
-        entity = SocialNetworkEntity(
-            entity_id=entity_id,
-            entity_type=entity_type,
-            instance_id=instance_id,
-            entity_name=entity_name,
-            aliases=aliases or [],
-            entity_description=entity_description,
-            identity_info=identity_info or {},
-            contact_info=contact_info or {},
-            keywords=keywords or [],
-            expertise_domains=expertise_domains or [],
-            familiarity=familiarity,
-            relationship_strength=0.0,
-            interaction_count=0
-        )
-
-        return await self.insert(entity)
-
-    async def update_entity_info(
-        self,
-        entity_id: str,
-        instance_id: str,
-        updates: Dict[str, Any]
-    ) -> int:
-        """
-        Update social network entity information
-
-        Args:
-            entity_id: Entity ID
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            updates: Dictionary of fields to update
-
-        Returns:
-            Number of affected rows
-        """
-        logger.debug(f"    → SocialNetworkRepository.update_entity_info({entity_id})")
-
-        # If updates is empty, return directly to avoid generating invalid SQL
-        if not updates:
-            logger.debug(f"    → No updates to apply for entity {entity_id}")
-            return 0
-
-        # Serialize JSON fields
-        for field in self._json_fields:
-            if field in updates and not isinstance(updates[field], str):
-                updates[field] = json.dumps(updates[field], ensure_ascii=False)
-
-        # Use raw SQL for update (because compound conditions are needed)
-        conditions = []
-        params = []
-        for key, value in updates.items():
-            conditions.append(f"`{key}` = %s")
-            params.append(value)
-
-        # Check again (all fields may have been filtered out after serialization)
-        if not conditions:
-            logger.debug(f"    → No valid update conditions for entity {entity_id}")
-            return 0
-
-        params.extend([entity_id, instance_id])
-
-        query = f"""
-            UPDATE {self.table_name}
-            SET {', '.join(conditions)}
-            WHERE entity_id = %s AND instance_id = %s
-        """
-
-        result = await self._db.execute(query, params=tuple(params), fetch=False)
-        return result if isinstance(result, int) else 0
-
-    async def delete_entity(
-        self,
-        entity_id: str,
-        instance_id: str
-    ) -> int:
-        """
-        Delete a social network entity
-
-        Args:
-            entity_id: Entity ID
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-
-        Returns:
-            Number of affected rows
-        """
-        logger.debug(f"    → SocialNetworkRepository.delete_entity({entity_id})")
-
-        query = f"""
-            DELETE FROM {self.table_name}
-            WHERE entity_id = %s AND instance_id = %s
-        """
-
-        result = await self._db.execute(query, params=(entity_id, instance_id), fetch=False)
-        return result if isinstance(result, int) else 0
-
-    async def search_by_tags(
-        self,
-        instance_id: str,
-        search_keyword: str,
-        limit: int = 10
-    ) -> List[SocialNetworkEntity]:
-        """
-        Search entities by tags
-
-        Args:
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            search_keyword: Search keyword (can be any part of a tag)
-            limit: Result count limit
-
-        Returns:
-            List of matching SocialNetworkEntity
-
-        Examples:
-            search_keyword="expert:recommendation" -> Find recommendation system experts
-            search_keyword="domain:machine_learning" -> Find people related to machine learning
-        """
-        logger.debug(f"    → SocialNetworkRepository.search_by_tags({instance_id}, {search_keyword})")
-
-        query = f"""
-            SELECT * FROM {self.table_name}
-            WHERE instance_id = %s
-            AND JSON_SEARCH(tags, 'one', %s) IS NOT NULL
-            ORDER BY relationship_strength DESC
-            LIMIT %s
-        """
-
-        results = await self._db.execute(
-            query,
-            params=(instance_id, f"%{search_keyword}%", limit),
-            fetch=True
-        )
-
-        return [self._row_to_entity(row) for row in results]
-
-    # 2026-05-27: `semantic_search` removed together with the
-    # entity-embedding chain (Owner spec). Callers use `keyword_search`
-    # below; multi-spelling dedup of mentioned entities now relies on
-    # name/alias exact match only (Stage 1) + LLM disambiguation.
-
-    async def keyword_search(
-        self,
-        instance_id: str,
-        keyword: str,
-        limit: int = 10
-    ) -> List[SocialNetworkEntity]:
-        """
-        Search entities by keyword
-
-        Searches for entities containing the keyword in entity_name, entity_description, and tags.
-
-        Args:
-            instance_id: SocialNetworkModule's instance_id
-            keyword: Search keyword
-            limit: Result count limit
-
-        Returns:
-            List of matching SocialNetworkEntity
-        """
-        logger.debug(f"    → SocialNetworkRepository.keyword_search({instance_id}, '{keyword}')")
-
-        # Use LIKE for fuzzy matching
-        search_pattern = f"%{keyword}%"
-
-        query = f"""
-            SELECT * FROM {self.table_name}
-            WHERE instance_id = %s
-              AND (
-                  entity_name LIKE %s
-                  OR entity_description LIKE %s
-                  OR tags LIKE %s
-                  OR aliases LIKE %s
-              )
-            ORDER BY interaction_count DESC, updated_at DESC
-            LIMIT %s
-        """
-
-        results = await self._db.execute(
-            query,
-            params=(instance_id, search_pattern, search_pattern, search_pattern, search_pattern, limit),
-            fetch=True
-        )
-
-        if not results:
-            return []
-
-        return [self._row_to_entity(row) for row in results]
-
-    async def search_by_name_or_alias(
-        self,
-        instance_id: str,
-        name: str,
-        limit: int = 5
-    ) -> List[SocialNetworkEntity]:
-        """
-        Search entities by exact name match or alias containment.
-
-        Used by the dedup pipeline to find existing entities that may match
-        a newly extracted entity by name or cross-system ID.
-
-        Args:
-            instance_id: Instance ID
-            name: Name or alias to search for
-            limit: Result count limit
-
-        Returns:
-            List of matching SocialNetworkEntity
-        """
-        logger.debug(f"    → SocialNetworkRepository.search_by_name_or_alias({instance_id}, '{name}')")
-
-        # JSON_CONTAINS checks if the aliases array contains the exact string
-        query = f"""
-            SELECT * FROM {self.table_name}
-            WHERE instance_id = %s
-              AND (
-                  LOWER(entity_name) = LOWER(%s)
-                  OR JSON_CONTAINS(aliases, %s)
-              )
-            ORDER BY interaction_count DESC
-            LIMIT %s
-        """
-
-        results = await self._db.execute(
-            query,
-            params=(instance_id, name, json.dumps(name), limit),
-            fetch=True
-        )
-
-        if not results:
-            return []
-
-        return [self._row_to_entity(row) for row in results]
-
-    async def increment_interaction(
-        self,
-        entity_id: str,
-        instance_id: str
-    ) -> int:
-        """
-        Increment interaction count and update last interaction time
-
-        Args:
-            entity_id: Entity ID
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-
-        Returns:
-            Number of affected rows
-        """
-        logger.debug(f"    → SocialNetworkRepository.increment_interaction({entity_id})")
-
-        query = f"""
-            UPDATE {self.table_name}
-            SET interaction_count = interaction_count + 1,
-                last_interaction_time = NOW()
-            WHERE entity_id = %s AND instance_id = %s
-        """
-
-        result = await self._db.execute(
-            query,
-            params=(entity_id, instance_id),
-            fetch=False
-        )
-        return result if isinstance(result, int) else 0
-
-    async def append_related_job_ids(
-        self,
-        entity_id: str,
-        instance_id: str,
-        job_ids: List[str]
-    ) -> int:
-        """
-        Append job_ids to Entity's related_job_ids array
-
-        Feature 2.2.1 implementation: Entity-side append method for Job-Entity bidirectional index
-
-        Uses JSON_ARRAY_APPEND for atomic appending, avoiding duplicates.
-
-        Args:
-            entity_id: Entity ID
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            job_ids: Job IDs to append
-
-        Returns:
-            Number of affected rows
-        """
-        logger.debug(
-            f"    → SocialNetworkRepository.append_related_job_ids({entity_id}, "
-            f"job_ids={job_ids})"
-        )
-
-        if not job_ids:
-            return 0
-
-        # Build JSON_ARRAY_APPEND query
-        # MySQL 8.0+ supports JSON_ARRAY_APPEND, but deduplication is needed
-        # Here we first read existing IDs, then compute deduplicated IDs, then update
-
-        # 1. Read existing related_job_ids
-        entity = await self.get_entity(entity_id, instance_id)
-        if not entity:
-            logger.warning(f"Entity {entity_id} not found, skipping append")
-            return 0
-
-        # 2. Compute deduplicated IDs
-        existing_ids = set(entity.related_job_ids)
-        new_ids = existing_ids.union(set(job_ids))
-
-        # 3. Update database
-        query = f"""
-            UPDATE {self.table_name}
-            SET related_job_ids = %s,
-                updated_at = NOW()
-            WHERE entity_id = %s AND instance_id = %s
-        """
-
-        result = await self._db.execute(
-            query,
-            params=(json.dumps(list(new_ids), ensure_ascii=False), entity_id, instance_id),
-            fetch=False
-        )
-        return result if isinstance(result, int) else 0
-
-    async def remove_related_job_ids(
-        self,
-        entity_id: str,
-        instance_id: str,
-        job_ids: List[str]
-    ) -> int:
-        """
-        Remove job_ids from Entity's related_job_ids array
-
-        Feature 2.2.1 implementation: Entity-side removal method for Job-Entity bidirectional index
-
-        Args:
-            entity_id: Entity ID
-            instance_id: Instance ID (SocialNetworkModule's instance_id)
-            job_ids: Job IDs to remove
-
-        Returns:
-            Number of affected rows
-        """
-        logger.debug(
-            f"    → SocialNetworkRepository.remove_related_job_ids({entity_id}, "
-            f"job_ids={job_ids})"
-        )
-
-        if not job_ids:
-            return 0
-
-        # 1. Read existing related_job_ids
-        entity = await self.get_entity(entity_id, instance_id)
-        if not entity:
-            logger.warning(f"Entity {entity_id} not found, skipping remove")
-            return 0
-
-        # 2. Compute IDs after removal
-        existing_ids = set(entity.related_job_ids)
-        remaining_ids = existing_ids - set(job_ids)
-
-        # 3. Update database
-        query = f"""
-            UPDATE {self.table_name}
-            SET related_job_ids = %s,
-                updated_at = NOW()
-            WHERE entity_id = %s AND instance_id = %s
-        """
-
-        result = await self._db.execute(
-            query,
-            params=(json.dumps(list(remaining_ids), ensure_ascii=False), entity_id, instance_id),
-            fetch=False
-        )
-        return result if isinstance(result, int) else 0
-
-    def _row_to_entity(self, row: Dict[str, Any]) -> SocialNetworkEntity:
-        """
-        Convert a database row to a SocialNetworkEntity object
-
-        Refactoring notes (2026-01-15 Feature 2.2.1):
-        - Added related_job_ids field parsing
-
-        Refactoring notes (2026-05-27):
-        - Removed embedding field parsing (semantic search removed).
-          The column stays in the DB schema but we no longer round-trip
-          it through the entity model — old rows just keep stale vectors
-          that nothing reads.
-        """
-        # Parse JSON fields
-        identity_info = self._parse_json_field(row.get("identity_info"), {})
-        contact_info = self._parse_json_field(row.get("contact_info"), {})
-        keywords = self._parse_json_field(row.get("tags"), [])  # DB column 'tags' → Python 'keywords'
-        aliases = self._parse_json_field(row.get("aliases"), [])
-        expertise_domains = self._parse_json_field(row.get("expertise_domains"), [])
-        related_job_ids = self._parse_json_field(row.get("related_job_ids"), [])
-        extra_data = self._parse_json_field(row.get("extra_data"), {})
-
-        return SocialNetworkEntity(
-            id=row.get("id"),
-            instance_id=row["instance_id"],
-            entity_id=row["entity_id"],
-            entity_type=row["entity_type"],
-            entity_name=row.get("entity_name"),
-            aliases=aliases,
-            entity_description=row.get("entity_description"),
-            identity_info=identity_info,
-            contact_info=contact_info,
-            familiarity=row.get("familiarity") or "known_of",
-            relationship_strength=row.get("relationship_strength", 0.0),
-            interaction_count=row.get("interaction_count", 0),
-            last_interaction_time=row.get("last_interaction_time"),
-            keywords=keywords,
-            expertise_domains=expertise_domains,
-            related_job_ids=related_job_ids,
-            persona=row.get("persona"),
-            extra_data=extra_data,
-            created_at=row.get("created_at"),
-            updated_at=row.get("updated_at"),
-        )
-
-    def _entity_to_row(self, entity: SocialNetworkEntity) -> Dict[str, Any]:
-        """
-        Convert a SocialNetworkEntity object to a database row
-
-        Refactoring notes (2026-01-15 Feature 2.2.1):
-        - Added related_job_ids field serialization
-
-        Refactoring notes (2026-05-27):
-        - Removed embedding serialization (semantic search removed).
-          The `embedding` column stays on the schema but no longer
-          receives writes from the entity object path.
-        """
-        return {
-            "instance_id": entity.instance_id,
+    def __init__(self, db_client: Any, agent_id: Optional[str] = None):
+        self._db = db_client
+        self._agent_id = agent_id
+        self._mem = MemoryRepository(_KIND, db_client)
+
+    # ── mapping ──────────────────────────────────────────────────────────────
+    def _entity_to_record(self, entity: SocialNetworkEntity, *, agent_id: str) -> MemoryRecord:
+        lit = entity.last_interaction_time
+        attrs: Dict[str, Any] = {
             "entity_id": entity.entity_id,
-            "entity_type": entity.entity_type,
             "entity_name": entity.entity_name,
-            "aliases": json.dumps(entity.aliases, ensure_ascii=False),
+            "aliases": list(entity.aliases or []),
             "entity_description": entity.entity_description,
-            "identity_info": json.dumps(entity.identity_info, ensure_ascii=False),
-            "contact_info": json.dumps(entity.contact_info, ensure_ascii=False),
+            "identity_info": dict(entity.identity_info or {}),
+            "contact_info": dict(entity.contact_info or {}),
             "familiarity": entity.familiarity,
             "relationship_strength": entity.relationship_strength,
             "interaction_count": entity.interaction_count,
-            "last_interaction_time": entity.last_interaction_time,
-            "tags": json.dumps(entity.keywords, ensure_ascii=False),  # Python 'keywords' → DB column 'tags'
-            "expertise_domains": json.dumps(entity.expertise_domains, ensure_ascii=False),
-            "related_job_ids": json.dumps(entity.related_job_ids, ensure_ascii=False),
+            "last_interaction_time": lit.isoformat() if hasattr(lit, "isoformat") else lit,
+            "expertise_domains": list(entity.expertise_domains or []),
+            "related_job_ids": list(entity.related_job_ids or []),
             "persona": entity.persona,
-            "extra_data": json.dumps(entity.extra_data, ensure_ascii=False),
+            "extra_data": dict(entity.extra_data or {}),
         }
+        return MemoryRecord(
+            record_id=_record_id(entity.instance_id, entity.entity_id),
+            agent_id=agent_id,
+            scope_type=SCOPE_INSTANCE,
+            scope_id=entity.instance_id,
+            kind=_KIND,
+            subtype=entity.entity_type,
+            content_text=_compose_text(
+                entity.entity_name, entity.entity_description,
+                entity.aliases or [], entity.keywords or [],
+            ),
+            tags=list(entity.keywords or []),
+            attributes=attrs,
+            created_at=entity.created_at,
+            updated_at=entity.updated_at,
+        )
 
-    @staticmethod
-    def _parse_json_field(value: Any, default: Any) -> Any:
-        """
-        Parse a JSON field
+    def _record_to_entity(self, rec: MemoryRecord) -> SocialNetworkEntity:
+        a = rec.attributes or {}
+        return SocialNetworkEntity(
+            instance_id=rec.scope_id or "",
+            entity_id=a.get("entity_id") or "",
+            entity_type=rec.subtype or "user",
+            entity_name=a.get("entity_name"),
+            aliases=a.get("aliases") or [],
+            entity_description=a.get("entity_description"),
+            identity_info=a.get("identity_info") or {},
+            contact_info=a.get("contact_info") or {},
+            familiarity=a.get("familiarity") or "known_of",
+            relationship_strength=a.get("relationship_strength") or 0.0,
+            interaction_count=a.get("interaction_count") or 0,
+            last_interaction_time=a.get("last_interaction_time"),
+            keywords=list(rec.tags or a.get("keywords") or []),
+            expertise_domains=a.get("expertise_domains") or [],
+            related_job_ids=a.get("related_job_ids") or [],
+            persona=a.get("persona"),
+            extra_data=a.get("extra_data") or {},
+            created_at=rec.created_at,
+            updated_at=rec.updated_at,
+        )
 
-        Handles double-encoding cases (JSON string encoded as JSON again).
+    async def _scope_records(self, instance_id: str) -> List[MemoryRecord]:
+        """All live entity records for an instance (newest first)."""
+        records = await self._mem.find(
+            {"scope_type": SCOPE_INSTANCE, "scope_id": instance_id},
+            order_by="created_at DESC",
+        )
+        return [r for r in records if r.is_live]
 
-        Args:
-            value: Field value (may be a str or an already parsed object)
-            default: Default value
+    # ── reads ────────────────────────────────────────────────────────────────
+    async def get_entity(self, entity_id: str, instance_id: str) -> Optional[SocialNetworkEntity]:
+        logger.debug(f"    → SocialNetworkRepository.get_entity({entity_id}, {instance_id})")
+        rows = await self._mem.find({"record_id": _record_id(instance_id, entity_id)}, limit=1)
+        rec = rows[0] if rows else None
+        if rec is None or not rec.is_live:
+            return None
+        return self._record_to_entity(rec)
 
-        Returns:
-            Parsed value
-        """
-        if value is None:
-            return default
+    async def get_all_entities(self, instance_id: str, entity_type: Optional[str] = None,
+                               limit: int = 100) -> List[SocialNetworkEntity]:
+        logger.debug(f"    → SocialNetworkRepository.get_all_entities({instance_id})")
+        out = [self._record_to_entity(r) for r in await self._scope_records(instance_id)]
+        if entity_type:
+            out = [e for e in out if e.entity_type == entity_type]
+        return out[:limit]
 
-        if isinstance(value, (dict, list)):
-            return value
+    async def keyword_search(self, instance_id: str, keyword: str,
+                             limit: int = 10) -> List[SocialNetworkEntity]:
+        """Fuzzy match over name / description / keywords / aliases (LIKE-style,
+        case-insensitive) — same surface as before, now over content_text +
+        structured fields of the unified entity records."""
+        logger.debug(f"    → SocialNetworkRepository.keyword_search({instance_id}, '{keyword}')")
+        kw = (keyword or "").lower()
+        if not kw:
+            return []
+        out: List[SocialNetworkEntity] = []
+        for r in await self._scope_records(instance_id):
+            e = self._record_to_entity(r)
+            hay = " ".join(filter(None, [
+                e.entity_name or "", e.entity_description or "",
+                " ".join(e.keywords or []), " ".join(e.aliases or []),
+            ])).lower()
+            if kw in hay:
+                out.append(e)
+            if len(out) >= limit:
+                break
+        return out
 
-        if isinstance(value, str):
-            try:
-                parsed = json.loads(value)
-                # Handle double-encoding: if parsed result is still a string, try parsing again
-                if isinstance(parsed, str):
-                    try:
-                        parsed = json.loads(parsed)
-                    except json.JSONDecodeError:
-                        pass
-                return parsed
-            except json.JSONDecodeError:
-                return default
+    async def search_by_tags(self, instance_id: str, tag: str,
+                             limit: int = 10) -> List[SocialNetworkEntity]:
+        logger.debug(f"    → SocialNetworkRepository.search_by_tags({instance_id}, '{tag}')")
+        out: List[SocialNetworkEntity] = []
+        for r in await self._scope_records(instance_id):
+            if tag in (r.tags or []):
+                out.append(self._record_to_entity(r))
+            if len(out) >= limit:
+                break
+        return out
 
-        return value
+    async def search_by_name_or_alias(self, instance_id: str, name: str,
+                                      limit: int = 10) -> List[SocialNetworkEntity]:
+        """Exact (case-insensitive) match on entity_name or any alias — used by
+        the dedup pipeline to find existing entities that may be the same."""
+        logger.debug(f"    → SocialNetworkRepository.search_by_name_or_alias({instance_id}, '{name}')")
+        target = (name or "").strip().lower()
+        if not target:
+            return []
+        out: List[SocialNetworkEntity] = []
+        for r in await self._scope_records(instance_id):
+            e = self._record_to_entity(r)
+            names = [e.entity_name or ""] + list(e.aliases or [])
+            if any((n or "").strip().lower() == target for n in names):
+                out.append(e)
+            if len(out) >= limit:
+                break
+        return out
+
+    # ── writes ───────────────────────────────────────────────────────────────
+    async def add_entity(self, entity_id: str, entity_type: str, instance_id: str,
+                         entity_name: Optional[str] = None, aliases: Optional[List[str]] = None,
+                         entity_description: Optional[str] = None,
+                         identity_info: Optional[Dict[str, Any]] = None,
+                         contact_info: Optional[Dict[str, Any]] = None,
+                         keywords: Optional[List[str]] = None,
+                         expertise_domains: Optional[List[str]] = None,
+                         familiarity: str = "known_of") -> int:
+        """Create (or overwrite) an entity record. Requires the repo to carry an
+        ``agent_id`` (unified recall finds entities by agent_id)."""
+        logger.debug(f"    → SocialNetworkRepository.add_entity({entity_id})")
+        if not self._agent_id:
+            raise ValueError(
+                "SocialNetworkRepository.add_entity needs an agent_id — construct "
+                "SocialNetworkRepository(db, agent_id) on write paths."
+            )
+        now = utc_now()
+        entity = SocialNetworkEntity(
+            entity_id=entity_id, entity_type=entity_type, instance_id=instance_id,
+            entity_name=entity_name, aliases=aliases or [],
+            entity_description=entity_description, identity_info=identity_info or {},
+            contact_info=contact_info or {}, keywords=keywords or [],
+            expertise_domains=expertise_domains or [], familiarity=familiarity,
+            relationship_strength=0.0, interaction_count=0,
+            created_at=now, updated_at=now,
+        )
+        await self._mem.upsert(self._entity_to_record(entity, agent_id=self._agent_id))
+        return 1
+
+    async def save_entity(self, entity: SocialNetworkEntity) -> int:
+        """Upsert a FULL SocialNetworkEntity (all fields incl. persona /
+        related_job_ids / interaction stats). Used by bundle import + the
+        unified-memory migration, where the complete entity must round-trip —
+        unlike `add_entity`, which only takes the create-time subset. Requires
+        the repo to carry an agent_id."""
+        if not self._agent_id:
+            raise ValueError("SocialNetworkRepository.save_entity needs an agent_id.")
+        await self._mem.upsert(self._entity_to_record(entity, agent_id=self._agent_id))
+        return 1
+
+    async def update_entity_info(self, entity_id: str, instance_id: str,
+                                 updates: Dict[str, Any]) -> int:
+        """Patch fields on an existing entity. `updates` keys are
+        SocialNetworkEntity field names (entity_name, entity_description, tags→
+        keywords, contact_info, persona, ...)."""
+        logger.debug(f"    → SocialNetworkRepository.update_entity_info({entity_id})")
+        if not updates:
+            return 0
+        existing = await self.get_entity(entity_id, instance_id)
+        if not existing:
+            logger.warning(f"Entity {entity_id} not found, skipping update")
+            return 0
+        # DB column 'tags' is the Python 'keywords' field — accept either name.
+        if "tags" in updates and "keywords" not in updates:
+            updates = {**updates, "keywords": updates.pop("tags")}
+        data = existing.model_dump()
+        for k, v in updates.items():
+            if k in data:
+                data[k] = v
+        data["updated_at"] = utc_now()
+        merged = SocialNetworkEntity(**data)
+        rec = await self._load_record(entity_id, instance_id)
+        agent_id = rec.agent_id if rec else (self._agent_id or "")
+        await self._mem.upsert(self._entity_to_record(merged, agent_id=agent_id))
+        return 1
+
+    async def increment_interaction(self, entity_id: str, instance_id: str) -> int:
+        logger.debug(f"    → SocialNetworkRepository.increment_interaction({entity_id})")
+        existing = await self.get_entity(entity_id, instance_id)
+        if not existing:
+            return 0
+        return await self.update_entity_info(entity_id, instance_id, {
+            "interaction_count": (existing.interaction_count or 0) + 1,
+            "last_interaction_time": utc_now(),
+        })
+
+    async def append_related_job_ids(self, entity_id: str, instance_id: str,
+                                     job_ids: List[str]) -> int:
+        logger.debug(f"    → SocialNetworkRepository.append_related_job_ids({entity_id}, {job_ids})")
+        if not job_ids:
+            return 0
+        existing = await self.get_entity(entity_id, instance_id)
+        if not existing:
+            logger.warning(f"Entity {entity_id} not found, skipping append")
+            return 0
+        merged = list(dict.fromkeys(list(existing.related_job_ids) + list(job_ids)))
+        return await self.update_entity_info(entity_id, instance_id, {"related_job_ids": merged})
+
+    async def remove_related_job_ids(self, entity_id: str, instance_id: str,
+                                    job_ids: List[str]) -> int:
+        logger.debug(f"    → SocialNetworkRepository.remove_related_job_ids({entity_id}, {job_ids})")
+        if not job_ids:
+            return 0
+        existing = await self.get_entity(entity_id, instance_id)
+        if not existing:
+            logger.warning(f"Entity {entity_id} not found, skipping remove")
+            return 0
+        remaining = [j for j in existing.related_job_ids if j not in set(job_ids)]
+        return await self.update_entity_info(entity_id, instance_id, {"related_job_ids": remaining})
+
+    async def delete_entity(self, entity_id: str, instance_id: str) -> int:
+        """Soft delete (tombstone) — the row is kept with expired_at set, so
+        history survives and `is_live` filtering hides it from reads/search."""
+        logger.debug(f"    → SocialNetworkRepository.delete_entity({entity_id})")
+        rec = await self._load_record(entity_id, instance_id)
+        if not rec:
+            return 0
+        return await self._mem.tombstone(rec.record_id)
+
+    async def _load_record(self, entity_id: str, instance_id: str) -> Optional[MemoryRecord]:
+        rows = await self._mem.find({"record_id": _record_id(instance_id, entity_id)}, limit=1)
+        return rows[0] if rows else None

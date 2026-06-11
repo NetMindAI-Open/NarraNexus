@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-29
+last_verified: 2026-06-08
 ---
+
+## 2026-06-08 — memory_chat mirror write removed
+
+The `_feed_chat_to_engine` path that wrote a `memory_chat` search index per turn is deleted — conversation search is now the interaction index written in [[step_4_persist_results]] (chat+event merged). ChatModule still owns the OPERATIONAL chat history (`instance_json_format_memory_chat`) for injection and Fetch (`get_chat_history`); only the redundant search-mirror write is gone.
 
 ## 2026-05-29 — decoupled from sibling EventMemoryModule (iron rule #3)
 

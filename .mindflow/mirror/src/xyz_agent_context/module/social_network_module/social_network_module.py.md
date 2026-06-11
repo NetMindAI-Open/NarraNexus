@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-05-27
+last_verified: 2026-06-08
 ---
+
+## 2026-06-08 — entity 折进统一记忆引擎（overhaul task 1）
+
+删了 `_feed_entity_to_engine` 及其调用点。原来实体写两处（`instance_social_entities`
+真身 + `memory_entity` 镜像），镜像只喂"当前对话对象"、漏了被提及的第三方
+→ 统一 `remember` 搜不到他们。现在 `SocialNetworkRepository` 直接在
+`memory_entity` 上 CRUD（见 [[social_network_repository.py]]），没有镜像、没有
+双写、第三方实体也天然进引擎。`_get_repo()` 现在用 `self.agent_id` 构造 repo
+（写新实体需要 agent_id 让统一召回找得到）。
 
 ## 2026-05-27 — semantic-search 链路全删（Owner spec, scope B）
 

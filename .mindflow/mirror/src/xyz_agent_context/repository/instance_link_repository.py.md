@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/repository/instance_link_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-06-09
 stub: false
 ---
+
+## 2026-06-09 — link() is race-safe on the composite UNIQUE
+
+`link()` used find_one()-then-insert(), which races: two concurrent runs (the
+JobTrigger poller + a chat turn both syncing the same agent↔narrative — common
+once an agent has many jobs, e.g. a freshly imported squad) both pass the "not
+linked" check and both insert, so the second trips
+`UNIQUE(instance_id, narrative_id)` and surfaces as
+"SQLite Proxy error (/insert): UNIQUE constraint failed" (it broke the Job list).
+The insert now catches THAT specific collision (message contains "unique
+constraint failed" / "duplicate entry" — cross-dialect; everything else
+re-raised) and returns 0 = "already linked", since the concurrent winner
+produced exactly the state we wanted. Tests:
+`tests/repository/test_instance_link_race.py`.
 
 # instance_link_repository.py
 

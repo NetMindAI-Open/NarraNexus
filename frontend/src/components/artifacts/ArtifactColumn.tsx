@@ -165,7 +165,7 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
       : 'flex flex-col min-w-[320px] flex-[2] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden';
 
   return (
-    <aside className={expandedClass} style={expandedStyle}>
+    <aside className={expandedClass} style={expandedStyle} data-help-id="layout.artifacts">
       {/* Minimized strip — only renders when something is minimized.
           Click a chip to restore the tab. */}
       {minimized.length > 0 && (

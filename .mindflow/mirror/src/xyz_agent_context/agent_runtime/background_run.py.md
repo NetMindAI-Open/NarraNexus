@@ -1,8 +1,56 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-05-13
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — `_finalize` 广播终结 `complete` 帧（live WS 唯一带内结束信号）
+
+v1.0 的 WS handler 在 agent loop 返回后会
+`send_json({"type":"complete"})`；Phase C 重构把这个帧弄丢了——
+broadcaster 静默 close、server 关 WS，前端把这个关闭当成**被动断线**，
+于是每一轮正常对话结束都会触发 auto-reconnect 机制（run_reconnect 重复
+注入 user 气泡 + startStreaming 清空时间轴显示 "Starting up…" + 多个不
+收敛分支让 isStreaming 卡死到手动刷新）。
+
+修复：`_finalize` 在 step 3（terminal events row 写库）之后、
+`broadcaster.close()` 之前 publish `{"type":"complete","state":...}`。
+顺序刻意：前端收到 complete 后立即 refreshAgents，此时 DB 已是 terminal
+state，不会再读到 stale 的 active_run。所有 terminal 路径（completed /
+cancelled / failed）都经过 `_finalize`，所以 cancelled/failed 在各自的
+专用帧之后也会跟一个 complete——前端 stopStreaming 幂等，安全。
+
+依赖 broadcaster 的同步投递语义（见 broadcaster.py.md 同日条目）。
+测试：`test_finalize_broadcasts_terminal_complete_frame`。
+
+## 2026-06-10 — `parse_db_utc` / `run_is_live` 共享心跳活性判定
+
+原来住在 `backend/routes/auth.py` 的 `_run_is_live`（running 行只有在
+heartbeat 3 个周期内新鲜才算活着）上移到本文件成为公共 helper——WS
+reconnect 端点（websocket.py）需要用同一条规则区分「run 活在另一个进
+程」和「run 死了但没写 terminal 行」。`RUN_STALE_AFTER_S =
+HEARTBEAT_INTERVAL_S * 3`。只读判定，绝不据此停止/修改 run（铁律 #14）。
+
+## 2026-06-09 — funnel: fatal-error turns are NOT a successful round-trip
+
+A *fatal* `ErrorMessage` (e.g. `NoProviderConfiguredError` — the "configure
+your key" notice) is yielded by AgentRuntime and the generator then returns
+normally, so `drive()` still reaches the natural-end `STATE_COMPLETED` branch.
+But the user received an error notice, not a genuine reply — so
+`message_round_trip_succeeded` must not fire. `emit()` sets `self._had_fatal_error`
+when it sees an error event whose `severity` is `fatal` (the default); the
+natural-end branch gates `_fire_message_success` on `not self._had_fatal_error`.
+`recovered` / `recovered_after_reply` (a reply WAS delivered) and `recoverable`
+(transient; loop continues) are deliberately NOT treated as fatal — they remain
+successful. This is an analytics-accuracy gate only; run state, error display,
+and DB persistence are unchanged (state is still `STATE_COMPLETED`).
+
+## 2026-06-08 — funnel: message_round_trip_succeeded on COMPLETED
+
+Added module-level `_fire_message_success(user_id, agent_id, run_id)` helper
+and called it right after `self.state = STATE_COMPLETED` on the natural-end
+branch of `drive()`. Does NOT fire in cancelled or failed branches, and not
+in `_finalize` (which covers all terminal states). Additive instrumentation.
 
 # background_run.py — agent_loop 跟 WS 解耦 + 持久化 + 广播
 

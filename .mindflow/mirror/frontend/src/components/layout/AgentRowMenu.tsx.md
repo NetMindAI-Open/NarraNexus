@@ -1,0 +1,40 @@
+---
+code_file: frontend/src/components/layout/AgentRowMenu.tsx
+last_verified: 2026-06-10
+stub: false
+---
+
+# AgentRowMenu.tsx — Kebab (⋮) menu for per-agent row actions
+
+## 为什么存在
+
+The 2026-06-10 sidebar redesign moved the inline hover buttons
+(Pencil rename / Trash delete / Globe-Lock public toggle) off the
+agent row into a kebab menu (spec §11.2) so row 1 holds only
+avatar + name + time and the name keeps its full width.
+
+## 上下游关系
+
+- **被谁用**: `AgentGroupSection`'s AgentRow.
+- **依赖谁**: lucide icons only. All actions are callbacks; the row
+  passes pre-bound `(e) => onX(agent, e)` closures.
+
+## 设计决策
+
+- Opens as an absolute-positioned inline panel, NOT a Radix Popover —
+  a portal'd popover gets clipped/misplaced inside the sidebar's
+  scroll container, and the menu is small enough that inline
+  positioning is fine.
+- `isOwner=false` hides delete and public-toggle (backend enforces
+  real ownership; the UI just doesn't offer what will be rejected).
+  Rename is always shown.
+- `showPublicToggle` is threaded from AgentList's
+  SHOW_AGENT_PUBLIC_TOGGLE feature flag — don't hardcode it here;
+  re-enabling the public feature must be a one-line flip in AgentList.
+
+## 新人易踩的坑
+
+The menu stops click propagation at its wrapper in AgentRow — if you
+add an action, call the callback with the original event so
+`e.stopPropagation()` in AgentList handlers still works (otherwise
+the row's onClick selects the agent as a side effect).

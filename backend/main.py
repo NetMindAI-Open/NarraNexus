@@ -195,6 +195,20 @@ async def lifespan(app: FastAPI):
         # Self-heal is best-effort — never block startup on it.
         logger.warning(f"[singleton-heal] skipped due to error: {e}")
 
+    # Versioned, run-once data migrations (the layer-by-layer upgrade ledger).
+    # Runs in EVERY environment (cloud / bash run.sh / DMG sidecar all boot this
+    # lifespan), applying every still-pending migration in order — so a DB that
+    # skipped versions catches up one layer at a time. Best-effort: never block
+    # startup on a migration error (search degrades gracefully; it retries next
+    # startup). See xyz_agent_context/migrations/.
+    try:
+        from xyz_agent_context.migrations import run_pending_migrations
+        migrated = await run_pending_migrations(db)
+        if migrated:
+            logger.info(f"[migrate] applied {len(migrated)} pending migration(s): {list(migrated)}")
+    except Exception as e:  # noqa: BLE001 — data migration must never block startup
+        logger.error(f"[migrate] migration runner skipped due to error: {e}")
+
     # Wire system-default quota services. SystemProviderService is a
     # module-level singleton that reads env once; in local mode or when
     # env is incomplete its is_enabled() returns False and every downstream
@@ -231,12 +245,34 @@ async def lifespan(app: FastAPI):
         f"Quota subsystem wired (enabled={system_provider.is_enabled()})"
     )
 
+    # Unified Agent Memory — start the background consolidation worker
+    # (design 2026-06-03 §7.4). Drains the dirty-scope queue and distils raw
+    # observations into consolidated memory out of the turn's path. Opportunistic
+    # background work — never caps the agent loop (iron rule #14).
+    from xyz_agent_context.services.memory_consolidation_worker import (
+        MemoryConsolidationWorker,
+    )
+    memory_worker = MemoryConsolidationWorker(db)
+    await memory_worker.start()
+    app.state.memory_consolidation_worker = memory_worker
+    logger.info("Memory consolidation worker started")
+
     yield
 
     # Shutdown
     logger.info("Shutting down FastAPI application...")
+    worker = getattr(app.state, "memory_consolidation_worker", None)
+    if worker is not None:
+        await worker.stop()
     await close_db_client()
     logger.info("Database connections closed")
+
+    # Drain analytics queue so buffered funnel events are not lost on exit.
+    try:
+        from xyz_agent_context.analytics import shutdown_analytics
+        await shutdown_analytics()
+    except Exception:  # noqa: BLE001
+        pass
 
     # Flush any enqueue=True records still in the multiprocessing queue
     # before the interpreter exits — otherwise the last few lines (the

@@ -37,7 +37,7 @@ from backend.config import settings
 from backend.auth import _is_cloud_mode, decode_token
 
 from xyz_agent_context.agent_runtime import AgentRuntime  # noqa: F401 — kept for legacy fallback
-from xyz_agent_context.agent_runtime.background_run import BackgroundRun
+from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is_live
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.repository import MCPRepository
@@ -227,6 +227,32 @@ async def _handle_reconnect(
     # agents/list to see when state transitions to terminal.
     bg = websocket.app.state.active_runs.get(run_id)
     if bg is None:
+        # Distinguish "alive on another process" from "dead without
+        # _finalize" using the shared heartbeat-freshness rule (same one
+        # the agents listing applies). A stale heartbeat means no process
+        # anywhere is driving this run — its task died before writing the
+        # terminal row (killed mid-run / failed terminal write). Without
+        # this branch the client gets reconnect_warning + close, treats
+        # it as a passive disconnect, and reconnect-loops forever with a
+        # spinner that only a page refresh clears.
+        if not run_is_live(events_row):
+            logger.warning(
+                f"[reconnect] run_id={run_id} state=running but heartbeat "
+                f"stale and no in-memory BackgroundRun — presumed dead, "
+                f"reporting run_ended(failed)"
+            )
+            with suppress(Exception):
+                await websocket.send_json({
+                    "type": "run_ended",
+                    "state": "failed",
+                    "final_output": final_output,
+                    "error_message": "Run lost (backend restarted or "
+                                     "process died mid-run)",
+                })
+            with suppress(Exception):
+                await websocket.close()
+            return
+
         logger.warning(
             f"[reconnect] run_id={run_id} state=running but no in-memory "
             f"BackgroundRun on this process — replay-only, no live subscription"

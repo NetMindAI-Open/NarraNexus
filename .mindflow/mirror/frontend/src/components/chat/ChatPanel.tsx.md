@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-29
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — CostPopover joins the header row
+
+The cost chip used to float `absolute top-2 right-2` over the chat
+card (MainLayout) and collided with this header's Processing indicator
+during runs. It is now a proper flex member of the header's right
+side, next to Processing — no overlap possible. Carries the
+`chat.cost` help anchor.
 
 ## 2026-05-29 — defer streaming values to throttle render bursts (F5)
 

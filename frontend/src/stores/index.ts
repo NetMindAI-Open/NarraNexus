@@ -10,3 +10,5 @@ export { useRuntimeStore } from './runtimeStore';
 export { useThemeStore } from './themeStore';
 export { useTeamsStore } from './teamsStore';
 export { useArtifactStore } from './artifactStore';
+export { useBookmarkStore } from './bookmarkStore';
+export type { SubBookmark, AgentBookmarkState, HighlightTier, SubBookmarkStatus } from './bookmarkStore';

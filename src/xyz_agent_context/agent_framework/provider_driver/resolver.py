@@ -3,7 +3,7 @@
 @author: Bin Liang
 @date: 2026-05-13
 @description: Single-point Resolver — user_id → (ClaudeConfig,
-              OpenAIConfig, EmbeddingConfig).
+              OpenAIConfig).
 
 Replaces the two parallel paths that used to do this:
 
@@ -20,13 +20,13 @@ Pipeline per call:
 
 1. Load the user's quota row (still needed for the existing
    prefer_system_override branching during the migration window).
-2. For each slot (agent / helper_llm / embedding):
+2. For each slot (agent / helper_llm):
    a. Look up the user_slots row.
    b. Look up the corresponding user_providers card by provider_id.
    c. Run self_heal_if_broken to auto-repair if slot.model ∉ card.models.
    d. Look up the Driver class via card.driver_type.
    e. Call the appropriate ``build_*_config`` on the Driver.
-3. Return the three configs.
+3. Return the two configs.
 
 Visibility rule: a slot can point at a card owned by the user OR at
 a system-shared card (owner_user_id IS NULL). Anything else is an
@@ -41,7 +41,6 @@ from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
-    EmbeddingConfig,
     LLMConfigNotConfigured,
     OpenAIConfig,
 )
@@ -64,7 +63,6 @@ if TYPE_CHECKING:
 _SLOT_BUILDERS = {
     "agent": "build_claude_config",
     "helper_llm": "build_openai_config",
-    "embedding": "build_embedding_config",
 }
 
 
@@ -88,8 +86,8 @@ def _is_visible(card: ProviderCard, user_id: str) -> bool:
 async def resolve_user_llm_configs(
     user_id: str,
     db: "AsyncDatabaseClient",
-) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
-    """Resolve a user's three LLM configs in one shot.
+) -> tuple[ClaudeConfig, OpenAIConfig]:
+    """Resolve a user's agent + helper_llm LLM configs in one shot.
 
     Raises ``LLMConfigNotConfigured`` if any required piece is missing
     or invisible. The caller is responsible for any further handling —
@@ -197,7 +195,6 @@ async def resolve_user_llm_configs(
     return (
         cfgs["agent"],          # type: ignore[return-value]
         cfgs["helper_llm"],     # type: ignore[return-value]
-        cfgs["embedding"],      # type: ignore[return-value]
     )
 
 

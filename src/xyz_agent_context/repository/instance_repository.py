@@ -7,14 +7,12 @@
 Responsibilities:
 - CRUD operations for ModuleInstance
 - Query by agent_id, user_id, module_class, and other conditions
-- Support vector retrieval (semantic search)
 """
 
 import json
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from loguru import logger
-import numpy as np
 
 from .base import BaseRepository
 from xyz_agent_context.utils import utc_now
@@ -39,15 +37,12 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
 
         # Create an Instance
         await repo.create_instance(instance)
-
-        # Vector search
-        results = await repo.vector_search(query_embedding, agent_id)
     """
 
     table_name = "module_instances"
     id_field = "instance_id"  # Use instance_id as the business primary key (not the auto-increment id)
 
-    _json_fields = {"dependencies", "config", "state", "routing_embedding", "keywords"}
+    _json_fields = {"dependencies", "config", "state", "keywords"}
 
     # ===== Query Methods =====
 
@@ -296,96 +291,6 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
 
     # ===== Vector Search =====
 
-    async def vector_search(
-        self,
-        query_embedding: List[float],
-        agent_id: str,
-        top_k: int = 5,
-        status_filter: Optional[List[InstanceStatus]] = None,
-        user_id: Optional[str] = None,
-        include_public: bool = True
-    ) -> List[Tuple[ModuleInstanceRecord, float]]:
-        """
-        Vector similarity search
-
-        Uses cosine similarity to search for the most relevant instances of an agent.
-
-        Args:
-            query_embedding: Query vector (dimension depends on the active
-                embedding model — compared against stored vectors of the
-                same dimension; mismatched rows are skipped defensively).
-            agent_id: Agent ID
-            top_k: Number of results to return
-            status_filter: Optional, filter by status
-            user_id: Optional, User ID
-            include_public: Whether to include public instances
-
-        Returns:
-            List of (instance, similarity_score), sorted by similarity descending
-        """
-        logger.debug(f"    → InstanceRepository.vector_search(agent_id={agent_id}, top_k={top_k})")
-
-        # Get candidate instances
-        if user_id and include_public:
-            candidates = await self.get_by_agent_and_user(agent_id, user_id, include_public=True)
-        elif user_id:
-            candidates = await self.get_by_agent_and_user(agent_id, user_id, include_public=False)
-        else:
-            candidates = await self.get_by_agent(agent_id)
-
-        # Filter by status
-        if status_filter:
-            status_values = [s.value if isinstance(s, InstanceStatus) else s for s in status_filter]
-            candidates = [c for c in candidates if c.status in status_values]
-
-        # Resolve each candidate's embedding against the currently-active
-        # model. Prefer embeddings_store (model+dim-aware) and fall back to
-        # the legacy `routing_embedding` column only when a dim match can be
-        # verified — avoids numpy `shapes not aligned` crashes after model
-        # switches.
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
-            use_embedding_store,
-            get_stored_embeddings_batch,
-        )
-        query_dim = len(query_embedding)
-        store_vectors: Dict[str, List[float]] = {}
-        if use_embedding_store() and candidates:
-            store_vectors = await get_stored_embeddings_batch(
-                "instance",
-                [c.instance_id for c in candidates if c.instance_id],
-            )
-
-        query_vec = np.array(query_embedding)
-        query_norm = np.linalg.norm(query_vec)
-        if query_norm == 0:
-            return []
-
-        results: List[Tuple[ModuleInstanceRecord, float]] = []
-        for inst in candidates:
-            inst_emb = store_vectors.get(inst.instance_id) if inst.instance_id else None
-            if inst_emb is None:
-                inst_emb = inst.routing_embedding
-            if not inst_emb or len(inst_emb) != query_dim:
-                if inst_emb:
-                    logger.debug(
-                        f"    Skipping Instance {inst.instance_id} "
-                        f"(stored dim={len(inst_emb)}, query dim={query_dim})"
-                    )
-                continue
-            inst_vec = np.array(inst_emb)
-            inst_norm = np.linalg.norm(inst_vec)
-            if inst_norm == 0:
-                continue
-            similarity = float(np.dot(query_vec, inst_vec) / (query_norm * inst_norm))
-            results.append((inst, similarity))
-
-        # Sort by similarity descending
-        results.sort(key=lambda x: x[1], reverse=True)
-
-        return results[:top_k]
-
-    # ===== Data Conversion =====
-
     def _row_to_entity(self, row: Dict[str, Any]) -> ModuleInstanceRecord:
         """Convert a database row to a ModuleInstanceRecord object"""
         return ModuleInstanceRecord(
@@ -400,7 +305,6 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
             dependencies=self._parse_json_field(row.get("dependencies"), []),
             config=self._parse_json_field(row.get("config"), {}),
             state=self._parse_json_field(row.get("state"), None),
-            routing_embedding=self._parse_json_field(row.get("routing_embedding"), None),
             keywords=self._parse_json_field(row.get("keywords"), []),
             topic_hint=row.get("topic_hint") or "",
             created_at=row.get("created_at"),
@@ -422,7 +326,6 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
             "dependencies": json.dumps(entity.dependencies, ensure_ascii=False),
             "config": json.dumps(entity.config, ensure_ascii=False),
             "state": json.dumps(entity.state, ensure_ascii=False) if entity.state else None,
-            "routing_embedding": json.dumps(entity.routing_embedding) if entity.routing_embedding else None,
             "keywords": json.dumps(entity.keywords, ensure_ascii=False),
             "topic_hint": entity.topic_hint,
             "created_at": entity.created_at.strftime('%Y-%m-%d %H:%M:%S') if entity.created_at else None,

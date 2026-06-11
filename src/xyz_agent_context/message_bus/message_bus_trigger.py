@@ -53,7 +53,7 @@ def build_bus_anchor(messages: List[BusMessage]) -> str:
     ~1217-char Owner-Relay boilerplate + From/Time metadata — bus was the only
     real 400 source in prod. The anchor keeps ONLY each peer's body (tagged
     with the sender agent), so the narrative query vector is clean. Oversized
-    backlogs are still capped downstream by the embedding token guard.
+    backlogs are still capped downstream by a length guard.
     See the 2026-06-01 design doc.
     """
     return "\n".join(
@@ -173,15 +173,18 @@ class MessageBusTrigger:
 
     async def _get_channel_info(self, channel_id: str) -> tuple[str, str]:
         """Get (channel_type, created_by) for a channel."""
-        # Use %s — auto-translated for SQLite by AsyncDatabaseClient
-        rows = await self._bus._db.execute(
-            "SELECT channel_type, created_by FROM bus_channels WHERE channel_id = %s",
-            (channel_id,),
-        )
-        if rows:
+        # get_one builds dialect-correct SQL per backend. ``self._bus._db`` is
+        # the RAW backend (LocalMessageBus is handed db._backend, not the
+        # AsyncDatabaseClient wrapper), so the raw ``execute`` path takes the
+        # query verbatim with NO %s→? translation — a MySQL `%s` placeholder
+        # threw `near "%"` on SQLite and silently broke bus delivery for every
+        # agent that had channel messages (2026-06-09: 影/镜 never received 零's
+        # messages). get_one sidesteps the placeholder problem entirely.
+        row = await self._bus._db.get_one("bus_channels", {"channel_id": channel_id})
+        if row:
             return (
-                rows[0].get("channel_type", "group"),
-                rows[0].get("created_by", ""),
+                row.get("channel_type", "group"),
+                row.get("created_by", ""),
             )
         return ("group", "")
 
@@ -306,7 +309,7 @@ class MessageBusTrigger:
             )
 
             # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
-            # only, no Owner-Relay boilerplate) for narrative embedding — the
+            # only, no Owner-Relay boilerplate) for narrative routing — the
             # execution `prompt` is far noisier. See 2026-06-01 design.
             response_text = await self._invoke_runtime(
                 agent_id=agent_id,

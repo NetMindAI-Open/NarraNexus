@@ -7,7 +7,7 @@
 Pipeline (PRD §8.4):
 1. Form check (size, zip, manifest)
 2. Security (zip-bomb, traversal, sha256)
-3. Compatibility (schema_version, embedding compat)
+3. Compatibility (schema_version)
 4. ID rewrite (5 layers: kind regex + structured field map + free-text regex)
 5. Name suffix dedupe ("Trading Bot (1)")
 6. user_id injection
@@ -73,7 +73,7 @@ async def _cleanup_stale_preflights(db) -> None:
 
 async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     """Validate the bundle and report what would be created.
-    Returns: {preflight_token, manifest, warnings, name_clashes, embedding_compat}"""
+    Returns: {preflight_token, manifest, warnings, name_clashes}"""
     if not zip_path.exists():
         raise ValueError("zip_path does not exist")
     size = zip_path.stat().st_size
@@ -175,86 +175,12 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         )
         if existing_team:
             team_clash = {"name": team["name"], "existing_count": len(existing_team)}
-
-    # Embedding compatibility — manifest's value vs current instance's default.
-    # Hard-block when the dim is incompatible (the embeddings_store column would
-    # mismatch and break semantic search). When provider/model differ but dim
-    # matches, surface a soft warning suggesting a rebuild.
-    from xyz_agent_context.settings import settings as core_settings
-    from xyz_agent_context.agent_framework.model_catalog import get_embedding_dimensions
-
-    bundle_emb = manifest.get("embedding", {}) or {}
-    bundle_dim = bundle_emb.get("dim")
-    bundle_provider = bundle_emb.get("provider")
-    bundle_model = bundle_emb.get("model")
-
-    local_model = core_settings.openai_embedding_model
-    local_dim = get_embedding_dimensions(local_model) if local_model else None
-    local_provider = "openai"  # current implementation hard-codes openai
-
-    embedding_compat: Dict[str, Any] = {
-        "manifest": bundle_emb,
-        "local": {"provider": local_provider, "model": local_model, "dim": local_dim},
-        "compatible": True,
-        "advice": "Embeddings from the bundle should work as-is.",
-    }
-
-    if bundle_dim is not None and local_dim is not None and bundle_dim != local_dim:
-        # Check whether the bundle ACTUALLY ships any embeddings. If it
-        # doesn't (e.g. agents never had RAG / chat embedding rows), dim
-        # mismatch is irrelevant — let the import proceed with a soft warning.
-        rag_path = work_dir / "rag.json"  # legacy path (unused now but keep for compat)
-        bundle_has_embeddings = False
-        for adir in (work_dir / "agents").iterdir() if (work_dir / "agents").exists() else []:
-            arag = adir / "rag.json"
-            if arag.exists():
-                try:
-                    if json.loads(arag.read_text(encoding="utf-8")):
-                        bundle_has_embeddings = True
-                        break
-                except Exception:
-                    pass
-        if not bundle_has_embeddings:
-            embedding_compat["advice"] = (
-                f"NOTE: bundle was tagged with dim={bundle_dim} but ships no actual "
-                f"embedding rows. Your instance uses dim={local_dim}. Import will "
-                "proceed; future embeddings will use your local model."
-            )
-        else:
-            # Hard block — different vector dimensions means the embeddings_store
-            # column cannot be reused, RAG / chat embeddings would be silently broken.
-            embedding_compat["compatible"] = False
-            embedding_compat["advice"] = (
-                f"BLOCKED: bundle uses embeddings of dimension {bundle_dim} but this "
-                f"instance is configured for dimension {local_dim} (model={local_model}). "
-                "Importing would corrupt the RAG store. Either reconfigure this instance "
-                "to use a model with matching dim, or ask the bundle author to re-export "
-                "with a compatible model."
-            )
-            shutil.rmtree(work_dir, ignore_errors=True)
-            raise ValueError(embedding_compat["advice"])
-
-    if bundle_provider and bundle_provider != local_provider:
-        embedding_compat["advice"] = (
-            f"WARNING: bundle was exported with embedding provider '{bundle_provider}'; "
-            f"this instance uses '{local_provider}'. Existing embeddings will be kept "
-            "but you may want to rebuild via Settings → Embedding Index."
-        )
-    elif bundle_model and bundle_model != local_model:
-        embedding_compat["advice"] = (
-            f"WARNING: bundle was exported with embedding model '{bundle_model}'; "
-            f"this instance uses '{local_model}'. Vectors are dimensionally compatible "
-            f"({local_dim}), but semantic space differs slightly. Optional rebuild via "
-            "Settings → Embedding Index for best results."
-        )
-
     token = uuid.uuid4().hex
     summary = {
         "preflight_token": token,
         "manifest": manifest,
         "name_clashes": name_clashes,
         "team_clash": team_clash,
-        "embedding_compat": embedding_compat,
         "warnings": manifest.get("warnings", []),
     }
     # Persist to DB so confirm() works across worker boundaries / restarts.
@@ -532,7 +458,6 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         "instances_created": 0,
         "messages_created": 0,
         "social_entities_created": 0,
-        "rag_rows_created": 0,
         "awareness_rows_created": 0,
         "jobs_created": 0,
         "narrative_links_created": 0,
@@ -667,7 +592,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         # runtime would log "Unknown module type X, skipping" against on every
         # agent turn (and they'd be dead weight forever, since cascade-delete
         # only fires when the agent itself is deleted). Cascade-drop their
-        # instance-scoped children (jobs / social / rag / memory / narrative_links)
+        # instance-scoped children (jobs / social / memory / narrative_links)
         # by remembering the skipped instance_ids.
         from xyz_agent_context.module import MODULE_MAP
         skipped_instance_ids: set = set()
@@ -701,34 +626,44 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 written_summary["warnings"].append(msg)
                 logger.warning(f"bundle_import.skip_unknown_module agent={old_aid} class={cls_name} count={n}")
 
-        # social entities
+        # social entities — written into the unified memory_entity store via the
+        # repo (entity's single home now). The flat records + id rewrites are
+        # unchanged; only the destination moved off instance_social_entities.
         se_path = adir / "social_entities.json"
         if se_path.exists():
+            from xyz_agent_context.repository import SocialNetworkRepository
+            from xyz_agent_context.schema import SocialNetworkEntity
+            social_repo = SocialNetworkRepository(db, new_aid)
             for srec in json.loads(se_path.read_text(encoding="utf-8")):
                 if srec.get("instance_id") in skipped_instance_ids:
                     continue
-                new_sr = rewrite_row("instance_social_entities", srec)
-                new_sr.pop("created_at", None)
-                new_sr.pop("updated_at", None)
+                new_sr = rewrite_row("social_entities", srec)
                 # entity_id might be an agent_id in our closure
                 if srec.get("entity_type") == "agent":
                     eid = new_sr.get("entity_id")
                     if eid in id_map:
                         new_sr["entity_id"] = id_map[eid]
-                await db.insert("instance_social_entities", new_sr)
+                entity = SocialNetworkEntity(
+                    entity_id=new_sr.get("entity_id"),
+                    entity_type=new_sr.get("entity_type") or "user",
+                    instance_id=new_sr.get("instance_id"),
+                    entity_name=new_sr.get("entity_name"),
+                    aliases=new_sr.get("aliases") or [],
+                    entity_description=new_sr.get("entity_description"),
+                    identity_info=new_sr.get("identity_info") or {},
+                    contact_info=new_sr.get("contact_info") or {},
+                    familiarity=new_sr.get("familiarity") or "known_of",
+                    relationship_strength=new_sr.get("relationship_strength") or 0.0,
+                    interaction_count=new_sr.get("interaction_count") or 0,
+                    last_interaction_time=new_sr.get("last_interaction_time"),
+                    keywords=new_sr.get("tags") or [],
+                    expertise_domains=new_sr.get("expertise_domains") or [],
+                    related_job_ids=new_sr.get("related_job_ids") or [],
+                    persona=new_sr.get("persona"),
+                    extra_data=new_sr.get("extra_data") or {},
+                )
+                await social_repo.save_entity(entity)
                 written_summary["social_entities_created"] += 1
-
-        # rag store
-        rag_path = adir / "rag.json"
-        if rag_path.exists():
-            for rrec in json.loads(rag_path.read_text(encoding="utf-8")):
-                if rrec.get("instance_id") in skipped_instance_ids:
-                    continue
-                new_rr = rewrite_row("instance_rag_store", rrec)
-                new_rr.pop("created_at", None)
-                new_rr.pop("updated_at", None)
-                await db.insert("instance_rag_store", new_rr)
-                written_summary["rag_rows_created"] += 1
 
         # agent_messages
         am_path = adir / "agent_messages.jsonl"
@@ -920,7 +855,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             k: written_summary[k] - before.get(k, 0)
             for k in (
                 "narratives_created", "events_created", "instances_created",
-                "messages_created", "social_entities_created", "rag_rows_created",
+                "messages_created", "social_entities_created",
                 "awareness_rows_created", "jobs_created", "narrative_links_created",
                 "memory_rows_created", "artifacts_created",
             )
@@ -1297,16 +1232,16 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         agent_inst_ids = [r["instance_id"] for r in await db.get("module_instances", {"agent_id": naid})]
         n_aware = 0
         n_social = 0
-        n_rag = 0
+        from xyz_agent_context.repository import SocialNetworkRepository
+        _social_repo = SocialNetworkRepository(db)
         for iid in agent_inst_ids:
             n_aware += len(await db.get("instance_awareness", {"instance_id": iid}))
-            n_social += len(await db.get("instance_social_entities", {"instance_id": iid}))
-            n_rag += len(await db.get("instance_rag_store", {"instance_id": iid}))
+            n_social += len(await _social_repo.get_all_entities(iid, limit=100000))
         per = {
             "agent_id": naid,
             "narratives": n_narr, "events": n_evt, "instances": n_inst,
             "messages": n_msg, "jobs": n_job, "awareness": n_aware,
-            "social_entities": n_social, "rag_rows": n_rag,
+            "social_entities": n_social,
         }
         verification["per_agent"].append(per)
         logger.info(
@@ -1314,6 +1249,24 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             + " ".join(f"{k}={v}" for k, v in per.items() if k != "agent_id")
         )
     written_summary["verification"] = verification
+
+    # ---- Backfill the unified-memory SEARCH INDEXES for the imported agents.
+    # The raw inserts above bypass the live projection-write points
+    # (crud._index_narrative / step_4 interaction / create_job / send_message),
+    # so without this an imported narrative/job/bus/interaction is invisible to
+    # `remember` until it is re-touched. Covers BOTH old bundles (which predate
+    # the indexes) and current ones (same raw-insert path). Best-effort +
+    # per-agent isolation: one agent's failure never aborts the import. Scoped to
+    # this import — new_agent_ids are freshly minted, so every row under them
+    # came from this bundle.
+    from xyz_agent_context.memory.backfill import backfill_agent_search_indexes
+    _bf_total = 0
+    for naid in new_agent_ids:
+        try:
+            _bf_total += await backfill_agent_search_indexes(db, naid)
+        except Exception as e:  # noqa: BLE001 — index backfill is best-effort enrichment
+            logger.warning(f"bundle_import.backfill failed for agent {naid}: {e}")
+    written_summary["search_indexes_backfilled"] = _bf_total
 
     # ---- Final summary log: one line that captures everything important.
     duration_ms = int((time.monotonic() - _t0) * 1000)
@@ -1389,3 +1342,4 @@ def _rewrite_workspace_text_files(root: Path, id_map: Dict[str, str], user_id: s
                     f.write(new_content)
             except OSError:
                 pass
+
