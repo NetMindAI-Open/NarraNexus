@@ -76,9 +76,6 @@ class Event(BaseModel):
     agent_id: str  # Associated Agent ID
     user_id: Optional[str] = None  # Associated User ID (if applicable)
 
-    # Embedding related fields (for relevance search)
-    event_embedding: Optional[List[float]] = None  # Embedding vector of the event content
-    embedding_text: Optional[str] = None  # Text used to generate the embedding (input + output summary)
 
 
 # =============================================================================
@@ -150,10 +147,10 @@ class Narrative(BaseModel):
 
     Field categories:
     - Identity: id, type, agent_id
-    - Routing Index: routing_embedding, topic_hint, topic_keywords
+    - Routing Index: topic_hint, topic_keywords (BM25)
     - Orchestration Config: active_instances, instance_history_ids
     - References Only: event_ids
-    - Metadata: created_at, updated_at, embedding_updated_at
+    - Metadata: created_at, updated_at
     """
     # ===== Identity =====
     id: str  # Randomly generated unique ID
@@ -184,9 +181,6 @@ class Narrative(BaseModel):
     # ===== Routing Index =====
     topic_keywords: List[str] = []  # Topic keywords
     topic_hint: str = ""  # Topic hint/summary
-    routing_embedding: Optional[List[float]] = None  # Routing embedding vector
-    embedding_updated_at: Optional[datetime] = None  # Last update time of the embedding vector
-    events_since_last_embedding_update: int = 0  # Number of Events since last embedding update
 
     # ===== Metadata =====
     created_at: datetime  # Narrative creation time
@@ -230,7 +224,6 @@ class ConversationSession(BaseModel):
     # ===== Continuity Tracking =====
     last_query: str = ""  # Text content of the last query
     last_response: str = ""  # Content of the last Agent response
-    last_query_embedding: Optional[List[float]] = None  # Embedding vector of the last query
     current_narrative_id: Optional[str] = None  # Currently active Narrative ID
 
     # ===== Statistics =====
@@ -273,14 +266,13 @@ class NarrativeSelectionResult(BaseModel):
     """
     Narrative Selection Result
 
-    Contains the selected Narrative list, query embedding, and selection reason.
+    Contains the selected Narrative list and selection reason.
     Used for passing complete selection information in step_1_select_narrative.
     """
     narratives: List["Narrative"] = []  # Selected Narrative list
-    query_embedding: Optional[List[float]] = None  # Query embedding
     selection_reason: str = ""  # Selection reason (human-readable)
     selection_method: str = ""  # Selection method: continuous, high_confidence, llm_confirmed, new_created
     is_new: bool = False  # Whether a new Narrative was created
     best_score: Optional[float] = None  # Best match score (if any)
     scores: Dict[str, float] = {}  # Per-narrative similarity scores (narrative_id → score)
-    retrieval_method: str = ""  # Retrieval method: vector (EverMemOS decoupled from narrative selection)
+    retrieval_method: str = ""  # Retrieval method: "session" (continuity) | "keyword" (BM25)

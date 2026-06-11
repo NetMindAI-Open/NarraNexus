@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xyz-agent-context"
-version = "1.7.15"
+version = "1.8.2"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
 license = {text = "CC-BY-NC-4.0"}
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.72.0",
-    "claude-agent-sdk>=0.1.6",
+    "claude-agent-sdk~=0.1.43",
     "openai>=2.7.1",
     "openai-agents>=0.5.0",
     "mcp[cli]>=1.20.0",
@@ -36,6 +36,7 @@ dependencies = [
     "ddgs>=9.0.0",
     "websockets>=15.0.1",
     "tiktoken>=0.13.0",
+    "posthog>=7.18.0",
 ]
 
 [tool.hatch.build.targets.wheel]

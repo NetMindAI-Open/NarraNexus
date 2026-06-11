@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
-    EmbeddingConfig,
     OpenAIConfig,
 )
 from xyz_agent_context.agent_framework.provider_driver.base import _DriverBase
@@ -57,18 +56,6 @@ class OpenRouterDriver(_DriverBase):
                 f"cannot serve the helper_llm slot."
             )
         return OpenAIConfig(
-            api_key=self.card.api_key,
-            base_url=self.card.base_url,
-            model=model,
-        )
-
-    def build_embedding_config(self, model: str) -> EmbeddingConfig:
-        if not self._is_openai_row():
-            raise NotImplementedError(
-                f"OpenRouterDriver instantiated on protocol={self.card.protocol!r} "
-                f"cannot serve the embedding slot."
-            )
-        return EmbeddingConfig(
             api_key=self.card.api_key,
             base_url=self.card.base_url,
             model=model,

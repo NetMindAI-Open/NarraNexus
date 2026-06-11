@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/agents_social_network.py
-last_verified: 2026-04-10
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — entity endpoints route through the repo
+
+Both endpoints now go through `SocialNetworkRepository` (reading `memory_entity`) plus an `_entity_to_info` helper, instead of touching `instance_social_entities`. Behaviour for callers is unchanged; only the storage source moved.
 
 # agents_social_network.py — 社交网络实体查询路由
 

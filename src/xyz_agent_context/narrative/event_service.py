@@ -132,7 +132,6 @@ class EventService:
         final_output: Optional[str] = None,
         event_log: Optional[List[EventLogEntry]] = None,
         module_instances: Optional[List["ModuleInstance"]] = None,
-        generate_embedding: bool = True,
     ) -> int:
         """
         Update an Event in the database
@@ -142,7 +141,6 @@ class EventService:
             final_output: Final output
             event_log: Event log
             module_instances: Module instances
-            generate_embedding: Whether to generate embedding
 
         Returns:
             Number of affected rows
@@ -152,7 +150,6 @@ class EventService:
             final_output=final_output,
             event_log=event_log,
             module_instances=module_instances,
-            generate_embedding=generate_embedding
         )
 
     async def duplicate_event_for_narrative(
@@ -182,38 +179,26 @@ class EventService:
     async def select_events_for_context(
         self,
         narrative_event_ids: List[str],
-        query_embedding: Optional[List[float]] = None,
         max_recent: Optional[int] = None,
-        max_relevant: Optional[int] = None,
         max_total: Optional[int] = None,
-        min_relevance_score: Optional[float] = None,
     ) -> List[Event]:
         """
-        Hybrid strategy for selecting Events to add to Context
-
-        Strategy:
-        1. Most recent N Events (ensure conversation continuity)
-        2. Relevance Top-K Events (ensure Query relevance)
-        3. Merge, deduplicate, and sort by time
+        Select Events to add to Context: most-recent-N, truncated to max_total,
+        in original order. (Embedding-based relevance selection is retired —
+        cross-narrative semantic recall lives in the unified MemoryEngine.)
 
         Args:
             narrative_event_ids: Event IDs associated with the Narrative
-            query_embedding: Query embedding
             max_recent: Most recent N
-            max_relevant: Relevance Top-K
             max_total: Maximum return count
-            min_relevance_score: Minimum relevance threshold
 
         Returns:
             List of selected Events
         """
         return await self._processor.select_for_context(
             narrative_event_ids=narrative_event_ids,
-            query_embedding=query_embedding,
             max_recent=max_recent,
-            max_relevant=max_relevant,
             max_total=max_total,
-            min_relevance_score=min_relevance_score
         )
 
     # =========================================================================

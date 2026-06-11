@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-05-22
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — ClaudeConfig carries neutral reasoning params
+
+`ClaudeConfig` gained `thinking` / `reasoning_effort` (both default ""
+= auto), populated from the agent slot's SlotConfig at all three
+construction sites (llm_config.json path, .env fallback — stays auto —
+and the per-user resolver). The fields are framework-neutral; the
+Claude-dialect mapping lives in xyz_claude_agent_sdk
+(`_resolve_reasoning_options`), NOT here. `to_cli_env()` is untouched —
+these ride ClaudeAgentOptions, not env vars.
+
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
 

@@ -63,9 +63,6 @@ export interface BundleExportRequest {
   social_entity_selection?: Record<string, string[]>;
   workspace_excludes?: Record<string, string[]>;
   include_chat_history?: boolean;
-  embedding_provider?: string | null;
-  embedding_model?: string | null;
-  embedding_dim?: number | null;
   // B6: explicit user opt-in to ship zip skill archives that contain sensitive files
   accept_sensitive_zips?: boolean;
   // B2: per-agent narrative allowlist; omit/null = include all
@@ -114,7 +111,6 @@ export interface BundlePreflightResponse {
   manifest: BundleManifest;
   name_clashes: { agent_id_in_bundle: string; agent_name: string; existing_count: number }[];
   team_clash?: { name: string; existing_count: number } | null;
-  embedding_compat: { manifest: any; advice: string };
   warnings: string[];
 }
 
@@ -135,7 +131,6 @@ export interface BundleManifest {
   // into here at preflight time, so the UI doesn't alarm on them.
   info?: string[];
   info_counters?: Record<string, number>;
-  embedding?: { provider?: string; model?: string; dim?: number };
   integrity_sha256: string;
 }
 

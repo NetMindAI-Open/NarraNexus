@@ -34,7 +34,6 @@ from .inbox_repository import InboxRepository
 from .mcp_repository import MCPRepository
 from .user_repository import UserRepository
 from .agent_repository import AgentRepository
-from .rag_store_repository import RAGStoreRepository
 from .agent_message_repository import AgentMessageRepository
 from .event_memory_repository import EventMemoryRepository
 
@@ -43,8 +42,6 @@ from .instance_repository import InstanceRepository
 from .instance_link_repository import InstanceNarrativeLinkRepository
 from .instance_awareness_repository import InstanceAwarenessRepository, InstanceAwareness
 
-# Embedding Store
-from .embedding_store_repository import EmbeddingStoreRepository
 
 # Subproject 1: Team Membership
 from .team_repository import TeamRepository, TeamMemberRepository
@@ -62,7 +59,6 @@ from xyz_agent_context.schema import (
     User,
     UserStatus,
     Agent,
-    RAGStoreModel,
 )
 
 __all__ = [
@@ -92,18 +88,13 @@ __all__ = [
     # Agent
     "AgentRepository",
     "Agent",
-    # RAG Store
-    "RAGStoreRepository",
-    "RAGStoreModel",
     # Instance (ModuleInstance decoupled)
     "InstanceRepository",
     "InstanceNarrativeLinkRepository",
     # Instance Awareness
     "InstanceAwarenessRepository",
     "InstanceAwareness",
-    # Embedding Store
-    "EmbeddingStoreRepository",
-    # Team
+        # Team
     "TeamRepository",
     "TeamMemberRepository",
     # Skill Archive

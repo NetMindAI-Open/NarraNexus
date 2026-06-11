@@ -13,7 +13,7 @@ Covers:
   - fetch_* async aggregators (events MAX, jobs, module_instances, enhanced signals)
 
 Notes:
-  - build_action_line avoids events.embedding_text for running agents (Step 4
+  - build_action_line avoids stale final_output for running agents (Step 4
     persistence; null during run). Uses instance_jobs.description / bus_messages
     content instead. See design TDR-4 + R11.
   - All DB fetch helpers go through AsyncDatabaseClient.fetch_all() which
@@ -51,7 +51,6 @@ STALE_THRESHOLD_SECONDS: int = int(os.environ.get("STALE_INSTANCE_THRESHOLD_SECO
 # They are excluded from the stale bucket regardless of updated_at age.
 LONGRUN_MODULE_WHITELIST: frozenset[str] = frozenset({
     "SkillModule",
-    "GeminiRagModule",
 })
 
 
@@ -647,7 +646,7 @@ async def fetch_instances(agent_ids: list[str]) -> dict[str, dict[str, list[dict
     Stale detection:
       - An in_progress instance is stale if updated_at is older than
         STALE_THRESHOLD_SECONDS AND the module_class is NOT in LONGRUN_MODULE_WHITELIST.
-      - Whitelisted long-running modules (SkillModule, GeminiRagModule) are always
+      - Whitelisted long-running modules (SkillModule) are always
         placed in "active" regardless of updated_at age.
       - "active" instances count toward running_count / kind derivation.
       - "stale" instances do NOT count toward running_count; they surface in

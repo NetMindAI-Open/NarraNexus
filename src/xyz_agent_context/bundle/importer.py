@@ -7,7 +7,7 @@
 Pipeline (PRD §8.4):
 1. Form check (size, zip, manifest)
 2. Security (zip-bomb, traversal, sha256)
-3. Compatibility (schema_version, embedding compat)
+3. Compatibility (schema_version)
 4. ID rewrite (5 layers: kind regex + structured field map + free-text regex)
 5. Name suffix dedupe ("Trading Bot (1)")
 6. user_id injection
@@ -27,6 +27,8 @@ import uuid
 import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from xyz_agent_context.utils.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
@@ -43,6 +45,102 @@ from .security import (
 
 # Preflight session TTL — older sessions are pruned every preflight call.
 PREFLIGHT_TTL_HOURS = 6
+
+
+def _loads_maybe(value: Any, default: Any) -> Any:
+    """Bundle rows store list/dict columns as JSON STRINGS ('[]', '{}').
+    Decode them before handing values to a pydantic model; pass through
+    values that are already structured (newer in-memory paths) and fall
+    back to `default` on empty/garbage. The social-entities path is the
+    one importer branch that reconstructs a model instead of inserting a
+    raw row (its destination moved to the unified memory store), so it is
+    the one place that needs this (2026-06-11 bug: every legacy bundle
+    with social entities failed pydantic validation)."""
+    if value is None or value == "":
+        return default
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (ValueError, TypeError):
+            return default
+        return parsed if isinstance(parsed, type(default)) else default
+    return value if isinstance(value, type(default)) else default
+
+
+def _sanitize_for_schema(
+    table: str, row: Dict[str, Any], dropped: Dict[str, int]
+) -> Dict[str, Any]:
+    """Drop columns the CURRENT schema no longer has.
+
+    Old bundles legitimately carry columns that later schema versions
+    removed — e.g. `narratives.embedding_updated_at`, dropped in the
+    unified-memory refactor (v1.7.16). The live DB was migrated; a bundle
+    is the same data arriving through the import path, so it gets the
+    same tolerance: unknown columns are stripped and counted (surfaced in
+    the import summary), never inserted blind (2026-06-11 bug: a v1.3.4
+    bundle aborted mid-import on the first narratives row).
+    """
+    tdef = TABLES.get(table)
+    if tdef is None:
+        return row
+    known = {c.name for c in tdef.columns}
+    clean = {k: v for k, v in row.items() if k in known}
+    for k in row.keys() - known:
+        key = f"{table}.{k}"
+        dropped[key] = dropped.get(key, 0) + 1
+    return clean
+
+
+async def _rollback_partial_import(db, id_map: Dict[str, str]) -> Dict[str, int]:
+    """Best-effort compensating cleanup after a mid-import failure.
+
+    confirm() is not transactional (the backends expose no cross-table
+    transaction), so a failure used to strand orphan teams/agents
+    (2026-06-11: six orphan 'Financial Morning Briefing' teams from
+    repeated failed imports). All new IDs are minted upfront in id_map,
+    which makes compensation tractable: sweep every registered table
+    that carries an agent_id column for the NEW agent ids, then the
+    team/bus tables by their NEW ids. Per-table failures are logged and
+    skipped — rollback must never mask the original error.
+
+    Returns {table: rows_deleted} for the audit log. Skill pack files
+    are intentionally left in place (re-import overwrites them; deleting
+    shared skills could break other agents).
+    """
+    new_ids = set(id_map.values())
+    new_agent_ids = [i for i in new_ids if i.startswith("agent_")]
+    new_team_ids = [i for i in new_ids if i.startswith("team_")]
+    new_channel_ids = [i for i in new_ids if i.startswith("buschan_") or i.startswith("channel_")]
+
+    deleted: Dict[str, int] = {}
+
+    async def _del(table: str, field: str, value: str) -> None:
+        try:
+            n = await db.delete(table, {field: value})
+            if n:
+                deleted[table] = deleted.get(table, 0) + n
+        except Exception as de:  # noqa: BLE001 — never mask the original error
+            logger.warning(f"bundle_import.rollback.skip table={table} {field}={value}: {de}")
+
+    # Every registered table with an agent_id column, swept per new agent.
+    agent_tables = [name for name, tdef in TABLES.items()
+                    if any(c.name == "agent_id" for c in tdef.columns)]
+    for aid in new_agent_ids:
+        for t in agent_tables:
+            await _del(t, "agent_id", aid)
+    for tid in new_team_ids:
+        await _del("team_members", "team_id", tid)
+        await _del("teams", "team_id", tid)
+    for cid in new_channel_ids:
+        await _del("bus_channel_members", "channel_id", cid)
+        await _del("bus_messages", "channel_id", cid)
+        await _del("bus_channels", "channel_id", cid)
+    if deleted:
+        logger.info(
+            "bundle_import.rollback.done "
+            + " ".join(f"{k}={v}" for k, v in sorted(deleted.items()))
+        )
+    return deleted
 
 
 async def _cleanup_stale_preflights(db) -> None:
@@ -73,7 +171,7 @@ async def _cleanup_stale_preflights(db) -> None:
 
 async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
     """Validate the bundle and report what would be created.
-    Returns: {preflight_token, manifest, warnings, name_clashes, embedding_compat}"""
+    Returns: {preflight_token, manifest, warnings, name_clashes}"""
     if not zip_path.exists():
         raise ValueError("zip_path does not exist")
     size = zip_path.stat().st_size
@@ -175,86 +273,12 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         )
         if existing_team:
             team_clash = {"name": team["name"], "existing_count": len(existing_team)}
-
-    # Embedding compatibility — manifest's value vs current instance's default.
-    # Hard-block when the dim is incompatible (the embeddings_store column would
-    # mismatch and break semantic search). When provider/model differ but dim
-    # matches, surface a soft warning suggesting a rebuild.
-    from xyz_agent_context.settings import settings as core_settings
-    from xyz_agent_context.agent_framework.model_catalog import get_embedding_dimensions
-
-    bundle_emb = manifest.get("embedding", {}) or {}
-    bundle_dim = bundle_emb.get("dim")
-    bundle_provider = bundle_emb.get("provider")
-    bundle_model = bundle_emb.get("model")
-
-    local_model = core_settings.openai_embedding_model
-    local_dim = get_embedding_dimensions(local_model) if local_model else None
-    local_provider = "openai"  # current implementation hard-codes openai
-
-    embedding_compat: Dict[str, Any] = {
-        "manifest": bundle_emb,
-        "local": {"provider": local_provider, "model": local_model, "dim": local_dim},
-        "compatible": True,
-        "advice": "Embeddings from the bundle should work as-is.",
-    }
-
-    if bundle_dim is not None and local_dim is not None and bundle_dim != local_dim:
-        # Check whether the bundle ACTUALLY ships any embeddings. If it
-        # doesn't (e.g. agents never had RAG / chat embedding rows), dim
-        # mismatch is irrelevant — let the import proceed with a soft warning.
-        rag_path = work_dir / "rag.json"  # legacy path (unused now but keep for compat)
-        bundle_has_embeddings = False
-        for adir in (work_dir / "agents").iterdir() if (work_dir / "agents").exists() else []:
-            arag = adir / "rag.json"
-            if arag.exists():
-                try:
-                    if json.loads(arag.read_text(encoding="utf-8")):
-                        bundle_has_embeddings = True
-                        break
-                except Exception:
-                    pass
-        if not bundle_has_embeddings:
-            embedding_compat["advice"] = (
-                f"NOTE: bundle was tagged with dim={bundle_dim} but ships no actual "
-                f"embedding rows. Your instance uses dim={local_dim}. Import will "
-                "proceed; future embeddings will use your local model."
-            )
-        else:
-            # Hard block — different vector dimensions means the embeddings_store
-            # column cannot be reused, RAG / chat embeddings would be silently broken.
-            embedding_compat["compatible"] = False
-            embedding_compat["advice"] = (
-                f"BLOCKED: bundle uses embeddings of dimension {bundle_dim} but this "
-                f"instance is configured for dimension {local_dim} (model={local_model}). "
-                "Importing would corrupt the RAG store. Either reconfigure this instance "
-                "to use a model with matching dim, or ask the bundle author to re-export "
-                "with a compatible model."
-            )
-            shutil.rmtree(work_dir, ignore_errors=True)
-            raise ValueError(embedding_compat["advice"])
-
-    if bundle_provider and bundle_provider != local_provider:
-        embedding_compat["advice"] = (
-            f"WARNING: bundle was exported with embedding provider '{bundle_provider}'; "
-            f"this instance uses '{local_provider}'. Existing embeddings will be kept "
-            "but you may want to rebuild via Settings → Embedding Index."
-        )
-    elif bundle_model and bundle_model != local_model:
-        embedding_compat["advice"] = (
-            f"WARNING: bundle was exported with embedding model '{bundle_model}'; "
-            f"this instance uses '{local_model}'. Vectors are dimensionally compatible "
-            f"({local_dim}), but semantic space differs slightly. Optional rebuild via "
-            "Settings → Embedding Index for best results."
-        )
-
     token = uuid.uuid4().hex
     summary = {
         "preflight_token": token,
         "manifest": manifest,
         "name_clashes": name_clashes,
         "team_clash": team_clash,
-        "embedding_compat": embedding_compat,
         "warnings": manifest.get("warnings", []),
     }
     # Persist to DB so confirm() works across worker boundaries / restarts.
@@ -272,6 +296,27 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
 
 
 async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
+    """Execute the import; on ANY mid-import failure run the compensating
+    rollback so no orphan team/agents survive (confirm used to be
+    best-effort and repeated failures stranded partial teams)."""
+    ctx: Dict[str, Any] = {}
+    try:
+        return await _confirm_inner(preflight_token, user_id, ctx)
+    except Exception:
+        id_map = ctx.get("id_map")
+        db = ctx.get("db")
+        if id_map and db is not None:
+            logger.error(
+                f"bundle_import.failed.rolling_back new_ids={len(id_map)} "
+                f"(orphan sweep — original error re-raised after cleanup)"
+            )
+            await _rollback_partial_import(db, id_map)
+        raise
+
+
+async def _confirm_inner(
+    preflight_token: str, user_id: str, _rollback_ctx: Dict[str, Any]
+) -> Dict[str, Any]:
     """Execute the actual import using a previously preflighted bundle.
 
     Emits structured log lines prefixed `bundle_import.<event>` throughout
@@ -283,6 +328,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
     _t0 = time.monotonic()
 
     db = await get_db_client()
+    _rollback_ctx["db"] = db
     row = await db.get_one("bundle_preflight_sessions", {"token": preflight_token})
     if not row:
         logger.warning(f"bundle_import.error event=token_not_found token={preflight_token[:12]}…")
@@ -447,6 +493,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         + " ".join(f"{k}={v}" for k, v in sorted(id_map_breakdown.items()))
         + f" total={len(id_map)}"
     )
+    _rollback_ctx["id_map"] = id_map
 
     free_text_regex = build_all_id_regex()
     OWNER_PLACEHOLDER = "<original_owner>"
@@ -532,7 +579,6 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         "instances_created": 0,
         "messages_created": 0,
         "social_entities_created": 0,
-        "rag_rows_created": 0,
         "awareness_rows_created": 0,
         "jobs_created": 0,
         "narrative_links_created": 0,
@@ -548,6 +594,13 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         "mcp_hints": 0,
         "warnings": [],
     }
+
+    # Legacy-column tolerance: every bundle-sourced row is sanitized
+    # against the CURRENT schema before insert (see _sanitize_for_schema).
+    dropped_legacy_columns: Dict[str, int] = {}
+
+    async def _ins(table: str, row: Dict[str, Any]) -> None:
+        await db.insert(table, _sanitize_for_schema(table, row, dropped_legacy_columns))
 
     # -- Team --
     new_team_id = None
@@ -566,7 +619,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             readme_path = work_dir / "README.md"
             if readme_path.exists():
                 intro = readme_path.read_text(encoding="utf-8")
-        await db.insert("teams", {
+        await _ins("teams", {
             "team_id": new_tid,
             "owner_user_id": user_id,
             "name": team_name,
@@ -616,7 +669,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         new_agent_row["created_by"] = user_id
         new_agent_row.pop("agent_create_time", None)
         new_agent_row.pop("agent_update_time", None)
-        await db.insert("agents", new_agent_row)
+        await _ins("agents", new_agent_row)
         written_summary["agents_created"] += 1
         rename_part = f"renamed_from={original_name!r}" if renamed else "renamed=no"
         logger.info(
@@ -626,7 +679,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
 
         # team_members
         if new_team_id:
-            await db.insert("team_members", {"team_id": new_team_id, "agent_id": new_aid})
+            await _ins("team_members", {"team_id": new_team_id, "agent_id": new_aid})
 
         # Narratives + events
         ndir = adir / "narratives"
@@ -641,7 +694,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_nrow = rewrite_row("narratives", nrow)
                 new_nrow.pop("created_at", None)
                 new_nrow.pop("updated_at", None)
-                await db.insert("narratives", new_nrow)
+                await _ins("narratives", new_nrow)
                 written_summary["narratives_created"] += 1
 
                 e_path = nsub / "events.jsonl"
@@ -659,7 +712,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                             new_erow.pop("created_at", None)
                             new_erow.pop("updated_at", None)
                             new_erow["user_id"] = user_id
-                            await db.insert("events", new_erow)
+                            await _ins("events", new_erow)
                             written_summary["events_created"] += 1
 
         # instances. Filter out rows whose module_class isn't registered in
@@ -667,7 +720,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         # runtime would log "Unknown module type X, skipping" against on every
         # agent turn (and they'd be dead weight forever, since cascade-delete
         # only fires when the agent itself is deleted). Cascade-drop their
-        # instance-scoped children (jobs / social / rag / memory / narrative_links)
+        # instance-scoped children (jobs / social / memory / narrative_links)
         # by remembering the skipped instance_ids.
         from xyz_agent_context.module import MODULE_MAP
         skipped_instance_ids: set = set()
@@ -690,7 +743,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     new_irow["user_id"] = user_id
                     new_irow.pop("created_at", None)
                     new_irow.pop("updated_at", None)
-                    await db.insert("module_instances", new_irow)
+                    await _ins("module_instances", new_irow)
                     written_summary["instances_created"] += 1
         if skipped_by_class:
             for cls_name, n in skipped_by_class.items():
@@ -701,34 +754,44 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 written_summary["warnings"].append(msg)
                 logger.warning(f"bundle_import.skip_unknown_module agent={old_aid} class={cls_name} count={n}")
 
-        # social entities
+        # social entities — written into the unified memory_entity store via the
+        # repo (entity's single home now). The flat records + id rewrites are
+        # unchanged; only the destination moved off instance_social_entities.
         se_path = adir / "social_entities.json"
         if se_path.exists():
+            from xyz_agent_context.repository import SocialNetworkRepository
+            from xyz_agent_context.schema import SocialNetworkEntity
+            social_repo = SocialNetworkRepository(db, new_aid)
             for srec in json.loads(se_path.read_text(encoding="utf-8")):
                 if srec.get("instance_id") in skipped_instance_ids:
                     continue
-                new_sr = rewrite_row("instance_social_entities", srec)
-                new_sr.pop("created_at", None)
-                new_sr.pop("updated_at", None)
+                new_sr = rewrite_row("social_entities", srec)
                 # entity_id might be an agent_id in our closure
                 if srec.get("entity_type") == "agent":
                     eid = new_sr.get("entity_id")
                     if eid in id_map:
                         new_sr["entity_id"] = id_map[eid]
-                await db.insert("instance_social_entities", new_sr)
+                entity = SocialNetworkEntity(
+                    entity_id=new_sr.get("entity_id"),
+                    entity_type=new_sr.get("entity_type") or "user",
+                    instance_id=new_sr.get("instance_id"),
+                    entity_name=new_sr.get("entity_name"),
+                    aliases=_loads_maybe(new_sr.get("aliases"), []),
+                    entity_description=new_sr.get("entity_description"),
+                    identity_info=_loads_maybe(new_sr.get("identity_info"), {}),
+                    contact_info=_loads_maybe(new_sr.get("contact_info"), {}),
+                    familiarity=new_sr.get("familiarity") or "known_of",
+                    relationship_strength=float(new_sr.get("relationship_strength") or 0.0),
+                    interaction_count=int(new_sr.get("interaction_count") or 0),
+                    last_interaction_time=new_sr.get("last_interaction_time"),
+                    keywords=_loads_maybe(new_sr.get("tags"), []),
+                    expertise_domains=_loads_maybe(new_sr.get("expertise_domains"), []),
+                    related_job_ids=_loads_maybe(new_sr.get("related_job_ids"), []),
+                    persona=new_sr.get("persona"),
+                    extra_data=_loads_maybe(new_sr.get("extra_data"), {}),
+                )
+                await social_repo.save_entity(entity)
                 written_summary["social_entities_created"] += 1
-
-        # rag store
-        rag_path = adir / "rag.json"
-        if rag_path.exists():
-            for rrec in json.loads(rag_path.read_text(encoding="utf-8")):
-                if rrec.get("instance_id") in skipped_instance_ids:
-                    continue
-                new_rr = rewrite_row("instance_rag_store", rrec)
-                new_rr.pop("created_at", None)
-                new_rr.pop("updated_at", None)
-                await db.insert("instance_rag_store", new_rr)
-                written_summary["rag_rows_created"] += 1
 
         # agent_messages
         am_path = adir / "agent_messages.jsonl"
@@ -744,7 +807,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                         continue
                     new_mr = rewrite_row("agent_messages", mrec)
                     new_mr.pop("created_at", None)
-                    await db.insert("agent_messages", new_mr)
+                    await _ins("agent_messages", new_mr)
                     written_summary["messages_created"] += 1
 
         # awareness (bug 1 — was being exported but never inserted on import)
@@ -756,7 +819,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_ar = rewrite_row("instance_awareness", arec)
                 new_ar.pop("created_at", None)
                 new_ar.pop("updated_at", None)
-                await db.insert("instance_awareness", new_ar)
+                await _ins("instance_awareness", new_ar)
                 written_summary["awareness_rows_created"] += 1
 
         # instance_jobs.
@@ -786,7 +849,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     new_jr["created_at"] = datetime.now(timezone.utc).isoformat(sep=" ")
                 if not new_jr.get("updated_at"):
                     new_jr["updated_at"] = new_jr["created_at"]
-                await db.insert("instance_jobs", new_jr)
+                await _ins("instance_jobs", new_jr)
                 written_summary["jobs_created"] += 1
 
         # instance_narrative_links (bidirectional binding between narratives + module instances)
@@ -819,7 +882,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     continue
                 seen_pairs.add(pair)
                 try:
-                    await db.insert("instance_narrative_links", new_nl)
+                    await _ins("instance_narrative_links", new_nl)
                     written_summary["narrative_links_created"] += 1
                 except Exception as ex:
                     # Cross-agent / cross-file duplicate (case 2) — pair was
@@ -858,7 +921,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_mm.pop("created_at", None)
                 new_mm.pop("updated_at", None)
                 try:
-                    await db.insert(memory_table, new_mm)
+                    await _ins(memory_table, new_mm)
                     written_summary["memory_rows_created"] += 1
                 except Exception as me:
                     logger.warning(f"insert {memory_table} failed: {me}")
@@ -899,7 +962,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                     new_ar.pop("created_at", None)
                     new_ar.pop("updated_at", None)
                     try:
-                        await db.insert("instance_artifacts", new_ar)
+                        await _ins("instance_artifacts", new_ar)
                         written_summary["artifacts_created"] += 1
                     except Exception as ae:
                         logger.warning(
@@ -920,7 +983,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             k: written_summary[k] - before.get(k, 0)
             for k in (
                 "narratives_created", "events_created", "instances_created",
-                "messages_created", "social_entities_created", "rag_rows_created",
+                "messages_created", "social_entities_created",
                 "awareness_rows_created", "jobs_created", "narrative_links_created",
                 "memory_rows_created", "artifacts_created",
             )
@@ -952,14 +1015,14 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_ch.pop("updated_at", None)
                 # owner_user_id → recipient (rewrite_row handles this column-wise)
                 try:
-                    await db.insert("bus_channels", new_ch)
+                    await _ins("bus_channels", new_ch)
                     written_summary["bus_channels_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_channels insert failed: {e}")
             for m in (bus.get("members") or []):
                 new_m = rewrite_row("bus_channel_members", m)
                 try:
-                    await db.insert("bus_channel_members", new_m)
+                    await _ins("bus_channel_members", new_m)
                     written_summary["bus_members_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_channel_members insert failed: {e}")
@@ -967,14 +1030,14 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 new_ms = rewrite_row("bus_messages", ms)
                 new_ms.pop("created_at", None)
                 try:
-                    await db.insert("bus_messages", new_ms)
+                    await _ins("bus_messages", new_ms)
                     written_summary["bus_messages_created"] += 1
                 except Exception as e:
                     logger.warning(f"bus_messages insert failed: {e}")
             for r in (bus.get("registry") or []):
                 new_r = rewrite_row("bus_agent_registry", r)
                 try:
-                    await db.insert("bus_agent_registry", new_r)
+                    await _ins("bus_agent_registry", new_r)
                     written_summary["bus_registry_created"] += 1
                 except Exception as e:
                     # Likely a UNIQUE collision if the recipient happens to already
@@ -998,7 +1061,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 if "message_id" in new_ib:
                     new_ib["message_id"] = id_map.get(new_ib["message_id"], new_ib["message_id"])
                 try:
-                    await db.insert("inbox_table", new_ib)
+                    await _ins("inbox_table", new_ib)
                     written_summary["inbox_rows_created"] += 1
                 except Exception as e:
                     logger.warning(f"inbox_table insert failed: {e}")
@@ -1271,7 +1334,7 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
                 )
                 continue
             try:
-                await db.insert("mcp_urls", new_row)
+                await _ins("mcp_urls", new_row)
                 written_summary["mcp_urls_created"] += 1
             except Exception as me:
                 logger.warning(f"bundle_import.mcp.insert_failed reason={me}")
@@ -1297,16 +1360,16 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
         agent_inst_ids = [r["instance_id"] for r in await db.get("module_instances", {"agent_id": naid})]
         n_aware = 0
         n_social = 0
-        n_rag = 0
+        from xyz_agent_context.repository import SocialNetworkRepository
+        _social_repo = SocialNetworkRepository(db)
         for iid in agent_inst_ids:
             n_aware += len(await db.get("instance_awareness", {"instance_id": iid}))
-            n_social += len(await db.get("instance_social_entities", {"instance_id": iid}))
-            n_rag += len(await db.get("instance_rag_store", {"instance_id": iid}))
+            n_social += len(await _social_repo.get_all_entities(iid, limit=100000))
         per = {
             "agent_id": naid,
             "narratives": n_narr, "events": n_evt, "instances": n_inst,
             "messages": n_msg, "jobs": n_job, "awareness": n_aware,
-            "social_entities": n_social, "rag_rows": n_rag,
+            "social_entities": n_social,
         }
         verification["per_agent"].append(per)
         logger.info(
@@ -1314,6 +1377,30 @@ async def confirm(preflight_token: str, user_id: str) -> Dict[str, Any]:
             + " ".join(f"{k}={v}" for k, v in per.items() if k != "agent_id")
         )
     written_summary["verification"] = verification
+
+    # ---- Backfill the unified-memory SEARCH INDEXES for the imported agents.
+    # The raw inserts above bypass the live projection-write points
+    # (crud._index_narrative / step_4 interaction / create_job / send_message),
+    # so without this an imported narrative/job/bus/interaction is invisible to
+    # `remember` until it is re-touched. Covers BOTH old bundles (which predate
+    # the indexes) and current ones (same raw-insert path). Best-effort +
+    # per-agent isolation: one agent's failure never aborts the import. Scoped to
+    # this import — new_agent_ids are freshly minted, so every row under them
+    # came from this bundle.
+    from xyz_agent_context.memory.backfill import backfill_agent_search_indexes
+    _bf_total = 0
+    for naid in new_agent_ids:
+        try:
+            _bf_total += await backfill_agent_search_indexes(db, naid)
+        except Exception as e:  # noqa: BLE001 — index backfill is best-effort enrichment
+            logger.warning(f"bundle_import.backfill failed for agent {naid}: {e}")
+    written_summary["search_indexes_backfilled"] = _bf_total
+    if dropped_legacy_columns:
+        written_summary["dropped_legacy_columns"] = dropped_legacy_columns
+        logger.info(
+            "bundle_import.legacy_columns.dropped "
+            + " ".join(f"{k}={v}" for k, v in sorted(dropped_legacy_columns.items()))
+        )
 
     # ---- Final summary log: one line that captures everything important.
     duration_ms = int((time.monotonic() - _t0) * 1000)
@@ -1389,3 +1476,4 @@ def _rewrite_workspace_text_files(root: Path, id_map: Dict[str, str], user_id: s
                     f.write(new_content)
             except OSError:
                 pass
+

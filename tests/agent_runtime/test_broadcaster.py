@@ -160,3 +160,23 @@ async def test_subscribe_after_close_returns_immediately_exhausted():
     async for e in sub:
         received.append(e)
     assert received == []
+
+
+@pytest.mark.asyncio
+async def test_publish_then_immediate_close_does_not_drop_events():
+    """The terminal `complete` frame is published right before close()
+    with no awaits in between (BackgroundRun._finalize). Delivery must
+    be synchronous (put_nowait at publish time) — if publish defers the
+    enqueue to a scheduled task, close() marks the subscriber closed
+    first and the terminal frame is silently dropped."""
+    b = Broadcaster("run_term")
+    sub = b.subscribe("ws1")
+
+    b.publish({"type": "progress"})
+    b.publish({"type": "complete", "state": "completed"})
+    b.close()  # immediately after — no event-loop yield in between
+
+    received = []
+    async for e in sub:
+        received.append(e)
+    assert [e["type"] for e in received] == ["progress", "complete"]

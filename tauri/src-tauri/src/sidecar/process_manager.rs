@@ -140,6 +140,17 @@ impl ProcessManager {
             .env("SQLITE_PROXY_PORT", &proxy_port);
         if def.id == "backend" {
             cmd.env("DASHBOARD_BIND_HOST", "127.0.0.1");
+            // Analytics surface label: the desktop sidecar serves the
+            // "desktop" surface. resolve_surface() reads NARRA_SURFACE.
+            cmd.env("NARRA_SURFACE", "desktop");
+            // Official release builds bake a write-only PostHog ingest key in
+            // at compile time (CI sets NARRA_POSTHOG_KEY from a repo secret).
+            // option_env! resolves to None for community / source builds, which
+            // therefore stay silent (the backend falls back to NullSink). The
+            // key is forwarded to the Python sidecar as POSTHOG_API_KEY.
+            if let Some(key) = option_env!("NARRA_POSTHOG_KEY") {
+                cmd.env("POSTHOG_API_KEY", key);
+            }
         }
         let mut child = cmd
             .stdout(Stdio::piped())

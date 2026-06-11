@@ -31,7 +31,6 @@ from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
-    EmbeddingConfig,
     OpenAIConfig,
 )
 from xyz_agent_context.agent_framework.provider_driver.base import (
@@ -76,17 +75,6 @@ class SystemDriver(_DriverBase):
                 f"SystemDriver on protocol={self.card.protocol!r} can't serve helper_llm slot"
             )
         return OpenAIConfig(
-            api_key=self.card.api_key,
-            base_url=self.card.base_url,
-            model=model,
-        )
-
-    def build_embedding_config(self, model: str) -> EmbeddingConfig:
-        if not self._is_openai_row():
-            raise NotImplementedError(
-                f"SystemDriver on protocol={self.card.protocol!r} can't serve embedding slot"
-            )
-        return EmbeddingConfig(
             api_key=self.card.api_key,
             base_url=self.card.base_url,
             model=model,

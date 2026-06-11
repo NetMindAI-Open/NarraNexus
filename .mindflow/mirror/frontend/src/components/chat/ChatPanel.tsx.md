@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-29
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
+
+The Processing indicator is now [[ExecutionPopover]] — click opens a
+live pipeline-step list (the execution view retired with RuntimePanel,
+resurrected as click-to-peek). Header left side gained
+overflow-hidden + agent-id truncation so a narrow chat (artifact
+column open) can never run the label under the Processing/cost cluster.
+
+## 2026-06-11 — CostPopover joins the header row
+
+The cost chip used to float `absolute top-2 right-2` over the chat
+card (MainLayout) and collided with this header's Processing indicator
+during runs. It is now a proper flex member of the header's right
+side, next to Processing — no overlap possible. Carries the
+`chat.cost` help anchor.
 
 ## 2026-05-29 — defer streaming values to throttle render bursts (F5)
 

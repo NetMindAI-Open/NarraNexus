@@ -1,9 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-04-10
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
+
+SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and
+`reasoning_effort: ""|low|medium|high|max` ("" = auto = adapter passes
+nothing). They are deliberately NOT provider dialect (no "adaptive"/
+"minimal"): NarraNexus will adapt more frameworks (Codex, pi, ...), so the
+slot stores semantics and each agent-framework adapter owns the mapping +
+clamping (rule #9). Persisted as `user_slots.params_json` (cloud) and via
+the normal LLMConfig JSON dump (local llm_config.json) — both backends
+expose them through the same set_slot(..., thinking=, reasoning_effort=)
+signature with PUT semantics (omitted = reset to auto). Corrupt or
+out-of-vocabulary stored params degrade to auto with a warning instead of
+failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
+
 # user_provider_service.py — 多租户场景的 per-user provider 数据库服务
+
+## 2026-06-09 — funnel redesign: llm_slot_configured removed from set_slot
+
+`set_slot` no longer emits any analytics. The `llm_slot_configured` event
+and all of its supporting logic (`provider_method` derivation from source
+field, agent-slot-only gate) were removed in the 2026-06-09 lean funnel
+redesign that simplified the funnel to 5 events. The removal was deliberate —
+not an accident or a forgotten call site. Future readers: if the chokepoint
+instrumentation is ever needed again, `set_slot` is still the correct place
+to add it (it is the single path `PUT /slots`, `POST /providers`
+default_slots loop, and claude_oauth binding all share).
 
 ## 为什么存在
 

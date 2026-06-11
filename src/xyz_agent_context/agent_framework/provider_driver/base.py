@@ -25,12 +25,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from decimal import Decimal
 from typing import Optional, Protocol, runtime_checkable
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
-    EmbeddingConfig,
     OpenAIConfig,
 )
 
@@ -189,14 +187,6 @@ class Driver(Protocol):
         """
         ...
 
-    def build_embedding_config(self, model: str) -> EmbeddingConfig:
-        """Build an ``EmbeddingConfig`` for the EMBEDDING slot.
-
-        Same protocol gate as build_openai_config — anthropic-only
-        drivers raise NotImplementedError.
-        """
-        ...
-
     # ----- diagnostics + lifecycle hooks ------------------------------------
 
     async def probe(self) -> DriverHealth:
@@ -267,11 +257,6 @@ class _DriverBase:
     def build_openai_config(self, model: str) -> OpenAIConfig:
         raise NotImplementedError(
             f"{type(self).__name__} does not support helper_llm (openai) slot"
-        )
-
-    def build_embedding_config(self, model: str) -> EmbeddingConfig:
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support embedding (openai) slot"
         )
 
 

@@ -4,20 +4,20 @@
  *
  * Replaces the small popover with a spacious modal containing:
  *   - Provider Management (add/remove providers)
- *   - Model Assignment (Agent / Embedding / Helper LLM with descriptions)
- *   - Embedding Index Status
+ *   - Model Assignment (Agent / Helper LLM with descriptions)
  *
  * Each slot section includes a plain-language explanation of what it does and
  * how it affects the Agent's behavior, making it accessible to non-technical users.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Cpu, Database, Info } from 'lucide-react';
+import { X, Cpu, Info, Shield } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from './ProviderSettings';
-import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
+import { useConfigStore } from '@/stores/configStore';
+import { api } from '@/lib/api';
 
 // =============================================================================
 // Sidebar navigation sections
@@ -31,7 +31,7 @@ interface NavSection {
 
 const NAV_SECTIONS: NavSection[] = [
   { id: 'providers', label: 'LLM Providers', icon: Cpu },
-  { id: 'embedding', label: 'Embedding Index', icon: Database },
+  { id: 'privacy', label: 'Privacy', icon: Shield },
 ];
 
 // =============================================================================
@@ -46,15 +46,6 @@ const SLOT_EXPLANATIONS = [
       'The "brain" of your AI agent. This model handles all conversations with users, ' +
       'makes decisions, and executes tasks. A more capable model here means smarter, more nuanced responses.',
     protocol: 'Anthropic protocol',
-  },
-  {
-    name: 'Embedding',
-    color: 'var(--color-success)',
-    description:
-      'Converts text into numerical vectors so the agent can search its memory. ' +
-      'This powers "semantic search" — finding relevant past conversations even when the exact words differ. ' +
-      'Affects how well the agent remembers context.',
-    protocol: 'OpenAI protocol',
   },
   {
     name: 'Helper LLM',
@@ -82,6 +73,38 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState('providers');
+
+  // Analytics opt-out state: true = analytics ON (opted_out = false)
+  const userId = useConfigStore((s) => s.userId);
+  const [analyticsEnabled, setAnalyticsEnabled] = useState(true);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // Load analytics opt-out state when the Privacy section is first opened.
+  // userId only gates "is someone logged in" — identity itself travels in
+  // the auth header set by the api client.
+  useEffect(() => {
+    if (!isOpen || !userId || activeSection !== 'privacy') return;
+    api.getAnalyticsOptOut().then((optedOut) => {
+      setAnalyticsEnabled(!optedOut);
+    }).catch(() => {
+      // non-critical — keep current optimistic state
+    });
+  }, [isOpen, userId, activeSection]);
+
+  const handleAnalyticsToggle = useCallback(async () => {
+    if (!userId || analyticsLoading) return;
+    const nextEnabled = !analyticsEnabled;
+    setAnalyticsEnabled(nextEnabled);
+    setAnalyticsLoading(true);
+    try {
+      await api.setAnalyticsOptOut(!nextEnabled);
+    } catch {
+      // revert on failure
+      setAnalyticsEnabled(!nextEnabled);
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [userId, analyticsEnabled, analyticsLoading]);
 
   // ESC key to close + lock body scroll
   const handleEscape = useCallback((e: KeyboardEvent) => {
@@ -175,8 +198,8 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                       </h3>
                     </div>
                     <p className="text-xs text-[var(--text-tertiary)] mb-4">
-                      NarraNexus uses three AI models for different purposes. You can use the same provider
-                      for all three, or mix and match to optimize for cost, speed, or quality.
+                      NarraNexus uses two AI model slots for different purposes. You can use the same provider
+                      for both, or mix and match to optimize for cost, speed, or quality.
                     </p>
                     <div className="grid grid-cols-1 gap-3">
                       {SLOT_EXPLANATIONS.map((slot) => (
@@ -212,22 +235,54 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 </div>
               )}
 
-              {/* ─── Embedding Index Section ─── */}
-              {activeSection === 'embedding' && (
+              {/* ─── Privacy Section ─── */}
+              {activeSection === 'privacy' && (
                 <div className="space-y-4 max-w-2xl">
                   <div>
                     <h3 className="text-sm font-medium text-[var(--text-primary)] mb-2">
-                      Vector Embedding Index
+                      Privacy
                     </h3>
                     <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
-                      The embedding index converts your agent's memories into searchable vectors.
-                      When you change the embedding model, existing vectors need to be rebuilt
-                      to match the new model's format. This process runs in the background
-                      and does not interrupt normal agent operations.
+                      Control what data NarraNexus collects to improve the product.
                     </p>
                   </div>
 
-                  <EmbeddingStatus />
+                  {/* Analytics toggle row */}
+                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                    <div className="flex-1 min-w-0 pr-4">
+                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                        Product analytics
+                      </p>
+                      <p className="text-xs text-[var(--text-tertiary)] mt-0.5 leading-relaxed">
+                        Allow NarraNexus to collect anonymous usage data to improve the product.
+                        No conversation content is ever collected.
+                      </p>
+                    </div>
+                    {/* Inline toggle button */}
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={analyticsEnabled}
+                      disabled={analyticsLoading || !userId}
+                      onClick={handleAnalyticsToggle}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full',
+                        'transition-colors duration-200 focus-visible:outline-none',
+                        'disabled:cursor-not-allowed disabled:opacity-50',
+                        analyticsEnabled
+                          ? 'bg-[var(--accent-primary)]'
+                          : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)]',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm',
+                          'transition-transform duration-200',
+                          analyticsEnabled ? 'translate-x-6' : 'translate-x-1',
+                        )}
+                      />
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

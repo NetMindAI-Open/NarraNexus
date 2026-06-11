@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-05-29
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — interaction index (chat+event merge)
+
+After the event's `final_output` is set, step 4 writes ONE interaction index into `memory_event` via `MemoryEngine.index('event', event_id, user_input + final_output)` — the per-turn searchable conversation surface, with a `source_ref` back to the event. This is the chat/event merge: `remember` finds the interaction, then the agent fetches the full agent-loop trace via `view_event` (or the conversation context via `get_chat_history`). Best-effort (an index failure never breaks persistence). It replaces the retired `memory_chat` search-mirror that ChatModule used to write (see [[chat_module]]).
 
 ## 2026-05-20 (Fix #2 P3) — 4.0 narrative routing signal
 

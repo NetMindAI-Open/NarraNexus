@@ -5,11 +5,10 @@ This directory contains the concrete implementation of NarrativeService and shou
 
 Module list:
 - crud: Narrative creation, read, update, delete
-- retrieval: Vector retrieval and LLM confirmation
-- updater: Embedding update and summary generation
+- retrieval: BM25 keyword retrieval and LLM confirmation
+- updater: Narrative summary generation
 - instance_handler: Instance dependency management
 - prompt_builder: Prompt assembly
-- vector_store: Vector storage
 - continuity: Continuity detection
 - default_narratives: Default Narrative management
 """
@@ -19,7 +18,6 @@ from .retrieval import NarrativeRetrieval
 from .updater import NarrativeUpdater
 from .instance_handler import InstanceHandler
 from .prompt_builder import PromptBuilder
-from .vector_store import VectorStore
 from .continuity import ContinuityDetector
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
@@ -40,7 +38,6 @@ __all__ = [
     "NarrativeUpdater",
     "InstanceHandler",
     "PromptBuilder",
-    "VectorStore",
     "ContinuityDetector",
     # Default Narratives
     "DEFAULT_NARRATIVES_CONFIG",

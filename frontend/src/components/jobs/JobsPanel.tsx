@@ -42,6 +42,17 @@ import type { Job } from '@/types/api';
 
 type ViewMode = 'list' | 'graph' | 'timeline';
 
+interface JobsPanelProps {
+  /** When true, skips the outer Card chrome so the panel can be embedded
+   *  inside another container (e.g. ActivityPanel in the bookmark drawer).
+   *  All functional behaviour is unchanged; default=false preserves existing
+   *  call sites. */
+  embedded?: boolean;
+  /** Fired after a job is successfully cancelled or resumed — lets the
+   *  bookmark layer resolve a pending 'attention' state for that job. */
+  onJobResolved?: (jobId: string) => void;
+}
+
 const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor: string; label: string }> = {
   pending: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Pending' },
   active: { icon: Zap, color: 'text-[var(--accent-primary)]', bgColor: 'bg-[var(--accent-glow)]', label: 'Active' },
@@ -92,7 +103,7 @@ function jobToJobNode(job: Job): JobNode {
   };
 }
 
-export function JobsPanel() {
+export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = {}) {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -159,6 +170,7 @@ export function JobsPanel() {
     try {
       const res = await api.cancelJob(jobId);
       if (res.success) {
+        onJobResolved?.(jobId);
         refreshJobs(agentId, userId);
       } else {
         await alert({
@@ -215,6 +227,7 @@ export function JobsPanel() {
     try {
       const res = await api.resumeJob(jobId);
       if (res.success) {
+        onJobResolved?.(jobId);
         refreshJobs(agentId, userId);
       } else {
         await alert({
@@ -235,17 +248,21 @@ export function JobsPanel() {
     }
   };
 
-  return (
-    <Card variant="glass" className="flex flex-col h-full">
+  const inner = (
+    <>
       {confirmDialog}
-      <CardHeader>
-        <CardTitle>
-          <Calendar />
-          Jobs
-          <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
-            · {allJobs.length}
-          </span>
-        </CardTitle>
+      {/* Embedded mode drops the duplicate title (the host section already
+          names the panel) but keeps the functional actions. */}
+      <CardHeader className={cn(embedded && 'justify-end py-1')}>
+        {!embedded && (
+          <CardTitle>
+            <Calendar />
+            Jobs
+            <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
+              · {allJobs.length}
+            </span>
+          </CardTitle>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -552,6 +569,16 @@ export function JobsPanel() {
           </div>
         )}
       </CardContent>
+    </>
+  );
+
+  if (embedded) {
+    return <div className="flex flex-col h-full">{inner}</div>;
+  }
+
+  return (
+    <Card variant="glass" className="flex flex-col h-full">
+      {inner}
     </Card>
   );
 }

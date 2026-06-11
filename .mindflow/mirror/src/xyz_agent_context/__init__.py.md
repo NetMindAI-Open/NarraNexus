@@ -2,6 +2,14 @@
 
 Package entry point — re-exports the full public API of the `xyz_agent_context` package in dependency order.
 
+## 2026-06-09 — `__version__` sourced from package metadata
+
+`__version__` was a hardcoded `"0.1.0"` that silently went stale. It now reads
+`importlib.metadata.version("xyz-agent-context")` (= pyproject `[project].version`,
+one of the 5 release anchors), falling back to `"0.0.0+unknown"` in a source tree
+with no install metadata. This is the single source of truth the bundle builder
+stamps into every export manifest (`_current_app_version`).
+
 ## Why it exists
 
 `xyz_agent_context` is the core installable package. Its `__init__.py` defines what is importable from the package root (`from xyz_agent_context import AgentRuntime`). Without it, callers would have to know the deep module path for every symbol. The file also establishes the initialization order: `schema/` (no deps) → `utils/` (low deps) → `narrative/` → `module/` → `agent_framework/` → `context_runtime/` → `agent_runtime/`. This order is intentional — importing in a different order during testing can trigger circular import errors.

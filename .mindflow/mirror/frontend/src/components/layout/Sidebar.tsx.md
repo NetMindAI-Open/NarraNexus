@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-05-19
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — TeamFilterAndAgents wrapper retired
+
+The grouped-sidebar redesign deleted TeamFilterBar; Sidebar now renders
+`<AgentList collapsed={...}/>` directly inside the ScrollArea. The
+`TeamFilterAndAgents` helper (chip-filter state + filterAgentIds
+derivation) is gone — grouping lives in [[agentGroupUtils]] /
+[[AgentList]]. Collapsed-mode team representation (formerly ∗/∅/color
+dots) is now AgentList's avatar rail; Sidebar's own collapsed duties
+are unchanged (logo, user avatar, nav icons, footer).
 
 ## 2026-05-19 — Sidebar bg moved to `--nm-paper`
 

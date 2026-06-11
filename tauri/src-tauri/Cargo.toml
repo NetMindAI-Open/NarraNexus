@@ -1,6 +1,6 @@
 [package]
 name = "narranexus"
-version = "1.7.15"
+version = "1.8.2"
 edition = "2021"
 
 [lib]

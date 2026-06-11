@@ -5,7 +5,7 @@ This directory contains the concrete implementation of EventService and should n
 
 Module list:
 - crud: Event creation, read, update
-- processor: Event processing, embedding generation, context selection
+- processor: Event processing and context selection
 - prompt_builder: Event Prompt assembly
 """
 

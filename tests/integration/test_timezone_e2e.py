@@ -71,22 +71,15 @@ async def _create_job(
 ) -> str:
     """Thin wrapper mocking embedding calls so the scheduling path is exercised."""
     svc = JobInstanceService(db)
-    with patch(
-        "xyz_agent_context.agent_framework.llm_api.embedding.get_embedding",
-        new=AsyncMock(return_value=[0.0] * 8),
-    ), patch(
-        "xyz_agent_context.agent_framework.llm_api.embedding_store_bridge.store_embedding",
-        new=AsyncMock(return_value=None),
-    ):
-        result = await svc.create_job_with_instance(
-            agent_id="agent_tz",
-            user_id=user_id,
-            title=title,
-            description="d",
-            job_type=job_type,
-            trigger_config=trigger_config,
-            payload="p",
-        )
+    result = await svc.create_job_with_instance(
+        agent_id="agent_tz",
+        user_id=user_id,
+        title=title,
+        description="d",
+        job_type=job_type,
+        trigger_config=trigger_config,
+        payload="p",
+    )
     assert result["success"], result
     return result["job_id"]
 

@@ -30,7 +30,6 @@ from backend.routes._dashboard_helpers import (
     build_action_line,
     build_recent_events_resp,
     build_run_state_for_agent,
-    classify_kind,
     derive_attention_banners,
     derive_health,
     fetch_enhanced_signals,
@@ -345,7 +344,7 @@ async def job_detail(job_id: str, request: Request):
     if not owns_agent:
         raise HTTPException(status_code=403, detail="not owned")  # public can't peek internals
 
-    # Recent history: last 5 events that reference this job (heuristic via embedding_text match)
+    # Recent history: last 5 events that reference this job
     history_rows = await db.execute(
         "SELECT event_id, created_at, final_output "
         "FROM events WHERE agent_id=%s "

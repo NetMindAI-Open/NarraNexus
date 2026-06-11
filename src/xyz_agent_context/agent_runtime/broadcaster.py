@@ -44,6 +44,7 @@ to dwarf realistic in-flight stream depth.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import AsyncIterator, Optional
 
 from loguru import logger
@@ -74,9 +75,15 @@ class Subscriber:
         )
         self._closed = False
 
-    async def push(self, event: dict) -> None:
+    def push(self, event: dict) -> None:
         """Append an event to this subscriber's queue. Drops with a
-        warning if the queue is full (slow WS consumer)."""
+        warning if the queue is full (slow WS consumer).
+
+        Synchronous (put_nowait) by design: the terminal `complete`
+        frame is published immediately before ``Broadcaster.close()``
+        with no event-loop yield in between. A task-deferred enqueue
+        would race the close (which flips ``_closed``) and silently
+        drop the frame the frontend relies on to end the turn."""
         if self._closed:
             return
         try:
@@ -90,33 +97,34 @@ class Subscriber:
             )
 
     def close(self) -> None:
-        """Mark closed — any further pushes are no-ops, and the iterator
-        terminates on the next pull."""
+        """Mark closed — any further pushes are no-ops; events already
+        queued (incl. the terminal `complete` frame published right
+        before close) are still drained by the iterator, which
+        terminates on the None sentinel."""
         if not self._closed:
             self._closed = True
-            # Sentinel to wake any awaiting consumer
-            with suppress_qfull(self._queue):
+            # Sentinel to wake any awaiting consumer. If the queue is
+            # saturated, drop the oldest queued event to guarantee the
+            # sentinel lands — a consumer blocked on get() with no
+            # sentinel would hang forever.
+            try:
                 self._queue.put_nowait(None)
+            except asyncio.QueueFull:
+                with suppress(asyncio.QueueEmpty):
+                    self._queue.get_nowait()
+                with suppress(asyncio.QueueFull):
+                    self._queue.put_nowait(None)
 
     async def __aiter__(self) -> AsyncIterator[dict]:
-        """Yield events from the queue until ``close()`` is called."""
+        """Yield queued events until the close sentinel (None) is
+        reached. Termination is sentinel-only by design: checking
+        ``self._closed`` here would discard events that were queued
+        just before close() — exactly the terminal `complete` frame."""
         while True:
             event = await self._queue.get()
-            if event is None or self._closed:
+            if event is None:
                 return
             yield event
-
-
-def suppress_qfull(q: asyncio.Queue):
-    """Tiny context manager substitute — drop QueueFull silently. Used
-    only on close-sentinel paths where the queue might be saturated."""
-    class _Ctx:
-        def __enter__(self_inner):
-            return self_inner
-
-        def __exit__(self_inner, exc_type, exc, tb):
-            return exc_type is asyncio.QueueFull
-    return _Ctx()
 
 
 class Broadcaster:
@@ -153,12 +161,11 @@ class Broadcaster:
         if self._closed:
             return
         # Iterate over a snapshot so subscribers that disconnect mid-fanout
-        # don't break the loop.
+        # don't break the loop. push is synchronous put_nowait, so the
+        # event is in every queue before publish() returns — a close()
+        # right after publish() can never drop it.
         for sub in list(self._subscribers.values()):
-            # Use create_task so we don't await each push sequentially.
-            # Each push is essentially put_nowait — non-blocking — but the
-            # async method signature requires a task wrapper.
-            asyncio.create_task(sub.push(event))
+            sub.push(event)
 
     def set_current_thinking_buffer(self, text: str) -> None:
         """Update the in-flight thinking segment snapshot. Called by
@@ -202,14 +209,10 @@ class Broadcaster:
         # mid-segment loses the part of thinking that has been
         # accumulated but not yet flushed to event_stream.
         if self._current_thinking_buffer:
-            # asyncio.create_task instead of awaiting — Subscriber.push
-            # is async-only.
-            asyncio.create_task(
-                sub.push({
-                    "type": "thinking_partial_replay",
-                    "content": self._current_thinking_buffer,
-                })
-            )
+            sub.push({
+                "type": "thinking_partial_replay",
+                "content": self._current_thinking_buffer,
+            })
         return sub
 
     def unsubscribe(self, session_id: str) -> None:

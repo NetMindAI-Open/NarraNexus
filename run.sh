@@ -341,6 +341,9 @@ run_container_mode() {
   export NEXUS_LOG_DIR="${NEXUS_LOG_DIR:-/data/logs}"
   export DATABASE_URL="${DATABASE_URL:-sqlite:////data/nexus.db}"
   export DASHBOARD_BIND_HOST="${DASHBOARD_BIND_HOST:-0.0.0.0}"
+  # Analytics surface label: the container image is the hosted/server form
+  # factor → "cloud" (routes to NullSink this phase). Explicit override wins.
+  export NARRA_SURFACE="${NARRA_SURFACE:-cloud}"
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
   mkdir -p "$(dirname /data/nexus.db)" || true

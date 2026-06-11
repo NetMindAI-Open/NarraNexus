@@ -201,7 +201,7 @@ async def step_1_select_narrative(
     yield ProgressMessage(
         step="1",
         title="📚 Narrative Selection",
-        description="Querying vector store for relevant narratives...",
+        description="Searching narratives (keyword)...",
         status=ProgressStatus.RUNNING,
         substeps=[]
     )
@@ -220,7 +220,6 @@ async def step_1_select_narrative(
         forced_narrative = await narrative_service.load_narrative_from_db(ctx.forced_narrative_id)
         if forced_narrative:
             narrative_list = [forced_narrative]
-            query_embedding = None
             selection_reason = f"Forced Narrative (Job trigger): {ctx.forced_narrative_id}"
             selection_method = "forced"
             retrieval_method = "forced"  # Forced, no retrieval
@@ -241,14 +240,13 @@ async def step_1_select_narrative(
             else:
                 selection_result = await fallback_coro
             narrative_list = selection_result.narratives
-            query_embedding = selection_result.query_embedding
             selection_reason = selection_result.selection_reason
             selection_method = selection_result.selection_method
             is_new = selection_result.is_new
             retrieval_method = selection_result.retrieval_method
     else:
         # ========== Normal Narrative selection flow ==========
-        # Wrap select() so cancellation can interrupt LLM/embedding calls mid-flight
+        # Wrap select() so cancellation can interrupt LLM calls mid-flight
         select_coro = narrative_service.select(
             ctx.agent_id, ctx.user_id, ctx.input_content,
             session=ctx.session,
@@ -261,7 +259,6 @@ async def step_1_select_narrative(
         else:
             selection_result = await select_coro
         narrative_list = selection_result.narratives
-        query_embedding = selection_result.query_embedding
         selection_reason = selection_result.selection_reason
         selection_method = selection_result.selection_method
         is_new = selection_result.is_new
@@ -272,7 +269,6 @@ async def step_1_select_narrative(
         ctx.cancellation.raise_if_cancelled()
 
     ctx.narrative_list = narrative_list
-    ctx.query_embedding = query_embedding
 
     logger.info(
         f"Narratives selected: count={len(narrative_list)}, "
@@ -281,7 +277,7 @@ async def step_1_select_narrative(
 
     # Use similarity scores already computed during Narrative selection
     # (carried through NarrativeSelectionResult.scores, avoiding redundant
-    # embedding loading and cosine similarity re-computation).
+    # BM25 score re-computation).
     # Forced Narrative path skips selection — no scores available.
     scores: Dict[str, float] = selection_result.scores if selection_result else {}
 
@@ -332,10 +328,9 @@ async def step_1_select_narrative(
         status=ProgressStatus.COMPLETED,
         details={
             "display": display_data,
-            "query_embedding": "generated" if ctx.query_embedding else "none",
             "selection_reason": selection_reason,
             "selection_method": selection_method,
-            "retrieval_method": retrieval_method,  # Retrieval method: evermemos, vector, fallback_vector, forced
+            "retrieval_method": retrieval_method,  # keyword (BM25) / session (continuity) / forced
             "is_new": is_new,
         },
         substeps=substeps if substeps else ["No narratives matched"]

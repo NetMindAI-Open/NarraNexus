@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/bundle/id_field_map.py
-last_verified: 2026-05-15
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — social_entities key rename
+
+The id-field-map key `instance_social_entities` was renamed to `social_entities`, matching the bundle section name now that entities are sourced from `memory_entity` via the repo rather than the retired table.
 
 # id_field_map.py — ID Rewrite Layer 2 (PRD §8.11)
 

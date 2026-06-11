@@ -4,20 +4,18 @@
 @date: 2026-05-20
 @description: Short-reply amnesia fix — conversation persistence split.
 
-The conversation row a fast follow-up turn reads is now written SYNCHRONOUSLY in
+The conversation row a fast follow-up turn reads is written SYNCHRONOUSLY in
 ChatModule.hook_persist_turn (in-request, before the WS closes / before the
-background hooks fire), while the heavy Part-B embedding stays in the backgrounded
-hook_after_event_execution. Previously the WRITE itself lived in the background
+background hooks fire). Previously the WRITE itself lived in the background
 hook, which could lag seconds-to-tens-of-seconds; a user replying the instant they
 saw the answer raced that write and the next turn read history missing the
 exchange ("amnesia"). These tests pin the split:
 - hook_persist_turn WRITES the conversation row.
-- hook_after_event_execution does NOT add a conversation row (it only embeds the
-  already-written pair, located by event_id).
+- hook_after_event_execution does NOT add a conversation row.
+  (It used to also embed the pair for Part-B retrieval; embeddings are retired,
+  so ChatModule no longer overrides the background hook at all.)
 """
 from __future__ import annotations
-
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -95,17 +93,14 @@ async def test_persist_turn_writes_conversation_synchronously(chat_module):
 
 
 async def test_after_event_execution_does_not_write_conversation(chat_module):
-    # The write is hook_persist_turn's job; the background hook must ONLY embed.
+    # The conversation write is hook_persist_turn's job. The background hook
+    # must not add conversation rows — and with embeddings retired it is now a
+    # no-op (ChatModule no longer overrides it).
     params = _params()
     await chat_module.hook_persist_turn(params)
     before = await _load(chat_module)
 
-    chat_module._embed_message_pair = AsyncMock()
     await chat_module.hook_after_event_execution(params)
 
     after = await _load(chat_module)
     assert len(after) == len(before)  # no extra conversation rows
-    chat_module._embed_message_pair.assert_awaited_once()
-    _, kwargs = chat_module._embed_message_pair.call_args
-    assert kwargs["event_id"] == "evt_split_1"
-    assert "hello there" in kwargs["assistant_content"]

@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-05-22
+last_verified: 2026-06-08
 ---
 
 ## 2026-05-22 — post-spawn readiness gate + detailed failure
@@ -104,6 +104,20 @@ Command::new(...).env("DATABASE_URL", &db_url).env("SQLITE_PROXY_URL", &proxy_ur
 tokio thread that calls `start_service` may not see the write. Explicit
 `.env()` bypasses the inheritance path. Without `SQLITE_PROXY_URL` the Python
 side opens SQLite directly, causing multi-process lock contention.
+
+For the `backend` service only, two extra env vars are injected: a static
+`NARRA_SURFACE=desktop` (analytics surface label), and — via
+`option_env!("NARRA_POSTHOG_KEY")` — a `POSTHOG_API_KEY` forwarded to the
+Python sidecar. `option_env!` reads at COMPILE time: official release builds
+get the key baked in (CI sets the secret), while community/source builds
+resolve to `None` and ship no key, so the backend stays on NullSink. This is
+the single mechanism that makes telemetry "official builds only".
+
+The `backend` service additionally gets `.env("NARRA_SURFACE", "desktop")` so
+the Python `analytics.surface.resolve_surface()` knows it runs the desktop
+surface. The local launcher (`scripts/dev-local.sh`) injects `local`, container
+mode (`run.sh` `run_container_mode`) injects `cloud`; this is the desktop one of
+those three launch-path labels.
 
 ## PATH injection for bundled Node.js CLIs
 

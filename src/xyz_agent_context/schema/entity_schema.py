@@ -124,10 +124,10 @@ class SocialNetworkEntity(BaseModel):
         description="Persona/style guide for communicating with this entity (natural language description)"
     )
 
-    # Extra data (for extension fields such as embedding vectors)
+    # Extra data (for extension fields)
     extra_data: Dict[str, Any] = Field(
         default={},
-        description="Extra data JSON, for storing extension fields (e.g., embedding vectors, embedding_text, etc.)"
+        description="Extra data JSON, for storing extension fields."
     )
 
     # Timestamps (managed automatically by database)

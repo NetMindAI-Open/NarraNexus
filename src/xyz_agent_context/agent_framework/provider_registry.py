@@ -497,11 +497,17 @@ class ProviderRegistry:
         slot_name: str | SlotName,
         provider_id: str,
         model: str,
+        thinking: str = "",
+        reasoning_effort: str = "",
     ) -> LLMConfig:
         """
-        Assign a provider + model to a slot.
+        Assign a provider + model (+ neutral reasoning params) to a slot.
 
         Validates that the provider's protocol matches the slot's requirements.
+        PUT semantics for the reasoning params: omitted = reset to "" (auto).
+        Must stay behaviorally aligned with UserProviderService.set_slot
+        (rule #7: the local file backend and the cloud DB backend are the
+        same feature in two run modes).
 
         Raises:
             ValueError: If protocol mismatch or provider not found
@@ -519,7 +525,12 @@ class ProviderRegistry:
                 f"but provider '{provider.name}' uses '{provider.protocol.value}'"
             )
 
-        config.slots[slot_str] = SlotConfig(provider_id=provider_id, model=model)
+        config.slots[slot_str] = SlotConfig(
+            provider_id=provider_id,
+            model=model,
+            thinking=thinking,  # type: ignore[arg-type]
+            reasoning_effort=reasoning_effort,  # type: ignore[arg-type]
+        )
         return config
 
     # ---- Validation ----
