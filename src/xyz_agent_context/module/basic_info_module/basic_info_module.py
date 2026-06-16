@@ -154,16 +154,34 @@ class BasicInfoModule(XYZBaseModule):
             agent = await agent_repo.get_agent(self.agent_id)
 
             if agent:
+                from xyz_agent_context.repository import UserRepository
+                user_repo = UserRepository(self.db)
+
                 ctx_data.agent_name = agent.agent_name or "Unknown Agent"
                 ctx_data.agent_description = agent.agent_description or "No description"
-                ctx_data.creator_id = agent.created_by
+                ctx_data.creator_id = agent.created_by  # opaque key, not for display
+                # Creator's HUMAN name (NetMind nickname / local display name).
+                # user_id stays an opaque key; this is what the LLM reads.
+                ctx_data.creator_name = await user_repo.get_display_name(agent.created_by)
 
-                # 3. Determine whether the current user is the Creator, and set user role description
-                ctx_data.is_creator = (self.user_id == agent.created_by)
+                # 3. Who is the CURRENT SENDER, and are they the Creator?
+                # agent_runtime overrides self.user_id to the owner (created_by),
+                # so self.user_id can't tell visitor from owner. The real sender
+                # rides in extra_data.sender_user_id (set by the chat trigger);
+                # absent that (IM / job / owner self-chat) we fall back to the
+                # owner identity.
+                extra = ctx_data.extra_data or {}
+                sender_id = extra.get("sender_user_id") or self.user_id
+                ctx_data.is_creator = (sender_id == agent.created_by)
                 ctx_data.user_role = "Creator (Boss)" if ctx_data.is_creator else "User/Customer"
+                ctx_data.current_speaker_name = (
+                    ctx_data.creator_name
+                    if ctx_data.is_creator
+                    else await user_repo.get_display_name(sender_id)
+                )
 
-                logger.debug(f"            Agent info loaded: name={agent.agent_name}, creator={agent.created_by}")
-                logger.debug(f"            Current user={self.user_id}, is_creator={ctx_data.is_creator}, user_role={ctx_data.user_role}")
+                logger.debug(f"            Agent info loaded: name={agent.agent_name}, creator={ctx_data.creator_name}")
+                logger.debug(f"            Current sender={sender_id}, is_creator={ctx_data.is_creator}, speaker={ctx_data.current_speaker_name}")
             else:
                 logger.warning(f"            Agent not found: {self.agent_id}")
                 ctx_data.is_creator = False
@@ -171,6 +189,8 @@ class BasicInfoModule(XYZBaseModule):
                 ctx_data.agent_name = "Unknown Agent"
                 ctx_data.agent_description = "No description"
                 ctx_data.creator_id = "Unknown"
+                ctx_data.creator_name = "Unknown"
+                ctx_data.current_speaker_name = "Unknown"
 
         except Exception as e:
             logger.exception(f"            Failed to load agent info: {e}")
@@ -179,6 +199,8 @@ class BasicInfoModule(XYZBaseModule):
             ctx_data.agent_name = "Unknown Agent"
             ctx_data.agent_description = "No description"
             ctx_data.creator_id = "Unknown"
+            ctx_data.creator_name = "Unknown"
+            ctx_data.current_speaker_name = "Unknown"
 
         logger.debug("          BasicInfoModule.data_gathering() completed")
         return ctx_data

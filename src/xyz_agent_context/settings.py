@@ -70,8 +70,6 @@ def _read_dotenv_raw(env_file: Path) -> dict[str, str]:
 _dotenv_values = _read_dotenv_raw(_PROJECT_ROOT / ".env")
 _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
 _DOTENV_PASSTHROUGH = {
-    "INTERNAL_INVITE_SECRET",  # backend/routes/invite.py — server-to-server auth
-    "INVITE_AUTO_ISSUE_CAP",   # backend/config.py
     "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
 }
 for _k, _v in _dotenv_values.items():
@@ -141,8 +139,6 @@ class Settings(BaseSettings):
     # dev server, Electron bundle, and CLI scripts.
     base_working_path: str = str(Path.home() / ".nexusagent" / "workspaces")
 
-    # ===== Embedding =====
-    openai_embedding_model: str = "text-embedding-3-small"
 
     # ===== Export Paths =====
     narrative_markdown_path: str = str(Path.home() / ".nexusagent" / "data" / "narratives")

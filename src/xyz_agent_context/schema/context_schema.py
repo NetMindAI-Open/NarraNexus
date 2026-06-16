@@ -48,8 +48,10 @@ class ContextData(BaseModel):
     # Agent basic info (populated by BasicInfoModule)
     agent_name: Optional[str] = None  # Agent name
     agent_description: Optional[str] = None  # Agent description
-    creator_id: Optional[str] = None  # Creator ID (boss)
-    is_creator: Optional[bool] = None  # Whether the current conversation user is the Creator
+    creator_id: Optional[str] = None  # Creator ID (boss) — opaque key, not for display
+    creator_name: Optional[str] = None  # Creator's human display name (NetMind nickname / local name) for prompts
+    is_creator: Optional[bool] = None  # Whether the CURRENT SENDER is the Creator
+    current_speaker_name: Optional[str] = None  # Human name of who sent the current message
     bootstrap_active: bool = False  # Whether bootstrap mode is active for this context
     user_role: Optional[str] = None  # Current user role description ("Creator (Boss)" or "User/Customer")
 
@@ -58,9 +60,6 @@ class ContextData(BaseModel):
     # prompt so the agent can reason about cloud vs local constraints.
     deployment_mode: Optional[str] = None  # "cloud" | "local"
     deployment_context: Optional[str] = None  # Full prose block for the prompt
-
-    # RAG Module data (populated by GeminiRAGModule)
-    rag_keywords: Optional[List[str]] = None  # Knowledge base keyword list
 
     # For storing arbitrary extra data (Modules can add custom fields)
     extra_data: Dict[str, Any] = {}

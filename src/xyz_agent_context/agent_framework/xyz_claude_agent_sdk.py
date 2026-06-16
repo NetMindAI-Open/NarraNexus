@@ -11,9 +11,6 @@ from contextlib import suppress
 
 from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
-from claude_agent_sdk._errors import MessageParseError
-from claude_agent_sdk._internal import message_parser as _message_parser_module
-from claude_agent_sdk.types import SystemMessage
 from typing import Any, AsyncGenerator
 
 from xyz_agent_context.utils.logging import timed
@@ -28,10 +25,40 @@ except ImportError:
     from api_config import claude_config
     from _tool_policy_guard import build_tool_policy_guard
 
-# Monkey-patch claude_agent_sdk's parse_message to handle unknown message types gracefully.
-# The SDK v0.1.6 raises MessageParseError for unrecognized types like "rate_limit_event",
-# which crashes the entire agent loop. This patch converts them to SystemMessage instead.
-_original_parse_message = _message_parser_module.parse_message
+def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
+    """Map the framework-neutral slot params to ClaudeAgentOptions kwargs.
+
+    The slot stores neutral values (SlotConfig.thinking /
+    SlotConfig.reasoning_effort); this is the Claude-dialect mapping:
+
+      thinking "on"  -> {"thinking": {"type": "adaptive"}}
+      thinking "off" -> {"thinking": {"type": "disabled"}}
+      effort low/medium/high/max -> {"effort": <level>} (Claude supports the
+                                    full neutral vocabulary, no clamping)
+      "" (auto)      -> key absent; the CLI keeps its own defaults
+
+    SlotConfig already validates the vocabulary, so out-of-range values here
+    mean corrupted state — degrade to absent with a warning, never raise:
+    a broken tuning knob must not take the agent loop down.
+    """
+    opts: dict[str, Any] = {}
+    if thinking == "on":
+        opts["thinking"] = {"type": "adaptive"}
+    elif thinking == "off":
+        opts["thinking"] = {"type": "disabled"}
+    elif thinking:
+        logger.warning(
+            f"[ClaudeAgentSDK] Unknown neutral thinking value {thinking!r}; "
+            f"treating as auto"
+        )
+    if reasoning_effort in ("low", "medium", "high", "max"):
+        opts["effort"] = reasoning_effort
+    elif reasoning_effort:
+        logger.warning(
+            f"[ClaudeAgentSDK] Unknown neutral reasoning_effort value "
+            f"{reasoning_effort!r}; treating as auto"
+        )
+    return opts
 
 
 async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:
@@ -67,20 +94,6 @@ async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float
         return True
     except Exception:  # noqa: BLE001
         return None
-
-
-def _safe_parse_message(data: dict[str, Any]) -> Any:
-    try:
-        return _original_parse_message(data)
-    except MessageParseError as e:
-        if "Unknown message type" in str(e):
-            msg_type = data.get("type", "unknown") if isinstance(data, dict) else "unknown"
-            logger.debug(f"Skipping unrecognized message type from Claude API: {msg_type}")
-            return SystemMessage(subtype=f"unknown_{msg_type}", data=data)
-        raise
-
-
-_message_parser_module.parse_message = _safe_parse_message
 
 
 class ClaudeAgentSDK:
@@ -252,13 +265,32 @@ class ClaudeAgentSDK:
                 
         logger.debug(f"System prompt length: {len(system_prompt):,} chars")
         logger.debug(f"Your MCP: {claude_agent_mcp_dict}")
-        _is_claude_native = (claude_config.model or "").startswith("claude-")
+        # "Native Claude" keeps tool_search on auto (deferred tool loading);
+        # non-Claude models force it off (see below). Claude Code OAuth is always
+        # native Claude — and its model is now a CLI family alias (opus/sonnet/
+        # haiku), which doesn't start with "claude-", so key off auth_type too.
+        _model = (claude_config.model or "")
+        _is_claude_native = (
+            claude_config.auth_type == "oauth"
+            or _model.startswith("claude-")
+            or _model in ("opus", "sonnet", "haiku")
+        )
+        # Framework-neutral reasoning params -> Claude dialect. Per rule #15
+        # we pass whatever the user configured even on non-Claude proxies
+        # (they ignore what they don't understand); the log line below makes
+        # the decision greppable after the fact.
+        reasoning_options = _resolve_reasoning_options(
+            getattr(claude_config, "thinking", ""),
+            getattr(claude_config, "reasoning_effort", ""),
+        )
         logger.info(
             f"[ClaudeAgentSDK] Provider config: "
             f"model={claude_config.model or '(default)'}, "
             f"base_url={claude_config.base_url or '(official)'}, "
             f"auth_type={claude_config.auth_type}, "
-            f"tool_search={'auto' if _is_claude_native else 'disabled (non-Claude model)'}"
+            f"tool_search={'auto' if _is_claude_native else 'disabled (non-Claude model)'}, "
+            f"thinking={getattr(claude_config, 'thinking', '') or 'auto'}, "
+            f"effort={getattr(claude_config, 'reasoning_effort', '') or 'auto'}"
         )
         logger.trace("[FULL_SYSTEM_PROMPT]\n{}", system_prompt)
         logger.trace("[USER_PROMPT]\n{}", this_turn_user_message)
@@ -338,7 +370,11 @@ class ClaudeAgentSDK:
             cwd=self.working_path,
             mcp_servers=claude_agent_mcp_dict,
             permission_mode="bypassPermissions",
-            max_turns=0,  # 0 = unlimited turns
+            # None = unlimited. Never pass 0 here: the SDK transport only emits
+            # --max-turns for truthy values today, so 0 happens to mean
+            # "unlimited" — but if upstream ever switches to `is not None`,
+            # 0 becomes a zero-turn hard cap on agent_loop (forbidden).
+            max_turns=None,
             max_buffer_size=50 * 1024 * 1024,  # 50MB buffer size for large MCP responses (PDF parsing etc.)
             include_partial_messages=True,  # Enable token-level streaming via StreamEvent
             stderr=_on_cli_stderr,  # 捕获 CLI 错误输出
@@ -355,6 +391,9 @@ class ClaudeAgentSDK:
         )
         if claude_config.model:
             options_kwargs["model"] = claude_config.model
+        # Neutral reasoning params (slot-configured); absent keys keep CLI
+        # defaults — identical to today's behavior when unconfigured.
+        options_kwargs.update(reasoning_options)
         options = ClaudeAgentOptions(**options_kwargs)
 
 

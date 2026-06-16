@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/main.tsx
-last_verified: 2026-05-27
+last_verified: 2026-06-16
 stub: false
 ---
+
+## 2026-06-16 — inbound entry capture moved pre-render
+
+`captureInboundEntry()` (from `lib/netmindAuth/tokenInbound`) now runs
+once at boot, before `createRoot().render()`, alongside the Manyfold
+fragment-auth bootstrap. It reads `?token` / `?source` from the TRUE
+entry URL and stashes `source` into sessionStorage. This MUST happen
+before the first render: for a logged-out arena entry (`/?source=arena`)
+the `RootRedirect → <Navigate to="/login">` effect (a descendant of App)
+fires before App's own mount effect, rewriting the URL and dropping the
+param. Reading it in main.tsx beats that race. See [[tokenInbound]].
 
 ## 2026-05-27 — externalLinkInterceptor wire-up
 

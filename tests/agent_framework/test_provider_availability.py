@@ -13,7 +13,8 @@ Decision tree (identical to `resolve`, just verdict-only):
   0. system disabled                                  -> SYSTEM_DISABLED (not gated)
   1. prefer_system_override=True:
      1a. has budget                                   -> SYSTEM_OK
-     1b. no budget + complete own config              -> FREE_TIER_EXHAUSTED
+     1b. no budget + complete own config              -> auto-disable the
+         free-tier preference and route USER_OK (#48)
      1c. no budget + no own provider                  -> QUOTA_EXCEEDED
   2. prefer_system_override=False (or no quota row):
      2a. complete own config                          -> USER_OK
@@ -82,6 +83,8 @@ def _mk_quota_svc(*, prefer_system, has_budget):
         row.prefer_system_override = prefer_system
         m.get = AsyncMock(return_value=row)
     m.check = AsyncMock(return_value=has_budget)
+    # classify() auto-disables the free-tier preference on exhaustion (#48).
+    m.set_preference = AsyncMock()
     return m
 
 
@@ -115,14 +118,16 @@ async def test_opted_in_with_budget_is_system_ok_even_with_own_config():
 
 
 @pytest.mark.asyncio
-async def test_opted_in_exhausted_with_own_config_is_free_tier_exhausted():
-    """THE regression case (elricwan): pref=1 + exhausted + own provider.
-    Must NOT be runnable — the runtime routes to the exhausted free tier and
-    refuses, so the resume gate must agree."""
+async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user_ok():
+    """#48: pref=1 + exhausted + own provider. Instead of dead-ending on the
+    exhausted free tier, the free-tier preference is auto-disabled and the user
+    routes to their own key — so the verdict is USER_OK and IS runnable."""
     r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=True, has_budget=False)
     verdict = await r.classify("u")
-    assert verdict == ProviderAvailability.FREE_TIER_EXHAUSTED
-    assert is_runnable(verdict) is False
+    assert verdict == ProviderAvailability.USER_OK
+    assert is_runnable(verdict) is True
+    # the preference flip was persisted (toggle visibly unchecks)
+    r.quota_svc.set_preference.assert_awaited_once_with("u", False)
 
 
 @pytest.mark.asyncio

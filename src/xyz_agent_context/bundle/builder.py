@@ -41,6 +41,17 @@ from .security import (
 BUNDLE_FORMAT_VERSION = "1.1"
 
 
+def _current_app_version() -> str:
+    """The live NarraNexus app version stamped into every export's manifest, so
+    a bundle records exactly which build produced it (was a stale hardcoded
+    literal). Sourced from the package __version__ (= pyproject [project].version)."""
+    try:
+        from xyz_agent_context import __version__
+        return __version__
+    except Exception:  # noqa: BLE001 — never let version lookup break an export
+        return "0.0.0+unknown"
+
+
 # Tables that store per-agent state (closure-filtered).
 AGENT_SCOPED_TABLES = [
     "agents",
@@ -57,7 +68,6 @@ AGENT_SCOPED_TABLES = [
 # Tables keyed by instance_id (filter via instance closure).
 INSTANCE_SCOPED_TABLES = [
     "instance_social_entities",
-    "instance_rag_store",
     "instance_narrative_links",
     "instance_awareness",
     "instance_module_report_memory",
@@ -95,8 +105,7 @@ def _scrub_narrative_chat_content(narrative_row: Dict[str, Any]) -> Dict[str, An
     bundle exported with chat history "disabled" still leaked the most
     recent rounds of dialogue. Same for dynamic_summary / topic_hint /
     topic_keywords — all distilled from past conversation by the LLM
-    during NarrativeService.update_narrative. routing_embedding is the
-    vector of that content; not human-readable but extractable.
+    during NarrativeService.update_narrative.
 
     Fields scrubbed inside ``narrative_info`` (JSON string column):
       - ``description`` and ``current_summary`` → ""
@@ -106,7 +115,6 @@ def _scrub_narrative_chat_content(narrative_row: Dict[str, Any]) -> Dict[str, An
       - ``dynamic_summary``  →  "[]"
       - ``topic_keywords``   →  "[]"
       - ``topic_hint``       →  ""
-      - ``routing_embedding`` →  None
       - ``event_ids``        →  "[]"  (events themselves aren't exported,
                                        so leaving dangling references on
                                        the row would be misleading)
@@ -135,7 +143,6 @@ def _scrub_narrative_chat_content(narrative_row: Dict[str, Any]) -> Dict[str, An
     row["dynamic_summary"] = "[]"
     row["topic_keywords"] = "[]"
     row["topic_hint"] = ""
-    row["routing_embedding"] = None
     row["event_ids"] = "[]"
     return row
 
@@ -164,9 +171,6 @@ class ExportSelection:
         social_entity_selection: Optional[Dict[str, List[str]]] = None,
         workspace_excludes: Optional[Dict[str, List[str]]] = None,
         include_chat_history: bool = True,
-        embedding_provider: Optional[str] = None,
-        embedding_model: Optional[str] = None,
-        embedding_dim: Optional[int] = None,
         accept_sensitive_zips: bool = False,
         narrative_selection: Optional[Dict[str, List[str]]] = None,
         event_selection: Optional[Dict[str, List[str]]] = None,
@@ -191,9 +195,6 @@ class ExportSelection:
         # workspace_excludes: { agent_id: [relative_path, ...] }  (manual user de-checks)
         self.workspace_excludes = workspace_excludes or {}
         self.include_chat_history = include_chat_history
-        self.embedding_provider = embedding_provider
-        self.embedding_model = embedding_model
-        self.embedding_dim = embedding_dim
         # B6: explicit user opt-in to ship zip-archived skills containing
         # sensitive files (e.g. .env / wallet.json). Without this, builder
         # raises SensitiveZipDetected and the route returns 409 with the hits
@@ -375,39 +376,29 @@ async def build_bundle(
                     encoding="utf-8",
                 )
 
-            # Per-agent social entities (subject to social_entity_selection)
+            # Per-agent social entities (subject to social_entity_selection).
+            # Entities live in the unified memory_entity table now — read via
+            # the repo and serialize the SAME flat per-entity records the bundle
+            # has always carried (content + closure/selection logic preserved;
+            # only the underlying storage moved).
+            from xyz_agent_context.repository import SocialNetworkRepository
+            social_repo = SocialNetworkRepository(db)
             social_entities_for_agent = []
             for iid in agent_instance_ids:
-                rows = await db.get("instance_social_entities", {"instance_id": iid})
-                if selection.social_entity_selection is not None:
-                    selected_ids = set(selection.social_entity_selection.get(aid, []))
-                    rows = [r for r in rows if r["entity_id"] in selected_ids]
-                else:
-                    # No selection: take all (server-side default; UI usually picks)
-                    pass
-                # Drop entities pointing to agent_ids OUTSIDE the closure (entity_type='agent')
-                kept = []
-                for r in rows:
-                    if r.get("entity_type") == "agent" and r.get("entity_id") not in closure_set:
-                        # Expected behavior under strict closure (PRD §8.3 step 4).
-                        # Don't flood manifest.warnings — keep a counter and
-                        # emit a single rolled-up entry at the end.
+                for e in await social_repo.get_all_entities(iid, limit=100000):
+                    if selection.social_entity_selection is not None:
+                        selected_ids = set(selection.social_entity_selection.get(aid, []))
+                        if e.entity_id not in selected_ids:
+                            continue
+                    # Drop entities pointing to agent_ids OUTSIDE the closure
+                    # (entity_type='agent'). Expected under strict closure
+                    # (PRD §8.3 step 4) — count, don't flood warnings.
+                    if e.entity_type == "agent" and e.entity_id not in closure_set:
                         info_counters["skipped_external_edge"] += 1
                         continue
-                    kept.append(r)
-                social_entities_for_agent.extend(kept)
+                    social_entities_for_agent.append(_entity_to_flat(e))
             (agent_dir / "social_entities.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id, "instance_social_entities") for r in social_entities_for_agent],
-                           indent=2, ensure_ascii=False, default=str),
-                encoding="utf-8",
-            )
-
-            # RAG store rows
-            rag_rows = []
-            for iid in agent_instance_ids:
-                rag_rows.extend(await db.get("instance_rag_store", {"instance_id": iid}))
-            (agent_dir / "rag.json").write_text(
-                json.dumps([_scrub_user_id(dict(r), user_id, "instance_rag_store") for r in rag_rows],
+                json.dumps([_scrub_user_id(r, user_id, "social_entities") for r in social_entities_for_agent],
                            indent=2, ensure_ascii=False, default=str),
                 encoding="utf-8",
             )
@@ -589,7 +580,6 @@ async def build_bundle(
                 "narratives": len(n_rows),
                 "instances": len(agent_instance_ids),
                 "social_entities": len(social_entities_for_agent),
-                "rag_rows": len(rag_rows),
                 "artifacts": len(artifact_rows_out),
                 "workspace_size_bytes": ws_path.stat().st_size if ws_path else 0,
                 "workspace_path": "workspace.tar.gz" if ws_path else None,
@@ -837,7 +827,7 @@ async def build_bundle(
 
         manifest = {
             "bundle_format_version": BUNDLE_FORMAT_VERSION,
-            "narranexus_version_exported": "1.3.4",
+            "narranexus_version_exported": _current_app_version(),
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "owner_placeholder": "<original_owner>",
             # We DON'T store the original user_id by name — privacy. The
@@ -853,11 +843,6 @@ async def build_bundle(
             "warnings": warnings,
             "info": info,
             "info_counters": info_counters,
-            "embedding": {
-                "provider": selection.embedding_provider,
-                "model": selection.embedding_model,
-                "dim": selection.embedding_dim,
-            },
         }
 
         # Compute integrity sha256 over all non-manifest files (sorted) — heavy I/O,
@@ -880,6 +865,32 @@ async def build_bundle(
         "manifest": manifest,
         "warnings": warnings,
         "output_path": str(output_path),
+    }
+
+
+def _entity_to_flat(e) -> dict:
+    """Serialize a SocialNetworkEntity to the flat per-entity record the bundle
+    carries (same shape as the legacy instance_social_entities row; DB column
+    'tags' = the entity's keywords). Keeps bundle content stable across the
+    move to memory_entity storage."""
+    return {
+        "entity_id": e.entity_id,
+        "entity_type": e.entity_type,
+        "instance_id": e.instance_id,
+        "entity_name": e.entity_name,
+        "aliases": e.aliases,
+        "entity_description": e.entity_description,
+        "identity_info": e.identity_info,
+        "contact_info": e.contact_info,
+        "familiarity": e.familiarity,
+        "relationship_strength": e.relationship_strength,
+        "interaction_count": e.interaction_count,
+        "last_interaction_time": e.last_interaction_time,
+        "tags": e.keywords,
+        "expertise_domains": e.expertise_domains,
+        "related_job_ids": e.related_job_ids,
+        "persona": e.persona,
+        "extra_data": e.extra_data,
     }
 
 

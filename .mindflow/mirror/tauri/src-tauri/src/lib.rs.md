@@ -1,6 +1,6 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-05-22
+last_verified: 2026-06-16
 ---
 
 ## 2026-05-22 — auto-update startup check
@@ -90,6 +90,7 @@ Current set (kept in lockstep with `commands/mod.rs`):
 - health:  `get_health_status`, `get_logs`
 - tray:    `set_tray_badge`
 - auth:    `trigger_claude_login`, `trigger_claude_logout`, `cancel_claude_login`, `get_claude_login_status`
+- file:    `fetch_artifact_via_backend`, `download_file_via_backend`
 
 Forgetting to add a freshly-defined command here is the #1 frontend symptom
 ("invoke returned 'command not found'") — the macro list is the source of

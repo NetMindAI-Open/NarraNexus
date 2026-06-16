@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/quota_service.py
 stub: false
-last_verified: 2026-04-16
+last_verified: 2026-06-16
 ---
 
 # Intent
@@ -35,6 +35,18 @@ disabled feature = consistent no-op contract.
 `get` and `grant` bypass the gate intentionally: reading a row is always
 safe, and staff should be able to credit users even if the feature is
 temporarily disabled at the env level.
+
+## set_preference and QuotaPreferenceLocked (#48)
+
+`set_preference(user_id, prefer)` persists `prefer_system_override` on the
+quota row. It has one hard invariant: turning the free-tier preference ON
+(`prefer=True`) while the quota has **no remaining budget** raises
+`QuotaPreferenceLocked` (a new exception class in this module). Turning it
+OFF (`prefer=False`) is always allowed — that path is what `classify` calls
+automatically when quota is exhausted but the user has an own provider. The
+free tier can only be re-enabled once the quota is replenished (grant or
+next quota cycle). `QuotaPreferenceLocked` propagates to the route layer;
+`quota.py` maps it to HTTP 409.
 
 ## Design decisions
 - `deduct` and `init_for_user` swallow exceptions and log, rather than

@@ -47,6 +47,15 @@ export default defineConfig({
     port: 5173,
     // SSH port forwarding scenario: disable HMR WebSocket to avoid connection drops causing forwarding failures
     hmr: false,
+    // Pre-transform the main screen's module graph when the dev server starts,
+    // so the first "open the app" doesn't pay the cold lazy-load transform (the
+    // page-load spinner). MainLayout is what every logged-in user lands on.
+    warmup: {
+      clientFiles: [
+        './src/components/layout/MainLayout.tsx',
+        './src/components/chat/ChatPanel.tsx',
+      ],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

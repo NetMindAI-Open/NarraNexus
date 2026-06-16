@@ -304,15 +304,19 @@ async def build_execution_prompt(
 
     # ===== Build Prompt sections =====
 
-    # Section: Task information
+    # Section: Task information. Render identities by HUMAN name (the raw
+    # user_id is an opaque NetMind userSystemCode in cloud mode); fall back
+    # to the id when there's no display name / not a user.
+    from xyz_agent_context.repository import UserRepository
+    _user_repo = UserRepository(db)
     execution_user_id = job.related_entity_id or job.user_id
     task_info_section = JOB_TASK_INFO_TEMPLATE.format(
         title=job.title,
         description=job.description,
         created_str=created_str,
         current_time_str=current_time_str,
-        execution_user_id=execution_user_id,
-        user_id=job.user_id,
+        execution_identity=await _user_repo.get_display_name(execution_user_id),
+        task_creator=await _user_repo.get_display_name(job.user_id),
     )
 
     # Section: Related people/entities

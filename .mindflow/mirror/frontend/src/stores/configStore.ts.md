@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/stores/configStore.ts
-last_verified: 2026-05-13
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — NetMind dual-token + display profile fields
+
+Added three new persisted fields for the NetMind auth integration:
+
+- `netmindToken: string` — the raw NetMind `loginToken` retained after OAuth
+  handshake. Not used for our own JWT API calls; reserved for Phase 2/3 NetMind
+  Power actions (credits exchange, api-key generation). Stored separately from
+  `token` (our own JWT) so the two auth systems stay independent.
+- `displayName: string` — human-readable nickname from NetMind profile. Needed
+  because `userId` is now the opaque 32-hex `userSystemCode` from NetMind, which
+  is meaningless to show in UI.
+- `email: string` — NetMind account email, stored for profile display and
+  potential future identity matching.
+
+`login()` signature extended: fourth optional parameter `profile?: { displayName?: string; email?: string }`. Callers that only pass `(userId)` or `(userId, token, role)` are unaffected — profile fields default to empty strings. This keeps local mode working without any call-site changes.
+
+New action `setNetmindToken(token: string)` — called after the Phase 1 NetMind
+OAuth callback to store the NetMind token separately from the standard login
+flow. Separation is intentional: `login()` is called with our own JWT once the
+backend verifies the NetMind identity; `setNetmindToken` is called right after
+with the original NetMind token for later use.
+
+`logout()` now clears all three new fields in addition to the existing reset.
 
 ## 2026-05-13 — login/logout 清掉 teamsStore（local 多用户 fix 收尾）
 

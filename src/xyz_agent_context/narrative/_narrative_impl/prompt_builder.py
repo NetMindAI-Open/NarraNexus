@@ -63,10 +63,23 @@ class PromptBuilder:
             NarrativeActorType.AGENT: ACTOR_TYPE_AGENT_DESCRIPTION,
             NarrativeActorType.PARTICIPANT: ACTOR_TYPE_PARTICIPANT_DESCRIPTION,
         }
+        # Resolve human actors (USER / PARTICIPANT) to their display name —
+        # actor.id for those is a user_id (an opaque NetMind userSystemCode in
+        # cloud mode), which must not be shown to the LLM as a person. AGENT /
+        # SYSTEM actor ids are agent_id / system keys and stay as-is.
+        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.repository import UserRepository
+        _repo = UserRepository(await get_db_client())
+        _human_actor_types = (NarrativeActorType.USER, NarrativeActorType.PARTICIPANT)
         actor_prompt = ""
         for actor in narrative.narrative_info.actors:
             actor_type_description = actor_type_map.get(actor.type, ACTOR_TYPE_SYSTEM_DESCRIPTION)
-            actor_prompt += f"\n\t- {actor.id} ({actor.type.value}): {actor_type_description}"
+            label = (
+                await _repo.get_display_name(actor.id)
+                if actor.type in _human_actor_types
+                else actor.id
+            )
+            actor_prompt += f"\n\t- {label} ({actor.type.value}): {actor_type_description}"
 
         # Assemble Prompt
         narrative_prompt = NARRATIVE_MAIN_PROMPT_TEMPLATE.format(

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/services/instance_sync_service.py
-last_verified: 2026-04-21
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — pass agent_id to SocialNetworkRepository
+
+Mechanical adaptation to the entity-into-engine fold: `SocialNetworkRepository(self.db)` → `SocialNetworkRepository(self.db, agent_id)` (the repo now needs agent_id so unified recall, which filters by agent_id, finds the entities). No behavioural change otherwise.
 
 # instance_sync_service.py — LLM Instance 决策结果的同步处理
 

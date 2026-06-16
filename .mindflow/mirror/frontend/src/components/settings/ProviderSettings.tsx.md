@@ -1,7 +1,55 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-05-18
+last_verified: 2026-06-10
 ---
+## 2026-06-10 — Agent slot reasoning dropdowns (Thinking / Reasoning Effort)
+
+The agent slot card gained two selects bound to the framework-neutral
+SlotConfig params: Thinking (Auto/On/Off) and Reasoning Effort
+(Auto/Low/Medium/High/Max). Auto = '' = the backend adapter passes
+nothing (framework default — today's behavior). Wiring notes:
+
+- `handleLocalSlotChange` now PRESERVES the effective reasoning params
+  when the provider/model dropdowns change — switching model must not
+  silently reset the knobs.
+- `handleLocalReasoningChange` stages a param change; it no-ops until a
+  provider is selected (the selects are disabled in that state).
+- `handleApply` always sends `thinking`/`reasoning_effort` in the PUT
+  body (PUT semantics: '' resets to auto server-side).
+- Rendered only for `slot.key === 'agent'`; helper_llm doesn't get the
+  knobs yet (its OpenAI adapter mapping is future work).
+
+
+## 2026-05-18 — `authFetch` 必须发 `X-User-Id`（修跨用户写入 bug）
+
+之前 `authFetch` 只发 JWT Bearer，不发 X-User-Id。Local 模式下 backend middleware 看到 header 缺失就 fallback 到"users 表第一行"，导致 binliang3 在 Settings 页面填的 NetMind API key 全部写到了 binliang（最老账号）名下。后端这次彻底关掉了 fallback（缺 header 直接 401），所以这里也必须配合发上来。
+
+同时 `providerUrl()` 删除了 `?user_id=...` 这条 query 通道——和后端一致，identity 只走 header。这条提交里同步更新的还有 `App.tsx` 和 `SetupPage.tsx` 的 bare `fetch(...?user_id=...)` 调用，统一改走 `api.getProviders()`（ApiClient 自动发 X-User-Id 和 JWT）。
+
+`syncProviderDefaults` 的签名也从 `(userId: string)` 改成 `()`——参数没意义了。
+
+
+## 2026-05-14 — Quick Add auto-fills empty slots (NetMind)
+
+`handleQuickAdd` now sends `default_slots` so a brand-new user with just
+an API key is immediately usable — no manual slot wiring.
+
+- `PRESET_DEFAULT_SLOTS` maps a preset → recommended `{protocol, model}`
+  per slot. Only `netmind` is wired up: one NetMind key creates both an
+  Anthropic- and an OpenAI-protocol endpoint, so all three slots fill
+  from one key — `agent` → DeepSeek V4 Pro (anthropic), `helper_llm` →
+  DeepSeek V4 Flash (openai), `embedding` → BGE-M3 (openai). Model ids
+  must match `model_catalog.py` `DEFAULT_MODELS[("netmind", ...)]`.
+- Only **empty** slots are filled — `handleQuickAdd` skips any slot that
+  already has a `config`. The backend `set_slot` is an upsert, so
+  including an already-configured slot would clobber the user's choice.
+  This makes the feature safe for the "existing user re-adds NetMind"
+  path, not just fresh signups.
+- The backend hook (`POST /providers` `default_slots`) already existed
+  and was dormant — no backend change; this just started sending it.
+- After a Quick Add that auto-filled ≥1 slot, the `autoConfigured`
+  state drives a confirmation `Dialog` ("You're ready to go") listing
+  what was set and pointing at the slot section for overrides.
 
 ## 2026-05-18 — `authFetch` 必须发 `X-User-Id`（修跨用户写入 bug）
 

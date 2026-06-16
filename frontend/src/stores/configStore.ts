@@ -17,6 +17,9 @@ interface ConfigState {
   userId: string;
   token: string;  // JWT token (cloud mode only)
   role: string;   // 'user' | 'staff'
+  netmindToken: string;  // NetMind loginToken, retained for Phase 2/3 actions
+  displayName: string;   // NetMind nickname, for display (userId is opaque hex)
+  email: string;         // NetMind account email
 
   // Agent state
   agentId: string;
@@ -26,7 +29,8 @@ interface ConfigState {
   awarenessUpdatedAgents: string[];
 
   // Actions
-  login: (userId: string, token?: string, role?: string) => void;
+  login: (userId: string, token?: string, role?: string, profile?: { displayName?: string; email?: string }) => void;
+  setNetmindToken: (token: string) => void;
   logout: () => void;
   setAgentId: (id: string) => void;
   setAgents: (agents: AgentInfo[]) => void;
@@ -43,31 +47,38 @@ export const useConfigStore = create<ConfigState>()(
       userId: '',
       token: '',
       role: '',
+      netmindToken: '',
+      displayName: '',
+      email: '',
       agentId: '',
       agents: [],
       awarenessUpdatedAgents: [],
 
       // Actions
-      login: (userId, token?, role?) => {
+      login: (userId, token?, role?, profile?) => {
         const prevUserId = get().userId;
         set({
           isLoggedIn: true,
           userId,
           token: token || '',
           role: role || '',
+          displayName: profile?.displayName || '',
+          email: profile?.email || '',
         });
         // If we just switched accounts (or just logged in fresh after a
         // logout), wipe per-user persisted caches so the next consumer
         // refetches against the right identity. teamsStore is the only
         // store currently using zustand persist for per-user data — see
         // its frontmatter and `partialize: { teams, loaded }`. Without
-        // this reset, TeamFilterBar's `if (!loaded) refresh()` guard
-        // (TeamFilterBar.tsx:28-30) keeps showing the previous user's
-        // team chips because `loaded` survives in localStorage.
+        // this reset, AgentList's `if (!teamsLoaded) teamsRefresh()` guard
+        // keeps showing the previous user's team sections because
+        // `loaded` survives in localStorage.
         if (prevUserId !== userId) {
           useTeamsStore.setState({ teams: [], loaded: false });
         }
       },
+
+      setNetmindToken: (token) => set({ netmindToken: token }),
 
       logout: () => {
         set({
@@ -75,6 +86,9 @@ export const useConfigStore = create<ConfigState>()(
           userId: '',
           token: '',
           role: '',
+          netmindToken: '',
+          displayName: '',
+          email: '',
           agentId: '',
           agents: [],
           awarenessUpdatedAgents: [],

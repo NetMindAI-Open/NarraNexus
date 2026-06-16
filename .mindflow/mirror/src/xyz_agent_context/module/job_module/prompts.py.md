@@ -1,7 +1,15 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/prompts.py
-last_verified: 2026-04-10
+last_verified: 2026-06-12
 ---
+
+## 2026-06-12 — JOB_TASK_INFO_TEMPLATE renders identities by human name
+
+The task-info section now has `Execution identity: {execution_identity}` and
+`Task creator: {task_creator}` placeholders (human names) instead of raw
+user_id. The names are resolved in [[_job_context_builder.py]] via
+[[user_repository.py]] `get_display_name`, so the opaque NetMind userSystemCode
+is no longer shown as a person in a job's execution prompt.
 
 # prompts.py — Job 执行提示词模板与 ONGOING 分析提示词
 

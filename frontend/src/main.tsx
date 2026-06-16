@@ -10,12 +10,20 @@ import {
     installManyfoldFragmentHashListener
 } from './lib/manyfoldFragmentAuth'
 import { installExternalLinkInterceptor } from './lib/externalLinkInterceptor'
+import { captureInboundEntry } from './lib/netmindAuth/tokenInbound'
 
 // Run BEFORE the first render so the App tree never observes a
 // "logged-out" state when the user was sent here via Manyfold's
 // "Open Native UI" link. Idempotent / no-op for direct local-mode visits.
 initManyfoldFragmentAuth()
 installManyfoldFragmentHashListener()
+
+// Capture ?token / ?source from the TRUE entry URL synchronously, before the
+// first render. A logged-out arena entry (`/?source=arena`) is otherwise lost:
+// RootRedirect synchronously navigates to /login, and that descendant
+// <Navigate> effect rewrites the URL before App's mount effect can read it.
+// Stashing `source` here lets the post-login Arena provisioning still fire.
+captureInboundEntry()
 
 // Tauri-only: make <a target="_blank"> actually open in the OS browser.
 // In a regular browser this returns a no-op uninstaller so nothing changes.

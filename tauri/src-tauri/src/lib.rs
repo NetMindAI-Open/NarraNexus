@@ -76,6 +76,12 @@ pub fn run() {
             // the HTML artifact iframe load in the dmg. See
             // commands/artifact_fetch.rs for the full rationale.
             commands::artifact_fetch::fetch_artifact_via_backend,
+            // File download proxy — saves a backend file to the OS Downloads
+            // folder. Fixes <a download> breakage in both the dmg (mixed
+            // content blocks the HTTP navigation) and local browser (cross-
+            // origin ignores the download attr; workspace endpoint needs auth
+            // headers that <a> can't carry). See commands/file_download.rs.
+            commands::file_download::download_file_via_backend,
         ])
         .setup(|app| {
             // Port-conflict preflight. Must run before anything else: if a

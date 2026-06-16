@@ -14,22 +14,35 @@ Provides endpoints for:
 """
 
 import os
+import json
 from uuid import uuid4
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
+from xyz_agent_context.analytics import track, identify_user
+from xyz_agent_context.analytics.events import (
+    EVENT_SIGNED_UP, EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED,
+    EVENT_SETUP_COMPLETED, PROP_METHOD,
+)
+
+# Whitelist of frontend-reportable funnel events. The setup_* events are pure
+# UI actions (page view, skip/done clicks) that have no backend signal, so the
+# frontend reports them via POST /api/auth/funnel. Whitelisting stops the
+# endpoint from being a generic event firehose.
+_ALLOWED_FUNNEL_EVENTS = frozenset({
+    EVENT_SETUP_ENTERED, EVENT_SETUP_SKIPPED, EVENT_SETUP_COMPLETED,
+})
 from xyz_agent_context.repository import (
     AgentRepository,
     UserRepository,
-    InviteCodeRepository,
 )
 from xyz_agent_context.schema import (
     LoginRequest,
     LoginResponse,
-    RegisterRequest,
-    RegisterResponse,
+    NetmindLoginRequest,
+    NetmindLoginResponse,
     ActiveRunInfo,
     AgentInfo,
     AgentListResponse,
@@ -47,68 +60,28 @@ from xyz_agent_context.schema import (
     UpdateOnboardingRequest,
 )
 from backend.auth import (
-    hash_password,
-    verify_password,
     create_token,
     _is_cloud_mode,
     resolve_current_user_id,
 )
 from xyz_agent_context.utils import is_valid_timezone
-from xyz_agent_context.utils.timezone import utc_now
-from xyz_agent_context.agent_runtime.background_run import HEARTBEAT_INTERVAL_S
+from xyz_agent_context.agent_runtime.background_run import run_is_live
 from xyz_agent_context.settings import settings as app_settings
 
-from datetime import datetime, timedelta, timezone
+from pydantic import BaseModel
+from xyz_agent_context.repository.user_settings_repository import UserSettingsRepository
 from typing import Optional
 
 
 router = APIRouter()
 
 
-# An events row stuck at state='running' is only surfaced as an agent's
-# active_run while its heartbeat is fresh. BackgroundRun bumps
-# last_event_at every HEARTBEAT_INTERVAL_S (30s); after 3 missed beats the
-# run is considered dead — its task died without _finalize (process killed
-# mid-run, or the terminal DB write failed) and the in-memory active_runs
-# registry no longer holds it. The startup reconcile only flips such rows
-# on the NEXT restart, so without this filter the sidebar avatar pulses
-# "running" forever for an agent that is not running.
-#
-# This is a read-side liveness filter only — it never stops or mutates a
-# run. A genuinely long-running agent keeps beating and stays live, so long
-# agent_loops remain a first-class case (CLAUDE.md 铁律 #14).
-_RUN_STALE_AFTER_S = HEARTBEAT_INTERVAL_S * 3
-
-
-def _parse_db_utc(ts) -> Optional[datetime]:
-    """Parse a stored UTC timestamp (SQLite returns ISO strings, MySQL
-    returns datetime) into a tz-aware UTC datetime. Returns None when the
-    value is absent or unparseable."""
-    if ts is None:
-        return None
-    if isinstance(ts, datetime):
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
-    if isinstance(ts, str):
-        try:
-            dt = datetime.fromisoformat(ts.rstrip("Z"))
-        except ValueError:
-            return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return None
-
-
-def _run_is_live(ar_row: dict, now: Optional[datetime] = None) -> bool:
-    """Whether a 'running' events row still has a fresh heartbeat. Falls
-    back to started_at when the first beat hasn't fired yet. Fails open
-    (treats as live) when no parseable timestamp exists, so we never hide a
-    run that might genuinely be running."""
-    now = now or utc_now()
-    parsed = _parse_db_utc(ar_row.get("last_event_at")) or _parse_db_utc(
-        ar_row.get("started_at")
-    )
-    if parsed is None:
-        return True
-    return (now - parsed) <= timedelta(seconds=_RUN_STALE_AFTER_S)
+# Heartbeat-freshness liveness rule for events rows stuck at
+# state='running' — shared with the WS reconnect path so "is this run
+# actually alive?" has one answer. See run_is_live in background_run.py.
+# Without this filter the sidebar avatar pulses "running" forever for an
+# agent whose run task died without _finalize.
+_run_is_live = run_is_live
 
 
 def _schedule_login_rearm(user_id: str) -> None:
@@ -127,11 +100,17 @@ def _schedule_login_rearm(user_id: str) -> None:
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
-    Login with user_id (+ password in cloud mode).
+    Local-mode login with user_id only (OS user is the trust boundary).
 
-    - Local mode: user_id only, no password required
-    - Cloud mode: user_id + password, returns JWT token
+    Cloud mode has no password login anymore — cloud identity lives in
+    the NetMind account system; use POST /api/auth/netmind-login.
     """
+    if _is_cloud_mode():
+        raise HTTPException(
+            status_code=404,
+            detail="Password login is gone. Use /api/auth/netmind-login.",
+        )
+
     logger.info(f"Login attempt for user: {request.user_id}")
 
     try:
@@ -144,158 +123,119 @@ async def login(request: LoginRequest):
             logger.warning(f"User {request.user_id} not found")
             return LoginResponse(
                 success=False,
-                error="User not found. Please register first." if _is_cloud_mode()
-                    else "User not found. Please contact administrator to create an account."
+                error="User not found. Please contact administrator to create an account.",
             )
 
-        if _is_cloud_mode():
-            # Cloud mode: verify password and return JWT
-            if not request.password:
-                return LoginResponse(success=False, error="Password is required")
+        await user_repo.update_last_login(request.user_id)
+        logger.info(f"User {request.user_id} logged in (local)")
+        _schedule_login_rearm(request.user_id)
+        return LoginResponse(
+            success=True,
+            user_id=request.user_id,
+        )
 
-            password_hash = user.password_hash if hasattr(user, 'password_hash') else None
-            if not password_hash:
-                # Legacy user without password — check raw DB row
-                user_row = await db_client.get_one("users", {"user_id": request.user_id})
-                password_hash = user_row.get("password_hash") if user_row else None
-
-            if not password_hash:
-                return LoginResponse(success=False, error="Account not set up for cloud login. Please register.")
-
-            if not verify_password(request.password, password_hash):
-                return LoginResponse(success=False, error="Invalid password")
-
-            # Get role
-            user_row = await db_client.get_one("users", {"user_id": request.user_id})
-            role = (user_row.get("role") if user_row else None) or "user"
-
-            await user_repo.update_last_login(request.user_id)
-            token = create_token(request.user_id, role)
-            logger.info(f"User {request.user_id} logged in (cloud, role={role})")
-            _schedule_login_rearm(request.user_id)
-            return LoginResponse(
-                success=True,
-                user_id=request.user_id,
-                token=token,
-                role=role,
-            )
-        else:
-            # Local mode: user_id only
-            await user_repo.update_last_login(request.user_id)
-            logger.info(f"User {request.user_id} logged in (local)")
-            _schedule_login_rearm(request.user_id)
-            return LoginResponse(
-                success=True,
-                user_id=request.user_id,
-            )
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error during login: {e}")
         return LoginResponse(success=False, error=str(e))
 
 
-@router.post("/register", response_model=RegisterResponse)
-async def register(request: RegisterRequest, http_request: Request):
+def _get_netmind_auth_client():
+    """Factory for the NetMind token-verification client.
+
+    Module-level indirection so tests can monkeypatch it; the client is
+    cheap to construct (stateless besides config), so no caching.
     """
-    Register a new user (cloud mode only). Requires invite code.
+    from xyz_agent_context.services.netmind_auth_client import NetmindAuthClient
+
+    return NetmindAuthClient()
+
+
+@router.post("/netmind-login", response_model=NetmindLoginResponse)
+async def netmind_login(request: NetmindLoginRequest, http_request: Request):
+    """Log in with a NetMind account token ("passport for visa" exchange).
+
+    Cloud mode only. The frontend obtains a NetMind loginToken (embedded
+    login form / OAuth popup / ?token= URL pass-through from netmind.ai
+    or Arena), we verify it once against NetMind's auth API, lazily
+    upsert the local user (user_id = NetMind userSystemCode) and issue
+    NarraNexus's own JWT. Subsequent requests are validated locally —
+    NetMind availability never becomes a per-request dependency.
+
+    Error mapping: invalid/expired NetMind token -> 401; NetMind
+    unreachable or contract drift -> 502 (never disguised as a user
+    credential failure).
     """
-    logger.info(f"Registration attempt for user: {request.user_id}")
+    from xyz_agent_context.services.netmind_auth_client import (
+        NetmindAuthError,
+        NetmindUpstreamError,
+    )
+
+    if not _is_cloud_mode():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
 
     try:
-        if not _is_cloud_mode():
-            return RegisterResponse(success=False, error="Registration is only available in cloud mode")
+        netmind_user = await _get_netmind_auth_client().verify_token(
+            request.netmind_token
+        )
+    except NetmindAuthError:
+        raise HTTPException(status_code=401, detail="Invalid NetMind token")
+    except NetmindUpstreamError as exc:
+        logger.error(f"netmind-login: upstream failure: {exc}")
+        raise HTTPException(
+            status_code=502, detail="NetMind auth service unavailable, try again"
+        )
 
-        # Validate password length
-        if len(request.password) < 6:
-            return RegisterResponse(success=False, error="Password must be at least 6 characters")
+    db_client = await get_db_client()
+    user_repo = UserRepository(db_client)
+    user, is_new = await user_repo.upsert_netmind_user(
+        user_system_code=netmind_user.user_system_code,
+        email=netmind_user.email,
+        display_name=netmind_user.nickname,
+    )
 
-        # Validate user_id
-        if len(request.user_id) < 2 or len(request.user_id) > 32:
-            return RegisterResponse(success=False, error="Username must be 2-32 characters")
-
-        db_client = await get_db_client()
-        user_repo = UserRepository(db_client)
-        invite_repo = InviteCodeRepository(db_client)
-        invite_code = (request.invite_code or "").strip()
-
-        # Validate the invite code: it must exist and still be 'issued'.
-        # This is a fast pre-check purely for a clear error message — the
-        # atomic consume() below is the real gate against concurrent reuse.
-        invite = await invite_repo.get_by_code(invite_code)
-        if invite is None:
-            return RegisterResponse(success=False, error="Invalid invite code")
-        if invite.status != "issued":
-            if invite.status == "used":
-                return RegisterResponse(success=False, error="This invite code has already been used")
-            return RegisterResponse(success=False, error="This invite code is no longer valid")
-
-        # Check if user already exists
-        existing = await user_repo.get_user(request.user_id)
-        if existing:
-            return RegisterResponse(success=False, error="Username already taken")
-
-        # Atomically consume the invite code (issued -> used). The
-        # `status = 'issued'` filter inside consume() is the race guard:
-        # if another registration already claimed this code, `consumed`
-        # is False and we stop here.
-        consumed = await invite_repo.consume(invite_code, request.user_id)
-        if not consumed:
-            return RegisterResponse(success=False, error="This invite code has already been used")
-
-        # Create user with password. If the insert fails, revert the code
-        # back to 'issued' so a failed registration doesn't burn it.
-        try:
-            password_hash = hash_password(request.password)
-            await db_client.insert("users", {
-                "user_id": request.user_id,
-                "password_hash": password_hash,
-                "role": "user",
-                "user_type": "individual",
-                "display_name": request.display_name or request.user_id,
-                "status": "active",
-            })
-        except Exception as insert_err:
-            await invite_repo.revert_consume(invite_code)
-            logger.exception(
-                f"register: user insert failed, reverted invite code "
-                f"{invite_code}: {insert_err}"
-            )
-            return RegisterResponse(success=False, error="Registration failed, please try again")
-
-        # Generate token
-        token = create_token(request.user_id, "user")
-        logger.info(f"User {request.user_id} registered successfully")
-
-        # Seed the system-default free-tier quota row for the new user.
-        # Failures here must NOT fail the registration itself — the user
-        # still gets their account, they just don't get the free tier
-        # this run (staff can fix post-hoc via /api/admin/quota/init).
-        quota_row = None
+    # Seed the system-default free-tier quota on first login (registration
+    # is gone — first login IS registration now). Failures must not fail
+    # the login; staff can re-seed via /api/admin/quota/init.
+    quota_row = None
+    if is_new:
         quota_service = getattr(http_request.app.state, "quota_service", None)
         if quota_service is not None:
             try:
-                quota_row = await quota_service.init_for_user(request.user_id)
+                quota_row = await quota_service.init_for_user(user.user_id)
             except Exception as e:
                 logger.exception(
-                    f"register: failed to init quota for {request.user_id}: {e}"
+                    f"netmind-login: failed to init quota for {user.user_id}: {e}"
                 )
+        try:
+            identify_user(user.user_id, {"signup_method": "netmind"})
+            track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
+        except Exception:  # noqa: BLE001 — analytics must never break login
+            pass
 
-        return RegisterResponse(
-            success=True,
-            user_id=request.user_id,
-            token=token,
-            has_system_quota=quota_row is not None,
-            initial_input_tokens=(
-                quota_row.initial_input_tokens if quota_row else 0
-            ),
-            initial_output_tokens=(
-                quota_row.initial_output_tokens if quota_row else 0
-            ),
-        )
+    user_row = await db_client.get_one("users", {"user_id": user.user_id})
+    role = (user_row.get("role") if user_row else None) or "user"
 
-    except Exception as e:
-        logger.exception(f"Error during registration: {e}")
-        return RegisterResponse(success=False, error=str(e))
+    token = create_token(user.user_id, role)
+    logger.info(
+        f"netmind-login ok: user={user.user_id} new={is_new} "
+        f"source={request.source or '-'}"
+    )
+    _schedule_login_rearm(user.user_id)
+
+    return NetmindLoginResponse(
+        success=True,
+        user_id=user.user_id,
+        token=token,
+        role=role,
+        is_new_user=is_new,
+        display_name=user.display_name,
+        email=user.email,
+        has_system_quota=quota_row is not None,
+        initial_input_tokens=(quota_row.initial_input_tokens if quota_row else 0),
+        initial_output_tokens=(quota_row.initial_output_tokens if quota_row else 0),
+    )
 
 
 @router.get("/agents", response_model=AgentListResponse)
@@ -326,7 +266,8 @@ async def get_agents(request: Request):
                 agent_type,
                 agent_create_time,
                 created_by,
-                is_public
+                is_public,
+                agent_metadata
             FROM agents
             WHERE created_by = %s OR is_public = 1
             ORDER BY agent_create_time DESC
@@ -420,6 +361,19 @@ async def get_agents(request: Request):
                 )
                 bootstrap_active = os.path.isfile(bootstrap_path)
 
+            # Per-agent greeting override (only meaningful while bootstrapping).
+            # The frontend's instant greeting must match the DB-persisted one,
+            # so both read agent_metadata.bootstrap_greeting.
+            bootstrap_greeting = None
+            if bootstrap_active:
+                raw_meta = row.get('agent_metadata')
+                if raw_meta:
+                    try:
+                        meta = raw_meta if isinstance(raw_meta, dict) else json.loads(raw_meta)
+                        bootstrap_greeting = (meta or {}).get('bootstrap_greeting')
+                    except (ValueError, TypeError):
+                        bootstrap_greeting = None
+
             active_run = None
             ar_row = active_runs_by_agent.get(row['agent_id'])
             if ar_row:
@@ -457,6 +411,7 @@ async def get_agents(request: Request):
                 is_public=bool(row.get('is_public', 0)),
                 created_by=created_by,
                 bootstrap_active=bootstrap_active,
+                bootstrap_greeting=bootstrap_greeting,
                 active_run=active_run,
                 last_assistant_preview=last_assistant_preview,
                 last_assistant_at=last_assistant_at,
@@ -480,21 +435,24 @@ async def get_agents(request: Request):
 
 
 @router.post("/agents", response_model=CreateAgentResponse)
-async def create_agent(request: CreateAgentRequest):
+async def create_agent(http_request: Request, request: CreateAgentRequest):
     """
-    Create a new agent with default values
-    Generates a unique agent_id automatically
+    Create a new agent with default values.
+    Generates a unique agent_id automatically. Identity (created_by) comes
+    from auth_middleware — clients can no longer create agents under
+    someone else's account by writing a different id into the body.
     """
-    logger.info(f"Creating new agent for user: {request.created_by}")
+    created_by = await resolve_current_user_id(http_request)
+    logger.info(f"Creating new agent for user: {created_by}")
 
     try:
         db_client = await get_db_client()
 
         # Validate that the user exists
         user_repo = UserRepository(db_client)
-        user = await user_repo.get_user(request.created_by)
+        user = await user_repo.get_user(created_by)
         if not user:
-            logger.warning(f"Cannot create agent: user {request.created_by} not found")
+            logger.warning(f"Cannot create agent: user {created_by} not found")
             return CreateAgentResponse(
                 success=False,
                 error="User not found. Please create an account first."
@@ -512,33 +470,78 @@ async def create_agent(request: CreateAgentRequest):
         record_id = await repo.add_agent(
             agent_id=agent_id,
             agent_name=agent_name,
-            created_by=request.created_by,
+            created_by=created_by,
             agent_description=agent_description,
             agent_type="chat"
         )
 
         logger.info(f"Agent created: {agent_id}, record_id: {record_id}")
 
-        # Compute workspace path (used by bootstrap)
+        # Create the default agent-level instances (Awareness, SocialNetwork,
+        # BasicInfo, MessageBus, Lark). Without this the HTTP-created agent has
+        # no AwarenessModule instance and downstream provisioning / awareness
+        # writes have nothing to attach to. Idempotent (factory checks first);
+        # best-effort so a transient failure never blocks agent creation.
+        try:
+            from xyz_agent_context.module._module_impl.instance_factory import InstanceFactory
+            await InstanceFactory(db_client).create_agent_level_instances(agent_id)
+        except Exception as inst_err:
+            logger.warning(f"Failed to create default instances for {agent_id}: {inst_err}")
+
+        # First-run flow via a bootstrap PROFILE (default = today's behavior).
+        # The profile renders Bootstrap.md + the greeting + the deletion rule and
+        # apply_bootstrap stores them (workspace + agent_metadata). Pass
+        # `bootstrap` in the request to pick a profile; unknown/None → "default".
         from xyz_agent_context.settings import settings
         workspace_path = os.path.join(
             settings.base_working_path,
-            f"{agent_id}_{request.created_by}"
+            f"{agent_id}_{created_by}"
         )
-        os.makedirs(workspace_path, exist_ok=True)
-
-        # Eagerly create workspace and write Bootstrap.md for first-run setup
+        bootstrap_active = False
         try:
-            from xyz_agent_context.bootstrap.template import BOOTSTRAP_MD_TEMPLATE
-
-            bootstrap_file = os.path.join(workspace_path, "Bootstrap.md")
-            with open(bootstrap_file, "w", encoding="utf-8") as f:
-                f.write(BOOTSTRAP_MD_TEMPLATE)
-
-            logger.info(f"Bootstrap.md written to {bootstrap_file}")
+            from xyz_agent_context.bootstrap.profiles import (
+                apply_bootstrap, get_profile, BootstrapContext,
+            )
+            profile = get_profile(getattr(request, "bootstrap", None) or "default")
+            await apply_bootstrap(
+                db_client,
+                agent_id=agent_id,
+                user_id=created_by,
+                profile=profile,
+                ctx=BootstrapContext(
+                    agent_id=agent_id, user_id=created_by, agent_name=agent_name,
+                ),
+            )
+            bootstrap_active = os.path.isfile(os.path.join(workspace_path, "Bootstrap.md"))
+            logger.info(f"Bootstrap profile '{profile.name}' applied to {agent_id}")
         except Exception as bootstrap_err:
             # Non-fatal: agent is already created, bootstrap is best-effort
-            logger.warning(f"Failed to write Bootstrap.md: {bootstrap_err}")
+            logger.warning(f"Failed to apply bootstrap profile: {bootstrap_err}")
+
+        # Team assignment (#43): when the sidebar "Add agent" was clicked under
+        # a specific team, attach the new agent to that team so it lands in the
+        # right group instead of Ungrouped. Best-effort + ownership-checked: a
+        # missing or foreign team_id never blocks creation — it just leaves the
+        # agent ungrouped.
+        if request.team_id:
+            try:
+                from xyz_agent_context.repository import (
+                    TeamRepository,
+                    TeamMemberRepository,
+                )
+                team = await TeamRepository(db_client).get_team(request.team_id)
+                if team and team.owner_user_id == created_by:
+                    await TeamMemberRepository(db_client).add_member(
+                        request.team_id, agent_id
+                    )
+                    logger.info(f"Agent {agent_id} added to team {request.team_id}")
+                else:
+                    logger.warning(
+                        f"Skip team assignment for {agent_id}: team "
+                        f"{request.team_id} missing or not owned by {created_by}"
+                    )
+            except Exception as team_err:
+                logger.warning(f"Failed to assign {agent_id} to team: {team_err}")
 
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
@@ -549,8 +552,8 @@ async def create_agent(request: CreateAgentRequest):
             description=agent_description,
             status='active',
             created_at=format_for_api(agent_row.get("agent_create_time")) if agent_row else None,
-            created_by=request.created_by,
-            bootstrap_active=True,
+            created_by=created_by,
+            bootstrap_active=bootstrap_active,
         )
 
         return CreateAgentResponse(
@@ -558,6 +561,8 @@ async def create_agent(request: CreateAgentRequest):
             agent=agent_info,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error creating agent: {e}")
         return CreateAgentResponse(
@@ -685,7 +690,7 @@ async def delete_agent(
     2. Narrative Memory dynamic tables
     3. Jobs
     4. Instance-Narrative Links
-    5. Instance subsidiary data (social_entities, awareness, rag_store, module_report_memory)
+    5. Instance subsidiary data (social_entities, awareness, module_report_memory)
     6. Module Instances
     7. Events
     8. Narratives
@@ -813,10 +818,10 @@ async def delete_agent(
                 stats["instance_narrative_links"] = cnt
 
         # 7. Instance subsidiary data (by instance_id)
+        #     (instance_social_entities retired — entities now live in
+        #      memory_entity, cleaned by agent_id in the memory sweep below.)
         instance_sub_tables = [
-            "instance_social_entities",
             "instance_awareness",
-            "instance_rag_store",
             "instance_module_report_memory",
             "instance_json_format_memory",
             # Was missing — separate single-row-per-instance memory table
@@ -825,9 +830,6 @@ async def delete_agent(
             # `module_report_memory` is also keyed by instance_id (per-instance
             # report blob, distinct from instance_module_report_memory).
             "module_report_memory",
-            # Embedding tables: chat_message_embeddings is keyed by instance_id;
-            # leaving them creates orphan vectors that pollute RAG retrieval.
-            "chat_message_embeddings",
         ]
         if instance_ids:
             ph = ", ".join(["%s"] * len(instance_ids))
@@ -844,6 +846,24 @@ async def delete_agent(
                 except Exception:
                     # Table may not exist, skip
                     pass
+
+        # 7b. Unified memory tables (by agent_id) — observation/entity/chat/...
+        # are all agent-scoped; without this an account deletion would leave
+        # orphaned memory rows (entities, learned facts, etc.).
+        from xyz_agent_context.utils.schema_registry import MEMORY_KINDS
+        for _kind in MEMORY_KINDS:
+            _tbl = f"memory_{_kind}"
+            try:
+                result = await db_client.execute(
+                    f"DELETE FROM `{_tbl}` WHERE agent_id = %s",
+                    (agent_id,),
+                    fetch=False,
+                )
+                cnt = result if isinstance(result, int) else 0
+                if cnt > 0:
+                    stats[_tbl] = cnt
+            except Exception:
+                pass  # Table may not exist on older DBs — skip.
 
         # 8. Module Instances (by agent_id)
         result = await db_client.execute(
@@ -1032,43 +1052,6 @@ async def delete_agent(
         except Exception as e:
             logger.warning(f"bus cascade cleanup failed (non-critical): {e}")
 
-        # 14d. Embeddings store rows for entities this agent owned.
-        # entity_type is 'event' / 'narrative' / 'rag' depending on what was embedded.
-        # We deleted the underlying events / narratives / rag rows above, leaving
-        # vector blobs behind that pollute RAG/semantic search. Sweep them now.
-        try:
-            event_ids = []  # collected from events we just deleted? we only have agent_id
-            # Easiest: delete by entity_type + the parent rows we already wiped.
-            # Because we already cascaded events/narratives/rag, any vectors keyed
-            # to an entity_id that no longer exists is orphaned. We can't trivially
-            # match on agent_id (embeddings_store has no agent_id col), so we sweep
-            # by joining against the deleted parent IDs we still have in memory:
-            #
-            # `nar_rows` and `inst_rows` already collected the IDs above; events
-            # we don't have a list of (we just DELETE'd by agent_id). Cheap option:
-            # use a NOT EXISTS sweep against current parent tables.
-            for entity_type, parent_table, parent_pk in (
-                ("event", "events", "event_id"),
-                ("narrative", "narratives", "narrative_id"),
-                ("rag", "instance_rag_store", "id"),
-            ):
-                if is_sqlite:
-                    sweep_sql = (
-                        f"DELETE FROM embeddings_store WHERE entity_type = ? "
-                        f"AND entity_id NOT IN (SELECT {parent_pk} FROM {parent_table})"
-                    )
-                else:
-                    sweep_sql = (
-                        f"DELETE FROM embeddings_store WHERE entity_type = %s "
-                        f"AND entity_id NOT IN (SELECT {parent_pk} FROM {parent_table})"
-                    )
-                e_res = await db_client.execute(sweep_sql, (entity_type,), fetch=False)
-                e_cnt = e_res if isinstance(e_res, int) else 0
-                if e_cnt > 0:
-                    stats[f"embeddings_store({entity_type})"] = e_cnt
-        except Exception as e:
-            logger.warning(f"embeddings_store sweep failed (non-critical): {e}")
-
         # 14e. Orphan inbox entries pointing at deleted events
         try:
             if is_sqlite:
@@ -1119,12 +1102,15 @@ async def delete_agent(
 @router.post("/create-user", response_model=CreateUserResponse)
 async def create_user(request: CreateUserRequest):
     """
-    Create a new local user.
+    Create a new local user (local mode only).
 
-    Flow:
-    1. Check if user_id already exists
-    2. Create a new user in the users table
+    In cloud mode this endpoint is gone: it sat in AUTH_EXEMPT_PATHS with
+    no credential check, i.e. an open account-creation hole. Cloud users
+    are provisioned via netmind-login.
     """
+    if _is_cloud_mode():
+        raise HTTPException(status_code=404, detail="Not available in cloud mode")
+
     logger.info(f"Create user request for: {request.user_id}")
 
     try:
@@ -1148,6 +1134,18 @@ async def create_user(request: CreateUserRequest):
         )
 
         logger.info(f"User {request.user_id} created successfully")
+        # Only non-identifying traits — the distinct_id is hashed and we
+        # deliberately do NOT ship display_name, so no real names reach
+        # PostHog.
+        await identify_user(
+            user_id=request.user_id,
+            traits={"role": "individual"},
+        )
+        await track(
+            user_id=request.user_id,
+            event=EVENT_SIGNED_UP,
+            properties={PROP_METHOD: "create_user"},
+        )
         return CreateUserResponse(
             success=True,
             user_id=request.user_id,
@@ -1162,20 +1160,16 @@ async def create_user(request: CreateUserRequest):
 
 
 @router.post("/timezone", response_model=UpdateTimezoneResponse)
-async def update_timezone(request: UpdateTimezoneRequest):
+async def update_timezone(http_request: Request, request: UpdateTimezoneRequest):
     """
-    Update user timezone
+    Update the authenticated user's timezone.
 
-    Automatically called when the browser page loads to sync the user's local timezone setting.
-    Timezone uses IANA format, e.g., 'Asia/Shanghai', 'America/New_York', etc.
-
-    Args:
-        request: Request body containing user_id and timezone
-
-    Returns:
-        Update result, including success status and current timezone
+    Automatically called when the browser page loads to sync the user's local
+    timezone setting. IANA format, e.g. 'Asia/Shanghai'. Identity comes from
+    auth_middleware — the body no longer carries (or trusts) a user_id.
     """
-    logger.info(f"Timezone update request: user={request.user_id}, timezone={request.timezone}")
+    user_id = await resolve_current_user_id(http_request)
+    logger.info(f"Timezone update request: user={user_id}, timezone={request.timezone}")
 
     try:
         # Validate timezone format
@@ -1190,24 +1184,26 @@ async def update_timezone(request: UpdateTimezoneRequest):
         user_repo = UserRepository(db_client)
 
         # Check if user exists
-        user = await user_repo.get_user(request.user_id)
+        user = await user_repo.get_user(user_id)
         if not user:
-            logger.warning(f"User {request.user_id} not found")
+            logger.warning(f"User {user_id} not found")
             return UpdateTimezoneResponse(
                 success=False,
                 error="User not found"
             )
 
         # Update timezone
-        await user_repo.update_timezone(request.user_id, request.timezone)
+        await user_repo.update_timezone(user_id, request.timezone)
 
-        logger.info(f"User {request.user_id} timezone updated to {request.timezone}")
+        logger.info(f"User {user_id} timezone updated to {request.timezone}")
         return UpdateTimezoneResponse(
             success=True,
-            user_id=request.user_id,
+            user_id=user_id,
             timezone=request.timezone,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception(f"Error updating timezone: {e}")
         return UpdateTimezoneResponse(
@@ -1239,12 +1235,14 @@ def _read_onboarding(metadata: Optional[dict]) -> OnboardingProgress:
 
 
 @router.get("/onboarding", response_model=OnboardingResponse)
-async def get_onboarding(user_id: str):
-    """Return the new-user onboarding checklist state for `user_id`.
+async def get_onboarding(http_request: Request):
+    """Return the authenticated user's onboarding checklist state.
 
     The frontend calls this on chat-page mount to decide whether to show
-    the checklist card and which rows are already checked.
+    the checklist card and which rows are already checked. Identity comes
+    from auth_middleware (was a client-supplied query param).
     """
+    user_id = await resolve_current_user_id(http_request)
     try:
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
@@ -1261,7 +1259,7 @@ async def get_onboarding(user_id: str):
 
 
 @router.post("/onboarding", response_model=OnboardingResponse)
-async def update_onboarding(request: UpdateOnboardingRequest):
+async def update_onboarding(http_request: Request, request: UpdateOnboardingRequest):
     """Mark one or more onboarding steps complete.
 
     Write-once-true: only fields explicitly True in the request are
@@ -1270,10 +1268,11 @@ async def update_onboarding(request: UpdateOnboardingRequest):
     `onboarding_progress` sub-key, and writes the whole dict back so
     sibling metadata keys are preserved.
     """
+    user_id = await resolve_current_user_id(http_request)
     try:
         db_client = await get_db_client()
         user_repo = UserRepository(db_client)
-        user = await user_repo.get_user(request.user_id)
+        user = await user_repo.get_user(user_id)
         if not user:
             return OnboardingResponse(success=False, error="User not found")
 
@@ -1288,12 +1287,77 @@ async def update_onboarding(request: UpdateOnboardingRequest):
 
         metadata = dict(user.metadata or {})
         metadata[_ONBOARDING_METADATA_KEY] = merged.model_dump()
-        await user_repo.update_user(request.user_id, {"metadata": metadata})
+        await user_repo.update_user(user_id, {"metadata": metadata})
 
         logger.info(
-            f"Onboarding updated for {request.user_id}: {merged.model_dump()}"
+            f"Onboarding updated for {user_id}: {merged.model_dump()}"
         )
         return OnboardingResponse(success=True, progress=merged)
     except Exception as e:
         logger.exception(f"Error updating onboarding state: {e}")
         return OnboardingResponse(success=False, error=str(e))
+
+
+# =============================================================================
+# Analytics opt-out
+# =============================================================================
+
+
+def _require_request_user(http_request: Request) -> str:
+    """Identity for the analytics endpoints comes from auth_middleware
+    (request.state.user_id) — never from the query string or body — so one
+    user can't read or flip another user's privacy preference."""
+    uid = getattr(http_request.state, "user_id", None)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return uid
+
+
+class SetAnalyticsOptOutRequest(BaseModel):
+    opted_out: bool
+
+
+@router.get("/settings/analytics")
+async def get_analytics_opt_out(http_request: Request):
+    """Return whether the current user has opted out of product analytics.
+
+    No-row means not opted out (tracking on by default).
+    """
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    return {"opted_out": await repo.is_analytics_opted_out(uid)}
+
+
+@router.put("/settings/analytics")
+async def set_analytics_opt_out(request: SetAnalyticsOptOutRequest,
+                                http_request: Request):
+    """Set the current user's analytics opt-out preference."""
+    uid = _require_request_user(http_request)
+    repo = UserSettingsRepository(await get_db_client())
+    await repo.set_analytics_opt_out(uid, request.opted_out)
+    return {"success": True, "opted_out": request.opted_out}
+
+
+class FunnelEventRequest(BaseModel):
+    event: str
+
+
+@router.post("/funnel")
+async def track_funnel_event(request: FunnelEventRequest, http_request: Request):
+    """Report a frontend-originated funnel event (setup page UI actions).
+
+    Identity comes from auth_middleware (request.state.user_id) — never the
+    body — so events can't be spoofed onto another user. Only whitelisted
+    setup_* events are accepted, and no client-supplied properties are
+    forwarded: the setup_* events carry no payload by design, so accepting a
+    properties dict would only let a client inject arbitrary data (or
+    override the server-derived `surface`) into PostHog. track() applies
+    opt-out, distinct_id hashing, and the surface label, and never raises.
+    """
+    uid = _require_request_user(http_request)
+    if request.event not in _ALLOWED_FUNNEL_EVENTS:
+        raise HTTPException(
+            status_code=400, detail=f"Unknown funnel event: {request.event}"
+        )
+    await track(user_id=uid, event=request.event)
+    return {"success": True}

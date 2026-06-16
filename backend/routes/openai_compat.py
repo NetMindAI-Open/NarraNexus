@@ -200,7 +200,9 @@ _REPLY_TOOL_NAMES = (
     "mcp__chat_module__send_message_to_user_directly",
 )
 
-_TERMINAL_TYPES = ("run_ended", "completed", "done", "failed", "cancelled")
+# "complete" is the terminal frame BackgroundRun._finalize broadcasts to
+# live subscribers right before closing the broadcaster.
+_TERMINAL_TYPES = ("complete", "run_ended", "completed", "done", "failed", "cancelled")
 
 
 def _is_reply_tool_name(tool_name: str) -> bool:

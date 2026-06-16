@@ -34,6 +34,7 @@ import { Download } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
+import { downloadFile } from '@/lib/download';
 
 const KIND_TO_EXT: Record<string, string> = {
   'text/html': 'html',
@@ -176,15 +177,16 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
               </>
             )}
             {url ? (
-              <a
-                href={url}
-                download={safeFilename(artifact.title, ext)}
-                onClick={() => setOpen(false)}
-                className="block px-3 py-1.5 hover:bg-[var(--bg-secondary)] no-underline text-[var(--text-primary)]"
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  downloadFile({ url, filename: safeFilename(artifact.title, ext) });
+                }}
+                className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
                 role="menuitem"
               >
                 Download original (.{ext})
-              </a>
+              </button>
             ) : (
               <span className="block px-3 py-1.5 opacity-50">Preparing download…</span>
             )}

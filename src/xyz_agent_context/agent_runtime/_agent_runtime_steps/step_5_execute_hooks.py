@@ -107,7 +107,7 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
         ),
         ctx_data=execution_result.ctx_data,
         instance=current_instance,
-        # Narrative-related (for MemoryModule writing to EverMemOS)
+        # Narrative-related (for MemoryModule writes)
         event=ctx.event,
         narrative=current_narrative,
     )

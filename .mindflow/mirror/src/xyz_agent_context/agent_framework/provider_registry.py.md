@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_registry.py
-last_verified: 2026-04-10
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
+
+SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and
+`reasoning_effort: ""|low|medium|high|max` ("" = auto = adapter passes
+nothing). They are deliberately NOT provider dialect (no "adaptive"/
+"minimal"): NarraNexus will adapt more frameworks (Codex, pi, ...), so the
+slot stores semantics and each agent-framework adapter owns the mapping +
+clamping (rule #9). Persisted as `user_slots.params_json` (cloud) and via
+the normal LLMConfig JSON dump (local llm_config.json) — both backends
+expose them through the same set_slot(..., thinking=, reasoning_effort=)
+signature with PUT semantics (omitted = reset to auto). Corrupt or
+out-of-vocabulary stored params degrade to auto with a warning instead of
+failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
+
 # provider_registry.py — 本地单机 LLM provider 配置管理
 
 ## 为什么存在

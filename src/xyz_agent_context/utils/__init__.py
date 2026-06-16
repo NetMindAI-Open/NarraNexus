@@ -8,8 +8,6 @@ Exports:
 - AsyncDatabaseClient: MySQL database operations (async driver, using aiomysql)
 - DatabaseClient: Short alias for AsyncDatabaseClient
 - DataLoader: Automatic batch loading utility (solves the N+1 problem)
-- EmbeddingClient: Text embedding generation (OpenAI)
-- Convenience functions: get_embedding, load_db_config
 """
 
 from xyz_agent_context.utils.database import (
@@ -21,15 +19,6 @@ from xyz_agent_context.utils.dataloader import DataLoader
 # DatabaseClient is a short alias for AsyncDatabaseClient
 DatabaseClient = AsyncDatabaseClient
 
-# Embedding utilities (moved to agent_framework/llm_api/)
-from xyz_agent_context.agent_framework.llm_api.embedding import (
-    EmbeddingClient,
-    get_embedding,
-    prepare_job_text_for_embedding,
-    # Vector calculation utilities
-    cosine_similarity,
-    compute_average_embedding,
-)
 
 # Text utilities
 from xyz_agent_context.utils.text import (
@@ -77,13 +66,7 @@ __all__ = [
     "load_db_config",
     # DataLoader
     "DataLoader",
-    # Embeddings
-    "EmbeddingClient",
-    "get_embedding",
-    "prepare_job_text_for_embedding",
     # Vector calculation
-    "cosine_similarity",
-    "compute_average_embedding",
     # Text utilities
     "extract_keywords",
     "truncate_text",

@@ -1,8 +1,48 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-05-22
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — ClaudeConfig carries neutral reasoning params
+
+`ClaudeConfig` gained `thinking` / `reasoning_effort` (both default ""
+= auto), populated from the agent slot's SlotConfig at all three
+construction sites (llm_config.json path, .env fallback — stays auto —
+and the per-user resolver). The fields are framework-neutral; the
+Claude-dialect mapping lives in xyz_claude_agent_sdk
+(`_resolve_reasoning_options`), NOT here. `to_cli_env()` is untouched —
+these ride ClaudeAgentOptions, not env vars.
+
+
+## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
+
+`ClaudeConfig.to_cli_env()` now also sets `API_TIMEOUT_MS` (from
+`settings.llm_api_timeout_ms`) and `CLAUDE_CODE_MAX_RETRIES` (from
+`settings.llm_max_retries`). These are the Claude Code CLI's own knobs for a
+per-REQUEST timeout and built-in transient-error retry. Previously unset →
+inherited CLI defaults; now explicit + .env-tunable so a stalled request is
+bounded and auto-retried (the "卡死无重试" fix). API_TIMEOUT_MS is per-request,
+NOT a run total — it does not violate 铁律 #14 (no agent_loop cap); retry is on
+the SAME provider so it does not govern model choice (铁律 #15).
+
+## 2026-05-13 — `_get_user_llm_configs_strict` delegates to provider_driver
+
+The user-provider branch now first calls
+`provider_driver.resolve_user_llm_configs(user_id, db)`. That function
+encapsulates the new single-point resolution path including reverse-
+validation self-heal for broken slot.model bindings (the Xiong bug).
+If the new resolver raises `LLMConfigNotConfigured` we re-raise to keep
+the actionable message; any other exception logs a warning and falls
+through to the legacy hand-rolled branch below — kept as a safety net
+during the Phase 1 confidence window.
+
+The legacy `_use_system_default_strict` path is untouched. The cloud
+migration that turns env-var system credentials into a regular
+`user_providers` row with `owner_user_id=NULL` (Phase 3) will collapse
+that branch too; until then, opt-in `prefer_system_override=true` users
+keep going through the old path.
+
+See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
 

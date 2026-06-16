@@ -25,6 +25,7 @@ import { Button, Badge, ScrollArea, useConfirm, Dialog } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
+import { downloadFile } from '@/lib/download';
 import { cn } from '@/lib/utils';
 import type { FileInfo } from '@/types';
 
@@ -139,15 +140,22 @@ export function TreeNode({
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {isFile && (
             <>
-              <a
-                href={downloadUrl}
-                download={node.name}
+              <button
+                onClick={() =>
+                  downloadFile({
+                    url: downloadUrl,
+                    filename: node.name,
+                    // Workspace files are auth-gated (X-User-Id / JWT); a plain
+                    // <a download> can't carry those headers — see lib/download.ts.
+                    authHeaders: api.getAuthHeaders(),
+                  }).catch((e) => window.alert(`Download failed: ${String(e)}`))
+                }
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
                 title="Download"
                 aria-label="Download"
               >
                 <Download className="w-3 h-3" />
-              </a>
+              </button>
               <button
                 onClick={() => onPreview(node)}
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"

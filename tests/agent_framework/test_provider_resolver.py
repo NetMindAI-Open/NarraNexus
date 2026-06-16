@@ -133,6 +133,8 @@ def _mk_quota_svc(*, prefer_system: bool | None, has_budget: bool):
         quota_row.prefer_system_override = prefer_system
         m.get = AsyncMock(return_value=quota_row)
     m.check = AsyncMock(return_value=has_budget)
+    # classify() auto-disables the free-tier preference on exhaustion (#48).
+    m.set_preference = AsyncMock()
     return m
 
 
@@ -179,19 +181,19 @@ async def test_opted_in_with_budget_routes_system_even_when_own_config_exists():
 
 
 @pytest.mark.asyncio
-async def test_opted_in_exhausted_with_own_config_raises_free_tier_exhausted():
-    """Middleware maps this to 402 FREE_TIER_EXHAUSTED_DISABLE_TOGGLE so the
-    frontend can point the user at the Settings toggle."""
+async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user():
+    """#48: exhausted free tier + complete own config no longer 402s. The
+    free-tier preference is auto-disabled and the request routes to the user's
+    own provider, so the configured key is actually used."""
+    quota_svc = _mk_quota_svc(prefer_system=True, has_budget=False)
     r = ProviderResolver(
         user_provider_svc=_mk_user_svc(_complete_user_cfg()),
         system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
-        quota_svc=_mk_quota_svc(prefer_system=True, has_budget=False),
+        quota_svc=quota_svc,
     )
-    with pytest.raises(FreeTierExhaustedError) as exc_info:
-        await r.resolve_and_set("usr_x")
-    assert exc_info.value.user_id == "usr_x"
-    assert exc_info.value.error_code == "FREE_TIER_EXHAUSTED_DISABLE_TOGGLE"
-    assert get_provider_source() is None
+    await r.resolve_and_set("usr_x")
+    assert get_provider_source() == "user"
+    quota_svc.set_preference.assert_awaited_once_with("usr_x", False)
 
 
 @pytest.mark.asyncio

@@ -85,7 +85,7 @@ class SocialNetworkModule(XYZBaseModule):
     def _get_repo(self) -> SocialNetworkRepository:
         """Get or create SocialNetworkRepository instance"""
         if self._social_repo is None:
-            self._social_repo = SocialNetworkRepository(self.db)
+            self._social_repo = SocialNetworkRepository(self.db, self.agent_id)
         return self._social_repo
 
     async def _get_instance_id(self) -> Optional[str]:
@@ -436,11 +436,19 @@ Tables are auto-created on startup via schema_registry.auto_migrate()."""
             except Exception as e:
                 logger.warning(f"            Batch entity extraction failed (non-critical): {e}")
 
+            # NOTE: entity writes above (add/update via SocialNetworkRepository)
+            # now land directly in the unified memory_entity store — the repo IS
+            # the engine. The old `_feed_entity_to_engine` mirror is gone: there
+            # is no separate source table to sync from anymore (unified-memory
+            # overhaul task 1). This also fixes the third-party-entity gap, since
+            # _process_mentioned_entities writes go straight to the engine too.
+
         except Exception as e:
             logger.exception(f"Error in hook_after_event_execution: {e}")
             logger.exception(e)
 
         logger.debug("          ← SocialNetworkModule.hook_after_event_execution() completed")
+
 
     async def _process_mentioned_entities(self, repo, instance_id: str, mentioned: list) -> None:
         """

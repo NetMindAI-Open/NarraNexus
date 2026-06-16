@@ -1,7 +1,26 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-05-20
+last_verified: 2026-06-12
 ---
+
+## 2026-06-12 — hook_data_gathering resolves identity by human name + real sender
+
+`hook_data_gathering` is now implemented (no longer the base no-op). It fills the
+new [[context_schema.py]] identity fields so the canonical identity injection
+shows people by name, not the opaque NetMind userSystemCode:
+- `creator_id` = `agent.created_by` (kept as opaque scoping key)
+- `creator_name` = `UserRepository.get_display_name(agent.created_by)`
+- `is_creator` = whether the CURRENT SENDER is the creator. The sender is
+  `extra_data['sender_user_id']` when the trigger carries it (chat only), else
+  `self.user_id`. **This fixes the old bug** where `is_creator` was derived from
+  the runtime `user_id`, which `agent_runtime` always overrides to the owner —
+  so a visitor's message was mislabelled as the Creator's.
+- `user_role` = "Creator (Boss)" / "User/Customer" from `is_creator`
+- `current_speaker_name` = creator_name if is_creator else
+  `get_display_name(sender_id)`
+On the else/except path names fall back to "Unknown". Consumed by basic_info
+[[prompts.py]] (`{creator_name}` / `{is_creator}` / `{current_speaker_name}`;
+`{creator_id}` / `{user_id}` were dropped from the human-identity lines).
 
 ## 2026-05-20 (Fix #2 P3) — basic_info now hosts the narrative-awareness MCP tools
 
@@ -18,7 +37,7 @@ in [[prompts.py]] (BASIC_INFO_MODULE_INSTRUCTIONS).
 
 BasicInfoModule 是 Agent 了解自身运行环境的最小化通道。它只做一件事：在 `__init__` 里把 `BASIC_INFO_MODULE_INSTRUCTIONS` 赋给 `self.instructions`，让 `get_instructions()` 在每轮对话时把 agent_id、user_id、当前时间等信息注入系统提示。
 
-**没有实现的 hook**：`hook_data_gathering` 和 `hook_after_event_execution` 均使用基类的空默认实现。
+**实现的 hook**：`hook_data_gathering` 解析身份的人类名（creator_name / current_speaker_name）并基于真实 sender 计算 is_creator（见上方 2026-06-12 记录）。`hook_after_event_execution` 仍使用基类空默认实现。
 
 **没有 MCP 服务器**：`get_mcp_config()` 返回 `None`，`create_mcp_server()` 返回 `None`。
 

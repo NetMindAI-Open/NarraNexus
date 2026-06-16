@@ -54,7 +54,7 @@ interface StepRow {
 export function OnboardingChecklist() {
   const navigate = useNavigate();
   const mode = useRuntimeStore((s) => s.mode);
-  const isCloud = mode === 'cloud-app' || mode === 'cloud-web';
+  const isCloud = mode === 'cloud-web';
   const userId = useConfigStore((s) => s.userId);
   const agentCount = useConfigStore((s) => s.agents.length);
   const { createAgent, creating } = useCreateAgent();
@@ -146,6 +146,16 @@ export function OnboardingChecklist() {
       done: templateDone,
       cta: templateDone ? undefined : 'Browse templates',
       onAction: openTemplates,
+    },
+    {
+      key: 'bookmarks',
+      label: 'Meet your bookmark strip',
+      hint: 'Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes.',
+      // Done once the user has opened the drawer at least once
+      // (ChatView writes the flag on first open). Read per render —
+      // the checklist re-renders on every navigation anyway.
+      done: typeof window !== 'undefined'
+        && window.localStorage.getItem('bookmark_drawer_opened_v1') === '1',
     },
   ];
 

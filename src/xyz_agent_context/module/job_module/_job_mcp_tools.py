@@ -24,7 +24,6 @@ from mcp.server.fastmcp import FastMCP
 
 from xyz_agent_context.schema.job_schema import JobStatus
 from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
 from xyz_agent_context.agent_framework.api_config import setup_mcp_llm_context, LLMConfigNotConfigured
 
 
@@ -242,11 +241,11 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
             db = await get_db_client_fn()
             repo = JobRepository(db)
 
-            query_embedding = await get_embedding(query)
-
-            results = await repo.search_semantic(
+            # Vectors retired: BM25 keyword search over jobs replaces the
+            # embedding cosine path (unified-memory refactor).
+            results = await repo.search_keyword(
                 agent_id=agent_id,
-                query_embedding=query_embedding,
+                query=query,
                 user_id=user_id,
                 status=status_enum,
                 limit=limit

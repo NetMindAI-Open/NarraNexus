@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/repository/user_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — get_display_name: the single user_id→human-name resolver
+
+New `get_display_name(user_id) -> str`: returns the user's `display_name`, or
+the `user_id` itself when there is no display_name / no such user / `user_id` is
+falsy. Never raises (lookup failure falls back to the id). This is the ONE DRY
+place every prompt path resolves an opaque user_id to a human name, so the LLM
+never sees a raw NetMind userSystemCode (32-hex) as a person. Consumers:
+[[basic_info_module.py]] (creator_name / current_speaker_name),
+[[_job_context_builder.py]] (execution_identity / task_creator),
+[[message_bus_trigger.py]] (owner_name), and the narrative
+[[prompt_builder.py]] (USER / PARTICIPANT actors).
+
+## 2026-06-11 — upsert_netmind_user for NetMind login (Phase 1 user-system unification)
+
+New `upsert_netmind_user(user_system_code, email, display_name) -> (User, is_new)`. NetMind login has no registration step: the first verified login lazily creates the local row (user_id = NetMind userSystemCode, user_type=individual, role left to the DB default 'user'); later logins mirror email/display_name drift and bump last_login_time. Incoming None never clobbers existing fields. Caller is POST /api/auth/netmind-login in backend/routes/auth.py.
 
 # user_repository.py
 

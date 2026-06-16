@@ -58,7 +58,8 @@ async def create_agent(name: str) -> str:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(
             f"{BACKEND}/api/auth/agents",
-            json={"created_by": USER_ID, "agent_name": name,
+            headers={"X-User-Id": USER_ID},
+            json={"agent_name": name,
                   "agent_description": "narrative model A/B bench"},
         )
         r.raise_for_status()

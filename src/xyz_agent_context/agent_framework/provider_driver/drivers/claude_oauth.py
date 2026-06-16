@@ -22,8 +22,8 @@ are both empty. The ``ClaudeConfig.to_cli_env`` builder already does
 the right thing for that case, so this Driver just produces a
 ClaudeConfig with empty api_key + auth_type="oauth".
 
-OAuth rows can't serve the helper_llm or embedding slot — those need
-chat-completions / embedding endpoints, neither of which Claude
+OAuth rows can't serve the helper_llm slot — that needs a
+chat-completions endpoint, which Claude
 provides via the OAuth credential.
 """
 from __future__ import annotations

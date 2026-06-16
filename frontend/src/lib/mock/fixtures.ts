@@ -16,9 +16,7 @@ import type {
   InstanceInfo,
   SimpleChatMessage,
   MCPInfo,
-  RAGFileInfo,
   CostSummary,
-  EmbeddingStatusData,
   AgentInfo,
 } from '@/types/api';
 import type { SkillInfo, SkillListResponse } from '@/types/skills';
@@ -627,36 +625,6 @@ export const mockMCPs: MCPInfo[] = [
   },
 ];
 
-/* ─────────────────────────────── RAG files ──────────── */
-
-export const mockRAGFiles: RAGFileInfo[] = [
-  {
-    filename: 'q4-2025-research-notes.md',
-    size: 48_210,
-    modified_at: iso(-2 * ONE_DAY),
-    upload_status: 'completed',
-  },
-  {
-    filename: 'chen-2026-rlhf-preprint.pdf',
-    size: 1_240_500,
-    modified_at: iso(-5 * ONE_DAY),
-    upload_status: 'completed',
-  },
-  {
-    filename: 'volkov-2026-moe.pdf',
-    size: 892_300,
-    modified_at: iso(-2 * ONE_HOUR),
-    upload_status: 'uploading',
-  },
-  {
-    filename: 'broken-scan.pdf',
-    size: 2_048_000,
-    modified_at: iso(-10 * ONE_DAY),
-    upload_status: 'failed',
-    error_message: 'OCR failed: unsupported PDF structure.',
-  },
-];
-
 /* ─────────────────────────────── Cost summary ───────── */
 
 export const mockCostSummary: CostSummary = {
@@ -670,7 +638,7 @@ export const mockCostSummary: CostSummary = {
       output_tokens: 140_000,
       call_count: 148,
     },
-    'claude-opus-4.7': {
+    'claude-opus-4.8': {
       cost: 3.75,
       input_tokens: 248_000,
       output_tokens: 58_000,
@@ -717,30 +685,6 @@ The user is a **product designer at NetMind** with a strong typographic sensibil
 - Prof. Chen Li (Tsinghua) · formal register
 - Ops Team · incident response
 `.trim();
-
-/* ─────────────────────────────── Embedding status ───── */
-
-export const mockEmbeddingStatus: EmbeddingStatusData = {
-  model: 'text-embedding-3-large',
-  stats: {
-    narratives: { total: 2, migrated: 2, missing: 0 },
-    events: { total: 3, migrated: 3, missing: 0 },
-    social_entities: { total: 6, migrated: 6, missing: 0 },
-  },
-  all_done: true,
-  migration: {
-    is_running: false,
-    current_model: 'text-embedding-3-large',
-    total: {},
-    completed: {},
-    failed: {},
-    total_count: 0,
-    completed_count: 0,
-    progress_pct: 100,
-    error: null,
-    finished: true,
-  },
-};
 
 /* ─────────────────────────────── Dashboard ──────────── */
 

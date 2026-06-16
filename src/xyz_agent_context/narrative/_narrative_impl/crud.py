@@ -113,7 +113,38 @@ class NarrativeCRUD:
             Number of affected rows
         """
         repo = await self._get_repository()
-        return await repo.save(narrative)
+        result = await repo.save(narrative)
+        await self._index_narrative(narrative)
+        return result
+
+    async def _index_narrative(self, narrative: Narrative) -> None:
+        """Project this narrative's searchable surface (name + current_summary +
+        topic_keywords) into the unified search index (memory_narrative), with a
+        source_ref pointer back to the narrative. ONE-WAY, idempotent: every
+        persist (save / upsert / create→save) flows through here, so this is the
+        single write point — narratives stay searchable via `remember` and never
+        go stale (design §6, projection kind). Best-effort: an index failure
+        must never break narrative persistence."""
+        try:
+            from xyz_agent_context.memory import MemoryEngine
+            info = narrative.narrative_info
+            kws = list(narrative.topic_keywords or [])
+            # Same searchable surface as narrative ROUTING (retrieval.py): name +
+            # current_summary + description + topic_keywords — so `remember` and
+            # the turn-routing BM25 search the exact same fields (both use the
+            # shared bm25_rank), staying perfectly aligned.
+            text = "\n".join(p for p in [
+                getattr(info, "name", "") or "",
+                getattr(info, "current_summary", "") or "",
+                getattr(info, "description", "") or "",
+                " ".join(kws),
+            ] if p)
+            db = await self._get_db_client()
+            await MemoryEngine(db, narrative.agent_id).index(
+                "narrative", narrative.id, text, scope_type="agent", tags=kws,
+            )
+        except Exception as e:  # noqa: BLE001 — projection is best-effort enrichment
+            logger.warning(f"narrative index failed (non-fatal): {e}")
 
     async def upsert(self, narrative: Narrative) -> int:
         """
@@ -130,7 +161,9 @@ class NarrativeCRUD:
             Number of affected rows (1=new insert, 2=updated existing record)
         """
         repo = await self._get_repository()
-        return await repo.upsert(narrative)
+        result = await repo.upsert(narrative)
+        await self._index_narrative(narrative)
+        return result
 
     async def create(
         self,
@@ -226,9 +259,6 @@ class NarrativeCRUD:
             updated_at=now,
             topic_keywords=[],
             topic_hint="",
-            routing_embedding=None,
-            embedding_updated_at=None,
-            events_since_last_embedding_update=0,
         )
 
         logger.info(f"Created Narrative: {narrative_id} with chat_instance: {chat_instance_record.instance_id}")

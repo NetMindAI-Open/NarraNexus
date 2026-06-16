@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/quota.py
 stub: false
-last_verified: 2026-04-16
+last_verified: 2026-06-16
 ---
 
 # Intent
@@ -15,6 +15,13 @@ lets the frontend avoid duplicating "is the feature on" logic:
   or call /api/admin/quota/init)
 - `{enabled: true, status: "active"|"exhausted"|"disabled", …}` — full
   breakdown, matching the `Quota` schema's public fields.
+
+## PATCH /me/preference (#48)
+
+Maps `QuotaPreferenceLocked` (raised by `quota_service.set_preference` when
+re-enabling free tier while budget is zero) to HTTP 409. This is the
+defensive backstop; the frontend already disables the toggle in the exhausted
+state, so normal users never hit 409.
 
 ## Upstream
 - Frontend `QuotaPanel` component (polls on page load; hides when

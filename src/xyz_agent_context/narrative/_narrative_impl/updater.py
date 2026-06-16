@@ -4,12 +4,11 @@ Narrative update implementation
 @file_name: updater.py
 @author: NetMind.AI
 @date: 2025-12-22
-@description: Narrative update, embedding vector update, LLM dynamic summary generation
+@description: Narrative update + LLM dynamic summary generation
 
 Features:
 1. update_with_event: Update Narrative with an Event
 2. LLM dynamic update: Asynchronously update name, current_summary, actors, topic_keywords
-3. Embedding vector update: Periodically update routing_embedding
 """
 
 from __future__ import annotations
@@ -31,12 +30,9 @@ from ..models import (
     NarrativeActorType,
 )
 from .crud import NarrativeCRUD
-from .vector_store import VectorStore
 from .prompts import NARRATIVE_UPDATE_INSTRUCTIONS
 
 # Use common utilities from utils
-from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
-from xyz_agent_context.utils.text import truncate_text
 
 if TYPE_CHECKING:
     from xyz_agent_context.utils.database import AsyncDatabaseClient
@@ -88,7 +84,6 @@ class NarrativeUpdater:
 
     Responsibilities:
     - Update Narrative with Events
-    - Check and update embedding vectors
     - Regenerate topic hints
     """
 
@@ -101,16 +96,11 @@ class NarrativeUpdater:
         """
         self.agent_id = agent_id
         self._crud = NarrativeCRUD(agent_id)
-        self._vector_store: Optional[VectorStore] = None
         self._event_service = None  # Dependency injection
 
     def set_database_client(self, db_client: "AsyncDatabaseClient"):
         """Set the database client"""
         self._crud.set_database_client(db_client)
-
-    def set_vector_store(self, vector_store: VectorStore):
-        """Set the vector store"""
-        self._vector_store = vector_store
 
     def set_event_service(self, event_service):
         """Inject EventService"""
@@ -130,13 +120,12 @@ class NarrativeUpdater:
         - Associate Event ID
         - Update dynamic summary (temporary)
         - Asynchronously trigger LLM update (main_narrative only)
-        - Check and update embedding (main_narrative only)
 
         Args:
             narrative: Narrative object
             event: Event object
             is_main_narrative: Whether this is the main Narrative
-                - True: Full update, including LLM dynamic update and Embedding update
+                - True: Full update, including async LLM dynamic update
                 - False: Basic update only (associate Event, update dynamic_summary)
                   Note: Auxiliary Narrative LLM updates require different prompts,
                   as they provide supplementary information with a different summarization perspective.
@@ -179,9 +168,6 @@ class NarrativeUpdater:
         if event.id not in latest_narrative.event_ids:
             latest_narrative.event_ids.append(event.id)
 
-        # Update counter
-        latest_narrative.events_since_last_embedding_update += 1
-
         # Temporary dynamic_summary update (waiting for LLM to generate a better version)
         if event.final_output:
             summary_entry = DynamicSummaryEntry(
@@ -205,24 +191,17 @@ class NarrativeUpdater:
         narrative = latest_narrative
 
         # Determine whether to trigger LLM update (async execution, non-blocking)
-        # Note: Only main_narrative triggers LLM and Embedding updates
+        # Note: Only main_narrative triggers the async LLM update
         # Auxiliary Narratives only get basic updates for now; dedicated update logic can be implemented in the future
         if is_main_narrative:
             event_count = len(narrative.event_ids)
             update_interval = NARRATIVE_LLM_UPDATE_INTERVAL
-            should_update_embedding = self._should_update(narrative)
 
             if update_interval > 0 and event_count % update_interval == 0:
                 logger.info(f"Triggering Narrative LLM update: {narrative.id} (event_count={event_count})")
-                # Async execution, non-blocking main flow
-                # LLM update will automatically check and trigger embedding update upon completion
+                # Async execution, non-blocking main flow.
                 asyncio.create_task(
-                    self._async_llm_update(narrative, event, trigger_embedding_update=should_update_embedding)
-                )
-            elif should_update_embedding:
-                # If LLM update not needed but embedding update is, trigger separately
-                asyncio.create_task(
-                    self._async_embedding_update(narrative)
+                    self._async_llm_update(narrative, event)
                 )
         else:
             # Auxiliary Narrative: Only record basic info, skip LLM update
@@ -239,7 +218,6 @@ class NarrativeUpdater:
         self,
         narrative: Narrative,
         event: Event,
-        trigger_embedding_update: bool = False
     ) -> None:
         """
         Asynchronously update Narrative metadata using LLM
@@ -254,7 +232,6 @@ class NarrativeUpdater:
         Args:
             narrative: Narrative object
             event: Latest Event object
-            trigger_embedding_update: Whether to trigger embedding update after LLM update
         """
         try:
             logger.info(f"Starting LLM update for Narrative: {narrative.id}")
@@ -269,12 +246,6 @@ class NarrativeUpdater:
                 # Apply updates
                 await self._apply_llm_update(narrative, update_output, event)
                 logger.info(f"LLM Narrative update completed: {narrative.id}")
-
-                # After LLM update, trigger embedding update if needed
-                # At this point name + current_summary are already up to date
-                if trigger_embedding_update:
-                    logger.info(f"Triggering embedding update after LLM update: {narrative.id}")
-                    await self._async_embedding_update(narrative)
             else:
                 logger.warning(f"LLM update failed, skipping: {narrative.id}")
 
@@ -384,98 +355,9 @@ class NarrativeUpdater:
             f"keywords={update_output.topic_keywords}"
         )
 
-    async def _async_embedding_update(self, narrative: Narrative) -> None:
-        """Asynchronously update embedding vector"""
-        try:
-            updated = await self.check_and_update_embedding(narrative)
-            if updated:
-                logger.info(f"Narrative {narrative.id} embedding updated (async)")
-        except Exception as e:
-            logger.warning(f"Async embedding update failed: {e}")
-
-    async def check_and_update_embedding(self, narrative: Narrative) -> bool:
-        """
-        Check and update embedding (if needed)
-
-        Trigger conditions:
-        1. events_since_last_embedding_update >= EMBEDDING_UPDATE_INTERVAL
-        2. embedding_updated_at is None
-        3. routing_embedding is None
-
-        Args:
-            narrative: Narrative object
-
-        Returns:
-            bool: Whether an update was performed
-        """
-        if not self._should_update(narrative):
-            return False
-
-        logger.info(f"Starting embedding update for Narrative {narrative.id}")
-
-        # Regenerate topic_hint based on name + current_summary
-        new_hint = self._regenerate_topic_hint(narrative)
-
-        # Generate new embedding
-        new_embedding = await get_embedding(new_hint)
-
-        # Update Narrative
-        narrative.topic_hint = new_hint
-        narrative.routing_embedding = new_embedding
-        narrative.embedding_updated_at = datetime.now(timezone.utc)
-        narrative.events_since_last_embedding_update = 0
-
-        # Update VectorStore
-        if self._vector_store:
-            existing = await self._vector_store.get(narrative.id)
-            if existing:
-                await self._vector_store.update(narrative.id, new_embedding)
-
-        # Save to legacy table
-        await self._crud.save(narrative)
-
-        # Dual-write to embeddings_store
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
-        await store_embedding("narrative", narrative.id, new_embedding, source_text=new_hint)
-
-        logger.info(f"Narrative {narrative.id} embedding update completed")
-        return True
-
-    async def force_update_embedding(self, narrative: Narrative):
-        """Force update embedding"""
-        logger.info(f"Force updating embedding for Narrative {narrative.id}")
-        narrative.events_since_last_embedding_update = config.EMBEDDING_UPDATE_INTERVAL
-        await self.check_and_update_embedding(narrative)
-
-    def _regenerate_topic_hint(self, narrative: Narrative) -> str:
-        """
-        Generate topic_hint based on Narrative's name + current_summary
-
-        Uses the LLM-updated name and current_summary as the text source for embedding,
-        so that the embedding reflects the complete semantic information of the Narrative.
-        """
-        name = narrative.narrative_info.name or ""
-        summary = narrative.narrative_info.current_summary or ""
-
-        # Combine name and summary
-        if name and summary:
-            topic_hint = f"{name}: {summary}"
-        elif summary:
-            topic_hint = summary
-        elif name:
-            topic_hint = name
-        else:
-            topic_hint = f"Conversation {narrative.id}"
-
-        # Truncate to maximum length
-        return truncate_text(topic_hint, max_length=config.SUMMARY_MAX_LENGTH)
-
-    def _should_update(self, narrative: Narrative) -> bool:
-        """Determine whether embedding needs to be updated"""
-        if narrative.embedding_updated_at is None:
-            return True
-        if narrative.routing_embedding is None:
-            return True
-        if narrative.events_since_last_embedding_update >= config.EMBEDDING_UPDATE_INTERVAL:
-            return True
-        return False
+    # Embedding-update machinery removed (unified-memory refactor, 2026-06-04):
+    # narrative routing is BM25 over name/summary/keywords, so there is no
+    # routing_embedding / topic_hint / VectorStore to maintain. The DB columns
+    # (routing_embedding, embedding_updated_at, events_since_last_embedding_update,
+    # topic_hint) are left as inert tombstones per binding rule #6 (no
+    # destructive migrations); nothing reads or writes them anymore.

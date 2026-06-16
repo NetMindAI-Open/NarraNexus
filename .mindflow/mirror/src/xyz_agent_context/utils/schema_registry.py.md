@@ -1,8 +1,263 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-05-27
+last_verified: 2026-06-11
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — user_slots.params_json column
+
+`user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one
+extensible JSON object for framework-neutral per-slot params (currently
+thinking + reasoning_effort; future per-slot knobs reuse it without another
+migration). NULL = all params auto. Purely additive — auto_migrate() adds
+it on next startup of every process.
+
+
+## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
+
+The unified-memory refactor dropped the entire embedding/RAG subsystem
+(retrieval is now BM25 + grep, see [[record]] "No embeddings anywhere"). This
+registry therefore NO LONGER declares:
+
+- **whole tables**: `embeddings_store`, `chat_message_embeddings`,
+  `instance_rag_store`
+- **columns on shared/active tables**: `narratives.routing_embedding` /
+  `embedding_updated_at` / `events_since_last_embedding_update`,
+  `events.event_embedding` / `embedding_text`, `*.capability_embedding`, etc.
+
+`auto_migrate` is **additive-only** (it iterates the REGISTRY and does
+CREATE/ADD/INDEX IF NOT EXISTS; it never enumerates the live DB to DROP
+extras — binding rule #6). So on every **already-deployed** database (cloud
+MySQL + local `run.sh`/DMG SQLite) those tables and columns **remain in place
+as orphaned zombie data**. This is intentional and safe:
+
+- no live code path reads/writes them (verified: zero embedding-table refs +
+  zero deleted-module imports across `src/` + `backend/`);
+- every dropped column on an active table was nullable or carried a DEFAULT
+  (the only NOT NULL one, `events_since_last_embedding_update`, had
+  `default=0`), so new code's INSERTs (which omit them) are never rejected.
+
+Cost: a little disk, zero functional impact. **DEFERRED (buffering):** a future
+explicit, idempotent cleanup migration (`mNNNN`: `DROP TABLE IF EXISTS
+embeddings_store / chat_message_embeddings / instance_rag_store`, drop the dead
+columns) should run through the versioned `migrations/` ledger — NOT through
+`auto_migrate` — so the destructive step is audited, run-once, and Owner-
+authorized (rules #6/#12). Not done in this release on purpose.
+
+## 2026-06-09 — schema_migrations ledger table
+
+Added the `schema_migrations` TableDef (migration_id PK / applied_at /
+app_version / notes) — the run-once ledger for the versioned data-migration
+runner (see migrations/ [[__init__]]). `auto_migrate` creates it like any other
+table, so the runner (which fires right after auto_migrate at startup) can
+read/write it.
+
+## 2026-06-08 — source_ref column + MEMORY_KINDS
+
+The `memory_<kind>` table definition (`_memory_kind_table`) gained an additive `source_ref` column (TEXT/JSON) for the projection pointer. `MEMORY_KINDS` enumerates the memory kinds (event/narrative/chat/entity/bus/job/observation) used by account-deletion and bundle paths. `instance_social_entities` TableDef is KEPT (bundle round-trip builds a fresh DB via auto_migrate and still needs it), but no live code path writes it any more — entities live in `memory_entity` (see [[social_network_repository]]).
+
+## 2026-06-08 — user_settings table (analytics opt-out)
+
+New table `user_settings` — per-user flat-column preferences. First consumer:
+`analytics_opt_out` (TINYINT(1), default 0). A missing row means "not opted
+out" — read path in `UserSettingsRepository.is_analytics_opted_out` returns
+`False` when no row exists. Insert-or-update pattern in
+`set_analytics_opt_out`: single `get_one` + branch on existence; `updated_at`
+is not updated in-band because `db.update` uses parameterized placeholders
+(the raw SQL expression `(datetime('now'))` would be stored as literal text).
+New columns can be added via the registry as new preferences appear —
+`auto_migrate` is additive.
+
+## 2026-06-11 — invite_codes table marked retired (data kept)
+
+Table definition stays so existing rows survive: they hold the only old-user-id -> email mapping needed by scripts/migrate_users_to_netmind.py. No code writes the table anymore; safe to drop after migration completes.
+
+## 2026-06-10 — user_slots.params_json column
+
+`user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one
+extensible JSON object for framework-neutral per-slot params (currently
+thinking + reasoning_effort; future per-slot knobs reuse it without another
+migration). NULL = all params auto. Purely additive — auto_migrate() adds
+it on next startup of every process.
+
+
+## 2026-06-09 — embedding subsystem removed → ORPHANED ZOMBIE data (cleanup DEFERRED)
+
+The unified-memory refactor dropped the entire embedding/RAG subsystem
+(retrieval is now BM25 + grep, see [[record]] "No embeddings anywhere"). This
+registry therefore NO LONGER declares:
+
+- **whole tables**: `embeddings_store`, `chat_message_embeddings`,
+  `instance_rag_store`
+- **columns on shared/active tables**: `narratives.routing_embedding` /
+  `embedding_updated_at` / `events_since_last_embedding_update`,
+  `events.event_embedding` / `embedding_text`, `*.capability_embedding`, etc.
+
+`auto_migrate` is **additive-only** (it iterates the REGISTRY and does
+CREATE/ADD/INDEX IF NOT EXISTS; it never enumerates the live DB to DROP
+extras — binding rule #6). So on every **already-deployed** database (cloud
+MySQL + local `run.sh`/DMG SQLite) those tables and columns **remain in place
+as orphaned zombie data**. This is intentional and safe:
+
+- no live code path reads/writes them (verified: zero embedding-table refs +
+  zero deleted-module imports across `src/` + `backend/`);
+- every dropped column on an active table was nullable or carried a DEFAULT
+  (the only NOT NULL one, `events_since_last_embedding_update`, had
+  `default=0`), so new code's INSERTs (which omit them) are never rejected.
+
+Cost: a little disk, zero functional impact. **DEFERRED (buffering):** a future
+explicit, idempotent cleanup migration (`mNNNN`: `DROP TABLE IF EXISTS
+embeddings_store / chat_message_embeddings / instance_rag_store`, drop the dead
+columns) should run through the versioned `migrations/` ledger — NOT through
+`auto_migrate` — so the destructive step is audited, run-once, and Owner-
+authorized (rules #6/#12). Not done in this release on purpose.
+
+## 2026-06-09 — schema_migrations ledger table
+
+Added the `schema_migrations` TableDef (migration_id PK / applied_at /
+app_version / notes) — the run-once ledger for the versioned data-migration
+runner (see migrations/ [[__init__]]). `auto_migrate` creates it like any other
+table, so the runner (which fires right after auto_migrate at startup) can
+read/write it.
+
+## 2026-06-08 — source_ref column + MEMORY_KINDS
+
+The `memory_<kind>` table definition (`_memory_kind_table`) gained an additive `source_ref` column (TEXT/JSON) for the projection pointer. `MEMORY_KINDS` enumerates the memory kinds (event/narrative/chat/entity/bus/job/observation) used by account-deletion and bundle paths. `instance_social_entities` TableDef is KEPT (bundle round-trip builds a fresh DB via auto_migrate and still needs it), but no live code path writes it any more — entities live in `memory_entity` (see [[social_network_repository]]).
+
+## 2026-06-08 — user_settings table (analytics opt-out)
+
+New table `user_settings` — per-user flat-column preferences. First consumer:
+`analytics_opt_out` (TINYINT(1), default 0). A missing row means "not opted
+out" — read path in `UserSettingsRepository.is_analytics_opted_out` returns
+`False` when no row exists. Insert-or-update pattern in
+`set_analytics_opt_out`: single `get_one` + branch on existence; `updated_at`
+is not updated in-band because `db.update` uses parameterized placeholders
+(the raw SQL expression `(datetime('now'))` would be stored as literal text).
+New columns can be added via the registry as new preferences appear —
+`auto_migrate` is additive.
+
+## 2026-05-27 — instance_jobs.created_at/updated_at NOT NULL + DEFAULT
+
+`instance_jobs` table had `created_at` / `updated_at` columns with no
+constraint and no DEFAULT. Some code paths INSERTed rows leaving
+those columns NULL, which then crashed `job_trigger`'s pydantic
+`JobModel` validation (see [[job_repository]] companion fix). Added
+`nullable=False` + `default="(datetime('now'))"` so future INSERTs
+can't recreate the bug. `auto_migrate` is additive-only — existing
+NULL rows in already-deployed sqlite DBs are handled at the read
+boundary by `_row_to_entity` defensively coercing None to
+`datetime.now()`.
+
+## 2026-05-14 — artifact pointer model
+
+Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
+
+`instance_artifacts` gains two pointer-model columns: `file_path` (entry file
+relative to `base_working_path`, nullable so auto_migrate adds it to existing
+DBs without a backfill) and `size_bytes` (recursive size of the artifact root
+directory, `NOT NULL DEFAULT 0`).
+
+`instance_artifacts.latest_version` and the whole `instance_artifact_versions`
+table are now **DEPRECATED** — versioning was dropped with the pointer model.
+Both are kept registered (so auto_migrate keeps provisioning them) purely so
+colleagues with old saved HTML can hand-migrate from the old rows. No code reads
+or writes them. Cleanup tracked in
+`reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md`.
+
+## 2026-05-14 addition — invite_codes
+
+New table `invite_codes` — backs the cloud-mode registration gate, replacing
+the single global `INVITE_CODE` env var (deleted from `backend/auth.py`).
+
+One row = one unique, single-use code issued to one email. `code` carries a
+unique index; `email` / `status` indexes drive idempotent re-requests (same
+email → resend existing issued code) and the Mode-B auto-issue cap count
+(`status IN (issued, used)` < cap). status flow: `issued → used` (consumed
+atomically by `/api/auth/register`), `waitlisted → issued` (admin promote
+when the cap is hit), `→ revoked` (admin kill). `email_sent` records whether
+the SMTP send actually succeeded so a failed send is visible/re-sendable in
+the admin list without blocking `/api/invite/request`.
+
+Purely additive — `auto_migrate` creates it on next startup. Design doc:
+`drafts/logs/invite_code_2026_05_14.md`.
+
+## 2026-05-13 addition — Agent Runtime Lifecycle (Phase C)
+
+`events` 表加 7 个 Phase-C 字段：`state` / `started_at` / `last_event_at`
+/ `finished_at` / `tool_call_count` / `current_stage` / `error_message`。
+**`state` 的 DDL 默认值是 `completed`**——这是给已存在的旧 events 行的兜底，
+让它们不被启动期 reconcile 误判成 stale `running`。
+
+新增 `idx_events_state` + `idx_events_agent_state` 两个索引——前者给
+reconcile 扫 stale 行用，后者给 `/api/auth/agents` list 加 active_run
+字段的 N+1 SELECT 用（实际 endpoint 用了 IN-列表合并成单个 SELECT，但
+索引仍是底层优化）。
+
+新增 `event_stream` 表（编号 30.）——per stream-chunk 副表，跟 `events`
+1:N 关联。每段 thinking、每个 tool_call、每个 tool_output 一行。
+`(event_id, seq)` unique 复合索引让重连时的 replay 按 seq ASC 一次扫
+出全部。**永不清**——audit + 历史回看。
+
+数据量估算（Xiong-style 13 min run）：thinking 段约 50 行 + tool 约 80
+行（call + output 各 41）+ progress / text_delta 若干 ≈ 200 行/run。
+13 万 run/年 ≈ 2600 万行，~25GB——MySQL 无压力。
+
+Spec: `reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md` §4.1
+
+## 2026-05-13 addition — Provider Unification (Phase 0)
+
+`user_providers` gains four nullable columns — `driver_type`, `owner_user_id`,
+`billing_policy`, `auth_ref` — plus two indexes (`idx_up_driver_type`,
+`idx_up_owner`). `user_slots` gains `last_auto_repaired_at` (nullable) used
+as the 24h debounce timestamp for the reverse-validation self-heal path.
+
+New table `user_notifications` (29.) — minimal kind+payload+severity row
+written by the resolver when it auto-repairs a broken slot. Indexed on
+`(user_id, read_at)` for the "unread count" UI query.
+
+Driver inference (`derive_driver_type`) and one-shot backfill live in
+`src/xyz_agent_context/agent_framework/provider_driver/backfill.py`. New
+deploys get `driver_type` written at `add_provider` time; pre-existing rows
+get backfilled on the next backend boot via `auto_migrate` → `backfill_*`
+chain in `db_factory.get_db_client`. Both column-add and backfill are
+idempotent so re-running causes no drift.
+
+All new columns are nullable on purpose — older `bash run.sh` / desktop
+DMG users upgrade with zero schema drama: `auto_migrate` runs the
+ALTERs, the backfill fills the values, business code never sees a
+null after the first boot. Old columns (`source`, `auth_type`,
+`linked_group`, `prefer_system_override`) are untouched.
+
+## 2026-05-09 hardening — I7 idx_artifact_agent_id added
+
+`instance_artifacts` now has a third index `idx_artifact_agent_id` on `["agent_id"]`.
+`total_bytes_for_agent` joins `instance_artifact_versions` to `instance_artifacts` on
+`artifact_id` and filters by `agent_id`. Without an `agent_id` index the planner may
+scan the full `instance_artifacts` table when an agent has many artifacts. The two
+existing composite indexes (`idx_artifact_agent_session`, `idx_artifact_agent_pinned`)
+cover query patterns with two conditions; the new single-column index covers the quota
+aggregation join path.
+
+## 2026-04-28 addition — chat_message_embeddings folded in
+
+Registered `chat_message_embeddings` here alongside the other
+`_register(TableDef(...))` calls. This was the last table in the
+codebase still living under the legacy "one create script per table"
+model in `utils/database_table_management/`. The script was orphaned —
+nothing in the codebase imported it, so every fresh local DB was
+missing the table, every ChatModule hook was failing silently with
+`no such table: chat_message_embeddings`, and `ChatModule` was
+burning embedding API calls every turn for nothing (Bug #1).
+
+The orphan script `create_chat_message_embeddings_table.py` is gone;
+new deployments build the table via `auto_migrate()` like every other
+table. The whole `utils/database_table_management/` folder no longer
+exists.
+
+Reader side stays empty for now: nothing reads from the table yet —
+the intended Part B retrieval surface for ChatModule history was
+never wired up. Letting the writer succeed silently lets embeddings
+accumulate for whatever surface gets built later.
 
 ## 2026-05-27 — instance_jobs.created_at/updated_at NOT NULL + DEFAULT
 

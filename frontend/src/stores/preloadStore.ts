@@ -20,7 +20,6 @@ import type {
   SocialNetworkEntity,
   ChatHistoryEvent,
   ChatHistoryNarrative,
-  RAGFileInfo,
   CostSummary,
 } from '@/types';
 
@@ -40,9 +39,6 @@ interface PreloadState {
   socialNetworkList: SocialNetworkEntity[];
   chatHistoryEvents: ChatHistoryEvent[];
   chatHistoryNarratives: ChatHistoryNarrative[];
-  ragFiles: RAGFileInfo[];
-  ragCompletedCount: number;
-  ragPendingCount: number;
   costSummary: CostSummary | null;
 
   // Loading states
@@ -51,7 +47,6 @@ interface PreloadState {
   awarenessLoading: boolean;
   socialNetworkLoading: boolean;
   chatHistoryLoading: boolean;
-  ragFilesLoading: boolean;
   costLoading: boolean;
 
   // Error states
@@ -60,7 +55,6 @@ interface PreloadState {
   awarenessError: string | null;
   socialNetworkError: string | null;
   chatHistoryError: string | null;
-  ragFilesError: string | null;
   costError: string | null;
 
   // Last loaded params (to detect changes)
@@ -74,7 +68,6 @@ interface PreloadState {
   refreshAwareness: (agentId: string, silent?: boolean) => Promise<void>;
   refreshSocialNetwork: (agentId: string, silent?: boolean) => Promise<void>;
   refreshChatHistory: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
-  refreshRAGFiles: (agentId: string, userId: string, silent?: boolean) => Promise<void>;
   refreshCost: (agentId: string, days?: number, silent?: boolean) => Promise<void>;
   addChatHistoryEvent: (event: ChatHistoryEvent) => void;
   updateAgentInboxMessage: (messageId: string, updates: Partial<RoomMessage>) => void;
@@ -150,9 +143,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   socialNetworkList: [],
   chatHistoryEvents: [],
   chatHistoryNarratives: [],
-  ragFiles: [],
-  ragCompletedCount: 0,
-  ragPendingCount: 0,
   costSummary: null,
 
   // Initial loading / error
@@ -161,14 +151,12 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
   awarenessLoading: false,
   socialNetworkLoading: false,
   chatHistoryLoading: false,
-  ragFilesLoading: false,
   costLoading: false,
   agentInboxError: null,
   jobsError: null,
   awarenessError: null,
   socialNetworkError: null,
   chatHistoryError: null,
-  ragFilesError: null,
   costError: null,
 
   lastUserId: null,
@@ -185,10 +173,10 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       lastAgentId: agentId,
       agentInboxLoading: true, jobsLoading: true,
       awarenessLoading: true, socialNetworkLoading: true,
-      chatHistoryLoading: true, ragFilesLoading: true, costLoading: true,
+      chatHistoryLoading: true, costLoading: true,
       agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
-      chatHistoryError: null, ragFilesError: null, costError: null,
+      chatHistoryError: null, costError: null,
     });
 
     // Fire all domains independently — each updates UI as soon as it resolves,
@@ -214,10 +202,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
         () => api.getChatHistory(agentId),
         (r) => ({ chatHistoryEvents: r.events || [], chatHistoryNarratives: r.narratives || [] }),
         'No chat history'),
-      loadDomain(set, get, 'ragFilesLoading', 'ragFilesError',
-        () => api.listRAGFiles(agentId),
-        (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
-        'Failed to load RAG files'),
       loadDomain(set, get, 'costLoading', 'costError',
         () => api.getCosts(agentId),
         (r) => ({ costSummary: r.summary || null }),
@@ -270,12 +254,6 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     (r) => ({ chatHistoryEvents: r.events || [], chatHistoryNarratives: r.narratives || [] }),
     'No chat history', silent),
 
-  refreshRAGFiles: (agentId, _userId, silent?) => loadDomain(set, get,
-    'ragFilesLoading', 'ragFilesError',
-    () => api.listRAGFiles(agentId),
-    (r) => ({ ragFiles: r.files || [], ragCompletedCount: r.completed_count || 0, ragPendingCount: r.pending_count || 0 }),
-    'Failed to load RAG files', silent),
-
   refreshCost: (agentId, days = 7, silent?) => loadDomain(set, get,
     'costLoading', 'costError',
     () => api.getCosts(agentId, days),
@@ -316,12 +294,11 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
       awareness: null, awarenessCreateTime: null, awarenessUpdateTime: null,
       socialNetworkList: [],
       chatHistoryEvents: [], chatHistoryNarratives: [],
-      ragFiles: [], ragCompletedCount: 0, ragPendingCount: 0,
       costSummary: null,
       lastUserId: null, lastAgentId: null,
       agentInboxError: null, jobsError: null,
       awarenessError: null, socialNetworkError: null,
-      chatHistoryError: null, ragFilesError: null, costError: null,
+      chatHistoryError: null, costError: null,
     });
   },
 }));

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-05-20
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — USER_IDENTITY_CONTEXT constant REMOVED
+
+The `USER_IDENTITY_CONTEXT` template is deleted. Its consumer
+(`context_runtime._build_user_identity_block`) was removed as redundant — the
+canonical identity injection lives in [[basic_info_module.py]] + basic_info
+`prompts.py`. See the 2026-06-11 entry below for what it contained.
+
+## 2026-06-11 — USER_IDENTITY_CONTEXT constant
+
+New prompt template stating the agent owner by human name + an optional sender line (owner vs visitor). Used by context_runtime._build_user_identity_block.
 
 ## 2026-05-20 (Fix #2 P1) — CHAT_HISTORY_TIMELINE_PREAMBLE added
 

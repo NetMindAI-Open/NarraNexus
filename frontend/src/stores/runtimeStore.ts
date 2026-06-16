@@ -127,7 +127,7 @@ export const useRuntimeStore = create<RuntimeState>()(
 //    Used by desktop Tauri builds where the URL is baked in at build time.
 //
 // 3. Persisted cloudApiUrl from the mode-select flow (legacy / desktop).
-//    Only honored when mode is cloud-app or cloud-web AND no higher-priority
+//    Only honored when mode is cloud-web AND no higher-priority
 //    value was found.
 //
 // 4. Local Tauri desktop → http://localhost:8000 (direct to backend).
@@ -169,7 +169,7 @@ export function getApiBaseUrl(): string {
 
   // 3. Persisted cloud URL (legacy / desktop mode-select flow)
   const { mode, cloudApiUrl } = useRuntimeStore.getState();
-  if ((mode === 'cloud-app' || mode === 'cloud-web') && cloudApiUrl) {
+  if (mode === 'cloud-web' && cloudApiUrl) {
     return cloudApiUrl.replace(/\/+$/, '');
   }
 

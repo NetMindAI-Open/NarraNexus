@@ -11,7 +11,6 @@ Provides a unified entry point for creating Job Instances and Job records, used 
 Design notes:
 - Unified creation of ModuleInstance and Job records
 - Supports dependency relationships
-- Generates embedding vectors
 """
 
 from __future__ import annotations
@@ -34,8 +33,7 @@ class JobInstanceService:
     Responsibilities:
     1. Create ModuleInstance records
     2. Create Job records
-    3. Generate embedding vectors
-    4. Handle dependency relationships
+    3. Handle dependency relationships
 
     Use cases:
     1. MCP Tool (job_create)
@@ -107,7 +105,6 @@ class JobInstanceService:
         from xyz_agent_context.schema.job_schema import JobType, TriggerConfig, JobStatus
         from xyz_agent_context.repository import JobRepository, InstanceRepository, NarrativeRepository
         from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
-        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding, prepare_job_text_for_embedding
         from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus
         from xyz_agent_context.narrative.models import NarrativeActorType, NarrativeActor
         from pydantic import ValidationError
@@ -220,12 +217,8 @@ class JobInstanceService:
             # 5. Compute next_run (atomic α+β triple)
             next_run = compute_next_run(job_type_enum, trigger)
 
-            # 6. Generate embedding vector
-            embedding_text = prepare_job_text_for_embedding(title, description, payload)
-            embedding = await get_embedding(embedding_text)
-            # Dual-write to embeddings_store
-            from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import store_embedding
-            await store_embedding("job", job_id, embedding, source_text=embedding_text)
+            # 6. Job retrieval is BM25 keyword search (search_keyword) — no
+            # embedding is written. embeddings_store "job" rows are retired.
 
             # 7. Determine initial status
             initial_status = InstanceStatus.ACTIVE
@@ -249,7 +242,6 @@ class JobInstanceService:
                     "job_id": job_id,
                     "title": title,
                 },
-                routing_embedding=embedding,
                 topic_hint=title,
             )
             await instance_repo.create_instance(instance_record)
@@ -270,7 +262,6 @@ class JobInstanceService:
                 next_run_time=next_run.utc if next_run else None,
                 next_run_at_local=next_run.local if next_run else None,
                 next_run_tz=next_run.tz if next_run else None,
-                embedding=embedding,
                 related_entity_id=related_entity_id,  # Feature 2.2.1 (single value)
                 narrative_id=narrative_id,  # Feature 3.1
                 monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitored Job pattern

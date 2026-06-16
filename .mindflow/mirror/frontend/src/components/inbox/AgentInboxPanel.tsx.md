@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-05-28
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — embedded mode
+
+`embedded` prop drops the outer Card + duplicate title when hosted in
+the bookmark drawer's [[ActivityPanel]]; Load-all/Refresh actions stay.
+Default rendering unchanged.
 
 ## 2026-05-28 — clicking the channel row clears that channel's unread
 

@@ -1,8 +1,36 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-05-15
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — admin_migration_router 注册
+
+新增 `from backend.routes.admin_migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。
+
+## 2026-06-11 — invite routers unwired
+
+invite_router / admin_invite_router imports and include_router calls removed alongside the route modules' deletion (invite-code mechanism retired).
+
+last_verified: 2026-06-09
+stub: false
+---
+
+## 2026-06-09 — versioned migration runner wired into lifespan
+
+The startup lifespan now calls `run_pending_migrations(db)` after `auto_migrate`
+and the one-shot self-heals — the universal hook for the versioned data-migration
+ledger (migrations/ [[__init__]]). Wrapped defensively (best-effort): a migration
+error is logged and never blocks startup. This is what carries the
+unified-memory backfill to EVERY environment (cloud / run.sh / DMG) without a
+deploy-side step.
+
+## 2026-06-08 — analytics shutdown wired into lifespan
+
+`lifespan` teardown now calls `await shutdown_analytics()` (from
+`xyz_agent_context.analytics`) just before `close_db_client`. This drains the
+PostHog background-thread buffer so no buffered funnel events are lost on
+process exit.
 
 ## 2026-05-15 — invite_router 改为 server-to-server
 

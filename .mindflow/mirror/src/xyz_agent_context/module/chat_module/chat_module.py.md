@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-05-29
+last_verified: 2026-06-08
 ---
+
+## 2026-06-08 — memory_chat mirror write removed
+
+The `_feed_chat_to_engine` path that wrote a `memory_chat` search index per turn is deleted — conversation search is now the interaction index written in [[step_4_persist_results]] (chat+event merged). ChatModule still owns the OPERATIONAL chat history (`instance_json_format_memory_chat`) for injection and Fetch (`get_chat_history`); only the redundant search-mirror write is gone.
 
 ## 2026-05-29 — decoupled from sibling EventMemoryModule (iron rule #3)
 
@@ -296,7 +300,7 @@ ChatModule 解决两个核心问题：让 Agent 在对话中访问过去的交�
 
 ## Gotcha / 边界情况
 
-- **Bootstrap greeting 注入**：如果 `ctx_data.bootstrap_active=True` 且是第一轮对话（历史为空），会在写入历史前先插入一条 BOOTSTRAP_GREETING 作为第一条 assistant 消息。这是一次性逻辑，仅发生在 Agent 第一次被激活时。
+- **Bootstrap greeting 注入**：如果 `ctx_data.bootstrap_active=True` 且是第一轮对话（历史为空），会在写入历史前先插入一条问候语作为第一条 assistant 消息。这是一次性逻辑，仅发生在 Agent 第一次被激活时。问候语经 `_resolve_bootstrap_greeting()` 解析：优先读 `agents.agent_metadata.bootstrap_greeting`（场景化 provisioner 写入，如 Arena onboarding），缺失时退回通用 `BOOTSTRAP_GREETING` 常量——通用常量保持场景无关（铁律 #4）。
 - **`channel_tag` 的传递**：`hook_after_event_execution` 里从 `ctx_data.extra_data["channel_tag"]` 读取渠道信息（Matrix 房间、发送者等）并写入每条消息的 `meta_data`。如果 `channel_tag` 是 Pydantic 对象（而非 dict），会调用 `.to_dict()` 转换。忘记这个转换会导致 JSON 序列化失败。
 
 ## 新人易踩的坑

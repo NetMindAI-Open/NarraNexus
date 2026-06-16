@@ -1091,7 +1091,7 @@ class ChannelTriggerBase(ABC):
         builder = self.create_context_builder(message, credential, agent_id)
         prompt = await builder.build_prompt(self._history_config)
         # Clean retrieval anchor (sender + this-turn body) for narrative
-        # embedding — not the full tagged execution prompt. Graceful: the anchor
+        # routing — not the full tagged execution prompt. Graceful: the anchor
         # is a retrieval optimization, so its failure must never break the agent
         # run (narrative falls back to input_content). See 2026-06-01 design.
         try:

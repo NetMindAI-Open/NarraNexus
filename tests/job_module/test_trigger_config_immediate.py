@@ -48,22 +48,15 @@ def test_immediate_fires_approximately_now():
 async def test_create_oneoff_immediate_job_succeeds(db_client):
     """The exact path /api/jobs/complex needs: build an immediate one_off job."""
     service = JobInstanceService(db_client)
-    with patch(
-        "xyz_agent_context.agent_framework.llm_api.embedding.get_embedding",
-        new=AsyncMock(return_value=[0.0] * 8),
-    ), patch(
-        "xyz_agent_context.agent_framework.llm_api.embedding_store_bridge.store_embedding",
-        new=AsyncMock(return_value=None),
-    ):
-        result = await service.create_job_with_instance(
-            agent_id="agent_1",
-            user_id="user_1",
-            title="run now",
-            description="d",
-            job_type="one_off",
-            trigger_config=TriggerConfig.immediate().model_dump(mode="json"),
-            payload="do it now",
-        )
+    result = await service.create_job_with_instance(
+        agent_id="agent_1",
+        user_id="user_1",
+        title="run now",
+        description="d",
+        job_type="one_off",
+        trigger_config=TriggerConfig.immediate().model_dump(mode="json"),
+        payload="do it now",
+    )
     assert result["success"], result
     row = await db_client.get_one("instance_jobs", {"job_id": result["job_id"]})
     assert row["next_run_time"] is not None

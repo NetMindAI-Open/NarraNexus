@@ -150,8 +150,6 @@ _register(
             Column("narrative_id", "TEXT", "VARCHAR(128)"),
             Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
             Column("user_id", "TEXT", "VARCHAR(128)"),
-            Column("event_embedding", "TEXT", "MEDIUMTEXT"),
-            Column("embedding_text", "TEXT", "TEXT"),
             # --- Agent Runtime Lifecycle (Phase C, 2026-05-13) ---
             # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-
             # and-stream-resilience-design.md §4.1
@@ -209,9 +207,6 @@ _register(
             Column("env_variables", "TEXT", "MEDIUMTEXT"),
             Column("topic_keywords", "TEXT", "MEDIUMTEXT"),
             Column("topic_hint", "TEXT", "TEXT"),
-            Column("routing_embedding", "TEXT", "MEDIUMTEXT"),
-            Column("embedding_updated_at", "TEXT", "DATETIME(6)"),
-            Column("events_since_last_embedding_update", "INTEGER", "INT", nullable=False, default="0"),
             Column("round_counter", "INTEGER", "INT", nullable=False, default="0"),
             Column("related_narrative_ids", "TEXT", "MEDIUMTEXT"),
             Column("is_special", "TEXT", "VARCHAR(64)", nullable=False, default="'other'"),
@@ -321,7 +316,6 @@ _register(
             Column("dependencies", "TEXT", "MEDIUMTEXT"),
             Column("config", "TEXT", "MEDIUMTEXT"),
             Column("state", "TEXT", "MEDIUMTEXT"),
-            Column("routing_embedding", "TEXT", "MEDIUMTEXT"),
             Column("keywords", "TEXT", "MEDIUMTEXT"),
             Column("topic_hint", "TEXT", "TEXT"),
             Column("last_used_at", "TEXT", "DATETIME(6)"),
@@ -344,6 +338,11 @@ _register(
 )
 
 # 9. instance_social_entities
+# NOTE (unified-memory overhaul task 1, 2026-06-08): entities now live in the
+# engine's `memory_entity` table — SocialNetworkRepository writes/reads there,
+# NOT here. This table is kept (no longer written by the repo) only because the
+# bundle export/import + its roundtrip test still reference it; it is removed
+# together with the bundle's memory_* migration in overhaul task 3.
 _register(
     TableDef(
         name="instance_social_entities",
@@ -364,7 +363,6 @@ _register(
             Column("tags", "TEXT", "JSON"),
             Column("expertise_domains", "TEXT", "JSON"),
             Column("related_job_ids", "TEXT", "JSON"),
-            Column("embedding", "TEXT", "JSON"),
             Column("persona", "TEXT", "TEXT"),
             Column("extra_data", "TEXT", "JSON"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
@@ -404,7 +402,6 @@ _register(
             Column("last_run_tz", "TEXT", "VARCHAR(64)"),
             Column("last_run_time", "TEXT", "DATETIME(6)"),
             Column("started_at", "TEXT", "DATETIME(6)"),
-            Column("embedding", "TEXT", "MEDIUMTEXT"),
             Column("related_entity_id", "TEXT", "VARCHAR(64)"),
             Column("narrative_id", "TEXT", "VARCHAR(64)"),
             Column("monitored_job_ids", "TEXT", "JSON"),
@@ -436,28 +433,6 @@ _register(
             Index("idx_instance_jobs_status", ["status"]),
             Index("idx_instance_jobs_next_run_time", ["next_run_time"]),
             Index("idx_instance_jobs_narrative_id", ["narrative_id"]),
-        ],
-    )
-)
-
-# 11. instance_rag_store
-_register(
-    TableDef(
-        name="instance_rag_store",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
-            Column("instance_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
-            Column("display_name", "TEXT", "VARCHAR(255)", nullable=False),
-            Column("store_name", "TEXT", "VARCHAR(512)", nullable=False),
-            Column("keywords", "TEXT", "JSON"),
-            Column("uploaded_files", "TEXT", "JSON"),
-            Column("file_count", "INTEGER", "INT", default="0"),
-            Column("created_at", "TEXT", "DATETIME(6)"),
-            Column("updated_at", "TEXT", "DATETIME(6)"),
-        ],
-        indexes=[
-            Index("idx_instance_rag_store_instance_id", ["instance_id"], unique=True),
-            Index("uk_rag_display_name", ["display_name"], unique=True),
         ],
     )
 )
@@ -597,28 +572,7 @@ _register(
     )
 )
 
-# 17. embeddings_store
-_register(
-    TableDef(
-        name="embeddings_store",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
-            Column("entity_type", "TEXT", "VARCHAR(32)", nullable=False),
-            Column("entity_id", "TEXT", "VARCHAR(64)", nullable=False),
-            Column("model", "TEXT", "VARCHAR(128)", nullable=False),
-            Column("dimensions", "INTEGER", "INT UNSIGNED", nullable=False),
-            Column("vector", "TEXT", "JSON", nullable=False),
-            Column("source_text", "TEXT", "TEXT"),
-            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[
-            Index("uk_entity_model", ["entity_type", "entity_id", "model"], unique=True),
-            Index("idx_emb_type_model", ["entity_type", "model"]),
-            Index("idx_emb_entity", ["entity_type", "entity_id"]),
-        ],
-    )
-)
+
 
 # 18. chat_message_embeddings (Part B: per-message embedding cache for
 # ChatModule history. Writer: chat_module._embed_message_pair() in
@@ -708,7 +662,6 @@ _register(
             Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False),
             Column("capabilities", "TEXT", "TEXT"),
             Column("description", "TEXT", "TEXT"),
-            Column("capability_embedding", "TEXT", "MEDIUMTEXT"),
             Column("visibility", "TEXT", "VARCHAR(32)", nullable=False, default="'private'"),
             Column("registered_at", "TEXT", "DATETIME(6)"),
             Column("last_seen_at", "TEXT", "DATETIME(6)"),
@@ -783,6 +736,11 @@ _register(
             Column("slot_name", "TEXT", "VARCHAR(32)", nullable=False),
             Column("provider_id", "TEXT", "VARCHAR(64)", nullable=False),
             Column("model", "TEXT", "VARCHAR(128)", nullable=False),
+            # Framework-neutral per-slot params (thinking, reasoning_effort,
+            # and future knobs) serialized as one JSON object. A single
+            # extensible column so later per-slot settings don't need
+            # another migration. NULL / absent = all params at auto.
+            Column("params_json", "TEXT", "MEDIUMTEXT"),
             # Set by self_heal_if_broken() when a slot.model that no longer
             # exists in its provider.models array is auto-repaired to the
             # default. Used as a 24h debounce so a misbehaving slot doesn't
@@ -913,6 +871,12 @@ _register(
         ],
     )
 )
+
+
+# Note: there is intentionally NO `arena_credentials` table. Arena is an external
+# service — Arena owns the identity, and the agent's api_key lives only in its
+# workspace (skills/arena/). Idempotency ("does this user already have an Arena
+# agent") keys on the `agents` table via agent_metadata.provisioned_source.
 
 
 # 28. user_quotas (system-default free-tier token quota per user)
@@ -1334,12 +1298,12 @@ _register(
 
 
 # ----------------------------------------------------------------------------
-# invite_codes — cloud-mode registration gating (replaces the single global
-# INVITE_CODE env var). Each row is one unique, single-use code issued to one
-# email. status flow: issued -> used (consumed by /api/auth/register), or
-# waitlisted -> issued (admin promote) when the auto-issue cap is hit, or
-# -> revoked (admin kill). `code` carries its own unique index; lookups by
-# email / status drive idempotent re-requests and the cap count.
+# invite_codes — RETIRED feature, table kept for its data. The invite-code
+# registration gate was removed 2026-06-11 (cloud signup is NetMind login
+# now; everyone gets the free-tier quota). Rows are retained because they
+# hold the only old-user-id -> email mapping, which the legacy-user
+# migration (scripts/migrate_users_to_netmind.py) needs. No code writes
+# this table anymore; drop it after the migration is complete.
 # ----------------------------------------------------------------------------
 _register(
     TableDef(
@@ -1364,6 +1328,146 @@ _register(
     )
 )
 
+
+
+# ----------------------------------------------------------------------------
+# user_settings — per-user preferences. First use: analytics opt-out.
+# JSON-free flat columns for the few flags we have; add columns via
+# schema_registry as new prefs appear (auto_migrate is additive).
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="user_settings",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("analytics_opt_out", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_user_settings_user", ["user_id"], unique=True)],
+    )
+)
+
+
+# ============================================================================
+# Unified Agent Memory (refactor/agent-memory, 2026-06-03)
+# ----------------------------------------------------------------------------
+# One physical table per memory `kind`, all sharing ONE column schema (the
+# `memory_record`). The MemoryRepository/MemoryEngine are generic over these
+# tables; the (scope, kind) chosen at instantiation selects the table. This
+# replaces the per-module bespoke memory tables + the runtime-`CREATE TABLE`
+# EventMemoryRepository path (which bypassed this registry and was MySQL-only).
+#
+# Design: reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md §4.
+# No vectors anywhere here — retrieval is BM25 + grep + structured filters.
+# ============================================================================
+
+# The seven memory kinds. One table each, identical schema.
+MEMORY_KINDS = ("event", "narrative", "chat", "entity", "bus", "job", "observation")
+
+
+def _memory_kind_table(kind: str) -> TableDef:
+    """Build the unified `memory_record` TableDef for one kind.
+
+    Every kind table is column-for-column identical so the generic
+    MemoryRepository can target any of them by name. bi-temporal is a
+    first-class citizen on every kind (decision 5): valid_at/invalid_at are
+    the reality axis (LLM-extracted), created_at/expired_at the system axis
+    (code-written); a contradicted record is tombstoned via invalid_at +
+    expired_at rather than deleted.
+    """
+    name = f"memory_{kind}"
+    return TableDef(
+        name=name,
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("record_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            # Scope: who/what this memory belongs to. agent|user|narrative|instance|global
+            Column("scope_type", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("scope_id", "TEXT", "VARCHAR(128)", nullable=False, default="''"),
+            Column("kind", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("subtype", "TEXT", "VARCHAR(64)"),  # observation: world|experience; entity: user|agent|group
+            # ★ Unified natural-language surface — the BM25 + grep target, and
+            #   the text fed to the LLM. Every kind populates this.
+            Column("content_text", "TEXT", "MEDIUMTEXT"),
+            Column("attributes", "TEXT", "MEDIUMTEXT"),  # JSON — kind-specific structured payload
+            Column("tags", "TEXT", "JSON"),  # JSON array — strong filter keys (entity:xxx, topic:xxx)
+            # --- bi-temporal (graphiti范式) ---
+            Column("valid_at", "TEXT", "DATETIME(6)"),     # reality: became true (NULL = always)
+            Column("invalid_at", "TEXT", "DATETIME(6)"),   # reality: stopped being true (NULL = still true)
+            Column("expired_at", "TEXT", "DATETIME(6)"),   # system: superseded tombstone (NULL = live)
+            # --- provenance + confidence (hindsight范式) ---
+            Column("source_ids", "TEXT", "JSON"),          # which events/records produced this
+            Column("source_ref", "TEXT", "JSON"),          # pointer {kind,id} back to the original (projection kinds); NULL = self-contained
+            Column("proof_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("history", "TEXT", "MEDIUMTEXT"),        # JSON — evolution snapshots
+            # --- lifecycle ---
+            Column("salience", "REAL", "FLOAT", nullable=False, default="0"),
+            Column("last_used_at", "TEXT", "DATETIME(6)"),  # recency: last recalled
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index(f"idx_{name}_record_id", ["record_id"], unique=True),
+            Index(f"idx_{name}_agent", ["agent_id"]),
+            Index(f"idx_{name}_scope", ["agent_id", "scope_type", "scope_id"]),
+            Index(f"idx_{name}_subtype", ["agent_id", "subtype"]),
+            Index(f"idx_{name}_expired", ["agent_id", "expired_at"]),  # live-record filtering
+            Index(f"idx_{name}_recency", ["agent_id", "last_used_at"]),
+        ],
+    )
+
+
+for _mem_kind in MEMORY_KINDS:
+    _register(_memory_kind_table(_mem_kind))
+
+
+# Consolidation dirty-scope queue (design §7.4). A turn marks a (scope, kind)
+# dirty here (cheap, synchronous); the background consolidation worker drains
+# it (count4 / idle90s / narrative-boundary / cap20 triggers + coalescing).
+_register(
+    TableDef(
+        name="memory_consolidation_queue",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("scope_type", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("scope_id", "TEXT", "VARCHAR(128)", nullable=False, default="''"),
+            Column("kind", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("pending_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("last_dirty_at", "TEXT", "DATETIME(6)"),
+            Column("last_consolidated_at", "TEXT", "DATETIME(6)"),
+            # dirty | processing | failed
+            Column("status", "TEXT", "VARCHAR(32)", nullable=False, default="'dirty'"),
+            Column("consolidation_failed_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("uk_consolidation_scope", ["agent_id", "scope_type", "scope_id", "kind"], unique=True),
+            Index("idx_consolidation_status", ["status"]),
+            Index("idx_consolidation_dirty", ["status", "last_dirty_at"]),
+        ],
+    )
+)
+
+
+# Migration ledger — records which ordered data migrations have been applied to
+# THIS database, so the startup runner skips them (run-once) and a cross-version
+# upgrade applies every still-pending step in order. See migrations/.
+_register(
+    TableDef(
+        name="schema_migrations",
+        columns=[
+            Column("migration_id", "TEXT", "VARCHAR(128)", nullable=False, primary_key=True),
+            Column("applied_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("app_version", "TEXT", "VARCHAR(64)"),
+            Column("notes", "TEXT", "MEDIUMTEXT"),
+        ],
+    )
+)
 
 
 # ============================================================================

@@ -247,6 +247,24 @@ export interface CreateAgentRequest {
   agent_name?: string;
   agent_description?: string;
   created_by: string;
+  // #43: optional team to attach the new agent to on creation.
+  team_id?: string;
+}
+
+/**
+ * Phase C: summary of an agent's currently running run, if any.
+ * Returned alongside AgentInfo when GET /api/auth/agents fires. The
+ * UI renders this to surface "this agent is still working" even
+ * across browser tabs / sessions — see iron rule #14 (agent runs are
+ * first-class and outlive any single WebSocket).
+ */
+export interface ActiveRunInfo {
+  run_id: string;
+  state: 'running' | 'cancelling' | 'completed' | 'cancelled' | 'failed';
+  started_at?: string;
+  last_event_at?: string;
+  tool_call_count: number;
+  current_stage?: string;
 }
 
 /**
@@ -274,6 +292,10 @@ export interface AgentInfo {
   is_public?: boolean;
   created_by?: string;
   bootstrap_active?: boolean;
+  /** Per-agent first-run greeting (Arena etc.); falls back to the generic
+   *  constant when absent. Must match the DB-persisted greeting so the
+   *  instant frontend bubble and the persisted one don't duplicate. */
+  bootstrap_greeting?: string;
   /**
    * Set when the backend has a BackgroundRun task in the running state
    * for this agent + the current user. Null means "not currently running".
@@ -295,6 +317,19 @@ export interface LoginResponse extends ApiResponse {
   user_id?: string;
   token?: string;  // JWT token (cloud mode)
   role?: string;   // 'user' | 'staff' (cloud mode)
+}
+
+// Response from /api/auth/netmind-login (cloud NetMind account login).
+export interface NetmindLoginResponse extends ApiResponse {
+  user_id?: string;
+  token?: string;        // our self-issued JWT
+  role?: string;
+  is_new_user?: boolean;
+  display_name?: string;
+  email?: string;
+  has_system_quota?: boolean;
+  initial_input_tokens?: number;
+  initial_output_tokens?: number;
 }
 
 // Response from /api/auth/register. Carries the optional system free-tier
@@ -454,34 +489,6 @@ export interface MCPValidateAllResponse extends ApiResponse {
   failed: number;
 }
 
-// RAG File Management types
-export type RAGFileStatus = 'pending' | 'uploading' | 'completed' | 'failed';
-
-export interface RAGFileInfo {
-  filename: string;
-  size: number;
-  modified_at: string;
-  upload_status: RAGFileStatus;
-  error_message?: string;
-}
-
-export interface RAGFileListResponse extends ApiResponse {
-  files: RAGFileInfo[];
-  total_count: number;
-  completed_count: number;
-  pending_count: number;
-}
-
-export interface RAGFileUploadResponse extends ApiResponse {
-  filename?: string;
-  size?: number;
-  upload_status?: string;
-}
-
-export interface RAGFileDeleteResponse extends ApiResponse {
-  filename?: string;
-}
-
 // Cost types
 export interface CostModelBreakdown {
   cost: number;
@@ -520,41 +527,6 @@ export interface CostResponse extends ApiResponse {
   summary?: CostSummary;
   records: CostRecord[];
   total_count: number;
-}
-
-// Embedding Status types
-export interface EmbeddingEntityStats {
-  total: number;
-  migrated: number;
-  missing: number;
-}
-
-export interface EmbeddingMigrationProgress {
-  is_running: boolean;
-  current_model: string;
-  total: Record<string, number>;
-  completed: Record<string, number>;
-  failed: Record<string, number>;
-  total_count: number;
-  completed_count: number;
-  progress_pct: number;
-  error: string | null;
-  finished: boolean;
-}
-
-export interface EmbeddingStatusData {
-  model: string;
-  stats: Record<string, EmbeddingEntityStats>;
-  all_done: boolean;
-  migration: EmbeddingMigrationProgress;
-}
-
-export interface EmbeddingStatusResponse extends ApiResponse {
-  data: EmbeddingStatusData;
-}
-
-export interface EmbeddingRebuildResponse extends ApiResponse {
-  message?: string;
 }
 
 // ---------------------------------------------------------------------------

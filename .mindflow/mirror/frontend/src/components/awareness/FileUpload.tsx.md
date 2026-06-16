@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-05-27
+last_verified: 2026-06-16
 stub: false
 ---
+
+## 2026-06-16 — workspace Download button now calls downloadFile()
+
+The per-file Download control in `TreeNode` was previously an
+`<a href download>` against `api.workspaceFileRawUrl()`. This silently
+failed on both the DMG (WKWebView mixed-content block) and `bash run.sh`
+(cross-origin, `download` attribute ignored; workspace endpoints also
+require `X-User-Id` / `Authorization` headers an `<a>` cannot carry).
+
+The control is now a `<button>` that calls
+`downloadFile({ url: downloadUrl, filename: node.name, authHeaders: api.getAuthHeaders() })`
+from `lib/download.ts`. Auth headers are required here (unlike artifact
+downloads) because workspace file raw endpoints are auth-gated.
 
 ## 2026-05-27 — sub-folders default to expanded (P0 fix)
 

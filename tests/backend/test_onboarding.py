@@ -4,9 +4,10 @@
 @date: 2026-05-21
 @description: Tests for the new-user onboarding checklist endpoints.
 
-Mounts the auth router on a fresh FastAPI app, patches get_db_client so
-the handlers run against an in-memory SQLite client. Seeds one user via
-UserRepository.
+Mounts the auth router on a fresh FastAPI app with a mini middleware that
+maps X-User-Id -> request.state.user_id (what auth_middleware does in prod —
+identity hardening 2026-06-11 removed the client-supplied user_id from the
+query/body). Patches get_db_client to an in-memory SQLite client.
 
 Covers:
 - GET returns all-false defaults for a user with no metadata
@@ -18,7 +19,7 @@ Covers:
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from xyz_agent_context.repository.user_repository import UserRepository
@@ -35,6 +36,12 @@ def client(db_client, monkeypatch):
     monkeypatch.setattr(auth_mod, "get_db_client", lambda: _async_return(db_client))
 
     app = FastAPI()
+
+    @app.middleware("http")
+    async def fake_auth(request: Request, call_next):
+        request.state.user_id = request.headers.get("X-User-Id") or None
+        return await call_next(request)
+
     app.include_router(auth_mod.router, prefix="/api/auth")
     return TestClient(app)
 
@@ -54,7 +61,7 @@ async def _seed_user(db_client, user_id: str, metadata=None):
 @pytest.mark.asyncio
 async def test_get_defaults_all_false(db_client, client):
     await _seed_user(db_client, "u_fresh")
-    r = client.get("/api/auth/onboarding", params={"user_id": "u_fresh"})
+    r = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_fresh"})
     assert r.status_code == 200
     body = r.json()
     assert body["success"] is True
@@ -67,7 +74,7 @@ async def test_get_defaults_all_false(db_client, client):
 
 @pytest.mark.asyncio
 async def test_get_unknown_user_fails(db_client, client):
-    r = client.get("/api/auth/onboarding", params={"user_id": "nobody"})
+    r = client.get("/api/auth/onboarding", headers={"X-User-Id": "nobody"})
     assert r.status_code == 200
     assert r.json()["success"] is False
 
@@ -80,12 +87,13 @@ async def test_post_sets_step_and_get_reflects(db_client, client):
     await _seed_user(db_client, "u_step")
     r = client.post(
         "/api/auth/onboarding",
-        json={"user_id": "u_step", "first_agent_created": True},
+        headers={"X-User-Id": "u_step"},
+        json={"first_agent_created": True},
     )
     assert r.status_code == 200
     assert r.json()["progress"]["first_agent_created"] is True
 
-    r2 = client.get("/api/auth/onboarding", params={"user_id": "u_step"})
+    r2 = client.get("/api/auth/onboarding", headers={"X-User-Id": "u_step"})
     assert r2.json()["progress"]["first_agent_created"] is True
     # untouched flags stay false
     assert r2.json()["progress"]["template_applied"] is False
@@ -99,12 +107,14 @@ async def test_false_never_reverts_a_completed_step(db_client, client):
     await _seed_user(db_client, "u_once")
     client.post(
         "/api/auth/onboarding",
-        json={"user_id": "u_once", "template_applied": True},
+        headers={"X-User-Id": "u_once"},
+        json={"template_applied": True},
     )
     # A later request carrying False must NOT un-complete it.
     r = client.post(
         "/api/auth/onboarding",
-        json={"user_id": "u_once", "template_applied": False},
+        headers={"X-User-Id": "u_once"},
+        json={"template_applied": False},
     )
     assert r.json()["progress"]["template_applied"] is True
 
@@ -114,12 +124,14 @@ async def test_none_leaves_other_flags_intact(db_client, client):
     await _seed_user(db_client, "u_partial")
     client.post(
         "/api/auth/onboarding",
-        json={"user_id": "u_partial", "first_agent_created": True},
+        headers={"X-User-Id": "u_partial"},
+        json={"first_agent_created": True},
     )
     # Only dismissed is sent; first_agent_created omitted (None) must persist.
     r = client.post(
         "/api/auth/onboarding",
-        json={"user_id": "u_partial", "dismissed": True},
+        headers={"X-User-Id": "u_partial"},
+        json={"dismissed": True},
     )
     prog = r.json()["progress"]
     assert prog["first_agent_created"] is True
@@ -134,7 +146,8 @@ async def test_merge_preserves_sibling_metadata_keys(db_client, client):
     await _seed_user(db_client, "u_sibling", metadata={"keep_me": "value"})
     client.post(
         "/api/auth/onboarding",
-        json={"user_id": "u_sibling", "first_agent_created": True},
+        headers={"X-User-Id": "u_sibling"},
+        json={"first_agent_created": True},
     )
     repo = UserRepository(db_client)
     user = await repo.get_user("u_sibling")

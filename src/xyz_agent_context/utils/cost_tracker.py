@@ -8,7 +8,6 @@ Provides centralized cost tracking for all LLM API calls:
 - Claude (agent_loop)
 - OpenAI GPT (llm_function)
 - Gemini (llm_function)
-- OpenAI Embedding
 
 Architecture:
     Pure functions + async recorder + global cost context.
@@ -32,16 +31,12 @@ from loguru import logger
 # Only contains models whose name strings are controlled by our code:
 #   - OpenAI: hardcoded in openai_agents_sdk.py (MODEL_NAME)
 #   - Gemini: hardcoded in gemini_api_sdk.py (self.model)
-#   - Embedding: from settings (openai_embedding_model)
 # Claude costs use sdk_cost_usd directly (see record_cost), so no entry needed here.
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
     # OpenAI
     "gpt-5.1-2025-11-13": {"input": 2.0, "output": 8.0},
     # Gemini
     "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
-    # Embedding
-    "text-embedding-3-small": {"input": 0.02, "output": 0.0},
-    "text-embedding-3-large": {"input": 0.13, "output": 0.0},
 }
 
 
@@ -83,7 +78,7 @@ def calculate_cost(
     """
     Calculate cost for a single API call based on the price table.
 
-    Only works for models whose name strings we control (OpenAI, Gemini, Embedding).
+    Only works for models whose name strings we control (OpenAI, Gemini).
     Claude costs should use sdk_cost_usd directly — this function returns zeros for
     unknown models, which is expected behavior, not an error.
 
@@ -126,8 +121,8 @@ async def record_cost(
     Args:
         db: AsyncDatabaseClient instance
         agent_id: Agent that incurred the cost
-        event_id: Associated event (None for standalone llm_function / embedding calls)
-        call_type: "agent_loop" | "llm_function" | "embedding"
+        event_id: Associated event (None for standalone llm_function calls)
+        call_type: "agent_loop" | "llm_function"
         model: Model identifier
         input_tokens: Input token count
         output_tokens: Output token count

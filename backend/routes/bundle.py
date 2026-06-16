@@ -68,9 +68,6 @@ class ExportRequest(BaseModel):
     social_entity_selection: Optional[Dict[str, List[str]]] = None
     workspace_excludes: Optional[Dict[str, List[str]]] = None
     include_chat_history: bool = True
-    embedding_provider: Optional[str] = None
-    embedding_model: Optional[str] = None
-    embedding_dim: Optional[int] = None
     # B6: explicit confirmation that sensitive files inside zip-archived skills
     # may be shipped (the user saw the modal and clicked through).
     accept_sensitive_zips: bool = False
@@ -130,9 +127,6 @@ async def export_bundle(payload: ExportRequest, request: Request):
         social_entity_selection=payload.social_entity_selection,
         workspace_excludes=payload.workspace_excludes,
         include_chat_history=payload.include_chat_history,
-        embedding_provider=payload.embedding_provider,
-        embedding_model=payload.embedding_model,
-        embedding_dim=payload.embedding_dim,
         accept_sensitive_zips=payload.accept_sensitive_zips,
         narrative_selection=payload.narrative_selection,
         event_selection=payload.event_selection,

@@ -608,7 +608,7 @@ class A2AServer:
                 user_id=user_id,
                 input_content=user_input,
                 working_source=WorkingSource.CHAT,
-                trigger_extra_data={"trigger_id": f"a2a_{task.id}", "retrieval_anchor": user_input},
+                trigger_extra_data={"trigger_id": f"a2a_{task.id}", "retrieval_anchor": user_input, "sender_user_id": user_id},
             )
 
             # Error path (Bug 2): previously this trigger collected on
@@ -745,7 +745,7 @@ class A2AServer:
                     agent_id=agent_id,
                     user_id=user_id,
                     input_content=user_input,
-                    trigger_extra_data={"trigger_id": f"a2a_sse_{task.id}", "retrieval_anchor": user_input},
+                    trigger_extra_data={"trigger_id": f"a2a_sse_{task.id}", "retrieval_anchor": user_input, "sender_user_id": user_id},
                 ):
                     # Process text increments
                     if hasattr(response, 'delta'):

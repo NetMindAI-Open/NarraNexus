@@ -2,6 +2,7 @@ pub mod artifact_fetch;
 pub mod auth;
 pub mod config;
 pub mod deep_link;
+pub mod file_download;
 pub mod health;
 pub mod service;
 pub mod tray;

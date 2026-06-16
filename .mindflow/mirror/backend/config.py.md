@@ -1,8 +1,12 @@
 ---
 code_file: backend/config.py
-last_verified: 2026-05-14
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — invite_auto_issue_cap removed
+
+Invite-code mechanism retired (see routes/auth.py.md); the cap setting and its env (INVITE_AUTO_ISSUE_CAP) are gone.
 
 ## 2026-05-14 addition — invite_auto_issue_cap + narra.nexus CORS
 

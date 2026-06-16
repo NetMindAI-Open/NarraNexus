@@ -105,9 +105,6 @@ def stub_system_provider_enabled(monkeypatch, reset_system_provider):
             SlotName.AGENT.value: SlotConfig(
                 provider_id="system_anthropic", model="sys/agent-model"
             ),
-            SlotName.EMBEDDING.value: SlotConfig(
-                provider_id="system_openai", model="sys/embed-model"
-            ),
             SlotName.HELPER_LLM.value: SlotConfig(
                 provider_id="system_openai", model="sys/helper-model"
             ),
@@ -149,7 +146,7 @@ async def _seed_quota(db, user_id: str, *, opted_in: bool, input_budget: int, ou
 
 
 async def _seed_full_own_providers(db, user_id: str):
-    """Give user A/ helper / embedding slots + matching active providers.
+    """Give user agent + helper_llm slots + matching active providers.
 
     Provider models arrays include the slot model so the Phase 0
     reverse-validation self-heal (provider_driver.self_heal) does NOT
@@ -189,7 +186,6 @@ async def _seed_full_own_providers(db, user_id: str):
     for slot_name, pid, model in [
         ("agent", "prov_agent", "claude-fake"),
         ("helper_llm", "prov_openai", "gpt-fake"),
-        ("embedding", "prov_openai", "text-embedding-fake"),
     ]:
         await db.insert(
             "user_slots",
@@ -223,11 +219,10 @@ async def test_opted_in_with_quota_returns_system_default(
     await _install_quota_service(db_client)
     await _seed_quota(db_client, "alice", opted_in=True, input_budget=1000, output_budget=1000)
 
-    claude, openai_cfg, emb = await get_user_llm_configs("alice")
+    claude, openai_cfg = await get_user_llm_configs("alice")
     # Model names come from the stubbed system config
     assert claude.model == "sys/agent-model"
     assert claude.api_key == "sys_key"
-    assert emb.model == "sys/embed-model"
 
 
 @pytest.mark.asyncio
@@ -275,7 +270,7 @@ async def test_opted_out_with_own_config_returns_own(
     await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
     await _seed_full_own_providers(db_client, "alice")
 
-    claude, openai_cfg, emb = await get_user_llm_configs("alice")
+    claude, openai_cfg = await get_user_llm_configs("alice")
     assert claude.model == "claude-fake"
     assert claude.api_key == "sk-fake"
 
@@ -300,7 +295,7 @@ async def test_no_quota_row_behaves_as_opted_out(
     # No quota row seeded
     await _seed_full_own_providers(db_client, "alice")
 
-    claude, _, _ = await get_user_llm_configs("alice")
+    claude, _ = await get_user_llm_configs("alice")
     assert claude.model == "claude-fake"
 
 

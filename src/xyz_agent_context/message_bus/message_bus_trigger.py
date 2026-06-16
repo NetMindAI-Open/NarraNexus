@@ -53,7 +53,7 @@ def build_bus_anchor(messages: List[BusMessage]) -> str:
     ~1217-char Owner-Relay boilerplate + From/Time metadata — bus was the only
     real 400 source in prod. The anchor keeps ONLY each peer's body (tagged
     with the sender agent), so the narrative query vector is clean. Oversized
-    backlogs are still capped downstream by the embedding token guard.
+    backlogs are still capped downstream by a length guard.
     See the 2026-06-01 design doc.
     """
     return "\n".join(
@@ -173,15 +173,18 @@ class MessageBusTrigger:
 
     async def _get_channel_info(self, channel_id: str) -> tuple[str, str]:
         """Get (channel_type, created_by) for a channel."""
-        # Use %s — auto-translated for SQLite by AsyncDatabaseClient
-        rows = await self._bus._db.execute(
-            "SELECT channel_type, created_by FROM bus_channels WHERE channel_id = %s",
-            (channel_id,),
-        )
-        if rows:
+        # get_one builds dialect-correct SQL per backend. ``self._bus._db`` is
+        # the RAW backend (LocalMessageBus is handed db._backend, not the
+        # AsyncDatabaseClient wrapper), so the raw ``execute`` path takes the
+        # query verbatim with NO %s→? translation — a MySQL `%s` placeholder
+        # threw `near "%"` on SQLite and silently broke bus delivery for every
+        # agent that had channel messages (2026-06-09: 影/镜 never received 零's
+        # messages). get_one sidesteps the placeholder problem entirely.
+        row = await self._bus._db.get_one("bus_channels", {"channel_id": channel_id})
+        if row:
             return (
-                rows[0].get("channel_type", "group"),
-                rows[0].get("created_by", ""),
+                row.get("channel_type", "group"),
+                row.get("created_by", ""),
             )
         return ("group", "")
 
@@ -296,9 +299,18 @@ class MessageBusTrigger:
             # Owner lookup up-front — used by both the prompt (to remind the
             # agent its owner is waiting in chat) and the inbox writer.
             owner_user_id = await self._get_agent_owner(agent_id)
+            # Resolve the owner's human name for the relay prose (the raw
+            # user_id stays as the send_message_to_user_directly routing key).
+            owner_name = ""
+            if owner_user_id:
+                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.repository import UserRepository
+                owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
             # Build prompt from messages
-            prompt = self._build_prompt(messages, owner_user_id=owner_user_id)
+            prompt = self._build_prompt(
+                messages, owner_user_id=owner_user_id, owner_name=owner_name
+            )
 
             logger.info(
                 f"MessageBusTrigger: triggering agent {agent_id} "
@@ -306,7 +318,7 @@ class MessageBusTrigger:
             )
 
             # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
-            # only, no Owner-Relay boilerplate) for narrative embedding — the
+            # only, no Owner-Relay boilerplate) for narrative routing — the
             # execution `prompt` is far noisier. See 2026-06-01 design.
             response_text = await self._invoke_runtime(
                 agent_id=agent_id,
@@ -348,7 +360,7 @@ class MessageBusTrigger:
             )
 
     def _build_prompt(
-        self, messages: List[BusMessage], owner_user_id: str = ""
+        self, messages: List[BusMessage], owner_user_id: str = "", owner_name: str = ""
     ) -> str:
         # NOTE: this builds the full EXECUTION prompt (peer messages + the
         # repeated Owner-Relay boilerplate). For narrative retrieval, embed
@@ -381,8 +393,8 @@ class MessageBusTrigger:
             lines.append("## Owner Relay — REQUIRED")
             lines.append("")
             lines.append(
-                f"Your owner (user_id=`{owner_user_id}`) originally asked you "
-                f"to contact this peer agent. They are waiting in chat for "
+                f"Your owner **{owner_name or owner_user_id}** originally asked "
+                f"you to contact this peer agent. They are waiting in chat for "
                 f"the answer."
             )
             lines.append("")
