@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-05-29
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
+
+The Processing indicator is now [[ExecutionPopover]] — click opens a
+live pipeline-step list (the execution view retired with RuntimePanel,
+resurrected as click-to-peek). Header left side gained
+overflow-hidden + agent-id truncation so a narrow chat (artifact
+column open) can never run the label under the Processing/cost cluster.
+
+## 2026-06-11 — CostPopover joins the header row
+
+The cost chip used to float `absolute top-2 right-2` over the chat
+card (MainLayout) and collided with this header's Processing indicator
+during runs. It is now a proper flex member of the header's right
+side, next to Processing — no overlap possible. Carries the
+`chat.cost` help anchor.
 
 ## 2026-05-29 — defer streaming values to throttle render bursts (F5)
 
@@ -242,3 +258,5 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 `BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
+
+**Per-agent bootstrap greeting (2026-06-16).** The instant first-run greeting bubble now uses `currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING` (the per-agent override set by scenario provisioners like Arena, surfaced on `AgentInfo`). It MUST match the DB-persisted greeting (chat_module reads the same metadata) or the instant bubble and the persisted one would both render (dup).

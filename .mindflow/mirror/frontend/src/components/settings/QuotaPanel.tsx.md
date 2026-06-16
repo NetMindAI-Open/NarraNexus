@@ -1,7 +1,7 @@
 ---
 code_file: frontend/src/components/settings/QuotaPanel.tsx
 stub: false
-last_verified: 2026-04-16
+last_verified: 2026-06-16
 ---
 
 # Intent
@@ -34,6 +34,17 @@ run out.
 ## Downstream
 - `useRuntimeStore` — local vs cloud mode check
 - Tailwind / CSS variables of the bioluminescent terminal design system
+
+## UX change: exhausted toggle locked (#48)
+
+When the quota is exhausted, the "use free quota" toggle is **disabled**
+(locked, greyed out) — users cannot re-enable it while budget is zero.
+The copy in that state says the user's own configured provider takes over
+automatically on exhaustion (no manual unchecking required). The toggle
+re-enables once the quota is replenished. This matches the backend
+`QuotaPreferenceLocked` guard in `quota_service.set_preference` and the
+PATCH /me/preference → 409 response; the frontend lock is the first line
+of defence so the 409 is a backstop users should rarely hit.
 
 ## Gotchas
 - We wait for `loaded` before deciding to render null vs content so

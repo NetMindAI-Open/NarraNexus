@@ -6,16 +6,14 @@
 
 Provides:
 - Default model lists for auto-populating providers (NetMind, Claude OAuth, etc.)
-- Metadata lookup for known models (embedding dimensions, max output tokens)
+- Metadata lookup for known models (max output tokens, etc.)
 
 The catalog is NOT indexed by preset/source. Instead:
 - get_default_models(source, protocol) returns default model IDs for pre-population
-- get_embedding_dimensions(model_id) / get_max_output_tokens(model_id) do global lookups
 
 Usage:
     from xyz_agent_context.agent_framework.model_catalog import (
         get_default_models,
-        get_embedding_dimensions,
         get_max_output_tokens,
     )
 """
@@ -32,10 +30,9 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class ModelMeta:
-    """Known metadata for a model (dimensions, output limits, etc.)"""
+    """Known metadata for a model (output limits, etc.)"""
     model_id: str
     display_name: str
-    dimensions: Optional[int] = None          # Embedding dimensions
     max_output_tokens: Optional[int] = None   # 90% of model limit
 
 
@@ -70,29 +67,31 @@ _register(
     # how its inference router dispatches; the prefix is part of the
     # model id, not a separate provider. max_output_tokens matches the
     # native Claude limits because NetMind is a transparent proxy here.
-    ModelMeta("anthropic/claude-opus-4-7", "Claude Opus 4.7 (NetMind)", max_output_tokens=115200),
+    ModelMeta("anthropic/claude-opus-4-8", "Claude Opus 4.8 (NetMind)", max_output_tokens=115200),
     ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)", max_output_tokens=115200),
     ModelMeta("Qwen/Qwen3.6-Plus", "Qwen3.6 Plus"),
     ModelMeta("Qwen/Qwen3.6-Flash", "Qwen3.6 Flash"),
     ModelMeta("Qwen/Qwen3.6-35B-A3B", "Qwen3.6 35B-A3B"),
-    ModelMeta("BAAI/bge-m3", "BGE-M3 (Multilingual)", dimensions=1024),
-    ModelMeta("nvidia/NV-Embed-v2", "NV-Embed-v2", dimensions=4096),
-    ModelMeta("dunzhang/stella_en_1.5B_v5", "Stella EN 1.5B v5", dimensions=1024),
 )
 
 # --- Anthropic / Claude models ---
 # max_output_tokens left None for models whose official limits we haven't
 # independently verified; callers fall back to the provider's own cap.
 _register(
-    ModelMeta("claude-opus-4-7", "Claude Opus 4.7", max_output_tokens=115200),
+    ModelMeta("claude-opus-4-8", "Claude Opus 4.8", max_output_tokens=115200),
     ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6", max_output_tokens=115200),
     ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5"),
     ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)"),
+    # Claude Code CLI family aliases — always resolve to the latest model of
+    # each family. Used by the Claude OAuth candidate list so it never goes
+    # stale; only valid on the CLI (`claude --model opus`), not the raw API.
+    ModelMeta("opus", "Claude Opus (latest)"),
+    ModelMeta("sonnet", "Claude Sonnet (latest)"),
+    ModelMeta("haiku", "Claude Haiku (latest)"),
 )
 
 # --- OpenAI models ---
-# Text / chat / reasoning models surfaced as in-UI suggestions. Embeddings
-# stay alongside because the embedding slot filters by dimensions != None.
+# Text / chat / reasoning models surfaced as in-UI suggestions.
 _register(
     ModelMeta("gpt-5.4", "GPT-5.4"),
     ModelMeta("gpt-5.4-mini", "GPT-5.4 Mini"),
@@ -104,8 +103,6 @@ _register(
     ModelMeta("gpt-4.1", "GPT-4.1"),
     ModelMeta("o4-mini", "o4-mini (reasoning)"),
     ModelMeta("o3", "o3 (reasoning)"),
-    ModelMeta("text-embedding-3-small", "Embedding 3 Small", dimensions=1536),
-    ModelMeta("text-embedding-3-large", "Embedding 3 Large", dimensions=3072),
 )
 
 
@@ -116,11 +113,11 @@ _register(
 # Key: (source, protocol) → list of default model IDs
 _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     # NetMind Anthropic protocol → agent models.
-    # claude-opus-4-7 and claude-sonnet-4-6 sit at the top: when a new
+    # claude-opus-4-8 and claude-sonnet-4-6 sit at the top: when a new
     # user adds a NetMind provider we want Claude available out of the
     # box, since the free-tier agent model defaults to Sonnet 4.6.
     ("netmind", "anthropic"): [
-        "anthropic/claude-opus-4-7",
+        "anthropic/claude-opus-4-8",
         "anthropic/claude-sonnet-4-6",
         "minimax/minimax-m2.7",
         "deepseek-ai/DeepSeek-V4-Pro",
@@ -129,7 +126,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "Qwen/Qwen3.6-Flash",
         "zai-org/GLM-5.1",
     ],
-    # NetMind OpenAI protocol → helper_llm + embedding models
+    # NetMind OpenAI protocol → helper_llm models
     ("netmind", "openai"): [
         "minimax/minimax-m2.7",
         "google/gemini-3.1-pro-preview",
@@ -150,7 +147,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
     ],
     # Yunwu Anthropic protocol → Claude models (Yunwu proxies official Claude)
     ("yunwu", "anthropic"): [
-        "claude-opus-4-7",
+        "claude-opus-4-8",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ],
@@ -160,12 +157,10 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "gpt-5.4-mini",
         "gpt-5.2",
         "gpt-5.1",
-        "text-embedding-3-small",
-        "text-embedding-3-large",
     ],
     # OpenRouter Anthropic protocol → Claude models (OpenRouter proxies official Claude)
     ("openrouter", "anthropic"): [
-        "claude-opus-4-7",
+        "claude-opus-4-8",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
     ],
@@ -175,14 +170,17 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "gpt-5.4-mini",
         "gpt-5.2",
         "gpt-5.1",
-        "text-embedding-3-small",
-        "text-embedding-3-large",
     ],
-    # Claude OAuth → agent models
+    # Claude OAuth → agent models. Use the Claude Code CLI's family ALIASES
+    # (`claude --model opus|sonnet|haiku` resolves to the latest of each family)
+    # instead of pinned versions — so the OAuth candidate list auto-tracks the
+    # newest Claude release and never needs a manual version bump on every
+    # Opus/Sonnet/Haiku update. (Only the OAuth path goes through the CLI, where
+    # these aliases are valid; the API-proxy providers above need full ids.)
     ("claude_oauth", "anthropic"): [
-        "claude-opus-4-7",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5",
+        "opus",
+        "sonnet",
+        "haiku",
     ],
 }
 
@@ -200,7 +198,7 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
 # so they all fall under the "openai" protocol too.
 _SUGGESTED_MODELS: dict[str, list[str]] = {
     "anthropic": [
-        "claude-opus-4-7",
+        "claude-opus-4-8",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
         "claude-haiku-4-5-20251001",
@@ -217,10 +215,6 @@ _SUGGESTED_MODELS: dict[str, list[str]] = {
         "gpt-4.1",
         "o4-mini",
         "o3",
-        # Embeddings — not text models, kept here because the embedding
-        # slot filters this list by `dimensions != None`.
-        "text-embedding-3-small",
-        "text-embedding-3-large",
     ],
 }
 
@@ -255,32 +249,6 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     return []
 
 
-# Embedding models surfaced by default for a protocol's "official channel".
-# A custom OpenAI provider (official api.openai.com OR an OpenAI-compatible
-# forward/proxy) should always expose these so the embedding slot has
-# candidates even when the user listed only chat models. Vendor presets
-# (NetMind etc.) carry their own embedding models in `_DEFAULT_MODELS` and
-# are not affected by this.
-_DEFAULT_EMBEDDING_MODELS: dict[str, list[str]] = {
-    "openai": ["text-embedding-3-small", "text-embedding-3-large"],
-}
-
-
-def get_default_embedding_models(protocol: str) -> list[str]:
-    """Embedding model IDs to auto-include for a protocol's official channel."""
-    return list(_DEFAULT_EMBEDDING_MODELS.get(protocol, []))
-
-
-def get_embedding_dimensions(model_id: str) -> Optional[int]:
-    """
-    Look up the embedding dimensions for a given model ID.
-
-    Returns None if the model is not found or is not an embedding model.
-    """
-    meta = _KNOWN_MODELS.get(model_id)
-    return meta.dimensions if meta else None
-
-
 def get_max_output_tokens(model_id: str) -> Optional[int]:
     """
     Look up the max output tokens for a given model ID.
@@ -312,7 +280,6 @@ def get_all_known_models() -> dict[str, dict]:
         model_id: {
             "model_id": m.model_id,
             "display_name": m.display_name,
-            "dimensions": m.dimensions,
             "max_output_tokens": m.max_output_tokens,
         }
         for model_id, m in _KNOWN_MODELS.items()
@@ -347,20 +314,3 @@ def is_official_provider(protocol: str, base_url: str) -> bool:
 def get_official_models(protocol: str) -> list[str]:
     """Get the full model list for an official provider (OpenAI or Anthropic)."""
     return list(_SUGGESTED_MODELS.get(protocol, []))
-
-
-def get_known_embedding_models() -> list[dict]:
-    """
-    Get all known embedding models (hardcoded, not user-configurable).
-
-    Returns list of {model_id, display_name, dimensions} for the frontend.
-    """
-    return [
-        {
-            "model_id": m.model_id,
-            "display_name": m.display_name,
-            "dimensions": m.dimensions,
-        }
-        for m in _KNOWN_MODELS.values()
-        if m.dimensions is not None
-    ]

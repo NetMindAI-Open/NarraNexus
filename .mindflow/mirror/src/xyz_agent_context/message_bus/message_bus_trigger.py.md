@@ -1,8 +1,40 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-05-19
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — owner-relay prompt names the owner; routing keeps the user_id
+
+`_build_prompt` gained an `owner_name=""` param. The human-facing relay line now
+reads `Your owner **{owner_name or owner_user_id}** originally asked…` so the LLM
+sees the owner's human name, not the opaque NetMind userSystemCode. The
+`send_message_to_user_directly` routing argument on the same prompt KEEPS
+`user_id="{owner_user_id}"` verbatim — the delivery tool needs the real key, so
+that hex must stay. The caller resolves `owner_name` via
+`UserRepository(await get_db_client()).get_display_name(owner_user_id)` (see
+[[user_repository.py]]).
+
+last_verified: 2026-06-09
+stub: false
+---
+
+## 2026-06-09 — `_get_channel_info` SQL dialect bug (silent bus-delivery break)
+
+`_get_channel_info` queried `bus_channels` with a MySQL `%s` placeholder via the
+RAW backend `self._bus._db.execute(...)`. `_get_bus()` hands LocalMessageBus
+`db._backend` (NOT the AsyncDatabaseClient wrapper), so the wrapper's `%s`→`?`
+dialect translation never ran — SQLite threw `near "%": syntax error` on EVERY
+poll cycle for any agent that had channel messages, aborting `_process_agent`
+before delivery. **Symptom**: agents that were sent bus messages silently never
+received them (2026-06-09: 零 created 影/镜 and messaged them; they stayed mute —
+0 events — until this fix, then both processed the message and replied). Fixed
+by routing through the dialect-aware `self._bus._db.get_one("bus_channels",
+{...})`. Lesson: raw `backend.execute` takes SQL verbatim; only the
+AsyncDatabaseClient wrapper translates dialects — never hand-write `%s` on a
+path that holds a raw backend. Regression:
+`tests/message_bus/test_channel_info_dialect.py` (constructs the bus with the
+RAW backend to mirror production, else the wrapper hides the bug).
 
 ## 2026-05-19 — `_write_to_inbox` routed through `InboxRepository`
 

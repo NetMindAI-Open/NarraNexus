@@ -366,13 +366,6 @@ function ReviewPanel({
         </Section>
       )}
 
-      <Section title="Embedding compatibility">
-        <Bullet>
-          Provider: {m.embedding?.provider || 'unknown'} · Model: {m.embedding?.model || 'unknown'} · Dim: {m.embedding?.dim || 'unknown'}
-        </Bullet>
-        <Bullet>{preflight.embedding_compat.advice}</Bullet>
-      </Section>
-
       <Section title="Stripped (not present in bundle)">
         {m.stripped.map((s, i) => <Bullet key={i}>{s}</Bullet>)}
       </Section>

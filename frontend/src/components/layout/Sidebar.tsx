@@ -12,9 +12,6 @@ import {
   ChevronRight,
   Sliders,
   Server,
-  Monitor,
-  Cloud,
-  RotateCcw,
   LayoutDashboard,
 } from 'lucide-react';
 import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
@@ -36,13 +33,16 @@ import { useTeamsStore } from '@/stores';
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const [showModePopup, setShowModePopup] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { userId, agentId, logout } = useConfigStore();
+  const { userId, displayName, agentId, logout } = useConfigStore();
+  // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
+  // human-readable. Show the NetMind nickname when we have it; fall back to
+  // user_id (local mode, where it IS the chosen username).
+  const userLabel = displayName || userId;
   const { clearAll: clearChat } = useChatStore();
-  const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
+  const { features } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { isDark } = useTheme();
@@ -89,23 +89,6 @@ export function Sidebar() {
     } catch {
       // Safari private mode / other storage exceptions — ignore.
     }
-  };
-
-  const handleSwitchMode = () => {
-    wipeAllSessionData();
-    setCloudApiUrl('');
-    setMode(null);
-    setShowModePopup(false);
-
-    // Hard reload, NOT React Router navigate. Soft navigation keeps the
-    // React tree, closure-captured store snapshots, in-flight fetches,
-    // and module-level caches from the previous mode alive — which is
-    // exactly how cloud data was bleeding into a subsequent local
-    // session. A full document reload tears everything down.
-    //
-    // Combined with the localStorage.removeItem() calls above, the next
-    // page load starts from true factory defaults.
-    window.location.href = '/mode-select';
   };
 
   const handleLogout = async () => {
@@ -190,10 +173,10 @@ export function Sidebar() {
       {!collapsed && (
         <div className="px-4 py-3 border-b border-[var(--rule)]">
           <div className="flex items-center gap-3">
-            <RingAvatar species="carbon" label={userId || '?'} size="md" />
+            <RingAvatar species="carbon" label={userLabel || '?'} size="md" />
             <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
-              <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-                {userId}
+              <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]" title={userLabel}>
+                {userLabel}
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
                 <StatusDot status="success" size={6} />
@@ -206,54 +189,21 @@ export function Sidebar() {
       {/* Collapsed: just the carbon avatar centered */}
       {collapsed && userId && (
         <div className="px-4 py-3 border-b border-[var(--rule)] flex justify-center">
-          <RingAvatar species="carbon" label={userId} size="sm" title={userId} />
+          <RingAvatar species="carbon" label={userLabel} size="sm" title={userLabel} />
         </div>
       )}
 
-      {/* Team filter (Subproject 1) — hidden when sidebar is collapsed */}
-      <TeamFilterAndAgents collapsed={collapsed} />
+      {/* Agent list — grouped by team (spec §11); teams are sections inside
+          the list itself, the old TeamFilterBar chip filter is retired. */}
+      <ScrollArea className="flex-1">
+        <AgentList collapsed={collapsed} />
+      </ScrollArea>
 
 
       {/* Navigation Items */}
       <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">
         {!collapsed ? (
           <>
-            {/* Mode Switcher */}
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowModePopup(!showModePopup)}
-                className="w-full justify-start gap-2 text-[var(--text-secondary)]"
-              >
-                {mode === 'local' ? (
-                  <Monitor className="w-4 h-4" />
-                ) : (
-                  <Cloud className="w-4 h-4" />
-                )}
-                {mode === 'local' ? 'Local' : 'Cloud'}
-              </Button>
-              {showModePopup && (
-                <div className="absolute bottom-full left-0 mb-1 w-full p-3 rounded-lg border shadow-lg z-50"
-                  style={{
-                    backgroundColor: 'var(--bg-secondary)',
-                    borderColor: 'var(--border-default)',
-                  }}>
-                  <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-                    Current: {mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleSwitchMode}
-                  >
-                    <RotateCcw className="w-3 h-3 mr-1" />
-                    Switch to {mode === 'local' ? 'Cloud' : 'Local'}
-                  </Button>
-                </div>
-              )}
-            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -300,18 +250,6 @@ export function Sidebar() {
           </>
         ) : (
           <div className="flex flex-col items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowModePopup(!showModePopup)}
-              title={mode === 'local' ? 'Local Mode' : 'Cloud Mode'}
-            >
-              {mode === 'local' ? (
-                <Monitor className="w-4 h-4" />
-              ) : (
-                <Cloud className="w-4 h-4" />
-              )}
-            </Button>
             <Button
               variant="ghost"
               size="icon"

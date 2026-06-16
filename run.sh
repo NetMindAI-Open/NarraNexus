@@ -341,6 +341,9 @@ run_container_mode() {
   export NEXUS_LOG_DIR="${NEXUS_LOG_DIR:-/data/logs}"
   export DATABASE_URL="${DATABASE_URL:-sqlite:////data/nexus.db}"
   export DASHBOARD_BIND_HOST="${DASHBOARD_BIND_HOST:-0.0.0.0}"
+  # Analytics surface label: the container image is the hosted/server form
+  # factor → "cloud" (routes to NullSink this phase). Explicit override wins.
+  export NARRA_SURFACE="${NARRA_SURFACE:-cloud}"
 
   mkdir -p "$BASE_WORKING_PATH" "$NEXUS_LOG_DIR" /data
   mkdir -p "$(dirname /data/nexus.db)" || true
@@ -367,7 +370,18 @@ run_container_mode() {
   # 5. Message bus trigger
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
 
-  # 6. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
+  # 6. IM channel triggers (inbound long-poll). message_bus_trigger
+  #    deliberately defers IM channels to these dedicated processes, so
+  #    without them inbound Lark / Slack / Telegram messages are never
+  #    received — outbound still works because it goes straight through the
+  #    module, not a trigger (the asymmetry behind issue #54). Mirrors the
+  #    dev stack (scripts/dev-local.sh). Each trigger no-ops when no channel
+  #    of its kind is bound, so starting all three unconditionally is safe.
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.lark_module.run_lark_trigger &
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.slack_module.run_slack_trigger &
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.telegram_module.run_telegram_trigger &
+
+  # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \
     --host 0.0.0.0 \
     --port 8000 \

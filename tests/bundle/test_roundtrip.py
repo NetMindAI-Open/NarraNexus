@@ -141,14 +141,15 @@ async def _seed_agent(db, agent_id: str, agent_name: str, user_id: str = "test_u
         "is_public": 0,
         "status": "active",
     })
-    await db.insert("instance_social_entities", {
-        "instance_id": inst_id,
-        "entity_id": "external_user_42",
-        "entity_type": "user",
-        "entity_name": "External User",
-        "entity_description": "A non-agent contact",
-        "familiarity": "known_of",
-    })
+    from xyz_agent_context.repository import SocialNetworkRepository
+    await SocialNetworkRepository(db, agent_id).add_entity(
+        entity_id="external_user_42",
+        entity_type="user",
+        instance_id=inst_id,
+        entity_name="External User",
+        entity_description="A non-agent contact",
+        familiarity="known_of",
+    )
 
 
 @pytest.mark.asyncio
@@ -239,6 +240,13 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
         if orig_nar_id in (e["final_output"] or ""):
             pytest.fail(f"Layer 4 rewrite missed: {orig_nar_id} remained in final_output: {e['final_output']!r}")
 
+    # Backfill wiring: import_bundle must re-project imported rows into the
+    # unified search indexes (the events carry final_output → interaction index).
+    # Confirms the backfill is actually called from import, not just unit-tested.
+    assert summary.get("search_indexes_backfilled", 0) >= 2, "backfill not wired into import"
+    mem_evt = await db_client.get("memory_event", {"agent_id": new_aid})
+    assert len(mem_evt) == 2, "interaction index not backfilled on import"
+
     # Module instance + social entity: instance_id rewritten and consistent
     inst_rows = await db_client.get("module_instances", {"agent_id": new_aid})
     assert len(inst_rows) == 1
@@ -246,12 +254,13 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
     assert new_inst != "inst_aaaa0001bbbb"  # original derived from agent_id suffix
     assert re.fullmatch(ID_KINDS["instance"], new_inst)
 
-    se_rows = await db_client.get("instance_social_entities", {"instance_id": new_inst})
+    from xyz_agent_context.repository import SocialNetworkRepository
+    se_rows = await SocialNetworkRepository(db_client).get_all_entities(new_inst)
     assert len(se_rows) == 1
     # entity_type='user' so entity_id is NOT an agent — should be untouched
-    assert se_rows[0]["entity_id"] == "external_user_42"
+    assert se_rows[0].entity_id == "external_user_42"
     # but instance_id should be the new one
-    assert se_rows[0]["instance_id"] == new_inst
+    assert se_rows[0].instance_id == new_inst
 
     # Workspace tar was extracted to canonical path
     new_ws = tmp_workspace_root / f"{new_aid}_{user_id}"
@@ -585,7 +594,8 @@ async def test_legacy_bundle_without_artifacts_or_mcps_imports_clean(db_client, 
     user_id = "test_user"
     aid = "agent_legacy001"
     # Hand-build a minimal bundle directory then zip it.
-    import tempfile, zipfile
+    import tempfile
+    import zipfile
     with tempfile.TemporaryDirectory() as tmpd:
         tmp = Path(tmpd)
         (tmp / "agents" / aid).mkdir(parents=True)
@@ -661,7 +671,7 @@ async def test_chat_history_disabled_strips_memory_chat(db_client, tmp_workspace
 
     # Seed instance_json_format_memory_chat with verbatim chat content
     # that the bundle MUST NOT carry when chat history is disabled.
-    inst_id = f"inst_secretchat01"  # _seed_agent derives from agent suffix
+    inst_id = "inst_secretchat01"  # _seed_agent derives from agent suffix
     secret_phrase = "SUPERSECRET_PASSPHRASE_42"
     memory_blob = json.dumps({
         "messages": [
@@ -747,7 +757,7 @@ async def test_chat_history_enabled_keeps_memory_chat(db_client, tmp_workspace_r
     await _seed_agent(db_client, aid, "Keep Chat Agent", user_id)
     (tmp_workspace_root / f"{aid}_{user_id}").mkdir()
 
-    inst_id = f"inst_keepchat0001"
+    inst_id = "inst_keepchat0001"
     keep_phrase = "KEEP_THIS_PHRASE_42"
     memory_blob = json.dumps({
         "messages": [
@@ -782,5 +792,5 @@ async def test_chat_history_enabled_keeps_memory_chat(db_client, tmp_workspace_r
     )
     assert len(new_memory) == 1
     assert keep_phrase in new_memory[0]["memory"], (
-        f"happy-path chat memory must survive when include_chat_history=True"
+        "happy-path chat memory must survive when include_chat_history=True"
     )

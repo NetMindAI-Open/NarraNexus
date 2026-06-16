@@ -1,8 +1,24 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-05-18
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — AUTH_EXEMPT_PATHS 新增 /api/admin/migrate-identity
+
+`/api/admin/migrate-identity`（`backend/routes/admin_migration.py`）加入豁免列表。该端点用 `X-Admin-Secret` header 自带凭证校验（`settings.admin_secret_key`），与 `/api/auth/netmind-login`（携带 NetMind loginToken）、`/api/invite/internal/issue`（携带 X-Internal-Secret）同属"自凭证、不走 JWT middleware"模式。离线批量迁移脚本没有 JWT，不豁免则 JWT middleware 会先返回 401，端点自身的 `_require_admin_secret` 检查永远不会执行。
+
+## 2026-06-11 — _is_cloud_mode honors NARRANEXUS_DEPLOYMENT_MODE
+
+Aligned `_is_cloud_mode()` precedence with the canonical utils.deployment_mode resolver the rest of the codebase uses: an explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") now wins; otherwise the unchanged legacy heuristic (DATABASE_URL non-sqlite -> cloud, else DB_HOST fallback, else local). dmg-safe — the desktop app doesn't set that env var so the safety heuristic still pins it local. Surfaced by Phase-1 testing: a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud local smoke previously 404'd netmind-login because the old copy ignored the env var.
+
+## 2026-06-11 — bcrypt password helpers removed; exempt list pruned
+
+hash_password/verify_password (and the bcrypt import) deleted — cloud password login no longer exists, local login never had passwords. AUTH_EXEMPT_PATHS dropped /api/auth/register and /api/invite/internal/issue. users.password_hash column stays (no destructive DDL), it's just never read or written.
+
+## 2026-06-11 — /api/auth/netmind-login added to AUTH_EXEMPT_PATHS
+
+The NetMind-login endpoint carries its own credential (the NetMind loginToken, verified server-side inside the handler), so the middleware must let it through unauthenticated — same rationale as /login.
 
 ## 2026-05-18 — 杀掉 "first user" singleton fallback（彻底治本）
 

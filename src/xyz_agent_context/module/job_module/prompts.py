@@ -22,8 +22,8 @@ JOB_TASK_INFO_TEMPLATE = """#### Task Information
 - **Description**: {description}
 - **Created at**: {created_str}
 - **Current time**: {current_time_str}
-- **Execution identity (user_id)**: {execution_user_id}
-- **Task creator**: {user_id}"""
+- **Execution identity**: {execution_identity}
+- **Task creator**: {task_creator}"""
 
 # ============================================================================
 # Related entities section template

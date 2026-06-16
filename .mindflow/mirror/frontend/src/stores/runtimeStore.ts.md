@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/stores/runtimeStore.ts
-last_verified: 2026-04-10
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -8,7 +8,7 @@ stub: false
 
 ## Why it exists
 
-The app can run in four distinct modes: `local` (bash/desktop, direct backend), `cloud-app` (user-supplied cloud server), `cloud-web` (Nginx-deployed build, same origin), and `null` (first launch, no mode chosen). Mode governs which features are available, whether auth requires a password, and where HTTP and WebSocket requests are sent. Centralizing this in a persisted store ensures the whole app sees the same mode without prop-drilling.
+The app runs in one of two modes (plus a transient `null` on first launch): `local` (every local build — desktop DMG + `bash run.sh` — direct backend, no chooser) and `cloud-web` (Nginx-deployed website, same origin, forced by the deploy pipeline). The old `cloud-app` mode (a local build pointing at a user-supplied cloud server) was removed — cloud is used via the website, and `App.tsx`'s `useResolveAppMode` resolves mode automatically. Mode governs which features are available, whether auth requires a password, and where HTTP and WebSocket requests are sent. Centralizing this in a persisted store ensures the whole app sees the same mode without prop-drilling. `getApiBaseUrl`'s persisted-cloud-URL branch now keys on `cloud-web` only.
 
 This file also exports the two critical functions `getApiBaseUrl()` and `getWsBaseUrl()` that every network caller resolves against. Making them live here (rather than in `api.ts` or `wsManager.ts`) means both REST and WebSocket code share a single source of truth.
 

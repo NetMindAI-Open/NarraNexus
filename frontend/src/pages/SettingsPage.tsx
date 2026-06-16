@@ -2,17 +2,16 @@
  * @file_name: SettingsPage.tsx
  * @description: Settings page — NM section labels + display-font title.
  *
- * Reuses existing ProviderSettings, EmbeddingStatus, ArtifactsSection and
- * adds bundle export/import + batch agent manager links. Each section is
- * headed with a BracketSectionLabel so the page reads as a stack of
- * NM-bracketed regions instead of plain `<h2>` headings.
+ * Reuses existing ProviderSettings, ArtifactsSection and adds bundle
+ * export/import + batch agent manager links. Each section is headed with
+ * a BracketSectionLabel so the page reads as a stack of NM-bracketed
+ * regions instead of plain `<h2>` headings.
  */
 
 import { useNavigate } from 'react-router-dom';
 import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
 import ArtifactsSection from '@/components/settings/ArtifactsSection';
-import { EmbeddingStatus } from '@/components/ui/EmbeddingStatus';
 import { ScrollArea, Button } from '@/components/ui';
 import { BracketSectionLabel } from '@/components/nm';
 import { isTauri, kickUpdaterCheck, restartForUpdate } from '@/lib/tauri';
@@ -186,7 +185,7 @@ export default function SettingsPage() {
           </h1>
           <div className="mt-2">
             <BracketSectionLabel>
-              Providers · Embedding · Bundle · Artifacts · Agents
+              Providers · Bundle · Artifacts · Agents
             </BracketSectionLabel>
           </div>
         </header>
@@ -194,11 +193,6 @@ export default function SettingsPage() {
         <section>
           <SectionHeader label="LLM Providers" />
           <ProviderSettings />
-        </section>
-
-        <section>
-          <SectionHeader label="Embedding Index" />
-          <EmbeddingStatus />
         </section>
 
         <section>

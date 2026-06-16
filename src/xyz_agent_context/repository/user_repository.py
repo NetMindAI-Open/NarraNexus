@@ -41,6 +41,23 @@ class UserRepository(BaseRepository[User]):
 
     _json_fields = {"metadata"}
 
+    async def get_display_name(self, user_id: Optional[str]) -> str:
+        """Resolve a user_id to a human-readable name for agent prompts / UI.
+
+        Returns the user's display_name, falling back to the user_id itself
+        when there is no display name (or no such user). This is the single
+        place where the opaque user_id (in cloud mode, a 32-hex NetMind
+        userSystemCode) is turned into something a human / the LLM reads;
+        everywhere else user_id stays an internal scoping key. Never raises.
+        """
+        if not user_id:
+            return ""
+        try:
+            user = await self.get_user(user_id)
+        except Exception:  # noqa: BLE001 — identity display must never break callers
+            user = None
+        return (user.display_name or user_id) if user else user_id
+
     async def get_user(self, user_id: str) -> Optional[User]:
         """Get a user (case-sensitive)"""
         logger.debug(f"    → UserRepository.get_user({user_id})")
@@ -81,6 +98,48 @@ class UserRepository(BaseRepository[User]):
         )
 
         return await self.insert(user)
+
+    async def upsert_netmind_user(
+        self,
+        user_system_code: str,
+        email: str,
+        display_name: Optional[str] = None,
+    ) -> tuple[User, bool]:
+        """Lazily create or refresh the local row for a NetMind user.
+
+        NetMind login has no separate registration step: the first verified
+        login creates the local user (keyed by user_id = userSystemCode);
+        subsequent logins mirror email / display_name drift from NetMind and
+        bump last_login_time. Incoming None values never clobber existing
+        fields.
+
+        Returns:
+            (user, is_new) — the fresh row and whether it was just created.
+        """
+        logger.debug(f"    → UserRepository.upsert_netmind_user({user_system_code})")
+
+        existing = await self.get_user(user_system_code)
+        if existing is None:
+            await self.add_user(
+                user_id=user_system_code,
+                user_type="individual",
+                display_name=display_name,
+                email=email,
+            )
+            await self.update_last_login(user_system_code)
+            created = await self.get_user(user_system_code)
+            return created, True
+
+        updates: Dict[str, Any] = {
+            "last_login_time": datetime.now(dt_timezone.utc)
+        }
+        if email and existing.email != email:
+            updates["email"] = email
+        if display_name and existing.display_name != display_name:
+            updates["display_name"] = display_name
+        await self.update_user(user_system_code, updates)
+        refreshed = await self.get_user(user_system_code)
+        return refreshed, False
 
     async def update_user(self, user_id: str, updates: Dict[str, Any]) -> int:
         """Update user information"""

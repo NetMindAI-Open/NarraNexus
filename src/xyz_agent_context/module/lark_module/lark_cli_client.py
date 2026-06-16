@@ -27,9 +27,11 @@ machine user runs lark-cli: one HOME, one profile, no flags.
 from __future__ import annotations
 
 import asyncio
+import glob
 import json
 import os
 import re
+import shutil
 import tempfile
 
 # Validate format of Lark identifiers (message_id, file_key, image_key)
@@ -110,6 +112,87 @@ async def _resolve_agent_workspace_cwd(agent_id: str, db) -> Optional[Path]:
     except Exception as e:
         logger.debug(f"[lark-cli] workspace path resolution failed for {agent_id}: {e}")
         return None
+
+
+# =============================================================================
+# lark-cli executable resolution (issue #53)
+# =============================================================================
+# A login shell has npm's global bin + the node bin on PATH; a process spawned
+# by a Docker CMD, a GUI launcher (launchd), or our MCP runner frequently does
+# NOT — its PATH is stripped to something like /usr/bin:/bin. That makes both
+# the `lark-cli` binary AND its `#!/usr/bin/env node` shebang invisible, so the
+# spawn fails with ENOENT even though lark-cli runs fine in the user's terminal
+# (the exact symptom in issue #53). We therefore never trust the inherited
+# PATH: we resolve lark-cli to an absolute path and rebuild the npm/node bin
+# entries ourselves, memoising the result once it succeeds.
+_LARK_CLI_BIN: Optional[str] = None
+_LARK_EXTRA_PATH: Optional[tuple[str, ...]] = None
+
+
+def _discover_node_bin_dirs() -> tuple[str, ...]:
+    """Best-effort list of dirs holding npm-global bins + the node binary.
+
+    The directory that contains ``node`` / ``npm`` is exactly where
+    ``npm install -g`` drops its bin symlinks (true for vanilla, Homebrew,
+    nvm and n), so resolving those tools also locates lark-cli and satisfies
+    its ``env node`` shebang. Static fallbacks + version-manager globs cover
+    hosts where even node/npm are off this process's PATH.
+    """
+    dirs: list[str] = []
+    for tool in ("lark-cli", "npm", "node"):
+        found = shutil.which(tool)
+        if found:
+            dirs.append(str(Path(found).resolve().parent))
+
+    home = Path.home()
+    dirs += [
+        "/usr/local/bin",
+        "/opt/homebrew/bin",
+        str(home / ".npm-global" / "bin"),
+        str(home / ".npm-packages" / "bin"),
+    ]
+    # Version managers install node under a per-version dir that is rarely on
+    # a stripped PATH; glob every installed version's bin.
+    dirs += sorted(glob.glob(str(home / ".nvm" / "versions" / "node" / "*" / "bin")))
+    dirs += sorted(glob.glob("/usr/local/n/versions/node/*/bin"))
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for d in dirs:
+        if d and d not in seen and os.path.isdir(d):
+            seen.add(d)
+            out.append(d)
+    return tuple(out)
+
+
+def _resolve_lark_cli() -> tuple[str, tuple[str, ...]]:
+    """Return ``(lark_cli_executable, extra_PATH_dirs)``, memoised on success.
+
+    Resolution order: explicit ``LARK_CLI_BIN`` override → current PATH →
+    an augmented PATH built from :func:`_discover_node_bin_dirs`. When nothing
+    resolves we return the bare name ``"lark-cli"`` WITHOUT memoising, so a
+    retry after the user installs lark-cli mid-session re-discovers it (the
+    repro in #53 installed it while NarraNexus was already running).
+    """
+    global _LARK_CLI_BIN, _LARK_EXTRA_PATH
+    if _LARK_CLI_BIN is not None:
+        return _LARK_CLI_BIN, _LARK_EXTRA_PATH or ()
+
+    extra = _discover_node_bin_dirs()
+
+    override = os.environ.get("LARK_CLI_BIN")
+    if override and os.path.isfile(override) and os.access(override, os.X_OK):
+        resolved = override
+    else:
+        resolved = shutil.which("lark-cli") or shutil.which(
+            "lark-cli",
+            path=os.pathsep.join([*extra, os.environ.get("PATH", "")]),
+        )
+
+    if resolved:
+        _LARK_CLI_BIN, _LARK_EXTRA_PATH = resolved, extra
+        return resolved, extra
+    return "lark-cli", extra
 
 
 class LarkCLIClient:
@@ -316,6 +399,17 @@ class LarkCLIClient:
           ``--output``. Phase 1c added this mode for
           ``fetch_message_resource``.
         """
+        # Resolve lark-cli to an absolute path and make sure the child's PATH
+        # carries the npm-global + node bins. Without this a stripped host /
+        # MCP-subprocess PATH makes both the binary and its `env node` shebang
+        # vanish, even though lark-cli works in the user's login shell (#53).
+        if cmd and cmd[0] == "lark-cli":
+            resolved, extra_path = _resolve_lark_cli()
+            cmd = [resolved, *cmd[1:]]
+            env = dict(env) if env is not None else dict(os.environ)
+            if extra_path:
+                env["PATH"] = os.pathsep.join([*extra_path, env.get("PATH", "")])
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -337,7 +431,14 @@ class LarkCLIClient:
                 pass
             return {"success": False, "error": f"CLI command timed out after {timeout}s"}
         except FileNotFoundError:
-            return {"success": False, "error": "lark-cli not found. Install: npm install -g @larksuite/cli"}
+            return {
+                "success": False,
+                "error": (
+                    "lark-cli not found. Install it with `npm install -g @larksuite/cli`. "
+                    "If it is installed but on a PATH this background process can't see, "
+                    "set LARK_CLI_BIN to its absolute path (find it via `which lark-cli`)."
+                ),
+            }
 
         stdout_str = stdout.decode().strip()
         stderr_str = stderr.decode().strip()

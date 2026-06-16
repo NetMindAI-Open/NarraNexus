@@ -66,6 +66,17 @@ RUN apt-get update \
 RUN npm install -g @anthropic-ai/claude-code@2.1.110 \
  && npm cache clean --force
 
+# Lark CLI — the Lark/Feishu MCP tools spawn `lark-cli` on every call.
+# Container mode (run_container_mode in run.sh) does NOT install it at startup,
+# and _tool_policy_guard forbids the agent from installing it at runtime, so it
+# MUST be baked into the image — otherwise Lark setup/bind fail with
+# "lark-cli not found" (issue #53). Unpinned to mirror run.sh's
+# `npm install -g @larksuite/cli`: the project tracks latest for lark-cli
+# (unlike claude-code, whose SDK is coupled to a specific version). Its own
+# RUN layer so a lark-cli change doesn't bust the claude-code layer cache.
+RUN npm install -g @larksuite/cli \
+ && npm cache clean --force
+
 # uv (the project's Python package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 

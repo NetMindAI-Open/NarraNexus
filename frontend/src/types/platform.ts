@@ -2,10 +2,16 @@
  * @file_name: platform.ts
  * @author: NexusAgent
  * @date: 2026-04-02
- * @description: Platform abstraction types for multi-runtime support (local / cloud-app / cloud-web)
+ * @description: Platform abstraction types for multi-runtime support.
+ *
+ * Two surfaces only: `local` (desktop DMG + `bash run.sh` — the sole mode for
+ * every local build, no chooser) and `cloud-web` (the hosted website, forced
+ * by the deploy pipeline via /config.js). The old `cloud-app` mode (a local
+ * build pointing at the cloud backend) was removed — cloud is used via the
+ * website.
  */
 
-export type AppMode = 'local' | 'cloud-app' | 'cloud-web';
+export type AppMode = 'local' | 'cloud-web';
 export type UserType = 'internal' | 'external';
 
 export interface ProcessInfo {

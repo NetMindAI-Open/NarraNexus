@@ -90,7 +90,15 @@ async def update_my_preference(
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    q = await quota_svc.set_preference(user_id, payload.prefer_system_override)
+    from xyz_agent_context.agent_framework.quota_service import QuotaPreferenceLocked
+
+    try:
+        q = await quota_svc.set_preference(user_id, payload.prefer_system_override)
+    except QuotaPreferenceLocked as exc:
+        # 409: re-enabling the free tier is blocked until the quota is
+        # replenished (#48). The frontend disables the toggle while exhausted,
+        # so this is a defensive backstop against a stale client.
+        raise HTTPException(status_code=409, detail=str(exc))
     # Edge-triggered recovery: toggling the free-tier preference can make the
     # user runnable again (e.g. switching to a configured own provider) — revive
     # their PAUSED_NO_QUOTA jobs in the background (non-blocking).

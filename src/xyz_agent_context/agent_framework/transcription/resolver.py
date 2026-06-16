@@ -190,7 +190,7 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
 
     # --- Tier 5: system-default NetMind (cloud free tier) -----------------
     # Gate on the user's "Use free quota" toggle (prefer_system_override).
-    # This is the SAME switch chat / embedding / helper_llm respect via
+    # This is the SAME switch chat / helper_llm respect via
     # provider_resolver.py — keeping STT aligned means a single Settings
     # toggle controls all four capabilities. Without this gate a user
     # who explicitly opted out of the free tier (e.g. to keep their own

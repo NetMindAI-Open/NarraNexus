@@ -1,8 +1,38 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-05-18
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — Framework-neutral reasoning params (feat/claude-sdk-adapter-upgrade)
+
+SlotConfig gained two NEUTRAL knobs — `thinking: ""|on|off` and
+`reasoning_effort: ""|low|medium|high|max` ("" = auto = adapter passes
+nothing). They are deliberately NOT provider dialect (no "adaptive"/
+"minimal"): NarraNexus will adapt more frameworks (Codex, pi, ...), so the
+slot stores semantics and each agent-framework adapter owns the mapping +
+clamping (rule #9). Persisted as `user_slots.params_json` (cloud) and via
+the normal LLMConfig JSON dump (local llm_config.json) — both backends
+expose them through the same set_slot(..., thinking=, reasoning_effort=)
+signature with PUT semantics (omitted = reset to auto). Corrupt or
+out-of-vocabulary stored params degrade to auto with a warning instead of
+failing config load. Tests: tests/agent_framework/test_slot_reasoning_params.py.
+
+
+## 2026-06-09 — funnel redesign: providers.py carries no analytics
+
+`llm_slot_configured` was removed entirely from the lean funnel redesign.
+`providers.py` has no analytics instrumentation — no event is emitted from
+any route here. The service layer (`UserProviderService`) is also clean.
+The mid-funnel events tracking LLM configuration detail were cut to simplify
+the funnel to 5 lean events.
+
+## 2026-05-18 — 关掉 query 参数 user_id 这条 identity channel
+
+`_get_user_id` 以前同时认两个 user_id 源：`request.state.user_id`（middleware 设的）和 query 参数 `user_id`。这俩并存就是 IDOR 漏洞：客户端可以一边发 `X-User-Id: bob`、一边 `?user_id=alice`，让 backend 在不同分支看到不同身份。本次彻底关掉 query 通道——`_get_user_id` 只读 `request.state.user_id`，缺失就 401。所有 endpoint 也删掉了 `user_id: Optional[str] = Query(None)` 参数。
+
+身份只能来自一个 channel：cloud=JWT、local=X-User-Id header。前端 ApiClient (`api.ts:getAuthHeaders`) 和 SettingsProviders 的 `authFetch` 现在都会同时发这两个 header（取决于 mode）。
+
+例外：`/embeddings/status` 和 `/embeddings/rebuild` 仍然有 `user_id: str = Query(...)`，但它的语义是 **target user**（管理员视角的"我要查谁的"），不是 identity。后续可以加 staff 角色 check。
 
 ## 2026-05-18 — 关掉 query 参数 user_id 这条 identity channel
 

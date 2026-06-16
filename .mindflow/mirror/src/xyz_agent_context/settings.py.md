@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-05-22
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — invite env passthrough removed
+
+INTERNAL_INVITE_SECRET / INVITE_AUTO_ISSUE_CAP dropped from _DOTENV_PASSTHROUGH (feature retired).
 
 ## 2026-05-22 — LLM runtime resilience knobs (#7)
 

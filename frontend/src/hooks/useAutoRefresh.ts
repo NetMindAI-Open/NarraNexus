@@ -5,7 +5,7 @@
  * @description: Smart auto-refresh hook for background data polling
  *
  * Features:
- * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): jobs/ragFiles/awareness/socialNetwork
+ * 1. Tiered polling — high-freq (10s): agentInbox, mid-freq (30s): jobs/awareness/socialNetwork
  * 2. Background message detection (15s): polls chat history to detect new messages from jobs/lark
  * 3. Visibility API — pauses all polling when the tab is hidden, refreshes immediately on re-focus
  * 4. Exposes refreshAll() for full data reload after agent execution completes
@@ -48,7 +48,6 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
   const {
     refreshAgentInbox,
     refreshJobs,
-    refreshRAGFiles,
     refreshAwareness,
     refreshChatHistory,
     refreshSocialNetwork,
@@ -79,13 +78,12 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
     await Promise.allSettled([
       refreshAgentInbox(aid),
       refreshJobs(aid),
-      refreshRAGFiles(aid, uid),
       refreshAwareness(aid),
       refreshChatHistory(aid, uid),
       refreshSocialNetwork(aid),
       loadPinnedArtifacts(aid),
     ]);
-  }, [refreshAgentInbox, refreshJobs, refreshRAGFiles, refreshAwareness, refreshChatHistory, refreshSocialNetwork, loadPinnedArtifacts]);
+  }, [refreshAgentInbox, refreshJobs, refreshAwareness, refreshChatHistory, refreshSocialNetwork, loadPinnedArtifacts]);
 
   // ── Polling scheduler (all polls are silent) ──
 
@@ -100,14 +98,13 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       refreshAgentInbox(aid, true);
     };
 
-    // Mid-freq tick: jobs + ragFiles + awareness + agent list (silent)
+    // Mid-freq tick: jobs + awareness + agent list (silent)
     const tickMid = () => {
       if (document.hidden) return;
       const aid = agentIdRef.current;
       const uid = userIdRef.current;
       if (!aid || !uid) return;
       refreshJobs(aid, undefined, undefined, true);
-      refreshRAGFiles(aid, uid, true);
       refreshAwareness(aid, true);
       refreshSocialNetwork(aid, true);
       // Refresh agent list so newly created agents appear
@@ -187,7 +184,7 @@ export function useAutoRefresh({ agentId, userId }: UseAutoRefreshOptions) {
       clearInterval(bgMsgTimer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [agentId, userId, refreshAgentInbox, refreshJobs, refreshRAGFiles, refreshAwareness, refreshSocialNetwork]);
+  }, [agentId, userId, refreshAgentInbox, refreshJobs, refreshAwareness, refreshSocialNetwork]);
 
   return { refreshAll };
 }

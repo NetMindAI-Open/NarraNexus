@@ -72,9 +72,8 @@ class SystemProviderService:
             return cls(enabled=False, config=None)
 
         agent_model = os.environ.get("SYSTEM_DEFAULT_LLM_AGENT_MODEL", "").strip()
-        embedding_model = os.environ.get("SYSTEM_DEFAULT_LLM_EMBEDDING_MODEL", "").strip()
         helper_model = os.environ.get("SYSTEM_DEFAULT_LLM_HELPER_MODEL", "").strip()
-        if not (agent_model and embedding_model and helper_model):
+        if not (agent_model and helper_model):
             return cls(enabled=False, config=None)
 
         source_str = os.environ.get("SYSTEM_DEFAULT_LLM_SOURCE", "netmind").strip()
@@ -111,7 +110,7 @@ class SystemProviderService:
             auth_type=AuthType.API_KEY,
             api_key=api_key,
             base_url=openai_base,
-            models=[embedding_model, helper_model],
+            models=[helper_model],
             linked_group="system_default",
             is_active=True,
         )
@@ -125,10 +124,6 @@ class SystemProviderService:
                 "agent": SlotConfig(
                     provider_id=_SYSTEM_ANTHROPIC_PROVIDER_ID,
                     model=agent_model,
-                ),
-                "embedding": SlotConfig(
-                    provider_id=_SYSTEM_OPENAI_PROVIDER_ID,
-                    model=embedding_model,
                 ),
                 "helper_llm": SlotConfig(
                     provider_id=_SYSTEM_OPENAI_PROVIDER_ID,

@@ -1,7 +1,46 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-05-20
+last_verified: 2026-06-16
 ---
+
+## 2026-06-16 — re-surface machine IDs (account vs user_id), fixing register_artifact
+
+The 2026-06-12 change (below) removed `{user_id}` from the identity block so
+people render by human name. Side effect burned in production: the agent could
+no longer **see** its own `user_id`, so when an MCP tool argument is literally
+named `user_id` (e.g. `register_artifact`, `create_narrative`) the LLM
+substituted the only user-identity string still visible — the **display name**,
+which for NetMind users equals their **email** (`get_display_name` returns
+`display_name or user_id`, and NetMind sets `display_name = email`). With
+`user_id=<email>`, [[artifact_runner.py]] `_resolve_entry` computes a
+nonexistent workspace `{{base}}/{{agent_id}}_<email>` → every relative path is
+rejected "does not point at an existing file" and every correct absolute path is
+rejected "outside your agent workspace". Root cause traced from prod agent
+`agent_e4233ac4068f` (DM-game agent) on 2026-06-16; a cron-driven sibling
+(`agent_9bbb5f409b3e`) succeeded only because it copied the full absolute
+workspace path (with the hex id) it observed via bash cwd.
+
+Fix: the **Your Identity** and **Current Session** blocks now render both
+`Agent ID: {{agent_id}}` and `User ID: {{user_id}}` as backticked stable IDs,
+with an explicit "Account vs. ID — never confuse the two" note: the human
+account (email / login / display name shown under "Talking with") is for
+conversation only and is never a valid `agent_id` / `user_id` tool-argument
+value. This is the machine-identity half that 2026-06-12 dropped; human names
+are still shown for conversation, so both pieces now coexist, clearly labelled.
+`{{user_id}}` is a top-level [[context_schema.py]] field, so it renders without
+new plumbing.
+
+## 2026-06-12 — identity lines render people by human name
+
+`BASIC_INFO_MODULE_INSTRUCTIONS` no longer prints `{creator_id}` / `{user_id}`
+as the agent's owner / counterpart. The identity block now reads
+`Creator (your owner): {creator_name}`, `Is the current speaker your Creator?:
+{is_creator}`, and `Talking with: {current_speaker_name}` — all human names
+resolved in [[basic_info_module.py]] `hook_data_gathering` via
+[[user_repository.py]] `get_display_name`. The opaque NetMind userSystemCode is
+no longer shown as a person. New placeholders require the matching
+[[context_schema.py]] fields (creator_name / is_creator / current_speaker_name)
+or `.format()` raises KeyError.
 
 ## 2026-05-20 (Fix #2 P3) — narrative-tools section added to instructions
 

@@ -4,9 +4,11 @@
 @date: 2026-04-08
 @description: Authentication utilities for cloud deployment
 
-Provides JWT token generation/verification, password hashing,
-and FastAPI dependency for extracting current user from requests.
-In local mode (SQLite), auth is bypassed — no JWT required.
+Provides JWT token generation/verification and the auth middleware that
+extracts the current user from requests. Cloud identity is established
+via NetMind login (see routes/auth.py netmind_login); this module only
+ever sees our own self-issued JWTs. In local mode (SQLite), auth is
+bypassed — no JWT required.
 """
 
 from __future__ import annotations
@@ -15,7 +17,6 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 from loguru import logger
@@ -28,9 +29,6 @@ from loguru import logger
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-do-not-use-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_DAYS = 7
-# Invite-code registration gating is no longer a single global env var.
-# It is now a per-code DB mechanism — see `invite_codes` table,
-# `InviteCodeRepository`, and `backend/routes/invite.py`.
 
 
 # =============================================================================
@@ -143,34 +141,30 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
 def _is_cloud_mode() -> bool:
     """Check if running in cloud mode (MySQL) vs local mode (SQLite).
 
-    SAFETY: an unset / empty DATABASE_URL MUST default to local mode, not
-    cloud. A packaged desktop app (Tauri dmg) sets DATABASE_URL via Rust's
-    std::env::set_var, which is NOT thread-safe on macOS — the tokio-spawned
-    Python subprocess may not see it. If we defaulted to cloud here, the
-    bundled backend would demand passwords from users who are using the
-    desktop app in its intended local mode, which is exactly the bug that
-    surfaced in the v0.1.0 dmg. Cloud mode is only active when someone
-    explicitly provides a non-sqlite DATABASE_URL.
+    Precedence (consistent with utils.deployment_mode, the canonical
+    resolver the rest of the codebase uses):
+      1. An explicit NARRANEXUS_DEPLOYMENT_MODE ("cloud"/"local") wins —
+         this is what lets a sqlite + NARRANEXUS_DEPLOYMENT_MODE=cloud
+         local smoke run cloud semantics.
+      2. Else the legacy heuristic below.
+
+    SAFETY: with NO explicit env var, an unset / empty / sqlite DATABASE_URL
+    MUST default to local mode, not cloud. A packaged desktop app (Tauri
+    dmg) sets DATABASE_URL via Rust's std::env::set_var, which is NOT
+    thread-safe on macOS — the tokio-spawned Python subprocess may not see
+    it. If we defaulted to cloud here, the bundled backend would demand
+    NetMind login from users running the desktop app in its intended local
+    mode (the v0.1.0 dmg bug). The dmg does NOT set
+    NARRANEXUS_DEPLOYMENT_MODE, so step 1 never trips it into cloud.
     """
+    explicit = os.environ.get("NARRANEXUS_DEPLOYMENT_MODE", "").strip().lower()
+    if explicit in ("cloud", "local"):
+        return explicit == "cloud"
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
         return not db_url.startswith("sqlite")
     # Fallback: individual DB_HOST field means cloud deployment
     return bool(os.environ.get("DB_HOST", ""))
-
-
-# =============================================================================
-# Password Hashing
-# =============================================================================
-
-def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    """Verify a password against its bcrypt hash."""
-    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
 
 
 # =============================================================================
@@ -256,14 +250,15 @@ def require_auth(request: Request) -> CurrentUser:
 # health probes) or carry their own (login).
 AUTH_EXEMPT_PATHS = {
     "/api/auth/login",
-    "/api/auth/register",
+    # NetMind-account login (cloud): carries its own credential — the
+    # NetMind loginToken is verified server-side against NetMind's auth
+    # API inside the route handler, then exchanged for our own JWT.
+    "/api/auth/netmind-login",
     "/api/auth/create-user",
-    # Internal invite-issuance endpoint — server-to-server, called by the
-    # narranexus-website backend. It authenticates via the
-    # X-Internal-Secret header (matched against INTERNAL_INVITE_SECRET env
-    # var) inside the route handler itself, NOT via JWT. Admin invite
-    # operations live under /api/admin/invite and DO require a staff JWT.
-    "/api/invite/internal/issue",
+    # Admin identity migration (Phase 1): gated on the X-Admin-Secret header
+    # inside the handler (admin_secret_key), not a user JWT — the offline batch
+    # migrator has no JWT. Same self-credentialed pattern as netmind-login.
+    "/api/admin/migrate-identity",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",

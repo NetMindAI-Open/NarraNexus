@@ -607,7 +607,6 @@ async def step_3_agent_loop(
         ctx.active_instances,
         ctx.input_content,
         working_source=ctx.working_source,
-        query_embedding=ctx.query_embedding,
         created_job_ids=ctx.created_job_ids,
         trigger_extra_data=ctx.trigger_extra_data,
     )

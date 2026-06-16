@@ -15,49 +15,65 @@
  * cloud-gated, the progress flag is harmless to record anywhere.
  */
 import { useState, useCallback } from 'react';
-import { useConfigStore, useChatStore } from '@/stores';
+import { useConfigStore, useChatStore, useTeamsStore } from '@/stores';
 import { api } from '@/lib/api';
 
 export function useCreateAgent() {
   const [creating, setCreating] = useState(false);
 
   /** Create a fresh agent, wire it into the stores, select it. Returns the
-   *  new agent_id on success, or null on failure. */
-  const createAgent = useCallback(async (): Promise<string | null> => {
-    const { userId, agents, setAgents, setAgentId } = useConfigStore.getState();
-    const { setActiveAgent } = useChatStore.getState();
-    setCreating(true);
-    try {
-      const res = await api.createAgent(userId);
-      if (res.success && res.agent) {
-        const newAgent = {
-          agent_id: res.agent.agent_id,
-          name: res.agent.name,
-          description: res.agent.description,
-          status: res.agent.status,
-          created_at: res.agent.created_at,
-          created_by: userId,
-          bootstrap_active: res.agent.bootstrap_active,
-        };
-        setAgents([newAgent, ...agents]);
-        setAgentId(res.agent.agent_id);
-        setActiveAgent(res.agent.agent_id);
-        if (userId) {
-          api.markOnboardingStep(userId, 'first_agent_created').catch(() => {
-            /* onboarding progress is best-effort — never block agent create */
-          });
+   *  new agent_id on success, or null on failure.
+   *
+   *  `opts.teamId` (#43): when the sidebar "Add agent" is clicked under a
+   *  team, the new agent is attached to it server-side; we then refresh the
+   *  teams store so it shows under that team instead of Ungrouped. */
+  const createAgent = useCallback(
+    async (opts?: { teamId?: string }): Promise<string | null> => {
+      const { userId, agents, setAgents, setAgentId } = useConfigStore.getState();
+      const { setActiveAgent } = useChatStore.getState();
+      setCreating(true);
+      try {
+        const res = await api.createAgent(userId, undefined, undefined, {
+          teamId: opts?.teamId,
+        });
+        if (res.success && res.agent) {
+          const newAgent = {
+            agent_id: res.agent.agent_id,
+            name: res.agent.name,
+            description: res.agent.description,
+            status: res.agent.status,
+            created_at: res.agent.created_at,
+            created_by: userId,
+            bootstrap_active: res.agent.bootstrap_active,
+          };
+          setAgents([newAgent, ...agents]);
+          setAgentId(res.agent.agent_id);
+          setActiveAgent(res.agent.agent_id);
+          // #43: the agent was attached to a team server-side — refresh the
+          // teams store so it shows under that team straight away.
+          if (opts?.teamId) {
+            useTeamsStore.getState().refresh().catch(() => {
+              /* grouping refresh is best-effort — never block agent create */
+            });
+          }
+          if (userId) {
+            api.markOnboardingStep(userId, 'first_agent_created').catch(() => {
+              /* onboarding progress is best-effort — never block agent create */
+            });
+          }
+          return res.agent.agent_id;
         }
-        return res.agent.agent_id;
+        console.error('Failed to create agent:', res.error);
+        return null;
+      } catch (err) {
+        console.error('Error creating agent:', err);
+        return null;
+      } finally {
+        setCreating(false);
       }
-      console.error('Failed to create agent:', res.error);
-      return null;
-    } catch (err) {
-      console.error('Error creating agent:', err);
-      return null;
-    } finally {
-      setCreating(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
   return { createAgent, creating };
 }

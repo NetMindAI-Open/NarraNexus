@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-04-10
+last_verified: 2026-06-08
 stub: false
 ---
+
+## 2026-06-08 — bus message search index (projection)
+
+`send_message` now also writes a `memory_bus` index (message content + `source_ref`→bus, tagged `channel:<to>`) so inter-agent messages are findable via `remember`. Append-only — one index per message, no update/dedup (same nature as chat history). Best-effort.
 
 # local_bus.py — MessageBus 的 SQLite/MySQL 实现
 

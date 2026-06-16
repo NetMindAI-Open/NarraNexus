@@ -1,8 +1,46 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-05-22
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — Neutral reasoning params → Claude dialect (L1c)
+
+`_resolve_reasoning_options(thinking, reasoning_effort)` maps the
+framework-neutral slot params (carried on `ClaudeConfig` from the agent
+slot) to ClaudeAgentOptions kwargs: `on`→`{"type":"adaptive"}`,
+`off`→`{"type":"disabled"}`, effort low/medium/high/max passes 1:1 via
+`effort=`; `""` (auto) emits nothing so the CLI keeps its defaults —
+byte-identical behavior to before when unconfigured. Out-of-vocabulary
+values (corrupted state) degrade to auto with a warning, never raise.
+Per rule #15 the values are passed even to non-Claude proxies; the
+`Provider config` log line now includes `thinking=`/`effort=` for
+post-hoc grep. Tests: tests/agent_framework/test_claude_reasoning_mapping.py.
+
+## 2026-06-10 — L1a cleanup (SDK 0.1.43 alignment)
+
+Three obsolete-workaround removals after auditing the installed
+claude-agent-sdk 0.1.43 against the official Agent SDK docs (research:
+`reference/self_notebook/specs/2026-06-10-claude-agent-sdk-adapter-research.md`):
+
+1. **`_safe_parse_message` monkey-patch DELETED.** 0.1.43's parser
+   natively returns `None` for unknown message types ("Forward-compatible:
+   skip unrecognized message types") and both call sites filter `None`.
+   The patch was also ineffective on the main path: `_internal/client.py`
+   binds `parse_message` at import time, so reassigning the module
+   attribute never reached it. Removing it also drops both
+   `claude_agent_sdk._internal` imports from this file's import block.
+2. **`max_turns=0` → `None`.** The transport emits `--max-turns` only for
+   truthy values, so 0 meant "unlimited" by accident. If upstream ever
+   switches to `is not None`, 0 becomes a zero-turn hard cap on
+   agent_loop (铁律 #14 violation). None is the documented unlimited.
+3. **pyproject pin `>=0.1.6` → `~=0.1.43`.** This file still deliberately
+   reaches into SDK internals in two places (`_transport._process` for the
+   stall probe and the SIGKILL disconnect fallback — both re-verified as
+   still necessary on 0.1.43: `transport.close()` remains terminate() +
+   unbounded wait()). A loose pin lets `uv lock` drift the SDK (and its
+   bundled CLI — 0.1.43 ships CLI 2.1.56) under those private-attr reads.
+   Upgrades are now explicit via `uv lock --upgrade-package`.
 
 ## 2026-05-22 — stall health-probe diagnostic (#7, partial)
 
@@ -114,7 +152,7 @@ Claude Code CLI 是一个独立的命令行工具，通过 `claude_agent_sdk` Py
 
 **多轮对话拼接到 system prompt**：Claude Code CLI 的 `ClaudeAgentOptions` 不支持 messages 数组，只有 `system_prompt` 和单条 `query`。所以所有历史对话都被格式化为文本追加到 system prompt 末尾，超出 60KB 时截断保留最近部分。这是已知限制，等 SDK 支持 multi-turn 后可以去掉。
 
-**`_safe_parse_message` monkey-patch**：SDK v0.1.6 遇到未知消息类型（如 `rate_limit_event`）会抛 `MessageParseError` 崩溃整个 loop。patch 把它转为 `SystemMessage` 继续运行。这是针对 SDK 版本 bug 的防御性措施，升级 SDK 后要验证是否还需要。
+**`_safe_parse_message` monkey-patch**：已于 2026-06-10 删除（见顶部 L1a 条目）——SDK 0.1.43 原生跳过未知消息类型，patch 在主路径上本就未生效。
 
 **`NO_PROXY` 和 `CLAUDECODE` 环境变量注入**：系统代理可能导致 Claude CLI 子进程访问 localhost MCP 服务器走代理返回 502。`CLAUDECODE=""` 是为了防止嵌套 Claude Code 会话检测阻止子进程启动（当后端在 Claude Code 终端内运行时）。
 

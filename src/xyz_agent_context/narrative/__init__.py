@@ -61,7 +61,6 @@ from .session_service import SessionService
 # Public interfaces from private implementation
 # =============================================================================
 from ._narrative_impl import (
-    VectorStore,
     ContinuityDetector,
     InstanceHandler,
 )
@@ -120,8 +119,6 @@ __all__ = [
     "EventService",
     "SessionService",
 
-    # ===== Vector Store =====
-    "VectorStore",
     "ContinuityDetector",
     "InstanceHandler",
 

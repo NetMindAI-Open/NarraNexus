@@ -94,7 +94,6 @@ class RunContext:
     mcp_urls: Dict[str, str] = field(default_factory=dict)
     load_result: Optional["ModuleLoadResult"] = None
     execution_result: Optional["PathExecutionResult"] = None
-    query_embedding: Optional[Any] = None
 
     # ===== Jobs Created This Round (set in Step 2.5.3, for context passing) =====
     created_job_ids: List[str] = field(default_factory=list)

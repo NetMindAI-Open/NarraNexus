@@ -85,7 +85,6 @@ class ContextRuntime:
         active_instances: List,  # Changed to active_instances (module already bound)
         input_content: str,  # Added: current user input
         working_source: Union[WorkingSource, str] = WorkingSource.CHAT,
-        query_embedding: Optional[List[float]] = None,
         created_job_ids: Optional[List[str]] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
     ) -> ContextRuntimeOutput:
@@ -198,7 +197,6 @@ class ContextRuntime:
         self,
         narrative_list: List[Narrative],
         ctx_data: ContextData,
-        query_embedding: Optional[List[float]] = None
     ) -> Tuple[List[Dict[str, Any]], List[Event], ContextData]:
         """
         Extract data from Narratives (enhanced version: supports multiple Narratives + intelligent Event selection).
@@ -237,9 +235,7 @@ class ContextRuntime:
         if main_narrative.event_ids:
             selected_events = await event_service.select_events_for_context(
                 narrative_event_ids=main_narrative.event_ids,
-                query_embedding=query_embedding,
                 max_recent=config.MAX_RECENT_EVENTS,
-                max_relevant=config.MAX_RELEVANT_EVENTS,
                 max_total=config.MAX_EVENTS_IN_CONTEXT
             )
             
@@ -386,12 +382,21 @@ class ContextRuntime:
                     except Exception:
                         event_count = 0
 
-                    if event_count >= 3:
+                    # Rule-based deletion threshold comes from the agent's
+                    # bootstrap profile (stored in metadata at creation). None =
+                    # never auto-delete (semantic-only: the agent deletes the doc
+                    # itself per its instructions). Missing key (pre-profile
+                    # agents) → historical default of 3.
+                    from xyz_agent_context.bootstrap.profiles import (
+                        auto_delete_threshold_from_meta,
+                    )
+                    threshold = auto_delete_threshold_from_meta(agent_record.agent_metadata)
+                    if threshold is not None and event_count >= threshold:
                         try:
                             os.remove(bootstrap_path)
                             logger.info(
                                 f"        Auto-deleted Bootstrap.md after {event_count} events "
-                                f"(agent={self.agent_id})"
+                                f"(threshold={threshold}, agent={self.agent_id})"
                             )
                         except OSError as rm_err:
                             logger.warning(f"        Failed to auto-delete Bootstrap.md: {rm_err}")

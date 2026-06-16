@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/schema/context_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-06-12
 stub: false
 ---
+
+## 2026-06-12 — ContextData gains human-name + sender-aware identity fields
+
+Added to `ContextData` (the model.dump()'d dict that fills every module's
+instruction template): `creator_name` (the Creator's human display_name),
+`is_creator` (whether the CURRENT SENDER — not the owner runtime user_id — is
+the Creator), and `current_speaker_name` (human name of whoever sent the current
+message). `creator_id` stays but is now explicitly an opaque scoping key, not a
+display value. These exist so templates can render people by name instead of the
+opaque NetMind userSystemCode. Populated in [[basic_info_module.py]]
+`hook_data_gathering`; consumed by basic_info [[prompts.py]].
 
 # context_schema.py
 

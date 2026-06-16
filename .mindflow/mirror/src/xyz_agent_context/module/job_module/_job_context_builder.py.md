@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_context_builder.py
-last_verified: 2026-04-10
+last_verified: 2026-06-12
 ---
+
+## 2026-06-12 — execution identity / task creator resolved to human name
+
+`build_execution_prompt` now resolves `execution_identity`
+(`job.related_entity_id or job.user_id`) and `task_creator` (`job.user_id`) to
+human names via [[user_repository.py]] `UserRepository.get_display_name` before
+filling `JOB_TASK_INFO_TEMPLATE` (see [[prompts.py]]). The raw user_id (an
+opaque NetMind userSystemCode in cloud mode) is no longer shown as a person in
+the job prompt; `get_display_name` falls back to the id when there's no
+display_name / not a user.
 
 # _job_context_builder.py — Job 执行提示词的上下文组装器
 

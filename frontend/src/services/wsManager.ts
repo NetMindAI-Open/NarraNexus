@@ -319,6 +319,28 @@ class WebSocketManager {
           return;
         }
 
+        // Terminal reconnect-protocol errors: the server told us this
+        // run_id can never be streamed by this client (row missing,
+        // not ours, lookup broke) and is about to close the socket.
+        // Without this branch the close is treated as a passive
+        // disconnect → infinite backoff reconnect loop against the
+        // same dead run_id, with isStreaming stuck true (the spinner
+        // that only a page refresh cleared). Precise error_type match
+        // only — transient/replayed agent errors keep flowing into the
+        // chat surface as before.
+        if (
+          raw.type === 'error' &&
+          (raw.error_type === 'NotFound' ||
+            raw.error_type === 'Forbidden' ||
+            raw.error_type === 'DBError')
+        ) {
+          entry.completed = true;
+          this.onCompleteCallbacks.delete(agentId);
+          store().processMessage(agentId, raw as RuntimeMessage);
+          store().stopStreaming(agentId, agentName);
+          return;
+        }
+
         // Phase C: inject the user message that triggered this run
         // BEFORE any replay frames render. Backend hands us
         // ``input_content`` (from events.env_context.input) and
@@ -330,20 +352,33 @@ class WebSocketManager {
         // the injected bubble with the persisted history row — no
         // duplicate "user said X" rendering.
         //
-        // We deliberately do this only once per reconnect (run_reconnect
-        // is the first frame the server sends for a reconnect WS), so
-        // there's no idempotency state to keep.
+        // Injection is IDEMPOTENT against the local session: an
+        // auto-reconnect (passive disconnect of the fresh-run WS in
+        // THIS tab) re-attaches to a run whose prompt the session
+        // already holds — either stamped with this run's event_id
+        // (run_started arrived before the drop) or still trailing
+        // event-id-less with identical content (drop before
+        // run_started). Injecting again rendered the user's message
+        // twice until the next history reload collapsed it.
         if (raw.type === 'run_reconnect') {
           const inputContent = (raw.input_content as string | null | undefined) ?? '';
           if (inputContent) {
-            const tsStr = raw.input_timestamp as string | null | undefined;
-            const tsMs = tsStr ? Date.parse(tsStr) : NaN;
-            store().addUserMessage(
-              agentId,
-              inputContent,
-              undefined,
-              Number.isFinite(tsMs) ? tsMs : undefined,
-            );
+            const session = useChatStore.getState().agentSessions[agentId];
+            const msgs = session?.messages ?? [];
+            const last = msgs.length > 0 ? msgs[msgs.length - 1] : undefined;
+            const alreadyInSession =
+              msgs.some((m) => m.role === 'user' && m.event_id === runId) ||
+              (!!last && last.role === 'user' && !last.event_id && last.content === inputContent);
+            if (!alreadyInSession) {
+              const tsStr = raw.input_timestamp as string | null | undefined;
+              const tsMs = tsStr ? Date.parse(tsStr) : NaN;
+              store().addUserMessage(
+                agentId,
+                inputContent,
+                undefined,
+                Number.isFinite(tsMs) ? tsMs : undefined,
+              );
+            }
           }
           // Successfully re-attached — reset the backoff counter so a
           // later disconnect starts fresh at the shortest delay (A3).

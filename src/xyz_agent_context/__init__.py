@@ -9,7 +9,15 @@ Provides complete context management for Agent runtime:
 - Runtime: Runtime coordination
 """
 
-__version__ = "0.1.0"
+# Single source of truth for the app version: read it from the installed
+# package metadata (driven by pyproject [project].version, one of the 5 release
+# anchors) instead of hand-maintaining a literal that silently goes stale.
+try:
+    from importlib.metadata import version as _pkg_version
+
+    __version__ = _pkg_version("xyz-agent-context")
+except Exception:  # noqa: BLE001 — source tree with no install metadata
+    __version__ = "0.0.0+unknown"
 
 # Export core components - organized by dependency order
 # 1. Schema (data structures, no dependencies)

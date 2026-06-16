@@ -22,6 +22,20 @@ from xyz_agent_context.agent_framework.system_provider_service import (
 )
 
 
+class QuotaPreferenceLocked(Exception):
+    """Raised when a user tries to re-enable the free-tier preference while
+    their quota is exhausted. The free tier can only be turned back on once
+    the quota is replenished — otherwise re-enabling would immediately reopen
+    the 402 trap the auto-disable on exhaustion was meant to close (#48)."""
+
+    def __init__(self, user_id: str):
+        super().__init__(
+            "Free-tier quota is exhausted; it can be re-enabled once your "
+            "quota is replenished."
+        )
+        self.user_id = user_id
+
+
 class QuotaService:
     """Business layer above QuotaRepository.
 
@@ -137,6 +151,13 @@ class QuotaService:
         existing = await repo.get_by_user_id(user_id)
         if existing is None:
             await repo.create(user_id, 0, 0)
+            existing = await repo.get_by_user_id(user_id)
+        # Lock (#48): the free tier may only be turned ON while there is budget.
+        # Once exhausted it auto-disables (provider_resolver) and stays off
+        # until the quota is replenished — re-enabling it would just reopen the
+        # 402 trap. Turning it OFF is always allowed.
+        if prefer_system_override and (existing is None or not existing.has_budget()):
+            raise QuotaPreferenceLocked(user_id)
         await repo.set_preference(user_id, prefer_system_override)
         result = await repo.get_by_user_id(user_id)
         assert result is not None

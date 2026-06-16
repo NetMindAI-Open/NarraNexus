@@ -29,12 +29,10 @@ import type {
   MCPUpdateRequest,
   MCPValidateResponse,
   MCPValidateAllResponse,
-  RAGFileListResponse,
-  RAGFileUploadResponse,
-  RAGFileDeleteResponse,
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
+  NetmindLoginResponse,
   RegisterResponse,
   QuotaMeResponse,
   AgentListResponse,
@@ -46,8 +44,6 @@ import type {
   SkillStudyResponse,
   CostResponse,
   SkillEnvConfigResponse,
-  EmbeddingStatusResponse,
-  EmbeddingRebuildResponse,
   DashboardResponse,
   ApiResponse,
   LarkCredentialResponse,
@@ -77,7 +73,10 @@ export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
 
 class ApiClient {
-  private getAuthHeaders(): Record<string, string> {
+  // Public so download helpers (lib/download.ts) can attach the same
+  // identity headers to direct fetch / Tauri-proxy file requests that
+  // <a download> elements cannot carry.
+  getAuthHeaders(): Record<string, string> {
     // Read identity from configStore (localStorage).
     //
     // Two headers, mutually compatible:
@@ -334,6 +333,13 @@ class ApiClient {
     });
   }
 
+  async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
+    return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
+      method: 'POST',
+      body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
+    });
+  }
+
   async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<RegisterResponse> {
     return this.request<RegisterResponse>('/api/auth/register', {
       method: 'POST',
@@ -385,17 +391,70 @@ class ApiClient {
     });
   }
 
+  /** Get the current user's analytics opt-out preference. Identity travels
+   *  in the auth header; the server derives the user from it. Returns false
+   *  when no row exists (opted in by default). */
+  async getAnalyticsOptOut(): Promise<boolean> {
+    const r = await this.request<{ opted_out: boolean }>(
+      '/api/auth/settings/analytics',
+    );
+    return Boolean(r.opted_out);
+  }
+
+  /** Set the current user's analytics opt-out preference. */
+  async setAnalyticsOptOut(optedOut: boolean): Promise<void> {
+    await this.request<{ success: boolean; opted_out: boolean }>(
+      '/api/auth/settings/analytics',
+      {
+        method: 'PUT',
+        body: JSON.stringify({ opted_out: optedOut }),
+      },
+    );
+  }
+
+  /** Report a frontend funnel event (setup page UI actions). Identity comes
+   *  from the auth header server-side; no client properties are accepted
+   *  (the server stamps surface etc. itself). Best-effort: callers should
+   *  not block on it (fire-and-forget with a .catch). */
+  async trackFunnelEvent(event: string): Promise<void> {
+    await this.request<{ success: boolean }>('/api/auth/funnel', {
+      method: 'POST',
+      body: JSON.stringify({ event }),
+    });
+  }
+
   async getAgents(): Promise<AgentListResponse> {
     return this.request<AgentListResponse>(`/api/auth/agents`);
   }
 
-  async createAgent(createdBy: string, agentName?: string, agentDescription?: string): Promise<CreateAgentResponse> {
+  // Arena onboarding: ensure the authenticated user has a provisioned Arena
+  // agent and return it. Idempotent server-side (one Arena agent per user);
+  // no body — the user is derived from the session. See backend/routes/arena.py.
+  async provisionArena(): Promise<{
+    success: boolean;
+    reused?: boolean;
+    status?: string;
+    agent_id?: string;
+    arena_agent_id?: string;
+    arena_name?: string;
+  }> {
+    return this.request('/api/arena/provision', { method: 'POST' });
+  }
+
+  async createAgent(
+    createdBy: string,
+    agentName?: string,
+    agentDescription?: string,
+    opts?: { teamId?: string },
+  ): Promise<CreateAgentResponse> {
     return this.request<CreateAgentResponse>('/api/auth/agents', {
       method: 'POST',
       body: JSON.stringify({
         created_by: createdBy,
         agent_name: agentName,
         agent_description: agentDescription,
+        // #43: attach to the team the user clicked "Add agent" under.
+        team_id: opts?.teamId,
       }),
     });
   }
@@ -635,39 +694,6 @@ class ApiClient {
     );
   }
 
-  // RAG File Management API — identity from X-User-Id / JWT headers.
-  async listRAGFiles(agentId: string): Promise<RAGFileListResponse> {
-    return this.request<RAGFileListResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files`
-    );
-  }
-
-  async uploadRAGFile(agentId: string, file: File): Promise<RAGFileUploadResponse> {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const url = `${getApiBaseUrl()}/api/agents/${encodeURIComponent(agentId)}/rag-files`;
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-      headers: this.getAuthHeaders(),
-      // Don't set Content-Type header - browser will set it with boundary for FormData
-    });
-
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
-  }
-
-  async deleteRAGFile(agentId: string, filename: string): Promise<RAGFileDeleteResponse> {
-    return this.request<RAGFileDeleteResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/rag-files/${encodeURIComponent(filename)}`,
-      { method: 'DELETE' }
-    );
-  }
-
   // Skills Management API — identity from X-User-Id / JWT headers.
   async listSkills(agentId: string, includeDisabled: boolean = false): Promise<SkillListResponse> {
     const params = new URLSearchParams({
@@ -840,18 +866,21 @@ class ApiClient {
     return this.request(`/api/providers`);
   }
 
-  // Embedding Status API (per-user)
-  async getEmbeddingStatus(userId: string): Promise<EmbeddingStatusResponse> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<EmbeddingStatusResponse>(`/api/providers/embeddings/status${qs}`);
-  }
-
-  async rebuildEmbeddings(userId: string): Promise<EmbeddingRebuildResponse> {
-    const qs = `?user_id=${encodeURIComponent(userId)}`;
-    return this.request<EmbeddingRebuildResponse>(
-      `/api/providers/embeddings/rebuild${qs}`,
-      { method: 'POST' },
-    );
+  /** Backfill the latest default models from the catalog into existing providers.
+   * Identity comes from the X-User-Id / JWT header — no query param. */
+  async syncProviderDefaults(): Promise<{
+    success: boolean;
+    updates: Array<{
+      provider_id: string;
+      name: string;
+      source: string;
+      protocol: string;
+      added: string[];
+    }>;
+    providers_updated: number;
+    total_models_added: number;
+  }> {
+    return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
   /** Backfill the latest default models from the catalog into existing providers.

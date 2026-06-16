@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-06-01
+last_verified: 2026-06-16
 ---
 
 # Intent
@@ -25,6 +25,13 @@ had an own provider was judged runnable, resumed, then rejected by the runtime
 prod pause/resume oscillation. Extracting `classify` makes the gate and the
 runtime physically incapable of disagreeing.
 
+## 2026-06-11 — resolve_and_set_provider_for_user
+
+Module-level twin of `classify_provider_for_user` that also SETS the
+ContextVars — for background jobs outside the HTTP request path (memory
+consolidation worker). Same decision tree, same exceptions; local mode
+is a strict no-op.
+
 ## The decision tree (`classify`)
 
 Keyed on the user's `prefer_system_override` Settings toggle — the single
@@ -36,8 +43,14 @@ source of truth — NOT on whether an own config happens to exist:
    gate treats it as runnable (not gated).
 1. `prefer_system_override == True` (default for new users):
    1a. `quota_svc.check()` -> `SYSTEM_OK` (route system; cost_tracker deducts).
-   1b. no budget + complete own config -> `FREE_TIER_EXHAUSTED`
-       (`resolve` raises `FreeTierExhaustedError`; gate = NOT runnable).
+   1b. no budget + complete own config -> **auto-disable + `USER_OK`** (#48):
+       `classify` calls `quota_svc.set_preference(user_id, False)` (persists
+       `prefer_system_override=False`) then returns `USER_OK`, routing the
+       request on the user's own key. This is the one deliberate write
+       side-effect inside `classify`. `FreeTierExhaustedError` and the
+       `FREE_TIER_EXHAUSTED` enum value still exist for defensive use by
+       `job_trigger` + middleware, but `classify` never produces them for
+       users who have a complete own provider.
    1c. no budget + no own provider -> `QUOTA_EXCEEDED`
        (`resolve` raises `QuotaExceededError`).
 2. `prefer_system_override == False` (or no quota row = implicit opt-out):

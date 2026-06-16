@@ -11,7 +11,10 @@
  */
 
 import {
+  Children,
+  cloneElement,
   forwardRef,
+  isValidElement,
   useId,
   type ChangeEvent,
   type InputHTMLAttributes,
@@ -61,8 +64,12 @@ export function FormField({
           {required && <span style={{ color: 'var(--color-error)', marginLeft: 2 }}>*</span>}
         </label>
       )}
-      <div data-form-field-control id={id}>
-        {children}
+      <div data-form-field-control>
+        {Children.map(children, (child, index) =>
+          index === 0 && isValidElement(child)
+            ? cloneElement(child as React.ReactElement<{ id?: string }>, { id })
+            : child,
+        )}
       </div>
       {hint && !error && (
         <p className="text-xs" style={{ color: 'var(--nm-ink50)' }}>

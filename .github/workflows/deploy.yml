@@ -2,7 +2,7 @@ name: Deploy NarraNexus
 
 # Auto-deploy on push:
 #   main -> production EC2  (ubuntu@13.40.48.129)
-#   dev  -> development EC2 (ec2-user@35.177.3.118)
+#   dev  -> development EC2 (ec2-user@35.176.34.185)
 #
 # Each run SSHes into the matching host and:
 #   fetch the pushed branch tip -> make app-build -> make app-up
@@ -33,7 +33,7 @@ jobs:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.2
         with:
-          host: ${{ github.ref_name == 'main' && '13.40.48.129' || '35.177.3.118' }}
+          host: ${{ github.ref_name == 'main' && '13.40.48.129' || '35.176.34.185' }}
           username: ${{ github.ref_name == 'main' && 'ubuntu' || 'ec2-user' }}
           key: ${{ secrets.EC2_SSH_KEY }}
           command_timeout: 30m

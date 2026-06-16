@@ -285,6 +285,39 @@ export async function openExternal(url: string): Promise<boolean> {
   }
 }
 
+/**
+ * Save a backend URL to the OS Downloads folder via the Rust side.
+ *
+ * Why this exists
+ *   On both local surfaces (dmg and `bash run.sh`) the standard
+ *   `<a href download>` pattern is broken:
+ *     - dmg: WKWebView's mixed-content blocker kills HTTP navigations
+ *       initiated from the HTTPS `tauri.localhost` origin.
+ *     - browser (Vite :5173 → backend :8000): cross-origin, so the
+ *       `download` attribute is silently ignored; workspace files also
+ *       need `X-User-Id` / `Authorization` headers that `<a>` can't attach.
+ *   Rust-originated HTTP is immune to WKWebView's mixed-content rules. This
+ *   helper invokes `download_file_via_backend` which fetches the bytes via
+ *   reqwest, saves them into ~/Downloads (with collision avoidance), and
+ *   returns the absolute path so the UI can display it.
+ *
+ * Returns
+ *   - Absolute path string on success.
+ *   - null when not running in Tauri / IPC channel missing.
+ *   - Throws a string error when the Rust side returns an error (HTTP
+ *     failure, filesystem write error, etc.).
+ */
+export async function downloadFileViaTauri(
+  url: string,
+  filename: string,
+  headers?: Record<string, string>,
+): Promise<string | null> {
+  if (!isTauri()) return null;
+  const invoke = _getInvoke();
+  if (!invoke) return null;
+  return (await invoke('download_file_via_backend', { url, filename, headers })) as string;
+}
+
 interface ArtifactBytesIpc {
   status: number;
   content_type: string;

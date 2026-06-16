@@ -7,6 +7,7 @@
  */
 
 import { create } from 'zustand';
+import { useBookmarkStore } from './bookmarkStore';
 import type {
   ChatMessage,
   Step,
@@ -397,7 +398,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // First meaningful frame of a fresh run — carries the run/event
           // id. Record it (and backfill it onto the user prompt) so the
           // turn's messages can be deduped against history by event_id.
+          //
+          // Also reset bookmark highlights for this agent: a new run begins,
+          // so prior-run info highlights and non-badge sub-bookmarks are
+          // cleared (spec §5.1).  Badge-backed items (failed jobs, inbox)
+          // survive — see bookmarkStore.onRunStart for the exemption logic.
+          //
+          // This is the only correct wiring point: run_started is the
+          // authoritative new-run signal and is never sent during a Phase C
+          // reconnect (which uses run_reconnect instead), so we never
+          // mistakenly reset on a same-run reconnect.
           get().setCurrentRunId(agentId, message.run_id);
+          useBookmarkStore.getState().onRunStart(agentId);
           break;
         }
         case 'progress': {

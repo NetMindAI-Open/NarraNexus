@@ -100,7 +100,7 @@ class EventCRUD:
             trigger_source=user_id,
             env_context={
                 "input": input_content,
-                # Clean retrieval anchor for event-vector embedding (write-side),
+                # Clean retrieval anchor (write-side),
                 # kept alongside the raw input. Falls back to input when no
                 # trigger anchor was supplied. See 2026-06-01 design doc.
                 "anchor": retrieval_anchor or input_content,
@@ -144,8 +144,6 @@ class EventCRUD:
             "module_instances": json.dumps([m.model_dump(mode='json') for m in event.module_instances]),
             "event_log": json.dumps([log.model_dump(mode='json') for log in event.event_log]),
             "final_output": event.final_output,
-            "event_embedding": json.dumps(event.event_embedding) if event.event_embedding else None,
-            "embedding_text": event.embedding_text,
         }
 
         db = await self._get_db_client()
@@ -286,13 +284,6 @@ class EventCRUD:
         module_instances_data = json.loads(event_data["module_instances"]) if event_data.get("module_instances") else []
         event_log_data = json.loads(event_data["event_log"]) if event_data.get("event_log") else []
 
-        # Parse embedding
-        event_embedding = None
-        if event_data.get("event_embedding"):
-            try:
-                event_embedding = json.loads(event_data["event_embedding"])
-            except (json.JSONDecodeError, TypeError):
-                pass
 
         # Rebuild objects - fix potentially missing fields
         module_instances = []
@@ -356,6 +347,4 @@ class EventCRUD:
             narrative_id=event_data.get("narrative_id"),
             agent_id=event_data["agent_id"],
             user_id=event_data.get("user_id"),
-            event_embedding=event_embedding,
-            embedding_text=event_data.get("embedding_text"),
         )

@@ -43,14 +43,13 @@ if TYPE_CHECKING:
 
 
 def resolve_retrieval_text(retrieval_anchor: Optional[str], input_content: str) -> str:
-    """Pick the text to embed for narrative retrieval / continuity.
+    """Pick the query text for narrative retrieval (BM25) / continuity.
 
     A trigger that knows how (chat / IM channel / message bus) passes a clean
     ``retrieval_anchor`` = "[From <name>] <this-turn body>". When present we
-    embed that, so the query vector matches the tiny write-side anchors instead
-    of the noisy full execution prompt. When absent/blank we fall back to the
-    raw ``input_content`` (still capped by the embedding token guard). See the
-    2026-06-01 design doc.
+    match on that, so BM25 keys off the clean this-turn body instead of the
+    noisy full execution prompt. When absent/blank we fall back to the raw
+    ``input_content``. See the 2026-06-01 design doc.
     """
     if retrieval_anchor and retrieval_anchor.strip():
         return retrieval_anchor
@@ -72,7 +71,7 @@ class NarrativeService:
 
     Usage:
         >>> service = NarrativeService(agent_id="agent_1")
-        >>> narratives, embedding = await service.select(agent_id, user_id, input_content)
+        >>> result = await service.select(agent_id, user_id, input_content)
         >>> await service.update_with_event(narrative, event)
     """
 
@@ -96,9 +95,6 @@ class NarrativeService:
         self._retrieval = _NarrativeRetrieval(agent_id)
         self._updater = _NarrativeUpdater(agent_id)
         self._instance_handler = InstanceHandler(agent_id)
-
-        # Shared vector_store
-        self._updater.set_vector_store(self._retrieval.vector_store)
 
         # Session and Continuity (lazy loaded)
         self._session_service = None
@@ -140,9 +136,8 @@ class NarrativeService:
 
         Workflow:
         1. Detect topic continuity
-        2. Vector match or create new Narrative
-        3. Retrieve auxiliary Narratives
-        4. Return results
+        2. BM25 keyword match or create new Narrative
+        3. Return results
 
         Args:
             agent_id: Agent ID
@@ -163,18 +158,16 @@ class NarrativeService:
             NarrativeSelectionResult: Contains Narrative list, selection reason, and other complete info
         """
         from .config import config
-        from xyz_agent_context.agent_framework.llm_api.embedding import get_embedding
         from xyz_agent_context.utils.logging import timed
 
         max_narratives = max_narratives or config.MAX_NARRATIVES_IN_CONTEXT
         logger.info("NarrativeService.select() started")
 
-        # Embed/match against the clean anchor (sender + this-turn body) when a
+        # Match against the clean anchor (sender + this-turn body) when a
         # trigger provided one; else the raw input_content. See 2026-06-01 design.
         query_text = resolve_retrieval_text(retrieval_anchor, input_content)
 
-        # Continuity detection — wrapped in timed() so its LLM call (and
-        # any embedding fetch the detector does internally) is visible
+        # Continuity detection — wrapped in timed() so its LLM call is visible
         # as a discrete slice of step.1 instead of getting lumped into
         # the "everything else" bucket.
         is_continuous = False
@@ -216,14 +209,6 @@ class NarrativeService:
             except Exception as e:
                 logger.warning(f"Continuity detection failed: {e}")
 
-        # Generate query embedding for the input
-        query_embedding = None
-        try:
-            with timed("narrative.query_embedding"):
-                query_embedding = await get_embedding(query_text)
-        except Exception:
-            pass
-
         narratives: List[Narrative] = []
         selection_reason = ""
         selection_method = ""
@@ -237,47 +222,14 @@ class NarrativeService:
                 logger.info(f"Continuity detection passed, main Narrative: {main_narrative.id}")
                 selection_reason = f"Topic continuity detection passed: {continuity_reason}"
                 selection_method = "continuous"
-                retrieval_method = "session"  # Continuity detection, obtained from session, no vector retrieval needed
+                retrieval_method = "session"  # Continuity: active thread from session, no keyword search needed
 
-                # Retrieve Top-K Narratives (don't exclude main Narrative, let it participate in ranking naturally)
-                if query_embedding:
-                    # Retrieve Top-K+1 candidates (since main Narrative may not be in Top-K)
-                    with timed("narrative.retrieve_top_k_by_embedding"):
-                        search_results = await self._retrieval.retrieve_top_k_by_embedding(
-                            query_embedding=query_embedding,
-                            user_id=user_id,
-                            agent_id=agent_id,
-                            top_k=max_narratives + 1
-                        )
+                # The main Narrative is the active conversation thread. Vector
+                # retrieval of surrounding related narratives is retired
+                # (embeddings gone); the non-continuous branch below uses BM25.
+                narratives = [main_narrative]
 
-                    if search_results:
-                        # Load Narratives (prioritize including main Narrative)
-                        main_found = False
-                        for result in search_results:
-                            narrative = await self._crud.load_by_id(result.narrative_id)
-                            if narrative:
-                                if narrative.id == main_narrative.id:
-                                    # Main Narrative is in results, mark and add to first position
-                                    if not main_found:
-                                        narratives.insert(0, narrative)
-                                        main_found = True
-                                elif len(narratives) < max_narratives:
-                                    narratives.append(narrative)
-
-                        # If main Narrative is not in search results, force add to first position
-                        if not main_found:
-                            narratives.insert(0, main_narrative)
-                            # If exceeds max_narratives, remove the last one
-                            if len(narratives) > max_narratives:
-                                narratives = narratives[:max_narratives]
-                    else:
-                        # No search results, return only main Narrative
-                        narratives = [main_narrative]
-                else:
-                    # No query_embedding, return only main Narrative
-                    narratives = [main_narrative]
-
-                logger.info(f"Continuity detection: returning {len(narratives)} Narratives (main Narrative in first position)")
+                logger.info(f"Continuity detection: returning main Narrative {main_narrative.id}")
 
         if not narratives:
             # Not continuous or continuity detection failed: retrieve Top-K
@@ -289,7 +241,6 @@ class NarrativeService:
                     top_k=max_narratives
                 )
             narratives = retrieval_result.narratives
-            query_embedding = retrieval_result.query_embedding
             selection_reason = retrieval_result.selection_reason
             selection_method = retrieval_result.selection_method
             retrieval_method = retrieval_result.retrieval_method
@@ -303,7 +254,6 @@ class NarrativeService:
         if session and narratives and is_user_chat:
             from datetime import datetime, timezone
             session.last_query = query_text
-            session.last_query_embedding = query_embedding
             session.current_narrative_id = narratives[0].id
             session.query_count += 1
             session.last_query_time = datetime.now(timezone.utc)
@@ -312,7 +262,6 @@ class NarrativeService:
 
         return NarrativeSelectionResult(
             narratives=narratives,
-            query_embedding=query_embedding,
             selection_reason=selection_reason,
             selection_method=selection_method,
             is_new=(selection_method == "new_created"),
@@ -338,7 +287,7 @@ class NarrativeService:
             narrative: Narrative object
             event: Event object
             is_main_narrative: Whether this is the main Narrative
-                - True: Full update (LLM dynamic update + Embedding update)
+                - True: Full update (LLM dynamic update)
                 - False: Basic update only (associate Event, update dynamic_summary)
             is_default_narrative: Whether this is a default Narrative (is_special="default")
                 - True: Only add event_id, no other updates
@@ -350,14 +299,6 @@ class NarrativeService:
             is_main_narrative=is_main_narrative,
             is_default_narrative=is_default_narrative
         )
-
-    async def check_and_update_embedding(self, narrative: Narrative) -> bool:
-        """Check and update embedding"""
-        return await self._updater.check_and_update_embedding(narrative)
-
-    async def force_update_embedding(self, narrative: Narrative):
-        """Force update embedding"""
-        await self._updater.force_update_embedding(narrative)
 
     # =========================================================================
     # CRUD Operations
@@ -429,25 +370,6 @@ class NarrativeService:
     async def combine_main_narrative_prompt(self, narrative: Narrative) -> str:
         """Generate the main Prompt for a Narrative"""
         return await PromptBuilder.build_main_prompt(narrative)
-
-    # =========================================================================
-    # Retrieval Features
-    # =========================================================================
-
-    async def retrieve_or_create(
-        self,
-        query: str,
-        user_id: str,
-        agent_id: str,
-        narrative_type: NarrativeType = NarrativeType.CHAT
-    ) -> Tuple[Narrative, bool]:
-        """Retrieve or create a Narrative"""
-        return await self._retrieval.retrieve_or_create(
-            query=query,
-            user_id=user_id,
-            agent_id=agent_id,
-            narrative_type=narrative_type
-        )
 
     # =========================================================================
     # Internal Methods

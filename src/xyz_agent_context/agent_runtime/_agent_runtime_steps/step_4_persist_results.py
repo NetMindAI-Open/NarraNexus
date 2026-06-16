@@ -362,8 +362,27 @@ async def step_4_persist_results(
     )
 
     # [IMPORTANT] Sync final_output to the in-memory Event object
-    # so that subsequent EverMemOS writes can access the agent's response
+    # so that subsequent memory writes can access the agent's response
     ctx.event.final_output = execution_result.final_output
+
+    # Index this interaction (user input + agent reply) into the unified search
+    # layer (memory_event) with a source_ref pointer back to the event — the
+    # merged chat+event search index (design §5). `remember` finds past
+    # exchanges; the pointer lets the agent fetch the full original via
+    # view_event (or the recency-ordered conversation via get_chat_history).
+    # Store comprehensively (user + reply); trim at use.
+    try:
+        from xyz_agent_context.memory import MemoryEngine
+        _interaction_text = "\n".join(
+            p for p in [ctx.input_content or "", execution_result.final_output or ""] if p
+        )
+        if _interaction_text.strip():
+            _db = await get_db_client()
+            await MemoryEngine(_db, ctx.agent_id).index(
+                "event", ctx.event.id, _interaction_text, scope_type="agent",
+            )
+    except Exception as e:  # noqa: BLE001 — index is best-effort enrichment
+        logger.warning(f"interaction index failed (non-fatal): {e}")
 
     ctx.substeps_4.append(f"[4.3] ✓ Event updated: {ctx.event.id}")
     logger.info(f"Event updated: event_id={ctx.event.id}")
@@ -397,7 +416,7 @@ async def step_4_persist_results(
 
         # Update Narrative
         # is_default_narrative=True: only add event_id (no other updates)
-        # is_main_narrative=True: full update (LLM + Embedding)
+        # is_main_narrative=True: full update (async LLM summary)
         # is_main_narrative=False: basic update only (associate Event, update dynamic_summary)
         await narrative_service.update_with_event(
             narrative, 
@@ -455,7 +474,6 @@ async def step_4_persist_results(
             if main_narrative:
                 ctx.session.current_narrative_id = main_narrative.id
             ctx.session.last_query = ""
-            ctx.session.last_query_embedding = None
             ctx.session.last_query_time = datetime.now(timezone.utc)
             ctx.substeps_4.append(
                 f"[4.5] ✓ Session anchored to proactive delivery "

@@ -721,6 +721,32 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 .animate-slide-in-left   { animation: slide-in-left  var(--motion-medium) var(--ease-paper) forwards; }
 .animate-fade-in         { animation: fade-in var(--motion-fast) var(--ease-quick) forwards; }
 .animate-scale-in        { animation: scale-in var(--motion-fast) var(--ease-paper) forwards; }
+/* Help overlay: handwriting layer ("another hand wrote on the paper").
+   Caveat (SIL OFL) latin subset bundled locally — browsers only fetch a
+   @font-face when text first uses the family, i.e. the first time the
+   overlay opens. --font-handwriting falls back to system script fonts. */
+@font-face {
+  font-family: 'Caveat Annotations';
+  src: url('/fonts/caveat-annotations.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --font-handwriting: 'Caveat Annotations', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+}
+.help-stroke-in { opacity: 0; animation: fade-in var(--motion-medium) var(--ease-paper) forwards; }
+.help-note-in   { opacity: 0; animation: slide-up-fade var(--motion-medium) var(--ease-paper) forwards; }
+
+/* Bookmark strip: one-shot "peek" when a small bookmark first mounts —
+   the physical gesture of a bookmark being slipped into a new page
+   (spec §7). Overshoots left then settles. */
+.animate-bookmark-peek   { animation: bookmark-peek var(--motion-medium) var(--ease-paper) both; }
+@keyframes bookmark-peek {
+  0%   { transform: translateX(14px); opacity: 0; }
+  60%  { transform: translateX(-2px); opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
 .animate-shimmer {
   background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
   background-size: 200% 100%;

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactDownloadMenu.tsx
-last_verified: 2026-05-20
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -36,6 +36,20 @@ alone does **not** fix overflow clipping — they're independent.
 document, ignoring clicks inside trigger/menu) + Escape to close, replacing the
 uncontrolled `<details>` toggle. Position recomputes on `scroll` (capture phase,
 so inner overflow containers count) and `resize` while open.
+
+## 2026-06-16 — "Download original" now calls downloadFile()
+
+The "Download original" entry previously used a raw `<a href download>`
+against the token-protected URL returned by `useArtifactRawUrl`. This
+silently failed on both the DMG (WKWebView mixed-content block) and
+`bash run.sh` (cross-origin, `download` attribute ignored). It now
+calls `downloadFile({ url, filename })` from `lib/download.ts`, which
+picks the correct strategy per runtime surface. Artifact raw URLs are
+public (access token in query string), so `authHeaders` is omitted.
+
+Chart PNG/JPEG export (using a `data:` URL from the live ECharts
+canvas instance) is unchanged — that path never hits a backend endpoint
+and does not suffer from cross-origin or mixed-content issues.
 
 ## Gotcha / 边界情况
 

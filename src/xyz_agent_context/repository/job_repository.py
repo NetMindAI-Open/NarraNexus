@@ -53,7 +53,7 @@ class JobRepository(BaseRepository[JobModel]):
     id_field = "job_id"  # Use job_id as the primary key identifier (not the auto-increment id)
 
     # JSON fields (2026-01-21: added monitored_job_ids)
-    _json_fields = {"trigger_config", "process", "embedding", "monitored_job_ids"}
+    _json_fields = {"trigger_config", "process", "monitored_job_ids"}
 
     # =========================================================================
     # Basic CRUD
@@ -185,7 +185,6 @@ class JobRepository(BaseRepository[JobModel]):
         next_run_time: Optional[datetime] = None,
         next_run_at_local: Optional[str] = None,
         next_run_tz: Optional[str] = None,
-        embedding: Optional[List[float]] = None,
         related_entity_id: Optional[str] = None,
         narrative_id: Optional[str] = None,
         monitored_job_ids: Optional[List[str]] = None,  # 2026-01-21: Monitor Job pattern
@@ -217,7 +216,6 @@ class JobRepository(BaseRepository[JobModel]):
             instance_id: Instance ID (instance_id of the JobModule)
             notification_method: Notification method
             next_run_time: Next execution time
-            embedding: Semantic embedding
             related_entity_id: Target user ID (used as the principal identity when the Job executes)
             narrative_id: Associated Narrative ID (for loading conversation context)
             monitored_job_ids: Monitor Job pattern, other Job IDs monitored by this Job
@@ -244,7 +242,6 @@ class JobRepository(BaseRepository[JobModel]):
             next_run_at_local=next_run_at_local,
             next_run_tz=next_run_tz,
             notification_method=notification_method,
-            embedding=embedding,
             related_entity_id=related_entity_id,  # Feature 2.2.1
             narrative_id=narrative_id,  # Feature 3.1
             monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitor Job pattern
@@ -253,7 +250,23 @@ class JobRepository(BaseRepository[JobModel]):
             updated_at=now,
         )
 
-        return await self.insert(job)
+        result = await self.insert(job)
+        # Index the job into the unified search layer (memory_job): searchable
+        # text = title + description, with a source_ref pointer to the LIVE job.
+        # `remember("that vendor reconciliation task")` finds it; the agent then
+        # fetches the CURRENT status via job_retrieval_by_id — never a stale
+        # snapshot (design §4). Idempotent; index only the searchable surface,
+        # not the operational status (that's fetched live via the pointer).
+        try:
+            from xyz_agent_context.memory import MemoryEngine
+            _text = "\n".join(p for p in [title or "", description or ""] if p)
+            if _text.strip():
+                await MemoryEngine(self._db, agent_id).index(
+                    "job", job_id, _text, scope_type="agent",
+                )
+        except Exception as e:  # noqa: BLE001 — index is best-effort enrichment
+            logger.warning(f"job index failed (non-fatal): {e}")
+        return result
 
     async def update_next_run(self, job_id: str, next_run: "NextRunTuple") -> int:
         """
@@ -408,7 +421,6 @@ class JobRepository(BaseRepository[JobModel]):
         Handles field serialization:
         - process: List -> JSON
         - status: JobStatus -> str
-        - embedding: List -> JSON
         - trigger_config: TriggerConfig -> JSON
 
         Args:
@@ -427,8 +439,6 @@ class JobRepository(BaseRepository[JobModel]):
                 serialized_updates[key] = json.dumps(value, ensure_ascii=False)
             elif key == "status" and hasattr(value, 'value'):
                 serialized_updates[key] = value.value
-            elif key == "embedding" and isinstance(value, list):
-                serialized_updates[key] = json.dumps(value)
             elif key == "trigger_config" and hasattr(value, 'model_dump'):
                 serialized_updates[key] = json.dumps(value.model_dump(mode='json'), ensure_ascii=False)
             else:
@@ -642,6 +652,24 @@ class JobRepository(BaseRepository[JobModel]):
             filters={"job_id": job_id},
             data=update_data
         )
+
+        # Keep the unified search index in sync when the SEARCHABLE surface
+        # (title / description) changes — otherwise `remember` would match stale
+        # text. Status / scheduling changes don't touch the index (those are
+        # fetched live via the source_ref pointer). Re-fetch to get the full
+        # current title+description+agent_id; idempotent upsert.
+        if "title" in update_data or "description" in update_data:
+            try:
+                from xyz_agent_context.memory import MemoryEngine
+                row = await self._db.get_one(self.table_name, {"job_id": job_id})
+                if row:
+                    _text = "\n".join(p for p in [row.get("title") or "", row.get("description") or ""] if p)
+                    if _text.strip():
+                        await MemoryEngine(self._db, row.get("agent_id")).index(
+                            "job", job_id, _text, scope_type="agent",
+                        )
+            except Exception as e:  # noqa: BLE001 — index is best-effort enrichment
+                logger.warning(f"job re-index failed (non-fatal): {e}")
 
         logger.debug(f"    → Updated {affected_rows} rows")
         return affected_rows
@@ -1120,84 +1148,47 @@ class JobRepository(BaseRepository[JobModel]):
     # Search Features
     # =========================================================================
 
-    async def search_semantic(
+    async def search_keyword(
         self,
         agent_id: str,
-        query_embedding: List[float],
+        query: str,
         user_id: Optional[str] = None,
         status: Optional[JobStatus] = None,
         limit: int = 10,
-        min_similarity: float = 0.3
     ) -> List[Tuple[JobModel, float]]:
-        """
-        Semantic search for tasks
+        """BM25 keyword search over jobs (title + description + payload) — the
+        non-vector replacement for search_semantic (unified-memory refactor).
+        Reuses the MemoryEngine's bm25_rank; scores normalized into (0,1)."""
+        from xyz_agent_context.memory._memory_impl.retrieval import bm25_rank
 
-        Args:
-            agent_id: Agent ID
-            query_embedding: Query embedding vector
-            user_id: Filter by User ID
-            status: Filter by status
-            limit: Maximum number of results
-            min_similarity: Minimum similarity threshold
-
-        Returns:
-            List of (JobModel, similarity_score) tuples
-        """
-        logger.debug(f"    → JobRepository.search_semantic({agent_id})")
-
-        from xyz_agent_context.agent_framework.llm_api.embedding import cosine_similarity
-        from xyz_agent_context.agent_framework.llm_api.embedding_store_bridge import (
-            use_embedding_store,
-            get_stored_embeddings_batch,
-        )
-
-        # Fetch all jobs matching filters
         filters = {"agent_id": agent_id}
         if user_id:
             filters["user_id"] = user_id
         if status:
             filters["status"] = status.value
-
-        where_parts = [f"`{k}` = %s" for k in filters]
-        params = list(filters.values())
-        where_sql = " AND ".join(where_parts)
-
-        rows = await self._db.execute(
-            f"SELECT * FROM {self.table_name} WHERE {where_sql}",
-            tuple(params),
-            fetch=True,
-        )
+        # Use the high-level db.get — it builds dialect-correct placeholders
+        # (the raw `%s` form search_semantic uses does not work on direct SQLite).
+        rows = await self._db.get(self.table_name, filters)
         if not rows:
             return []
 
-        new_system = use_embedding_store()
-        job_ids = [r.get("job_id") for r in rows if r.get("job_id")]
-        store_vectors: dict = {}
-        if new_system:
-            store_vectors = await get_stored_embeddings_batch("job", job_ids)
-
-        scored_results = []
-        for row in rows:
-            job_id = row.get("job_id", "")
-            if new_system:
-                vector = store_vectors.get(job_id)
-            else:
-                import json as _json
-                raw = row.get("embedding")
-                if raw and isinstance(raw, str):
-                    vector = _json.loads(raw)
-                elif raw and isinstance(raw, list):
-                    vector = raw
-                else:
-                    vector = None
-            if not vector:
+        items = [
+            (r.get("job_id"), " ".join(str(p) for p in (r.get("title"), r.get("description"), r.get("payload")) if p))
+            for r in rows if r.get("job_id")
+        ]
+        scores = bm25_rank(query, items)
+        by_id = {r.get("job_id"): r for r in rows}
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+        out: List[Tuple[JobModel, float]] = []
+        for jid, s in ranked:
+            row = by_id.get(jid)
+            if not row:
                 continue
-            score = cosine_similarity(query_embedding, vector)
-            if score >= min_similarity:
-                scored_results.append((self._row_to_entity(row), score))
-
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        return scored_results[:limit]
+            try:  # a malformed legacy row must not fail the whole search
+                out.append((self._row_to_entity(row), s / (s + 1.0)))
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"    search_keyword: skipping unparseable job {jid}: {e}")
+        return out
 
     async def search_by_keywords(
         self,
@@ -1327,7 +1318,6 @@ class JobRepository(BaseRepository[JobModel]):
         # Parse JSON fields
         trigger_config_data = self._parse_json_field(row.get("trigger_config"), {})
         process = self._parse_json_field(row.get("process"), [])
-        embedding = self._parse_json_field(row.get("embedding"), None)
         monitored_job_ids = self._parse_json_field(row.get("monitored_job_ids"), None)
 
         # Rebuild TriggerConfig (handling double serialization case)
@@ -1362,7 +1352,6 @@ class JobRepository(BaseRepository[JobModel]):
             started_at=row.get("started_at"),
             notification_method=row.get("notification_method", "inbox"),
             last_error=row.get("last_error"),
-            embedding=embedding,
             related_entity_id=row.get("related_entity_id"),  # Feature 2.2.1 (single value)
             narrative_id=row.get("narrative_id"),  # Feature 3.1
             monitored_job_ids=monitored_job_ids,  # 2026-01-21: Monitor Job pattern
@@ -1420,7 +1409,6 @@ class JobRepository(BaseRepository[JobModel]):
             "started_at": entity.started_at,
             "notification_method": entity.notification_method,
             "last_error": entity.last_error,
-            "embedding": json.dumps(entity.embedding) if entity.embedding else None,
             "related_entity_id": entity.related_entity_id,  # Feature 2.2.1 (single value)
             "narrative_id": entity.narrative_id,  # Feature 3.1
             "monitored_job_ids": json.dumps(entity.monitored_job_ids) if entity.monitored_job_ids else None,  # 2026-01-21

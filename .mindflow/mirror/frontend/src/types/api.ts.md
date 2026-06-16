@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-05-27
+last_verified: 2026-06-16
 stub: true
 ---
 
@@ -53,6 +53,10 @@ last_run_timezone?: string;
 ```
 
 背景见 `reference/self_notebook/specs/2026-04-21-job-timezone-redesign-design.md`。前端不再感知 UTC——所有时间都以 "local + tz" 配对流动。
+
+## 2026-06-16 — CreateAgentRequest.team_id (#43)
+
+`CreateAgentRequest` 新增可选 `team_id`：在某个 team 下点 "Add agent" 时带上，后端据此把新 agent 归入该 team。
 
 ## 新人易踩坑
 

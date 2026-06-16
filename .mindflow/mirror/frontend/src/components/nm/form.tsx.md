@@ -1,7 +1,26 @@
 ---
 code_file: frontend/src/components/nm/form.tsx
-last_verified: 2026-05-18
+last_verified: 2026-06-11
 stub: false
+---
+
+## 2026-06-11 — FormField label↔input a11y association fix
+
+**What changed**: The `useId()`-generated id that wires `<label htmlFor>`
+to its control was previously applied to the `data-form-field-control`
+wrapper `<div>`. A `<div>` is not a focusable element, so
+`getByLabelText` (Testing Library) and screen readers both failed to
+resolve the label → input relationship.
+
+**Fix**: `FormField` now clones the **first valid child element** and
+injects the `useId()` value as the `id` prop directly onto that child
+(typically an `<input>`, `<select>`, or `<button>`). The wrapper div no
+longer carries the id at all.
+
+**Impact**: 5 call-sites across the app confirmed non-regressing (nm
+suite 146/146 green). Any call-site that relied on selecting the wrapper
+div by id would break — none did.
+
 ---
 
 # nm/form.tsx — Form primitives (9 components)

@@ -1,5 +1,23 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
+last_verified: 2026-06-12
+stub: false
+---
+
+## 2026-06-12 — User Identity Context block REMOVED (治本: moved into basic_info)
+
+The `_build_user_identity_block` method, its "Part 0b: User Identity" injection
+in `build_complete_system_prompt`, and the `USER_IDENTITY_CONTEXT` import are
+all gone. That block was a redundant second place to inject owner/sender
+identity — the canonical identity injection lives in [[basic_info_module.py]]
+(`hook_data_gathering` + basic_info `prompts.py`), which is where the human-name
+fix now lives. Removing it avoids two competing identity sources in the system
+prompt. See the 2026-06-11 entry below for what the now-deleted block did.
+
+## 2026-06-11 — User Identity Context block (owner + sender, by human name)
+
+build_complete_system_prompt now injects a "Part 0b: User Identity" block via new `_build_user_identity_block(ctx_data)`: states the agent OWNER by display_name (NetMind nickname / local display_name; falls back to user_id, never shown as a name otherwise), and — when the trigger carries `sender_user_id` in extra_data (only chat does) — whether the current sender is the owner or a visitor (resolves their display_name, compares to owner). IM triggers don't set sender_user_id (their own module trust block handles sender), so they get only the owner line; job/bus likewise. Cleanly separates user_id (opaque scoping key) from the human name. Defensive: lookup failure never breaks the prompt.
+
 last_verified: 2026-05-29
 stub: false
 ---
@@ -62,7 +80,7 @@ Without this class, the assembly logic would bleed into `AgentRuntime` steps, ea
 - `step_3_agent_loop.py` (inside `agent_runtime/_agent_runtime_steps/`) is the exclusive runtime caller. It constructs a `ContextRuntime` instance with the `agent_id`, `user_id`, and a `DatabaseClient`, then calls `.run()` with the Narrative list and active module instances produced by earlier pipeline steps.
 - `NarrativeService` (`narrative/`) — called inside `build_complete_system_prompt()` to format the main Narrative's summary prompt via `combine_main_narrative_prompt()`.
 - `HookManager` (`module/hook_manager.py`) — invoked in `run()` Step 1-2 to fire `hook_data_gathering` on every loaded module, which allows modules like `ChatModule` to populate `ctx_data.chat_history`.
-- `AgentRepository` (`repository/`) — queried directly inside the Bootstrap injection block to look up who created the agent, bypassing `BasicInfoModule` to avoid a module-load dependency.
+- `AgentRepository` (`repository/`) — queried directly inside the Bootstrap injection block to look up who created the agent, bypassing `BasicInfoModule` to avoid a module-load dependency. **Bootstrap deletion is now profile-driven (2026-06-16)**: the auto-delete threshold is no longer a hard-coded `>= 3` — it comes from `bootstrap.profiles.auto_delete_threshold_from_meta(agent_record.agent_metadata)` (missing key → historical default 3; `None` → never rule-delete, semantic-only). The injection prompt stays the global `BOOTSTRAP_INJECTION_PROMPT`.
 - `prompts.py` — all section header strings are imported from the sibling file.
 - `schema` (`ContextData`, `ModuleInstructions`, `ContextRuntimeOutput`, `WorkingSource`) — provides the typed containers that flow through the pipeline.
 

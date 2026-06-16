@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-05-27
+last_verified: 2026-06-16
 stub: false
 ---
+
+## 2026-06-10 — Grouped sidebar: teams become sections, chip filter retired
+
+Sidebar redesign (spec §11, branch feat/ui-revamp-user-mgmt). Teams are
+no longer a filter ABOVE the list (TeamFilterBar, deleted) — they are
+the list's structure. AgentList now derives groups via
+[[agentGroupUtils]] and renders one [[AgentGroupSection]] per team plus
+an Ungrouped tail; pure no-teams scenario renders a single headerless
+section (`hideHeader`). The `filterAgentIds` prop died with the filter.
+
+- Row actions (rename / delete / public-toggle) moved into a kebab
+  ([[AgentRowMenu]]); row 1 is avatar + name + time only.
+- Import / Export / Manage-teams moved into [[AgentsHeaderMenu]] (⋯) —
+  the Users2 dual-entry button is gone, ⋯ is the single team-management
+  entry point now.
+- Collapsed 72px rail: ALL agents as RingAvatars (old rail silently
+  capped at 4) with unread badges, hairline between team groups,
+  ∗/∅ glyphs retired.
+- Per-team collapse persists to localStorage
+  (`sidebar_team_collapsed_v1`); collapsed headers aggregate unread.
+- Behavior contracts preserved verbatim: durable unread markers
+  ([[unread]]), preview priority (latest assistant, session vs server
+  timestamp), active_run-driven spinner, row-bg priority, select →
+  navigate back to /app/chat, sticky AGENTS header, useCreateAgent.
 
 ## 2026-05-27 — last-activity stamp now includes date context
 
@@ -89,3 +113,7 @@ Inline rename: clicking the pencil enters editing mode on that agent row. Enter/
 `handleSelectAgent` always navigates back to `/app/chat` if the user is on a sub-page (Settings, System). This is intentional — clicking an agent always means "go talk to this agent".
 
 Delete hits `api.deleteAgent` which cascades all related DB data server-side. There is no undo.
+
+## 2026-06-16 — per-team "Add agent" (#43)
+
+Each named team section header now carries a hover "+" button. `handleCreateAgentInTeam` calls `createAgent({ teamId })` and is threaded to `AgentGroupSection` via `onAddAgentToTeam` / `addingAgent`. The new agent is attached to that team server-side; the hook refreshes the teams store so it appears under the team immediately instead of in Ungrouped.

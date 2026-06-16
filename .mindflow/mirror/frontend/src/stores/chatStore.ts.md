@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-05-13
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — run_started 帧驱动 bookmarkStore.onRunStart
+
+`processMessage` 的 `run_started` 分支新增一行副作用：调用
+[[bookmarkStore]] 的 `onRunStart(agentId)`，按 Owner 决策在**新 run
+开始时**重置该 agent 的高亮层（badge 层豁免）。选 `run_started` 而非
+发送路径的原因：它是权威的新 run 信号（含 cron/job 触发的 run），且
+Phase C 重连走 `run_reconnect` 帧、不会发 `run_started`——同一 run 的
+重连永远不会误清高亮。
 
 ## 2026-05-13 — progress 分支补齐 tool_output 回填（artifact column 实时更新）
 

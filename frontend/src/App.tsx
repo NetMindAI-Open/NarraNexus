@@ -8,16 +8,17 @@ import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-
 import { isTauri, listenTauri, consumePendingDeepLink } from '@/lib/tauri';
 import { useTheme, useTimezoneSync } from '@/hooks';
 import { useConfigStore, useRuntimeStore } from '@/stores';
+import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
+import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
 import { useUpdaterStore } from '@/stores/updaterStore';
 import { api } from '@/lib/api';
-import { getRuntimeConfig, isForcedCloud, isForcedLocal } from '@/lib/runtimeConfig';
+import { isForcedCloud } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
 import UpdateBanner from '@/components/UpdateBanner';
+import { ArenaProvisioningModal } from '@/components/arena/ArenaProvisioningModal';
 
 const MainLayout = lazy(() => import('@/components/layout/MainLayout'));
 const LoginPage = lazy(() => import('@/pages/LoginPage'));
-const RegisterPage = lazy(() => import('@/pages/RegisterPage'));
-const ModeSelectPage = lazy(() => import('@/pages/ModeSelectPage'));
 const SetupPage = lazy(() => import('@/pages/SetupPage'));
 const SystemPage = lazy(() => import('@/pages/SystemPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
@@ -40,21 +41,25 @@ function PageFallback() {
 }
 
 /**
- * Recover a null mode when the deploy pipeline has forced one.
+ * Resolve the app mode for this build. There is no user-facing chooser.
  *
- * After logout/wipe, localStorage is cleared and the runtimeStore hydrates
- * with mode=null. Without this recovery, Public/ProtectedRoute would
- * redirect to /mode-select → which in forced deployments redirects back to
- * /login → infinite loop → black screen. Call this from a useEffect; it's
- * a no-op when no force is configured or when mode is already set.
+ * The cloud website is the ONLY cloud surface: the deploy pipeline injects
+ * `mode='cloud'` via /config.js → cloud-web. Every other build — desktop DMG,
+ * `bash run.sh`, dev — is LOCAL ONLY. So:
+ *   - forced cloud  → cloud-web
+ *   - anything else → local (this also coerces any stale `cloud-app` choice
+ *                     a previous build may have persisted in localStorage).
+ * Call from a useEffect; it's a no-op once mode already matches.
  */
-function useAutoRestoreForcedMode() {
+function useResolveAppMode() {
   const mode = useRuntimeStore((s) => s.mode);
   const setMode = useRuntimeStore((s) => s.setMode);
   useEffect(() => {
-    if (mode) return;
-    if (isForcedCloud()) setMode('cloud-web');
-    else if (isForcedLocal()) setMode('local');
+    if (isForcedCloud()) {
+      if (mode !== 'cloud-web') setMode('cloud-web');
+    } else if (mode !== 'local') {
+      setMode('local');
+    }
   }, [mode, setMode]);
 }
 
@@ -63,7 +68,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const mode = useRuntimeStore((s) => s.mode);
   const [validating, setValidating] = useState(true);
   const location = useLocation();
-  useAutoRestoreForcedMode();
+  useResolveAppMode();
 
   useEffect(() => {
     if (!isLoggedIn || !userId) {
@@ -81,25 +86,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       .finally(() => setValidating(false));
   }, [isLoggedIn, userId]);
 
-  // Order matters: check mode BEFORE isLoggedIn.
-  //
-  // When the user clicks "Switch Mode" in the sidebar, handleSwitchMode
-  // clears both `mode` (to null) and `isLoggedIn` (to false) in a single
-  // Zustand batch. Zustand updates commit synchronously, but the imperative
-  // navigate('/mode-select') goes through React Router's transition queue,
-  // which has lower priority. That means ProtectedRoute re-renders against
-  // the NEW store state while still matched to the OLD /app/* location —
-  // and if we checked isLoggedIn first, we'd redirect to /login before the
-  // mode-select transition lands, stranding the user on a stale-mode
-  // login form backed by the wrong API URL.
-  //
-  // By checking `!mode` first, we route "mode cleared" through /mode-select
-  // regardless of who wins the race — EXCEPT in forced deployments, where
-  // /mode-select bounces back here, so we short-circuit to avoid the loop.
-  if (!mode) {
-    if (isForcedCloud() || isForcedLocal()) return <PageFallback />;
-    return <Navigate to="/mode-select" replace />;
-  }
+  // Mode is resolved synchronously by useResolveAppMode (cloud-web on the
+  // website, local everywhere else). The only window where it's null is the
+  // first tick after a logout/wipe before the effect runs — hold a spinner
+  // rather than rendering a login form against an unresolved API URL.
+  if (!mode) return <PageFallback />;
   if (!isLoggedIn) {
     // Preserve the URL the user was trying to reach so LoginPage can send
     // them back after auth. This is what makes "Install in NarraNexus →
@@ -116,49 +107,23 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isLoggedIn } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
-  useAutoRestoreForcedMode();
+  useResolveAppMode();
 
   if (isLoggedIn) return <Navigate to="/" replace />;
-  // Login/register need a resolved mode to know whether to render the
-  // local (user_id only) or cloud (user_id + password) form and which
-  // backend to hit. If we got here with mode=null (e.g. via a stale
-  // persisted route after a mode switch), punt to mode-select first.
-  //
-  // EXCEPT in forced-mode deployments: /mode-select bounces back to
-  // /login, so punting here causes an infinite redirect loop (the user
-  // sees a black screen after logout). useAutoRestoreForcedMode() above
-  // will fill mode in on the next tick; render a loading placeholder
-  // in the meantime.
-  if (!mode) {
-    if (isForcedCloud() || isForcedLocal()) return <PageFallback />;
-    return <Navigate to="/mode-select" replace />;
-  }
+  // LoginPage needs a resolved mode to know whether to render the local
+  // (user_id only) or cloud-web (NetMind account) form. useResolveAppMode
+  // fills it in on the first tick; hold a spinner in the meantime.
+  if (!mode) return <PageFallback />;
   return <>{children}</>;
 }
 
 /** Redirect root based on runtime state */
 function RootRedirect() {
   const { isLoggedIn, userId } = useConfigStore();
-  const { mode, setMode, initialize } = useRuntimeStore();
+  const mode = useRuntimeStore((s) => s.mode);
   const [checking, setChecking] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
-
-  // Force mode from deploy-injected runtime config (highest priority),
-  // falling back to the legacy build-time VITE_FORCE_CLOUD flag.
-  // Run inside useEffect so render isn't mutating store state directly.
-  useEffect(() => {
-    const forcedByRuntime = getRuntimeConfig().mode;
-    const forcedByBuild = import.meta.env.VITE_FORCE_CLOUD === 'true';
-    const desired: typeof mode =
-      forcedByRuntime === 'cloud' ? 'cloud-web'
-      : forcedByRuntime === 'local' ? 'local'
-      : forcedByBuild ? 'cloud-web'
-      : null;
-    if (desired && mode !== desired) {
-      setMode(desired);
-      initialize();
-    }
-  }, [mode, setMode, initialize]);
+  useResolveAppMode();
 
   useEffect(() => {
     if (!isLoggedIn || !userId) {
@@ -186,8 +151,18 @@ function RootRedirect() {
     checkProviders();
   }, [isLoggedIn, userId]);
 
+  // Warm the MainLayout chunk the moment we know the user is logged in, in
+  // parallel with the provider check — so the redirect to /app/chat doesn't sit
+  // on a cold lazy-load (that's the "opening the page" spinner). The import is
+  // deduped, so this just kicks off the transform/download early.
+  useEffect(() => {
+    if (isLoggedIn) {
+      void import('@/components/layout/MainLayout');
+    }
+  }, [isLoggedIn]);
+
   if (!mode) {
-    return <Navigate to="/mode-select" replace />;
+    return <PageFallback />;
   }
   if (!isLoggedIn) {
     return <Navigate to="/login" replace />;
@@ -196,7 +171,7 @@ function RootRedirect() {
     return <PageFallback />;
   }
   // Only local installs walk the user through provider setup on first
-  // login. Cloud (cloud-web / cloud-app) starts every account on the
+  // login. The cloud website (cloud-web) starts every account on the
   // system free-tier quota (SystemProviderService), so a fresh cloud user
   // can chat immediately — the provider screen confused users who had no
   // key to enter. They can still add their own provider later from
@@ -315,10 +290,47 @@ function App() {
     return () => useUpdaterStore.getState().teardown();
   }, []);
 
+  // NetMind inbound token bootstrap (scenario A): when the page is opened
+  // with ?token=<NetMind loginToken> (e.g. a link from netmind.ai or Arena),
+  // strip the token from the URL immediately to avoid it leaking into history,
+  // then exchange it for our session. `source` is stashed in sessionStorage
+  // for downstream Phase 2 provisioning (credits, api-key generation, etc.).
+  useEffect(() => {
+    // Read the inbound params captured synchronously at startup
+    // (main.tsx → captureInboundEntry), NOT window.location: by the time this
+    // effect runs, a logged-out arena/redirect path may have already rewritten
+    // the URL, dropping ?token/?source. `source` is stashed there too.
+    const r = getInboundEntry();
+    if (!r.handled || !r.token) return;
+    if (useConfigStore.getState().isLoggedIn) return;
+    const token = r.token;
+    void exchangeInboundToken(token, r.source).then((res) => {
+      if (res.success && res.user_id) {
+        useConfigStore.getState().login(res.user_id, res.token || undefined, res.role || undefined, {
+          displayName: res.display_name, email: res.email,
+        });
+        useConfigStore.getState().setNetmindToken(token);
+      }
+    }).catch(() => { /* fall through to login page */ });
+  }, []);
+
+  // Arena landing (scenario from arena42.ai): once the user is logged in — via
+  // the inbound token above, or the normal LoginPage flow — provision (or
+  // reuse) their Arena agent and open it. Covers both the "already logged in"
+  // case (runs on mount) and the "logs in after landing" case (login subscribe).
+  useEffect(() => {
+    void runArenaLandingIfNeeded();
+    const unsub = useConfigStore.subscribe((s, prev) => {
+      if (s.isLoggedIn && !prev.isLoggedIn) void runArenaLandingIfNeeded();
+    });
+    return unsub;
+  }, []);
+
   return (
     <>
       <MockBanner />
       <UpdateBanner />
+      <ArenaProvisioningModal />
       {quotaExceeded && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
@@ -340,24 +352,13 @@ function App() {
       )}
       <Suspense fallback={<PageFallback />}>
       <Routes>
-        {/* Public routes — /mode-select is blocked when the deploy pipeline
-            has forced a mode (cloud-web server, or locked-down kiosk build). */}
-        <Route
-          path="/mode-select"
-          element={
-            (isForcedCloud() || isForcedLocal() || import.meta.env.VITE_FORCE_CLOUD === 'true')
-              ? <Navigate to="/login" replace />
-              : <ModeSelectPage />
-          }
-        />
         <Route
           path="/login"
           element={<PublicRoute><LoginPage /></PublicRoute>}
         />
-        <Route
-          path="/register"
-          element={<PublicRoute><RegisterPage /></PublicRoute>}
-        />
+
+        {/* NM design system gallery — public dev tool, no auth required */}
+        <Route path="/nm-playground" element={<NMPlaygroundPage />} />
 
         {/* NM design system gallery — public dev tool, no auth required */}
         <Route path="/nm-playground" element={<NMPlaygroundPage />} />

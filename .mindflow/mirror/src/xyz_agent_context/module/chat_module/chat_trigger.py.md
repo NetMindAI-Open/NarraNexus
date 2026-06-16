@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_trigger.py
-last_verified: 2026-04-20
+last_verified: 2026-06-11
 ---
+
+## 2026-06-11 — A2A passes sender_user_id
+
+Both A2A chat paths (JSON-RPC collect + SSE) add `sender_user_id` to trigger_extra_data, same as the WS chat path, so the agent-context identity block can name the sender.
 
 ## 2026-04-20 — runtime consumption via `collect_run` (Bug 2)
 

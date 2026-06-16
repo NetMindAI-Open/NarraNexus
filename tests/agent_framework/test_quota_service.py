@@ -13,6 +13,7 @@ import pytest_asyncio
 
 from xyz_agent_context.schema.quota_schema import QuotaStatus
 from xyz_agent_context.agent_framework.quota_service import (
+    QuotaPreferenceLocked,
     QuotaService,
     bootstrap_quota_subsystem,
 )
@@ -112,6 +113,46 @@ async def test_grant_existing_record_adds(service):
     result = await service.grant("usr_f", 200_000, 40_000)
     assert result.granted_input_tokens == 200_000
     assert result.initial_input_tokens == 500_000
+
+
+# ---------- set_preference lock (#48) ------------------------------------
+
+@pytest.mark.asyncio
+async def test_set_preference_enable_allowed_with_budget(service):
+    await service.init_for_user("usr_pref1")
+    q = await service.set_preference("usr_pref1", True)
+    assert q.prefer_system_override is True
+
+
+@pytest.mark.asyncio
+async def test_set_preference_disable_always_allowed_even_when_exhausted(service):
+    await service.init_for_user("usr_pref2")
+    await service.deduct("usr_pref2", 500_000, 100_000)  # burn the whole budget
+    assert await service.check("usr_pref2") is False
+    # turning the free tier OFF is never locked
+    q = await service.set_preference("usr_pref2", False)
+    assert q.prefer_system_override is False
+
+
+@pytest.mark.asyncio
+async def test_set_preference_reenable_locked_when_exhausted(service):
+    await service.init_for_user("usr_pref3")
+    await service.deduct("usr_pref3", 500_000, 100_000)
+    assert await service.check("usr_pref3") is False
+    with pytest.raises(QuotaPreferenceLocked):
+        await service.set_preference("usr_pref3", True)
+
+
+@pytest.mark.asyncio
+async def test_set_preference_reenable_allowed_after_replenish(service):
+    await service.init_for_user("usr_pref4")
+    await service.deduct("usr_pref4", 500_000, 100_000)
+    with pytest.raises(QuotaPreferenceLocked):
+        await service.set_preference("usr_pref4", True)
+    # staff tops the quota back up → re-enabling is allowed again
+    await service.grant("usr_pref4", 500_000, 100_000)
+    q = await service.set_preference("usr_pref4", True)
+    assert q.prefer_system_override is True
 
 
 @pytest.mark.asyncio

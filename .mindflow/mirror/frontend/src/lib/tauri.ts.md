@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/tauri.ts
-last_verified: 2026-05-27
+last_verified: 2026-06-16
 stub: false
 ---
 
@@ -25,6 +25,22 @@ change one, change the other.
 Removed: `checkForUpdates()` (old API). Callers updated:
 [[SettingsPage.tsx]] now uses the store + `kickUpdaterCheck` /
 `restartForUpdate`.
+
+## 2026-06-16 — downloadFileViaTauri(url, filename, headers?)
+
+New helper that invokes the `download_file_via_backend` Rust command
+(see [[file_download.rs]]). Saves the file to the OS Downloads folder
+(`~/Downloads`) via Rust reqwest, which is immune to WKWebView's
+mixed-content blocker. Returns the absolute saved path on success, or
+`null` when not in Tauri / IPC channel missing. Throws a string error
+when the Rust command returns an error (HTTP failure, filesystem write
+error, etc.). Callers (i.e. `downloadFile()` in `lib/download.ts`)
+catch Rust errors and surface them via `window.alert`.
+
+Sibling of `fetchArtifactViaTauri` — both route through Rust to bypass
+the mixed-content block; the distinction is that `fetchArtifactViaTauri`
+returns bytes to JS for in-page rendering, while `downloadFileViaTauri`
+saves to disk for the user to open.
 
 ## 2026-05-27 — fetchArtifactViaTauri(url)
 

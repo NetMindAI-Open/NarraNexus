@@ -10,7 +10,6 @@ Includes:
 - Auth related: LoginRequest, LoginResponse, AgentInfo, etc.
 - Agents related: AwarenessResponse, SocialNetworkEntityInfo, etc.
 - Jobs related: JobResponse, JobListResponse, etc.
-- RAG File related: RAGFileInfo, etc.
 - MCP related: MCPInfo, MCPCreateRequest, etc.
 - Files related: FileInfo, FileListResponse, etc.
 """
@@ -22,41 +21,66 @@ from pydantic import BaseModel
 # ===== Auth Schemas =====
 
 class LoginRequest(BaseModel):
-    """Request model for login (local: user_id only, cloud: user_id + password)"""
+    """Request model for local-mode login (user_id only — OS user is the
+    trust boundary). Cloud login is NetmindLoginRequest."""
     user_id: str
-    password: Optional[str] = None  # Required in cloud mode, optional in local
 
 
 class LoginResponse(BaseModel):
-    """Response model for login"""
+    """Response model for local-mode login"""
     success: bool
     user_id: Optional[str] = None
-    token: Optional[str] = None  # JWT token (cloud mode only)
-    role: Optional[str] = None  # User role (cloud mode only)
     error: Optional[str] = None
 
 
-class RegisterRequest(BaseModel):
-    """Request model for cloud user registration"""
-    user_id: str
-    password: str
-    invite_code: str
-    display_name: Optional[str] = None
+class NetmindLoginRequest(BaseModel):
+    """Request model for NetMind-account login (cloud mode).
+
+    `netmind_token` is the loginToken (JWT) the frontend obtained from
+    NetMind's auth API (embedded login form / OAuth popup / ?token= URL
+    pass-through). `source` tags the entry channel (e.g. "arena") for
+    downstream provisioning; optional and free-form.
+    """
+    netmind_token: str
+    source: Optional[str] = None
 
 
-class RegisterResponse(BaseModel):
-    """Response model for registration"""
+class NetmindLoginResponse(BaseModel):
+    """Response model for NetMind-account login.
+
+    On success the backend has verified the NetMind token, upserted the
+    local user (user_id = NetMind userSystemCode) and issued NarraNexus's
+    own JWT — subsequent requests never touch NetMind again.
+    """
     success: bool
     user_id: Optional[str] = None
     token: Optional[str] = None
-    error: Optional[str] = None
-    # Populated only when the system-default free-tier quota feature is
-    # enabled and a quota row was successfully seeded for the new user.
-    # The frontend uses these to render a welcome toast on successful
-    # cloud registration.
+    role: Optional[str] = None
+    is_new_user: bool = False
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    # Free-tier seeding outcome (first login only) — mirrors the fields
+    # RegisterResponse carried so the frontend welcome toast keeps working.
     has_system_quota: bool = False
     initial_input_tokens: int = 0
     initial_output_tokens: int = 0
+    error: Optional[str] = None
+
+
+class ActiveRunInfo(BaseModel):
+    """Phase C — summary of the agent's currently running run, if any.
+
+    The frontend uses this to render the "Running" badge on the agent
+    card (pulse + glow, sharing the visual language of the Jobs
+    status badges). When no run is active, the parent AgentInfo
+    carries ``active_run = None``.
+    """
+    run_id: str
+    state: str  # running / cancelling / completed / cancelled / failed
+    started_at: Optional[str] = None
+    last_event_at: Optional[str] = None
+    tool_call_count: int = 0
+    current_stage: Optional[str] = None
 
 
 class ActiveRunInfo(BaseModel):
@@ -85,6 +109,11 @@ class AgentInfo(BaseModel):
     is_public: bool = False
     created_by: Optional[str] = None
     bootstrap_active: bool = False
+    # Per-agent first-run greeting (from agent_metadata.bootstrap_greeting,
+    # set by scenario provisioners like Arena onboarding). None → the frontend
+    # uses the generic default. Single source of truth so the instant
+    # frontend greeting and the DB-persisted greeting match (no dup bubble).
+    bootstrap_greeting: Optional[str] = None
     # Phase C (2026-05-13): summarise the agent's active run for the
     # frontend "running" badge. None means the agent is not currently
     # running for this user. The query is one event-table SELECT per
@@ -111,10 +140,17 @@ class AgentListResponse(BaseModel):
 
 
 class CreateAgentRequest(BaseModel):
-    """Request model for creating agent"""
+    """Request model for creating agent. Identity (created_by) comes from
+    auth_middleware, never from the body."""
     agent_name: Optional[str] = None
     agent_description: Optional[str] = None
-    created_by: str
+    # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
+    # behavior). Scenario creators (e.g. Arena) use their own profile instead.
+    bootstrap: Optional[str] = None
+    # Team to attach the new agent to (#43). Set when "Add agent" is clicked
+    # under a team in the sidebar. Ownership-checked server-side; an absent /
+    # foreign team leaves the agent ungrouped rather than failing creation.
+    team_id: Optional[str] = None
 
 
 class CreateAgentResponse(BaseModel):
@@ -160,8 +196,7 @@ class CreateUserResponse(BaseModel):
 
 
 class UpdateTimezoneRequest(BaseModel):
-    """Request model for updating user timezone"""
-    user_id: str
+    """Request model for updating the authenticated user's timezone."""
     timezone: str  # IANA timezone format, e.g., 'Asia/Shanghai'
 
 
@@ -204,8 +239,8 @@ class UpdateOnboardingRequest(BaseModel):
 
     Only fields explicitly set to True are applied (write-once-true) — None
     and False are ignored, so a client can never un-complete a step.
+    Identity comes from auth_middleware, never from the body.
     """
-    user_id: str
     first_agent_created: Optional[bool] = None
     template_applied: Optional[bool] = None
     dismissed: Optional[bool] = None
@@ -568,42 +603,6 @@ class JobDetailResponse(BaseModel):
     job: Optional[JobResponse] = None
     error: Optional[str] = None
 
-
-# ===== RAG File Schemas =====
-
-class RAGFileInfo(BaseModel):
-    """RAG file information with upload status"""
-    filename: str
-    size: int
-    modified_at: str
-    upload_status: str  # "pending", "uploading", "completed", "failed"
-    error_message: Optional[str] = None
-
-
-class RAGFileListResponse(BaseModel):
-    """Response for RAG file list"""
-    success: bool
-    files: List[RAGFileInfo] = []
-    total_count: int = 0
-    completed_count: int = 0
-    pending_count: int = 0
-    error: Optional[str] = None
-
-
-class RAGFileUploadResponse(BaseModel):
-    """Response for RAG file upload"""
-    success: bool
-    filename: Optional[str] = None
-    size: Optional[int] = None
-    upload_status: Optional[str] = None
-    error: Optional[str] = None
-
-
-class RAGFileDeleteResponse(BaseModel):
-    """Response for RAG file deletion"""
-    success: bool
-    filename: Optional[str] = None
-    error: Optional[str] = None
 
 
 # ===== Cost Schemas =====

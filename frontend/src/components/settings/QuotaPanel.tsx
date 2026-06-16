@@ -53,7 +53,7 @@ function Bar({
 
 export function QuotaPanel() {
   const mode = useRuntimeStore((s) => s.mode)
-  const isCloud = mode === 'cloud-app' || mode === 'cloud-web'
+  const isCloud = mode === 'cloud-web'
   const [data, setData] = useState<QuotaMeResponse | null>(null)
   const [loaded, setLoaded] = useState(false)
 
@@ -140,11 +140,16 @@ export function QuotaPanel() {
         accent={exhausted ? 'warn' : 'ok'}
       />
       <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
-        <label className="flex items-center gap-2 cursor-pointer text-xs text-[var(--text-secondary)]">
+        <label
+          className={`flex items-center gap-2 text-xs text-[var(--text-secondary)] ${
+            exhausted ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+          }`}
+        >
           <input
             type="checkbox"
             checked={preferSystem}
             onChange={togglePreference}
+            disabled={exhausted}
             className="accent-[var(--accent-primary)]"
           />
           <span>
@@ -153,15 +158,18 @@ export function QuotaPanel() {
           </span>
         </label>
         <div className="mt-1 text-[11px] text-[var(--text-tertiary)] pl-6">
-          {preferSystem
-            ? 'Currently: routing through system provider — free-tier usage applies. Falls back to your own provider if the free tier runs out.'
-            : 'Currently: using your own provider when configured; free tier only applies when you have no provider set.'}
+          {exhausted
+            ? 'Locked while the free tier is exhausted — re-enables automatically once your quota is replenished.'
+            : preferSystem
+              ? 'Currently: routing through system provider — free-tier usage applies. Switches to your own provider automatically if the free tier runs out.'
+              : 'Currently: using your own provider when configured; free tier only applies when you have no provider set.'}
         </div>
       </div>
       {exhausted && (
         <div className="mt-2 text-xs text-[var(--color-error)]">
-          Free tier consumed. Add your own provider below, or uncheck
-          the toggle above to route through your existing provider.
+          Free tier used up. If you have your own provider configured below,
+          requests now route through it automatically — no action needed.
+          Otherwise, add a provider below to keep working.
         </div>
       )}
     </div>

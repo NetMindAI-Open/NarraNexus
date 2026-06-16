@@ -17,8 +17,12 @@ cannot disagree):
   1. quota row exists AND prefer_system_override=True (the default for
      newly registered users — they start on the free tier):
      1a. quota has budget  -> route "system" (cost_tracker deducts post-call)
-     1b. no budget + has complete own config -> FreeTierExhaustedError
-         (user can uncheck the Settings toggle to switch to their own key)
+     1b. no budget + has complete own config -> AUTO-MIGRATE: the free-tier
+         preference is turned off (persisted) and the request routes "user"
+         on their own key. Without this the configured key was ignored and
+         every request 402-looped (#48). The toggle stays off — and cannot
+         be turned back on — until the quota is replenished (QuotaService
+         gates re-enable on has_budget()).
      1c. no budget + no own provider         -> QuotaExceededError
          (user must add a provider before the app becomes usable again)
 
@@ -38,7 +42,6 @@ from typing import Optional
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
-    EmbeddingConfig,
     OpenAIConfig,
     set_provider_source,
     set_user_config,
@@ -54,7 +57,40 @@ from xyz_agent_context.schema.provider_schema import (
 )
 
 
-_REQUIRED_SLOTS = ("agent", "embedding", "helper_llm")
+_REQUIRED_SLOTS = ("agent", "helper_llm")
+
+
+class ProviderAvailability(str, Enum):
+    """Verdict of the provider-resolution decision tree, WITHOUT building any
+    config or raising. The single source of truth shared by every caller that
+    needs to know "can this user resolve a usable provider right now":
+
+    - the HTTP path (`ProviderResolver.resolve` maps each verdict to a config
+      or a `ProviderResolverError`),
+    - the job resume gate (`JobTrigger._user_can_run` → `is_runnable`).
+
+    Having one classifier eliminates the drift that caused the 2026-05-31
+    pause/resume oscillation, where the resume gate reimplemented the tree and
+    disagreed with the runtime (it ignored `prefer_system_override`).
+    """
+
+    SYSTEM_OK = "system_ok"                    # free tier has budget → route system
+    USER_OK = "user_ok"                        # opted out + complete own config → route user
+    FREE_TIER_EXHAUSTED = "free_tier_exhausted"  # opted in, no budget, but has own config
+    QUOTA_EXCEEDED = "quota_exceeded"          # opted in, no budget, no own provider
+    NO_PROVIDER = "no_provider"                # opted out, own config missing/incomplete
+    SYSTEM_DISABLED = "system_disabled"        # feature off (local mode) → not gated, passthrough
+
+
+def is_runnable(verdict: ProviderAvailability) -> bool:
+    """True when a run for this verdict would resolve a provider. The three
+    exhaustion/missing verdicts are NOT runnable — the runtime would refuse,
+    so the resume gate must refuse too."""
+    return verdict in (
+        ProviderAvailability.SYSTEM_OK,
+        ProviderAvailability.USER_OK,
+        ProviderAvailability.SYSTEM_DISABLED,
+    )
 
 
 class ProviderAvailability(str, Enum):
@@ -179,32 +215,38 @@ class ProviderResolver:
         )
 
         if prefer_system:
-            # Branch 1: user opted in to the free tier — honour it even if they
-            # also configured an own provider (the runtime will NOT fall back
-            # to it; that asymmetry is what the resume gate must respect).
+            # Branch 1: user opted in to the free tier.
             if await self.quota_svc.check(user_id):
                 return ProviderAvailability.SYSTEM_OK
-            return (
-                ProviderAvailability.FREE_TIER_EXHAUSTED if has_own
-                else ProviderAvailability.QUOTA_EXCEEDED
-            )
+            # Free tier exhausted. If the user has their own complete provider,
+            # auto-disable the free-tier preference so their key takes over
+            # immediately instead of 402-looping (#48: the configured key was
+            # being ignored because prefer_system_override stayed on). The flip
+            # is persisted, so the next request takes branch 2 directly; the
+            # toggle stays off until the quota is replenished (re-enable is
+            # gated in QuotaService.set_preference). With no own provider there
+            # is nothing to fall back to → surface the gate unchanged.
+            if has_own:
+                await self.quota_svc.set_preference(user_id, False)
+                return ProviderAvailability.USER_OK
+            return ProviderAvailability.QUOTA_EXCEEDED
 
         # Branch 2: opted out (or no quota row) — own provider only.
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
 
     async def resolve(
         self, user_id: str
-    ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig, str]]:
+    ) -> Optional[tuple[ClaudeConfig, OpenAIConfig, str]]:
         """Resolve a user's effective LLM configs WITHOUT mutating ContextVars.
 
-        Returns ``(claude, openai, embedding, source)`` where ``source`` is
+        Returns ``(claude, openai, source)`` where ``source`` is
         ``"system"`` or ``"user"``, or ``None`` when the system-default
         feature is disabled (local mode / env not set) — in that case the
         caller keeps whatever global/desktop config is already in effect.
 
         Thin mapping over :meth:`classify`: verdict → config or
         ``ProviderResolverError``. Background jobs that need a provider outside
-        the request path (e.g. the embedding rebuild) call this and build their
+        the request path call this and build their
         own client from the returned config.
         """
         verdict = await self.classify(user_id)
@@ -212,14 +254,14 @@ class ProviderResolver:
         if verdict == ProviderAvailability.SYSTEM_DISABLED:
             return None
         if verdict == ProviderAvailability.SYSTEM_OK:
-            claude, openai, embedding = _llm_config_to_dataclasses(
+            claude, openai = _llm_config_to_dataclasses(
                 self.system_provider_svc.get_config()
             )
-            return claude, openai, embedding, "system"
+            return claude, openai, "system"
         if verdict == ProviderAvailability.USER_OK:
             user_cfg = await self.user_provider_svc.get_user_config(user_id)
-            claude, openai, embedding = _llm_config_to_dataclasses(user_cfg)
-            return claude, openai, embedding, "user"
+            claude, openai = _llm_config_to_dataclasses(user_cfg)
+            return claude, openai, "user"
         if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
             raise FreeTierExhaustedError(user_id)
         if verdict == ProviderAvailability.QUOTA_EXCEEDED:
@@ -230,13 +272,13 @@ class ProviderResolver:
         """Resolve the user's configs and push them onto the request ContextVars.
 
         Thin wrapper over :meth:`resolve` — the HTTP request path uses this so
-        downstream LLM/embedding clients pick up the right provider implicitly.
+        downstream LLM clients pick up the right provider implicitly.
         """
         resolved = await self.resolve(user_id)
         if resolved is None:
             return
-        claude, openai, embedding, source = resolved
-        set_user_config(claude, openai, embedding)
+        claude, openai, source = resolved
+        set_user_config(claude, openai)
         set_provider_source(source)
 
 
@@ -255,6 +297,28 @@ async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
         quota_svc=QuotaService.default(),
     )
     return await resolver.classify(user_id)
+
+
+async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
+    """Wire the default services and push the user's effective LLM config
+    onto this task's ContextVars — the background-job twin of the
+    auth_middleware path, for callers that run OUTSIDE any HTTP request
+    (memory consolidation worker; future lifespan jobs).
+
+    Local mode / system-provider disabled: strict no-op, the global
+    llm_config.json / .env fallback stays in effect (iron rule #7).
+    Quota / no-provider verdicts raise the same ProviderResolverError
+    subclasses the request path uses — callers isolate, never drop data.
+    """
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=SystemProviderService.instance(),
+        quota_svc=QuotaService.default(),
+    )
+    await resolver.resolve_and_set(user_id)
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
@@ -279,7 +343,7 @@ def _is_user_config_complete(cfg: LLMConfig | None) -> bool:
 
 def _llm_config_to_dataclasses(
     cfg: LLMConfig,
-) -> tuple[ClaudeConfig, OpenAIConfig, EmbeddingConfig]:
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """Convert an LLMConfig (slot-addressed) into the three dataclasses
     set_user_config expects. Assumes the caller already verified completeness
     via `_is_user_config_complete` (or that the system config is valid).
@@ -308,12 +372,4 @@ def _llm_config_to_dataclasses(
         model=helper_slot.model,
     )
 
-    emb_slot = cfg.slots["embedding"]
-    emb_prov = cfg.providers[emb_slot.provider_id]
-    embedding = EmbeddingConfig(
-        api_key=emb_prov.api_key,
-        base_url=emb_prov.base_url,
-        model=emb_slot.model,
-    )
-
-    return claude, openai, embedding
+    return claude, openai

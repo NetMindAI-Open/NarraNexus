@@ -14,7 +14,6 @@
  *   ├─────────────────────────────────────────┤
  *   │  SECTION 2: Model Assignment            │
  *   │  ┌ Agent slot ────────────────────────┐ │
- *   │  │ Embedding slot                     │ │
  *   │  │ Helper LLM slot                   │ │
  *   │  │ Apply / Discard                    │ │
  *   │  └───────────────────────────────────-┘ │
@@ -87,6 +86,10 @@ interface ProviderSummary {
 interface SlotConfig {
   provider_id: string
   model: string
+  // Framework-neutral reasoning params (agent slot only). '' = Auto =
+  // backend adapter passes nothing and the framework keeps its defaults.
+  thinking?: '' | 'on' | 'off'
+  reasoning_effort?: '' | 'low' | 'medium' | 'high' | 'max'
 }
 
 interface SlotData {
@@ -97,14 +100,7 @@ interface SlotData {
 interface KnownModelMeta {
   model_id: string
   display_name: string
-  dimensions: number | null
   max_output_tokens: number | null
-}
-
-interface EmbeddingModelInfo {
-  model_id: string
-  display_name: string
-  dimensions: number
 }
 
 // =============================================================================
@@ -144,7 +140,6 @@ const PRESET_DEFAULT_SLOTS: Record<
   netmind: {
     agent:      { protocol: 'anthropic', model: 'deepseek-ai/DeepSeek-V4-Pro',   label: 'DeepSeek V4 Pro' },
     helper_llm: { protocol: 'openai',    model: 'deepseek-ai/DeepSeek-V4-Flash', label: 'DeepSeek V4 Flash' },
-    embedding:  { protocol: 'openai',    model: 'BAAI/bge-m3',                   label: 'BGE-M3' },
   },
 }
 
@@ -165,7 +160,6 @@ const AGENT_FRAMEWORKS: AgentFramework[] = [
 
 const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
   { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
-  { key: 'embedding', label: 'Embedding', desc: 'Vector search (OpenAI)', protocol: 'openai' },
   { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI)', protocol: 'openai' },
 ]
 
@@ -205,7 +199,7 @@ const MODEL_SUGGESTION_GROUPS: ModelSuggestionGroup[] = [
   {
     label: 'Anthropic',
     models: [
-      'claude-opus-4-7',
+      'claude-opus-4-8',
       'claude-sonnet-4-6',
       'claude-haiku-4-5',
       'claude-haiku-4-5-20251001',
@@ -469,10 +463,6 @@ export function ProviderSettings() {
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})
   const [slots, setSlots] = useState<Record<string, SlotData>>({})
   const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
-  const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelInfo[]>([])
-  // Embedding slot: user picked "Custom model…" and is typing a model id that
-  // isn't in the catalog (e.g. a self-hosted / niche OpenAI-format endpoint).
-  const [embeddingCustom, setEmbeddingCustom] = useState(false)
   const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
   const [claudeStatus, setClaudeStatus] = useState<{ cli_installed: boolean; logged_in: boolean; email: string | null; expires_at: string | null } | null>(null)
@@ -540,7 +530,6 @@ export function ProviderSettings() {
       }
       if (catRes.success) {
         setKnownModels(catRes.known_models)
-        if (catRes.embedding_models) setEmbeddingModels(catRes.embedding_models)
         if (catRes.official_base_urls) setOfficialBaseUrls(catRes.official_base_urls)
       }
     } catch {}
@@ -771,9 +760,40 @@ export function ProviderSettings() {
     setTesting(null)
   }
 
-  // Local slot change
+  // Local slot change. Preserves the slot's reasoning params: switching
+  // provider/model must not silently reset Thinking/Reasoning Effort.
   const handleLocalSlotChange = (slot: string, pid: string, model: string) => {
-    setPendingSlots((prev) => ({ ...prev, [slot]: { provider_id: pid, model } }))
+    const cur = getEffectiveSlotConfig(slot)
+    setPendingSlots((prev) => ({
+      ...prev,
+      [slot]: {
+        provider_id: pid,
+        model,
+        thinking: cur?.thinking || '',
+        reasoning_effort: cur?.reasoning_effort || '',
+      },
+    }))
+  }
+
+  // Reasoning param change (agent slot). Requires an effective provider —
+  // the dropdowns are disabled until one is selected.
+  const handleLocalReasoningChange = (
+    slot: string,
+    field: 'thinking' | 'reasoning_effort',
+    value: string,
+  ) => {
+    const cur = getEffectiveSlotConfig(slot)
+    if (!cur?.provider_id) return
+    setPendingSlots((prev) => ({
+      ...prev,
+      [slot]: {
+        provider_id: cur.provider_id,
+        model: cur.model,
+        thinking: cur.thinking || '',
+        reasoning_effort: cur.reasoning_effort || '',
+        [field]: value,
+      },
+    }))
   }
 
   // Apply all pending slot changes to backend
@@ -784,7 +804,12 @@ export function ProviderSettings() {
       for (const [slot, cfg] of Object.entries(pendingSlots)) {
         const res = await authFetch(providerUrl(`/slots/${slot}`), {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider_id: cfg.provider_id, model: cfg.model }),
+          body: JSON.stringify({
+            provider_id: cfg.provider_id,
+            model: cfg.model,
+            thinking: cfg.thinking || '',
+            reasoning_effort: cfg.reasoning_effort || '',
+          }),
         }).then((r) => r.json())
         if (!res.success) {
           setError(`Failed to set ${slot}: ${res.detail || 'Unknown error'}`)
@@ -815,15 +840,8 @@ export function ProviderSettings() {
     return urls.includes(prov.base_url || '')
   }
 
-  const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
-    if (slotKey === 'embedding') {
-      if (prov.source === 'netmind') {
-        return embeddingModels.filter((em) => prov.models.includes(em.model_id))
-      }
-      return embeddingModels.filter((em) => em.model_id.startsWith('text-embedding-'))
-    }
+  const getModelsForSlot = (prov: ProviderSummary, _slotKey: string) => {
     return prov.models
-      .filter((mid) => !knownModels[mid]?.dimensions)
       .map((mid) => ({ model_id: mid, display_name: knownModels[mid]?.display_name || mid }))
   }
 
@@ -909,38 +927,6 @@ export function ProviderSettings() {
                   </select>
                 )
 
-                if (slot.key === 'embedding') {
-                  const emModels = embeddingModels.filter((em) => curProv.models.includes(em.model_id))
-                  const known = emModels.map((em) => em.model_id)
-                  // "Custom" when the user explicitly chose it, or the saved
-                  // model isn't a catalog entry for this provider (e.g. a
-                  // hand-typed OpenAI-format embedding model the backend
-                  // accepts as-is — set_slot does not gate on the catalog).
-                  const useCustom = embeddingCustom || (!!cfg?.model && !known.includes(cfg.model))
-                  return (
-                    <div className="space-y-2">
-                      <select value={useCustom ? '__custom__' : (cfg?.model || '')}
-                        onChange={(e) => {
-                          if (!cfg?.provider_id) return
-                          if (e.target.value === '__custom__') { setEmbeddingCustom(true); return }
-                          setEmbeddingCustom(false)
-                          handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value)
-                        }}
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                        <option value="">Select embedding model...</option>
-                        {emModels.map((em) => <option key={em.model_id} value={em.model_id}>{em.display_name} ({em.dimensions}d)</option>)}
-                        <option value="__custom__">Custom model…</option>
-                      </select>
-                      {useCustom && (
-                        <input type="text" value={cfg?.model || ''}
-                          onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                          placeholder="Enter embedding model id (OpenAI-format)"
-                          className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                      )}
-                    </div>
-                  )
-                }
-
                 if (slot.key === 'helper_llm' && isOfficialProvider(curProv)) {
                   const llmModels = getModelsForSlot(curProv, 'helper_llm')
                   return (
@@ -975,6 +961,42 @@ export function ProviderSettings() {
                 )
               })()}
             </div>
+
+            {/* Reasoning params — agent slot only. Framework-neutral values;
+                each backend adapter maps them to its own dialect. Auto = ''
+                = adapter passes nothing (framework default behavior). */}
+            {slot.key === 'agent' && (
+              <>
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Thinking</label>
+                  <select
+                    value={cfg?.thinking || ''}
+                    disabled={!cfg?.provider_id}
+                    onChange={(e) => handleLocalReasoningChange(slot.key, 'thinking', e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
+                  >
+                    <option value="">Auto (framework default)</option>
+                    <option value="on">On</option>
+                    <option value="off">Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">Reasoning Effort</label>
+                  <select
+                    value={cfg?.reasoning_effort || ''}
+                    disabled={!cfg?.provider_id}
+                    onChange={(e) => handleLocalReasoningChange(slot.key, 'reasoning_effort', e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
+                  >
+                    <option value="">Auto (framework default)</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="max">Max</option>
+                  </select>
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <p className="text-sm text-[var(--color-error)]">

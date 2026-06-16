@@ -24,6 +24,17 @@ export interface RuntimeConfig {
   apiUrl: string;
 }
 
+export interface NetmindConfig {
+  /** NetMind auth API base (server: auth-api.netmind.ai / dev: userauth.protago-dev.com). */
+  authApi: string;
+  /** NetMind accounts domain hosting the OAuth auth.html popup. */
+  accountsUrl: string;
+  /** Multi-tenant login code; shared with Power so tokens are interchangeable. */
+  sysCode: string;
+  /** External NetMind registration page URL for the Sign-up link. */
+  registerUrl: string;
+}
+
 const DEFAULT_CONFIG: RuntimeConfig = { mode: null, apiUrl: '' };
 
 /**
@@ -50,4 +61,23 @@ export function isForcedCloud(): boolean {
 /** True if the deploy pipeline has locked the app to local mode. */
 export function isForcedLocal(): boolean {
   return getRuntimeConfig().mode === 'local';
+}
+
+const _str = (v: unknown): string =>
+  typeof v === 'string' ? v.replace(/\/+$/, '') : '';
+
+/** NetMind endpoint config, injected at deploy time via /config.js. */
+export function getNetmindConfig(): NetmindConfig {
+  if (typeof window === 'undefined') {
+    return { authApi: '', accountsUrl: '', sysCode: '', registerUrl: '' };
+  }
+  const raw = (window as unknown as {
+    __NARRANEXUS_CONFIG__?: Record<string, unknown>;
+  }).__NARRANEXUS_CONFIG__ || {};
+  return {
+    authApi: _str(raw.netmindAuthApi),
+    accountsUrl: _str(raw.netmindAccountsUrl),
+    sysCode: typeof raw.netmindSysCode === 'string' ? raw.netmindSysCode : '',
+    registerUrl: _str(raw.netmindRegisterUrl),
+  };
 }

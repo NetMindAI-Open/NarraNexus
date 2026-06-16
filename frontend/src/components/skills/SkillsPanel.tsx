@@ -195,7 +195,17 @@ function EnvConfigDialog({
   );
 }
 
-export function SkillsPanel() {
+export type SkillsSectionId = 'skills' | 'mcp';
+
+interface SkillsPanelProps {
+  /** Skip the outer Card chrome + duplicate title when hosted inside the
+   *  bookmark drawer. Functional actions are kept. */
+  embedded?: boolean;
+  /** Atomic mode: render exactly ONE section (bookmark-strip IA). */
+  section?: SkillsSectionId;
+}
+
+export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}) {
   const { agentId, userId } = useConfigStore();
   const [installMode, setInstallMode] = useState<InstallMode>(null);
   const [configuringSkill, setConfiguringSkill] = useState<SkillInfo | null>(null);
@@ -255,10 +265,11 @@ export function SkillsPanel() {
 
   const isInstalling = installGithub.isPending || installZip.isPending;
 
-  return (
-    <Card variant="glass" className="flex flex-col h-full">
+  const inner = (
+    <>
       {confirmDialog}
-      <CardHeader>
+      <CardHeader className={cn(embedded && 'justify-end py-1')}>
+        {!embedded && (
         <CardTitle>
           <Puzzle />
           Skill &amp; MCP
@@ -266,6 +277,7 @@ export function SkillsPanel() {
             · {skills.length}
           </span>
         </CardTitle>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -303,6 +315,7 @@ export function SkillsPanel() {
       <CardContent className="flex-1 overflow-hidden min-h-0 !p-0">
         <ScrollArea className="h-full">
           {/* ── Section: Skills ── */}
+          {(!section || section === 'skills') && (
           <section className="px-5 py-4">
             {error ? (
               <div className="flex items-center justify-center px-8 py-10">
@@ -353,10 +366,14 @@ export function SkillsPanel() {
             )}
           </section>
 
+          )}
+
           {/* ── Section: MCP Servers ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
+          {(!section || section === 'mcp') && (
+          <section className={cn('px-5 py-5', !section && 'border-t border-[var(--rule)]')}>
             <MCPManager />
           </section>
+          )}
         </ScrollArea>
       </CardContent>
 
@@ -378,6 +395,16 @@ export function SkillsPanel() {
           onSaved={() => refetch()}
         />
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="flex flex-col h-full">{inner}</div>;
+  }
+
+  return (
+    <Card variant="glass" className="flex flex-col h-full">
+      {inner}
     </Card>
   );
 }
