@@ -883,23 +883,6 @@ class ApiClient {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
   }
 
-  /** Backfill the latest default models from the catalog into existing providers.
-   * Identity comes from the X-User-Id / JWT header — no query param. */
-  async syncProviderDefaults(): Promise<{
-    success: boolean;
-    updates: Array<{
-      provider_id: string;
-      name: string;
-      source: string;
-      protocol: string;
-      added: string[];
-    }>;
-    providers_updated: number;
-    total_models_added: number;
-  }> {
-    return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
-  }
-
   /**
    * Fetch aggregated agent status for the Dashboard page (v2).
    *
