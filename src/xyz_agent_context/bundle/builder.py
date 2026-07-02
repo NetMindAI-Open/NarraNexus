@@ -537,7 +537,9 @@ async def build_bundle(
                 if selection.artifact_selection is not None else None
             )
             art_rows_raw = await db.get("instance_artifacts", {"agent_id": aid})
-            ws_prefix = f"{aid}_{user_id}/"
+            from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+            ws_prefix = f"{agent_workspace_relpath(aid, user_id)}/"
+            legacy_flat_prefix = f"{aid}_{user_id}/"
             legacy_ws_prefix = f"{aid}_user_{user_id}/"
             artifact_rows_out: List[Dict[str, Any]] = []
             for r in art_rows_raw:
@@ -554,6 +556,8 @@ async def build_bundle(
                 fp = raw.get("file_path") or ""
                 if fp.startswith(ws_prefix):
                     raw["file_path"] = fp[len(ws_prefix):]
+                elif fp.startswith(legacy_flat_prefix):
+                    raw["file_path"] = fp[len(legacy_flat_prefix):]
                 elif fp.startswith(legacy_ws_prefix):
                     raw["file_path"] = fp[len(legacy_ws_prefix):]
                 elif fp:
@@ -962,9 +966,11 @@ async def _pack_workspace(
     # Legacy `_user_<user_id>` infix kept as fallback for old install state.
     from xyz_agent_context.settings import settings as core_settings
     base = Path(core_settings.base_working_path)
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
     candidates = [
-        base / f"{agent_id}_{user_id}",            # canonical
-        base / f"{agent_id}_user_{user_id}",       # legacy
+        base / agent_workspace_relpath(agent_id, user_id),   # canonical (current layout)
+        base / f"{agent_id}_{user_id}",            # legacy flat (pre-nested migration)
+        base / f"{agent_id}_user_{user_id}",       # legacy _user_ infix
     ]
     src = next((c for c in candidates if c.is_dir()), None)
     if not src:
@@ -1058,9 +1064,11 @@ async def _find_skill_dir(
     base = Path(core_settings.base_working_path)
     dir_name = skill_dir or skill_name
     for aid in agent_ids:
+        from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
         candidates = [
-            base / f"{aid}_{user_id}" / "skills" / dir_name,              # canonical
-            base / f"{aid}_user_{user_id}" / "skills" / dir_name,         # legacy workspace
+            base / agent_workspace_relpath(aid, user_id) / "skills" / dir_name,   # canonical (current layout)
+            base / f"{aid}_{user_id}" / "skills" / dir_name,              # legacy flat
+            base / f"{aid}_user_{user_id}" / "skills" / dir_name,         # legacy _user_ infix
         ]
         for c in candidates:
             if c.is_dir():

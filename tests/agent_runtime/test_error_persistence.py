@@ -43,8 +43,11 @@ def patch_get_db(monkeypatch, db_client):
 
 @pytest.fixture
 def patch_llm_resolver(monkeypatch):
-    """Make `get_agent_owner_llm_configs` raise so the test exercises the
-    error branch."""
+    """Make the owner-config resolution raise so the test exercises the
+    error branch. AgentRuntime calls ``get_agent_owner_runtime_llm_configs``
+    (the RuntimeLLMConfigs variant) — patch exactly that one; patching the
+    legacy tuple variant ``get_agent_owner_llm_configs`` is a no-op and was
+    silently leaving this test to assert against an unrelated message."""
     from xyz_agent_context.agent_framework import api_config
 
     async def _always_raise(_agent_id: str):
@@ -53,7 +56,7 @@ def patch_llm_resolver(monkeypatch):
         )
 
     monkeypatch.setattr(
-        api_config, "get_agent_owner_llm_configs", _always_raise
+        api_config, "get_agent_owner_runtime_llm_configs", _always_raise
     )
     yield
 

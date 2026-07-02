@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/agent_loop_driver.py
-last_verified: 2026-05-29
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — Executor seam:per-user `executor_url` 优先,`AGENT_EXECUTOR_URL` 兜底
+
+`get_agent_loop_driver` 新增 keyword-only 参数 `executor_url`:非空时返回
+`RemoteAgentLoopDriver` 打到**该用户**的 Executor 容器(由 broker 现取,见
+`broker_client.py` + step_3)。未传则回退到静态 env `AGENT_EXECUTOR_URL`;
+都没有(本地/桌面,或 executor 容器自身)→ 注册表里的本地 driver,行为不变
+(铁律 #7)。优先级:`executor_url` 参数 > `AGENT_EXECUTOR_URL` env > 本地。
+这是把 step-3 的 claude/codex spawn 收敛进**每用户隔离容器**的接缝
+(铁律 #20 控制面/数据面分离 + per-user 工作区挂载隔离)。
+
+## 2026-06-17 — 默认 framework 名 "claude" → "claude_code"
+
+`DEFAULT_AGENT_LOOP_FRAMEWORK` 从 `"claude"` 改名为 `"claude_code"`，文档串里的
+fallback 说明同步更新。意图是把默认 driver 的名字对齐到实际注册的
+claude-code agent-loop driver（与新引入的 `codex_oauth` 等 provider 形成清晰的
+命名空间），避免「默认值写的名字根本没人注册」导致 `get_agent_loop_driver`
+当场 ValueError。纯重命名，注册/选择优先级机制不变。
 
 # agent_loop_driver.py — 可插拔 Agent 框架的注册表（铁律 #9 的落地点）
 

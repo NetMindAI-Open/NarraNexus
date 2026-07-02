@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MoreHorizontal, Upload, Package, Users2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -29,6 +30,7 @@ export function AgentsHeaderMenu({
   onExport,
   onManageTeams,
 }: AgentsHeaderMenuProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
   const handleItem = (handler: () => void) => (e: React.MouseEvent) => {
@@ -40,7 +42,7 @@ export function AgentsHeaderMenu({
   return (
     <div className="relative inline-flex">
       <button
-        aria-label="Agents menu"
+        aria-label={t('layout.agentsHeaderMenu.menu')}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         className={cn(
           'p-1 rounded-[var(--radius-xs)] transition-colors',
@@ -67,17 +69,17 @@ export function AgentsHeaderMenu({
           >
             <MenuItem
               icon={<Upload className="w-3 h-3" />}
-              label="Import"
+              label={t('layout.agentsHeaderMenu.import')}
               onClick={handleItem(onImport)}
             />
             <MenuItem
               icon={<Package className="w-3 h-3" />}
-              label="Export"
+              label={t('layout.agentsHeaderMenu.export')}
               onClick={handleItem(onExport)}
             />
             <MenuItem
               icon={<Users2 className="w-3 h-3" />}
-              label="Manage Teams"
+              label={t('layout.agentsHeaderMenu.manageTeams')}
               onClick={handleItem(onManageTeams)}
             />
           </div>

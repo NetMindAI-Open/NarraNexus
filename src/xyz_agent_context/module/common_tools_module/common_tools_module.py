@@ -289,12 +289,20 @@ class CommonToolsModule(XYZBaseModule):
                 "a file as a tab the user can see)"
             )
 
-        workspace_prefix = f"{self.agent_id}_{self.user_id or ''}/"
+        from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+        # Strip whichever workspace prefix the stored path carries (current
+        # nested layout, or a legacy flat path from before the flip).
+        workspace_prefixes = (
+            f"{agent_workspace_relpath(self.agent_id, self.user_id or '')}/",
+            f"{self.agent_id}_{self.user_id or ''}/",
+        )
         lines = [header]
         for a in artifacts:
             rel = a.file_path
-            if rel.startswith(workspace_prefix):
-                rel = rel[len(workspace_prefix):]
+            for prefix in workspace_prefixes:
+                if rel.startswith(prefix):
+                    rel = rel[len(prefix):]
+                    break
             lines.append(
                 f"- `{a.artifact_id}` [{a.kind}] {a.title!r} → `{rel}`"
             )

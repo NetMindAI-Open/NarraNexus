@@ -11,6 +11,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Server,
   Plus,
@@ -37,6 +38,7 @@ interface MCPItemProps {
 }
 
 function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemProps) {
+  const { t } = useTranslation();
   const getStatusIcon = () => {
     if (validating) {
       return <RefreshCw className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />;
@@ -53,14 +55,14 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
   };
 
   const getStatusText = () => {
-    if (validating) return 'Validating...';
+    if (validating) return t('skills.mcp.validating');
     switch (mcp.connection_status) {
       case 'connected':
-        return 'Connected';
+        return t('skills.mcp.connected');
       case 'failed':
-        return mcp.last_error ? `Failed: ${mcp.last_error.slice(0, 80)}` : 'Failed';
+        return mcp.last_error ? t('skills.mcp.failedWithError', { error: mcp.last_error.slice(0, 80) }) : t('skills.mcp.failed');
       default:
-        return 'Unknown';
+        return t('skills.mcp.unknown');
     }
   };
 
@@ -78,7 +80,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
         // Full error in the tooltip (the inline label is truncated). Click to
         // re-validate. A Failed dot here means the URL is unreachable or not a
         // valid SSE endpoint — see the add-form hints.
-        title={mcp.connection_status === 'failed' && mcp.last_error ? `Failed: ${mcp.last_error}\n\n(click to re-validate)` : `${getStatusText()} — click to re-validate`}
+        title={mcp.connection_status === 'failed' && mcp.last_error ? t('skills.mcp.failedTooltip', { error: mcp.last_error }) : t('skills.mcp.statusTooltip', { status: getStatusText() })}
         disabled={validating}
       >
         {getStatusIcon()}
@@ -91,7 +93,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
             {mcp.name}
           </span>
           {!mcp.is_enabled && (
-            <Badge variant="default" size="sm">Disabled</Badge>
+            <Badge variant="default" size="sm">{t('skills.mcp.disabled')}</Badge>
           )}
         </div>
         <div className="text-[9px] text-[var(--text-tertiary)] truncate font-mono" title={mcp.url}>
@@ -106,7 +108,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
           size="icon"
           onClick={() => onToggle(mcp.mcp_id, !mcp.is_enabled)}
           className="w-6 h-6"
-          title={mcp.is_enabled ? 'Disable' : 'Enable'}
+          title={mcp.is_enabled ? t('skills.mcp.disable') : t('skills.mcp.enable')}
         >
           <Power className={cn('w-3 h-3', mcp.is_enabled ? 'text-[var(--color-green-500)]' : 'text-[var(--text-tertiary)]')} />
         </Button>
@@ -115,7 +117,7 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
           size="icon"
           onClick={() => onDelete(mcp.mcp_id)}
           className="w-6 h-6 text-[var(--text-tertiary)] hover:text-[var(--color-error)]"
-          title="Delete"
+          title={t('skills.mcp.delete')}
         >
           <Trash2 className="w-3 h-3" />
         </Button>
@@ -131,6 +133,7 @@ interface AddMCPFormProps {
 }
 
 function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
 
@@ -145,7 +148,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
     <form onSubmit={handleSubmit} className="space-y-2 p-2 bg-[var(--bg-secondary)] rounded-lg">
       <input
         type="text"
-        placeholder="MCP Name"
+        placeholder={t('skills.mcp.namePlaceholder')}
         value={name}
         onChange={(e) => setName(e.target.value)}
         className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)]"
@@ -153,7 +156,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
       />
       <input
         type="url"
-        placeholder="SSE URL (e.g., https://your-host/sse)"
+        placeholder={t('skills.mcp.urlPlaceholder')}
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)] font-mono"
@@ -162,11 +165,11 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
           confusion is almost always a non-SSE / unreachable / auth'd URL, not
           a platform bug (verified e2e 2026-05-22). Spell out the contract. */}
       <ul className="text-[10px] leading-relaxed text-[var(--text-tertiary)] list-disc pl-4 space-y-0.5">
-        <li>Must be a <span className="font-medium text-[var(--text-secondary)]">remote SSE endpoint</span> over http(s) — usually ending in <span className="font-mono">/sse</span>.</li>
-        <li>The server must be able to <span className="font-medium text-[var(--text-secondary)]">reach the URL</span> (public host or one this machine can connect to).</li>
-        <li>Local <span className="font-mono">stdio</span> / <span className="font-mono">npx</span> MCPs are <span className="font-medium text-[var(--text-secondary)]">not supported</span> here — only URL-based SSE servers.</li>
-        <li>If it needs an API key, put it in the URL or headers your MCP expects; we connect anonymously.</li>
-        <li>After adding, the status dot validates the connection — <span className="font-medium text-[var(--text-secondary)]">Failed</span> means the URL was unreachable or not a valid SSE endpoint.</li>
+        <li>{t('skills.mcp.hint.endpoint')}</li>
+        <li>{t('skills.mcp.hint.reachable')}</li>
+        <li>{t('skills.mcp.hint.noStdio')}</li>
+        <li>{t('skills.mcp.hint.apiKey')}</li>
+        <li>{t('skills.mcp.hint.validation')}</li>
       </ul>
       <div className="flex items-center gap-2 pt-1">
         <Button
@@ -179,7 +182,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
           {loading ? (
             <RefreshCw className="w-3 h-3 animate-spin" />
           ) : (
-            'Add'
+            t('skills.mcp.add')
           )}
         </Button>
         <Button
@@ -189,7 +192,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
           onClick={onCancel}
           disabled={loading}
         >
-          Cancel
+          {t('skills.mcp.cancel')}
         </Button>
       </div>
     </form>
@@ -197,6 +200,7 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
 }
 
 export function MCPManager() {
+  const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const [mcps, setMcps] = useState<MCPInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -218,15 +222,15 @@ export function MCPManager() {
       if (res.success) {
         setMcps(res.mcps);
       } else {
-        setError(res.error || 'Failed to load MCPs');
+        setError(res.error || t('skills.mcp.errorLoad'));
       }
     } catch (err) {
-      setError('Failed to load MCPs');
+      setError(t('skills.mcp.errorLoad'));
       console.error('Error fetching MCPs:', err);
     } finally {
       setLoading(false);
     }
-  }, [agentId, userId]);
+  }, [agentId, userId, t]);
 
   // Validate all MCPs on initial load
   const validateAll = useCallback(async () => {
@@ -290,10 +294,10 @@ export function MCPManager() {
         // Validate the new MCP
         handleValidate(res.mcp.mcp_id);
       } else {
-        setError(res.error || 'Failed to add MCP');
+        setError(res.error || t('skills.mcp.errorAdd'));
       }
     } catch (err) {
-      setError('Failed to add MCP');
+      setError(t('skills.mcp.errorAdd'));
       console.error('Error adding MCP:', err);
     } finally {
       setAdding(false);
@@ -304,9 +308,9 @@ export function MCPManager() {
   const handleDelete = async (mcpId: string) => {
     if (!agentId || !userId) return;
     const ok = await confirm({
-      title: 'Delete MCP',
-      message: 'Delete this MCP?',
-      confirmText: 'Delete',
+      title: t('skills.mcp.deleteTitle'),
+      message: t('skills.mcp.deleteMessage'),
+      confirmText: t('skills.mcp.delete'),
       danger: true,
     });
     if (!ok) return;
@@ -316,10 +320,10 @@ export function MCPManager() {
       if (res.success) {
         setMcps(prev => prev.filter(m => m.mcp_id !== mcpId));
       } else {
-        setError(res.error || 'Failed to delete MCP');
+        setError(res.error || t('skills.mcp.errorDelete'));
       }
     } catch (err) {
-      setError('Failed to delete MCP');
+      setError(t('skills.mcp.errorDelete'));
       console.error('Error deleting MCP:', err);
     }
   };
@@ -335,10 +339,10 @@ export function MCPManager() {
           m.mcp_id === mcpId ? { ...m, is_enabled: enabled } : m
         ));
       } else {
-        setError(res.error || 'Failed to update MCP');
+        setError(res.error || t('skills.mcp.errorUpdate'));
       }
     } catch (err) {
-      setError('Failed to update MCP');
+      setError(t('skills.mcp.errorUpdate'));
       console.error('Error updating MCP:', err);
     }
   };
@@ -388,7 +392,7 @@ export function MCPManager() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-medium uppercase tracking-wider">
           <Server className="w-3 h-3" />
-          MCP Servers
+          {t('skills.mcp.servers')}
         </div>
         <div className="flex items-center gap-1">
           <Badge variant="default" size="sm">
@@ -399,7 +403,7 @@ export function MCPManager() {
             size="icon"
             onClick={() => setShowAddForm(true)}
             className="w-6 h-6"
-            title="Add MCP"
+            title={t('skills.mcp.addMcp')}
           >
             <Plus className="w-3 h-3" />
           </Button>
@@ -409,7 +413,7 @@ export function MCPManager() {
             onClick={handleRefresh}
             disabled={loading || validatingAll}
             className="w-6 h-6"
-            title="Refresh & Validate All"
+            title={t('skills.mcp.refreshValidate')}
           >
             <RefreshCw className={cn('w-3 h-3', (loading || validatingAll) && 'animate-spin')} />
           </Button>
@@ -442,12 +446,12 @@ export function MCPManager() {
       ) : mcps.length === 0 ? (
         <div className="text-xs text-[var(--text-tertiary)] text-center py-3 bg-[var(--bg-secondary)] rounded-lg">
           <Server className="w-5 h-5 mx-auto mb-1 opacity-50" />
-          No MCP servers configured
+          {t('skills.mcp.noServers')}
           <button
             onClick={() => setShowAddForm(true)}
             className="block mx-auto mt-1 text-[var(--accent-primary)] hover:underline"
           >
-            Add your first MCP
+            {t('skills.mcp.addFirst')}
           </button>
         </div>
       ) : (
@@ -472,15 +476,15 @@ export function MCPManager() {
         <div className="flex items-center gap-3 text-[9px] text-[var(--text-tertiary)] pt-1">
           <span className="flex items-center gap-1">
             <CheckCircle className="w-2.5 h-2.5 text-[var(--color-green-500)]" />
-            Connected
+            {t('skills.mcp.connected')}
           </span>
           <span className="flex items-center gap-1">
             <XCircle className="w-2.5 h-2.5 text-[var(--color-red-500)]" />
-            Failed
+            {t('skills.mcp.failed')}
           </span>
           <span className="flex items-center gap-1">
             <Circle className="w-2.5 h-2.5" />
-            Unknown
+            {t('skills.mcp.unknown')}
           </span>
         </div>
       )}

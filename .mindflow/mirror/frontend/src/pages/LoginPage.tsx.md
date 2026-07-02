@@ -57,8 +57,6 @@ Reads `mode` from `runtimeStore` to determine which branch to render.
 
 **Post-login `?next=` return path (open-redirect guarded).** `ProtectedRoute` sends unauthenticated visitors to `/login?next=<encoded-path>`; after auth, login reads `next` from `location.search` and navigates there via `navigate(isSafeReturnTo(next) ? next : '/')`. The guard (`lib/safe-return`) accepts only same-origin relative paths, so a crafted `?next=https://evil.com` falls through to `/` instead of redirecting off-site.
 
-**Post-login `?next=` return path (open-redirect guarded).** `ProtectedRoute` sends unauthenticated visitors to `/login?next=<encoded-path>`; after auth, login reads `next` from `location.search` and navigates there via `navigate(isSafeReturnTo(next) ? next : '/')`. The guard (`lib/safe-return`) accepts only same-origin relative paths, so a crafted `?next=https://evil.com` falls through to `/` instead of redirecting off-site. This is what makes the one-click template install link survive the login wall.
-
 ## Gotchas
 
 **`PublicRoute` shows a spinner if `mode` is null.** If localStorage is cleared (e.g., DevTools), the page briefly shows `PageFallback` on the first tick before `useResolveAppMode` sets mode to `local`. This resolves immediately and is not a regression from the old `/mode-select` redirect.

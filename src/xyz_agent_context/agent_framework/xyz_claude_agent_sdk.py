@@ -28,37 +28,70 @@ except ImportError:
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
     """Map the framework-neutral slot params to ClaudeAgentOptions kwargs.
 
-    The slot stores neutral values (SlotConfig.thinking /
-    SlotConfig.reasoning_effort); this is the Claude-dialect mapping:
+    ⚠️ This maps to what claude-agent-sdk 0.1.43 + the Claude Code CLI
+    actually accept — NOT 1:1 to the Anthropic API thinking shape.
 
-      thinking "on"  -> {"thinking": {"type": "adaptive"}}
-      thinking "off" -> {"thinking": {"type": "disabled"}}
-      effort low/medium/high/max -> {"effort": <level>} (Claude supports the
-                                    full neutral vocabulary, no clamping)
-      "" (auto)      -> key absent; the CLI keeps its own defaults
+    How the SDK/CLI handle thinking (verified 2026-06-11 against
+    ``claude_agent_sdk/_internal/transport/subprocess_cli.py`` + CLI 2.1.x):
+      * The SDK converts ``ClaudeAgentOptions.thinking`` into a
+        ``--max-thinking-tokens N`` CLI flag (adaptive→32000, enabled→budget,
+        disabled→0). It NEVER passes ``--thinking adaptive``.
+      * The Claude Code CLI turns a POSITIVE ``--max-thinking-tokens`` into the
+        LEGACY ``thinking:{type:"enabled",budget_tokens:N}`` API shape — which
+        every current model (Opus 4.6/4.7/4.8, Sonnet 4.6, Fable 5) rejects
+        with ``400 "thinking.type.enabled" is not supported for this model``.
+      * The ONLY adaptive lever the CLI exposes is ``--effort <level>``. With
+        ``--effort`` set and NO ``--max-thinking-tokens``, the CLI uses
+        adaptive thinking at that effort. With no flags at all it falls back
+        to the rejected ``enabled`` default.
 
-    SlotConfig already validates the vocabulary, so out-of-range values here
-    mean corrupted state — degrade to absent with a warning, never raise:
+    Therefore (incident 2026-06-11):
+      on / auto / unknown -> {"effort": <level>}  — NO "thinking" key, so the
+                             SDK omits --max-thinking-tokens and the CLI goes
+                             adaptive. Auto/unknown effort defaults to "high"
+                             (the Anthropic server default) so --effort is
+                             ALWAYS present — with no flags the CLI sends the
+                             rejected enabled shape.
+      off                 -> {"thinking": {"type": "disabled"}}  — the one
+                             --max-thinking-tokens value (0) that maps to a
+                             non-enabled request. Effort is moot with thinking
+                             off.
+
+    We never emit a positive --max-thinking-tokens, so we never produce the
+    rejected ``enabled`` shape. SlotConfig validates the vocabulary; unknown
+    values degrade safely (adaptive / "high") with a warning, never raise —
     a broken tuning knob must not take the agent loop down.
+
+    Caveat: a slot deliberately pinned to a pre-4.6 model that only accepts
+    ``enabled`` + budget_tokens (e.g. Sonnet 4.5) would not get a thinking
+    budget here. The platform targets current models, where effort-driven
+    adaptive is the path; revisit only if we add legacy-model support.
     """
-    opts: dict[str, Any] = {}
-    if thinking == "on":
-        opts["thinking"] = {"type": "adaptive"}
-    elif thinking == "off":
-        opts["thinking"] = {"type": "disabled"}
-    elif thinking:
+    if thinking == "off":
+        # Disabled → SDK emits --max-thinking-tokens 0 → thinking off. This is
+        # the only --max-thinking-tokens value the CLI does NOT turn into the
+        # rejected enabled shape. No effort needed with thinking off.
+        return {"thinking": {"type": "disabled"}}
+
+    if thinking and thinking != "on":
         logger.warning(
             f"[ClaudeAgentSDK] Unknown neutral thinking value {thinking!r}; "
-            f"treating as auto"
+            f"treating as adaptive (effort-driven)"
         )
+
     if reasoning_effort in ("low", "medium", "high", "max"):
-        opts["effort"] = reasoning_effort
-    elif reasoning_effort:
-        logger.warning(
-            f"[ClaudeAgentSDK] Unknown neutral reasoning_effort value "
-            f"{reasoning_effort!r}; treating as auto"
-        )
-    return opts
+        effort = reasoning_effort
+    else:
+        if reasoning_effort:
+            logger.warning(
+                f"[ClaudeAgentSDK] Unknown neutral reasoning_effort value "
+                f"{reasoning_effort!r}; defaulting to 'high'"
+            )
+        effort = "high"
+    # Deliberately NO "thinking" key — see docstring. Setting it makes the SDK
+    # emit --max-thinking-tokens, which the CLI turns into the rejected
+    # ``enabled`` shape. --effort alone drives adaptive thinking.
+    return {"effort": effort}
 
 
 async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:

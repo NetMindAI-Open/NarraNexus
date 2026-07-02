@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/general_memory_module/general_memory_module.py
-last_verified: 2026-06-08
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — fact 抽取走 helper SDK factory
+
+`_extract_facts` 里的 `OpenAIAgentsSDK().llm_function(...)` 改为
+`get_helper_sdk().llm_function(...)`。意图同 engine.py：observation 抽取这个
+helper_llm 调用点不再硬绑 OpenAI 协议，由 factory 按当前 task 的 helper 配置
+分派 Anthropic/OpenAI 实现（铁律 #9），让单一 Claude key 可同时服务 agent 与
+helper。调用签名与行为不变。
 
 ## 2026-06-08 — passive injection uses passive_kinds()
 

@@ -34,6 +34,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X, ZoomIn, ZoomOut } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
@@ -56,6 +57,7 @@ function clampZoom(z: number): number {
 }
 
 export default function ArtifactZoomModal({ artifact, onClose }: Props) {
+  const { t } = useTranslation();
   // Zoom starts at 100% on every mount. ArtifactColumn keys this component
   // by artifact_id, so opening a different artifact remounts it and the
   // zoom resets automatically — no reset-on-change effect needed.
@@ -122,7 +124,7 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
       className="fixed inset-0 z-[60] flex items-center justify-center animate-fade-in"
       role="dialog"
       aria-modal="true"
-      aria-label={`Zoomed artifact: ${artifact.title}`}
+      aria-label={t('artifacts.zoomModal.aria', { title: artifact.title })}
     >
       {/* Backdrop — dim + blur, click anywhere to close */}
       <div
@@ -152,16 +154,16 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
                 onClick={zoomOut}
                 disabled={zoom <= MIN_ZOOM}
                 className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                title="Zoom out (Ctrl/Cmd -)"
-                aria-label="Zoom out"
+                title={t('artifacts.zoomModal.zoomOut')}
+                aria-label={t('artifacts.zoomModal.zoomOutAria')}
               >
                 <ZoomOut className="w-4 h-4" />
               </button>
               <button
                 onClick={resetZoom}
                 className="w-12 text-[11px] font-[family-name:var(--font-mono)] tabular-nums opacity-70 hover:opacity-100 transition-opacity"
-                title="Reset to 100% (Ctrl/Cmd 0)"
-                aria-label="Reset zoom to 100 percent"
+                title={t('artifacts.zoomModal.reset')}
+                aria-label={t('artifacts.zoomModal.resetAria')}
               >
                 {Math.round(zoom * 100)}%
               </button>
@@ -169,8 +171,8 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
                 onClick={zoomIn}
                 disabled={zoom >= MAX_ZOOM}
                 className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
-                title="Zoom in (Ctrl/Cmd +)"
-                aria-label="Zoom in"
+                title={t('artifacts.zoomModal.zoomIn')}
+                aria-label={t('artifacts.zoomModal.zoomInAria')}
               >
                 <ZoomIn className="w-4 h-4" />
               </button>
@@ -179,8 +181,8 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
             <button
               onClick={onClose}
               className="w-7 h-7 flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
-              title="Close (Esc)"
-              aria-label="Close zoom"
+              title={t('artifacts.zoomModal.close')}
+              aria-label={t('artifacts.zoomModal.closeAria')}
             >
               <X className="w-4 h-4" />
             </button>

@@ -4,9 +4,11 @@
  */
 
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Job } from '@/types/api';
 
 export function StatusDistributionBar({ jobs }: { jobs: Job[] }) {
+  const { t } = useTranslation();
   const stats = useMemo(() => {
     const counts = {
       completed: jobs.filter((j) => j.status === 'completed').length,
@@ -27,57 +29,57 @@ export function StatusDistributionBar({ jobs }: { jobs: Job[] }) {
   return (
     <div className="space-y-2">
       <div className="flex justify-between text-[9px] font-mono text-[var(--text-tertiary)]">
-        <span>Status Distribution</span>
-        <span>{jobs.length} total</span>
+        <span>{t('jobs.distribution.title')}</span>
+        <span>{t('jobs.distribution.total', { count: jobs.length })}</span>
       </div>
       <div className="h-2 bg-[var(--bg-tertiary)] rounded-full overflow-hidden flex">
         {stats.completed > 0 && (
           <div
             className="bg-[var(--color-success)] transition-all duration-500"
             style={{ width: `${(stats.completed / total) * 100}%` }}
-            title={`Completed: ${stats.completed}`}
+            title={`${t('jobs.status.completed')}: ${stats.completed}`}
           />
         )}
         {stats.running > 0 && (
           <div
             className="bg-[var(--color-warning)] transition-all duration-500"
             style={{ width: `${(stats.running / total) * 100}%` }}
-            title={`Running: ${stats.running}`}
+            title={`${t('jobs.status.running')}: ${stats.running}`}
           />
         )}
         {stats.active > 0 && (
           <div
             className="bg-[var(--accent-primary)] transition-all duration-500"
             style={{ width: `${(stats.active / total) * 100}%` }}
-            title={`Active: ${stats.active}`}
+            title={`${t('jobs.status.active')}: ${stats.active}`}
           />
         )}
         {stats.paused > 0 && (
           <div
             className="bg-[var(--accent-secondary)] transition-all duration-500"
             style={{ width: `${(stats.paused / total) * 100}%` }}
-            title={`Paused: ${stats.paused}`}
+            title={`${t('jobs.status.paused')}: ${stats.paused}`}
           />
         )}
         {stats.pending > 0 && (
           <div
             className="bg-[var(--text-tertiary)] transition-all duration-500"
             style={{ width: `${(stats.pending / total) * 100}%` }}
-            title={`Pending: ${stats.pending}`}
+            title={`${t('jobs.status.pending')}: ${stats.pending}`}
           />
         )}
         {stats.failed > 0 && (
           <div
             className="bg-[var(--color-error)] transition-all duration-500"
             style={{ width: `${(stats.failed / total) * 100}%` }}
-            title={`Failed: ${stats.failed}`}
+            title={`${t('jobs.status.failed')}: ${stats.failed}`}
           />
         )}
         {stats.cancelled > 0 && (
           <div
             className="bg-[var(--bg-tertiary)] transition-all duration-500"
             style={{ width: `${(stats.cancelled / total) * 100}%` }}
-            title={`Cancelled: ${stats.cancelled}`}
+            title={`${t('jobs.status.cancelled')}: ${stats.cancelled}`}
           />
         )}
       </div>
@@ -85,31 +87,31 @@ export function StatusDistributionBar({ jobs }: { jobs: Job[] }) {
         {stats.completed > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[var(--color-success)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.completed} completed</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.distribution.legend.completed', { count: stats.completed })}</span>
           </span>
         )}
         {stats.running > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[var(--color-warning)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.running} running</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.distribution.legend.running', { count: stats.running })}</span>
           </span>
         )}
         {stats.active > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.active} active</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.distribution.legend.active', { count: stats.active })}</span>
           </span>
         )}
         {stats.paused > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[var(--accent-secondary)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.paused} paused</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.distribution.legend.paused', { count: stats.paused })}</span>
           </span>
         )}
         {stats.failed > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-2 h-2 rounded-full bg-[var(--color-error)]" />
-            <span className="text-[var(--text-tertiary)]">{stats.failed} failed</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.distribution.legend.failed', { count: stats.failed })}</span>
           </span>
         )}
       </div>

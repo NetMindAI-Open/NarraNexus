@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/nm/identity.tsx
-last_verified: 2026-05-18
+last_verified: 2026-06-20
 stub: false
 ---
+
+## 2026-06-20 — added BindingDot ("carbon meets silicon" motif)
+
+New export `BindingDot`: a carbon dot · hairline · silicon dot triad, read
+left-to-right as "human binds to AI". It is the brand motif at the head of the
+conversation panel (replacing the lone StatusDot in [[ChatPanel]]) and the
+eyebrow of the [[OnboardingJourney]] empty state. Optional `pulse` breathes the
+silicon dot so the motif doubles as a live-streaming cue without a second
+indicator. Pure presentational, tokens-only (no SVG).
 
 # nm/identity.tsx — Identity primitives (Ring/Group avatars, SpeciesDot, AvatarStack)
 

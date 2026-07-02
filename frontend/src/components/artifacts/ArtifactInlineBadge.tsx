@@ -17,6 +17,7 @@
  */
 
 import { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Paperclip } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores';
@@ -26,6 +27,7 @@ interface Props {
 }
 
 function ArtifactInlineBadgeImpl({ artifact }: Props) {
+  const { t } = useTranslation();
   const setActive = useArtifactStore((s) => s.setActive);
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
 
@@ -37,7 +39,7 @@ function ArtifactInlineBadgeImpl({ artifact }: Props) {
   return (
     <button
       onClick={open}
-      title={`Open ${artifact.title} (${artifact.kind})`}
+      title={t('artifacts.openBadge', { title: artifact.title, kind: artifact.kind })}
       className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[11px] font-[family-name:var(--font-mono)] border border-[var(--border-subtle)] hover:border-[var(--text-tertiary)] hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors max-w-full"
     >
       <Paperclip className="w-3 h-3 shrink-0 opacity-60" />

@@ -4,6 +4,7 @@
  * WorkingSource values plus 'idle'. Each variant gets a test-id for
  * automated assertions.
  */
+import { useTranslation } from 'react-i18next';
 import type { AgentKind } from '@/types';
 import {
   Moon,
@@ -19,28 +20,29 @@ import {
 
 const ICON_MAP: Record<
   AgentKind,
-  { Icon: typeof Moon; label: string; cls: string }
+  { Icon: typeof Moon; labelKey: string; cls: string }
 > = {
-  idle:        { Icon: Moon,           label: 'Idle',         cls: 'text-[var(--text-secondary)]' },
-  CHAT:        { Icon: MessageCircle,  label: 'Chat',         cls: 'text-[var(--color-green-500)]' },
-  JOB:         { Icon: Briefcase,      label: 'Job',          cls: 'text-[var(--color-yellow-500)]' },
-  MESSAGE_BUS: { Icon: Radio,          label: 'Bus',          cls: 'text-sky-500' },
-  A2A:         { Icon: ArrowLeftRight, label: 'A2A',          cls: 'text-violet-500' },
-  CALLBACK:    { Icon: PhoneCall,      label: 'Callback',     cls: 'text-rose-500' },
-  SKILL_STUDY: { Icon: GraduationCap,  label: 'Skill',        cls: 'text-[var(--color-blue-500)]' },
-  LARK:        { Icon: FlaskConical,   label: 'Lark',         cls: 'text-fuchsia-500' },
-  MATRIX:      { Icon: Grid3x3,        label: 'Matrix',       cls: 'text-[var(--color-info)]' },
+  idle:        { Icon: Moon,           labelKey: 'idle',     cls: 'text-[var(--text-secondary)]' },
+  CHAT:        { Icon: MessageCircle,  labelKey: 'chat',     cls: 'text-[var(--color-green-500)]' },
+  JOB:         { Icon: Briefcase,      labelKey: 'job',      cls: 'text-[var(--color-yellow-500)]' },
+  MESSAGE_BUS: { Icon: Radio,          labelKey: 'bus',      cls: 'text-sky-500' },
+  A2A:         { Icon: ArrowLeftRight, labelKey: 'a2a',      cls: 'text-violet-500' },
+  CALLBACK:    { Icon: PhoneCall,      labelKey: 'callback', cls: 'text-rose-500' },
+  SKILL_STUDY: { Icon: GraduationCap,  labelKey: 'skill',    cls: 'text-[var(--color-blue-500)]' },
+  LARK:        { Icon: FlaskConical,   labelKey: 'lark',     cls: 'text-fuchsia-500' },
+  MATRIX:      { Icon: Grid3x3,        labelKey: 'matrix',   cls: 'text-[var(--color-info)]' },
 };
 
 export function StatusBadge({ kind }: { kind: AgentKind }) {
-  const { Icon, label, cls } = ICON_MAP[kind];
+  const { t } = useTranslation();
+  const { Icon, labelKey, cls } = ICON_MAP[kind];
   return (
     <span
       data-testid={`status-badge-${kind}`}
       className={`inline-flex items-center gap-1 text-xs font-medium ${cls}`}
     >
       <Icon className="w-3 h-3" aria-hidden />
-      {label}
+      {t(`dashboard.statusBadge.${labelKey}`)}
     </span>
   );
 }

@@ -17,7 +17,7 @@ Design approach:
 - Thread-safe (uses asyncio.Lock to protect shared state)
 
 File storage format:
-- Directory: {project_root}/sessions/
+- Directory: ~/.narranexus/sessions/
 - Filename: {agent_id}_{user_id}.json
 - Content: JSON serialization of ConversationSession
 
@@ -94,7 +94,7 @@ class SessionService:
         Initialize SessionService
 
         Args:
-            session_dir: Session file storage directory, defaults to {project_root}/sessions/
+            session_dir: Session file storage directory, defaults to ~/.narranexus/sessions/
 
         Internal state:
         - _sessions: In-memory cache, key=(user_id, agent_id)
@@ -104,8 +104,14 @@ class SessionService:
         """
         # Set storage directory
         if session_dir is None:
-            project_root = Path(__file__).resolve().parents[3]
-            self._session_dir = project_root / "sessions"
+            # Per-user writable data dir — same convention as the desktop
+            # app's DB (~/.narranexus/nexus.db) and logs (~/.narranexus/logs/).
+            # The previous Path(__file__).parents[3] resolved to the repo root
+            # in dev (editable install) but to the READ-ONLY app bundle in the
+            # packaged DMG (non-editable wheel under .../site-packages/), where
+            # mkdir/write raised "Operation not permitted". Anchoring on
+            # Path.home() makes both run modes write to the same writable dir.
+            self._session_dir = Path.home() / ".narranexus" / "sessions"
         else:
             self._session_dir = Path(session_dir)
 

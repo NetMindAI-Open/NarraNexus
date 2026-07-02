@@ -1,8 +1,58 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-25
 stub: false
 ---
+
+## 2026-06-25 — two chat tabs: Conversation | Inner Thoughts
+
+A `chatTab` state (`'conversation' | 'inner'`) with a tab bar under the header.
+The agent runtime already tags output distinctly, so this is pure frontend
+routing — no backend change.
+
+- **Conversation**: the original design, unchanged — full reply bubble + the
+  inline "reasoning & tools" disclosure + the live streaming `TurnTimeline`
+  (+ "starting up" indicator). It just stops rendering the items that belong to
+  Inner Thoughts.
+- **Inner Thoughts**: **only** the lightweight background-activity markers —
+  `messageType:'activity'` → compact centered line ("Background activity
+  (discord)"). Nothing else. No live stream here (post-hoc feed); streaming
+  stays in Conversation.
+
+> **2026-06-25 correction.** An earlier version *also* routed any turn whose
+> `workingSource` wasn't `chat`/`manyfold` (discord / slack / lark / job / …)
+> into Inner Thoughts, on the theory that cross-channel narrations
+> (`owner_notify_content`, "I replied to a Discord user / notified you") were
+> "the agent's own activity". That was wrong: those narrations are emitted via
+> `send_message_to_user_directly` — the agent **deliberately addressed the
+> owner**, so they are owner-facing messages and must show in Conversation no
+> matter which channel triggered the turn. Routing now keys on `isActivity`
+> alone; `workingSource` does not move a message out of the direct
+> conversation. `MessageBubble` is unchanged. Routing: `if (chatTab === 'inner'
+> ? !isInner : isInner) return null;`.
+
+## 2026-06-20 — design-ref pass: binding-dot header, JourneyBand empty state, Connected footer
+
+Three changes aligning with the Narra Agent App design ref:
+
+- **Header**: the lone `StatusDot` is replaced by [[identity|BindingDot]]
+  (carbon·silicon motif) before the `[ Interaction <agent> ]` label; it
+  `pulse`s while streaming, keeping the live cue the StatusDot carried.
+- **Empty state**: with an agent selected, the generic "Start a conversation"
+  bracket is replaced by [[OnboardingJourney]] (binding-dot eyebrow,
+  memory→network→team stations, suggested-prompt chips). With NO agent it still
+  shows the plain `BracketEmptyState` ("Select an agent"). Note the brand-new
+  unnamed-agent path is unchanged — `showBootstrapGreeting` (BOOTSTRAP_GREETING
+  "I just woke up" bubble) takes precedence over `showEmptyState`, so the two
+  never collide.
+- **Composer footer**: briefly carried Enter/Shift+Enter/Drop hints + a
+  readiness indicator, but both were **removed** (clawcreek-style minimal
+  composer). The send button now uses the `CornerDownLeft` (↵) glyph and a
+  `title="Send (Enter)"` so the button itself signals "Enter sends" — no
+  separate hint row. (StatusDot/Kbd imports dropped with it.)
+
+Suggested-prompt chips call `composerRef.current.setText(...)` (see
+[[Composer]]) — fill, don't send.
 
 ## 2026-06-11 (v1.8.1) — clickable Processing chip + header truncation
 
@@ -258,5 +308,3 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 `BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
-
-**Per-agent bootstrap greeting (2026-06-16).** The instant first-run greeting bubble now uses `currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING` (the per-agent override set by scenario provisioners like Arena, surfaced on `AgentInfo`). It MUST match the DB-persisted greeting (chat_module reads the same metadata) or the instant bubble and the persisted one would both render (dup).

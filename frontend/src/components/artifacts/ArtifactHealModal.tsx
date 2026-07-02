@@ -19,6 +19,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertTriangle, FileWarning, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui';
 import type { HealCandidate } from '@/services/artifactsApi';
@@ -54,6 +55,7 @@ export default function ArtifactHealModal({
   onPick,
   onDismiss,
 }: Props) {
+  const { t } = useTranslation();
   const [picked, setPicked] = useState<string | null>(null);
   if (!open) return null;
 
@@ -76,7 +78,7 @@ export default function ArtifactHealModal({
           )}
           <div className="flex-1">
             <h2 id="heal-modal-title" className="text-base font-semibold mb-1">
-              Recover artifact: {artifactTitle}
+              {t('artifacts.heal.title', { title: artifactTitle })}
             </h2>
             <p className="text-sm text-[var(--text-secondary)] whitespace-pre-line">
               {message}
@@ -114,7 +116,7 @@ export default function ArtifactHealModal({
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onDismiss} disabled={busy}>
-            Dismiss
+            {t('artifacts.heal.dismiss')}
           </Button>
           {!empty && (
             <Button
@@ -123,10 +125,10 @@ export default function ArtifactHealModal({
             >
               {busy ? (
                 <span className="inline-flex items-center gap-1">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Registering…
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t('artifacts.heal.registering')}
                 </span>
               ) : (
-                'Register selected'
+                t('artifacts.heal.registerSelected')
               )}
             </Button>
           )}

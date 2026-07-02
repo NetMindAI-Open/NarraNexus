@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, Maximize2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useArtifactStore } from '@/stores';
@@ -32,9 +33,17 @@ interface Props {
    * proportion. Sliver mode always uses the fixed 36 px width.
    */
   flexGrow?: number;
+  /**
+   * Force the full expanded view and never the collapsed sliver — used by the
+   * mobile Chat/Artifacts tab, where the column IS the whole pane (there is no
+   * side sliver to collapse to). Desktop leaves this unset and keeps the
+   * sliver ⇄ expanded behaviour.
+   */
+  forceExpanded?: boolean;
 }
 
-export default function ArtifactColumn({ agentId, flexGrow }: Props) {
+export default function ArtifactColumn({ agentId, flexGrow, forceExpanded = false }: Props) {
+  const { t } = useTranslation();
   // All hooks must run in the same order on every render — no conditional hook
   // calls. Selectors first, then early returns.
   const artifacts = useArtifactStore((s) => s.artifacts);
@@ -94,7 +103,7 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
   // artifacts exist yet. The empty-state sliver advertises the panel's
   // existence so users know where artifacts will appear once the agent
   // creates one.
-  const effectiveCollapsed = collapsed || artifacts.length === 0;
+  const effectiveCollapsed = !forceExpanded && (collapsed || artifacts.length === 0);
   if (effectiveCollapsed) {
     const hasArtifacts = artifacts.length > 0;
     // A <div> wrapper (not a single <button>) so the sliver can hold TWO
@@ -103,24 +112,24 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
     // — that's exactly when the user wants to force a re-sync but the
     // expanded-header refresh button isn't reachable.
     return (
-      <div className="w-9 border border-[var(--border-default)] bg-[var(--bg-primary)] flex flex-col items-center pt-3 pb-2 gap-2">
+      <div className="group chat-frosted w-9 hover:bg-[var(--bg-secondary)] transition-colors flex flex-col items-center pt-3 pb-2 gap-2">
         <button
           onClick={() => setCollapsed(false)}
-          className="flex-1 flex flex-col items-center group hover:bg-[var(--bg-secondary)] transition-colors w-full"
+          className="flex-1 flex flex-col items-center w-full"
           title={
             hasArtifacts
-              ? `Click to expand · ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}`
-              : 'Artifacts will appear here once the agent creates one'
+              ? t('artifacts.sliver.expandTitle', { count: artifacts.length })
+              : t('artifacts.sliver.emptyTitle')
           }
           aria-label={
             hasArtifacts
-              ? `Expand artifacts panel (${artifacts.length} items)`
-              : 'Artifacts panel (empty)'
+              ? t('artifacts.sliver.expandAria', { count: artifacts.length })
+              : t('artifacts.sliver.emptyAria')
           }
         >
           {/* Top: vertical title so the user knows what this column is */}
           <span className="text-[11px] font-semibold [writing-mode:vertical-rl] tracking-wider whitespace-nowrap">
-            {hasArtifacts ? `Artifacts (${artifacts.length})` : 'Artifacts'}
+            {hasArtifacts ? t('artifacts.sliver.label', { count: artifacts.length }) : t('artifacts.sliver.labelEmpty')}
           </span>
           {/* Spacer to push the chevron to the bottom */}
           <span className="flex-1" />
@@ -132,12 +141,28 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
           onClick={handleRefresh}
           disabled={refreshing}
           className="opacity-50 hover:opacity-100 transition-opacity disabled:opacity-30"
-          title="Refresh artifacts"
-          aria-label="Refresh artifacts"
+          title={t('artifacts.refresh')}
+          aria-label={t('artifacts.refresh')}
         >
           <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
         </button>
       </div>
+    );
+  }
+
+  // Forced-expanded (mobile Artifacts tab) with nothing yet — a calm empty
+  // state instead of a blank pane, since the tab is always present on mobile.
+  if (forceExpanded && artifacts.length === 0) {
+    return (
+      <aside
+        className="chat-frosted flex flex-1 flex-col items-center justify-center min-w-0 p-6 text-center overflow-hidden"
+        data-help-id="layout.artifacts"
+      >
+        <div className="text-sm text-[var(--text-secondary)]">{t('artifacts.emptyState.title')}</div>
+        <div className="mt-1 text-xs text-[var(--text-tertiary)]">
+          {t('artifacts.emptyState.hint')}
+        </div>
+      </aside>
     );
   }
 
@@ -161,8 +186,8 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
     flexGrow !== undefined ? { flexGrow, flexBasis: 0 } : undefined;
   const expandedClass =
     flexGrow !== undefined
-      ? 'flex flex-col min-w-[320px] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden'
-      : 'flex flex-col min-w-[320px] flex-[2] border border-[var(--border-default)] bg-[var(--bg-primary)] overflow-hidden';
+      ? 'chat-frosted flex flex-col min-w-[320px] overflow-hidden'
+      : 'chat-frosted flex flex-col min-w-[320px] flex-[2] overflow-hidden';
 
   return (
     <aside className={expandedClass} style={expandedStyle} data-help-id="layout.artifacts">
@@ -170,14 +195,14 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
           Click a chip to restore the tab. */}
       {minimized.length > 0 && (
         <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--border-default)] bg-[var(--bg-secondary)] text-xs overflow-x-auto">
-          <span className="opacity-60 whitespace-nowrap">⊟ Minimized:</span>
+          <span className="opacity-60 whitespace-nowrap">⊟ {t('artifacts.minimized')}</span>
           <div className="flex gap-1.5 flex-1 min-w-0">
             {minimized.map((a) => (
               <button
                 key={a.artifact_id}
                 onClick={() => restoreTab(a.artifact_id)}
                 className="px-2 py-0.5 border border-[var(--border-default)] bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] truncate max-w-[14rem] text-left"
-                title={`Restore "${a.title}"`}
+                title={t('artifacts.restore', { title: a.title })}
               >
                 ↺ {a.title}
               </button>
@@ -197,8 +222,8 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
             onClick={handleRefresh}
             disabled={refreshing}
             className="text-xs opacity-60 hover:opacity-100 px-2 flex items-center disabled:opacity-40"
-            title="Refresh artifacts"
-            aria-label="Refresh artifacts"
+            title={t('artifacts.refresh')}
+            aria-label={t('artifacts.refresh')}
           >
             <RefreshCw className={cn('w-3.5 h-3.5', refreshing && 'animate-spin')} />
           </button>
@@ -206,8 +231,8 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
             <button
               onClick={() => setZoomedId(active.artifact_id)}
               className="text-xs opacity-60 hover:opacity-100 px-2 flex items-center"
-              title="Zoom artifact (open fullscreen)"
-              aria-label="Zoom artifact"
+              title={t('artifacts.zoomFullscreen')}
+              aria-label={t('artifacts.zoom')}
             >
               <Maximize2 className="w-3.5 h-3.5" />
             </button>
@@ -216,8 +241,8 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
           <button
             onClick={() => setCollapsed(true)}
             className="text-xs opacity-60 hover:opacity-100 px-2"
-            title="Collapse panel"
-            aria-label="Collapse artifacts panel"
+            title={t('artifacts.collapse')}
+            aria-label={t('artifacts.collapseAria')}
           >
             ▶
           </button>
@@ -243,7 +268,7 @@ export default function ArtifactColumn({ agentId, flexGrow }: Props) {
         {active && active.kind !== 'application/vnd.echarts+json' ? (
           <ArtifactRenderer artifact={active} />
         ) : null}
-        {!active && <div className="p-4 opacity-60">Select an artifact</div>}
+        {!active && <div className="p-4 opacity-60">{t('artifacts.selectArtifact')}</div>}
       </div>
 
       {/* Fullscreen zoom modal — portal'd to body, dimmed + blurred backdrop.

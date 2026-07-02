@@ -20,7 +20,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from loguru import logger
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from ..config import config
 from .prompts import (
     NARRATIVE_SINGLE_MATCH_INSTRUCTIONS,
@@ -83,7 +83,7 @@ async def llm_confirm(query: str, candidates: List[dict]) -> dict:
             user_input += f"Topic {index}: {candidate.get('name', 'Untitled')}\nDescription: {candidate.get('query', '')}\n\n"
         user_input += f"User's new query: {query}"
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=instructions,
             user_input=user_input,
@@ -177,7 +177,7 @@ async def llm_judge_unified(
         user_input += f"## User's New Query:\n{query}\n\n"
         user_input += "Please determine which candidate the user query should match, or create a new topic."
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=instructions,
             user_input=user_input,

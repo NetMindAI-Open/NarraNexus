@@ -4,6 +4,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, BookOpen, Clock, Users, MessageSquare, MessageCircle, Database, Briefcase, Brain, User, Box, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui';
 import { usePreloadStore } from '@/stores';
@@ -39,6 +40,7 @@ interface MemoryItemProps {
 }
 
 function MemoryItem({ events, isExpanded, onToggle }: MemoryItemProps) {
+  const { t } = useTranslation();
   return (
     <div className="ml-4 border-l-2 border-[var(--color-success)]/30 pl-3">
       <button
@@ -63,7 +65,7 @@ function MemoryItem({ events, isExpanded, onToggle }: MemoryItemProps) {
 
         <Database className="w-3.5 h-3.5 text-[var(--text-tertiary)] shrink-0" />
 
-        <span className="text-xs text-[var(--text-primary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]">Memory</span>
+        <span className="text-xs text-[var(--text-primary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em]">{t('runtime.narrative.memory')}</span>
 
         <span className="ml-auto text-[10px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] tabular-nums">
           · {events.length}
@@ -74,7 +76,7 @@ function MemoryItem({ events, isExpanded, onToggle }: MemoryItemProps) {
         <div className="mt-2 ml-4 space-y-1.5 animate-fade-in">
           {events.length === 0 ? (
             <div className="text-xs text-[var(--text-tertiary)] text-center py-4">
-              No events in memory
+              {t('runtime.narrative.noEvents')}
             </div>
           ) : (
             events.map((event, index) => (
@@ -101,6 +103,7 @@ interface ModuleInstanceItemProps {
 }
 
 function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: ModuleInstanceItemProps) {
+  const { t } = useTranslation();
   const [memoryExpanded, setMemoryExpanded] = useState(false);
   const config = getModuleConfig(instance.module_class);
   const Icon = config.icon;
@@ -138,12 +141,15 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
           <Icon className={cn('w-3.5 h-3.5', config.colorClass)} />
         </div>
 
-        <div className="flex-1 min-w-0">
-          <span className="text-xs font-medium text-[var(--text-primary)] font-mono tracking-wide">
+        <div className="flex-1 min-w-0 flex items-baseline gap-2">
+          <span className="shrink-0 text-xs font-medium text-[var(--text-primary)] font-mono tracking-wide">
             {config.label}
           </span>
           {instance.description && (
-            <span className="text-[10px] text-[var(--text-tertiary)] ml-2 truncate">
+            // min-w-0 + truncate so a long description (e.g. "Always-loaded
+            // module (no database record)") shortens with an ellipsis instead
+            // of overflowing onto the status badge.
+            <span className="min-w-0 truncate text-[10px] text-[var(--text-tertiary)]">
               {instance.description}
             </span>
           )}
@@ -151,6 +157,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
 
         {/* Status label */}
         <Badge
+          className="shrink-0"
           variant={instance.status === 'active' ? 'success' : instance.status === 'blocked' ? 'warning' : 'default'}
           size="sm"
           glow={instance.status === 'active'}
@@ -171,18 +178,18 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
           {/* Instance details */}
           <div className="text-[10px] text-[var(--text-tertiary)] space-y-1.5 p-3 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)] font-mono">
             <div className="flex items-center gap-2">
-              <span className="text-[var(--accent-primary)]">ID:</span>
+              <span className="text-[var(--accent-primary)]">{t('runtime.narrative.idLabel')}</span>
               <span className="text-[var(--text-secondary)]">{instance.instance_id}</span>
             </div>
             {instance.dependencies && instance.dependencies.length > 0 && (
               <div className="flex items-start gap-2">
-                <span className="text-[var(--accent-secondary)]">Deps:</span>
+                <span className="text-[var(--accent-secondary)]">{t('runtime.narrative.depsLabel')}</span>
                 <span className="text-[var(--text-secondary)]">{instance.dependencies.join(', ')}</span>
               </div>
             )}
             {instance.config && Object.keys(instance.config).length > 0 && (
               <div className="flex items-start gap-2">
-                <span className="text-[var(--color-warning)]">Config:</span>
+                <span className="text-[var(--color-warning)]">{t('runtime.narrative.configLabel')}</span>
                 <span className="text-[var(--text-secondary)] break-all">{JSON.stringify(instance.config)}</span>
               </div>
             )}
@@ -202,11 +209,11 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
             <div className="text-xs text-[var(--text-secondary)] p-3 bg-[var(--color-warning)]/5 rounded-xl border border-[var(--color-warning)]/20">
               <div className="font-medium text-[var(--color-warning)] mb-2 flex items-center gap-2">
                 <Briefcase className="w-3.5 h-3.5" />
-                Job Details
+                {t('runtime.narrative.jobDetails')}
               </div>
               <div className="space-y-1 font-mono text-[10px]">
-                {instance.config.title ? <div><span className="text-[var(--text-tertiary)]">Title:</span> {String(instance.config.title)}</div> : null}
-                {instance.config.job_id ? <div><span className="text-[var(--text-tertiary)]">ID:</span> {String(instance.config.job_id)}</div> : null}
+                {instance.config.title ? <div><span className="text-[var(--text-tertiary)]">{t('runtime.narrative.titleLabel')}</span> {String(instance.config.title)}</div> : null}
+                {instance.config.job_id ? <div><span className="text-[var(--text-tertiary)]">{t('runtime.narrative.idLabel')}</span> {String(instance.config.job_id)}</div> : null}
               </div>
             </div>
           )}
@@ -217,6 +224,7 @@ function ModuleInstanceItem({ instance, events = [], isExpanded, onToggle }: Mod
 }
 
 function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: NarrativeItemProps) {
+  const { t } = useTranslation();
   const { chatHistoryEvents } = usePreloadStore();
   // Maintain expanded state for each instance
   const [expandedInstances, setExpandedInstances] = useState<Set<string>>(new Set());
@@ -290,7 +298,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
 
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-primary)] transition-colors">
-            {narrative.name || 'Untitled Conversation'}
+            {narrative.name || t('runtime.narrative.untitled')}
           </div>
 
           {narrative.description && (
@@ -308,7 +316,9 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
             {narrative.actors && narrative.actors.length > 0 && (
               <span className="flex items-center gap-1.5">
                 <Users className="w-3 h-3" />
-                {narrative.actors.length} participant{narrative.actors.length > 1 ? 's' : ''}
+                {narrative.actors.length > 1
+                  ? t('runtime.narrative.participantsPlural', { count: narrative.actors.length })
+                  : t('runtime.narrative.participants', { count: narrative.actors.length })}
               </span>
             )}
           </div>
@@ -328,7 +338,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
             <div className="px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-elevated)]/50">
               <div className="text-[10px] text-[var(--accent-secondary)] font-medium uppercase tracking-wider mb-2 flex items-center gap-2">
                 <Sparkles className="w-3 h-3" />
-                Summary
+                {t('runtime.narrative.summary')}
               </div>
               <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
                 {narrative.current_summary}
@@ -340,7 +350,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
           <div className="p-3 space-y-2">
             {instances.length === 0 ? (
               <div className="text-xs text-[var(--text-tertiary)] text-center py-6 bg-[var(--bg-sunken)] rounded-xl border border-[var(--border-subtle)]">
-                No module instances
+                {t('runtime.narrative.noInstances')}
               </div>
             ) : (
               instances.map((instance) => {
@@ -369,6 +379,7 @@ function NarrativeItem({ narrative, eventCount, isExpanded, onToggle }: Narrativ
 }
 
 export function NarrativeList() {
+  const { t } = useTranslation();
   const { chatHistoryNarratives, chatHistoryEvents, chatHistoryLoading, lastAgentId } = usePreloadStore();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -425,10 +436,10 @@ export function NarrativeList() {
             <BookOpen className="w-8 h-8 text-[var(--accent-primary)]" />
           </div>
           <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
-            No conversation history yet
+            {t('runtime.narrative.noHistory')}
           </p>
           <p className="text-[var(--text-tertiary)] text-xs">
-            Start chatting to create your first narrative
+            {t('runtime.narrative.noHistoryHint')}
           </p>
         </div>
       </div>

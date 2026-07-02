@@ -1,8 +1,38 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-06-12
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — SAFE_HTTP_METHODS 豁免（GH #61：额度耗尽锁死整个 dashboard）
+
+上游 issue #61：免费额度耗尽后，`resolver.resolve_and_set()` 对每个非
+`QUOTA_BYPASS_PREFIXES` 的 `/api/*` 路径都抛 `ProviderResolverError` →
+402，**不分方法**。结果纯读接口（`GET /api/agents`、`GET /api/dashboard`
+等）也被锁死——用户连自己已有的数据都看不到，而不仅仅是不能发起新的
+LLM 调用。
+
+**修法**：加 `SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})`，中间件在
+`request.method in SAFE_HTTP_METHODS` 时也跳过 resolver（和
+`QUOTA_BYPASS_PREFIXES` 走同一个 `return await call_next(request)` 分支）。
+JWT 校验不受影响——安全豁免只加在 JWT 通过之后。
+
+**为什么这样改是安全的**：`resolve_and_set` 的唯一副作用是把 LLM
+provider 配置写进 `xyz_agent_context.agent_framework.api_config` 的
+ContextVar（`set_user_config` / `set_provider_source`），不写
+`request.state`，所以不存在"跳过它会让下游 GET handler 缺东西"的问题
+——GET/HEAD handler 从不读这些 ContextVar，因为它们从不触发 agent
+loop。改之前逐路由核实过：`backend/routes/**` 里每一个会花费 LLM 额度
+的端点都是 POST（`/v1/chat/completions`、所有 agent-run/trigger 路由）；
+唯一几个用 `StreamingResponse` 的 GET handler（如
+`backend/routes/manyfold_files.py` 的文件读取端点）只是把磁盘文件流式
+传出，不碰 LLM。因此这次豁免是方法级的、全路径生效，不需要给
+`QUOTA_BYPASS_PREFIXES` 追加白名单条目。
+
+**方法级而非路径级**：同一个 URL 下 GET 走豁免、POST 仍走 resolver（例
+如 `GET /api/agents` 放行，`POST /api/agents` 仍 402）——测试
+`test_post_on_same_path_still_gated` 专门验证这一点，防止未来有人把
+`SAFE_HTTP_METHODS` 误改成按路径匹配。
 
 ## 2026-06-12 — AUTH_EXEMPT_PATHS 新增 /api/admin/migrate-identity
 

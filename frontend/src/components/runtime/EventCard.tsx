@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronDown, ChevronRight, Zap, Clock, Bot, User, Terminal, FileText } from 'lucide-react';
 import { Badge, Markdown, ScrollArea } from '@/components/ui';
 import type { ChatHistoryEvent } from '@/types';
@@ -16,6 +17,7 @@ interface EventCardProps {
 }
 
 export function EventCard({ event, index, total }: EventCardProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Extract user input from event_log
@@ -69,7 +71,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
           <div className="text-xs text-[var(--text-primary)] truncate font-medium group-hover:text-[var(--accent-primary)] transition-colors">
             {typeof userInput === 'string'
               ? truncate(userInput, 60)
-              : event.trigger_source || `Event ${index}`}
+              : event.trigger_source || t('runtime.event.eventN', { index })}
           </div>
 
           <div className="flex items-center gap-3 mt-1 text-[10px] text-[var(--text-tertiary)] font-mono">
@@ -85,7 +87,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
         </div>
 
         <Badge variant={isExpanded ? 'accent' : 'default'} size="sm" className="text-[9px] font-mono">
-          {displayLogs.length} logs
+          {t('runtime.event.logsCount', { count: displayLogs.length })}
         </Badge>
       </button>
 
@@ -97,7 +99,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
             <div className="p-3">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--accent-primary)] font-medium uppercase tracking-wider mb-2">
                 <User className="w-3 h-3" />
-                User Input
+                {t('runtime.event.userInput')}
               </div>
               <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] font-mono">
                 {typeof userInput === 'string' ? userInput : JSON.stringify(userInput, null, 2)}
@@ -109,14 +111,14 @@ export function EventCard({ event, index, total }: EventCardProps) {
           <div className="p-3">
             <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-success)] font-medium uppercase tracking-wider mb-2">
               <Bot className="w-3 h-3" />
-              Agent Response
+              {t('runtime.event.agentResponse')}
             </div>
             <ScrollArea className="max-h-[200px] bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]" viewportClassName="p-3">
               <div className="text-xs">
               {event.final_output ? (
                 <Markdown content={event.final_output} />
               ) : (
-                <span className="text-[var(--text-tertiary)] italic">No response</span>
+                <span className="text-[var(--text-tertiary)] italic">{t('runtime.event.noResponse')}</span>
               )}
               </div>
             </ScrollArea>
@@ -127,7 +129,7 @@ export function EventCard({ event, index, total }: EventCardProps) {
             <div className="p-3">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--accent-secondary)] font-medium uppercase tracking-wider mb-2">
                 <Terminal className="w-3 h-3" />
-                Event Log
+                {t('runtime.event.eventLog')}
               </div>
               <ScrollArea className="max-h-[200px]">
                 <div className="space-y-1.5">
@@ -143,26 +145,26 @@ export function EventCard({ event, index, total }: EventCardProps) {
           <div className="p-3 bg-[var(--bg-sunken)]/50">
             <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-medium uppercase tracking-wider mb-2">
               <FileText className="w-3 h-3" />
-              Metadata
+              {t('runtime.event.metadata')}
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10px] font-mono">
               <div>
-                <span className="text-[var(--text-tertiary)]">Event ID: </span>
+                <span className="text-[var(--text-tertiary)]">{t('runtime.event.eventIdLabel')} </span>
                 <span className="text-[var(--accent-primary)]">{truncate(event.event_id, 20)}</span>
               </div>
               <div>
-                <span className="text-[var(--text-tertiary)]">Trigger: </span>
+                <span className="text-[var(--text-tertiary)]">{t('runtime.event.triggerLabel')} </span>
                 <span className="text-[var(--color-warning)]">{event.trigger}</span>
               </div>
               {event.user_id && (
                 <div>
-                  <span className="text-[var(--text-tertiary)]">User: </span>
+                  <span className="text-[var(--text-tertiary)]">{t('runtime.event.userLabel')} </span>
                   <span className="text-[var(--text-secondary)]">{event.user_id}</span>
                 </div>
               )}
               <div>
-                <span className="text-[var(--text-tertiary)]">Position: </span>
-                <span className="text-[var(--text-secondary)]">{index} of {total}</span>
+                <span className="text-[var(--text-tertiary)]">{t('runtime.event.positionLabel')} </span>
+                <span className="text-[var(--text-secondary)]">{t('runtime.event.positionValue', { index, total })}</span>
               </div>
             </div>
           </div>
@@ -181,6 +183,7 @@ interface EventLogEntryProps {
 }
 
 function EventLogEntry({ entry }: EventLogEntryProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const contentStr = typeof entry.content === 'string'
@@ -238,12 +241,12 @@ function EventLogEntry({ entry }: EventLogEntryProps) {
                 {isExpanded ? (
                   <span className="flex items-center gap-1 text-[var(--accent-primary)]">
                     <ChevronDown className="w-3 h-3" />
-                    Collapse
+                    {t('runtime.event.collapse')}
                   </span>
                 ) : (
                   <span>
                     {truncate(contentStr, 80)}
-                    <span className="text-[var(--accent-primary)] ml-1 font-medium">...more</span>
+                    <span className="text-[var(--accent-primary)] ml-1 font-medium">{t('runtime.event.more')}</span>
                   </span>
                 )}
               </button>

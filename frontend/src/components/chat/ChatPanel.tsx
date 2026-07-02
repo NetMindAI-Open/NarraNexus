@@ -13,12 +13,15 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Send, Square, Loader2, Paperclip, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
-import { BracketEmptyState, BracketLoading, BracketSectionLabel, StatusDot, Kbd, RingAvatar } from '@/components/nm';
+import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
+import { OnboardingJourney } from './OnboardingJourney';
+import { ComposerModelBadge } from './ComposerModelBadge';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -228,6 +231,11 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  // Chat tabs: "Conversation" is the owner↔agent direct chat (original design);
+  // "Inner Thoughts" holds the agent's background activity + cross-channel
+  // narrations (turns whose working_source isn't chat/manyfold) so they aren't
+  // shown as if the agent were speaking to the owner.
+  const [chatTab, setChatTab] = useState<'conversation' | 'inner'>('conversation');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -274,6 +282,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const currentToolCalls = useDeferredValue(_rtToolCalls);
   const currentEvents = useDeferredValue(_rtEvents);
   const { agentId, userId, agents, refreshAgents, checkAwarenessUpdate } = useConfigStore();
+  const { t } = useTranslation();
 
   // Read artifact list at component scope so it can be safely passed into
   // ArtifactToolCallCards without calling a hook inside a .map() callback.
@@ -778,28 +787,26 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       // itself (see onDragOver/onDrop there) because <textarea> processes
       // drop synchronously into its value before bubbling.
       className={cn(
-        'flex flex-col h-full overflow-hidden transition-colors',
+        'chat-frosted flex flex-col h-full overflow-hidden transition-colors',
         isDragging && 'ring-2 ring-inset ring-[var(--accent-primary)]'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Header — NM mono section label + StatusDot per conversation state */}
-      <div className="px-5 flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
+      {/* Header — carbon·silicon binding-dot brand motif + NM mono label.
+          Hidden on mobile: the top bar shows the breadcrumb, and the activity
+          icon moves into the Chat/Artifacts tab row (see MainLayout). */}
+      <div className="px-5 hidden md:flex items-center justify-between border-b min-h-[48px]" style={{ borderColor: 'var(--nm-hairline)' }}>
         {/* min-w-0 + overflow-hidden: when the artifact column squeezes
             the chat, the label/agent-id side TRUNCATES — it must never
             run under the Processing/cost cluster on the right. */}
         <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-          <StatusDot
-            status={isStreaming ? 'warning' : agentId ? 'success' : 'neutral'}
-            size={8}
-            pulse={isStreaming}
-          />
+          <BindingDot size={7} pulse={isStreaming} className="shrink-0" />
           <BracketSectionLabel
             trailing={agentId ? <span className="opacity-60 normal-case tracking-normal text-[10px] truncate max-w-[180px]">{agentId}</span> : undefined}
           >
-            Interaction
+            {t('chat.interaction')}
           </BracketSectionLabel>
         </div>
 
@@ -814,6 +821,48 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         </div>
       </div>
 
+      {/* Chat tabs — Conversation (owner↔agent direct chat) vs Inner Thoughts
+          (the agent's background activity + cross-channel narrations). */}
+      <div
+        className="px-5 max-md:px-3 flex items-center gap-1 border-b"
+        style={{ borderColor: 'var(--nm-hairline)' }}
+      >
+        {(['conversation', 'inner'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setChatTab(tab)}
+            className={cn(
+              'px-3 py-2 text-[11px] font-mono uppercase tracking-[0.12em] transition-colors border-b-2 -mb-px',
+              chatTab === tab
+                ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
+                : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]',
+            )}
+          >
+            {tab === 'conversation' ? t('chat.conversation') : t('chat.innerThoughts')}
+          </button>
+        ))}
+      </div>
+
+      {/* Security reminder banner — persistent, non-dismissible. Warns
+          users not to paste sensitive personal data into chat (it would be
+          stored in trajectories + sent to the LLM provider). Added as part
+          of the 2026-06-17 security hardening. */}
+      <div
+        className="px-5 py-1.5 flex items-center gap-1.5 text-[11px] leading-snug border-b"
+        style={{
+          borderColor: 'var(--nm-hairline)',
+          background: 'var(--bg-tertiary)',
+          color: 'var(--color-warning, var(--text-tertiary))',
+        }}
+      >
+        <span aria-hidden="true">⚠</span>
+        <span>
+          Security reminder: never paste sensitive personal information here —
+          wallet addresses, private keys, seed phrases, passwords, or account
+          credentials.
+        </span>
+      </div>
+
       {/* Messages area — single unified timeline.
           Wrapped in <ScrollArea> so the scrollbar is JS-rendered (Radix) and
           cannot be hijacked by macOS's "always show scrollbars" AppKit
@@ -825,7 +874,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         className="flex-1 min-h-0"
         data-help-id="chat.messages"
         viewportRef={scrollContainerRef}
-        viewportClassName="p-5"
+        viewportClassName="p-5 max-md:p-3"
         onViewportScroll={(e) => {
           const el = e.currentTarget;
           if (el.scrollTop < 50 && !isLoadingMore && historyMessages.length < historyTotalCount) {
@@ -851,16 +900,22 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Empty state — NM bracket-wrapped */}
+        {/* Empty state. With an agent selected → the JourneyBand onboarding
+            (binding-dot eyebrow, memory→network→team stations, suggested
+            prompts that fill the composer). With no agent → the plain
+            bracket prompt to pick one from the sidebar. */}
         {showEmptyState && (
-          <BracketEmptyState
-            label={!agentId ? 'Select an agent' : 'Start a conversation'}
-            hint={
-              !agentId
-                ? 'Choose an agent from the sidebar to begin your interaction.'
-                : 'Send a message to interact with the AI agent.'
-            }
-          />
+          agentId ? (
+            <OnboardingJourney
+              agentName={currentAgent?.name || agentId}
+              onPrompt={(text) => composerRef.current?.setText(text)}
+            />
+          ) : (
+            <BracketEmptyState
+              label="Select an agent"
+              hint="Choose an agent from the sidebar to begin your interaction."
+            />
+          )
         )}
 
         {/* Bootstrap greeting */}
@@ -879,8 +934,26 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
         {/* Unified timeline */}
         {timeline.map((item) => {
-          // Activity record → small centered text
-          if (item.messageType === 'activity') {
+          // What belongs in Inner Thoughts vs Conversation:
+          //   - activity records ("Background activity (discord)") — the
+          //     lightweight "a background turn happened" markers — are the ONLY
+          //     thing routed to Inner Thoughts.
+          //   - everything the agent actually *says* is owner-facing and stays
+          //     in Conversation. This includes its "I replied to a Discord user
+          //     / notified you" narrations: the agent chose to address the owner
+          //     via send_message_to_user_directly, so the channel that triggered
+          //     the turn (discord / slack / lark / job / …) is irrelevant — it
+          //     is still a real message to the owner and must show in the direct
+          //     conversation, not be hidden away as an "inner thought".
+          // Session items (the owner's live in-app turn) are conversation too.
+          const isActivity = item.messageType === 'activity';
+          const isInner = isActivity;
+
+          // Route by tab: each tab renders only its own items.
+          if (chatTab === 'inner' ? !isInner : isInner) return null;
+
+          // Activity record → small centered text (Inner Thoughts only).
+          if (isActivity) {
             return (
               <div key={item.id} className="flex justify-center py-1">
                 <span className="text-[10px] text-[var(--text-tertiary)] italic">
@@ -893,7 +966,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             );
           }
 
-          // Normal message → bubble + optional artifact preview cards
+          // Full message bubble (Conversation: owner↔agent chat; Inner Thoughts:
+          // the agent's cross-channel narrations, readable, with their own
+          // inline reasoning/tool disclosure).
           const isNewSession = item.source === 'session';
           const hasArtifactTools =
             item.role === 'assistant' &&
@@ -943,7 +1018,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             turn doesn't visually detach from the rest of the
             conversation (it would otherwise be the only assistant
             output with no left-side avatar). */}
-        {isStreaming && currentEvents.length > 0 && (
+        {chatTab === 'conversation' && isStreaming && currentEvents.length > 0 && (
           <div className="flex gap-3 animate-fade-in">
             <RingAvatar
               species="silicon"
@@ -986,7 +1061,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             comes in, the indicator is replaced by TurnTimeline. Same
             avatar shell as the streaming branch so the layout doesn't
             jump when the first event arrives. */}
-        {isStreaming && currentEvents.length === 0 && (() => {
+        {chatTab === 'conversation' && isStreaming && currentEvents.length === 0 && (() => {
           const getInitStatus = () => {
             if (currentSteps.length === 0) return 'Starting up...';
             const latestStep = currentSteps[currentSteps.length - 1];
@@ -1019,7 +1094,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           );
         })()}
 
-        <div ref={messagesEndRef} />
+        {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
+            div would otherwise add, killing the dead gap below the last message
+            on mobile (combined with the smaller viewport padding below). */}
+        <div ref={messagesEndRef} className="max-md:-mt-4" />
       </div>
       </ScrollArea>
 
@@ -1103,26 +1181,96 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        <div className="flex gap-2.5 items-stretch" data-help-id="chat.composer">
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleFilePick}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFilePick}
+        />
+        {/* clawcreek-style composer: the textarea owns the box, the send/stop
+            button is docked bottom-right inside it, and a tools row (attach +
+            voice) sits beneath. Textarea state is isolated in <Composer> so a
+            keystroke re-renders only it, not this monolith (see Composer.tsx);
+            key={agentId} remounts it on agent switch to restore that agent's
+            draft. The drag/paste handlers live on the textarea too because the
+            native default (insert dropped path / paste-as-text) wins otherwise. */}
+        <div className="relative" data-help-id="chat.composer">
+          <Composer
+            key={agentId ?? '__none__'}
+            ref={composerRef}
+            agentId={agentId}
+            disabled={!agentId}
+            placeholder={
+              !agentId
+                ? t('chat.composer.selectAgentFirst')
+                : isDragging
+                  ? t('chat.composer.dropFile')
+                  : t('chat.composer.placeholder')
+            }
+            onSubmit={stableSubmit}
+            onEmptyChange={setComposerEmpty}
+            onDragOver={stableDragOver}
+            onDragLeave={stableDragLeave}
+            onDrop={stableDrop}
+            onPaste={stablePaste}
           />
+          {/* Send / Stop — vertically centered at the right edge of the
+              textarea. The send (↵) button rests neutral gray and lights up in
+              the Carbon (human) palette — carbon-soft fill + carbon border +
+              carbon glyph, matching the user's own chat bubble — only once the
+              composer has content (text or an attachment), not merely on
+              focus/hover. Stop stays oxblood (danger). */}
+          {isStreaming ? (
+            <Button
+              variant="danger"
+              size="icon"
+              onClick={() => agentId && stop(agentId)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9"
+              title="Stop generation"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleSubmit}
+              disabled={
+                (composerEmpty && pendingAttachments.length === 0)
+                || isLoading
+                || !agentId
+                || uploadingCount > 0
+              }
+              className={cn(
+                'absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-[var(--radius-lg)] border transition-colors',
+                !composerEmpty || pendingAttachments.length > 0
+                  ? 'border-[var(--color-carbon)] bg-[var(--color-carbon-soft)] text-[var(--color-carbon)] hover:bg-[var(--color-carbon-soft)] hover:text-[var(--color-carbon)]'
+                  : 'border-[var(--nm-hairline)] bg-[var(--nm-paper-warm)] text-[var(--text-tertiary)]',
+              )}
+              title="Send (Enter)"
+            >
+              <CornerDownLeft className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
+
+        {/* Tools row — attach (+) and voice on the left; read-only model
+            badge on the right (links to Settings — see ComposerModelBadge). */}
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
             disabled={!agentId || isLoading}
-            className="shrink-0 h-[52px] w-[52px]"
+            className="h-8 w-8 text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]"
             title="Attach file"
           >
-            <Paperclip className="w-4 h-4" />
+            <Plus className="w-4 h-4" />
           </Button>
-          {/* Voice capture: hands the recorded blob to the same upload
-              path as Paperclip / drag-drop, so transcription, the
+          {/* Voice capture: hands the recorded blob to the same upload path as
+              the attach button / drag-drop, so transcription, the
               "transcription unavailable" notice, and the pendingAttachments
               chip all behave identically across input methods. */}
           <AudioRecorder
@@ -1153,69 +1301,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               }
             }}
           />
-          {/* Textarea + draft state isolated in <Composer> so keystrokes don't
-              re-render this monolith (see Composer.tsx). key={agentId} remounts
-              it on agent switch to restore that agent's draft. The drag/paste
-              handlers are bound here too (also on the wrapper div) because the
-              native textarea default (insert dropped path / paste-as-text) wins
-              otherwise. Stays editable while the agent runs; sending is gated by
-              handleSubmit/the Send→Stop swap. */}
-          <Composer
-            key={agentId ?? '__none__'}
-            ref={composerRef}
-            agentId={agentId}
-            disabled={!agentId}
-            placeholder={
-              !agentId
-                ? 'Select an agent first…'
-                : isDragging
-                  ? 'Drop file to attach…'
-                  : 'Type your message… (drag files here to attach)'
-            }
-            onSubmit={stableSubmit}
-            onEmptyChange={setComposerEmpty}
-            onDragOver={stableDragOver}
-            onDragLeave={stableDragLeave}
-            onDrop={stableDrop}
-            onPaste={stablePaste}
-          />
-          {isStreaming ? (
-            <Button
-              variant="danger"
-              size="icon"
-              onClick={() => agentId && stop(agentId)}
-              className="shrink-0 h-[52px] w-[52px]"
-              title="Stop generation"
-            >
-              <Square className="w-4 h-4 fill-current" />
-            </Button>
-          ) : (
-            <Button
-              variant="accent"
-              size="icon"
-              onClick={handleSubmit}
-              disabled={
-                (composerEmpty && pendingAttachments.length === 0)
-                || isLoading
-                || !agentId
-                || uploadingCount > 0
-              }
-              className="shrink-0 h-[52px] w-[52px]"
-              title="Send"
-            >
-              <Send className="w-4 h-4" />
-            </Button>
-          )}
-        </div>
-        <div
-          className="mt-2 flex items-center justify-center gap-3 text-[10px] uppercase tracking-[0.12em]"
-          style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}
-        >
-          <span className="inline-flex items-center gap-1"><Kbd keys={['Enter']} /> to send</span>
-          <span className="opacity-40">·</span>
-          <span className="inline-flex items-center gap-1"><Kbd keys={['Shift', 'Enter']} /> new line</span>
-          <span className="opacity-40">·</span>
-          <span className="inline-flex items-center gap-1"><Kbd keys={['Drop']} /> to attach</span>
+          </div>
+          <ComposerModelBadge />
         </div>
       </div>
 

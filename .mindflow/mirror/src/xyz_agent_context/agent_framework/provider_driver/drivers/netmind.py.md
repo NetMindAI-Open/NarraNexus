@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/drivers/netmind.py
-last_verified: 2026-05-13
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — build_anthropic_helper_config
+
+Implements the new helper-slot builder for anthropic-protocol rows
+(guarded the same way as build_claude_config). Lets this card serve
+the helper_llm slot directly via the Messages-API helper.
+
 
 # netmind.py — NetMind aggregator one-key card
 

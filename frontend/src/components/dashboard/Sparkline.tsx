@@ -5,6 +5,7 @@
  * is unmounted. Colored by agent health.
  */
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { HEALTH_COLORS } from './healthColors';
 import type { AgentHealth } from '@/types';
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function Sparkline({ agentId, health, hours = 24 }: Props) {
+  const { t } = useTranslation();
   const [buckets, setBuckets] = useState<number[] | null>(null);
   const [error, setError] = useState(false);
 
@@ -37,7 +39,7 @@ export function Sparkline({ agentId, health, hours = 24 }: Props) {
   const barColor = HEALTH_COLORS[health].accent;
 
   if (error) {
-    return <div className="text-[10px] text-[var(--text-secondary)]">24h · —</div>;
+    return <div className="text-[10px] text-[var(--text-secondary)]">{t('dashboard.sparkline.unavailable', { hours })}</div>;
   }
   if (buckets === null) {
     return <div className="flex items-end gap-0.5 h-6 opacity-30">
@@ -58,7 +60,7 @@ export function Sparkline({ agentId, health, hours = 24 }: Props) {
             key={i}
             className={`w-[3px] ${barColor} rounded-sm ${isLast ? 'opacity-100' : 'opacity-60'}`}
             style={{ height: `${h}px` }}
-            title={`${hours - buckets.length + i + 1}h ago · ${v} events`}
+            title={t('dashboard.sparkline.barTitle', { hoursAgo: hours - buckets.length + i + 1, count: v })}
           />
         );
       })}

@@ -5,6 +5,7 @@
  * their own item-level expand with lazy-loaded detail.
  */
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { SessionInfoResp } from '@/types';
 import { api } from '@/lib/api';
 import { useExpanded } from './expandState';
@@ -46,6 +47,7 @@ function AvatarDot({ seed, display }: { seed: string; display: string }) {
 }
 
 export function SessionSection({ agentId, sessions }: Props) {
+  const { t } = useTranslation();
   const { expanded, toggle } = useExpanded(`${agentId}:section:sessions`, false);
   if (!sessions || sessions.length === 0) return null;
 
@@ -63,7 +65,7 @@ export function SessionSection({ agentId, sessions }: Props) {
         aria-expanded={expanded}
       >
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
-        <span>💬 {sessions.length === 1 ? 'Session with' : `${sessions.length} sessions`}</span>
+        <span>💬 {sessions.length === 1 ? t('dashboard.sessions.sessionWith') : t('dashboard.sessions.count', { count: sessions.length })}</span>
         <div className="flex -space-x-1">
           {shown.map((s) => (
             <AvatarDot key={s.session_id} seed={s.user_display} display={s.user_display} />
@@ -74,7 +76,7 @@ export function SessionSection({ agentId, sessions }: Props) {
             </span>
           )}
         </div>
-        <span className="text-[var(--text-secondary)] truncate">· on {channels.join(' · ')}</span>
+        <span className="text-[var(--text-secondary)] truncate">· {t('dashboard.sessions.on', { channels: channels.join(' · ') })}</span>
       </button>
       {expanded && (
         <ul className="mt-1 ml-3 space-y-1 border-l-2 border-[var(--rule)] pl-2">
@@ -88,6 +90,7 @@ export function SessionSection({ agentId, sessions }: Props) {
 }
 
 function SessionItem({ agentId, session }: { agentId: string; session: SessionInfoResp }) {
+  const { t } = useTranslation();
   const { expanded, toggle } = useExpanded(
     `${agentId}:item:session:${session.session_id}`,
     false,
@@ -132,17 +135,17 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
       </button>
       {expanded && (
         <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1">
-          {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
-          {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}
+          {loading && <div className="text-[var(--text-secondary)]">{t('dashboard.common.loading')}</div>}
+          {err && <div className="text-[var(--color-red-500)]">{t('dashboard.common.failed')}: {err}</div>}
           {detail !== null && (
             <>
               <div className="text-[var(--text-secondary)]">
-                session_id: <span className="font-mono">{session.session_id.slice(0, 12)}…</span>
+                {t('dashboard.sessions.sessionId')}: <span className="font-mono">{session.session_id.slice(0, 12)}…</span>
               </div>
               <div className="text-[var(--text-secondary)]">
-                started: <span className="font-mono">{session.started_at}</span>
+                {t('dashboard.sessions.started')}: <span className="font-mono">{session.started_at}</span>
               </div>
-              {renderLatestMessage(detail)}
+              {renderLatestMessage(detail, t)}
             </>
           )}
         </div>
@@ -151,13 +154,16 @@ function SessionItem({ agentId, session }: { agentId: string; session: SessionIn
   );
 }
 
-function renderLatestMessage(detail: unknown): React.ReactNode {
+function renderLatestMessage(
+  detail: unknown,
+  t: (key: string) => string,
+): React.ReactNode {
   try {
     const d = detail as { latest_message?: { content?: string; at?: string } };
     if (d?.latest_message?.content) {
       return (
         <div className="mt-1">
-          <div className="text-[var(--text-secondary)]">Latest message:</div>
+          <div className="text-[var(--text-secondary)]">{t('dashboard.sessions.latestMessage')}:</div>
           <div className="mt-0.5 rounded bg-[var(--bg-secondary)] p-1.5">
             {d.latest_message.content}
           </div>

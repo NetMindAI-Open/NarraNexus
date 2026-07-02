@@ -30,7 +30,7 @@ from xyz_agent_context.schema.provider_schema import (
     ProviderSource,
     SlotConfig,
     SlotName,
-    SLOT_REQUIRED_PROTOCOLS,
+    get_slot_required_protocols,
 )
 
 
@@ -40,6 +40,28 @@ def _is_cloud_mode() -> bool:
     callers that import this symbol keep working."""
     from xyz_agent_context.utils.deployment_mode import is_cloud_mode
     return is_cloud_mode()
+
+
+# Canonical curated model list for the codex_cli agent framework,
+# regardless of which OpenAI-protocol provider supplies the credential.
+# Codex CLI's interactive picker decides which models its subprocess
+# accepts — same set for ChatGPT-account OAuth AND paid-API-key tier
+# (verified 2026-06-02). Custom OpenAI providers used with
+# ``agent_framework=codex_cli`` must be constrained to this list too,
+# otherwise the frontend dropdown offers e.g. ``o4-mini`` which the
+# codex CLI subprocess rejects.
+#
+# Two consumers:
+#   1. ``UserProviderService.get_user_config`` overrides the stored
+#      ``models`` column on a ``codex_oauth`` row at read time, so
+#      updating the constant propagates without DB migration.
+#   2. Frontend slot dropdown filters by this list when the agent
+#      slot's ``agent_framework == "codex_cli"``, irrespective of
+#      provider source (codex_oauth, custom openai, etc.).
+#
+# Verified 2026-06-02 by running interactive ``codex`` and reading
+# "Select Model and Effort" menu.
+CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
 
 
 def _generate_provider_id() -> str:
@@ -74,6 +96,18 @@ class UserProviderService:
             # pre-dating the migration won't have it; default False so we
             # err on the side of disabling WebSearch rather than hanging it.
             _server_tools = row.get("supports_anthropic_server_tools", 0)
+            # ``codex_oauth`` provider's model list is NOT user-customizable —
+            # codex CLI's interactive picker is the source of truth. Always
+            # override the stored ``models`` column with the current
+            # ``CODEX_CURATED_MODELS`` constant so a code-side update
+            # propagates to existing rows on the next Settings reload, no
+            # DB migration needed.
+            if row.get("source") == "codex_oauth":
+                stored_models = list(CODEX_CURATED_MODELS)
+            elif row.get("models"):
+                stored_models = json.loads(row["models"])
+            else:
+                stored_models = []
             prov = ProviderConfig(
                 provider_id=row["provider_id"],
                 name=row["name"],
@@ -82,7 +116,7 @@ class UserProviderService:
                 auth_type=row.get("auth_type", "api_key"),
                 api_key=row.get("api_key", ""),
                 base_url=row.get("base_url", ""),
-                models=json.loads(row["models"]) if row.get("models") else [],
+                models=stored_models,
                 linked_group=row.get("linked_group", ""),
                 is_active=bool(row.get("is_active", 1)),
                 supports_anthropic_server_tools=bool(_server_tools),
@@ -185,6 +219,56 @@ class UserProviderService:
             }, now)
             new_ids.append(pid)
 
+        elif card_type == "codex_oauth":
+            from xyz_agent_context.agent_framework.provider_driver.derive import (
+                CODEX_CLI_CREDENTIALS_REF,
+            )
+
+            # Mirror of claude_oauth: a single row representing the
+            # host's ``codex login`` credential. The CodexSDK reads
+            # the token directly from ~/.codex/auth.json via its
+            # own OAuth fallback; this row exists primarily so
+            # CodexOAuthDriver.probe() has a card to probe and the
+            # Settings page can surface ✓ / ✗ status.
+            #
+            # protocol="openai" because Codex's underlying API surface
+            # is OpenAI-compatible (Responses API). This makes the row
+            # technically eligible for the helper_llm slot too — but
+            # OAuth credentials can't actually serve chat-completions
+            # calls, so users shouldn't pin it there. We don't gate
+            # it at insert time; the resolver / driver layers reject
+            # non-agent-slot uses with NotImplementedError.
+            existing = await self.db.get(
+                "user_providers", filters={"user_id": user_id, "source": "codex_oauth"}
+            )
+            if existing:
+                raise ValueError("Codex OAuth provider already exists for this user")
+
+            pid = _generate_provider_id()
+            await self._insert_provider(user_id, {
+                "provider_id": pid,
+                "name": "Codex CLI (OAuth)",
+                "source": "codex_oauth",
+                "protocol": "openai",
+                "auth_type": "oauth",
+                "api_key": "",
+                "base_url": "",
+                # Seed the column for completeness, but the read path
+                # in ``get_user_config`` overrides this with the
+                # current ``CODEX_CURATED_MODELS`` constant —
+                # so the column value is effectively cached, not
+                # canonical. Updating the constant updates the
+                # dropdown for every existing user on next reload.
+                "models": json.dumps(list(CODEX_CURATED_MODELS)),
+                # Codex is OpenAI's product — Anthropic server tools
+                # (WebSearch etc.) are not applicable.
+                "supports_anthropic_server_tools": False,
+                "driver_type": "codex_oauth",
+                "billing_policy": "external_oauth",
+                "auth_ref": CODEX_CLI_CREDENTIALS_REF,
+            }, now)
+            new_ids.append(pid)
+
         elif card_type in ("anthropic", "openai"):
             pid = _generate_provider_id()
             display_name = name or f"Custom {card_type.title()}"
@@ -220,7 +304,7 @@ class UserProviderService:
         return config, new_ids
 
     async def _insert_provider(self, user_id: str, data: dict, now: str):
-        await self.db.insert("user_providers", {
+        row = {
             "user_id": user_id,
             "provider_id": data["provider_id"],
             "name": data["name"],
@@ -235,7 +319,11 @@ class UserProviderService:
             "supports_anthropic_server_tools": 1 if data.get("supports_anthropic_server_tools") else 0,
             "created_at": now,
             "updated_at": now,
-        })
+        }
+        for optional_key in ("driver_type", "owner_user_id", "billing_policy", "auth_ref"):
+            if optional_key in data:
+                row[optional_key] = data[optional_key]
+        await self.db.insert("user_providers", row)
 
     # =========================================================================
     # Remove Provider
@@ -304,10 +392,71 @@ class UserProviderService:
         if not prov:
             raise ValueError(f"Provider {provider_id} not found for user {user_id}")
 
-        # Validate protocol
-        required = SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])
+        # Validate protocol. The agent slot is framework-dependent:
+        # claude_code requires Anthropic protocol, codex_cli requires
+        # OpenAI protocol. Other slots keep their static requirements.
+        agent_framework = None
+        if slot_name == SlotName.AGENT.value:
+            existing_slot = await self.db.get_one(
+                "user_slots", {"user_id": user_id, "slot_name": slot_name}
+            )
+            agent_framework = (existing_slot or {}).get("agent_framework") or "claude_code"
+        required = get_slot_required_protocols(
+            slot_name,
+            agent_framework=agent_framework,
+        )
         if required and prov["protocol"] not in [p.value for p in required]:
             raise ValueError(f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, got '{prov['protocol']}'")
+
+        # codex_cli agent slot — narrow further by SOURCE (not
+        # protocol; protocol is already gated above). Codex CLI
+        # talks to OpenAI's Responses API; third-party aggregators
+        # (netmind / yunwu / openrouter) expose chat-completions only
+        # and would fail at runtime in non-obvious ways (missing model,
+        # tool-call shape mismatch, broken MCP).
+        #
+        # Allow:
+        #   * "codex_oauth" — ChatGPT login → OpenAI's own backend
+        #   * "user"        — anything added via "+ Custom OpenAI"
+        #                     (user-typed base_url; we trust them)
+        # Reject everything else (netmind/yunwu/openrouter/system pool
+        # for now). Frontend hides these from the dropdown — this
+        # server-side check is defense in depth for any caller
+        # bypassing the UI.
+        # Codex framework requires an OpenAI-Responses-API-capable
+        # provider — only codex_oauth (ChatGPT login) and user-added
+        # Custom OpenAI providers qualify. Third-party aggregators
+        # (netmind / yunwu / openrouter) speak chat-completions only
+        # and don't expose Responses API, so codex can't use them.
+        if (
+            slot_name == SlotName.AGENT.value
+            and agent_framework == "codex_cli"
+            and prov["source"] not in {"codex_oauth", "user"}
+        ):
+            raise ValueError(
+                f"agent slot with framework='codex_cli' accepts only "
+                f"source=codex_oauth or source=user providers; "
+                f"got source={prov['source']!r}. Third-party aggregator "
+                f"endpoints (netmind / yunwu / openrouter) don't expose "
+                f"OpenAI's Responses API and are not supported."
+            )
+
+        # helper_llm rejects OAuth providers (claude_oauth / codex_oauth):
+        # CLI OAuth credentials only drive the agent subprocess and cannot
+        # make direct Messages / Chat-Completions calls. The frontend
+        # hides them from the helper dropdown — this server-side check is
+        # defense in depth; without it the misbinding only surfaces at
+        # agent-loop time as a cryptic NotImplementedError.
+        if (
+            slot_name == SlotName.HELPER_LLM.value
+            and (prov.get("auth_type") or "").lower() == "oauth"
+        ):
+            raise ValueError(
+                f"helper_llm slot cannot use OAuth provider "
+                f"{prov.get('name') or provider_id!r} — CLI sign-in "
+                f"credentials can't make direct API calls. Assign an "
+                f"API-key provider instead."
+            )
 
         # Upsert slot
         existing = await self.db.get_one("user_slots", {"user_id": user_id, "slot_name": slot_name})
@@ -329,6 +478,240 @@ class UserProviderService:
             })
 
         return await self.get_user_config(user_id)
+
+    # =========================================================================
+    # One-key onboarding
+    # =========================================================================
+
+    async def onboard_one_key(
+        self,
+        user_id: str,
+        api_key: str,
+        provider_type: Optional[str] = None,
+    ) -> tuple[LLMConfig, list[str], dict]:
+        """Wire a complete runnable config from a single API key.
+
+        Detects the key's protocol (sk-ant- prefix → anthropic, else
+        openai) unless ``provider_type`` overrides it, then:
+
+          1. Persists the matching agent framework (anthropic →
+             claude_code, openai → codex_cli). MUST happen before the
+             agent slot — set_slot validates the agent provider's
+             protocol against the framework.
+          2. Creates the provider (card_type = the protocol; the
+             provider gets the catalog's suggested model list).
+          3. Assigns BOTH slots to that same provider with the
+             catalog's onboarding defaults (strongest agent model of
+             the family + the cheap helper model).
+
+        Returns (config, new_provider_ids, meta) where meta carries
+        {provider_type, agent_framework, agent_model, helper_model}
+        for the API response. Raises ValueError on bad input or any
+        step failure (duplicate provider, protocol mismatch, ...).
+        """
+        from xyz_agent_context.agent_framework.model_catalog import (
+            get_default_agent_model,
+            get_default_helper_model,
+        )
+
+        key = (api_key or "").strip()
+        if not key:
+            raise ValueError("api_key is required")
+
+        # Aggregator keys (netmind/yunwu/openrouter) have no recognisable
+        # prefix — they are only reachable via an explicit provider_type
+        # from the UI's provider picker.
+        ptype = provider_type or (
+            "anthropic" if key.startswith("sk-ant-") else "openai"
+        )
+        allowed = ("anthropic", "openai", "netmind", "yunwu", "openrouter")
+        if ptype not in allowed:
+            raise ValueError(
+                f"provider_type must be one of {allowed}, got {ptype!r}"
+            )
+        # Only a pure-OpenAI key runs the codex_cli agent; every
+        # aggregator's anthropic endpoint serves claude_code like an
+        # official Claude key does.
+        framework = "codex_cli" if ptype == "openai" else "claude_code"
+        agent_model = get_default_agent_model(ptype)
+        helper_model = get_default_helper_model(ptype)
+
+        # Verify the key BEFORE writing anything — a typo'd key should
+        # fail here with a clear message, not at the first chat turn.
+        # Definitive auth rejections (401/403) raise; transient failures
+        # (network, 5xx) do NOT block — we proceed and report
+        # key_check="unverified (...)" so the UI can surface a warning.
+        key_check = await self._verify_onboard_key(ptype, key, agent_model)
+
+        await self.set_user_agent_framework(user_id, framework)
+        config, new_ids = await self.add_provider(
+            user_id=user_id, card_type=ptype, api_key=key,
+        )
+        # Official anthropic/openai cards create ONE provider that
+        # serves both slots. The netmind card creates TWO linked rows
+        # (anthropic + openai); route each slot to its protocol's row.
+        agent_pid = helper_pid = new_ids[0]
+        if len(new_ids) > 1:
+            by_protocol = {
+                config.providers[pid].protocol.value: pid
+                for pid in new_ids
+                if pid in config.providers
+            }
+            agent_pid = by_protocol.get("anthropic", new_ids[0])
+            helper_pid = by_protocol.get("openai", new_ids[0])
+        config = await self.set_slot(user_id, "agent", agent_pid, agent_model)
+        config = await self.set_slot(user_id, "helper_llm", helper_pid, helper_model)
+
+        meta = {
+            "provider_type": ptype,
+            "agent_framework": framework,
+            "agent_model": agent_model,
+            "helper_model": helper_model,
+            "key_check": key_check,
+        }
+        return config, new_ids, meta
+
+    async def _verify_onboard_key(
+        self, ptype: str, api_key: str, agent_model: str
+    ) -> str:
+        """Live-probe the key against its provider before persisting.
+
+        Builds a transient ProviderConfig (never stored) and reuses
+        ``provider_registry.test_provider`` — GET /models on official
+        endpoints (zero token cost), a max_tokens=1 call on proxies.
+        Aggregators are probed on their anthropic endpoint (the agent's
+        critical path).
+
+        Returns "ok" on success, or "unverified (<reason>)" when the
+        probe failed for a NON-auth reason (network, 5xx, timeout) —
+        we don't block a good key because our egress hiccuped.
+
+        Raises ValueError when the provider definitively rejected the
+        credential (401/403).
+        """
+        from xyz_agent_context.agent_framework.provider_registry import (
+            provider_registry,
+        )
+
+        if ptype in _DUAL_PROVIDER_CONFIGS:
+            info = _DUAL_PROVIDER_CONFIGS[ptype]["anthropic"]
+            probe_cfg = ProviderConfig(
+                provider_id="_onboard_verify",
+                name="onboard verify",
+                source=ptype,
+                protocol=ProviderProtocol.ANTHROPIC,
+                auth_type=info["auth_type"],
+                api_key=api_key,
+                base_url=info["base_url"],
+                models=[agent_model],
+            )
+        else:
+            probe_cfg = ProviderConfig(
+                provider_id="_onboard_verify",
+                name="onboard verify",
+                source=ProviderSource.USER,
+                protocol=ptype,
+                auth_type=AuthType.API_KEY,
+                api_key=api_key,
+                base_url="",
+                models=[agent_model],
+            )
+
+        ok, msg = await provider_registry.test_provider(probe_cfg)
+        if ok:
+            return "ok"
+        low = msg.lower()
+        if (
+            "authentication failed" in low
+            or "access denied" in low
+            or "invalid api key" in low
+            or "http 401" in low
+            or "http 403" in low
+        ):
+            raise ValueError(f"API key rejected by {ptype}: {msg}")
+        logger.warning(
+            f"[onboard] key probe inconclusive for {ptype}: {msg} — "
+            f"proceeding unverified"
+        )
+        return f"unverified ({msg})"
+
+    # ---- agent_framework: per-user coding-agent SDK choice ---------
+    # The ``user_slots[slot_name='agent'].agent_framework`` column is
+    # read by step_3_agent_loop._resolve_agent_framework_sdk to pick
+    # ClaudeAgentSDK vs CodexSDK. Reading defaults to "claude_code"
+    # for any null/missing row so existing users are untouched.
+
+    # Coding-agent framework names ``set_user_agent_framework`` accepts.
+    # MUST stay in sync with ``agent_framework/__init__.py``
+    # registrations and resolver's ``_KNOWN_AGENT_FRAMEWORKS`` (route
+    # layer imports this constant directly — single source of truth).
+    _SUPPORTED_AGENT_FRAMEWORKS: tuple[str, ...] = (
+        "claude_code",
+        "codex_cli",
+    )
+
+    async def get_user_agent_framework(self, user_id: str) -> str:
+        """Return the user's chosen coding-agent framework.
+
+        Returns ``"claude_code"`` when:
+          - The user has no agent slot row yet (new user)
+          - The column is null (rows from before the column was added)
+        Anything other than the supported set still returns the raw
+        value; the caller (step_3 resolver) is responsible for
+        falling back to claude_code on unknown values.
+        """
+        row = await self.db.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+        if not row:
+            return "claude_code"
+        return (row.get("agent_framework") or "claude_code")
+
+    async def set_user_agent_framework(self, user_id: str, framework: str) -> None:
+        """Persist the user's coding-agent framework choice.
+
+        Upserts ``user_slots[user_id, slot_name='agent'].agent_framework``.
+        If the user has no agent slot row yet (provider_id/model not
+        set), a stub row is inserted with empty provider_id+model so
+        the framework choice is preserved until they wire the slot.
+        provider_resolver still rejects the call at agent_loop time
+        when provider_id is empty — same as today.
+
+        Raises ``ValueError`` for unknown framework values.
+        """
+        if framework not in self._SUPPORTED_AGENT_FRAMEWORKS:
+            raise ValueError(
+                f"Unknown agent_framework {framework!r}. "
+                f"Supported: {self._SUPPORTED_AGENT_FRAMEWORKS}"
+            )
+
+        existing = await self.db.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        if existing:
+            await self.db.update(
+                "user_slots",
+                {"user_id": user_id, "slot_name": "agent"},
+                {"agent_framework": framework, "updated_at": now},
+            )
+        else:
+            # Stub row: framework choice survives even if the agent
+            # slot's provider/model is not yet wired. provider_resolver
+            # will reject usage with empty provider_id at agent_loop
+            # time, which is correct UX (forces the user to finish
+            # slot setup).
+            await self.db.insert(
+                "user_slots",
+                {
+                    "user_id": user_id,
+                    "slot_name": "agent",
+                    "provider_id": "",
+                    "model": "",
+                    "agent_framework": framework,
+                    "updated_at": now,
+                },
+            )
 
     async def validate_slots(self, user_id: str) -> list[str]:
         """Validate all slots are configured."""

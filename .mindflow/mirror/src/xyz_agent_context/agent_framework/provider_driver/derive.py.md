@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/derive.py
-last_verified: 2026-05-13
+last_verified: 2026-05-31
 stub: false
 ---
 
@@ -35,13 +35,14 @@ system pool), ``external_oauth`` (Claude OAuth — Anthropic does the
 billing on their side). ``cost_tracker`` reads ``billing_policy``
 post-call to decide whether to deduct from ``user_quotas``.
 
-## derive_auth_ref + resolve_claude_credentials_path
+## derive_auth_ref + credential path resolvers
 
 OAuth rows store a sentinel string ``claude-cli:~/.claude/.credentials.json``
-in ``auth_ref``. ``resolve_claude_credentials_path`` expands it at
-use-time, respecting ``CLAUDE_CLI_HOME`` / ``CLAUDE_CLI_CREDENTIALS_PATH``
-env vars so admins can relocate the credentials file (or tests can
-inject a fake one).
+or ``codex-cli:~/.codex/auth.json`` in ``auth_ref`` depending on
+provider source. ``resolve_claude_credentials_path`` and
+``resolve_codex_credentials_path`` expand those sentinels at use-time,
+respecting the relevant override env vars so admins can relocate the
+credentials file (or tests can inject a fake one).
 
 ## is_slot_broken + pick_default_model
 

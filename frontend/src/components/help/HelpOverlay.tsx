@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import type { HelpPage } from './helpContent';
 import {
@@ -38,6 +39,7 @@ interface HelpOverlayProps {
 }
 
 export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
+  const { t } = useTranslation();
   const [pageIdx, setPageIdx] = useState(0);
   const [resizeTick, setResizeTick] = useState(0);
 
@@ -81,7 +83,7 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Page guide"
+      aria-label={t('help.overlay.pageGuide')}
       className="fixed inset-0 z-[300] animate-fade-in"
       style={{ background: 'var(--nm-backdrop, rgba(20,16,12,0.5))' }}
       onClick={onClose}
@@ -132,7 +134,7 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
       >
         <div style={{ fontSize: 34, lineHeight: 1.1 }}>{page.label}</div>
         <div style={{ fontSize: 16, opacity: 0.7, marginTop: 2 }}>
-          guide {pageIdx + 1} of {pages.length}
+          {t('help.overlay.guideCounter', { current: pageIdx + 1, total: pages.length })}
         </div>
       </div>
 
@@ -166,7 +168,7 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
           className="absolute inset-0 flex items-center justify-center"
           style={{ fontFamily: 'var(--font-handwriting)', fontSize: 24, color: INK }}
         >
-          Nothing to explain on this page yet.
+          {t('help.overlay.nothingToExplain')}
         </div>
       )}
 
@@ -177,7 +179,7 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
       >
         <button
           type="button"
-          aria-label="Close guide"
+          aria-label={t('help.overlay.closeGuide')}
           onClick={onClose}
           className="px-6 py-1.5 rounded-full cursor-pointer transition-transform hover:scale-105"
           style={{
@@ -188,7 +190,7 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
             border: `1.5px solid ${INK}`,
           }}
         >
-          got it
+          {t('help.overlay.gotIt')}
         </button>
 
         <div
@@ -200,10 +202,10 @@ export function HelpOverlay({ open, pages, onClose }: HelpOverlayProps) {
           }}
           aria-hidden
         >
-          more guides — click to switch
+          {t('help.overlay.moreGuides')}
         </div>
 
-        <div role="tablist" aria-label="Guide pages" className="flex items-center gap-2.5">
+        <div role="tablist" aria-label={t('help.overlay.guidePages')} className="flex items-center gap-2.5">
           {pages.map((p, i) => {
             const activePage = i === pageIdx;
             return (

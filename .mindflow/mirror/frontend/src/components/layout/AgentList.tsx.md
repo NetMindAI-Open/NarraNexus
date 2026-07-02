@@ -1,8 +1,41 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-06-16
+last_verified: 2026-06-24
 stub: false
 ---
+
+> 2026-06-24 (#43): restored `handleCreateAgentInTeam(teamId)` —
+> `createAgent({ teamId })` then navigates to that team's group chat so the new
+> membership is visible. Wired into each [[TeamChatRow]] via `onAddAgent` +
+> `addingAgent`, surfaced in the [[TeamRowMenu]] "Add agent" item. This capability
+> was dev's #43; it briefly vanished when the TEAMS/AGENTS restructure replaced
+> the old [[AgentGroupSection]] header `+`, and is now re-homed onto the team row.
+
+## 2026-06-23 (PM) — collapsed rail rebuilt to match the expanded list
+
+The collapsed avatar rail no longer groups agents by team (which duplicated an
+agent in two teams and showed no group avatar). It now mirrors the expanded
+list: team **group avatars** (`GroupAvatar`, carbon·silicon split → open the
+group chat) on top, then a **flat deduped** `rawAgents` rail. The "+" is a
+portal `Popover` (Create Agent / Create Team) — a plain inline dropdown would
+be clipped by the rail's scroll/overflow; its trigger and the manage-agents
+button are now 32px circles matching the avatars. `buildAgentGroups` no longer
+used here.
+
+## 2026-06-23 — two-section sidebar: TEAMS (group chats) over AGENTS (flat)
+
+The expanded list no longer renders one [[AgentGroupSection]] per team with the
+agents interleaved. Instead two collapsible categories (local `CategoryHeader`,
+persisted to localStorage): a **TEAMS** section listing one [[TeamChatRow]] per
+team (the group chats), then an **AGENTS** section that renders ALL agents once,
+flat, via a single headerless `AgentGroupSection` (`teamId=null`,
+`agents=rawAgents`). This fixes an agent that belonged to two teams appearing
+twice. The toolbar's `+` is now a [[CreateMenu]] (Create Agent / Create Team);
+the bracket label reads `CHATS` with the combined teams+agents count.
+`activeTeamChatId` (parsed from `/app/teams/:id/chat`) drives the active row +
+suppresses agent-row selection while a team chat is open. Per-team collapse
+state / `buildAgentGroups`-keyed section collapse was retired (groups are still
+used by the collapsed avatar rail).
 
 ## 2026-06-10 — Grouped sidebar: teams become sections, chip filter retired
 
@@ -113,7 +146,3 @@ Inline rename: clicking the pencil enters editing mode on that agent row. Enter/
 `handleSelectAgent` always navigates back to `/app/chat` if the user is on a sub-page (Settings, System). This is intentional — clicking an agent always means "go talk to this agent".
 
 Delete hits `api.deleteAgent` which cascades all related DB data server-side. There is no undo.
-
-## 2026-06-16 — per-team "Add agent" (#43)
-
-Each named team section header now carries a hover "+" button. `handleCreateAgentInTeam` calls `createAgent({ teamId })` and is threaded to `AgentGroupSection` via `onAddAgentToTeam` / `addingAgent`. The new agent is attached to that team server-side; the hook refreshes the teams store so it appears under the team immediately instead of in Ungrouped.

@@ -495,13 +495,44 @@ class ModuleRunner:
 
     @staticmethod
     async def _serve_one_mcp(mcp_server: Any, module_name: str, port: int) -> None:
-        """Run a single FastMCP SSE server on the caller's event loop.
+        """Run a single FastMCP server on the caller's event loop with
+        BOTH the legacy SSE transport AND the modern streamable HTTP
+        transport on the same port.
 
-        Uses `run_sse_async` (not `run("sse")`) because `run` internally
-        calls `anyio.run()`, which creates a brand-new loop inside the
-        caller — exactly the scenario the single-loop architecture is
-        designed to prevent.
+        Why both:
+          - Claude Code's MCP client expects ``{type: "sse", url: ".../sse"}``
+            (see xyz_claude_agent_sdk.py). It will not work with the
+            streamable HTTP transport.
+          - OpenAI Codex CLI's MCP client only speaks streamable HTTP
+            (POST to a single ``/mcp`` endpoint, optional GET for SSE
+            upgrade). It silently fails to connect to a pure SSE
+            endpoint.
+
+        Approach: FastMCP's two ``*_app()`` methods return fresh
+        Starlette apps with **non-overlapping** internal route paths:
+        ``sse_app()`` serves ``/sse`` + ``/messages``;
+        ``streamable_http_app()`` serves ``/mcp``. We flatten both
+        route lists into ONE Starlette app so each path is served at
+        the root level (where the MCP clients expect them):
+
+            http://localhost:780X/sse         ← Claude Code
+            http://localhost:780X/messages    ← Claude Code (client → server)
+            http://localhost:780X/mcp         ← Codex CLI
+
+        DON'T mount under sub-paths — Starlette's ``Mount("/mcp",
+        app=streamable_app)`` would strip the ``/mcp`` prefix and
+        forward ``/`` to the streamable_http_app, which internally
+        routes only ``/mcp`` → 404 (the bug fixed by this commit).
+
+        The streamable_http_app carries a lifespan handler that owns
+        the underlying ``StreamableHTTPSessionManager``; sse_app uses
+        the no-op default lifespan. We adopt the streamable
+        lifespan as the parent app's so the session manager starts /
+        stops correctly.
         """
+        import uvicorn
+        from starlette.applications import Starlette
+
         from mcp.server.transport_security import TransportSecuritySettings
 
         mcp_server.settings.host = "0.0.0.0"
@@ -513,8 +544,28 @@ class ModuleRunner:
         mcp_server.settings.transport_security = TransportSecuritySettings(
             enable_dns_rebinding_protection=False,
         )
+
+        sse_app = mcp_server.sse_app()
+        streamable_app = mcp_server.streamable_http_app()
+
+        # Merge routes (paths don't collide: /sse + /messages + /mcp)
+        # and adopt the streamable lifespan (sse uses _DefaultLifespan
+        # which is a no-op, so we don't need to chain both).
+        wrapped = Starlette(
+            routes=list(sse_app.router.routes) + list(streamable_app.router.routes),
+            lifespan=streamable_app.router.lifespan_context,
+        )
+
+        config = uvicorn.Config(
+            wrapped,
+            host="0.0.0.0",
+            port=port,
+            log_level="warning",  # keep CLI quiet; FastMCP logs at debug
+            access_log=False,
+        )
+        server = uvicorn.Server(config)
         try:
-            await mcp_server.run_sse_async()
+            await server.serve()
         except asyncio.CancelledError:
             raise
         except Exception as e:

@@ -10,6 +10,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Clock,
   Play,
@@ -53,24 +54,26 @@ interface JobsPanelProps {
   onJobResolved?: (jobId: string) => void;
 }
 
-const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor: string; label: string }> = {
-  pending: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Pending' },
-  active: { icon: Zap, color: 'text-[var(--accent-primary)]', bgColor: 'bg-[var(--accent-glow)]', label: 'Active' },
-  running: { icon: Play, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'Running' },
-  paused: { icon: Pause, color: 'text-[var(--accent-secondary)]', bgColor: 'bg-[var(--accent-secondary)]/10', label: 'Paused' },
+// Status visual config. The `labelKey` resolves to a `jobs.status.*` i18n key
+// at render time (statuses are also used as filter chips and badges).
+const statusConfig: Record<string, { icon: typeof Clock; color: string; bgColor: string; labelKey: string }> = {
+  pending: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', labelKey: 'jobs.status.pending' },
+  active: { icon: Zap, color: 'text-[var(--accent-primary)]', bgColor: 'bg-[var(--accent-glow)]', labelKey: 'jobs.status.active' },
+  running: { icon: Play, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', labelKey: 'jobs.status.running' },
+  paused: { icon: Pause, color: 'text-[var(--accent-secondary)]', bgColor: 'bg-[var(--accent-secondary)]/10', labelKey: 'jobs.status.paused' },
   // Auto-paused: owner's free quota is exhausted and no own provider configured.
   // Surfaced here (not via a notification) so users see why a scheduled job
   // stopped firing; it auto-resumes once quota is restored or a provider added.
-  paused_no_quota: { icon: Pause, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'No quota' },
+  paused_no_quota: { icon: Pause, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', labelKey: 'jobs.status.pausedNoQuota' },
   // Transient-failure backoff: auto-retries when the cooldown elapses.
-  cooling: { icon: Clock, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', label: 'Retrying' },
+  cooling: { icon: Clock, color: 'text-[var(--color-warning)]', bgColor: 'bg-[var(--color-warning)]/10', labelKey: 'jobs.status.cooling' },
   // Waiting on prerequisite jobs.
-  blocked: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Blocked' },
+  blocked: { icon: Clock, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', labelKey: 'jobs.status.blocked' },
   // A prerequisite job failed and this job's policy is "block".
-  blocked_failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', label: 'Dep failed' },
-  completed: { icon: CheckCircle, color: 'text-[var(--color-success)]', bgColor: 'bg-[var(--color-success)]/10', label: 'Completed' },
-  failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', label: 'Failed' },
-  cancelled: { icon: Ban, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', label: 'Cancelled' },
+  blocked_failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', labelKey: 'jobs.status.blockedFailed' },
+  completed: { icon: CheckCircle, color: 'text-[var(--color-success)]', bgColor: 'bg-[var(--color-success)]/10', labelKey: 'jobs.status.completed' },
+  failed: { icon: XCircle, color: 'text-[var(--color-error)]', bgColor: 'bg-[var(--color-error)]/10', labelKey: 'jobs.status.failed' },
+  cancelled: { icon: Ban, color: 'text-[var(--text-tertiary)]', bgColor: 'bg-[var(--bg-tertiary)]', labelKey: 'jobs.status.cancelled' },
 };
 
 // Convert API Job to JobNode format
@@ -104,6 +107,7 @@ function jobToJobNode(job: Job): JobNode {
 }
 
 export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = {}) {
+  const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -158,10 +162,10 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     e.stopPropagation();
 
     const ok = await confirm({
-      title: 'Cancel job',
-      message: 'Are you sure you want to cancel this job? This action cannot be undone.',
-      confirmText: 'Cancel job',
-      cancelText: 'Keep running',
+      title: t('jobs.cancel.title'),
+      message: t('jobs.cancel.message'),
+      confirmText: t('jobs.cancel.confirm'),
+      cancelText: t('jobs.cancel.keepRunning'),
       danger: true,
     });
     if (!ok) return;
@@ -174,16 +178,16 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         refreshJobs(agentId, userId);
       } else {
         await alert({
-          title: 'Cancel failed',
-          message: res.error || 'Failed to cancel job',
+          title: t('jobs.cancel.failedTitle'),
+          message: res.error || t('jobs.cancel.failedMessage'),
           danger: true,
         });
       }
     } catch (err) {
       console.error('Cancel job error:', err);
       await alert({
-        title: 'Cancel failed',
-        message: 'Failed to cancel job. Please try again.',
+        title: t('jobs.cancel.failedTitle'),
+        message: t('jobs.cancel.failedRetry'),
         danger: true,
       });
     } finally {
@@ -211,11 +215,11 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
       if (res.success) {
         refreshJobs(agentId, userId);
       } else {
-        await alert({ title: 'Pause failed', message: 'Failed to pause job', danger: true });
+        await alert({ title: t('jobs.pause.failedTitle'), message: t('jobs.pause.failedMessage'), danger: true });
       }
     } catch (err) {
       console.error('Pause job error:', err);
-      await alert({ title: 'Pause failed', message: 'Failed to pause job. Please try again.', danger: true });
+      await alert({ title: t('jobs.pause.failedTitle'), message: t('jobs.pause.failedRetry'), danger: true });
     } finally {
       setPausingJobId(null);
     }
@@ -231,16 +235,16 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         refreshJobs(agentId, userId);
       } else {
         await alert({
-          title: 'Resume failed',
-          message: 'Failed to resume job',
+          title: t('jobs.resume.failedTitle'),
+          message: t('jobs.resume.failedMessage'),
           danger: true,
         });
       }
     } catch (err) {
       console.error('Resume job error:', err);
       await alert({
-        title: 'Resume failed',
-        message: 'Failed to resume job. Please try again.',
+        title: t('jobs.resume.failedTitle'),
+        message: t('jobs.resume.failedRetry'),
         danger: true,
       });
     } finally {
@@ -257,7 +261,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         {!embedded && (
           <CardTitle>
             <Calendar />
-            Jobs
+            {t('jobs.title')}
             <span className="ml-1 text-[var(--text-tertiary)] tabular-nums normal-case tracking-normal">
               · {allJobs.length}
             </span>
@@ -268,7 +272,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
           size="icon"
           onClick={handleRefresh}
           disabled={loading}
-          title="Refresh"
+          title={t('jobs.refresh')}
         >
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
         </Button>
@@ -279,10 +283,10 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         <>
           <StatStrip
             items={[
-              { label: 'Active', value: jobMetrics.running, icon: Zap, tone: 'warning', pulse: jobMetrics.running > 0 },
-              { label: 'Success', value: jobMetrics.completed, icon: CheckCircle, tone: 'success' },
-              { label: 'Failed', value: jobMetrics.failed, icon: AlertCircle, tone: jobMetrics.failed > 0 ? 'error' : 'secondary' },
-              { label: 'Rate', value: `${jobMetrics.successRate}%`, icon: TrendingUp },
+              { label: t('jobs.metrics.active'), value: jobMetrics.running, icon: Zap, tone: 'warning', pulse: jobMetrics.running > 0 },
+              { label: t('jobs.metrics.success'), value: jobMetrics.completed, icon: CheckCircle, tone: 'success' },
+              { label: t('jobs.metrics.failed'), value: jobMetrics.failed, icon: AlertCircle, tone: jobMetrics.failed > 0 ? 'error' : 'secondary' },
+              { label: t('jobs.metrics.rate'), value: `${jobMetrics.successRate}%`, icon: TrendingUp },
             ]}
           />
           <div className="px-5 py-3">
@@ -295,9 +299,9 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
       <div className="px-5 pt-2 pb-0 flex items-center gap-4 border-t border-[var(--rule)]">
         <div className="flex gap-4">
           {[
-            { mode: 'list' as const, icon: List, label: 'List' },
-            { mode: 'graph' as const, icon: GitBranch, label: 'Graph' },
-            { mode: 'timeline' as const, icon: GanttChartSquare, label: 'Timeline' },
+            { mode: 'list' as const, icon: List, label: t('jobs.view.list') },
+            { mode: 'graph' as const, icon: GitBranch, label: t('jobs.view.graph') },
+            { mode: 'timeline' as const, icon: GanttChartSquare, label: t('jobs.view.timeline') },
           ].map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
@@ -338,7 +342,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                     : 'text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
                 )}
               >
-                {status === 'all' ? 'All' : config?.label}
+                {status === 'all' ? t('jobs.filter.all') : (config ? t(config.labelKey) : status)}
               </button>
             );
           })}
@@ -356,8 +360,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                   <div className="w-14 h-14 rounded-2xl bg-[var(--color-warning)]/10 mx-auto mb-4 flex items-center justify-center">
                     <Calendar className="w-7 h-7 text-[var(--color-warning)]" />
                   </div>
-                  <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">No jobs found</p>
-                  <p className="text-[var(--text-tertiary)] text-xs">Create a job to get started</p>
+                  <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">{t('jobs.empty.list.title')}</p>
+                  <p className="text-[var(--text-tertiary)] text-xs">{t('jobs.empty.list.hint')}</p>
                 </div>
               </div>
             ) : (
@@ -429,7 +433,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                               size="sm"
                               glow={job.status === 'running' || job.status === 'active'}
                             >
-                              {config.label}
+                              {t(config.labelKey)}
                             </Badge>
                           </div>
 
@@ -480,7 +484,7 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                           )}
                           <XCircle className="w-3.5 h-3.5 text-[var(--color-error)]" />
                           <span className="text-xs font-medium">
-                            {failedJobs.length} failed job{failedJobs.length !== 1 ? 's' : ''}
+                            {t('jobs.failedGroup', { count: failedJobs.length })}
                           </span>
                         </button>
                         {failedExpanded && (
@@ -506,10 +510,10 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                   <GitBranch className="w-8 h-8 text-[var(--accent-secondary)]" />
                 </div>
                 <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">
-                  No dependency relationships
+                  {t('jobs.empty.graph.title')}
                 </p>
                 <p className="text-[var(--text-tertiary)] text-xs">
-                  Jobs with dependencies will be visualized here
+                  {t('jobs.empty.graph.hint')}
                 </p>
               </div>
             ) : (
@@ -543,8 +547,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                   <div className="w-16 h-16 rounded-2xl bg-[var(--accent-primary)]/10 mx-auto mb-4 flex items-center justify-center">
                     <GanttChartSquare className="w-8 h-8 text-[var(--accent-primary)]" />
                   </div>
-                  <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">No jobs to display</p>
-                  <p className="text-[var(--text-tertiary)] text-xs">Create jobs to see the timeline</p>
+                  <p className="text-[var(--text-secondary)] text-sm font-medium mb-1">{t('jobs.empty.timeline.title')}</p>
+                  <p className="text-[var(--text-tertiary)] text-xs">{t('jobs.empty.timeline.hint')}</p>
                 </div>
               </div>
             ) : (

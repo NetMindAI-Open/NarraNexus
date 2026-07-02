@@ -3,8 +3,9 @@
  * Agent selection and navigation with dramatic visual effects
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
   Trash2,
@@ -12,12 +13,16 @@ import {
   ChevronRight,
   Sliders,
   Server,
+  Monitor,
+  Cloud,
+  RotateCcw,
   LayoutDashboard,
 } from 'lucide-react';
-import { Button, ThemeToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { RingAvatar, StatusDot } from '@/components/nm';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
-import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore } from '@/stores';
+import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -27,10 +32,28 @@ import { cn } from '@/lib/utils';
 const prefetchDashboard = () => {
   void import('@/pages/DashboardPage');
 };
+
+// Left-nav hover/active treatment: light up the label + icon (carbon), no
+// background fill — matches the right BookmarkStrip. Destructive actions
+// (Clear History / Logout) light up in error red instead of carbon. Both
+// override the ghost variant's default `hover:bg` via tailwind-merge.
+const NAV_ITEM = 'text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-carbon)]';
+const NAV_ITEM_ACTIVE = 'text-[var(--color-carbon)]';
+const NAV_ITEM_DANGER = 'text-[var(--text-secondary)] hover:bg-transparent hover:text-[var(--color-error)]';
 import { AgentList } from './AgentList';
 
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [showModePopup, setShowModePopup] = useState(false);
+  // Mobile (< md): the sidebar is an off-canvas drawer toggled from the TopBar.
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const isMobile = useIsMobile();
+
+  // The icon-only collapsed layout makes no sense inside the mobile drawer
+  // (it's a full-width overlay, not a docked rail) — force it expanded there.
+  useEffect(() => {
+    if (isMobile && collapsed) setCollapsed(false);
+  }, [isMobile, collapsed]);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,10 +63,11 @@ export function Sidebar() {
   // user_id (local mode, where it IS the chosen username).
   const userLabel = displayName || userId;
   const { clearAll: clearChat } = useChatStore();
-  const { features } = useRuntimeStore();
+  const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { isDark } = useTheme();
+  const { t } = useTranslation();
 
   /**
    * Wipe all session + cached data before leaving the current mode.
@@ -89,11 +113,28 @@ export function Sidebar() {
     }
   };
 
+  const handleSwitchMode = () => {
+    wipeAllSessionData();
+    setCloudApiUrl('');
+    setMode(null);
+    setShowModePopup(false);
+
+    // Hard reload, NOT React Router navigate. Soft navigation keeps the
+    // React tree, closure-captured store snapshots, in-flight fetches,
+    // and module-level caches from the previous mode alive — which is
+    // exactly how cloud data was bleeding into a subsequent local
+    // session. A full document reload tears everything down.
+    //
+    // Combined with the localStorage.removeItem() calls above, the next
+    // page load starts from true factory defaults.
+    window.location.href = '/mode-select';
+  };
+
   const handleLogout = async () => {
     const ok = await confirm({
-      title: 'Log out',
-      message: 'Are you sure you want to logout?',
-      confirmText: 'Log out',
+      title: t('layout.sidebar.logoutConfirmTitle'),
+      message: t('layout.sidebar.logoutConfirmMessage'),
+      confirmText: t('layout.sidebar.logoutConfirmAction'),
       danger: true,
     });
     if (!ok) return;
@@ -103,9 +144,9 @@ export function Sidebar() {
 
   const handleClearHistory = async () => {
     const ok = await confirm({
-      title: 'Clear history',
-      message: 'Clear all conversation history?',
-      confirmText: 'Clear',
+      title: t('layout.sidebar.clearHistoryConfirmTitle'),
+      message: t('layout.sidebar.clearHistoryConfirmMessage'),
+      confirmText: t('layout.sidebar.clearHistoryConfirmAction'),
       danger: true,
     });
     if (!ok) return;
@@ -127,13 +168,20 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'h-full flex flex-col relative',
+        'flex flex-col relative',
         // NM canonical (FinChats:461): chat-list container bg = var(--nm-paper).
         // Rows sit on paper directly with rounded highlight when active.
         'bg-[color:var(--nm-paper)]',
         'border-r border-[color:var(--nm-hairline)]',
-        'transition-all duration-400 ease-out',
-        collapsed ? 'w-[72px]' : 'w-72'
+        'transition-all duration-300 ease-out',
+        // Mobile (< md): off-canvas drawer below the 36px TopBar, slides in.
+        // Height comes from top-9 + bottom-0 (NOT h-full, which would overflow
+        // 36px below the viewport and clip the footer / theme toggle).
+        'fixed top-9 bottom-0 left-0 z-40 w-72',
+        mobileNavOpen ? 'translate-x-0 shadow-[var(--nm-elev-3)]' : '-translate-x-full',
+        // Tablet/desktop (md+): back in normal flow, full height, width by collapse.
+        'md:static md:top-auto md:bottom-auto md:z-auto md:h-full md:translate-x-0 md:shadow-none',
+        collapsed ? 'md:w-[72px]' : 'md:w-72',
       )}
     >
       {confirmDialog}
@@ -155,7 +203,7 @@ export function Sidebar() {
             variant="ghost"
             size="icon"
             onClick={() => setCollapsed(!collapsed)}
-            className={cn('shrink-0', collapsed && 'mx-auto')}
+            className={cn('shrink-0 hidden md:inline-flex', collapsed && 'mx-auto')}
           >
             {collapsed ? (
               <ChevronRight className="w-4 h-4" />
@@ -167,28 +215,73 @@ export function Sidebar() {
       </div>
 
       {/* User Info — NM RingAvatar carbon (human species), name + StatusDot status row.
-          Carbon ring marks "this is a human user" per Axiom #1. */}
+          Carbon ring marks "this is a human user" per Axiom #1. Clicking it opens
+          the owner-scoped "You" workspace (Memory / Network / World + Notes) — the
+          carbon counterpart to clicking an agent. */}
       {!collapsed && (
-        <div className="px-4 py-3 border-b border-[var(--rule)]">
+        <button
+          type="button"
+          onClick={() => navigate('/app/you')}
+          aria-label={t('layout.sidebar.openWorkspace')}
+          aria-current={location.pathname === '/app/you' ? 'page' : undefined}
+          className={cn(
+            'group w-full px-4 py-3 border-b border-[var(--rule)] text-left transition-colors',
+            location.pathname === '/app/you'
+              ? 'bg-[var(--bg-elevated)]'
+              : 'hover:bg-[var(--bg-elevated)]',
+          )}
+        >
           <div className="flex items-center gap-3">
-            <RingAvatar species="carbon" label={userLabel || '?'} size="md" />
+            <RingAvatar species="carbon" label={userLabel || '?'} size="sm" />
             <div className="flex-1 min-w-0 h-10 flex flex-col justify-center gap-1">
               <div className="text-[13px] leading-none text-[var(--text-primary)] truncate font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]" title={userLabel}>
                 {userLabel}
               </div>
               <div className="flex items-center gap-1.5 text-[10px] leading-none text-[var(--text-tertiary)] uppercase tracking-[0.14em] font-[family-name:var(--font-mono)]">
                 <StatusDot status="success" size={6} />
-                <span>Online</span>
+                <span>{t('sidebar.online')}</span>
               </div>
             </div>
+            {/* Affordance: this row opens your "You" workspace — a chevron that
+                brightens on hover (and a "your space" hint label). */}
+            <span
+              className={cn(
+                'shrink-0 text-[9px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] transition-colors',
+                location.pathname === '/app/you'
+                  ? 'text-[var(--color-carbon)]'
+                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
+              )}
+            >
+              {t('sidebar.you')}
+            </span>
+            <ChevronRight
+              className={cn(
+                'w-4 h-4 shrink-0 transition-all group-hover:translate-x-0.5',
+                location.pathname === '/app/you'
+                  ? 'text-[var(--color-carbon)]'
+                  : 'text-[var(--text-tertiary)] group-hover:text-[var(--color-carbon)]',
+              )}
+              aria-hidden
+            />
           </div>
-        </div>
+        </button>
       )}
-      {/* Collapsed: just the carbon avatar centered */}
+      {/* Collapsed: just the carbon avatar centered (still opens the workspace) */}
       {collapsed && userId && (
-        <div className="px-4 py-3 border-b border-[var(--rule)] flex justify-center">
+        <button
+          type="button"
+          onClick={() => navigate('/app/you')}
+          aria-label={t('layout.sidebar.openWorkspace')}
+          aria-current={location.pathname === '/app/you' ? 'page' : undefined}
+          className={cn(
+            'w-full px-4 py-3 border-b border-[var(--rule)] flex justify-center transition-colors',
+            location.pathname === '/app/you'
+              ? 'bg-[var(--bg-elevated)]'
+              : 'hover:bg-[var(--bg-elevated)]',
+          )}
+        >
           <RingAvatar species="carbon" label={userLabel} size="sm" title={userLabel} />
-        </div>
+        </button>
       )}
 
       {/* Agent list — grouped by team (spec §11); teams are sections inside
@@ -202,6 +295,46 @@ export function Sidebar() {
       <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">
         {!collapsed ? (
           <>
+            {/* Mode Switcher */}
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowModePopup(!showModePopup)}
+                className={cn('w-full justify-start gap-2', NAV_ITEM)}
+              >
+                {mode === 'local' ? (
+                  <Monitor className="w-4 h-4" />
+                ) : (
+                  <Cloud className="w-4 h-4" />
+                )}
+                {mode === 'local' ? t('sidebar.local') : t('sidebar.cloud')}
+              </Button>
+              {showModePopup && (
+                <div className="absolute bottom-full left-0 mb-1 w-full p-3 rounded-lg border shadow-lg z-50"
+                  style={{
+                    backgroundColor: 'var(--bg-secondary)',
+                    borderColor: 'var(--border-default)',
+                  }}>
+                  <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                    {t('layout.sidebar.currentMode', {
+                      mode: mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode'),
+                    })}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleSwitchMode}
+                  >
+                    <RotateCcw className="w-3 h-3 mr-1" />
+                    {t('layout.sidebar.switchTo', {
+                      mode: mode === 'local' ? t('sidebar.cloud') : t('sidebar.local'),
+                    })}
+                  </Button>
+                </div>
+              )}
+            </div>
             <Button
               variant="ghost"
               size="sm"
@@ -209,26 +342,28 @@ export function Sidebar() {
               onMouseEnter={prefetchDashboard}
               onFocus={prefetchDashboard}
               className={cn(
-                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                'w-full justify-start gap-2',
+                NAV_ITEM,
                 location.pathname === '/app/dashboard' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
-              Dashboard
+              {t('sidebar.dashboard')}
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => navigate('/app/settings')}
               className={cn(
-                'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                'w-full justify-start gap-2',
+                NAV_ITEM,
                 location.pathname === '/app/settings' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <Sliders className="w-4 h-4" />
-              Settings
+              {t('sidebar.settings')}
             </Button>
             {features.showSystemPage && (
               <Button
@@ -236,13 +371,14 @@ export function Sidebar() {
                 size="sm"
                 onClick={() => navigate('/app/system')}
                 className={cn(
-                  'w-full justify-start gap-2 text-[var(--text-secondary)]',
+                  'w-full justify-start gap-2',
+                  NAV_ITEM,
                   location.pathname === '/app/system' &&
-                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                    NAV_ITEM_ACTIVE,
                 )}
               >
                 <Server className="w-4 h-4" />
-                System
+                {t('sidebar.system')}
               </Button>
             )}
           </>
@@ -251,13 +387,27 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => setShowModePopup(!showModePopup)}
+              title={mode === 'local' ? t('sidebar.localMode') : t('sidebar.cloudMode')}
+              className={NAV_ITEM}
+            >
+              {mode === 'local' ? (
+                <Monitor className="w-4 h-4" />
+              ) : (
+                <Cloud className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => navigate('/app/dashboard')}
               onMouseEnter={prefetchDashboard}
               onFocus={prefetchDashboard}
-              title="Dashboard"
+              title={t('sidebar.dashboard')}
               className={cn(
+                NAV_ITEM,
                 location.pathname === '/app/dashboard' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
@@ -266,10 +416,11 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={() => navigate('/app/settings')}
-              title="Settings"
+              title={t('sidebar.settings')}
               className={cn(
+                NAV_ITEM,
                 location.pathname === '/app/settings' &&
-                  'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                  NAV_ITEM_ACTIVE,
               )}
             >
               <Sliders className="w-4 h-4" />
@@ -279,10 +430,11 @@ export function Sidebar() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/app/system')}
-                title="System"
+                title={t('sidebar.system')}
                 className={cn(
+                  NAV_ITEM,
                   location.pathname === '/app/system' &&
-                    'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
+                    NAV_ITEM_ACTIVE,
                 )}
               >
                 <Server className="w-4 h-4" />
@@ -300,24 +452,25 @@ export function Sidebar() {
               variant="ghost"
               size="sm"
               onClick={handleClearHistory}
-              className="w-full justify-start gap-2 text-[var(--text-secondary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <Trash2 className="w-4 h-4" />
-              Clear History
+              {t('sidebar.clearHistory')}
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={handleLogout}
-              className="w-full justify-start gap-2 text-[var(--text-secondary)] hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
               <LogOut className="w-4 h-4" />
-              Logout
+              {t('sidebar.logout')}
             </Button>
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
               <ThemeToggle />
+              <LanguageToggle />
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
-                Powered by NetMind.AI
+                {t('sidebar.poweredBy')}
               </span>
               <span className="text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider">v{__APP_VERSION__}</span>
             </div>
@@ -328,8 +481,8 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={handleClearHistory}
-              title="Clear History"
-              className="hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              title={t('sidebar.clearHistory')}
+              className={NAV_ITEM_DANGER}
             >
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -337,8 +490,8 @@ export function Sidebar() {
               variant="ghost"
               size="icon"
               onClick={handleLogout}
-              title="Logout"
-              className="hover:text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              title={t('sidebar.logout')}
+              className={NAV_ITEM_DANGER}
             >
               <LogOut className="w-4 h-4" />
             </Button>

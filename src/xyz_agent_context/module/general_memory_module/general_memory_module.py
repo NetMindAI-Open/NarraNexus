@@ -24,7 +24,7 @@ from typing import List, Optional
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT, get_spec, passive_kinds
 from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema.context_schema import ContextData
@@ -147,7 +147,7 @@ class GeneralMemoryModule(XYZBaseModule):
     async def _extract_facts(self, user_input: str, agent_output: str) -> List[_Fact]:
         prompt = get_spec("observation").extract_prompt or ""
         payload = f"USER said:\n{user_input}\n\nAGENT did/said:\n{agent_output}"
-        result = await OpenAIAgentsSDK().llm_function(
+        result = await get_helper_sdk().llm_function(
             instructions=prompt, user_input=payload, output_type=_Extracted, agent_id=self.agent_id,
         )
         return result.final_output.facts

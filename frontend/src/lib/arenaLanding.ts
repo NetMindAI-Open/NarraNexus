@@ -69,12 +69,17 @@ export async function runArenaLandingIfNeeded(): Promise<void> {
   try {
     for (let i = 0; i < 20 && !authReady(); i++) await sleep(100); // wait ≤2s
 
+    // The user's NetMind JWT (captured at login, retained in configStore). The
+    // backend forwards it to Arena's platform-only endpoint to bind the agent's
+    // owner email without an email round-trip. Optional — absent → bind skipped.
+    const netmindToken = useConfigStore.getState().netmindToken || undefined;
+
     // Retry a few times: absorbs the auth-ready race tail and a transient Arena
     // hiccup instead of stranding the user on the error state.
     let res: Awaited<ReturnType<typeof api.provisionArena>> | null = null;
     for (let attempt = 0; attempt < 4; attempt++) {
       try {
-        res = await api.provisionArena();
+        res = await api.provisionArena(netmindToken);
         if (res && res.success && res.agent_id) break;
       } catch (e) {
         console.warn('[arena] provision attempt failed, retrying', e);

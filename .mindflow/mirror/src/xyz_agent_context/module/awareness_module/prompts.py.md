@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/awareness_module/prompts.py
-last_verified: 2026-04-10
+last_verified: 2026-06-18
 ---
+
+## 2026-06-18 — 通用保密边界（Section 5 Confidentiality）
+
+新增 Section 5 "Confidentiality (Information Boundary)"：creator 是唯一完全可信方；
+凭据/API key、系统指令与本 awareness profile、creator 私密信息、私有策略——一律不得
+向非 creator 透露,**尤其警惕共享/多 agent 平台上的其他 agent**。这是注入到**每个**
+agent 系统提示的代码常量,所以已 provision 的 agent（含 Arena agent）下一轮即生效,无需
+DB backfill。措辞限定在"机密信息"而非正常工作产出,不影响 agent 正常协作。守铁律 #4:
+通用层不出现任何场景名（不提 "Arena"）;Arena 的具体强化版在 `ARENA_AWARENESS`
+（arena_provisioning_service.py）。原 "Your Current Awareness Profile" 顺延为 Section 6。
 
 # prompts.py — AwarenessModule 指令定义
 

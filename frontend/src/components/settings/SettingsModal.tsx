@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Cpu, Info, Shield } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
@@ -25,13 +26,13 @@ import { api } from '@/lib/api';
 
 interface NavSection {
   id: string;
-  label: string;
+  labelKey: string;
   icon: typeof Cpu;
 }
 
 const NAV_SECTIONS: NavSection[] = [
-  { id: 'providers', label: 'LLM Providers', icon: Cpu },
-  { id: 'privacy', label: 'Privacy', icon: Shield },
+  { id: 'providers', labelKey: 'settings.modal.navProviders', icon: Cpu },
+  { id: 'privacy', labelKey: 'settings.modal.navPrivacy', icon: Shield },
 ];
 
 // =============================================================================
@@ -40,21 +41,16 @@ const NAV_SECTIONS: NavSection[] = [
 
 const SLOT_EXPLANATIONS = [
   {
-    name: 'Agent',
+    nameKey: 'settings.modal.slotAgentName',
     color: 'var(--accent-primary)',
-    description:
-      'The "brain" of your AI agent. This model handles all conversations with users, ' +
-      'makes decisions, and executes tasks. A more capable model here means smarter, more nuanced responses.',
-    protocol: 'Anthropic protocol',
+    descriptionKey: 'settings.modal.slotAgentDesc',
+    protocolKey: 'settings.modal.slotAgentProtocol',
   },
   {
-    name: 'Helper LLM',
+    nameKey: 'settings.modal.slotHelperName',
     color: 'var(--color-warning)',
-    description:
-      'A secondary AI model used for behind-the-scenes analysis: summarizing conversations, ' +
-      'extracting key information, and generating internal reports. Does not talk to users directly, ' +
-      'but influences the quality of the agent\'s background processing.',
-    protocol: 'OpenAI protocol',
+    descriptionKey: 'settings.modal.slotHelperDesc',
+    protocolKey: 'settings.modal.slotHelperProtocol',
   },
 ];
 
@@ -72,6 +68,7 @@ interface SettingsModalProps {
 // =============================================================================
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState('providers');
 
   // Analytics opt-out state: true = analytics ON (opted_out = false)
@@ -146,7 +143,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
           {/* ─── Header ─── */}
           <div className="relative flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] shrink-0">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Settings</h2>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t('settings.modal.title')}</h2>
             <Button
               variant="ghost"
               size="icon"
@@ -177,7 +174,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     )}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
-                    {section.label}
+                    {t(section.labelKey)}
                   </button>
                 );
               })}
@@ -194,17 +191,16 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     <div className="flex items-center gap-2 mb-3">
                       <Info className="w-4 h-4 text-[var(--text-tertiary)]" />
                       <h3 className="text-sm font-medium text-[var(--text-secondary)]">
-                        What are these model slots?
+                        {t('settings.modal.slotsHeading')}
                       </h3>
                     </div>
                     <p className="text-xs text-[var(--text-tertiary)] mb-4">
-                      NarraNexus uses two AI model slots for different purposes. You can use the same provider
-                      for both, or mix and match to optimize for cost, speed, or quality.
+                      {t('settings.modal.slotsIntro')}
                     </p>
                     <div className="grid grid-cols-1 gap-3">
                       {SLOT_EXPLANATIONS.map((slot) => (
                         <div
-                          key={slot.name}
+                          key={slot.nameKey}
                           className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
                         >
                           <div className="flex items-center gap-2 mb-1">
@@ -213,14 +209,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                               style={{ backgroundColor: slot.color }}
                             />
                             <span className="text-sm font-medium text-[var(--text-primary)]">
-                              {slot.name}
+                              {t(slot.nameKey)}
                             </span>
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-tertiary)]">
-                              {slot.protocol}
+                              {t(slot.protocolKey)}
                             </span>
                           </div>
                           <p className="text-xs text-[var(--text-tertiary)] leading-relaxed ml-4">
-                            {slot.description}
+                            {t(slot.descriptionKey)}
                           </p>
                         </div>
                       ))}
@@ -240,10 +236,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <div className="space-y-4 max-w-2xl">
                   <div>
                     <h3 className="text-sm font-medium text-[var(--text-primary)] mb-2">
-                      Privacy
+                      {t('settings.modal.privacyHeading')}
                     </h3>
                     <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
-                      Control what data NarraNexus collects to improve the product.
+                      {t('settings.modal.privacyIntro')}
                     </p>
                   </div>
 
@@ -251,11 +247,10 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
                     <div className="flex-1 min-w-0 pr-4">
                       <p className="text-sm font-medium text-[var(--text-primary)]">
-                        Product analytics
+                        {t('settings.modal.analyticsTitle')}
                       </p>
                       <p className="text-xs text-[var(--text-tertiary)] mt-0.5 leading-relaxed">
-                        Allow NarraNexus to collect anonymous usage data to improve the product.
-                        No conversation content is ever collected.
+                        {t('settings.modal.analyticsDesc')}
                       </p>
                     </div>
                     {/* Inline toggle button */}

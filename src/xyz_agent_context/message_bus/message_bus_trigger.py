@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections import defaultdict
 from typing import Dict, List
@@ -30,8 +31,18 @@ from loguru import logger
 from xyz_agent_context.message_bus.local_bus import LocalMessageBus
 from xyz_agent_context.message_bus.schemas import BusMessage
 
-# Poll interval in seconds
-POLL_INTERVAL = 10
+# Poll interval in seconds (initial; adaptive bounds below)
+POLL_INTERVAL = 3
+
+# A team group-chat channel's ``created_by`` is this prefix + team_id (a
+# non-agent marker), set by the team-chat route. It both identifies the
+# room and ensures no member agent is the always-activated channel owner —
+# delivery is purely @-mention driven. Keep in sync with backend/routes/teams.py.
+TEAM_ROOM_OWNER_PREFIX = "team_"
+
+# The user posts into a team room as this prefix + user_id (a non-agent
+# sender). Keep in sync with backend/routes/teams.py.
+USER_SENDER_PREFIX = "usr_"
 
 # Maximum concurrent agent processing workers
 MAX_WORKERS = 3
@@ -40,10 +51,74 @@ MAX_WORKERS = 3
 RATE_LIMIT_MAX = 20
 RATE_LIMIT_WINDOW = 1800  # 30 minutes in seconds
 
-# Adaptive polling constants
-POLL_MIN_INTERVAL = 10
-POLL_MAX_INTERVAL = 120
-POLL_STEP_UP = 15
+# Adaptive polling constants. Kept low so a team group-chat reply lands quickly
+# (the trigger is a separate process; this is the latency the user feels after
+# an idle period). Worst-case idle latency ≈ POLL_MAX_INTERVAL.
+POLL_MIN_INTERVAL = 3
+POLL_MAX_INTERVAL = 12
+POLL_STEP_UP = 3
+
+# Team group chat: cap how many consecutive agent-to-agent hops can keep the
+# @-mention cascade alive without a human message. Past this, an agent reply's
+# @mentions are dropped so two agents can't @ each other forever. A user
+# message resets the chain.
+MAX_TEAM_AGENT_HOPS = 4
+
+# Kept in sync with LocalMessageBus.get_pending_messages' inline
+# `failure_count < 3` poison-message filter (local_bus.py). Once a message's
+# failure_count reaches this, it is permanently dropped from the pending
+# queue with no further retries — see `_notify_permanent_failure` below,
+# which is the only signal the owner gets when that happens.
+POISON_FAILURE_THRESHOLD = 3
+
+# De-dup window for permanent-failure inbox notices, keyed per
+# (agent_id, error_category). Same window as the rate limiter — a batch of
+# messages failing for one root cause (e.g. a broken provider key) should
+# not write one inbox row per message.
+FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
+
+# Substrings (lower-cased) that mark an error as a provider/credential
+# problem worth calling out explicitly, vs. a generic failure. Deliberately
+# coarse — this only changes the hint text shown to the owner, not any
+# retry/delivery behavior.
+_CREDENTIAL_ERROR_MARKERS = (
+    "api_key",
+    "api key",
+    "apikey",
+    "credential",
+    "unauthorized",
+    "authentication",
+    " 401",
+    "(401",
+    " 403",
+    "(403",
+    "invalid_api_key",
+    "invalid api key",
+    "provider",
+)
+
+# Max length of the (already-redacted) error string embedded in an owner
+# inbox notification. Provider error bodies can be arbitrarily long (stack
+# traces, full HTTP response bodies); we only need enough for the owner to
+# recognise the failure, not a full dump.
+MAX_NOTIFIED_ERROR_LEN = 500
+
+# Patterns for masking secret-looking substrings out of a provider error
+# message before it is echoed into the owner's inbox. Provider SDKs
+# frequently echo the credential back in the error body (e.g. OpenAI's
+# "Incorrect API key provided: sk-..."), so `str(exception)` is not safe to
+# show verbatim. Deliberately coarse pattern matching, not a full secret
+# scanner — this only touches what is DISPLAYED, never the classification
+# in `_classify_error` (which runs on the raw error) or delivery behavior.
+_SECRET_KEY_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{6,}")
+_SECRET_KEYVALUE_PATTERN = re.compile(
+    r"\b((?:api[_-]?key|apikey|token|secret|password)\s*[:=]\s*)"
+    r"([^\s,;\"']{4,})",
+    re.IGNORECASE,
+)
+_SECRET_BEARER_PATTERN = re.compile(
+    r"\bBearer\s+[A-Za-z0-9._-]{8,}", re.IGNORECASE
+)
 
 
 def build_bus_anchor(messages: List[BusMessage]) -> str:
@@ -97,6 +172,10 @@ class MessageBusTrigger:
         # 3+ times. Observed in production (2026-05-12 13:20 — agent
         # processed one msg_4eb528dc three times, burned ~30K tokens).
         self._agent_locks: Dict[str, asyncio.Lock] = {}
+        # last `time.monotonic()` a permanent-failure inbox notice was
+        # written for a given "agent_id:error_category" key. See
+        # `_notify_permanent_failure`.
+        self._failure_notify_cooldown: Dict[str, float] = {}
 
     async def start(self) -> None:
         """Start the polling loop with adaptive interval."""
@@ -232,7 +311,7 @@ class MessageBusTrigger:
                     _IM_CHANNEL_PREFIXES = ("lark_", "telegram_", "slack_")
                     if channel_id.startswith(_IM_CHANNEL_PREFIXES):
                         latest = max(messages, key=lambda m: str(m.created_at))
-                        await self._bus.ack_processed(agent_id, channel_id, str(latest.created_at))
+                        await self._bus.ack_processed(agent_id, channel_id, latest.created_at)
                         continue
 
                     channel_type, channel_owner = await self._get_channel_info(channel_id)
@@ -246,7 +325,7 @@ class MessageBusTrigger:
                         # Still ack to advance cursor
                         latest = max(messages, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(
-                            agent_id, channel_id, str(latest.created_at)
+                            agent_id, channel_id, latest.created_at
                         )
                         continue
 
@@ -254,13 +333,13 @@ class MessageBusTrigger:
                     if not self._check_rate_limit(agent_id, channel_id):
                         latest = max(relevant, key=lambda m: str(m.created_at))
                         await self._bus.ack_processed(
-                            agent_id, channel_id, str(latest.created_at)
+                            agent_id, channel_id, latest.created_at
                         )
                         continue
 
                     trigger_msg = relevant[-1]
                     await self._handle_channel_batch(
-                        agent_id, channel_id, relevant, trigger_msg
+                        agent_id, channel_id, relevant, trigger_msg, channel_owner
                     )
                     handled_any = True
 
@@ -288,33 +367,47 @@ class MessageBusTrigger:
         channel_id: str,
         messages: List[BusMessage],
         trigger_message: BusMessage,
+        channel_owner: str = "",
     ) -> None:
         """
         Handle a batch of messages from a single channel for an agent.
 
         Builds a prompt, invokes AgentRuntime, and on success advances the
         processing cursor. On failure, records the failure for retry tracking.
-        """
-        try:
-            # Owner lookup up-front — used by both the prompt (to remind the
-            # agent its owner is waiting in chat) and the inbox writer.
-            owner_user_id = await self._get_agent_owner(agent_id)
-            # Resolve the owner's human name for the relay prose (the raw
-            # user_id stays as the send_message_to_user_directly routing key).
-            owner_name = ""
-            if owner_user_id:
-                from xyz_agent_context.utils.db_factory import get_db_client
-                from xyz_agent_context.repository import UserRepository
-                owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
-            # Build prompt from messages
-            prompt = self._build_prompt(
-                messages, owner_user_id=owner_user_id, owner_name=owner_name
-            )
+        Team group chat (``channel_owner`` is the synthetic ``team_<id>``
+        marker) is a distinct surface: the agent gets a group-chat prompt
+        (not the owner-relay), and its reply is posted BACK INTO the channel
+        — with any @mentions parsed so teammates get pulled in — so the user
+        and teammates all see it in the shared room. Every other channel
+        (peer DM, IM bridges) keeps the original owner-relay + inbox path.
+        """
+        is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
+        member_map: Dict[str, str] = {}
+        try:
+            if is_team:
+                member_map = await self._team_member_names(channel_id)
+                prompt = self._build_team_prompt(agent_id, messages, member_map)
+            else:
+                # Owner lookup up-front — used by both the prompt (to remind the
+                # agent its owner is waiting in chat) and the inbox writer.
+                owner_user_id = await self._get_agent_owner(agent_id)
+                # Resolve the owner's human name for the relay prose (the raw
+                # user_id stays as the send_message_to_user_directly routing key).
+                owner_name = ""
+                if owner_user_id:
+                    from xyz_agent_context.utils.db_factory import get_db_client
+                    from xyz_agent_context.repository import UserRepository
+                    owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
+
+                # Build prompt from messages
+                prompt = self._build_prompt(
+                    messages, owner_user_id=owner_user_id, owner_name=owner_name
+                )
 
             logger.info(
                 f"MessageBusTrigger: triggering agent {agent_id} "
-                f"for channel {channel_id} ({len(messages)} messages)"
+                f"for channel {channel_id} ({len(messages)} messages, team={is_team})"
             )
 
             # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
@@ -341,11 +434,34 @@ class MessageBusTrigger:
                 f"{len(messages)} messages in channel {channel_id}"
             )
 
-            # Write response to inbox
             if response_text:
-                await self._write_to_inbox(
-                    agent_id, channel_id, trigger_message, response_text
-                )
+                if is_team:
+                    # Post the reply back into the shared room as this agent.
+                    # Parse @mentions so an agent can hand off to a teammate
+                    # (e.g. "@rabbit can you summarise?") and pull them in.
+                    mentions = self._extract_team_mentions(response_text, member_map)
+                    # Cap agent↔agent cascades: if too many agent hops have
+                    # piled up since the last human message, stop propagating
+                    # @mentions so two agents can't loop forever.
+                    if mentions:
+                        depth = await self._team_cascade_depth(channel_id)
+                        if depth >= MAX_TEAM_AGENT_HOPS:
+                            logger.info(
+                                f"Team cascade depth {depth} >= {MAX_TEAM_AGENT_HOPS} "
+                                f"in {channel_id}; dropping @mentions to break the loop"
+                            )
+                            mentions = []
+                    await self._bus.send_message(
+                        from_agent=agent_id,
+                        to_channel=channel_id,
+                        content=response_text,
+                        mentions=mentions or None,
+                    )
+                else:
+                    # Write response to inbox
+                    await self._write_to_inbox(
+                        agent_id, channel_id, trigger_message, response_text
+                    )
 
         except Exception as e:
             logger.exception(
@@ -358,6 +474,249 @@ class MessageBusTrigger:
                 agent_id=agent_id,
                 error=str(e),
             )
+            # Once this message crosses the poison threshold,
+            # `get_pending_messages` will filter it out forever (local_bus.py)
+            # — this is the one chance to tell the owner it happened.
+            failure_count = await self._bus.get_failure_count(
+                trigger_message.message_id, agent_id
+            )
+            if failure_count >= POISON_FAILURE_THRESHOLD:
+                await self._notify_permanent_failure(
+                    agent_id=agent_id,
+                    channel_id=channel_id,
+                    trigger_message=trigger_message,
+                    error=str(e),
+                )
+
+    @staticmethod
+    def _classify_error(error: str) -> str:
+        """Coarse category used for (a) the cooldown de-dup key and (b) the
+        hint text shown to the owner. Deliberately a substring match, not a
+        parsed exception type — `record_failure` only ever gets a `str(e)`,
+        the original exception is already gone by the time this runs.
+
+        Runs on the RAW error (before `_redact_error_for_owner` masks
+        anything) — classification only reads for keyword markers like
+        "api_key" / "401", it never displays the raw string, so there is
+        nothing to redact here.
+        """
+        lowered = (error or "").lower()
+        if any(marker in lowered for marker in _CREDENTIAL_ERROR_MARKERS):
+            return "provider_credential"
+        return "generic"
+
+    @staticmethod
+    def _redact_error_for_owner(error: str) -> str:
+        """Mask secret-looking substrings and cap the length before an
+        error string is echoed into the owner-facing inbox notification.
+
+        Provider SDKs routinely echo the offending credential back in the
+        error body (OpenAI: "Incorrect API key provided: sk-..."), so
+        `str(exception)` must never be written verbatim to a place the
+        owner (and anyone with inbox access) can read. This is a coarse
+        pattern mask, not a full secret scanner — good enough for the
+        common `sk-...` / `key=...` / `Bearer ...` shapes, not a security
+        boundary for arbitrary provider error formats.
+        """
+        text = error or ""
+        text = _SECRET_BEARER_PATTERN.sub("Bearer ***", text)
+        text = _SECRET_KEY_PATTERN.sub("sk-***", text)
+        text = _SECRET_KEYVALUE_PATTERN.sub(lambda m: f"{m.group(1)}***", text)
+        if len(text) > MAX_NOTIFIED_ERROR_LEN:
+            text = text[:MAX_NOTIFIED_ERROR_LEN] + "... [truncated]"
+        return text
+
+    async def _notify_permanent_failure(
+        self,
+        agent_id: str,
+        channel_id: str,
+        trigger_message: BusMessage,
+        error: str,
+    ) -> None:
+        """Surface a permanently-dropped bus message to the owner's inbox.
+
+        Without this, hitting `POISON_FAILURE_THRESHOLD` is a pure silent
+        failure (upstream: NetMindAI-Open/NarraNexus#52) — e.g. a broken
+        OpenAI provider key makes every `_invoke_runtime` call raise, and
+        after 3 failures the message just vanishes from
+        `get_pending_messages` forever with zero owner-facing signal.
+
+        De-duplicated per (agent_id, error category) via
+        `_failure_notify_cooldown` (same in-memory, per-process pattern as
+        `_rate_counters` — a process restart resets it, which is an accepted
+        tradeoff here too) so a burst of messages failing for one root cause
+        writes at most one inbox row per `FAILURE_NOTIFY_COOLDOWN_SECONDS`.
+
+        The cooldown is armed ONLY after a successful inbox write (see the
+        end of the `try` block) — arming it up-front would let one transient
+        write failure (DB blip, etc.) silently suppress the real
+        notification for the rest of the cooldown window.
+        """
+        category = self._classify_error(error)
+        cooldown_key = f"{agent_id}:{category}"
+        now = time.monotonic()
+        last_notified = self._failure_notify_cooldown.get(cooldown_key)
+        if (
+            last_notified is not None
+            and now - last_notified < FAILURE_NOTIFY_COOLDOWN_SECONDS
+        ):
+            return
+
+        try:
+            owner_user_id = await self._get_agent_owner(agent_id)
+            if not owner_user_id:
+                logger.warning(
+                    f"Cannot notify of permanent bus failure: agent "
+                    f"{agent_id} has no resolvable owner"
+                )
+                return
+
+            import uuid
+
+            from xyz_agent_context.repository.inbox_repository import (
+                InboxRepository,
+            )
+            from xyz_agent_context.schema.inbox_schema import (
+                InboxMessageType,
+                MessageSource,
+            )
+            from xyz_agent_context.utils.db_factory import get_db_client
+
+            if category == "provider_credential":
+                hint = (
+                    "This looks like a provider/credential problem — check "
+                    "the agent's LLM provider configuration (API key, base "
+                    "URL) in Provider settings, then retry the message."
+                )
+            else:
+                hint = (
+                    "Check the agent's recent activity for details, then "
+                    "retry the message."
+                )
+
+            safe_error = self._redact_error_for_owner(error)
+            content = (
+                f"Your agent could not process a message on channel "
+                f"{channel_id} after {POISON_FAILURE_THRESHOLD} attempts "
+                f"and has stopped retrying it automatically.\n\n"
+                f"Error: {safe_error}\n\n{hint}"
+            )
+
+            db = await get_db_client()
+            await InboxRepository(db).create_message(
+                user_id=owner_user_id,
+                message_id=f"busfail_{uuid.uuid4().hex[:16]}",
+                title=f"Message delivery failed: {agent_id}",
+                content=content,
+                message_type=InboxMessageType.SYSTEM_NOTICE,
+                source=MessageSource(type="message_bus_failure", id=channel_id),
+            )
+            # Arm the cooldown only now that the write actually succeeded.
+            self._failure_notify_cooldown[cooldown_key] = now
+            logger.warning(
+                f"MessageBusTrigger: notified owner {owner_user_id} of "
+                f"permanent failure for agent {agent_id} in channel "
+                f"{channel_id} (category={category})"
+            )
+        except Exception as notify_err:  # noqa: BLE001 — notification is best-effort
+            logger.warning(
+                f"Failed to write permanent-failure notification to inbox: "
+                f"{notify_err}"
+            )
+
+    async def _team_member_names(self, channel_id: str) -> Dict[str, str]:
+        """Map each channel member's agent_id → display name (agent_name)."""
+        out: Dict[str, str] = {}
+        for m in await self._bus.get_channel_members(channel_id):
+            row = await self._bus._db.get_one("agents", {"agent_id": m.agent_id})
+            if row:
+                out[m.agent_id] = row.get("agent_name") or m.agent_id
+        return out
+
+    def _build_team_prompt(
+        self, agent_id: str, messages: List[BusMessage], member_map: Dict[str, str]
+    ) -> str:
+        """Group-chat prompt for a team room. The agent's plain reply is posted
+        back into the shared room (the user + teammates see it), so — unlike the
+        peer/owner-relay path — there is no send_message_to_user_directly step."""
+        me = member_map.get(agent_id, agent_id)
+        teammates = [n for a, n in member_map.items() if a != agent_id]
+        roster = ", ".join(teammates) if teammates else "(no other agents yet)"
+        lines = [
+            "[Team Group Chat]",
+            f'You are "{me}" in a team group chat with the user and your '
+            f"teammates.",
+            f"Channel members RIGHT NOW (besides the user): {roster}.",
+            "These are the ONLY participants who can see this chat. Someone "
+            "named in the history but not in that list has LEFT or was never "
+            "here — they are not present.",
+            "",
+            "Recent messages:",
+        ]
+        for msg in messages:
+            sender = (
+                "User"
+                if msg.from_agent.startswith(USER_SENDER_PREFIX)
+                else member_map.get(msg.from_agent, msg.from_agent)
+            )
+            lines.append(f"{sender}: {msg.content}")
+        lines += [
+            "",
+            "Write your chat reply now. Rules:",
+            "- Output ONLY the message itself — natural, conversational text "
+            "(markdown is fine). It is posted to the group as-is; everyone sees it.",
+            "- Do NOT use any tools and do NOT call any send/bus function. Your "
+            "text reply is delivered automatically — there is nothing to invoke.",
+            "- Do NOT narrate your process or thinking. No \"Let me…\", no \"I "
+            "need to find…\", no tool/function names, no step-by-step. Just talk.",
+            "- Keep it short, like a real group chat. To pull in a teammate, "
+            "@mention them by name (e.g. @Name); say @all for everyone — but only "
+            "when you genuinely need them, not as a reflex.",
+            "- You may ONLY @mention a current channel member listed above. Do "
+            "NOT @mention anyone who is not in that list — they are not in the "
+            "channel and cannot see or answer it. If you want someone else "
+            "involved, ask the user to add them instead of @mentioning them.",
+        ]
+        return "\n".join(lines)
+
+    def _extract_team_mentions(
+        self, text: str, member_map: Dict[str, str]
+    ) -> List[str]:
+        """Resolve @mentions in an agent's reply to channel-member agent_ids
+        (or ["@everyone"] for @all/@everyone), so a hand-off pulls teammates in."""
+        import re
+
+        tokens = {t.lower() for t in re.findall(r"@([\w一-鿿]+)", text or "")}
+        if not tokens:
+            return []
+        if "all" in tokens or "everyone" in tokens:
+            return ["@everyone"]
+        out: List[str] = []
+        for aid, name in member_map.items():
+            nm = (name or aid).lower()
+            first = nm.split()[0] if nm.split() else nm
+            if nm in tokens or first in tokens or any(
+                len(t) >= 2 and nm.startswith(t) for t in tokens
+            ):
+                out.append(aid)
+        return out
+
+    async def _team_cascade_depth(self, channel_id: str) -> int:
+        """How many consecutive agent (non-user) messages end the channel — i.e.
+        how many agent hops have happened since the last human message. A user
+        message resets this to 0 on its next turn."""
+        ph = self._bus._db.placeholder
+        rows = await self._bus._db.execute(
+            f"SELECT from_agent FROM bus_messages WHERE channel_id = {ph} "
+            f"ORDER BY created_at DESC LIMIT {MAX_TEAM_AGENT_HOPS + 2}",
+            (channel_id,),
+        )
+        depth = 0
+        for r in rows or []:
+            if str(r["from_agent"]).startswith(USER_SENDER_PREFIX):
+                break
+            depth += 1
+        return depth
 
     def _build_prompt(
         self, messages: List[BusMessage], owner_user_id: str = "", owner_name: str = ""
@@ -453,17 +812,16 @@ class MessageBusTrigger:
             RuntimeError: If AgentRuntime cannot be imported or execution fails.
         """
         try:
-            from xyz_agent_context.agent_runtime import AgentRuntime
-            from xyz_agent_context.agent_runtime.run_collector import collect_run
+            from xyz_agent_context.agent_runtime.client import (
+                get_agent_runtime_client,
+            )
             from xyz_agent_context.schema import WorkingSource
         except ImportError as e:
             raise RuntimeError(
                 f"Cannot import AgentRuntime dependencies: {e}"
             ) from e
 
-        runtime = AgentRuntime()
-        collection = await collect_run(
-            runtime,
+        collection = await get_agent_runtime_client().run_and_collect(
             agent_id=agent_id,
             user_id=sender_agent_id,
             input_content=prompt,

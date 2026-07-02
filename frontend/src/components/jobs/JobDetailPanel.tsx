@@ -2,6 +2,7 @@
  * Job Detail Panel - Display detailed information for the selected job
  */
 
+import { useTranslation } from 'react-i18next';
 import { X, Clock, PlayCircle, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Badge, Button, ScrollArea } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/utils';
@@ -12,20 +13,21 @@ interface JobDetailPanelProps {
   onClose: () => void;
 }
 
-const statusConfig: Record<JobNodeStatus, { icon: typeof Clock; color: string; label: string }> = {
-  pending: { icon: Clock, color: 'text-gray-500', label: 'Pending' },
-  active: { icon: AlertCircle, color: 'text-blue-500', label: 'Active' },
-  running: { icon: PlayCircle, color: 'text-[var(--color-yellow-500)]', label: 'Running' },
-  completed: { icon: CheckCircle, color: 'text-[var(--color-green-500)]', label: 'Completed' },
-  failed: { icon: XCircle, color: 'text-[var(--color-red-500)]', label: 'Failed' },
-  cancelled: { icon: XCircle, color: 'text-gray-400', label: 'Cancelled' },
+const statusConfig: Record<JobNodeStatus, { icon: typeof Clock; color: string; labelKey: string }> = {
+  pending: { icon: Clock, color: 'text-gray-500', labelKey: 'jobs.status.pending' },
+  active: { icon: AlertCircle, color: 'text-blue-500', labelKey: 'jobs.status.active' },
+  running: { icon: PlayCircle, color: 'text-[var(--color-yellow-500)]', labelKey: 'jobs.status.running' },
+  completed: { icon: CheckCircle, color: 'text-[var(--color-green-500)]', labelKey: 'jobs.status.completed' },
+  failed: { icon: XCircle, color: 'text-[var(--color-red-500)]', labelKey: 'jobs.status.failed' },
+  cancelled: { icon: XCircle, color: 'text-gray-400', labelKey: 'jobs.status.cancelled' },
 };
 
 export function JobDetailPanel({ job, onClose }: JobDetailPanelProps) {
+  const { t } = useTranslation();
   if (!job) {
     return (
       <div className="p-4 text-center text-[var(--text-tertiary)]">
-        Click a node to view details
+        {t('jobs.detail.clickNode')}
       </div>
     );
   }
@@ -58,31 +60,31 @@ export function JobDetailPanel({ job, onClose }: JobDetailPanelProps) {
             : 'default'
         }
       >
-        {config.label}
+        {t(config.labelKey)}
       </Badge>
 
       {/* Details Grid */}
       <div className="space-y-3 text-sm">
         <div className="grid grid-cols-[100px_1fr] gap-2">
-          <span className="text-[var(--text-tertiary)]">ID:</span>
+          <span className="text-[var(--text-tertiary)]">{t('jobs.detail.id')}</span>
           <span className="font-mono text-[var(--text-secondary)] break-all">{job.id}</span>
         </div>
 
         <div className="grid grid-cols-[100px_1fr] gap-2">
-          <span className="text-[var(--text-tertiary)]">Task Key:</span>
+          <span className="text-[var(--text-tertiary)]">{t('jobs.detail.taskKey')}</span>
           <span className="font-mono text-[var(--text-secondary)]">{job.task_key}</span>
         </div>
 
         {job.description && (
           <div className="grid grid-cols-[100px_1fr] gap-2">
-            <span className="text-[var(--text-tertiary)]">Description:</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.detail.description')}</span>
             <span className="text-[var(--text-secondary)]">{job.description}</span>
           </div>
         )}
 
         {job.depends_on.length > 0 && (
           <div className="grid grid-cols-[100px_1fr] gap-2">
-            <span className="text-[var(--text-tertiary)]">Depends on:</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.detail.dependsOn')}</span>
             <div className="flex flex-wrap gap-1">
               {job.depends_on.map((dep) => (
                 <Badge key={dep} variant="default" size="sm">
@@ -95,7 +97,7 @@ export function JobDetailPanel({ job, onClose }: JobDetailPanelProps) {
 
         {job.started_at && (
           <div className="grid grid-cols-[100px_1fr] gap-2">
-            <span className="text-[var(--text-tertiary)]">Started:</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.detail.started')}</span>
             <span className="text-[var(--text-secondary)]">
               {formatRelativeTime(job.started_at)}
             </span>
@@ -104,7 +106,7 @@ export function JobDetailPanel({ job, onClose }: JobDetailPanelProps) {
 
         {job.completed_at && (
           <div className="grid grid-cols-[100px_1fr] gap-2">
-            <span className="text-[var(--text-tertiary)]">Completed:</span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.detail.completed')}</span>
             <span className="text-[var(--text-secondary)]">
               {formatRelativeTime(job.completed_at)}
             </span>
@@ -113,7 +115,7 @@ export function JobDetailPanel({ job, onClose }: JobDetailPanelProps) {
 
         {job.output && (
           <div className="pt-2 border-t border-[var(--border-subtle)]">
-            <span className="text-[var(--text-tertiary)] block mb-1">Output:</span>
+            <span className="text-[var(--text-tertiary)] block mb-1">{t('jobs.detail.output')}</span>
             <ScrollArea className="max-h-32 rounded bg-[var(--bg-tertiary)]" viewportClassName="p-2">
               <div className="text-[var(--text-secondary)] text-xs whitespace-pre-wrap">
                 {job.output}

@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowRight, UserPlus, Cloud } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
@@ -36,6 +37,7 @@ export function LoginPage() {
   const [showForgot, setShowForgot] = useState(false);
 
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const location = useLocation();
   const { isDark } = useTheme();
   const { login, setNetmindToken, setAgents, setAgentId } = useConfigStore();
@@ -46,7 +48,7 @@ export function LoginPage() {
   const netmind = useNetmindAuth({
     onSuccess: async (res, loginToken) => {
       if (!res.success || !res.user_id) {
-        setError(res.error || 'Login failed');
+        setError(res.error || t('pages.login.loginFailed'));
         return;
       }
       login(res.user_id, res.token || undefined, res.role || undefined, {
@@ -68,7 +70,7 @@ export function LoginPage() {
   // Local-mode only login (cloud mode uses netmind hook instead)
   const handleLocalLogin = async () => {
     if (!userId.trim()) {
-      setError('Please enter your User ID');
+      setError(t('pages.login.enterUserId'));
       return;
     }
 
@@ -78,7 +80,7 @@ export function LoginPage() {
     try {
       const loginRes = await api.login(userId.trim(), undefined);
       if (!loginRes.success) {
-        setError(loginRes.error || 'Login failed');
+        setError(loginRes.error || t('pages.login.loginFailed'));
         setLoading(false);
         return;
       }
@@ -98,7 +100,7 @@ export function LoginPage() {
       const next = params.get('next');
       navigate(isSafeReturnTo(next) ? next : '/');
     } catch (err) {
-      setError('Connection failed. Please try again.');
+      setError(t('pages.login.connectionFailed'));
       console.error('Login error:', err);
     } finally {
       setLoading(false);
@@ -133,16 +135,16 @@ export function LoginPage() {
             className="text-[10px] uppercase tracking-[0.22em]"
             style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}
           >
-            {isCloudMode ? 'Cloud · Access' : 'Local · Access'}
+            {isCloudMode ? t('pages.login.cloudAccess') : t('pages.login.localAccess')}
           </div>
           {isCloudMode && (
             <Chip species="silicon" leading={<Cloud className="w-3 h-3" />}>
-              Cloud mode
+              {t('pages.login.cloudMode')}
             </Chip>
           )}
           {isCloudMode && (
             <p className="text-xs" style={{ color: 'var(--nm-ink50)' }}>
-              Sign in with your NetMind.AI account
+              {t('pages.login.signInWithNetmind')}
             </p>
           )}
         </div>
@@ -162,18 +164,15 @@ export function LoginPage() {
               }}
               role="status"
             >
-              <strong>We&apos;ve reorganized our account system.</strong> Your
-              data has been migrated to the account under the email you used to
-              receive your invite code. To sign in, please reset your password
-              for that email first (use &ldquo;Forgot password?&rdquo; below).
-              For any other questions, contact our team at{' '}
+              <strong>{t('pages.login.migrationNoticeHeading')}</strong>{' '}
+              {t('pages.login.migrationNoticeBody')}{' '}
               <a href="mailto:bin.liang@netmind.ai" className="underline">
                 bin.liang@netmind.ai
               </a>
               .
             </div>
 
-            <FormField label="Email">
+            <FormField label={t('pages.login.emailLabel')}>
               <TextInput
                 type="email"
                 value={email}
@@ -186,7 +185,7 @@ export function LoginPage() {
               />
             </FormField>
 
-            <FormField label="Password">
+            <FormField label={t('pages.login.passwordLabel')}>
               <TextInput
                 type="password"
                 value={password}
@@ -204,7 +203,7 @@ export function LoginPage() {
                 onClick={() => setShowForgot(true)}
                 className="text-xs opacity-60 hover:opacity-100 transition-opacity"
               >
-                Forgot password?
+                {t('pages.login.forgotPassword')}
               </button>
             </div>
 
@@ -231,7 +230,7 @@ export function LoginPage() {
               className="w-full"
               trailing={!netmind.loading ? <ArrowRight className="w-4 h-4" /> : undefined}
             >
-              {netmind.loading ? 'Connecting…' : 'Sign In'}
+              {netmind.loading ? t('pages.login.connecting') : t('pages.login.signIn')}
             </Button>
 
             <div className="relative py-4">
@@ -247,7 +246,7 @@ export function LoginPage() {
                     fontFamily: 'var(--font-mono)',
                   }}
                 >
-                  or
+                  {t('pages.login.or')}
                 </span>
               </div>
             </div>
@@ -258,7 +257,7 @@ export function LoginPage() {
               disabled={netmind.loading}
               className="w-full"
             >
-              Sign in with Google
+              {t('pages.login.signInWithGoogle')}
             </Button>
 
             <Button
@@ -267,7 +266,7 @@ export function LoginPage() {
               disabled={netmind.loading}
               className="w-full"
             >
-              Sign in with Microsoft
+              {t('pages.login.signInWithMicrosoft')}
             </Button>
 
             <Button
@@ -276,7 +275,7 @@ export function LoginPage() {
               disabled={netmind.loading}
               className="w-full"
             >
-              Sign in with GitHub
+              {t('pages.login.signInWithGithub')}
             </Button>
 
             <div className="relative py-4">
@@ -292,7 +291,7 @@ export function LoginPage() {
                     fontFamily: 'var(--font-mono)',
                   }}
                 >
-                  or
+                  {t('pages.login.or')}
                 </span>
               </div>
             </div>
@@ -304,13 +303,13 @@ export function LoginPage() {
               className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--nm-ink)] h-10 px-4 text-sm bg-[color:var(--nm-raised)] text-[color:var(--nm-ink)] border border-[color:var(--nm-ink)] hover:bg-[color:var(--nm-paper-warm)] w-full"
             >
               <UserPlus className="w-4 h-4" />
-              <span>Create Account</span>
+              <span>{t('pages.login.createAccount')}</span>
             </a>
           </div>
         ) : (
           /* Local: user_id only — original flow preserved */
           <div className="space-y-5 mt-6">
-            <FormField label="User ID">
+            <FormField label={t('pages.login.userIdLabel')}>
               <TextInput
                 type="text"
                 value={userId}
@@ -347,7 +346,7 @@ export function LoginPage() {
               className="w-full"
               trailing={!loading ? <ArrowRight className="w-4 h-4" /> : undefined}
             >
-              {loading ? 'Connecting…' : 'Access Terminal'}
+              {loading ? t('pages.login.connecting') : t('pages.login.accessTerminal')}
             </Button>
 
             <div className="relative py-4">
@@ -363,7 +362,7 @@ export function LoginPage() {
                     fontFamily: 'var(--font-mono)',
                   }}
                 >
-                  or
+                  {t('pages.login.or')}
                 </span>
               </div>
             </div>
@@ -374,7 +373,7 @@ export function LoginPage() {
               className="w-full"
               leading={<UserPlus className="w-4 h-4" />}
             >
-              Create New User
+              {t('pages.login.createNewUser')}
             </Button>
           </div>
         )}

@@ -9,6 +9,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MoreVertical, Pencil, Trash2, Globe, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -46,30 +47,30 @@ export function AgentRowMenu({
   onTogglePublic,
   onOpenChange,
 }: AgentRowMenuProps) {
-  const [open, setOpenState] = useState(false);
-  const setOpen = (next: boolean | ((v: boolean) => boolean)) => {
-    setOpenState((prev) => {
-      const value = typeof next === 'function' ? next(prev) : next;
-      if (value !== prev) onOpenChange?.(value);
-      return value;
-    });
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  // Notify the parent from the event handler (NOT inside a setState updater —
+  // that runs during render and triggers a cross-component setState warning).
+  const setOpenAndNotify = (next: boolean) => {
+    setOpen(next);
+    onOpenChange?.(next);
   };
 
   const handleTrigger = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setOpen((v) => !v);
+    setOpenAndNotify(!open);
   };
 
   const handleItem = (handler: (e: React.MouseEvent) => void) => (e: React.MouseEvent) => {
     e.stopPropagation();
-    setOpen(false);
+    setOpenAndNotify(false);
     handler(e);
   };
 
   return (
     <div className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
-        aria-label="Agent options"
+        aria-label={t('layout.agentRowMenu.options')}
         onClick={handleTrigger}
         className={cn(
           'p-1 rounded-[var(--radius-xs)] transition-colors',
@@ -85,7 +86,7 @@ export function AgentRowMenu({
           {/* Click-outside overlay */}
           <div
             className="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setOpen(false); }}
+            onClick={(e) => { e.stopPropagation(); setOpenAndNotify(false); }}
           />
           <div
             className={cn(
@@ -98,7 +99,7 @@ export function AgentRowMenu({
             {/* Rename — available to everyone */}
             <MenuItem
               icon={<Pencil className="w-3 h-3" />}
-              label="Rename"
+              label={t('layout.agentRowMenu.rename')}
               onClick={handleItem(onStartEdit)}
             />
 
@@ -110,7 +111,7 @@ export function AgentRowMenu({
                     ? <Globe className="w-3 h-3" />
                     : <Lock className="w-3 h-3" />
                 }
-                label={isPublic ? 'Set to Private' : 'Set to Public'}
+                label={isPublic ? t('layout.agentRowMenu.setPrivate') : t('layout.agentRowMenu.setPublic')}
                 onClick={handleItem(onTogglePublic)}
               />
             )}
@@ -119,7 +120,7 @@ export function AgentRowMenu({
             {isOwner && (
               <MenuItem
                 icon={<Trash2 className="w-3 h-3" />}
-                label="Delete"
+                label={t('layout.agentRowMenu.delete')}
                 danger
                 onClick={handleItem(onDelete)}
               />

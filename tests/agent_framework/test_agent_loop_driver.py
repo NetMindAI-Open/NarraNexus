@@ -19,12 +19,12 @@ from xyz_agent_context.agent_framework.agent_loop_driver import _REGISTRY
 
 
 def test_claude_is_registered_by_default():
-    assert "claude" in available_agent_loop_frameworks()
+    assert "claude_code" in available_agent_loop_frameworks()
 
 
-def test_default_resolves_to_claude(monkeypatch):
+def test_default_resolves_to_claude_code(monkeypatch):
     monkeypatch.delenv("AGENT_LOOP_FRAMEWORK", raising=False)
-    assert resolve_framework_name() == "claude"
+    assert resolve_framework_name() == "claude_code"
 
 
 def test_env_overrides_default(monkeypatch):
@@ -38,7 +38,7 @@ def test_explicit_arg_wins_over_env(monkeypatch):
 
 
 def test_get_claude_driver_returns_claude_sdk():
-    driver = get_agent_loop_driver("claude", working_path="./")
+    driver = get_agent_loop_driver("claude_code", working_path="./")
     assert isinstance(driver, ClaudeAgentSDK)
     assert driver.working_path == "./"
 

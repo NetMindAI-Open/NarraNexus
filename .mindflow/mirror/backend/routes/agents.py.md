@@ -1,21 +1,29 @@
 ---
 code_file: backend/routes/agents.py
-last_verified: 2026-04-10
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — `agents_bus_failures` sub-router added
+
+Added `router.include_router(bus_failures_router)`, mounting
+`backend/routes/agents_bus_failures.py`'s `/{agent_id}/bus-failures` (GET) and
+`/{agent_id}/bus-failures/{message_id}/retry` (POST) under `/api/agents`. This
+is the recovery half of the NetMindAI-Open/NarraNexus#52 fix — see
+`agents_bus_failures.py.md`.
 
 # agents.py — Agent 路由聚合器
 
 ## 为什么存在
 
-`agents.py` 是一个纯聚合文件，没有任何路由定义，只做一件事：把 7 个 `agents_*` 子路由模块合并成一个 `router`，让 `main.py` 只需要 `include_router(agents_router, prefix="/api/agents")` 一次就能注册所有 agent 相关路由。
+`agents.py` 是一个纯聚合文件，没有任何路由定义，只做一件事：把多个 `agents_*` 子路由模块合并成一个 `router`，让 `main.py` 只需要 `include_router(agents_router, prefix="/api/agents")` 一次就能注册所有 agent 相关路由。
 
-存在的原因是 agent 资源的子域太多（awareness、chat history、files、MCPs、RAG、social network、cost），全放在一个文件里会超过 2000 行，可维护性极差。这个文件是在重构过程中从原来的单体 1850 行文件中拆出来的聚合点。
+存在的原因是 agent 资源的子域太多（awareness、chat history、files、MCPs、social network、cost、bus-failures），全放在一个文件里会超过 2000 行，可维护性极差。这个文件是在重构过程中从原来的单体 1850 行文件中拆出来的聚合点。
 
 ## 上下游关系
 
 - **被谁用**：`backend/main.py` — `include_router(agents_router, prefix="/api/agents")`
-- **依赖谁**：`agents_awareness.py`、`agents_social_network.py`、`agents_chat_history.py`、`agents_files.py`、`agents_mcps.py`、`agents_rag.py`、`agents_cost.py` 的 router 实例
+- **依赖谁**：`agents_awareness.py`、`agents_social_network.py`、`agents_chat_history.py`、`agents_files.py`、`agents_attachments.py`、`agents_mcps.py`、`agents_cost.py`、`agents_bus_failures.py` 的 router 实例
 
 ## 设计决策
 

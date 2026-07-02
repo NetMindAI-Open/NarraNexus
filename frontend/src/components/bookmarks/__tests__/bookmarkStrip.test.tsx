@@ -11,13 +11,21 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReactElement } from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { BookmarkStrip } from '../BookmarkStrip';
 import { BookmarkDrawer } from '../BookmarkDrawer';
 import { ALL_TABS, STRIP_CATEGORIES, deriveTabStatus, markTabOpened } from '../tabs';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 
 const AGENT = 'agent_strip_test';
+
+// The strip's agent header uses router + store hooks (useNavigate); render it
+// inside a router so those hooks resolve. The agent identity header itself
+// stays hidden in these tests (empty config store → no agent name).
+const renderStrip = (ui: ReactElement) =>
+  render(<MemoryRouter>{ui}</MemoryRouter>);
 
 beforeEach(() => {
   act(() => {
@@ -36,21 +44,21 @@ describe('tabs registry', () => {
 
 describe('BookmarkStrip — rendering', () => {
   it('renders one button per atomic tab', () => {
-    render(<BookmarkStrip agentId={AGENT} activeTab={null} onOpen={vi.fn()} />);
+    renderStrip(<BookmarkStrip agentId={AGENT} activeTab={null} onOpen={vi.fn()} />);
     for (const tab of ALL_TABS) {
       expect(screen.getByLabelText(tab.label)).toBeInTheDocument();
     }
   });
 
   it('marks the active tab with aria-expanded', () => {
-    render(<BookmarkStrip agentId={AGENT} activeTab="jobs" onOpen={vi.fn()} />);
+    renderStrip(<BookmarkStrip agentId={AGENT} activeTab="jobs" onOpen={vi.fn()} />);
     expect(screen.getByLabelText('Jobs')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByLabelText('Inbox')).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('click calls onOpen with the tab id', () => {
     const onOpen = vi.fn();
-    render(<BookmarkStrip agentId={AGENT} activeTab={null} onOpen={onOpen} />);
+    renderStrip(<BookmarkStrip agentId={AGENT} activeTab={null} onOpen={onOpen} />);
     fireEvent.click(screen.getByLabelText('MCP Servers'));
     expect(onOpen).toHaveBeenCalledWith('mcp');
   });

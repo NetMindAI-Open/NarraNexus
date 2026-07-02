@@ -9,6 +9,7 @@
  */
 
 import { RotateCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
@@ -31,48 +32,41 @@ interface ServiceCardProps {
 
 const STATUS_CONFIG: Record<
   ServiceStatus,
-  { color: string; bg: string; label: string; pulse: boolean }
+  { color: string; bg: string; pulse: boolean }
 > = {
   healthy: {
     color: 'bg-[var(--color-success)]',
     bg: 'shadow-[0_0_8px_var(--color-success)]',
-    label: 'Healthy',
     pulse: true,
   },
   running: {
     color: 'bg-[var(--color-success)]',
     bg: 'shadow-[0_0_8px_var(--color-success)]',
-    label: 'Running',
     pulse: true,
   },
   starting: {
     color: 'bg-[var(--color-warning)]',
     bg: 'shadow-[0_0_8px_var(--color-warning)]',
-    label: 'Starting',
     pulse: true,
   },
   crashed: {
     color: 'bg-[var(--color-error)]',
     bg: 'shadow-[0_0_8px_var(--color-error)]',
-    label: 'Crashed',
     pulse: false,
   },
   unhealthy: {
     color: 'bg-[var(--color-error)]',
     bg: 'shadow-[0_0_8px_var(--color-error)]',
-    label: 'Unhealthy',
     pulse: false,
   },
   stopped: {
     color: 'bg-[var(--text-tertiary)]',
     bg: '',
-    label: 'Stopped',
     pulse: false,
   },
   unknown: {
     color: 'bg-[var(--text-tertiary)]',
     bg: '',
-    label: 'Unknown',
     pulse: false,
   },
 };
@@ -84,6 +78,7 @@ export function ServiceCard({
   lastError,
   onRestart,
 }: ServiceCardProps) {
+  const { t } = useTranslation();
   const config = STATUS_CONFIG[status];
 
   return (
@@ -116,7 +111,7 @@ export function ServiceCard({
 
           {/* Status + port */}
           <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)]">
-            <span>{config.label}</span>
+            <span>{t(`system.serviceStatus.${status}`)}</span>
             {port != null && (
               <span className="font-mono text-[var(--text-tertiary)]">
                 :{port}
@@ -138,7 +133,7 @@ export function ServiceCard({
             variant="ghost"
             size="icon"
             onClick={onRestart}
-            title="Restart service"
+            title={t('system.serviceCard.restart')}
             className="shrink-0"
           >
             <RotateCw className="w-4 h-4" />

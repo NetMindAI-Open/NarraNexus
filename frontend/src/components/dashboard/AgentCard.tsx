@@ -20,6 +20,7 @@
  *   EXPANDED:
  *     above + sessions + jobs + sparkline + recent feed
  */
+import { useTranslation } from 'react-i18next';
 import type { AgentStatus, OwnedAgentStatus, AttentionBanner } from '@/types';
 import { StatusBadge } from './StatusBadge';
 import { DurationDisplay } from './DurationDisplay';
@@ -34,14 +35,14 @@ import { MetricsRow } from './MetricsRow';
 import { HEALTH_COLORS, acknowledgedHealthOf } from './healthColors';
 import { useAllBannersDismissed, bannerKey } from './expandState';
 
-const HEALTH_TOOLTIP = {
-  healthy_running: 'Healthy · running',
-  healthy_idle: 'Healthy · idle (recently active)',
-  idle_long: 'Quiet · idle > 72h',
-  warning: 'Warning · job blocked',
-  paused: 'Paused · jobs paused by user',
-  error: 'Error · failed job or error event',
-  acknowledged: 'Error acknowledged · underlying issue still present',
+const HEALTH_TOOLTIP_KEY = {
+  healthy_running: 'healthy_running',
+  healthy_idle: 'healthy_idle',
+  idle_long: 'idle_long',
+  warning: 'warning',
+  paused: 'paused',
+  error: 'error',
+  acknowledged: 'acknowledged',
 } as const;
 
 interface Props {
@@ -58,6 +59,7 @@ export function AgentCard({ agent, onToggleExpand, expanded }: Props) {
 }
 
 function PublicCard({ agent }: { agent: AgentStatus }) {
+  const { t } = useTranslation();
   const colors = HEALTH_COLORS.healthy_idle;
   return (
     <div
@@ -74,7 +76,7 @@ function PublicCard({ agent }: { agent: AgentStatus }) {
           </div>
           <div className="shrink-0 flex items-baseline gap-1 text-[11px] text-[var(--text-tertiary)] tabular-nums">
             <span className="uppercase tracking-[0.08em] font-[family-name:var(--font-mono)]">
-              {agent.status.kind === 'idle' ? 'idle' : 'active'}
+              {agent.status.kind === 'idle' ? t('dashboard.card.idle') : t('dashboard.card.active')}
             </span>
             <span className="text-[var(--text-secondary)] font-medium">
               <DurationDisplay startedAt={agent.status.started_at} />
@@ -100,6 +102,7 @@ function OwnedCard({
   expanded: boolean;
   onToggleExpand: () => void;
 }) {
+  const { t } = useTranslation();
   const banners = agent.attention_banners ?? [];
   const staleInstances = agent.stale_instances ?? [];
   const allKeys = banners.map((b: AttentionBanner) =>
@@ -145,14 +148,14 @@ function OwnedCard({
       <div className="relative shrink-0">
         <div
           className={`w-1 h-full ${colors.rail} transition-colors duration-200`}
-          title={HEALTH_TOOLTIP[effectiveHealth as keyof typeof HEALTH_TOOLTIP]}
+          title={t(`dashboard.card.healthTooltip.${HEALTH_TOOLTIP_KEY[effectiveHealth as keyof typeof HEALTH_TOOLTIP_KEY]}`)}
           aria-hidden
         />
         {isAcknowledgedError && (
           <span
             data-testid="ack-dot"
-            title="Error acknowledged — underlying issue still present"
-            aria-label="error acknowledged"
+            title={t('dashboard.card.ackDotTitle')}
+            aria-label={t('dashboard.card.ackDotAria')}
             className="pointer-events-none absolute -right-[3px] top-2 h-2 w-2 rounded-full bg-[var(--color-red-500)] ring-2 ring-[var(--bg-elevated)]"
           />
         )}
@@ -169,17 +172,17 @@ function OwnedCard({
             {staleInstances.length > 0 && (
               <span
                 data-testid="stale-badge"
-                title={`${staleInstances.length} zombie instance(s): ${staleInstances.map((s) => s.module_class).join(', ')}`}
+                title={t('dashboard.card.staleTitle', { count: staleInstances.length, modules: staleInstances.map((s) => s.module_class).join(', ') })}
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.08em] text-[var(--text-tertiary)] border border-[var(--border-subtle)] rounded"
               >
                 <span className="h-1 w-1 rounded-full allow-circle bg-[var(--text-tertiary)]" aria-hidden />
-                {staleInstances.length} stale
+                {t('dashboard.card.stale', { count: staleInstances.length })}
               </span>
             )}
           </div>
           <div className="shrink-0 flex items-baseline gap-1 text-[11px] text-[var(--text-tertiary)] tabular-nums">
             <span className="uppercase tracking-[0.08em] font-[family-name:var(--font-mono)]">
-              {agent.status.kind === 'idle' ? 'idle' : 'active'}
+              {agent.status.kind === 'idle' ? t('dashboard.card.idle') : t('dashboard.card.active')}
             </span>
             <span className="text-[var(--text-secondary)] font-medium">
               <DurationDisplay startedAt={agent.status.started_at} />
@@ -206,14 +209,14 @@ function OwnedCard({
             <QueueBar queue={agent.queue} compact />
             <MetricsRow metrics={agent.metrics_today} />
             <span className="ml-auto text-[11px] text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors duration-150 font-[family-name:var(--font-mono)] uppercase tracking-[0.08em]">
-              {expanded ? '▴ less' : '▾ details'}
+              {expanded ? t('dashboard.card.less') : t('dashboard.card.details')}
             </span>
           </div>
         )}
         {agent.queue.total === 0 && agent.metrics_today.runs_ok === 0 && agent.metrics_today.errors === 0 && (
           <div className="mt-3 flex justify-end">
             <span className="text-[11px] text-[var(--text-tertiary)] group-hover:text-[var(--accent-primary)] transition-colors duration-150 font-[family-name:var(--font-mono)] uppercase tracking-[0.08em]">
-              {expanded ? '▴ less' : '▾ details'}
+              {expanded ? t('dashboard.card.less') : t('dashboard.card.details')}
             </span>
           </div>
         )}

@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Trash2, UserCheck, UserMinus, Loader2, Search, Filter,
@@ -26,6 +27,7 @@ import { cn } from '@/lib/utils';
 
 export default function ManageAgentsPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { agents, refreshAgents } = useConfigStore();
   const { teams, refresh: refreshTeams, addMember, removeMember } = useTeamsStore();
   const { confirm, alert, dialog } = useConfirm();
@@ -114,11 +116,9 @@ export default function ManageAgentsPage() {
   const handleBulkDelete = async () => {
     if (selected.size === 0) return;
     const ok = await confirm({
-      title: `Delete ${selected.size} agent${selected.size === 1 ? '' : 's'}?`,
-      message:
-        'This will permanently delete the selected agents AND their narratives, ' +
-        'events, instances, social entities, workspace files. This cannot be undone.',
-      confirmText: `Delete ${selected.size}`,
+      title: t('pages.manageAgents.deleteConfirmTitle', { count: selected.size }),
+      message: t('pages.manageAgents.deleteConfirmMessage'),
+      confirmText: t('pages.manageAgents.deleteConfirmText', { count: selected.size }),
       danger: true,
     });
     if (!ok) return;
@@ -137,8 +137,14 @@ export default function ManageAgentsPage() {
     setSelected(new Set());
     setBusy(false);
     await alert({
-      title: 'Bulk delete complete',
-      message: `${success} deleted${failed.length ? `, ${failed.length} failed (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''})` : ''}.`,
+      title: t('pages.manageAgents.bulkDeleteCompleteTitle'),
+      message: failed.length
+        ? t('pages.manageAgents.bulkDeleteResultWithFailures', {
+            success,
+            failedCount: failed.length,
+            failedIds: `${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`,
+          })
+        : t('pages.manageAgents.bulkDeleteResult', { success }),
       danger: failed.length > 0,
     });
   };
@@ -152,8 +158,8 @@ export default function ManageAgentsPage() {
     await refreshTeams();
     setBusy(false);
     await alert({
-      title: 'Added to team',
-      message: `${selected.size} agent${selected.size === 1 ? '' : 's'} added to selected team.`,
+      title: t('pages.manageAgents.addedToTeamTitle'),
+      message: t('pages.manageAgents.addedToTeamMessage', { count: selected.size }),
     });
   };
 
@@ -179,7 +185,7 @@ export default function ManageAgentsPage() {
             <button
               onClick={() => navigate('/app/settings')}
               className="p-1 rounded-[var(--radius-xs)] hover:bg-[color:var(--nm-paper-warm)] transition-colors"
-              aria-label="Back to settings"
+              aria-label={t('pages.manageAgents.backToSettings')}
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
@@ -187,11 +193,11 @@ export default function ManageAgentsPage() {
               className="text-2xl font-bold tracking-tight"
               style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
             >
-              Manage agents
+              {t('pages.manageAgents.title')}
             </h1>
           </div>
           <BracketSectionLabel>
-            {filteredAgents.length} shown · {selected.size} selected · {agents.length} total
+            {t('pages.manageAgents.summary', { shown: filteredAgents.length, selected: selected.size, total: agents.length })}
           </BracketSectionLabel>
         </div>
 
@@ -201,7 +207,7 @@ export default function ManageAgentsPage() {
           <input
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Search by name / id…"
+            placeholder={t('pages.manageAgents.searchPlaceholder')}
             className="flex-1 bg-transparent text-sm font-mono focus:outline-none"
           />
           <Filter className="w-3.5 h-3.5 text-[var(--text-tertiary)] ml-2" />
@@ -210,10 +216,10 @@ export default function ManageAgentsPage() {
             onChange={(e) => setFilterTeam(e.target.value)}
             className="bg-[var(--bg-tertiary)] text-xs font-mono px-2 py-1 border border-[var(--border-subtle)]"
           >
-            <option value="">All agents</option>
-            <option value="untagged">Untagged</option>
-            <option value="imported">From bundles</option>
-            <optgroup label="By team">
+            <option value="">{t('pages.manageAgents.filterAll')}</option>
+            <option value="untagged">{t('pages.manageAgents.filterUntagged')}</option>
+            <option value="imported">{t('pages.manageAgents.filterImported')}</option>
+            <optgroup label={t('pages.manageAgents.filterByTeam')}>
               {teams.map((t) => (
                 <option key={t.team.team_id} value={t.team.team_id}>{t.team.name}</option>
               ))}
@@ -230,7 +236,7 @@ export default function ManageAgentsPage() {
         )}>
           <button onClick={toggleAll} className="flex items-center gap-1 text-xs font-mono">
             {allSelected ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
-            {allSelected ? 'Unselect all' : 'Select all (shown)'}
+            {allSelected ? t('pages.manageAgents.unselectAll') : t('pages.manageAgents.selectAllShown')}
           </button>
           <span className="flex-1" />
           <select
@@ -239,7 +245,7 @@ export default function ManageAgentsPage() {
             disabled={selected.size === 0}
             className="bg-[var(--bg-tertiary)] text-xs font-mono px-2 py-1 border border-[var(--border-subtle)]"
           >
-            <option value="">— pick team —</option>
+            <option value="">{t('pages.manageAgents.pickTeam')}</option>
             {teams.map((t) => (
               <option key={t.team.team_id} value={t.team.team_id}>{t.team.name}</option>
             ))}
@@ -251,7 +257,7 @@ export default function ManageAgentsPage() {
             variant="outline"
             className="gap-1"
           >
-            <UserCheck className="w-3.5 h-3.5" /> Add to team
+            <UserCheck className="w-3.5 h-3.5" /> {t('pages.manageAgents.addToTeam')}
           </Button>
           <Button
             onClick={handleBulkRemoveFromTeam}
@@ -260,7 +266,7 @@ export default function ManageAgentsPage() {
             variant="outline"
             className="gap-1"
           >
-            <UserMinus className="w-3.5 h-3.5" /> Remove from team
+            <UserMinus className="w-3.5 h-3.5" /> {t('pages.manageAgents.removeFromTeam')}
           </Button>
           <Button
             onClick={handleBulkDelete}
@@ -269,7 +275,7 @@ export default function ManageAgentsPage() {
             className="gap-1 bg-[var(--color-red-500)]/15 border border-[var(--color-red-500)] text-[var(--color-red-500)] hover:bg-[var(--color-red-500)]/30"
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-            Delete
+            {t('pages.manageAgents.delete')}
           </Button>
         </div>
 
@@ -277,8 +283,7 @@ export default function ManageAgentsPage() {
         {filterTeam === 'imported' && (
           <div className="text-[11px] text-[var(--text-tertiary)] flex items-center gap-1.5">
             <AlertTriangle className="w-3 h-3 text-[var(--color-yellow-500)]" />
-            Showing agents that came from a `.nxbundle` import (member of a team with source=bundle).
-            This is the closest thing to "undo import" — select all and Delete.
+            {t('pages.manageAgents.importedHelper')}
           </div>
         )}
 
@@ -286,13 +291,13 @@ export default function ManageAgentsPage() {
         <div className="border border-[var(--border-default)]">
           <div className="grid grid-cols-[24px_1fr_200px_140px] gap-3 px-3 py-2 text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] border-b border-[var(--border-default)] bg-[var(--bg-secondary)]">
             <span></span>
-            <span>Name / ID</span>
-            <span>Teams</span>
-            <span>Source</span>
+            <span>{t('pages.manageAgents.colNameId')}</span>
+            <span>{t('pages.manageAgents.colTeams')}</span>
+            <span>{t('pages.manageAgents.colSource')}</span>
           </div>
           {filteredAgents.length === 0 ? (
             <div className="px-4 py-8 text-center text-xs text-[var(--text-tertiary)]">
-              No agents match the current filter.
+              {t('pages.manageAgents.noMatch')}
             </div>
           ) : (
             filteredAgents.map((a, idx) => {
@@ -319,7 +324,7 @@ export default function ManageAgentsPage() {
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {aTeams.length === 0 && (
-                      <span className="text-[10px] text-[var(--text-tertiary)] italic">untagged</span>
+                      <span className="text-[10px] text-[var(--text-tertiary)] italic">{t('pages.manageAgents.untagged')}</span>
                     )}
                     {aTeams.map((t) => (
                       <span
@@ -336,9 +341,9 @@ export default function ManageAgentsPage() {
                   </div>
                   <div className="text-[10px] text-[var(--text-tertiary)]">
                     {isImported ? (
-                      <span className="text-[var(--color-yellow-500)]">from bundle</span>
+                      <span className="text-[var(--color-yellow-500)]">{t('pages.manageAgents.fromBundle')}</span>
                     ) : (
-                      'created locally'
+                      t('pages.manageAgents.createdLocally')
                     )}
                   </div>
                 </div>
@@ -348,8 +353,7 @@ export default function ManageAgentsPage() {
         </div>
 
         <p className="text-[11px] text-[var(--text-tertiary)] pt-2">
-          Tip: shift-click to select a range. Bulk delete cascades through narratives,
-          events, module instances, social entities, and the agent workspace dir.
+          {t('pages.manageAgents.tip')}
         </p>
         {dialog}
       </div>

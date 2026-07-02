@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-05-20
+last_verified: 2026-05-31
 stub: false
 ---
 
@@ -17,6 +17,15 @@ AFTER Step 4 specifically so the P3 narrative-routing rebind (4.0, see
 lands in the thread it now belongs to. Param-building is shared via
 `build_after_execution_params` (see [[step_5_execute_hooks.py]] / [[hook_manager.py]]
 / [[base.py]]).
+
+## 2026-05-31 — owner LLM config includes Codex runtime config
+
+`run()` now calls `get_agent_owner_runtime_llm_configs()` instead of the
+older three-config resolver. The resulting bundle includes `CodexConfig`,
+which is written to the current task's ContextVar via `set_user_config`
+before Step 3 resolves `user_slots.agent_framework`. Without this,
+`codex_cli` dispatch could pick `CodexSDK` but still run with an empty
+Codex model/provider/auth config.
 
 ## 2026-05-19 — LLMResolverError downgraded from logger.exception to logger.warning
 

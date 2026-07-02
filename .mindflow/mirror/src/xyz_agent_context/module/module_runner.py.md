@@ -1,7 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-05-20
+last_verified: 2026-06-17
 ---
+
+## 2026-06-17 — `_serve_one_mcp` 同端口同时挂 SSE + streamable HTTP
+
+为让 OpenAI Codex CLI 也能用上各 Module 的 MCP 工具，`_serve_one_mcp`
+从「只跑 `run_sse_async()`」改成「在同一个 port 上同时提供两套 transport」：
+Claude Code 的 MCP client 只认 `/sse` + `/messages`（legacy SSE），Codex CLI
+只认 `/mcp`（modern streamable HTTP），两者协议不通用。做法是把
+`mcp_server.sse_app()` 与 `streamable_http_app()` 各自的 route **平铺合并**进
+**一个** Starlette app（三条路径 `/sse` `/messages` `/mcp` 互不冲突），再手动用
+`uvicorn.Server.serve()` 起服务。关键坑：**绝不能**用 `Mount("/mcp", ...)` 把
+streamable app 挂到子路径——Starlette 会剥掉 `/mcp` 前缀转发到 `/`，而
+streamable_http_app 内部只路由 `/mcp` → 404（本次修的正是这个 bug）。父 app 的
+lifespan 采用 streamable 的 `lifespan_context`（它持有
+`StreamableHTTPSessionManager`），sse_app 用的是 no-op 默认 lifespan 不需要链接。
+注意：旧的「不要用 `FastMCP.run("sse")`、要在当前 loop 上 await」单 loop 不变式仍然成立，
+只是现在 await 的是我们自己构造的 `uvicorn.Server`，而非 `run_sse_async()`。
 
 ## 2026-05-20 (Fix #2 P3) — BasicInfoModule joins CORE MCP modules (port 7808)
 

@@ -13,6 +13,7 @@
  */
 
 import { Sparkles, CheckCircle2, Loader2, Circle, XCircle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   Popover,
   PopoverContent,
@@ -26,19 +27,21 @@ export interface ExecutionPopoverProps {
 }
 
 function StepStatusIcon({ status }: { status: Step['status'] }) {
+  const { t } = useTranslation();
   if (status === 'completed') {
-    return <CheckCircle2 className="w-3 h-3 shrink-0" style={{ color: 'var(--color-success)' }} aria-label="completed" />;
+    return <CheckCircle2 className="w-3 h-3 shrink-0" style={{ color: 'var(--color-success)' }} aria-label={t('chat.execution.statusCompleted')} />;
   }
   if (status === 'running') {
-    return <Loader2 className="w-3 h-3 shrink-0 animate-spin" style={{ color: 'var(--color-warning)' }} aria-label="running" />;
+    return <Loader2 className="w-3 h-3 shrink-0 animate-spin" style={{ color: 'var(--color-warning)' }} aria-label={t('chat.execution.statusRunning')} />;
   }
   if (status === 'failed') {
-    return <XCircle className="w-3 h-3 shrink-0" style={{ color: 'var(--color-error)' }} aria-label="failed" />;
+    return <XCircle className="w-3 h-3 shrink-0" style={{ color: 'var(--color-error)' }} aria-label={t('chat.execution.statusFailed')} />;
   }
-  return <Circle className="w-3 h-3 shrink-0" style={{ color: 'var(--nm-ink30)' }} aria-label="pending" />;
+  return <Circle className="w-3 h-3 shrink-0" style={{ color: 'var(--nm-ink30)' }} aria-label={t('chat.execution.statusPending')} />;
 }
 
 export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
+  const { t } = useTranslation();
   const completed = steps.filter((s) => s.status === 'completed').length;
 
   return (
@@ -46,7 +49,7 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label="Show execution steps"
+          aria-label={t('chat.execution.showSteps')}
           className={cn(
             'flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em]',
             'cursor-pointer rounded-[var(--radius-xs)] px-1.5 py-0.5 -mx-1.5',
@@ -58,7 +61,7 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
           }}
         >
           <Sparkles className="w-3 h-3 animate-pulse" aria-hidden />
-          Processing
+          {t('chat.execution.processing')}
           {steps.length > 0 && (
             <span className="tabular-nums normal-case tracking-normal opacity-80">
               · {completed}/{steps.length}
@@ -75,7 +78,7 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
           className="px-4 py-2.5 text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] border-b"
           style={{ color: 'var(--text-tertiary)', borderColor: 'var(--nm-hairline)' }}
         >
-          Execution
+          {t('chat.execution.heading')}
         </div>
         <div className="max-h-[320px] overflow-y-auto py-1">
           {steps.length === 0 ? (
@@ -83,7 +86,7 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
               className="px-4 py-4 text-xs"
               style={{ color: 'var(--text-tertiary)' }}
             >
-              Waiting for the first step…
+              {t('chat.execution.waiting')}
             </div>
           ) : (
             <ul>

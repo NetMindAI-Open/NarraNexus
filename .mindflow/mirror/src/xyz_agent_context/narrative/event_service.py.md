@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/narrative/event_service.py
-last_verified: 2026-04-10
+last_verified: 2026-06-23
 stub: false
 ---
+
+> 2026-06-23：`create_event` 新增可选参数 `trigger_type`（默认 `TriggerType.CHAT`）。
+> 团队群聊路径传 `MESSAGE_BUS`（见 [[step_0_initialize]]），使群聊回复在 `events`
+> 表里可与 1:1 聊天区分（[[auth]] 侧栏预览据此过滤）。
 
 # event_service.py — Event 生命周期门面
 

@@ -27,14 +27,15 @@ intact.
 """
 from __future__ import annotations
 
-from typing import List, Optional, Sequence
+from functools import lru_cache
+from typing import Any, List, Optional, Sequence
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
 import openai
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.utils.timezone import utc_now
 
@@ -48,17 +49,49 @@ class SystemicLLMError(RuntimeError):
 _SYSTEMIC_STATUS = {401, 403, 407, 429}
 
 
+@lru_cache(maxsize=1)
+def _systemic_exc_types() -> tuple[type[BaseException], ...]:
+    """Client exception classes meaning "smaller batches can't help".
+
+    Covers BOTH provider SDKs because the helper SDK is openai-shaped OR
+    anthropic-shaped depending on the user's helper slot protocol
+    (``get_helper_sdk`` → AnthropicHelperSDK for the anthropic leg). The
+    connection-class errors (``APIConnectionError``) carry NO
+    ``status_code`` — a request that died before any HTTP response — so the
+    status check below cannot catch them; only this isinstance can. Missing
+    the anthropic variants is exactly the gap that re-opens the 2026-06-11
+    bisect-drop fact loss for anthropic-helper users.
+
+    anthropic is lazy-imported: an openai-only deploy may not ship it.
+    Cached because the class set is fixed for the process lifetime.
+    """
+    types: list[type[BaseException]] = [
+        openai.AuthenticationError, openai.PermissionDeniedError,
+        openai.RateLimitError, openai.APIConnectionError,
+        openai.InternalServerError,
+    ]
+    try:
+        import anthropic
+        types += [
+            anthropic.AuthenticationError, anthropic.PermissionDeniedError,
+            anthropic.RateLimitError, anthropic.APIConnectionError,
+            anthropic.InternalServerError,
+        ]
+    except ImportError:
+        pass
+    return tuple(types)
+
+
 def _is_systemic_llm_error(e: BaseException) -> bool:
     """True for errors where retrying smaller batches cannot succeed.
     Walks the cause/context chain because the Agents SDK path may wrap the
     underlying client error."""
+    systemic_types = _systemic_exc_types()
     seen: set[int] = set()
     cur: Optional[BaseException] = e
     while cur is not None and id(cur) not in seen:
         seen.add(id(cur))
-        if isinstance(cur, (openai.AuthenticationError, openai.PermissionDeniedError,
-                            openai.RateLimitError, openai.APIConnectionError,
-                            openai.InternalServerError)):
+        if isinstance(cur, systemic_types):
             return True
         status = getattr(cur, "status_code", None)
         if isinstance(status, int) and (status in _SYSTEMIC_STATUS or status >= 500):
@@ -126,7 +159,7 @@ async def consolidate(
     new_facts: Sequence[MemoryRecord],
     existing: Sequence[MemoryRecord],
     prompt: Optional[str] = None,
-    sdk: Optional[OpenAIAgentsSDK] = None,
+    sdk: Optional[Any] = None,
 ) -> int:
     """Run one consolidation pass for a scope. `repo` is the MemoryRepository
     for the CONSOLIDATED kind (e.g. observation). Returns the number of records
@@ -135,7 +168,7 @@ async def consolidate(
     facts = [f for f in new_facts if f.content_text.strip()]
     if not facts:
         return 0
-    sdk = sdk or OpenAIAgentsSDK()
+    sdk = sdk or get_helper_sdk()
     instructions = prompt or DEFAULT_CONSOLIDATION_PROMPT
 
     plan = await _plan_with_bisect(sdk, instructions, facts, existing, agent_id)
@@ -193,7 +226,7 @@ def _inherit_tags(facts: Sequence[MemoryRecord], indices: Sequence[int]) -> List
 
 
 async def _plan_with_bisect(
-    sdk: OpenAIAgentsSDK,
+    sdk: Any,
     instructions: str,
     facts: Sequence[MemoryRecord],
     existing: Sequence[MemoryRecord],

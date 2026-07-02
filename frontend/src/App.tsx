@@ -27,6 +27,7 @@ const BundleImportPage = lazy(() => import('@/pages/BundleImportPage'));
 const TeamDetailPage = lazy(() => import('@/pages/TeamDetailPage'));
 const ManageAgentsPage = lazy(() => import('@/pages/ManageAgentsPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
 // before login during visual review. Not linked from any nav.
 const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
@@ -360,9 +361,6 @@ function App() {
         {/* NM design system gallery — public dev tool, no auth required */}
         <Route path="/nm-playground" element={<NMPlaygroundPage />} />
 
-        {/* NM design system gallery — public dev tool, no auth required */}
-        <Route path="/nm-playground" element={<NMPlaygroundPage />} />
-
         {/* Setup — requires login */}
         <Route
           path="/setup"
@@ -377,6 +375,7 @@ function App() {
           <Route index element={<Navigate to="chat" replace />} />
           <Route path="chat" element={null} />
           <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="you" element={<YouWorkspace />} />
           <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="bundle/export" element={<BundleExportPage />} />
@@ -386,6 +385,9 @@ function App() {
               triggers the auto-fetch-then-preflight path. */}
           <Route path="templates/install" element={<BundleImportPage />} />
           <Route path="teams/:teamId" element={<TeamDetailPage />} />
+          {/* Team group chat — element null; MainLayout renders TeamChatView
+              in the main slot (like /app/chat) so it isn't a sub-page overlay. */}
+          <Route path="teams/:teamId/chat" element={null} />
           <Route path="manage-agents" element={<ManageAgentsPage />} />
         </Route>
 

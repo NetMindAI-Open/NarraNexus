@@ -8,33 +8,31 @@
  */
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   RefreshCw,
   Plus,
   ListChecks,
+  Bot,
+  Users2,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
-import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import { BracketSectionLabel, BracketEmptyState, GroupAvatar } from '@/components/nm';
 import { useConfigStore, useChatStore, useTeamsStore } from '@/stores';
 import { useCreateAgent } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
-import {
-  buildAgentGroups,
-  getCollapsedState,
-  setCollapsedState,
-} from './agentGroupUtils';
-import type { CollapsedState } from './agentGroupUtils';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
+import { CreateMenu } from './CreateMenu';
+import { TeamChatRow } from './TeamChatRow';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 
 interface AgentListProps {
   collapsed: boolean;
-  /** When non-null, only render agents whose IDs are in this list (used by TeamFilterBar). */
-  filterAgentIds?: string[] | null;
 }
 
 /**
@@ -54,15 +52,71 @@ interface AgentListProps {
  * Flip this to `true` to bring the toggle back. */
 const SHOW_AGENT_PUBLIC_TOGGLE = false;
 
+/** Small collapsible category header (TEAMS / AGENTS) in the sidebar list. */
+function CategoryHeader({
+  label,
+  count,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[var(--nm-paper-warm)]"
+    >
+      <span
+        className="flex-1 min-w-0 text-[11px] font-mono uppercase tracking-wider truncate"
+        style={{ color: 'var(--nm-ink50)' }}
+      >
+        {label}
+      </span>
+      <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--nm-ink30)' }}>
+        {count}
+      </span>
+      <span
+        className={cn(
+          'text-[10px] shrink-0 transition-transform duration-150',
+          collapsed ? 'rotate-0' : 'rotate-90',
+        )}
+        style={{ color: 'var(--nm-ink30)' }}
+        aria-hidden
+      >
+        ▶
+      </span>
+    </button>
+  );
+}
+
 export function AgentList({ collapsed }: AgentListProps) {
+  const { t } = useTranslation();
   const [loadingAgents, setLoadingAgents] = useState(false);
   const { createAgent, creating: creatingAgent } = useCreateAgent();
   const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
-  const [sectionCollapsed, setSectionCollapsed] = useState<CollapsedState>(() => getCollapsedState());
   const [openMgmt, setOpenMgmt] = useState(false);
+  const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
+  // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
+  const [teamsCollapsed, setTeamsCollapsed] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_teams') === '1',
+  );
+  const [agentsCollapsed, setAgentsCollapsed] = useState(
+    () => typeof window !== 'undefined' && localStorage.getItem('sidebar_cat_agents') === '1',
+  );
+  const setCatCollapsed = (cat: 'teams' | 'agents', v: boolean) => {
+    if (cat === 'teams') setTeamsCollapsed(v);
+    else setAgentsCollapsed(v);
+    try {
+      localStorage.setItem(cat === 'teams' ? 'sidebar_cat_teams' : 'sidebar_cat_agents', v ? '1' : '0');
+    } catch { /* storage unavailable — collapse just won't persist */ }
+  };
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,6 +126,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const teams = useTeamsStore((s) => s.teams);
   const teamsLoaded = useTeamsStore((s) => s.loaded);
   const teamsRefresh = useTeamsStore((s) => s.refresh);
+  const teamsUpdate = useTeamsStore((s) => s.updateTeam);
+  const teamsDelete = useTeamsStore((s) => s.deleteTeam);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
   // Ensure teams are loaded so grouping is accurate.
@@ -162,13 +218,13 @@ export function AgentList({ collapsed }: AgentListProps) {
     await createAgent();
   };
 
-  // #43: create an agent already attached to a team (from the team section's
-  // hover + button), then jump into chat with it like the global add does.
+  // #43: create a new agent already assigned to this team, then open the
+  // team's group chat so the membership change is immediately visible. The
+  // entry point now lives in the TEAMS-row ⋮ menu (TeamRowMenu) since the old
+  // AgentGroupSection-header "+" no longer exists in the TEAMS/AGENTS layout.
   const handleCreateAgentInTeam = async (teamId: string) => {
     const id = await createAgent({ teamId });
-    if (id && location.pathname !== '/app/chat' && location.pathname !== '/app') {
-      navigate('/app/chat');
-    }
+    if (id) navigate(`/app/teams/${teamId}/chat`);
   };
 
   const handleTogglePublic = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
@@ -228,9 +284,9 @@ export function AgentList({ collapsed }: AgentListProps) {
   const handleDeleteAgent = async (agent: typeof rawAgents[0], e: React.MouseEvent) => {
     e.stopPropagation();
     const ok = await confirm({
-      title: 'Delete agent',
-      message: `Delete agent "${agent.name || agent.agent_id}"? This will permanently remove all related data (narratives, events, instances, jobs, etc.).`,
-      confirmText: 'Delete',
+      title: t('layout.agentList.deleteAgentTitle'),
+      message: t('layout.agentList.deleteAgentMessage', { name: agent.name || agent.agent_id }),
+      confirmText: t('layout.agentList.deleteAction'),
       danger: true,
     });
     if (!ok) return;
@@ -253,28 +309,21 @@ export function AgentList({ collapsed }: AgentListProps) {
       } else {
         console.error('Failed to delete agent:', res.error);
         await alert({
-          title: 'Delete failed',
-          message: `Failed to delete agent: ${res.error}`,
+          title: t('layout.agentList.deleteFailedTitle'),
+          message: t('layout.agentList.deleteAgentFailedMessage', { error: res.error }),
           danger: true,
         });
       }
     } catch (err) {
       console.error('Error deleting agent:', err);
       await alert({
-        title: 'Delete failed',
-        message: 'Error deleting agent. Please try again.',
+        title: t('layout.agentList.deleteFailedTitle'),
+        message: t('layout.agentList.deleteAgentError'),
         danger: true,
       });
     } finally {
       setDeletingAgentId(null);
     }
-  };
-
-  const handleToggleSection = (teamId: string | null) => {
-    const key = teamId ?? '__ungrouped__';
-    const next = !sectionCollapsed[key];
-    setSectionCollapsed((prev) => ({ ...prev, [key]: next }));
-    setCollapsedState(key, next);
   };
 
   const handleImport = () => navigate('/app/bundle/import');
@@ -284,85 +333,157 @@ export function AgentList({ collapsed }: AgentListProps) {
   };
   const handleManageTeams = () => setOpenMgmt(true);
 
-  // Grouped sections — shared by the expanded list and the collapsed
-  // avatar rail (the rail draws a hairline between team groups).
-  const groups = buildAgentGroups(rawAgents, teams);
+  const handleDeleteTeam = async (teamId: string) => {
+    const team = teams.find((x) => x.team.team_id === teamId);
+    const ok = await confirm({
+      title: t('layout.agentList.deleteTeamTitle'),
+      message: t('layout.agentList.deleteTeamMessage', { name: team?.team.name ?? teamId }),
+      confirmText: t('layout.agentList.deleteAction'),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await teamsDelete(teamId);
+      // If the deleted team's chat/detail is open, fall back to the chat view.
+      if (location.pathname.startsWith(`/app/teams/${teamId}`)) {
+        navigate('/app/chat');
+      }
+    } catch (err) {
+      await alert({
+        title: t('layout.agentList.deleteFailedTitle'),
+        message: err instanceof Error ? err.message : String(err),
+        danger: true,
+      });
+    }
+  };
+
+  // Which team's group chat is open (route /app/teams/:id/chat) — drives the
+  // active highlight on the Group chat row and suppresses agent-row selection.
+  const teamChatMatch = location.pathname.match(/^\/app\/teams\/([^/]+)\/chat$/);
+  const activeTeamChatId = teamChatMatch ? teamChatMatch[1] : null;
 
   // Collapsed mode: avatar rail — EVERY agent across all groups (spec §11.2;
   // the old rail silently capped at 4). The rail's job is fast agent
   // switching: RingAvatar + unread badge, hairline divider between teams,
   // no team chips / filter glyphs.
   if (collapsed) {
-    const nonEmptyGroups = groups.filter((g) => g.agents.length > 0);
     return (
-      <div className="p-2 space-y-2">
-        <button
-          onClick={handleCreateAgent}
-          disabled={creatingAgent}
-          className={cn(
-            'w-full aspect-square rounded-xl flex items-center justify-center transition-all',
-            'bg-[var(--bg-tertiary)] text-[var(--accent-primary)]',
-            'hover:bg-[var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)]',
-            'border border-dashed border-[var(--accent-primary)]/30',
-            creatingAgent && 'opacity-50 cursor-not-allowed'
-          )}
-          title="Create New Agent"
-        >
-          <Plus className={cn('w-5 h-5', creatingAgent && 'animate-pulse')} />
-        </button>
+      <div className="p-2 flex flex-col items-center gap-2">
+        {/* Create — a portal dropdown (Agent / Team) so it escapes the rail's
+            scroll clip; trigger is sized to match the agent avatars below. */}
+        <Popover open={collapsedCreateOpen} onOpenChange={setCollapsedCreateOpen}>
+          <PopoverTrigger asChild>
+            <button
+              disabled={creatingAgent}
+              className={cn(
+                'w-8 h-8 rounded-full flex items-center justify-center transition-all',
+                'text-[var(--accent-primary)] border border-dashed border-[var(--accent-primary)]/40',
+                'hover:bg-[var(--bg-elevated)]',
+                creatingAgent && 'opacity-50 cursor-not-allowed',
+              )}
+              title={t('layout.agentList.createAgentOrTeam')}
+              aria-label={t('layout.agentList.createAgentOrTeam')}
+            >
+              <Plus className={cn('w-4 h-4', creatingAgent && 'animate-pulse')} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent side="right" align="start" sideOffset={8} className="w-auto min-w-[150px] p-1">
+            <CollapsedCreateItem
+              icon={<Bot className="w-3.5 h-3.5" />}
+              label={t('layout.agentList.createAgent')}
+              onClick={() => { setCollapsedCreateOpen(false); handleCreateAgent(); }}
+            />
+            <CollapsedCreateItem
+              icon={<Users2 className="w-3.5 h-3.5" />}
+              label={t('layout.agentList.createTeam')}
+              onClick={() => { setCollapsedCreateOpen(false); setOpenMgmt(true); }}
+            />
+          </PopoverContent>
+        </Popover>
+
+        {/* Manage agents — same 32px circular footprint as the avatars. */}
         <button
           onClick={() => navigate('/app/manage-agents')}
-          className="w-full aspect-square flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
-          title="Manage agents (batch · add / edit / delete)"
-          aria-label="Manage agents"
+          className="w-8 h-8 rounded-full flex items-center justify-center border border-[var(--rule)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)] transition-colors"
+          title={t('layout.agentList.manageAgentsTitle')}
+          aria-label={t('layout.agentList.manageAgents')}
         >
-          <ListChecks className="w-4 h-4" />
+          <ListChecks className="w-3.5 h-3.5" />
         </button>
-        {nonEmptyGroups.map((group, gi) => (
-          <div key={group.teamId ?? '__ungrouped__'} className="space-y-2">
-            {gi > 0 && (
-              <div className="mx-2 border-t border-[var(--nm-hairline)]" aria-hidden />
-            )}
-            {group.agents.map((agent) => {
-              const isSelected = agentId === agent.agent_id;
-              const completed = completedAgentIds.includes(agent.agent_id);
-              const label = (agent.name || agent.agent_id).slice(0, 2);
-              const streaming = isAgentStreaming(agent.agent_id) || !!agent.active_run;
-              const { unread } = getRowMeta(agent.agent_id);
-              return (
-                <div key={agent.agent_id} className="relative flex justify-center">
-                  <button
-                    onClick={() => handleSelectAgent(agent.agent_id)}
-                    className={cn(
-                      'p-1.5 rounded-full transition-colors duration-150',
-                      isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
-                    )}
-                    title={agent.name || agent.agent_id}
-                    aria-label={agent.name || agent.agent_id}
-                    aria-current={isSelected ? 'true' : undefined}
-                  >
-                    <AvatarWithStreaming label={label} streaming={streaming} size="sm" />
-                  </button>
-                  {unread > 0 && (
-                    <span
-                      className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-[8px] flex items-center justify-center text-[9px] font-mono"
-                      style={{
-                        background: 'var(--nm-card)',
-                        border: '1px solid var(--nm-ink30)',
-                        color: 'var(--nm-ink70)',
-                      }}
-                    >
-                      {unread > 9 ? '9+' : unread}
-                    </span>
-                  )}
-                  {completed && !isSelected && unread === 0 && (
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+
+        {/* TEAMS — two-colour group avatars open the group chat. */}
+        {teams.length > 0 && (
+          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
+        )}
+        {teams.map((team) => {
+          const initials = team.team.name
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((w) => w[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase();
+          const active = activeTeamChatId === team.team.team_id;
+          return (
+            <button
+              key={team.team.team_id}
+              onClick={() => navigate(`/app/teams/${team.team.team_id}/chat`)}
+              className={cn(
+                'p-0.5 rounded-full transition-colors duration-150',
+                active ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]',
+              )}
+              title={t('layout.agentList.teamGroupChatTitle', { name: team.team.name })}
+              aria-label={t('layout.agentList.teamGroupChatAria', { name: team.team.name })}
+              aria-current={active ? 'true' : undefined}
+            >
+              <GroupAvatar size="sm" members={[{ species: 'carbon' }, { species: 'silicon' }]} label={initials} />
+            </button>
+          );
+        })}
+
+        {/* AGENTS — flat & deduped (every agent once), matching the expanded
+            list; the old per-team grouping duplicated agents in two teams. */}
+        {teams.length > 0 && rawAgents.length > 0 && (
+          <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
+        )}
+        {rawAgents.map((agent) => {
+          const isSelected = activeTeamChatId ? false : agentId === agent.agent_id;
+          const completed = completedAgentIds.includes(agent.agent_id);
+          const label = (agent.name || agent.agent_id).slice(0, 2);
+          const streaming = isAgentStreaming(agent.agent_id) || !!agent.active_run;
+          const { unread } = getRowMeta(agent.agent_id);
+          return (
+            <div key={agent.agent_id} className="relative flex justify-center">
+              <button
+                onClick={() => handleSelectAgent(agent.agent_id)}
+                className={cn(
+                  'p-1.5 rounded-full transition-colors duration-150',
+                  isSelected ? 'bg-[var(--bg-elevated)]' : 'hover:bg-[var(--bg-elevated)]'
+                )}
+                title={agent.name || agent.agent_id}
+                aria-label={agent.name || agent.agent_id}
+                aria-current={isSelected ? 'true' : undefined}
+              >
+                <AvatarWithStreaming label={label} streaming={streaming} size="sm" />
+              </button>
+              {unread > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-[8px] flex items-center justify-center text-[9px] font-mono"
+                  style={{
+                    background: 'var(--nm-card)',
+                    border: '1px solid var(--nm-ink30)',
+                    color: 'var(--nm-ink70)',
+                  }}
+                >
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
+              {completed && !isSelected && unread === 0 && (
+                <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full allow-circle bg-[var(--color-yellow-500)] border-2 border-[var(--bg-primary)]" />
+              )}
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -378,23 +499,18 @@ export function AgentList({ collapsed }: AgentListProps) {
         <div className="flex items-center justify-between px-1 gap-2">
           <span data-help-id="sidebar.agent-list">
             <BracketSectionLabel
-              trailing={<span className="text-[10px] opacity-60">{rawAgents.length}</span>}
+              trailing={<span className="text-[10px] opacity-60">{teams.length + rawAgents.length}</span>}
             >
-              Agents
+              {t('sidebar.chats')}
             </BracketSectionLabel>
           </span>
           <div className="flex items-center gap-1 shrink-0">
             <span data-help-id="sidebar.create-agent">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCreateAgent}
+              <CreateMenu
+                onCreateAgent={handleCreateAgent}
+                onCreateTeam={() => setOpenMgmt(true)}
                 disabled={creatingAgent}
-                className="w-7 h-7"
-                title="Create New Agent"
-              >
-                <Plus className={cn('w-3.5 h-3.5', creatingAgent && 'animate-pulse')} />
-              </Button>
+              />
             </span>
             <span data-help-id="sidebar.manage-agents">
               <Button
@@ -402,8 +518,8 @@ export function AgentList({ collapsed }: AgentListProps) {
                 size="icon"
                 onClick={() => navigate('/app/manage-agents')}
                 className="w-7 h-7"
-                title="Manage agents (batch · add / edit / delete)"
-                aria-label="Manage agents"
+                title={t('layout.agentList.manageAgentsTitle')}
+                aria-label={t('layout.agentList.manageAgents')}
               >
                 <ListChecks className="w-3.5 h-3.5" />
               </Button>
@@ -414,7 +530,7 @@ export function AgentList({ collapsed }: AgentListProps) {
               onClick={fetchAgents}
               disabled={loadingAgents}
               className="w-7 h-7"
-              title="Refresh Agents"
+              title={t('layout.agentList.refreshAgents')}
             >
               <RefreshCw className={cn('w-3 h-3', loadingAgents && 'animate-spin')} />
             </Button>
@@ -430,10 +546,10 @@ export function AgentList({ collapsed }: AgentListProps) {
       </div>
 
       <div className="px-1 pb-3">
-        {rawAgents.length === 0 ? (
+        {rawAgents.length === 0 && teams.length === 0 ? (
           <BracketEmptyState
-            label="No agents yet"
-            hint="Create your first agent to start a conversation."
+            label={t('layout.agentList.emptyLabel')}
+            hint={t('layout.agentList.emptyHint')}
             cta={
               <Button
                 variant="outline"
@@ -443,61 +559,115 @@ export function AgentList({ collapsed }: AgentListProps) {
                 className="gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
-                Create Agent
+                {t('layout.agentList.createAgent')}
               </Button>
             }
           />
         ) : (
-          <div>
-            {groups.map((group) => {
-              // Pure no-teams scenario (single Ungrouped group): render the
-              // rows flat — an "Ungrouped" header with nothing to contrast
-              // against is noise.
-              const isOnlyGroup = groups.length === 1 && group.teamId === null;
-
-              // Skip Ungrouped section if it's empty (other groups have all agents).
-              if (group.teamId === null && group.agents.length === 0) return null;
-
-              const key = group.teamId ?? '__ungrouped__';
-              const isSectionCollapsed = !!sectionCollapsed[key];
-
-              return (
-                <AgentGroupSection
-                  key={key}
-                  teamId={group.teamId}
-                  teamName={group.teamName}
-                  teamColor={group.teamColor}
-                  agents={group.agents}
-                  agentId={agentId}
-                  collapsed={isSectionCollapsed}
-                  hideHeader={isOnlyGroup}
-                  onToggleCollapse={handleToggleSection}
-                  onSelectAgent={handleSelectAgent}
-                  getRowMeta={getRowMeta}
-                  getIsStreaming={getIsStreaming}
-                  completedAgentIds={completedAgentIds}
-                  currentUserId={userId}
-                  showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
-                  onNavigateToTeam={(tid) => navigate(`/app/teams/${tid}`)}
-                  onAddAgentToTeam={handleCreateAgentInTeam}
-                  addingAgent={creatingAgent}
-                  editingAgentId={editingAgentId}
-                  editingName={editingName}
-                  onEditNameChange={setEditingName}
-                  onSaveEdit={handleSaveEdit}
-                  onCancelEdit={handleCancelEdit}
-                  savingName={savingName}
-                  onStartEdit={handleStartEdit}
-                  onDelete={handleDeleteAgent}
-                  onTogglePublic={handleTogglePublic}
-                  deletingAgentId={deletingAgentId}
+          <div className="space-y-1">
+            {/* TEAMS — group chats, collected at the top (one row per team). */}
+            {teams.length > 0 && (
+              <div>
+                <CategoryHeader
+                  label={t('sidebar.teams')}
+                  count={teams.length}
+                  collapsed={teamsCollapsed}
+                  onToggle={() => setCatCollapsed('teams', !teamsCollapsed)}
                 />
-              );
-            })}
+                {!teamsCollapsed && (
+                  <div className="space-y-0.5 px-1 pb-1">
+                    {teams.map((t) => (
+                      <TeamChatRow
+                        key={t.team.team_id}
+                        teamId={t.team.team_id}
+                        teamName={t.team.name}
+                        agentCount={t.member_agent_ids.length}
+                        active={activeTeamChatId === t.team.team_id}
+                        onOpen={(tid) => navigate(`/app/teams/${tid}/chat`)}
+                        onRename={(tid, name) => { void teamsUpdate(tid, { name }); }}
+                        onDelete={handleDeleteTeam}
+                        onAddAgent={handleCreateAgentInTeam}
+                        addingAgent={creatingAgent}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* AGENTS — every agent once, flat (no per-team duplication). */}
+            <div>
+              <CategoryHeader
+                label={t('sidebar.agents')}
+                count={rawAgents.length}
+                collapsed={agentsCollapsed}
+                onToggle={() => setCatCollapsed('agents', !agentsCollapsed)}
+              />
+              {!agentsCollapsed && (
+                rawAgents.length === 0 ? (
+                  <div className="px-3 py-2 text-xs" style={{ color: 'var(--nm-ink50)' }}>
+                    {t('layout.agentList.noAgentsShort')}
+                  </div>
+                ) : (
+                  <AgentGroupSection
+                    teamId={null}
+                    teamName=""
+                    teamColor={null}
+                    agents={rawAgents}
+                    agentId={agentId}
+                    activeTeamChatId={activeTeamChatId}
+                    collapsed={false}
+                    hideHeader
+                    onToggleCollapse={() => {}}
+                    onSelectAgent={handleSelectAgent}
+                    getRowMeta={getRowMeta}
+                    getIsStreaming={getIsStreaming}
+                    completedAgentIds={completedAgentIds}
+                    currentUserId={userId}
+                    showPublicToggle={SHOW_AGENT_PUBLIC_TOGGLE}
+                    editingAgentId={editingAgentId}
+                    editingName={editingName}
+                    onEditNameChange={setEditingName}
+                    onSaveEdit={handleSaveEdit}
+                    onCancelEdit={handleCancelEdit}
+                    savingName={savingName}
+                    onStartEdit={handleStartEdit}
+                    onDelete={handleDeleteAgent}
+                    onTogglePublic={handleTogglePublic}
+                    deletingAgentId={deletingAgentId}
+                  />
+                )
+              )}
+            </div>
           </div>
         )}
       </div>
 
     </div>
+  );
+}
+
+/** A row in the collapsed rail's "+" create popover (Agent / Team). */
+function CollapsedCreateItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs text-left',
+        'text-[var(--nm-ink)] hover:bg-[var(--nm-paper-warm)] transition-colors',
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   );
 }

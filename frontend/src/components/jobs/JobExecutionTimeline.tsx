@@ -9,6 +9,7 @@
  */
 
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
 
@@ -35,6 +36,7 @@ function parseTime(timeStr?: string): number | null {
 }
 
 export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExecutionTimelineProps) {
+  const { t } = useTranslation();
   // Calculate time range and position for each job
   const { timelineData, minTime, maxTime, formatTime } = useMemo(() => {
     // Safety check: ensure jobs is a valid array
@@ -133,7 +135,7 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
   if (jobs.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-        No jobs to display
+        {t('jobs.timeline.noJobs')}
       </div>
     );
   }
@@ -175,19 +177,19 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
                     left: `${job.startPercent}%`,
                     width: `${job.widthPercent}%`,
                   }}
-                  title={`${job.title || 'Untitled'}: ${job.status}`}
+                  title={`${job.title || t('jobs.untitled')}: ${job.status}`}
                 >
                   {/* Inner text (if width is sufficient) */}
                   {job.widthPercent > 15 && (
                     <span className="absolute inset-0 flex items-center justify-center text-xs text-white font-medium truncate px-1">
-                      {job.title || 'Untitled'}
+                      {job.title || t('jobs.untitled')}
                     </span>
                   )}
                 </div>
               ) : (
                 // Show placeholder when no time data available
                 <div className="absolute inset-0 flex items-center justify-center text-xs text-[var(--text-tertiary)]">
-                  {job.status === 'pending' ? 'Waiting...' : 'No time data'}
+                  {job.status === 'pending' ? t('jobs.timeline.waiting') : t('jobs.timeline.noTimeData')}
                 </div>
               )}
             </div>
@@ -200,7 +202,7 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
                   (statusColorClasses[job.status as JobNodeStatus] || statusColorClasses.pending).replace('animate-pulse', '')
                 )}
               >
-                {job.status}
+                {t(`jobs.status.${job.status}`, { defaultValue: job.status })}
               </span>
             </div>
           </div>
@@ -210,19 +212,19 @@ export function JobExecutionTimeline({ jobs, onJobClick, selectedJobId }: JobExe
       {/* Legend */}
       <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)] pt-2 border-t border-[var(--border-subtle)]">
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-gray-300" /> Pending
+          <div className="w-3 h-3 rounded bg-gray-300" /> {t('jobs.status.pending')}
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-blue-400" /> Active
+          <div className="w-3 h-3 rounded bg-blue-400" /> {t('jobs.status.active')}
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-[var(--color-yellow-500)]" /> Running
+          <div className="w-3 h-3 rounded bg-[var(--color-yellow-500)]" /> {t('jobs.status.running')}
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-green-500" /> Completed
+          <div className="w-3 h-3 rounded bg-green-500" /> {t('jobs.status.completed')}
         </span>
         <span className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-[var(--color-red-500)]" /> Failed
+          <div className="w-3 h-3 rounded bg-[var(--color-red-500)]" /> {t('jobs.status.failed')}
         </span>
       </div>
     </div>

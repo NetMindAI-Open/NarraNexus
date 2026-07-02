@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-05-25
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — `AUTH_EXPIRED_ERROR_TYPE` 常量落户本 leaf schema 模块
+
+新增模块级常量 `AUTH_EXPIRED_ERROR_TYPE = "auth_expired"`，作为
+credential/auth 失败（codex OAuth token 过期、"refresh token already used"、401 等）
+的 `ErrorMessage.error_type` 标记值。**有意定义在这个叶子 schema 模块**，而不是
+`response_processor`：`response_processor` 和 `step_3_agent_loop` 都要 import 它，
+若放在 `response_processor` 会形成循环
+（`response_processor → step_display → _agent_runtime_steps → step_3_agent_loop →
+response_processor`），import 时常量尚未绑定（2026-06-11 incident）。叶子 schema 模块
+不依赖任何运行时层，两侧都能安全引用。注意这并不改变上面 Gotcha 里
+"`error_type` 仍是自由字符串、无 enum 约束" 的事实——只是给其中一个高频取值起了个共享名字。
 
 # runtime_message.py
 

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/narrative/_narrative_impl/continuity.py
-last_verified: 2026-06-01
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 — helper obtained via get_helper_sdk()
+
+`self.sdk` is now `get_helper_sdk()`. NOTE: on the anthropic helper the
+per-call `model=`/`reasoning_effort=` overrides (CONTINUITY_LLM_MODEL etc.,
+OpenAI-flavored names) are intentionally ignored — the slot model wins;
+see AnthropicHelperSDK._resolve_model.
+
 
 # continuity.py — LLM-based "does this query continue the current Narrative?"
 

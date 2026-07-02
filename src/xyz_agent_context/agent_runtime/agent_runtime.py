@@ -319,13 +319,18 @@ class AgentRuntime:
             # turn silently running with wrong credentials or failing later
             # with a cryptic Claude/OpenAI error.
             from xyz_agent_context.agent_framework.api_config import (
-                get_agent_owner_llm_configs,
+                get_agent_owner_runtime_llm_configs,
                 set_user_config,
                 LLMResolverError,
             )
             try:
-                owner_claude, owner_openai = await get_agent_owner_llm_configs(agent_id)
-                set_user_config(owner_claude, owner_openai)
+                owner_configs = await get_agent_owner_runtime_llm_configs(agent_id)
+                set_user_config(
+                    owner_configs.claude,
+                    owner_configs.openai,
+                    owner_configs.codex,
+                    owner_configs.anthropic_helper,
+                )
             except LLMResolverError as e:
                 # Known-business error (quota exhausted, owner has not
                 # configured required slots, etc.). Per 铁律 #15 we do

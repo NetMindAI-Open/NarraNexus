@@ -1,13 +1,40 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-05-22
+last_verified: 2026-06-24
 ---
+
+## 2026-06-24 — WeChat added to `IM_CHANNELS`
+
+The tab now lists **six** channels: Lark, Slack, Telegram, WeChat,
+NarraMessenger, Discord. WeChat was added as one more `IM_CHANNELS`
+entry (`key: 'wechat'`, `label: 'WeChat'`, `Icon: QrCode`,
+`Component: WeChatConfig`, `fetchConnected` → `api.getWeChatCredential`)
+— again no structural change to this component. The `QrCode` icon hints
+at the QR-scan bind flow that makes WeChat unlike the token-paste bot
+channels (see `WeChatConfig.md`). Discord landed in parallel on `dev`
+(see `DiscordConfig.md`).
+
+> 2026-06-24: the section now defaults to **expanded** (`sectionOpen` initial
+> = `true`) — opening Channels should show the channel list straight away, not
+> a collapsed one-liner. The three-level disclosure still applies (the user can
+> collapse it; each channel still opens inline); only the initial state changed.
+
+## 2026-06-22 — NarraMessenger added to `IM_CHANNELS`
+
+The tab now lists **four** channels: Lark, Slack, Telegram, NarraMessenger.
+NarraMessenger was added exactly as the extension point promises — one
+`IM_CHANNELS` entry + a `NarramessengerConfig` card + `api.getNarramessengerCredential`
+(`enabled` truthiness). No structural change to this component.
 
 ## Why it exists
 
 Single grouping component inside the Awareness panel for **all** IM
-channel bindings (currently Lark + Slack; future Telegram). Replaces
+channel bindings (Lark, Slack, Telegram, NarraMessenger, Discord). Adding a
+channel is one entry in the ``IM_CHANNELS`` array (key / label / Icon /
+Component / fetchConnected) — NarraMessenger (``MessageCircle`` icon,
+``api.getNarramessengerCredential``) and Discord (``Bot`` icon,
+``api.getDiscordCredential``) were each added this way. Replaces
 having one top-level Lark card and one top-level Slack card with a
 collapsible "IM Channels" section that scales to N channels without
 visually overwhelming the panel.

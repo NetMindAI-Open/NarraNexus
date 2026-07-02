@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_0_initialize.py
-last_verified: 2026-04-10
+last_verified: 2026-06-23
 stub: false
 ---
+
+> 2026-06-23：0.3 建 Event 时按 `ctx.working_source` 给 `trigger_type` 赋值——
+> `working_source == "message_bus"` → `TriggerType.MESSAGE_BUS`，否则 `CHAT`。
+> 让团队群聊回复在 `events` 表可辨（[[auth]] 侧栏预览过滤掉群聊）。其余来源保持
+> CHAT 不变（最小改动）。
+
 # step_0_initialize.py — 流水线第 0 步：初始化
 
 ## 为什么存在

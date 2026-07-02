@@ -14,6 +14,7 @@
 
 import { Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
 import { useState, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Attachment, ChatMessage, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatTime } from '@/lib/utils';
@@ -34,6 +35,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
+  const { t } = useTranslation();
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
@@ -216,12 +218,14 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         isUser && 'flex-row-reverse'
       )}
     >
-      {/* NM RingAvatar — carbon for human, silicon for AI */}
+      {/* NM RingAvatar — carbon for human, silicon for AI. Hidden on mobile
+          (both sides) to give the bubbles the full width; the species color on
+          the bubble itself still distinguishes who's speaking. */}
       <RingAvatar
         species={isUser ? 'carbon' : 'silicon'}
         label={avatarLabel}
         size="sm"
-        className="shrink-0"
+        className="shrink-0 hidden md:inline-flex"
       />
 
       {/* Content */}
@@ -229,24 +233,27 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
         <div
           className={cn(
             'relative inline-block max-w-[85%] text-left',
-            'px-4 py-3',
+            'px-3.5 py-2.5',
             'rounded-[var(--radius-lg)]',
             'transition-colors duration-150',
+            // AI (silicon) bubble: rebind markdown code/table fills to a blue
+            // tint so they don't read as muddy gray on the blue surface.
+            !isUser && !message.isError && 'nm-bubble-ai',
           )}
           style={
             isUser
               ? {
-                  // Own bubble — NM canonical "gray" variant (FinBubble:593-600).
-                  // CRITICAL: species colors (carbon/silicon) are reserved for
-                  // the OTHER party — when the room becomes multi-user, the
-                  // RECEIVER will see the sender in carbon/silicon. Your own
-                  // outgoing messages are always gray ("ownBubble" / "ownEdge")
-                  // because YOU don't need a species cue to identify yourself.
-                  // 3px stripe stays on the RIGHT (the "own" side) per NM.
-                  background: 'var(--nm-own-bubble)',
+                  // Own bubble — Carbon (human) species variant, matching
+                  // the Narra Agent App design ref: carbon-soft coral fill,
+                  // carbon-hair border, and a 3px solid carbon stripe on the
+                  // RIGHT (the "own" side). This mirrors the AI bubble's
+                  // silicon-on-the-LEFT treatment, so a conversation reads as
+                  // a clear human(carbon)·AI(silicon) dialogue. Both tints
+                  // flip automatically in dark mode via token redefinition.
+                  background: 'var(--color-carbon-soft)',
                   color: 'var(--nm-ink)',
-                  border: '1px solid var(--nm-own-hair)',
-                  borderRight: '3px solid var(--nm-own-edge)',
+                  border: '1px solid var(--color-carbon-hair)',
+                  borderRight: '3px solid var(--color-carbon)',
                 }
               : message.isError
                 ? {
@@ -294,10 +301,10 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 )}
                 <span className="font-medium">
                   {eventLogLoading
-                    ? 'Loading details...'
+                    ? t('chat.message.loadingDetails')
                     : showDetails
-                      ? 'Hide reasoning & tools'
-                      : 'View reasoning & tools'}
+                      ? t('chat.message.hideReasoning')
+                      : t('chat.message.viewReasoning')}
                 </span>
               </button>
               {showDetails && inlineEvents.length > 0 && (
@@ -381,8 +388,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Match the Agent reply's font size: the Markdown wrapper
               // (.markdown-content) renders at 0.95rem, but a plain user span
               // would inherit the parent .text-sm (0.85rem) and look smaller.
-              // Pin 0.95rem here so both bubbles read at the same size.
-              <span className="whitespace-pre-wrap text-[0.95rem]">{message.content}</span>
+              // Pin it so both bubbles read at the same size — a notch smaller
+              // on mobile, in step with the markdown mobile size.
+              <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">{message.content}</span>
             ) : message.isError ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
             ) : (
@@ -405,45 +413,52 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
             </div>
           )}
 
-          {/* Bubble footer — NM canonical FinBubble pattern: time pinned to
-              the bottom-RIGHT of the bubble (regardless of own/other), with
-              the copy/download actions sitting just LEFT of the time. Mono
-              9.5px in the subtle token, matching FinBubble:651-657. */}
-          <div className="mt-2 flex items-center justify-end gap-1.5">
-            {!isUser && !isStreaming && message.content && (
-              <>
-                <button
-                  onClick={handleCopy}
-                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                  title="Copy Markdown"
-                >
-                  {copied ? (
-                    <Check className="w-3 h-3 text-[var(--color-success)]" />
-                  ) : (
-                    <Copy className="w-3 h-3" />
-                  )}
-                </button>
-                <button
-                  onClick={handleDownload}
-                  className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
-                  title="Download as .md"
-                >
-                  <Download className="w-3 h-3" />
-                </button>
-              </>
-            )}
-            <span
-              className="font-mono tracking-wide"
-              style={{
-                color: 'var(--nm-subtle)',
-                fontSize: '9.5px',
-                letterSpacing: '0.05em',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              {formatTime(message.timestamp)}
-            </span>
-          </div>
+        </div>
+
+        {/* Meta row — pulled OUTSIDE the bubble so the bubble stays tight
+            (no internal footer padding/whitespace). Time + copy/download sit
+            just below the bubble, aligned to the bubble's side: right for own
+            (carbon) messages, left for agent (silicon) messages. Mono 9.5px
+            in the subtle token. */}
+        <div
+          className={cn(
+            'mt-1 flex items-center gap-1.5 px-0.5',
+            isUser ? 'justify-end' : 'justify-start'
+          )}
+        >
+          {!isUser && !isStreaming && message.content && (
+            <>
+              <button
+                onClick={handleCopy}
+                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                title={t('chat.message.copyMarkdown')}
+              >
+                {copied ? (
+                  <Check className="w-3 h-3 text-[var(--color-success)]" />
+                ) : (
+                  <Copy className="w-3 h-3" />
+                )}
+              </button>
+              <button
+                onClick={handleDownload}
+                className="p-0.5 rounded opacity-40 hover:opacity-100 hover:bg-[var(--nm-paper-warm)] transition-all"
+                title={t('chat.message.downloadMd')}
+              >
+                <Download className="w-3 h-3" />
+              </button>
+            </>
+          )}
+          <span
+            className="font-mono tracking-wide"
+            style={{
+              color: 'var(--nm-subtle)',
+              fontSize: '9.5px',
+              letterSpacing: '0.05em',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {formatTime(message.timestamp)}
+          </span>
         </div>
       </div>
     </div>

@@ -33,7 +33,10 @@ describe('formatChatTimestamp', () => {
   });
 
   test('previous calendar day → "Yesterday"', () => {
-    expect(formatChatTimestamp('2026-05-26T23:45:00Z')).toBe('Yesterday');
+    // Midday UTC the day before NOW — far from the date boundary so the
+    // "previous calendar day" classification holds in local-TZ runners too
+    // (the old 23:45Z slid into NOW's day in e.g. UTC+8). NOW = 2026-05-27.
+    expect(formatChatTimestamp('2026-05-26T12:00:00Z')).toBe('Yesterday');
   });
 
   test('within the past week (2..6 days back) → weekday', () => {

@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Github,
   FileArchive,
@@ -31,6 +32,7 @@ export function InstallDialog({
   onInstall: (data: { url?: string; branch?: string; file?: File }) => void;
   isInstalling: boolean;
 }) {
+  const { t } = useTranslation();
   const [url, setUrl] = useState('');
   const [branch, setBranch] = useState('main');
   const [file, setFile] = useState<File | null>(null);
@@ -42,17 +44,17 @@ export function InstallDialog({
 
     if (mode === 'github') {
       if (!url.trim()) {
-        setError('GitHub URL is required');
+        setError(t('skills.install.errorUrlRequired'));
         return;
       }
       if (!/^https:\/\/github\.com\/.+/i.test(url.trim()) && !/^github:[^/]+\/.+/i.test(url.trim())) {
-        setError('Only GitHub repositories are supported');
+        setError(t('skills.install.errorOnlyGithub'));
         return;
       }
       onInstall({ url: url.trim(), branch: branch.trim() || 'main' });
     } else if (mode === 'zip') {
       if (!file) {
-        setError('Please select a zip file');
+        setError(t('skills.install.errorSelectZip'));
         return;
       }
       onInstall({ file });
@@ -63,7 +65,7 @@ export function InstallDialog({
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       if (!selectedFile.name.endsWith('.zip')) {
-        setError('Please select a .zip file');
+        setError(t('skills.install.errorZipExt'));
         return;
       }
       setFile(selectedFile);
@@ -78,18 +80,18 @@ export function InstallDialog({
       className="fixed inset-0 flex items-center justify-center z-50 animate-fade-in"
       style={{ background: 'var(--nm-backdrop)' }}
     >
-      <div className="bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-2xl p-6 w-full max-w-md shadow-2xl">
+      <div className="bg-[var(--nm-card)] border border-[var(--nm-hairline)] rounded-[var(--radius-lg)] p-6 w-full max-w-md shadow-[var(--nm-elev-3)]">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-[var(--text-primary)] flex items-center gap-2">
             {mode === 'github' ? (
               <>
                 <Github className="w-5 h-5" />
-                Install from GitHub
+                {t('skills.install.fromGithub')}
               </>
             ) : (
               <>
                 <FileArchive className="w-5 h-5" />
-                Install from Zip
+                {t('skills.install.fromZip')}
               </>
             )}
           </h3>
@@ -107,7 +109,7 @@ export function InstallDialog({
             <>
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] mb-2">
-                  GitHub URL
+                  {t('skills.install.githubUrl')}
                 </label>
                 <input
                   type="text"
@@ -120,7 +122,7 @@ export function InstallDialog({
 
               <div>
                 <label className="block text-xs font-medium text-[var(--text-secondary)] mb-2">
-                  Branch (optional)
+                  {t('skills.install.branch')}
                 </label>
                 <input
                   type="text"
@@ -137,7 +139,7 @@ export function InstallDialog({
           {mode === 'zip' && (
             <div>
               <label className="block text-xs font-medium text-[var(--text-secondary)] mb-2">
-                Skill Package (.zip)
+                {t('skills.install.skillPackage')}
               </label>
               <div
                 className={cn(
@@ -166,10 +168,10 @@ export function InstallDialog({
                     <>
                       <FileArchive className="w-8 h-8 text-[var(--text-tertiary)]" />
                       <span className="text-sm text-[var(--text-secondary)]">
-                        Click or drag to upload
+                        {t('skills.install.clickOrDrag')}
                       </span>
                       <span className="text-xs text-[var(--text-tertiary)]">
-                        .zip files only
+                        {t('skills.install.zipOnly')}
                       </span>
                     </>
                   )}
@@ -188,7 +190,7 @@ export function InstallDialog({
 
           <div className="rounded-lg border border-[var(--color-warning)]/20 bg-[var(--color-warning)]/8 px-3 py-2">
             <p className="text-xs text-[var(--text-secondary)]">
-              Only install skills from sources you trust. A skill can contain docs, prompts, and scripts the agent may read or use.
+              {t('skills.install.trustWarning')}
             </p>
           </div>
 
@@ -201,7 +203,7 @@ export function InstallDialog({
               disabled={isInstalling}
               className="flex-1"
             >
-              Cancel
+              {t('skills.install.cancel')}
             </Button>
             <Button
               type="submit"
@@ -212,12 +214,12 @@ export function InstallDialog({
               {isInstalling ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Installing...
+                  {t('skills.install.installing')}
                 </>
               ) : (
                 <>
                   <Plus className="w-4 h-4 mr-2" />
-                  Install
+                  {t('skills.install.install')}
                 </>
               )}
             </Button>

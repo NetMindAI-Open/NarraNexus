@@ -574,33 +574,6 @@ _register(
 
 
 
-# 18. chat_message_embeddings (Part B: per-message embedding cache for
-# ChatModule history. Writer: chat_module._embed_message_pair() in
-# hook_after_event_execution. Reader: not yet implemented — table exists
-# so the writer can succeed silently and the embeddings accumulate for
-# whatever Part B retrieval surface is built later.)
-_register(
-    TableDef(
-        name="chat_message_embeddings",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
-            Column("instance_id", "TEXT", "VARCHAR(128)", nullable=False),
-            Column("message_index", "INTEGER", "INT", nullable=False),
-            Column("role", "TEXT", "VARCHAR(16)", nullable=False, default="'pair'"),
-            Column("content", "TEXT", "TEXT", nullable=False),
-            Column("embedding", "TEXT", "JSON"),
-            Column("source_text", "TEXT", "VARCHAR(512)"),
-            Column("event_id", "TEXT", "VARCHAR(64)"),
-            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[
-            Index("uk_instance_msg", ["instance_id", "message_index"], unique=True),
-            Index("idx_chat_emb_instance", ["instance_id"]),
-            Index("idx_chat_emb_event", ["event_id"]),
-        ],
-    )
-)
-
 # 20. bus_channels (text primary key, no auto-increment)
 _register(
     TableDef(
@@ -746,6 +719,19 @@ _register(
             # default. Used as a 24h debounce so a misbehaving slot doesn't
             # write a notification on every LLM call.
             Column("last_auto_repaired_at", "TEXT", "DATETIME(6)"),
+            # Coding-agent framework choice — only meaningful on the
+            # ``slot_name='agent'`` row. Drives step_3_agent_loop's SDK
+            # dispatch: "claude_code" → ClaudeAgentSDK,
+            # "codex_cli" → CodexSDK. Default keeps existing rows
+            # backward-compatible without a separate backfill pass —
+            # the resolver also treats null as claude_code.
+            Column(
+                "agent_framework",
+                "TEXT",
+                "VARCHAR(32)",
+                nullable=True,
+                default="'claude_code'",
+            ),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -873,12 +859,130 @@ _register(
 )
 
 
+# --- 27c-wx. channel_wechat_credentials ------------------------------------
+# Per-agent personal-WeChat binding via the iLink ("ClawBot") gateway. The
+# secret is the iLink bot_token produced by the QR-scan bind (base64-encoded,
+# NOT encryption — same placeholder convention as lark/slack/telegram). The
+# owner's WeChat id is opaque until they DM the freshly bound account, so it is
+# claimed on the first inbound DM (owner_wx_id), not supplied at bind time.
+_register(
+    TableDef(
+        name="channel_wechat_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            # iLink bot_token from QR bind (base64-encoded placeholder, like telegram).
+            Column("bot_token_encoded", "TEXT", "VARCHAR(1024)", nullable=False),
+            # iLink API base URL — bind may return a per-account `baseurl`;
+            # falls back to the default host when empty.
+            Column("base_url", "TEXT", "VARCHAR(256)", nullable=False, default="''"),
+            # Bot's own WeChat id, when the gateway reports it (may be empty).
+            Column("bot_wx_id", "TEXT", "VARCHAR(128)", nullable=False, default="''"),
+            # Owner — owner_wx_id claimed on first DM; owner_user_id is the
+            # NarraNexus account (agents.created_by). owner_wx_id MUST default to
+            # '' (NOT NULL): claim_owner's first-DM CAS filters on
+            # `owner_wx_id = ''`, and SQL `= ''` never matches NULL — a NULL here
+            # would make the owner unclaimable forever.
+            Column("owner_wx_id", "TEXT", "VARCHAR(128)", nullable=False, default="''"),
+            Column("owner_user_id", "TEXT", "VARCHAR(64)", nullable=False, default="''"),
+            Column("owner_name", "TEXT", "VARCHAR(255)", nullable=False, default="''"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            # One WeChat account per agent. We do NOT add a cross-agent unique
+            # bot-identity index: the bound account's wxid is not known at bind
+            # time, so it can't be the uniqueness key (unlike telegram's
+            # bot_user_id from getMe).
+            Index("idx_wx_cred_agent_id", ["agent_id"], unique=True),
+        ],
+    )
+)
+
+
+# --- 27d. channel_narramessenger_credentials -------------------------------
+# NarraMessenger (formerly NexusMatrix) per-agent binding. v1 transport is
+# Gateway Polling + /chat/send — pure bearer-token HTTP, no Matrix client, so
+# the only secret is the runtime bearer token (base64-encoded, NOT encryption;
+# same placeholder convention as lark/slack/telegram). matrix_user_id is the
+# bot identity; one Matrix bot binds to AT MOST one agent.
+_register(
+    TableDef(
+        name="channel_narramessenger_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bearer_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("backend_base_url", "TEXT", "VARCHAR(255)"),
+            Column("matrix_homeserver_url", "TEXT", "VARCHAR(255)"),
+            Column("matrix_user_id", "TEXT", "VARCHAR(255)"),
+            # NarraMessenger identity ids returned at connect.
+            Column("nexus_principal_id", "TEXT", "VARCHAR(64)"),
+            Column("nexus_profile_id", "TEXT", "VARCHAR(64)"),
+            Column("bind_room_id", "TEXT", "VARCHAR(255)"),
+            # Owner — drives the is_owner_interacting trust signal.
+            Column("owner_matrix_user_id", "TEXT", "VARCHAR(255)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("connection_mode", "TEXT", "VARCHAR(16)", nullable=False, default="'gateway'"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_nm_cred_agent_id", ["agent_id"], unique=True),
+            # Same Matrix bot identity binds to AT MOST one agent — two agents
+            # polling the same bearer would split invocations arbitrarily.
+            Index("idx_nm_cred_matrix_user", ["matrix_user_id"], unique=True),
+        ],
+    )
+)
+
+
+# --- 27e. channel_discord_credentials --------------------------------------
+# Discord per-agent bot binding (single Bot Token from the Developer Portal).
+# Like Telegram, Discord has no workspace/team concept at the credential
+# level — one bot token drives a single Gateway connection that serves every
+# guild the bot has joined, so ``bot_user_id`` alone is the identity for the
+# uniqueness check. Token is base64-encoded text (matching the lark/slack/
+# telegram convention: trivially reversible, NOT encryption — production
+# deployments should swap in real KMS-backed crypto).
+_register(
+    TableDef(
+        name="channel_discord_credentials",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("bot_token_encoded", "TEXT", "VARCHAR(512)", nullable=False),
+            # Discord bot identity (from the Gateway READY event / users/@me).
+            # Snowflake ids are uint64 stored as string.
+            Column("bot_user_id", "TEXT", "VARCHAR(64)"),
+            Column("bot_username", "TEXT", "VARCHAR(128)"),
+            # Owner — the agent owner's numeric Discord user id, supplied at
+            # bind time. Drives the is_owner_interacting trust signal
+            # (sender_id == owner_user_id). Discord usernames are not stable
+            # identifiers, so we key trust on the numeric id only.
+            Column("owner_user_id", "TEXT", "VARCHAR(64)"),
+            Column("owner_name", "TEXT", "VARCHAR(255)"),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_discord_cred_agent_id", ["agent_id"], unique=True),
+            # Same Discord bot can be bound to AT MOST one agent. Two agents
+            # racing on a single bot token would fight over the one Gateway
+            # session Discord issues per token and flip-flop the trust signal.
+            Index("idx_discord_cred_bot_identity", ["bot_user_id"], unique=True),
+        ],
+    )
+)
+
+
 # Note: there is intentionally NO `arena_credentials` table. Arena is an external
 # service — Arena owns the identity, and the agent's api_key lives only in its
 # workspace (skills/arena/). Idempotency ("does this user already have an Arena
 # agent") keys on the `agents` table via agent_metadata.provisioned_source.
-
-
 # 28. user_quotas (system-default free-tier token quota per user)
 _register(
     TableDef(
@@ -1449,6 +1553,42 @@ _register(
             Index("uk_consolidation_scope", ["agent_id", "scope_type", "scope_id", "kind"], unique=True),
             Index("idx_consolidation_status", ["status"]),
             Index("idx_consolidation_dirty", ["status", "last_dirty_at"]),
+        ],
+    )
+)
+
+
+# ----------------------------------------------------------------------------
+# instance_executor_audit — executor/loop lifecycle + OOM events audit log.
+#
+# Motivation (incident lesson #5): container restart wipes docker logs; DB
+# rows survive. After any OOM or runaway-loop incident the question is always
+# "what was the executor doing in the 10 minutes before it died?" — this table
+# is the answer. Append-only; one row per lifecycle event (container start /
+# reuse / cull / orphan reap / OOM / admit queue / admit grant). `detail_json`
+# stores arbitrary context so callers never need a migration per new field.
+#
+# Indexed on (event_type, created_at) to support the L3 monitoring query
+# ExecutorAuditRepository.counts_since() which counts event types over a window.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="instance_executor_audit",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("event_type", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            Column("container_id", "TEXT", "VARCHAR(64)"),
+            Column("run_id", "TEXT", "VARCHAR(64)"),
+            Column("active_loops", "INTEGER", "INT"),
+            Column("active_users", "INTEGER", "INT"),
+            Column("queue_depth", "INTEGER", "INT"),
+            Column("free_mem_mb", "INTEGER", "INT"),
+            Column("detail_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_exec_audit_type_time", ["event_type", "created_at"]),
         ],
     )
 )

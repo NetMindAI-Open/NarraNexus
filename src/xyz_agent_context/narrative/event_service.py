@@ -96,6 +96,7 @@ class EventService:
         user_id: str,
         input_content: str,
         retrieval_anchor: Optional[str] = None,
+        trigger_type: TriggerType = TriggerType.CHAT,
     ) -> Event:
         """
         Create an Event and save to database
@@ -104,6 +105,10 @@ class EventService:
             agent_id: Agent ID
             user_id: User ID
             input_content: Input content
+            trigger_type: What kind of run produced this event. Defaults to
+                CHAT; the message-bus path passes MESSAGE_BUS so group-chat
+                replies can be told apart from 1:1 chat (e.g. the sidebar
+                preview excludes them).
 
         Returns:
             Newly created Event
@@ -113,7 +118,7 @@ class EventService:
             agent_id=agent_id,
             user_id=user_id,
             input_content=input_content,
-            trigger_type=TriggerType.CHAT,
+            trigger_type=trigger_type,
             save_to_db=True,
             retrieval_anchor=retrieval_anchor,
         )

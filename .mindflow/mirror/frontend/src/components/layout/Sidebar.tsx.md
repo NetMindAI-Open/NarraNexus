@@ -1,62 +1,68 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-06-16
+last_verified: 2026-06-24
 stub: false
 ---
 
-## 2026-06-16 — mode-switch button removed
+> 2026-06-24: Sidebar is now the shell for the TEAMS/AGENTS restructure. It no
+> longer owns any team grouping itself — it just renders `<AgentList collapsed/>`
+> inside the ScrollArea, and AgentList is what splits the roster into a TEAMS
+> section (each row a team group-chat) above a flat AGENTS section. The old
+> `TeamFilterBar` chip-filter approach is gone for good.
 
-The Local/Cloud mode-switch popup button (both expanded and icon-only collapsed
-variants) and its `handleSwitchMode` handler were deleted. There are now only
-two modes and mode is resolved automatically — no user-facing toggle belongs
-here. `wipeAllSessionData` remains; it is used only by the logout action.
+## 2026-06-24 — user header avatar → sm + "YOU ›" affordance
 
-The header comment "branding, user, agents, nav, mode-switch" is now out of
-date — "mode-switch" is gone from Sidebar's responsibilities.
+The expanded user-header `RingAvatar` is `size="sm"` (32px) to match the agent
+rows + team avatars (uniform avatar size across the sidebar). A right-aligned
+**"YOU ›"** cue (mono label + `ChevronRight`) marks the row as clickable → the
+"You" workspace; faint at rest, carbon on hover/active. It's a visual cue inside
+the row-button, not a nested button.
+
+## 2026-06-23 — user avatar opens the "You" workspace
+
+The carbon user-info block (avatar + name + Online) is a `<button>` navigating to
+`/app/you` ([[YouWorkspace]]) — the owner-scoped Memory / Network / World + Notes
+page, the carbon counterpart to selecting a silicon agent. Both expanded and
+collapsed variants carry the click + active highlight when on `/app/you`.
 
 ## 2026-06-11 — show NetMind nickname, not the opaque userSystemCode
 
-user_id is a 32-hex NetMind userSystemCode in cloud mode (not human-readable). The user-info block + RingAvatar now display `displayName || userId` (configStore.displayName = NetMind nickName), falling back to user_id in local mode where it IS the chosen username.
+user_id is a 32-hex NetMind userSystemCode in cloud mode. The user block shows
+`displayName || userId` (configStore.displayName = NetMind nickName), falling
+back to user_id in local mode where it IS the chosen username.
 
-last_verified: 2026-06-10
-stub: false
----
+# Sidebar.tsx — Collapsible left rail: branding, user, the team/agent roster, nav, mode-switch
 
-## 2026-06-10 — TeamFilterAndAgents wrapper retired
+## Why it exists
 
-The grouped-sidebar redesign deleted TeamFilterBar; Sidebar now renders
-`<AgentList collapsed={...}/>` directly inside the ScrollArea. The
-`TeamFilterAndAgents` helper (chip-filter state + filterAgentIds
-derivation) is gone — grouping lives in [[agentGroupUtils]] /
-[[AgentList]]. Collapsed-mode team representation (formerly ∗/∅/color
-dots) is now AgentList's avatar rail; Sidebar's own collapsed duties
-are unchanged (logo, user avatar, nav icons, footer).
+Single place that owns the persistent left-rail shell: branding, the carbon
+user-header (→ "You" workspace), the silicon roster ([[AgentList]]), the nav
+actions (Dashboard / Settings / System), the local↔cloud mode-switcher, and the
+destructive logout / clear-history actions. Collapsible to a 72px icon-only rail;
+on mobile it becomes an off-canvas drawer toggled from the TopBar.
 
-## 2026-05-19 — Sidebar bg moved to `--nm-paper`
+## How it works / design
 
-Outer `<aside>` background now reads `bg-[color:var(--nm-paper)]` so the sidebar sits directly on NM paper (FinChats:461 canonical). Per-row treatment moved into `AgentList` — see its mirror for the row-bg priority rewrite.
-
-## v2.2 改动（2026-04-13）
-
-- **G1 prefetch**：Dashboard nav button 加 `onMouseEnter` / `onFocus` 触发 `import('@/pages/DashboardPage')`，预热 Vite chunk。静态字面量 → Vite 编译期解析，无 injection 风险。配合 MainLayout 的内层 Suspense + DashboardSkeleton，hover 过的导航点击近乎瞬时。
-
-# Sidebar.tsx — Collapsible left rail: branding, user, agents, nav
-
-## 为什么存在
-
-Single place that owns the nav actions (Settings, System) and the destructive logout/clear action. There is no mode-switch button — mode is resolved automatically by `useResolveAppMode` in App.tsx. Collapsible to 72px icon-only mode.
-
-## 上下游关系
-- **被谁用**: `MainLayout`.
-- **依赖谁**: `AgentList`, `ThemeToggle`, `useConfigStore`, `useChatStore`, `useRuntimeStore`, `usePreloadStore`, `api.clearHistory`.
-
-## 设计决策
-
-Logout calls `wipeAllSessionData()` which:
-1. Calls `logout()`, `clearChat()`, `clearPreload()` to reset Zustand in-memory state.
-2. Directly calls `localStorage.removeItem()` for every known persisted key.
-3. Does `window.location.href = '/...'` (full page reload, not React Router navigate).
-
-The hard reload is intentional. A soft `navigate()` keeps the React tree, closure-captured store snapshots, and module-level caches alive from the previous session, which caused data bleed between cloud and local modes. The direct `localStorage.removeItem` calls are the authoritative clear, not relying on Zustand persist flushing before the reload.
-
-The System page link is feature-flagged behind `features.showSystemPage` from `useRuntimeStore`.
+- **It is a shell, not a list owner.** With the team group-chat redesign the
+  sidebar delegates the whole roster to [[AgentList]], which renders the TEAMS
+  section (group-chat rows) over the flat AGENTS section. Sidebar's own concerns
+  are chrome only: logo, user header, nav, footer. The retired `TeamFilterBar` /
+  `TeamFilterAndAgents` chip-filter is intentionally not coming back — grouping
+  lives in [[agentGroupUtils]] / [[AgentList]].
+- **Hard reload on mode-switch & logout.** Both call `wipeAllSessionData()`
+  (`logout()` + `clearChat()` + `clearPreload()` to reset Zustand, then direct
+  `localStorage.removeItem()` of every known persisted key) and then
+  `window.location.href = '/…'` — a full document reload, NOT React Router
+  `navigate()`. A soft navigate keeps the React tree, closure-captured store
+  snapshots and module caches from the prior mode alive, which is exactly how
+  cloud data bled into a subsequent local session. The direct removeItem calls
+  are the authoritative clear; we don't trust persist to flush before reload.
+- **Upstream/downstream**: rendered by [[MainLayout]]; depends on [[AgentList]],
+  `useConfigStore` / `useChatStore` / `useRuntimeStore` / `usePreloadStore` /
+  `useUIStore`, and `api.clearHistory`. Dashboard nav prefetches the lazy
+  `DashboardPage` chunk on hover/focus (static literal → Vite-resolved, no
+  injection risk) to pair with MainLayout's inner Suspense.
+- **Gotchas**: the System link is feature-flagged behind
+  `features.showSystemPage` (runtimeStore). The mode-switch popup is a raw
+  positioned `div`, not a Popover — it doesn't close on outside-click; you toggle
+  it by clicking the button again.

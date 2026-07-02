@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Artifact } from '@/types/artifact';
 import { useArtifactStore } from '@/stores';
 import { fetchArtifactText, fetchArtifactBlobUrl } from '@/services/artifactsApi';
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function ArtifactPreviewCard({ artifact }: Props) {
+  const { t } = useTranslation();
   const setActive = useArtifactStore((s) => s.setActive);
   const setCollapsed = useArtifactStore((s) => s.setCollapsed);
   const { url } = useArtifactRawUrl(
@@ -114,19 +116,19 @@ export default function ArtifactPreviewCard({ artifact }: Props) {
           <p className="text-xs opacity-80 whitespace-pre-line">{mdHead}</p>
         )}
         {artifact.kind === 'application/vnd.echarts+json' && (
-          <p className="text-xs opacity-60">[chart preview — open tab to view]</p>
+          <p className="text-xs opacity-60">{t('artifacts.preview.chart')}</p>
         )}
         {artifact.kind === 'text/html' && (
-          <p className="text-xs opacity-60">[HTML app — open tab to view]</p>
+          <p className="text-xs opacity-60">{t('artifacts.preview.html')}</p>
         )}
         {artifact.kind === 'application/pdf' && (
-          <p className="text-xs opacity-60">[PDF document — open tab to view]</p>
+          <p className="text-xs opacity-60">{t('artifacts.preview.pdf')}</p>
         )}
       </div>
       {previewError && (
-        <p className="text-xs text-red-400/80">Preview unavailable: {previewError}</p>
+        <p className="text-xs text-red-400/80">{t('artifacts.preview.unavailable', { error: previewError })}</p>
       )}
-      <div className="text-xs opacity-50">Open →</div>
+      <div className="text-xs opacity-50">{t('artifacts.preview.open')}</div>
     </button>
   );
 }

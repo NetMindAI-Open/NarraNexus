@@ -35,6 +35,7 @@ from xyz_agent_context.context_runtime.prompts import (
     RECENT_ACTIONS_HEADER,
     BOOTSTRAP_INJECTION_PROMPT,
     USER_TEMPORAL_CONTEXT,
+    SECURITY_IRON_RULES,
 )
 
 
@@ -323,6 +324,20 @@ class ContextRuntime:
         narrative_service = NarrativeService(self.agent_id)
 
         # ========================================================================
+        # Part -1: Security iron rules (FIRST — highest priority) — CLOUD ONLY.
+        # Hard prohibition on reading anything outside the agent's own
+        # workspace (files + env vars) and on running un-vetted code. This is a
+        # MULTI-TENANT protection; on local/desktop the machine is the user's
+        # own and they legitimately want the agent to operate across their
+        # folders, so injecting it there would cripple the product (and there
+        # are no other tenants / platform secrets to protect). Gated on cloud
+        # mode accordingly. See prompts.SECURITY_IRON_RULES (incident 2026-06-17).
+        # ========================================================================
+        from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+        if get_deployment_mode() == "cloud":
+            prompt_parts.append(SECURITY_IRON_RULES)
+
+        # ========================================================================
         # Part 0: User Temporal Context (v2 timezone protocol, 2026-04-21)
         # Injected first so every downstream section + all Module instructions
         # can reference it. Source of truth = users.timezone (IANA).
@@ -364,9 +379,13 @@ class ContextRuntime:
 
             agent_record = await AgentRepository(self.db).get_agent(self.agent_id)
             if agent_record and agent_record.created_by and agent_record.created_by == ctx_data.user_id:
+                from xyz_agent_context.utils.workspace_paths import (
+                    resolve_existing_workspace,
+                )
                 bootstrap_path = os.path.join(
-                    settings.base_working_path,
-                    f"{self.agent_id}_{agent_record.created_by}",
+                    str(resolve_existing_workspace(
+                        self.agent_id, agent_record.created_by, settings.base_working_path
+                    )),
                     "Bootstrap.md"
                 )
                 if os.path.isfile(bootstrap_path):

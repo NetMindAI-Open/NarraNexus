@@ -286,14 +286,20 @@ async def heal_artifact(
     if art is None or art.agent_id != agent_id:
         raise HTTPException(404, "artifact not found")
 
+    from xyz_agent_context.utils.workspace_paths import (
+        resolve_existing_workspace,
+        resolve_workspace_relative_file,
+    )
     base = os.path.realpath(settings.base_working_path)
     workspace_root = os.path.realpath(
-        os.path.join(base, f"{agent_id}_{user_id}")
+        str(resolve_existing_workspace(agent_id, user_id, base))
     )
 
     # 1. Pointer might already be valid (frontend saw a transient 410).
     if art.file_path:
-        existing_abs = os.path.realpath(os.path.join(base, art.file_path))
+        existing_abs = os.path.realpath(
+            str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base))
+        )
         if (
             existing_abs.startswith(workspace_root + os.sep)
             and os.path.isfile(existing_abs)

@@ -286,11 +286,13 @@ async def execute_migration(
 def _rename_workspaces(
     base_working_path: str, agent_ids: List[str], old_id: str, new_id: str
 ) -> int:
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
     renamed = 0
     for agent_id in agent_ids:
-        old_dir = Path(base_working_path) / f"{agent_id}_{old_id}"
-        new_dir = Path(base_working_path) / f"{agent_id}_{new_id}"
+        old_dir = agent_workspace_path(agent_id, old_id, base=base_working_path)
+        new_dir = agent_workspace_path(agent_id, new_id, base=base_working_path)
         if old_dir.is_dir() and not new_dir.exists():
+            new_dir.parent.mkdir(parents=True, exist_ok=True)
             os.rename(old_dir, new_dir)
             renamed += 1
     return renamed

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-06-11
+last_verified: 2026-06-18
 stub: false
 ---
+
+## 2026-06-18 — arena_api_base (per-env Arena)
+
+Added `arena_api_base` (default `https://api.arena42.ai`). Externalizes which
+Arena environment auto-provisioning registers against, so the dev stack can set
+`ARENA_API_BASE=https://arena-dev-api.protago-dev.com` and keep dev test agents
+off the prod ladder. Read in the backend process by `ArenaProvisioningService`
+(not the executor — the agent's own calls use ARENA_API_URL baked into the
+workspace skill at provision time). Same externalize-per-env approach as
+APP_DOMAIN; no _DOTENV_PASSTHROUGH entry needed (backend reads it directly).
 
 ## 2026-06-11 — invite env passthrough removed
 

@@ -1,8 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-05-29
+last_verified: 2026-06-22
 ---
 
+> 2026-06-22：`NarramessengerModule` 加入 MODULE_MAP / `__all__`（capability
+> module，NarraMessenger gateway-poll IM channel）。
+>
 > 2026-05-29：`MemoryModule` 从 MODULE_MAP / CAPABILITY_MODULES / __all__
 > 移除（EverMemOS 整体删除，memory_module 包已删）。
 >

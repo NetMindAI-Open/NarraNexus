@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-05-21
+last_verified: 2026-06-16
 ---
+
+> Concrete subclasses today: ``LarkTrigger``, ``SlackTrigger``,
+> ``TelegramTrigger``, ``DiscordTrigger``. (The file docstring's old
+> "Lark is NOT a subclass" line was stale; corrected when Discord landed
+> — all four are subclasses now.)
 
 ## Why it exists
 

@@ -146,3 +146,6 @@ scripts/.control.sh
 /real_case_e2e_test/state/
 DESIGN-unified-memory-search.md
 TODO-unified-memory-overhaul.md
+
+# Runtime per-agent workspaces (created by the running backend)
+agent_workspace/

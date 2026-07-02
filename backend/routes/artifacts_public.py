@@ -206,8 +206,16 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         # Legacy (pre-pointer-model) row that was never re-registered.
         raise HTTPException(410, "artifact has no content pointer on disk")
 
+    from xyz_agent_context.utils.workspace_paths import (
+        resolve_existing_workspace,
+        resolve_workspace_relative_file,
+    )
     base = os.path.realpath(settings.base_working_path)
-    entry_abs = os.path.realpath(os.path.join(base, art.file_path))
+    # Resolve with a flat→nested fallback so artifacts whose file_path was
+    # stored under the old flat layout still serve after the nested flip.
+    entry_abs = os.path.realpath(
+        str(resolve_workspace_relative_file(art.file_path, art.agent_id, art.user_id, base))
+    )
     artifact_root = os.path.dirname(entry_abs)
     if not (artifact_root == base or artifact_root.startswith(base + os.sep)):
         logger.warning(
@@ -222,7 +230,7 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
     # This is the soft replacement for the old "entry must be in a
     # subdirectory" hard rule.
     workspace_root = os.path.realpath(
-        os.path.join(base, f"{art.agent_id}_{art.user_id}")
+        str(resolve_existing_workspace(art.agent_id, art.user_id, base))
     )
     if artifact_root == workspace_root and file_path:
         if os.path.normpath(file_path) == os.path.basename(entry_abs):

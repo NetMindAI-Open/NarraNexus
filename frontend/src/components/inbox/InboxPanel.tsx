@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Mail, RefreshCw, Hash, Users, ChevronRight, ChevronDown } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, ScrollArea } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
@@ -11,6 +12,7 @@ import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
 
 export function InboxPanel() {
+  const { t } = useTranslation();
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
 
   const { agentId } = useConfigStore();
@@ -45,7 +47,7 @@ export function InboxPanel() {
       <CardHeader>
         <CardTitle>
           <Mail />
-          Agent Inbox
+          {t('inbox.title')}
           {agentUnreadCount > 0 && (
             <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
               · {agentUnreadCount}
@@ -57,7 +59,7 @@ export function InboxPanel() {
           size="icon"
           onClick={handleRefresh}
           disabled={loading}
-          title="Refresh"
+          title={t('inbox.refresh')}
         >
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
         </Button>
@@ -67,7 +69,7 @@ export function InboxPanel() {
         <ScrollArea className="h-full">
         {agentRooms.length === 0 ? (
           <div className="h-full flex items-center justify-center">
-            <p className="text-[var(--text-tertiary)] text-sm">No messages</p>
+            <p className="text-[var(--text-tertiary)] text-sm">{t('inbox.noMessages')}</p>
           </div>
         ) : (
           agentRooms.map((room) => {
@@ -93,7 +95,7 @@ export function InboxPanel() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-                        {room.room_name || 'Unnamed Room'}
+                        {room.room_name || t('inbox.unnamedRoom')}
                       </span>
                       {room.unread_count > 0 && (
                         <Badge size="sm" variant="accent" pulse>

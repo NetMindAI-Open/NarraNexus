@@ -18,6 +18,7 @@
  */
 
 import { Mic, MicOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
 interface VoiceTranscriptProps {
@@ -39,6 +40,7 @@ export function VoiceTranscript({
   compact = false,
   className,
 }: VoiceTranscriptProps) {
+  const { t } = useTranslation();
   const text = transcript?.trim() ?? '';
   const hasText = text.length > 0;
 
@@ -59,7 +61,7 @@ export function VoiceTranscript({
         </div>
         <div className="min-w-0 leading-tight">
           <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em]">
-            voice
+            {t('chat.voice.label')}
           </div>
           <div
             className={cn(
@@ -69,7 +71,7 @@ export function VoiceTranscript({
                 : 'italic text-[var(--text-tertiary)]',
             )}
           >
-            {hasText ? text : 'transcription unavailable'}
+            {hasText ? text : t('chat.voice.unavailableShort')}
           </div>
         </div>
       </div>
@@ -90,7 +92,7 @@ export function VoiceTranscript({
           <MicOff className="w-3.5 h-3.5 shrink-0 text-[var(--text-tertiary)]" />
         )}
         <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)]">
-          voice
+          {t('chat.voice.label')}
         </span>
       </div>
       {hasText ? (
@@ -99,8 +101,7 @@ export function VoiceTranscript({
         </div>
       ) : (
         <div className="text-xs italic text-[var(--text-tertiary)]">
-          Transcription unavailable. Add an OpenAI API key under
-          Settings → Providers to enable voice transcription.
+          {t('chat.voice.unavailableLong')}
         </div>
       )}
     </div>

@@ -24,6 +24,7 @@ from xyz_agent_context.schema import (
     ProgressStatus,
     PathExecutionResult,
     ErrorMessage,
+    AUTH_EXPIRED_ERROR_TYPE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
@@ -41,6 +42,37 @@ _DEFAULT_MAX_PER_ENTRY = 4096
 _DEFAULT_MAX_TOTAL = 32768
 _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ...]\n"
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
+
+
+async def _resolve_agent_framework_name(user_id: str, db_client: Any) -> str:
+    """Return the user's coding-agent framework name (for the driver
+    registry). Reads ``user_slots[user_id, slot_name='agent'].agent_framework``.
+
+    Always falls back to ``"claude_code"`` on:
+      - row missing (new users)
+      - column null (rows from before Task 1 migration)
+      - DB lookup error (defensive — never let an ``agent_framework``
+        column issue block an agent run)
+
+    Unknown framework names are NOT silently rewritten here — they're
+    handed to ``get_agent_loop_driver`` which raises ``ValueError`` so a
+    typo in config surfaces at the dispatch site instead of masquerading
+    as "claude". The driver registry has both ``claude_code`` and
+    ``codex_cli`` aliases registered, so the two values
+    ``user_slots.agent_framework`` ever holds resolve cleanly.
+    """
+    try:
+        row = await db_client.get_one(
+            "user_slots", {"user_id": user_id, "slot_name": "agent"}
+        )
+    except Exception as e:  # noqa: BLE001 — defensive: any DB hiccup
+        logger.warning(
+            f"[step_3] agent_framework lookup failed for user={user_id}: {e}; "
+            f"falling back to claude_code"
+        )
+        return "claude_code"
+
+    return (row or {}).get("agent_framework") or "claude_code"
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -397,12 +429,12 @@ async def _generate_fallback_reply_stream(
        agent-loop generator body.
     2. Lets us test the prompt assembly + streaming wiring in isolation.
     """
-    from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+    from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
     from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
 
     set_cost_context(agent_id, db)
     try:
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         instructions = (
             _FALLBACK_AFTER_ERROR_INSTRUCTIONS
             if mode == "after_error"
@@ -545,6 +577,37 @@ async def _stream_fallback_recovery(
         )
 
 
+async def _record_oom_if_killed(
+    db_client: Any, user_id: str, error_str: str, output_already_emitted: bool
+) -> None:
+    """Record an audit row when the agent loop died from an executor OOM
+    (subprocess SIGKILL — ``exit code -9``), for monitoring/alerting.
+
+    Best-effort: never raises. A retry/recovery path is intentionally NOT
+    added here yet — the streaming loop must first be made cleanly
+    re-runnable (tracked separately in the scheduling-resource plan); today
+    an OOM falls through to the existing fallback. We only need visibility so
+    the platform can alert and the affected user's memory cap can be tuned.
+    """
+    if "exit code -9" not in error_str:
+        return
+    try:
+        from xyz_agent_context.repository.executor_audit_repository import (
+            ExecutorAuditRepository,
+        )
+
+        await ExecutorAuditRepository(db_client).record(
+            event_type="oom_killed",
+            user_id=user_id,
+            detail={
+                "error_message": error_str[:500],
+                "output_already_emitted": output_already_emitted,
+            },
+        )
+    except Exception as audit_err:  # noqa: BLE001
+        logger.warning(f"[oom-audit] failed to record OOM event: {audit_err}")
+
+
 @timed("step.3_agent_loop")
 
 async def step_3_agent_loop(
@@ -656,7 +719,8 @@ async def step_3_agent_loop(
     # Set up Agent working directory
     from xyz_agent_context.settings import settings
     working_path = settings.base_working_path
-    agent_working_path = f"{working_path}/{ctx.agent_id}_{ctx.user_id}"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    agent_working_path = str(agent_workspace_path(ctx.agent_id, ctx.user_id, base=working_path))
     if not os.path.exists(agent_working_path):
         os.makedirs(agent_working_path)
 
@@ -672,9 +736,48 @@ async def step_3_agent_loop(
     # split second before the synthetic send_message lands.
     captured_error: dict | None = None
     # Select the agent-loop framework via the registry (iron rule #9).
-    # framework=None resolves through AGENT_LOOP_FRAMEWORK env -> "claude"
-    # default; pass an agent-scoped name here once per-agent selection lands.
-    driver = get_agent_loop_driver(working_path=agent_working_path)
+    # Read the user's per-agent choice from user_slots; fall back to
+    # claude_code on missing row / DB hiccup. Pass the resolved name
+    # into the registry — driver factories are registered under both
+    # the canonical user-facing names (claude_code / codex_cli) and
+    # short aliases (claude / codex), so any value we read here that
+    # the system supports will resolve.
+    framework_name = await _resolve_agent_framework_name(ctx.user_id, db_client)
+    logger.info(f"[step_3] agent_loop framework: {framework_name!r} (user={ctx.user_id})")
+    # Per-user executor routing (cloud): ask the broker to ensure this
+    # user's Executor container and use its URL. Returns None when no
+    # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
+    # so get_agent_loop_driver falls back. This is the cold-start point.
+    from xyz_agent_context.agent_framework.broker_client import (
+        ensure_executor,
+        wait_until_ready,
+    )
+    ensured = await ensure_executor(ctx.user_id)
+    executor_url = ensured.url if ensured else None
+    if ensured is not None and ensured.cold_started:
+        # The user's executor was asleep and is being woken — emit a
+        # semantic marker so the frontend can show the "waking up" overlay.
+        # English text only (iron rule #1); the localized friendly copy
+        # lives in the frontend, keyed on step="executor.warming".
+        yield ProgressMessage(
+            step="executor.warming",
+            title="Waking up your agent",
+            description="Your agent was idle; starting it up…",
+            status=ProgressStatus.RUNNING,
+        )
+        # The container is started but uvicorn on :8020 takes a few seconds to
+        # come up. Wait for it to be ready BEFORE driving the loop — otherwise
+        # the first connection races the cold start, fails, and the run drops
+        # into the fallback path instead of actually running the agent.
+        await wait_until_ready(executor_url)
+    driver = get_agent_loop_driver(
+        framework=framework_name,
+        executor_url=executor_url,
+        working_path=agent_working_path,
+    )
+    # Clear the "waking up" overlay the instant the (now-awake) executor
+    # emits its first event — the COMPLETED that pairs the RUNNING above.
+    _warming_active = ensured is not None and ensured.cold_started
     try:
         async for response in driver.agent_loop(
             messages=messages,
@@ -682,6 +785,14 @@ async def step_3_agent_loop(
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
         ):
+            if _warming_active:
+                _warming_active = False
+                yield ProgressMessage(
+                    step="executor.warming",
+                    title="Agent ready",
+                    description="Your agent is awake.",
+                    status=ProgressStatus.COMPLETED,
+                )
             # ResponseProcessor.process is a generator yielding 0..N
             # ProcessedResponse per raw event (Phase B 2026-05-13 —
             # thinking deltas get coalesced via _ThinkingBatcher, and a
@@ -722,6 +833,13 @@ async def step_3_agent_loop(
         logger.exception(f"[AGENT-LOOP-FATAL] {error_type}: {error_str}")
         captured_error = {"error_type": error_type, "error_message": error_str}
 
+        # Executor OOM (SIGKILL / exit code -9): record for monitoring +
+        # alerting. Retry is deferred (scheduling-resource plan) — the OOM
+        # falls through to the fallback recovery below as before.
+        await _record_oom_if_killed(
+            db_client, ctx.user_id, error_str, bool(agent_loop_response)
+        )
+
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
     # on an unfinalized state is undefined per ExecutionState's contract.
     state = state.finalize()
@@ -738,36 +856,56 @@ async def step_3_agent_loop(
     #     no helper_llm (we already spoke), but a warning badge
     #     surfaces the truncated execution.
     # Out-of-scope triggers (non-chat) and cancellation are skipped.
-    fallback_mode, skip_reason = _should_run_helper_llm_fallback(
-        working_source=ctx.working_source or "",
-        agent_loop_response=agent_loop_response,
-        cancellation=getattr(ctx, "cancellation", None),
+    # A framework auth failure (e.g. codex OAuth token expired / "refresh
+    # token already used") is NOT recoverable by a helper reply — the turn
+    # never ran. Fabricating a reply masks the dead login and misleads the
+    # user (incident 2026-06-11). response_processor already surfaced a
+    # fatal, actionable ErrorMessage tagged ``auth_expired``; when present,
+    # skip the helper recovery so the user sees the re-login prompt, not a
+    # gpt-5-generated answer pretending codex replied. We still fall
+    # through to the PathExecutionResult below — Step 4 must persist this
+    # (failed) turn like any other.
+    auth_failed = any(
+        isinstance(m, ErrorMessage)
+        and getattr(m, "error_type", "") == AUTH_EXPIRED_ERROR_TYPE
+        for m in agent_loop_response
     )
-    if fallback_mode is None and skip_reason != "already_replied_via_tool":
-        logger.info(
-            f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
-            f"(captured_error={captured_error!r})"
-        )
-    if fallback_mode is not None:
+    if auth_failed:
         logger.warning(
-            f"[FALLBACK] mode={fallback_mode} "
-            f"(reasoning_chars={len(state.final_output)}, "
-            f"captured_error={bool(captured_error)})"
+            "[FALLBACK] skipped: agent auth expired — surfacing re-login "
+            "prompt instead of fabricating a reply"
         )
+    else:
+        fallback_mode, skip_reason = _should_run_helper_llm_fallback(
+            working_source=ctx.working_source or "",
+            agent_loop_response=agent_loop_response,
+            cancellation=getattr(ctx, "cancellation", None),
+        )
+        if fallback_mode is None and skip_reason != "already_replied_via_tool":
+            logger.info(
+                f"[FALLBACK] skipped: skip_reason={skip_reason!r} "
+                f"(captured_error={captured_error!r})"
+            )
+        if fallback_mode is not None:
+            logger.warning(
+                f"[FALLBACK] mode={fallback_mode} "
+                f"(reasoning_chars={len(state.final_output)}, "
+                f"captured_error={bool(captured_error)})"
+            )
 
-    async for msg in _stream_fallback_recovery(
-        fallback_mode=fallback_mode,
-        captured_error=captured_error,
-        context_messages=messages,
-        agent_loop_response=agent_loop_response,
-        final_output=state.final_output,
-        user_input=ctx.input_content,
-        cancellation=getattr(ctx, "cancellation", None),
-        db=db_client,
-        agent_id=ctx.agent_id,
-    ):
-        agent_loop_response.append(msg)
-        yield msg
+        async for msg in _stream_fallback_recovery(
+            fallback_mode=fallback_mode,
+            captured_error=captured_error,
+            context_messages=messages,
+            agent_loop_response=agent_loop_response,
+            final_output=state.final_output,
+            user_input=ctx.input_content,
+            cancellation=getattr(ctx, "cancellation", None),
+            db=db_client,
+            agent_id=ctx.agent_id,
+        ):
+            agent_loop_response.append(msg)
+            yield msg
 
     # Update 3.4 sub-step to completed status
     substeps[-1] = (

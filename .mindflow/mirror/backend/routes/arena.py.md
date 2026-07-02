@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/arena.py
-last_verified: 2026-06-15
+last_verified: 2026-06-23
 stub: false
 ---
 
@@ -17,16 +17,24 @@ controller — all the work is in `ArenaProvisioningService`.
 
 **Called by:** the frontend `lib/arenaLanding.ts` after login, once
 `source=arena` is detected. **Delegates to:**
-`ArenaProvisioningService(db).provision(user_id)`. **Auth:** required — the
-route is NOT in `AUTH_EXEMPT_PATHS`, so the middleware enforces a session
-(cloud: Bearer JWT minted by the inbound-token / netmind-login SSO flow; local:
-`X-User-Id`). The user is derived from the session, never the body.
+`ArenaProvisioningService(db).provision(user_id, user_token=...)`. **Auth:**
+required — the route is NOT in `AUTH_EXEMPT_PATHS`, so the middleware enforces a
+session (cloud: Bearer JWT minted by the inbound-token / netmind-login SSO flow;
+local: `X-User-Id`). The *identity* is derived from the session, never the body.
 
 ## Design decisions
 
-**No request body.** Identity comes from `resolve_current_user_id(request)`;
-the endpoint is "ensure THIS user has an Arena agent." Idempotent and
-refresh-safe — the warm path is a single DB read.
+**Identity from the session, not the body.** The user comes from
+`resolve_current_user_id(request)`; the endpoint is "ensure THIS user has an
+Arena agent." Idempotent and refresh-safe — the warm path is a single DB read
+(it only re-hits Arena to bind an owner email a prior call could not).
+
+**Optional `{"user_token": <NetMind JWT>}` body (2026-06-23).** The frontend
+forwards the user's NetMind token so the service can bind the agent's owner
+email via Arena's `platform-bind-owner` endpoint without an email round-trip.
+The body is parsed defensively (empty / non-JSON tolerated → token `None` →
+binding skipped); the token is forwarded to Arena and never persisted. This is
+the one piece of request data we read — identity still never comes from it.
 
 **502 on provisioning failure.** Arena registration is an upstream dependency;
 a failure there surfaces as `502 Bad Gateway` with the cause, distinct from a

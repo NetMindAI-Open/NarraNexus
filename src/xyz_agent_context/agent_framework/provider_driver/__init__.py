@@ -44,6 +44,7 @@ from xyz_agent_context.agent_framework.provider_driver.derive import (
     derive_driver_type,
     derive_billing_policy,
     derive_auth_ref,
+    resolve_codex_credentials_path,
     is_slot_broken,
     pick_default_model,
 )
@@ -55,6 +56,7 @@ from xyz_agent_context.agent_framework.provider_driver.self_heal import (
 )
 from xyz_agent_context.agent_framework.provider_driver.resolver import (
     resolve_user_llm_configs,
+    resolve_user_runtime_llm_configs,
 )
 
 # Import drivers/ to trigger registration via @register decorators.
@@ -73,9 +75,11 @@ __all__ = [
     "derive_driver_type",
     "derive_billing_policy",
     "derive_auth_ref",
+    "resolve_codex_credentials_path",
     "is_slot_broken",
     "pick_default_model",
     "backfill_provider_metadata",
     "self_heal_if_broken",
     "resolve_user_llm_configs",
+    "resolve_user_runtime_llm_configs",
 ]

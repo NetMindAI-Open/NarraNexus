@@ -576,9 +576,9 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
 
             # 2. Create workspace directory + Bootstrap.md
             from xyz_agent_context.settings import settings
-            workspace_path = os.path.join(
-                settings.base_working_path,
-                f"{new_agent_id}_{owner_user_id}"
+            from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+            workspace_path = str(
+                agent_workspace_path(new_agent_id, owner_user_id, base=settings.base_working_path)
             )
             os.makedirs(workspace_path, exist_ok=True)
 

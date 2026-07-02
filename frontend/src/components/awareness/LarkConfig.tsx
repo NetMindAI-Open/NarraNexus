@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -26,6 +27,7 @@ const POLLING_INTERVAL_MS = 3000;
 const POLLING_TIMEOUT_MS = 5 * 60 * 1000;
 
 export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
+  const { t } = useTranslation();
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<LarkCredentialData | null>(null);
@@ -65,15 +67,15 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       if (res.success) {
         setCredential(res.data || null);
       } else {
-        setError(res.error || 'Failed to load credential');
+        setError(res.error || t('awareness.lark.errLoad'));
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return;
-      setError(e instanceof Error ? e.message : 'Failed to fetch Lark credential');
+      setError(e instanceof Error ? e.message : t('awareness.lark.errFetch'));
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, t]);
 
   // Reset all state on agent change
   useEffect(() => {
@@ -104,7 +106,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   // The backend will validate too, but catching it here avoids a server
   // round-trip and a cryptic generic error.
   const appIdValidationError = appId && !APP_ID_PATTERN.test(appId)
-    ? "App ID should start with 'cli_' followed by ≥8 alphanumeric characters. Copy it from the developer console's Credentials & Basic Info page."
+    ? t('awareness.lark.appIdValidation')
     : '';
 
   // Bind bot
@@ -131,7 +133,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         await fetchCredential();
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Failed to bind bot');
+        setError(res.error || t('awareness.lark.errBind'));
         // error_detail is populated by the translator when the backend
         // recognises the failure class — surfaces a structured card instead
         // of the raw lark-cli stderr that used to fill the red div.
@@ -139,7 +141,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       }
     } catch (e: unknown) {
       if (mountedRef.current) {
-        setError(e instanceof Error ? e.message : 'Failed to bind bot');
+        setError(e instanceof Error ? e.message : t('awareness.lark.errBind'));
         setErrorDetail(null);
       }
     } finally {
@@ -166,10 +168,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           }
         }
       } else {
-        setError(res.error || 'Failed to initiate login');
+        setError(res.error || t('awareness.lark.errLogin'));
       }
     } catch (e: unknown) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : 'Failed to initiate login');
+      if (mountedRef.current) setError(e instanceof Error ? e.message : t('awareness.lark.errLogin'));
     } finally {
       if (mountedRef.current) setActionLoading(false);
     }
@@ -212,9 +214,9 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const handleUnbind = async () => {
     if (!agentId) return;
     const ok = await confirm({
-      title: 'Unbind Lark bot',
-      message: 'Unbind this Lark bot? This will remove all Lark inbox data for this agent.',
-      confirmText: 'Unbind',
+      title: t('awareness.lark.unbindConfirmTitle'),
+      message: t('awareness.lark.unbindConfirmMessage'),
+      confirmText: t('awareness.common.unbind'),
       danger: true,
     });
     if (!ok) return;
@@ -227,10 +229,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         setCredential(null);
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Failed to unbind');
+        setError(res.error || t('awareness.lark.errUnbind'));
       }
     } catch (e: unknown) {
-      if (mountedRef.current) setError(e instanceof Error ? e.message : 'Failed to unbind');
+      if (mountedRef.current) setError(e instanceof Error ? e.message : t('awareness.lark.errUnbind'));
     } finally {
       if (mountedRef.current) setActionLoading(false);
     }
@@ -240,7 +242,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     return (
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="w-4 h-4" /> Lark / Feishu</CardTitle></CardHeader>
-        <CardContent><div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Loader2 className="w-4 h-4 animate-spin" /> Loading...</div></CardContent>
+        <CardContent><div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]"><Loader2 className="w-4 h-4 animate-spin" /> {t('awareness.common.loading')}</div></CardContent>
       </Card>
     );
   }
@@ -257,7 +259,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           onClick={() => fetchCredential()}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          title="Refresh"
+          title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -288,7 +290,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 )}
                 {w.raw_error && (
                   <details className="text-xs pl-6 opacity-60">
-                    <summary className="cursor-pointer">Technical details</summary>
+                    <summary className="cursor-pointer">{t('awareness.lark.technicalDetails')}</summary>
                     <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px]">
                       {w.raw_error}
                     </pre>
@@ -317,7 +319,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
             )}
             {errorDetail.action_hint && (
               <div className="text-xs pl-6 text-[var(--text-secondary)]">
-                <span className="font-medium text-[var(--text-primary)]">What to do: </span>
+                <span className="font-medium text-[var(--text-primary)]">{t('awareness.lark.whatToDo')} </span>
                 {errorDetail.action_hint}
               </div>
             )}
@@ -329,12 +331,12 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 className="text-xs pl-6 inline-flex items-center gap-1 text-[var(--accent-primary)] hover:underline"
               >
                 <ExternalLink className="w-3 h-3" aria-hidden="true" />
-                Open the relevant developer console page
+                {t('awareness.lark.openConsole')}
               </a>
             )}
             {errorDetail.raw_message && (
               <details className="text-xs pl-6 opacity-60">
-                <summary className="cursor-pointer">Technical details</summary>
+                <summary className="cursor-pointer">{t('awareness.lark.technicalDetails')}</summary>
                 <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px]">
                   {errorDetail.code ? `[${errorDetail.code}] ` : ''}
                   {errorDetail.raw_message}
@@ -358,17 +360,17 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {!credential && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-secondary)]">
-              Bind a Feishu/Lark bot to enable messaging, contacts, docs, calendar, and tasks.
+              {t('awareness.lark.intro')}
             </p>
             <div className="space-y-2">
               <label className="block">
-                <span className="sr-only">App ID</span>
+                <span className="sr-only">{t('awareness.lark.appId')}</span>
                 <Input
-                  placeholder="App ID (e.g. cli_xxx)"
+                  placeholder={t('awareness.lark.appIdPlaceholder')}
                   value={appId}
                   onChange={(e) => setAppId(e.target.value)}
                   className={`text-sm ${appIdValidationError ? 'border-[var(--color-red-500)]' : ''}`}
-                  aria-label="App ID"
+                  aria-label={t('awareness.lark.appId')}
                   aria-invalid={!!appIdValidationError}
                   aria-describedby={appIdValidationError ? 'app-id-error' : undefined}
                 />
@@ -382,27 +384,27 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 )}
               </label>
               <label className="block">
-                <span className="sr-only">App Secret</span>
+                <span className="sr-only">{t('awareness.lark.appSecret')}</span>
                 <Input
                   type="password"
-                  placeholder="App Secret"
+                  placeholder={t('awareness.lark.appSecret')}
                   value={appSecret}
                   onChange={(e) => setAppSecret(e.target.value)}
                   className="text-sm"
-                  aria-label="App Secret"
+                  aria-label={t('awareness.lark.appSecret')}
                 />
               </label>
               <label className="block">
-                <span className="sr-only">Owner email</span>
+                <span className="sr-only">{t('awareness.lark.ownerEmail')}</span>
                 <Input
-                  placeholder="Your Lark account email"
+                  placeholder={t('awareness.lark.ownerEmailPlaceholder')}
                   value={ownerEmail}
                   onChange={(e) => setOwnerEmail(e.target.value)}
                   className="text-sm"
-                  aria-label="Owner email"
+                  aria-label={t('awareness.lark.ownerEmail')}
                 />
               </label>
-              <div className="flex gap-2" role="group" aria-label="Select platform">
+              <div className="flex gap-2" role="group" aria-label={t('awareness.lark.selectPlatform')}>
                 <button
                   onClick={() => setBrand('feishu')}
                   aria-pressed={brand === 'feishu'}
@@ -412,7 +414,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                       : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
                   }`}
                 >
-                  Feishu
+                  {t('awareness.lark.feishu')}
                 </button>
                 <button
                   onClick={() => setBrand('lark')}
@@ -423,7 +425,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                       : 'border-[var(--border-default)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]'
                   }`}
                 >
-                  Lark (International)
+                  {t('awareness.lark.larkInternational')}
                 </button>
               </div>
             </div>
@@ -434,7 +436,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               size="sm"
             >
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Link className="w-4 h-4 mr-2" />}
-              Bind Bot
+              {t('awareness.common.bindBot')}
             </Button>
           </div>
         )}
@@ -452,44 +454,44 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
-                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Bot Connected
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.lark.botConnected')}
               </span>
             </div>
 
             {credential.owner_name && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
                 <CheckCircle className="w-3 h-3 text-[var(--color-green-500)] flex-shrink-0" aria-hidden="true" />
-                Linked as: <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
+                {t('awareness.lark.linkedAs')} <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
               </div>
             )}
 
             <div className="text-xs text-[var(--text-secondary)]">
-              App ID: {credential.app_id}
+              {t('awareness.lark.appIdLabel')} {credential.app_id}
             </div>
 
             <div className="text-xs text-[var(--text-secondary)] border border-[var(--color-yellow-500)] p-2">
-              Complete OAuth to unlock search features (contacts by name, messages, documents)
+              {t('awareness.lark.completeOauth')}
             </div>
 
             {polling ? (
               <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Waiting for authorization...
+                {t('awareness.lark.waitingAuth')}
                 {authUrl && (
                   <a href={authUrl} target="_blank" rel="noopener noreferrer" className="text-[var(--accent-primary)] hover:underline">
-                    <ExternalLink className="w-3 h-3 inline" aria-hidden="true" /> Open
+                    <ExternalLink className="w-3 h-3 inline" aria-hidden="true" /> {t('awareness.lark.open')}
                   </a>
                 )}
               </div>
             ) : (
               <Button onClick={handleLogin} disabled={actionLoading} size="sm" className="w-full">
                 {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ExternalLink className="w-4 h-4 mr-2" />}
-                Login with {credential.brand === 'feishu' ? 'Feishu' : 'Lark'}
+                {t('awareness.lark.loginWith', { brand: credential.brand === 'feishu' ? 'Feishu' : 'Lark' })}
               </Button>
             )}
 
             <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
-              <Unlink className="w-4 h-4 mr-2" /> Unbind
+              <Unlink className="w-4 h-4 mr-2" /> {t('awareness.common.unbind')}
             </Button>
           </div>
         )}
@@ -507,23 +509,23 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
-                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Fully Connected
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.lark.fullyConnected')}
               </span>
             </div>
 
             {credential.owner_name && (
               <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-tertiary)] p-2 rounded">
                 <CheckCircle className="w-3 h-3 text-[var(--color-green-500)] flex-shrink-0" aria-hidden="true" />
-                Linked as: <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
+                {t('awareness.lark.linkedAs')} <span className="text-[var(--text-primary)] font-medium">{credential.owner_name}</span>
               </div>
             )}
 
             <div className="text-xs text-[var(--text-secondary)]">
-              App ID: {credential.app_id}
+              {t('awareness.lark.appIdLabel')} {credential.app_id}
             </div>
 
             <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
-              <Unlink className="w-4 h-4 mr-2" /> Unbind
+              <Unlink className="w-4 h-4 mr-2" /> {t('awareness.common.unbind')}
             </Button>
           </div>
         )}
@@ -537,12 +539,12 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 <span className="text-[var(--text-secondary)] ml-2">({credential.brand})</span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-yellow-500)]">
-                <AlertCircle className="w-3 h-3" aria-hidden="true" /> {credential.auth_status === 'expired' ? 'Expired' : 'Not active'}
+                <AlertCircle className="w-3 h-3" aria-hidden="true" /> {credential.auth_status === 'expired' ? t('awareness.lark.statusExpired') : t('awareness.lark.statusNotActive')}
               </span>
             </div>
 
             <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
-              <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind
+              <Unlink className="w-4 h-4 mr-2" /> {t('awareness.lark.unbindRebind')}
             </Button>
           </div>
         )}
@@ -568,7 +570,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-red-500)]">
-                <AlertCircle className="w-3 h-3" aria-hidden="true" /> Brand mismatch
+                <AlertCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.lark.brandMismatch')}
               </span>
             </div>
             <div
@@ -576,26 +578,25 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               className="text-xs text-[var(--text-primary)] border border-[var(--color-red-500)] p-3 space-y-2 bg-[var(--color-red-500)]/5"
             >
               <div className="font-medium">
-                Wrong platform selected — the bot will not receive messages.
+                {t('awareness.lark.mismatchTitle')}
               </div>
               <div>
-                You selected{' '}
+                {t('awareness.lark.mismatchSelected')}{' '}
                 <span className="font-mono">
                   {credential.brand === 'feishu' ? 'Feishu (open.feishu.cn)' : 'Lark (open.larksuite.com)'}
                 </span>{' '}
-                but the App ID is registered on the other platform. The
-                WebSocket subscriber was rejected with error 1000040351.
+                {t('awareness.lark.mismatchExplain')}
               </div>
               <div className="text-[var(--text-secondary)]">
-                <span className="font-medium text-[var(--text-primary)]">What to do:</span>{' '}
-                Unbind, then re-bind and pick{' '}
+                <span className="font-medium text-[var(--text-primary)]">{t('awareness.lark.whatToDo')}</span>{' '}
+                {t('awareness.lark.mismatchAction')}{' '}
                 <span className="font-mono">
                   {credential.brand === 'feishu' ? 'Lark (International)' : 'Feishu (mainland China)'}
                 </span>.
               </div>
             </div>
             <Button onClick={handleUnbind} disabled={actionLoading} variant="ghost" size="sm" className="w-full text-[var(--color-red-500)] hover:text-[var(--color-red-400)]">
-              <Unlink className="w-4 h-4 mr-2" /> Unbind & Re-bind with correct platform
+              <Unlink className="w-4 h-4 mr-2" /> {t('awareness.lark.unbindRebindCorrect')}
             </Button>
           </div>
         )}

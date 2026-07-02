@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_entity_updater.py
-last_verified: 2026-05-27
+last_verified: 2026-06-10
 ---
+## 2026-06-10 — helper obtained via get_helper_sdk()
+
+All five llm_function call sites switched to the protocol-agnostic
+`get_helper_sdk()` factory (single-Claude-key users get the Messages-API
+helper). Call shapes unchanged.
+
 
 ## 2026-05-27 — semantic-search 链路全删（Owner spec, scope B）
 

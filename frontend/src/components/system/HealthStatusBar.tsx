@@ -9,6 +9,7 @@
  */
 
 import { CheckCircle2, AlertTriangle, XCircle, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { OverallHealth } from '@/types/platform';
 
@@ -18,11 +19,13 @@ interface HealthStatusBarProps {
 }
 
 export function HealthStatusBar({ health, isLoading }: HealthStatusBarProps) {
+  const { t } = useTranslation();
+
   if (isLoading) {
     return (
       <div className={cn(BAR_BASE, 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]')}>
         <Loader2 className="w-4 h-4 animate-spin" />
-        <span>Checking service health...</span>
+        <span>{t('system.health.checking')}</span>
       </div>
     );
   }
@@ -31,7 +34,7 @@ export function HealthStatusBar({ health, isLoading }: HealthStatusBarProps) {
     return (
       <div className={cn(BAR_BASE, 'bg-[var(--color-error)]/10 text-[var(--color-error)]')}>
         <XCircle className="w-4 h-4" />
-        <span>Services unavailable</span>
+        <span>{t('system.health.unavailable')}</span>
       </div>
     );
   }
@@ -40,7 +43,7 @@ export function HealthStatusBar({ health, isLoading }: HealthStatusBarProps) {
     return (
       <div className={cn(BAR_BASE, 'bg-[var(--color-success)]/10 text-[var(--color-success)]')}>
         <CheckCircle2 className="w-4 h-4" />
-        <span>All services healthy</span>
+        <span>{t('system.health.allHealthy')}</span>
       </div>
     );
   }
@@ -53,7 +56,9 @@ export function HealthStatusBar({ health, isLoading }: HealthStatusBarProps) {
     <div className={cn(BAR_BASE, 'bg-[var(--color-warning)]/10 text-[var(--color-warning)]')}>
       <AlertTriangle className="w-4 h-4" />
       <span>
-        {unhealthyCount} service{unhealthyCount > 1 ? 's' : ''} unhealthy
+        {unhealthyCount > 1
+          ? t('system.health.unhealthyPlural', { count: unhealthyCount })
+          : t('system.health.unhealthy', { count: unhealthyCount })}
       </span>
     </div>
   );

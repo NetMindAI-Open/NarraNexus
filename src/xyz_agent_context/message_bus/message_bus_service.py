@@ -192,13 +192,19 @@ class MessageBusService(ABC):
     async def search_agents(
         self,
         query: str,
+        requester_agent_id: Optional[str] = None,
         limit: int = 10,
     ) -> List[BusAgentInfo]:
         """
         Search for agents by capability or description.
 
+        Scoped to the requester's own user when ``requester_agent_id`` is
+        given — cross-user discovery via the bus is disabled.
+
         Args:
             query: Search string matched against capabilities and description.
+            requester_agent_id: The searching agent; results are limited to
+                agents owned by the same user.
             limit: Maximum number of results.
 
         Returns:

@@ -39,7 +39,7 @@ status() {
     "8100:DB Proxy" "8000:Backend API" "5173:Frontend"
     "7801:MCP Awareness" "7802:MCP SocialNetwork" "7803:MCP Job" "7804:MCP Chat"
     "7806:MCP Skill" "7807:MCP CommonTools" "7808:MCP BasicInfo" "7820:MCP MessageBus"
-    "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger")
+    "7830:Lark Trigger" "7831:Slack Trigger" "7832:Telegram Trigger" "7834:Discord Trigger")
   for entry in "${services[@]}"; do
     local port="${entry%%:*}"
     local name="${entry#*:}"
@@ -58,7 +58,7 @@ stop_all() {
   # Kill tmux session if running
   tmux kill-session -t nexus-dev 2>/dev/null || true
   # Kill processes on known ports
-  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
+  for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
     lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
   done
   # Kill known process patterns
@@ -71,6 +71,9 @@ stop_all() {
   pkill -f "run_lark_trigger" 2>/dev/null || true
   pkill -f "run_slack_trigger" 2>/dev/null || true
   pkill -f "run_telegram_trigger" 2>/dev/null || true
+  pkill -f "run_wechat_trigger" 2>/dev/null || true
+  pkill -f "run_narramessenger_trigger" 2>/dev/null || true
+  pkill -f "run_discord_trigger" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 
@@ -359,6 +362,13 @@ run_container_mode() {
       fi
       sleep 1
     done
+    # MUST export so the child processes below (MCP runner, module poller,
+    # job/bus/IM triggers, backend) route their writes through the proxy.
+    # Without this, every child opens its own SQLite connection to the
+    # same file and concurrent writes deadlock with "database is locked"
+    # (the proxy was started but nobody talks to it). scripts/dev-local.sh
+    # exports the same var for the local-development path.
+    export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
 
   # 2. MCP module runner
@@ -369,6 +379,9 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
   # 5. Message bus trigger
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
+  # 5b. Discord channel trigger (Gateway receive → AgentRuntime). dev-local.sh
+  #     already launches this; run.sh must match it (binding rule #7).
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.discord_module.run_discord_trigger &
 
   # 6. IM channel triggers (inbound long-poll). message_bus_trigger
   #    deliberately defers IM channels to these dedicated processes, so
@@ -380,6 +393,8 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.lark_module.run_lark_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.slack_module.run_slack_trigger &
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.telegram_module.run_telegram_trigger &
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.wechat_module.run_wechat_trigger &
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \
@@ -408,10 +423,18 @@ case "${1:-}" in
   *)
     check_deps
 
-    # Install frontend deps if needed
-    if [ ! -d "$SCRIPT_DIR/frontend/node_modules" ]; then
-      echo -e "${Y}Installing frontend dependencies...${R}"
-      (cd "$SCRIPT_DIR/frontend" && npm ci)
+    # Install frontend deps if needed. Re-run `npm ci` not only when
+    # node_modules is missing, but also when the lockfile CHANGED since the last
+    # install — otherwise pulling a branch that ADDS a dependency (e.g. crypto-js
+    # in the NetMind-login work) leaves node_modules stale and Vite fails to
+    # resolve the new import (observed as a broken login page after `git pull`).
+    # npm writes node_modules/.package-lock.json on install; compare against it.
+    _fe="$SCRIPT_DIR/frontend"
+    if [ ! -d "$_fe/node_modules" ] \
+       || [ ! -f "$_fe/node_modules/.package-lock.json" ] \
+       || [ "$_fe/package-lock.json" -nt "$_fe/node_modules/.package-lock.json" ]; then
+      echo -e "${Y}Installing frontend dependencies (lockfile changed or first run)...${R}"
+      (cd "$_fe" && npm ci)
     fi
 
     # Sync Python deps — clear ALL external Python env vars that interfere with uv
@@ -424,8 +447,14 @@ case "${1:-}" in
       echo -e "${RED}uv sync failed. Aborting startup.${R}"
       exit 1
     }
-    # Ensure editable install is active (uv .pth can fail on some Python builds)
-    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" --python "$SCRIPT_DIR/.venv/bin/python3" --reinstall-package xyz-agent-context || {
+    # Ensure editable install is active. ``uv sync`` above tends to
+    # strip the project's own editable install because lockfile doesn't
+    # list the project as editable. ``--no-deps --reinstall`` is the
+    # reliable form — ``--reinstall-package xyz-agent-context`` is
+    # sometimes a no-op when uv thinks the install is already satisfied.
+    $UV_CLEAN_ENV uv pip install -e "$SCRIPT_DIR" \
+      --python "$SCRIPT_DIR/.venv/bin/python3" \
+      --no-deps --reinstall || {
       echo -e "${RED}editable install failed. Aborting startup.${R}"
       exit 1
     }

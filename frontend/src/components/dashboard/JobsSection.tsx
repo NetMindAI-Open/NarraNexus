@@ -4,6 +4,7 @@
  * with state-specific visuals. Item-level expand loads full job detail.
  */
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   DashboardPendingJob,
   DashboardRunningJob,
@@ -20,20 +21,21 @@ interface Props {
 
 const STATE_META: Record<
   JobQueueStatus | 'running',
-  { icon: string; label: string; cls: string }
+  { icon: string; labelKey: string; cls: string }
 > = {
-  running:  { icon: '⚙️', label: 'running', cls: 'text-[var(--color-green-500)]' },
-  active:   { icon: '🔵', label: 'active',  cls: 'text-sky-600' },
-  pending:  { icon: '⚪️', label: 'pending', cls: 'text-gray-500' },
-  blocked:  { icon: '🟠', label: 'blocked', cls: 'text-[var(--color-yellow-500)]' },
-  paused:   { icon: '🟡', label: 'paused',  cls: 'text-[var(--color-yellow-500)]' },
-  failed:   { icon: '🔴', label: 'failed',  cls: 'text-[var(--color-red-500)]' },
-  cooling:         { icon: '🕒', label: 'retrying',  cls: 'text-[var(--color-yellow-500)]' },
-  paused_no_quota: { icon: '🟡', label: 'no quota',  cls: 'text-[var(--color-yellow-500)]' },
-  blocked_failed:  { icon: '🔴', label: 'dep failed', cls: 'text-[var(--color-red-500)]' },
+  running:  { icon: '⚙️', labelKey: 'running', cls: 'text-[var(--color-green-500)]' },
+  active:   { icon: '🔵', labelKey: 'active',  cls: 'text-sky-600' },
+  pending:  { icon: '⚪️', labelKey: 'pending', cls: 'text-gray-500' },
+  blocked:  { icon: '🟠', labelKey: 'blocked', cls: 'text-[var(--color-yellow-500)]' },
+  paused:   { icon: '🟡', labelKey: 'paused',  cls: 'text-[var(--color-yellow-500)]' },
+  failed:   { icon: '🔴', labelKey: 'failed',  cls: 'text-[var(--color-red-500)]' },
+  cooling:         { icon: '🕒', labelKey: 'retrying',  cls: 'text-[var(--color-yellow-500)]' },
+  paused_no_quota: { icon: '🟡', labelKey: 'noQuota',  cls: 'text-[var(--color-yellow-500)]' },
+  blocked_failed:  { icon: '🔴', labelKey: 'depFailed', cls: 'text-[var(--color-red-500)]' },
 };
 
 export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
+  const { t } = useTranslation();
   const { expanded, toggle } = useExpanded(`${agentId}:section:jobs`, false);
   const total = runningJobs.length + pendingJobs.length;
   if (total === 0) return null;
@@ -47,9 +49,9 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
         aria-expanded={expanded}
       >
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
-        <span>⚙️ Jobs ({total})</span>
+        <span>⚙️ {t('dashboard.jobs.title', { count: total })}</span>
         {runningJobs.length > 0 && (
-          <span className="text-[var(--color-green-500)]">· {runningJobs.length} running</span>
+          <span className="text-[var(--color-green-500)]">· {t('dashboard.jobs.running', { count: runningJobs.length })}</span>
         )}
       </button>
       {expanded && (
@@ -62,7 +64,7 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
               title={j.title}
               subtitle={j.description}
               state="running"
-              extraRight={j.progress ? `step ${j.progress.current_step}/${j.progress.total_steps}` : null}
+              extraRight={j.progress ? t('dashboard.jobs.step', { current: j.progress.current_step, total: j.progress.total_steps }) : null}
             />
           ))}
           {pendingJobs.map((j) => (
@@ -73,7 +75,7 @@ export function JobsSection({ agentId, runningJobs, pendingJobs }: Props) {
               title={j.title}
               subtitle={j.description}
               state={j.queue_status ?? 'pending'}
-              extraRight={j.next_run_at ? `next ${j.next_run_at}${j.next_run_timezone ? ` (${j.next_run_timezone})` : ''}` : null}
+              extraRight={j.next_run_at ? t('dashboard.jobs.next', { time: `${j.next_run_at}${j.next_run_timezone ? ` (${j.next_run_timezone})` : ''}` }) : null}
             />
           ))}
         </ul>
@@ -92,6 +94,7 @@ interface JobItemProps {
 }
 
 function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItemProps) {
+  const { t } = useTranslation();
   const { expanded, toggle } = useExpanded(
     `${agentId}:item:job:${jobId}`,
     false,
@@ -118,8 +121,13 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
     }
   };
 
-  const runAction = async (e: React.MouseEvent, fn: () => Promise<unknown>, label: string) => {
+  const runAction = async (
+    e: React.MouseEvent,
+    fn: () => Promise<unknown>,
+    actionKey: 'retry' | 'pause' | 'resume',
+  ) => {
     e.stopPropagation();
+    const label = t(`dashboard.jobs.action.${actionKey}`);
     setAction(label);
     try {
       await fn();
@@ -128,7 +136,7 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
       setAction(`${label} ✓`);
       setTimeout(() => setAction(null), 1500);
     } catch (err) {
-      setAction(`${label} failed`);
+      setAction(t('dashboard.jobs.action.failed', { label }));
       setTimeout(() => setAction(null), 2000);
       void err;
     }
@@ -144,7 +152,7 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
       >
         <span aria-hidden>{meta.icon}</span>
         <span className="font-medium">{title}</span>
-        <span className={`${meta.cls}`}>· {meta.label}</span>
+        <span className={`${meta.cls}`}>· {t(`dashboard.jobStateLabel.${meta.labelKey}`)}</span>
         {extraRight && (
           <span className="text-[var(--text-secondary)] truncate">· {extraRight}</span>
         )}
@@ -153,26 +161,26 @@ function JobItem({ agentId, jobId, title, subtitle, state, extraRight }: JobItem
       {expanded && (
         <div className="ml-7 mt-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-2 space-y-1.5">
           {subtitle && <div className="text-[var(--text-secondary)]">{subtitle}</div>}
-          {loading && <div className="text-[var(--text-secondary)]">Loading…</div>}
-          {err && <div className="text-[var(--color-red-500)]">Failed: {err}</div>}
+          {loading && <div className="text-[var(--text-secondary)]">{t('dashboard.common.loading')}</div>}
+          {err && <div className="text-[var(--color-red-500)]">{t('dashboard.common.failed')}: {err}</div>}
           {detail !== null && <JobDetailBody detail={detail} />}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {state === 'failed' && (
               <ActionBtn
-                label={action ?? 'Retry'}
-                onClick={(e) => runAction(e, () => api.retryJob(jobId), 'Retry')}
+                label={action ?? t('dashboard.jobs.action.retry')}
+                onClick={(e) => runAction(e, () => api.retryJob(jobId), 'retry')}
               />
             )}
             {(state === 'active' || state === 'pending') && (
               <ActionBtn
-                label={action ?? 'Pause'}
-                onClick={(e) => runAction(e, () => api.pauseJob(jobId), 'Pause')}
+                label={action ?? t('dashboard.jobs.action.pause')}
+                onClick={(e) => runAction(e, () => api.pauseJob(jobId), 'pause')}
               />
             )}
             {(state === 'paused' || state === 'paused_no_quota' || state === 'cooling' || state === 'blocked_failed') && (
               <ActionBtn
-                label={action ?? 'Resume'}
-                onClick={(e) => runAction(e, () => api.resumeJob(jobId), 'Resume')}
+                label={action ?? t('dashboard.jobs.action.resume')}
+                onClick={(e) => runAction(e, () => api.resumeJob(jobId), 'resume')}
               />
             )}
           </div>
@@ -195,20 +203,21 @@ function ActionBtn({ label, onClick }: { label: string; onClick: (e: React.Mouse
 }
 
 function JobDetailBody({ detail }: { detail: Record<string, unknown> }) {
+  const { t } = useTranslation();
   const d = detail;
-  const trigger = String(d.trigger_config ?? '(manual)');
+  const trigger = String(d.trigger_config ?? t('dashboard.jobs.detail.manual'));
   const nextRun = d.next_run_at ? String(d.next_run_at) : null;
   const nextRunTz = d.next_run_timezone ? String(d.next_run_timezone) : null;
   const iter = typeof d.iteration_count === 'number' ? d.iteration_count : 0;
   const lastErr = d.last_error ? String(d.last_error) : null;
   return (
     <div className="text-[var(--text-secondary)] space-y-0.5">
-      {nextRun && <div>Next run: <span className="font-mono">{nextRun}{nextRunTz ? ` (${nextRunTz})` : ''}</span></div>}
-      {iter > 0 && <div>Iterations: {iter}</div>}
-      {trigger && <div className="truncate">Trigger: <span className="font-mono">{trigger}</span></div>}
+      {nextRun && <div>{t('dashboard.jobs.detail.nextRun')}: <span className="font-mono">{nextRun}{nextRunTz ? ` (${nextRunTz})` : ''}</span></div>}
+      {iter > 0 && <div>{t('dashboard.jobs.detail.iterations')}: {iter}</div>}
+      {trigger && <div className="truncate">{t('dashboard.jobs.detail.trigger')}: <span className="font-mono">{trigger}</span></div>}
       {lastErr && (
         <div className="mt-1 rounded border border-[var(--color-red-500)] bg-[var(--color-red-500)]/5 p-1.5 text-[var(--color-red-500)]">
-          <div className="font-semibold">Last error</div>
+          <div className="font-semibold">{t('dashboard.jobs.detail.lastError')}</div>
           <div className="font-mono text-[10px] whitespace-pre-wrap">{lastErr}</div>
         </div>
       )}

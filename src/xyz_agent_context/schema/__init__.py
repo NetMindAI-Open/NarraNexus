@@ -49,6 +49,8 @@ from .runtime_message import (
     AgentThinking,
     AgentToolCall,
     ErrorMessage,
+    # Constants
+    AUTH_EXPIRED_ERROR_TYPE,
 )
 
 # ===== Job Schema =====

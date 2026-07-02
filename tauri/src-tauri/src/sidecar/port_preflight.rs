@@ -59,6 +59,7 @@ use std::process::Command;
 ///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
 ///   7831   — MCP SlackModule
 ///   7832   — MCP TelegramModule
+///   7834   — MCP DiscordModule
 ///   47831  — LarkTrigger health endpoint (_health_server.py)
 ///
 /// History (2026-05-27): the list used to be only `[8000, 8100, 7801,
@@ -74,7 +75,7 @@ use std::process::Command;
 pub const REQUIRED_PORTS: &[u16] = &[
     8000, 8100,                                       // backend + sqlite proxy
     7801, 7802, 7803, 7804, 7806, 7807, 7808, 7820, // MCP modules
-    7830, 7831, 7832,                                // channel MCP modules
+    7830, 7831, 7832, 7834,                          // channel MCP modules
     47831,                                            // LarkTrigger health endpoint
 ];
 
@@ -204,6 +205,7 @@ fn is_narranexus_sidecar_cmdline(cmdline: &str) -> bool {
         "xyz_agent_context.module.lark_module.run_lark_trigger",
         "xyz_agent_context.module.slack_module.run_slack_trigger",
         "xyz_agent_context.module.telegram_module.run_telegram_trigger",
+        "xyz_agent_context.module.discord_module.run_discord_trigger",
         "xyz_agent_context.utils.run_module_poller",
         "xyz_agent_context.utils.run_job_trigger",
         "xyz_agent_context.utils.run_message_bus_trigger",
@@ -298,12 +300,15 @@ mod tests {
     }
 
     #[test]
-    fn classifier_recognises_slack_telegram_triggers() {
+    fn classifier_recognises_slack_telegram_discord_triggers() {
         assert!(is_narranexus_sidecar_cmdline(
             "python3 -m xyz_agent_context.module.slack_module.run_slack_trigger"
         ));
         assert!(is_narranexus_sidecar_cmdline(
             "python3 -m xyz_agent_context.module.telegram_module.run_telegram_trigger"
+        ));
+        assert!(is_narranexus_sidecar_cmdline(
+            "python3 -m xyz_agent_context.module.discord_module.run_discord_trigger"
         ));
     }
 

@@ -6,6 +6,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Puzzle,
   ToggleLeft,
@@ -42,6 +43,7 @@ export function SkillCard({
   isRemoving: boolean;
   isStudying: boolean;
 }) {
+  const { t } = useTranslation();
   const [showResult, setShowResult] = useState(false);
   const studying = isStudying || skill.study_status === 'studying';
 
@@ -94,7 +96,7 @@ export function SkillCard({
             >
               <CircleAlert className="w-3 h-3 text-[var(--color-warning)]" />
               <span className="text-xs font-medium text-[var(--color-warning)]">
-                Needs config: {skill.requires_env.join(', ')}
+                {t('skills.card.needsConfig', { vars: skill.requires_env.join(', ') })}
               </span>
             </div>
           )}
@@ -103,7 +105,7 @@ export function SkillCard({
           {studying && (
             <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-lg bg-[var(--accent-primary)]/5 border border-[var(--accent-primary)]/10">
               <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-              <span className="text-xs font-medium text-[var(--accent-primary)]">Studying...</span>
+              <span className="text-xs font-medium text-[var(--accent-primary)]">{t('skills.card.studying')}</span>
             </div>
           )}
 
@@ -128,7 +130,7 @@ export function SkillCard({
                   <ChevronRight className="w-3 h-3" />
                 )}
                 <BookOpen className="w-3 h-3" />
-                Study Result
+                {t('skills.card.studyResult')}
               </button>
               {showResult && (
                 <ScrollArea className="mt-1.5 max-h-48 rounded-lg bg-[var(--bg-sunken)] border border-[var(--border-subtle)]" viewportClassName="p-2.5">
@@ -155,7 +157,7 @@ export function SkillCard({
               ) : (
                 <BookOpen className="w-3 h-3 mr-1.5" />
               )}
-              {skill.study_status === 'completed' ? 'Re-study' : 'Study'}
+              {skill.study_status === 'completed' ? t('skills.card.restudy') : t('skills.card.study')}
             </Button>
 
             {/* Configure button - shown when skill has env requirements */}
@@ -173,7 +175,7 @@ export function SkillCard({
                 )}
               >
                 <KeyRound className="w-3 h-3 mr-1.5" />
-                {skill.env_configured === false ? 'Configure' : 'Env'}
+                {skill.env_configured === false ? t('skills.card.configure') : t('skills.card.env')}
               </Button>
             )}
 
@@ -196,7 +198,7 @@ export function SkillCard({
               ) : (
                 <ToggleLeft className="w-3 h-3 mr-1.5" />
               )}
-              {skill.disabled ? 'Enable' : 'Disable'}
+              {skill.disabled ? t('skills.card.enable') : t('skills.card.disable')}
             </Button>
 
             <Button
@@ -211,7 +213,7 @@ export function SkillCard({
               ) : (
                 <Trash2 className="w-3 h-3 mr-1.5" />
               )}
-              Remove
+              {t('skills.card.remove')}
             </Button>
           </div>
         </div>

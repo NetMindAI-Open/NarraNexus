@@ -12,7 +12,7 @@
 .PHONY: help lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
         test test-backend build build-frontend \
         dev-db-proxy dev-backend dev-frontend dev-mcp dev-poller \
-        clean
+        verify-release clean
 
 # Default target
 help:
@@ -105,6 +105,14 @@ dev-poller:
 
 db-doctor: ## Verify schema integrity + print row counts (no side-effects unless repair needed)
 	uv run python scripts/db_doctor.py
+
+# ── Release ─────────────────────────────────────────────────────────────────
+
+verify-release: ## Pre-push gate for upstream sync — catches squash-merge dup artifacts (run before release step 6 push)
+	bash scripts/verify_release_artifacts.sh
+
+models-refresh: ## Re-probe provider catalogs + refresh the committed model_probe_ledger.json (run during release prep, then commit the ledger so the DMG ships fresh lists). Needs NETMIND_API_KEY (and optionally OPENROUTER_API_KEY / YUNWU_API_KEY) in env.
+	uv run python -m xyz_agent_context.agent_framework.model_sync
 
 # ── MindFlow (doc tooling moved to MindFlow plugin) ────────────────────────
 # Doc check/scaffold/audit commands are now in the MindFlow plugin CLI.

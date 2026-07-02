@@ -24,6 +24,9 @@ jobs:
       - name: Set up Python
         run: uv python install 3.13
 
+      - name: Verify uv.lock is up to date
+        run: uv lock --check
+
       - name: Install dependencies
         run: uv sync --dev
 

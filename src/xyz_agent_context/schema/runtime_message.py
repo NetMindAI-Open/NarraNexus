@@ -253,3 +253,14 @@ class ErrorMessage(BaseRuntimeMessage):
     severity: Literal[
         "fatal", "recoverable", "recovered", "recovered_after_reply"
     ] = "fatal"
+
+
+# error_type marker for credential/auth failures (codex OAuth token
+# expired / "refresh token already used", 401, etc.). Defined in this leaf
+# schema module — NOT in response_processor — so both response_processor
+# and step_3_agent_loop can import it without a circular import. (Putting
+# it in response_processor closed a cycle: response_processor →
+# step_display → _agent_runtime_steps → step_3_agent_loop →
+# response_processor, where the constant wasn't bound yet — incident
+# 2026-06-11.)
+AUTH_EXPIRED_ERROR_TYPE = "auth_expired"

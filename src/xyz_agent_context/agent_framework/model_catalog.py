@@ -93,6 +93,7 @@ _register(
 # --- OpenAI models ---
 # Text / chat / reasoning models surfaced as in-UI suggestions.
 _register(
+    ModelMeta("gpt-5.5", "GPT-5.5"),
     ModelMeta("gpt-5.4", "GPT-5.4"),
     ModelMeta("gpt-5.4-mini", "GPT-5.4 Mini"),
     ModelMeta("gpt-5.4-nano", "GPT-5.4 Nano"),
@@ -204,7 +205,12 @@ _SUGGESTED_MODELS: dict[str, list[str]] = {
         "claude-haiku-4-5-20251001",
     ],
     "openai": [
-        # Top-10 most recent text / chat / reasoning models.
+        # Top recent text / chat / reasoning models. ``gpt-5.5`` is
+        # the current flagship and the codex CLI default — keep it
+        # first so a user adding a generic OpenAI provider for the
+        # codex_cli agent framework gets it in the dropdown by
+        # default.
+        "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.4-nano",
@@ -237,6 +243,18 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     Returns:
         List of model ID strings
     """
+    # Auto-discovered sources: the probe ledger ([[model_probe_ledger]]) is
+    # authoritative once populated (overwrite semantics — only models that
+    # actually answer on this protocol are listed). Fall back to the hardcoded
+    # list when the ledger has no entry yet (fresh checkout before first sync,
+    # or a source we haven't probed).
+    from xyz_agent_context.agent_framework.model_probe_ledger import ledger_models
+
+    if source in ("netmind", "system_pool", "openrouter", "yunwu"):
+        synced = ledger_models(source, protocol)
+        if synced:
+            return synced
+
     # Check exact (source, protocol) match first
     defaults = _DEFAULT_MODELS.get((source, protocol))
     if defaults is not None:
@@ -294,6 +312,50 @@ def get_suggested_models(protocol: str) -> list[str]:
     a new Anthropic/OpenAI protocol provider.
     """
     return list(_SUGGESTED_MODELS.get(protocol, []))
+
+
+# =============================================================================
+# One-key onboarding defaults
+# =============================================================================
+
+# Defaults the /api/providers/onboard endpoint wires when a user pastes a
+# single key. BYOK rationale: the user pays with their own key, so the
+# agent slot defaults to the strongest model of that family;
+# cost-sensitive users downgrade in Settings → Providers (Advanced).
+# (The cloud free tier defaults to Sonnet because the PLATFORM pays —
+# different scenario, configured in SystemProviderService.)
+_ONBOARD_AGENT_MODELS: dict[str, str] = {
+    "anthropic": "claude-opus-4-8",
+    "openai": "gpt-5.5",          # codex_cli's current flagship default
+    # NetMind one-key card: DeepSeek is the cost-effective default on
+    # the aggregator; Claude-via-NetMind stays available in the
+    # dropdown for users who want it.
+    "netmind": "deepseek-ai/DeepSeek-V4-Pro",
+    # Yunwu / OpenRouter proxy the official APIs — same defaults as a
+    # direct Claude key.
+    "yunwu": "claude-opus-4-8",
+    "openrouter": "claude-opus-4-8",
+}
+
+# Helper does small structured jobs (entity extraction, narrative
+# updates, fallback replies) — cheap + fast wins.
+_ONBOARD_HELPER_MODELS: dict[str, str] = {
+    "anthropic": "claude-haiku-4-5",
+    "openai": "gpt-5.4-mini",
+    "netmind": "deepseek-ai/DeepSeek-V4-Flash",
+    "yunwu": "gpt-5.4-mini",
+    "openrouter": "gpt-5.4-mini",
+}
+
+
+def get_default_agent_model(protocol: str) -> str:
+    """Default agent-slot model for one-key onboarding, per protocol."""
+    return _ONBOARD_AGENT_MODELS.get(protocol, _ONBOARD_AGENT_MODELS["anthropic"])
+
+
+def get_default_helper_model(protocol: str) -> str:
+    """Default helper_llm-slot model for one-key onboarding, per protocol."""
+    return _ONBOARD_HELPER_MODELS.get(protocol, _ONBOARD_HELPER_MODELS["openai"])
 
 
 # =============================================================================

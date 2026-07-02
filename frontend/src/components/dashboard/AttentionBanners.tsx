@@ -11,6 +11,7 @@
  * `message` (which carries the count), so when the underlying count changes
  * (e.g. another job fails: "1 failed" → "2 failed") the new banner re-shows.
  */
+import { useTranslation } from 'react-i18next';
 import type { AttentionBanner } from '@/types';
 import { useExpanded, bannerKey } from './expandState';
 import { AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
@@ -54,6 +55,7 @@ export function AttentionBanners({
 }
 
 function BannerRow({ agentId, banner }: { agentId: string; banner: AttentionBanner }) {
+  const { t } = useTranslation();
   const key = bannerKey(agentId, banner.kind, banner.message);
   const { expanded: dismissed, set } = useExpanded(key, false);
   if (dismissed) return null;
@@ -72,8 +74,8 @@ function BannerRow({ agentId, banner }: { agentId: string; banner: AttentionBann
           e.stopPropagation();
           set(true);
         }}
-        aria-label="Dismiss banner"
-        title="Dismiss (re-appears if state changes)"
+        aria-label={t('dashboard.banners.dismissAria')}
+        title={t('dashboard.banners.dismissTitle')}
         className={`shrink-0 p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 ${s.accent}`}
       >
         <X className="w-3 h-3" aria-hidden />

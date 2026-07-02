@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/arenaLanding.ts
-last_verified: 2026-06-15
+last_verified: 2026-06-23
 stub: false
 ---
 
@@ -20,7 +20,10 @@ agent.
 **Triggered by:** `App.tsx` — a mount call (already-logged-in case) plus a
 `useConfigStore.subscribe` on the `isLoggedIn` transition (logs-in-after-landing
 case, incl. the inbound-token and LoginPage paths). **Calls:**
-`api.provisionArena()` (POST /api/arena/provision). **Mutates stores:**
+`api.provisionArena(netmindToken)` (POST /api/arena/provision) — it reads the
+user's NetMind JWT from `configStore.netmindToken` and forwards it so the backend
+can bind the agent's owner email (optional; absent → bind skipped). **Mutates
+stores:**
 `configStore.refreshAgents()` then `setAgentId`, and `chatStore.setActiveAgent`
 — the left panel subscribes to `configStore.agents`, so it re-renders the new
 agent immediately.

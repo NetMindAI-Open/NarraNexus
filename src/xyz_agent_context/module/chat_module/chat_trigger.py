@@ -130,8 +130,9 @@ from xyz_agent_context.schema import (
     A2AErrorCodes,
 )
 
-# Agent Runtime
-from xyz_agent_context.agent_runtime import AgentRuntime
+# Agent Runtime — via the client seam (in-process today; HTTP to the
+# extracted agent-runtime service later). See agent_runtime/client.py.
+from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client_sync
@@ -598,12 +599,9 @@ class A2AServer:
 
         # Execute Agent
         try:
-            from xyz_agent_context.agent_runtime.run_collector import collect_run
             from xyz_agent_context.schema.hook_schema import WorkingSource
 
-            agent_runtime = AgentRuntime()
-            collection = await collect_run(
-                agent_runtime,
+            collection = await get_agent_runtime_client().run_and_collect(
                 agent_id=agent_id,
                 user_id=user_id,
                 input_content=user_input,
@@ -737,11 +735,10 @@ class A2AServer:
                 }
 
                 # Execute Agent
-                agent_runtime = AgentRuntime()
                 final_output = ""
                 artifact_id = f"artifact-{uuid.uuid4().hex[:8]}"
 
-                async for response in agent_runtime.run(
+                async for response in get_agent_runtime_client().run_stream(
                     agent_id=agent_id,
                     user_id=user_id,
                     input_content=user_input,

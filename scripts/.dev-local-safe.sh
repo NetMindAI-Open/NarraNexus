@@ -31,7 +31,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   tmux kill-session -t "$SESSION"
 fi
 # Always clean up orphan processes from a previous run
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832 7834; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -150,6 +150,7 @@ draw_panel() {
   status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
   status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
   status_line "Telegram Trigger"    "pgrep -f 'run_telegram_trigger' >/dev/null"
+  status_line "Discord Trigger"     "pgrep -f 'run_discord_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -169,12 +170,12 @@ while true; do
       # Kill all known NarraNexus processes BEFORE killing the tmux session.
       # tmux kill-session sends SIGHUP but some processes may ignore it.
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7805 7830 7831 7832 7834; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7830 7831 7832; do
+      for port in 8100 8000 5173 5174 7801 7830 7831 7832 7834; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"
@@ -247,6 +248,10 @@ tmux new-window -t "$SESSION" -n "SlackTrigger" \
 # --- Telegram Trigger ---
 tmux new-window -t "$SESSION" -n "TelegramTrigger" \
   "$ENV_CMD; echo '=== Telegram Trigger ==='; uv run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
+
+# --- Discord Trigger ---
+tmux new-window -t "$SESSION" -n "DiscordTrigger" \
+  "$ENV_CMD; echo '=== Discord Trigger ==='; uv run python -m xyz_agent_context.module.discord_module.run_discord_trigger; echo 'Discord Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

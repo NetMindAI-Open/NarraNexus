@@ -7,6 +7,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   MailOpen, RefreshCw, Inbox, ChevronRight, ChevronDown,
   Sparkles, Users, Hash,
@@ -26,6 +27,7 @@ interface AgentInboxPanelProps {
 }
 
 export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {}) {
+  const { t } = useTranslation();
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
   const [loadedAll, setLoadedAll] = useState(false);
 
@@ -96,7 +98,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
         {!embedded && (
         <CardTitle>
           <Inbox />
-          Agent Inbox
+          {t('inbox.title')}
           {unreadCount > 0 && (
             <span className="ml-1 text-[var(--color-yellow-500)] tabular-nums normal-case tracking-normal">
               · {unreadCount}
@@ -111,9 +113,9 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
               size="sm"
               onClick={handleLoadAll}
               disabled={loading}
-              title="Load all messages"
+              title={t('inbox.loadAllTitle')}
             >
-              Load all
+              {t('inbox.loadAll')}
             </Button>
           )}
           <Button
@@ -121,7 +123,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
             size="icon"
             onClick={handleRefresh}
             disabled={loading}
-            title="Refresh"
+            title={t('inbox.refresh')}
           >
             <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
           </Button>
@@ -131,9 +133,9 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
       {rooms.length > 0 && (
         <StatStrip
           items={[
-            { label: 'Unread', value: unreadCount, icon: Sparkles, tone: 'warning', pulse: unreadCount > 0, subtext: 'New' },
-            { label: 'Rooms', value: rooms.length, icon: Hash, tone: 'secondary', subtext: 'Channels' },
-            { label: 'Read', value: `${metrics.readRate}%`, icon: MailOpen, tone: 'success', subtext: 'Rate' },
+            { label: t('inbox.stats.unread'), value: unreadCount, icon: Sparkles, tone: 'warning', pulse: unreadCount > 0, subtext: t('inbox.stats.unreadSub') },
+            { label: t('inbox.stats.rooms'), value: rooms.length, icon: Hash, tone: 'secondary', subtext: t('inbox.stats.roomsSub') },
+            { label: t('inbox.stats.read'), value: `${metrics.readRate}%`, icon: MailOpen, tone: 'success', subtext: t('inbox.stats.readSub') },
           ]}
         />
       )}
@@ -143,8 +145,8 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
         <div className="space-y-2">
         {rooms.length === 0 ? (
           <BracketEmptyState
-            label="No messages"
-            hint="Channel messages will appear here once an agent receives one."
+            label={t('inbox.noMessages')}
+            hint={t('inbox.emptyHint')}
           />
         ) : (
           sortedRooms.map((room) => {
@@ -181,7 +183,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-                        {room.room_name || 'Unnamed Room'}
+                        {room.room_name || t('inbox.unnamedRoom')}
                       </span>
                       {room.unread_count > 0 && (
                         <Badge size="sm" variant="accent" pulse>

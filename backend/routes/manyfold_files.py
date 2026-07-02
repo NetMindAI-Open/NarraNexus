@@ -86,8 +86,10 @@ async def _resolve_workspace_root(agent_id: str) -> tuple[Path, str]:
             status_code=500,
             detail=f"agent {agent_id!r} has no created_by user",
         )
-    base = Path(core_settings.base_working_path)
-    workspace = base / f"{agent_id}_{user_id}"
+    from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+    workspace = resolve_existing_workspace(
+        agent_id, user_id, str(core_settings.base_working_path)
+    )
     return workspace, user_id
 
 

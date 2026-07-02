@@ -19,5 +19,6 @@ from xyz_agent_context.agent_framework.provider_driver.drivers import (  # noqa:
     yunwu,
     openrouter,
     claude_oauth,
+    codex_oauth,
     system,
 )

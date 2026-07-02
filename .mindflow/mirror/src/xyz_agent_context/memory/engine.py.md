@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/memory/engine.py
-last_verified: 2026-06-08
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — helper SDK 不再硬绑 OpenAIAgentsSDK
+
+`MemoryEngine` 默认 helper SDK 从 `OpenAIAgentsSDK()` 改为
+`get_helper_sdk()`（`sdk` 参数类型从 `Optional[OpenAIAgentsSDK]` 放宽为
+`Optional[Any]`）。意图是落实铁律 #9：helper_llm 调用点不再 import 具体 SDK 类，
+由 factory 按当前 asyncio task 的 helper 配置（anthropic ContextVar 是否设置）
+分派 Anthropic 或 OpenAI 实现，从而一把 Claude key 能同时服务 agent 槽和
+helper 槽。两个 SDK 接口/返回形状一致，调用方 dispatch-blind。机制无变化。
 
 ## 2026-06-08 — `index()`: the unified projection-write entry point
 

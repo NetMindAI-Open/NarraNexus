@@ -36,6 +36,7 @@ class TriggerType(Enum):
     TASK = "task"   # Task trigger
     API = "api"     # API trigger
     TOOL = "tool"   # Agent proactively invokes a tool trigger
+    MESSAGE_BUS = "message_bus"  # Team group-chat (message bus) reply
     OTHER = "other"
 
 

@@ -243,6 +243,47 @@ export function SpeciesDot({
 }
 
 // ---------------------------------------------------------------------------
+// BindingDot — the "carbon meets silicon" brand motif
+// ---------------------------------------------------------------------------
+// A carbon dot · hairline · silicon dot triad, read left-to-right as
+// "human binds to AI". Used as the eyebrow/section motif at the top of the
+// conversation panel (and onboarding), per the Narra Agent App design ref.
+// `pulse` lets the silicon dot breathe while the agent is streaming, so the
+// motif doubles as a subtle live-state cue without adding a second indicator.
+export interface BindingDotProps {
+  /** Diameter of each end dot, px (the connecting hairline scales with it) */
+  size?: number;
+  /** Pulse the silicon (AI) dot — e.g. while a turn is streaming */
+  pulse?: boolean;
+  className?: string;
+  title?: string;
+}
+
+export function BindingDot({ size = 7, pulse, className, title = 'Carbon meets silicon' }: BindingDotProps) {
+  const dot = (color: string): CSSProperties => ({
+    width: size,
+    height: size,
+    borderRadius: 9999,
+    background: color,
+    boxShadow: '0 0.5px 1.5px rgba(42,38,32,0.32)',
+    flexShrink: 0,
+  });
+  return (
+    <span
+      data-nm="binding-dot"
+      title={title}
+      aria-hidden="true"
+      className={cn('inline-flex items-center', className)}
+      style={{ gap: Math.round(size * 0.7) }}
+    >
+      <span style={dot('var(--color-carbon)')} />
+      <span style={{ width: Math.round(size * 1.4), height: 1, background: 'var(--nm-ink30)', flexShrink: 0 }} />
+      <span className={cn(pulse && 'animate-pulse')} style={dot('var(--color-silicon)')} />
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AvatarStack — overlapping ring avatars + "+N" overflow
 // ---------------------------------------------------------------------------
 export interface AvatarStackProps {

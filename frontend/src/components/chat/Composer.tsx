@@ -40,6 +40,9 @@ import { getChatDraft, setChatDraft } from '@/lib/chatDrafts';
 export interface ComposerHandle {
   /** Current textarea value (read at send time). */
   getText: () => string;
+  /** Replace the textarea value (e.g. a suggested-prompt chip) and focus it.
+   *  Does not send — the user reviews then hits Enter. */
+  setText: (value: string) => void;
   /** Clear the textarea + its persisted draft (after a successful send). */
   clear: () => void;
 }
@@ -83,6 +86,7 @@ export const Composer = memo(
     const [text, setText] = useState(() => getChatDraft(agentId ?? ''));
     const textRef = useRef(text);
     textRef.current = text;
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
     const wasEmptyRef = useRef(text.trim().length === 0);
     const isComposingRef = useRef(false);
     const compositionEndTimeRef = useRef(0);
@@ -99,6 +103,19 @@ export const Composer = memo(
       ref,
       () => ({
         getText: () => textRef.current,
+        setText: (value: string) => {
+          setText(value);
+          reportEmpty(value);
+          // Focus + drop the caret at the end so the user can keep typing
+          // or hit Enter to send the filled-in prompt.
+          requestAnimationFrame(() => {
+            const el = textareaRef.current;
+            if (el) {
+              el.focus();
+              el.setSelectionRange(value.length, value.length);
+            }
+          });
+        },
         clear: () => {
           setText('');
           if (agentId) setChatDraft(agentId, '');
@@ -156,6 +173,7 @@ export const Composer = memo(
     return (
       <div className="flex-1 relative">
         <Textarea
+          ref={textareaRef}
           value={text}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -177,7 +195,7 @@ export const Composer = memo(
           onPaste={onPaste}
           placeholder={placeholder}
           disabled={disabled}
-          className="min-h-[52px] max-h-[160px] py-[14px] leading-[24px] resize-none"
+          className="nx-composer-input block min-h-[52px] max-h-[160px] py-[14px] pr-12 leading-[24px] resize-none hover:border-[color:var(--nm-hairline)] focus:border-[color:var(--nm-hairline)]"
           rows={1}
         />
       </div>

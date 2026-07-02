@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Play, Square } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
 import { BracketEmptyState, BracketSectionLabel } from '@/components/nm';
@@ -46,6 +47,7 @@ function resolveStatus(
 }
 
 export function SystemPage() {
+  const { t } = useTranslation();
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [health, setHealth] = useState<OverallHealth | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -65,7 +67,7 @@ export function SystemPage() {
       setPlatformError(null);
     } catch (err) {
       setPlatformError(
-        err instanceof Error ? err.message : 'Platform not available',
+        err instanceof Error ? err.message : t('pages.system.platformNotAvailable'),
       );
       // Don't try the other endpoints if the first fails — the platform
       // bridge is unavailable as a whole.
@@ -101,7 +103,7 @@ export function SystemPage() {
     } catch {
       // Logs not available — non-critical
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     poll();
@@ -143,11 +145,10 @@ export function SystemPage() {
     return (
       <div className="h-full flex items-center justify-center p-8">
         <BracketEmptyState
-          label="Platform not available"
+          label={t('pages.system.platformNotAvailable')}
           hint={
             <>
-              Service management requires the desktop runtime (Tauri). This
-              feature will be available once the desktop app is built.
+              {t('pages.system.platformNotAvailableHint')}
               <br />
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--nm-ink50)' }}>
                 {platformError}
@@ -177,21 +178,21 @@ export function SystemPage() {
             className="text-2xl font-bold tracking-tight"
             style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
           >
-            Services
+            {t('pages.system.title')}
           </h1>
           <div className="mt-1">
             <BracketSectionLabel>
-              {processes.length} processes
+              {t('pages.system.processesCount', { count: processes.length })}
             </BracketSectionLabel>
           </div>
         </div>
         <Button variant="accent" size="sm" onClick={handleStartAll}>
           <Play className="w-3.5 h-3.5" />
-          Start All
+          {t('pages.system.startAll')}
         </Button>
         <Button variant="danger" size="sm" onClick={handleStopAll}>
           <Square className="w-3.5 h-3.5" />
-          Stop All
+          {t('pages.system.stopAll')}
         </Button>
       </div>
 

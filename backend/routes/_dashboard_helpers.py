@@ -624,6 +624,9 @@ def build_recent_events_resp(rows: list[dict]) -> list[dict]:
         elif trigger == "CHAT":
             kind = "chat"
             verb = "Chat reply"
+        elif trigger == "MESSAGE_BUS":
+            kind = "chat"
+            verb = "Group chat reply"
         else:
             kind = "other"
             verb = f"{trigger.title()}"

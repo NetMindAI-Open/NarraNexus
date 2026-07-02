@@ -10,7 +10,8 @@
  */
 
 import { useCallback, useEffect, useState, type ComponentType } from 'react';
-import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, Link as LinkIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { ChevronDown, ChevronRight, MessageSquare, Hash, Send, MessageCircle, QrCode, Bot, Link as LinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -19,6 +20,9 @@ import { api } from '@/lib/api';
 import { LarkConfig } from './LarkConfig';
 import { SlackConfig } from './SlackConfig';
 import { TelegramConfig } from './TelegramConfig';
+import { WeChatConfig } from './WeChatConfig';
+import { NarramessengerConfig } from './NarramessengerConfig';
+import { DiscordConfig } from './DiscordConfig';
 
 /**
  * Props every IM-channel config component must accept. The parent passes
@@ -82,11 +86,56 @@ const IM_CHANNELS: ChannelEntry[] = [
       }
     },
   },
+  {
+    key: 'wechat',
+    label: 'WeChat',
+    Icon: QrCode,
+    Component: WeChatConfig,
+    fetchConnected: async (agentId) => {
+      try {
+        const res = await api.getWeChatCredential(agentId);
+        return Boolean(res.success && res.data && res.data.enabled);
+      } catch {
+        return false;
+      }
+    },
+  },
+  {
+    key: 'narramessenger',
+    label: 'NarraMessenger',
+    Icon: MessageCircle,
+    Component: NarramessengerConfig,
+    fetchConnected: async (agentId) => {
+      try {
+        const res = await api.getNarramessengerCredential(agentId);
+        return Boolean(res.success && res.data && res.data.enabled);
+      } catch {
+        return false;
+      }
+    },
+  },
+  {
+    key: 'discord',
+    label: 'Discord',
+    Icon: Bot,
+    Component: DiscordConfig,
+    fetchConnected: async (agentId) => {
+      try {
+        const res = await api.getDiscordCredential(agentId);
+        return Boolean(res.success && res.data && res.data.enabled);
+      } catch {
+        return false;
+      }
+    },
+  },
 ];
 
 export function IMChannelsSection() {
+  const { t } = useTranslation();
   const { agentId } = useConfigStore();
-  const [sectionOpen, setSectionOpen] = useState(false);
+  // Expanded by default: opening Channels should show the channel list, not a
+  // collapsed one-liner the user has to click to reveal.
+  const [sectionOpen, setSectionOpen] = useState(true);
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
   const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({});
 
@@ -163,14 +212,14 @@ export function IMChannelsSection() {
           ) : (
             <ChevronRight className="w-4 h-4 text-[var(--text-secondary)]" />
           )}
-          <span className="text-sm font-medium text-[var(--text-primary)]">IM Channels</span>
+          <span className="text-sm font-medium text-[var(--text-primary)]">{t('awareness.channels.title')}</span>
           <span className="text-xs text-[var(--text-secondary)]">
-            {connectedCount}/{totalCount} connected
+            {t('awareness.channels.connectedCount', { connected: connectedCount, total: totalCount })}
           </span>
         </span>
         {!sectionOpen && (
           <span className="text-xs text-[var(--accent-primary)] opacity-70 group-hover:opacity-100">
-            Manage
+            {t('awareness.channels.manage')}
           </span>
         )}
       </button>
@@ -197,10 +246,10 @@ export function IMChannelsSection() {
                     <Icon className="w-4 h-4 text-[var(--text-secondary)]" />
                     {ch.label}
                     {isConnected ? (
-                      <span className="ml-2 text-xs text-[var(--color-green-500)]">✓ connected</span>
+                      <span className="ml-2 text-xs text-[var(--color-green-500)]">{t('awareness.channels.connectedBadge')}</span>
                     ) : (
                       <span className="ml-2 text-xs text-[var(--text-secondary)] inline-flex items-center gap-1">
-                        <LinkIcon className="w-3 h-3" /> not bound
+                        <LinkIcon className="w-3 h-3" /> {t('awareness.channels.notBound')}
                       </span>
                     )}
                   </span>
@@ -226,7 +275,7 @@ export function IMChannelsSection() {
               onClick={() => refreshConnected()}
               className="text-xs"
             >
-              Refresh status
+              {t('awareness.channels.refreshStatus')}
             </Button>
           </div>
         </div>

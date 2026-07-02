@@ -38,9 +38,11 @@ def _agent_workspace_root(agent_id: str, user_id: str) -> Optional[Path]:
     """Resolve canonical workspace dir; fall back to legacy `_user_` infix."""
     from xyz_agent_context.settings import settings as core_settings
     base = Path(core_settings.base_working_path)
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
     candidates = [
-        base / f"{agent_id}_{user_id}",            # canonical
-        base / f"{agent_id}_user_{user_id}",       # legacy
+        base / agent_workspace_relpath(agent_id, user_id),   # canonical (current layout)
+        base / f"{agent_id}_{user_id}",            # legacy flat (pre-nested migration)
+        base / f"{agent_id}_user_{user_id}",       # legacy _user_ infix
     ]
     for c in candidates:
         if c.is_dir():

@@ -29,7 +29,7 @@ from typing import List, Optional
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity
 from xyz_agent_context.module.social_network_module.prompts import (
     ENTITY_SUMMARY_INSTRUCTIONS,
@@ -140,7 +140,7 @@ async def decide_merge_or_create(
 
 Does the candidate match any existing entity? If yes, return MERGE with the index. If no match, return CREATE_NEW:"""
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=DEDUP_MERGE_DECISION_INSTRUCTIONS,
             user_input=user_input,
@@ -223,7 +223,7 @@ Extract all OTHER social entities mentioned:"""
             f"  Agent msg preview: {final_output[:200]}..."
         )
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=BATCH_ENTITY_EXTRACTION_INSTRUCTIONS,
             user_input=user_input,
@@ -282,7 +282,7 @@ Agent: {final_output}
 
 Summary (one line only):"""
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=ENTITY_SUMMARY_INSTRUCTIONS,
             user_input=user_input,
@@ -345,7 +345,7 @@ async def compress_description(long_description: str) -> str:
 
 Compressed summary:"""
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=DESCRIPTION_COMPRESSION_INSTRUCTIONS,
             user_input=user_input,
@@ -436,7 +436,7 @@ async def infer_persona(
             user_input_parts.append(f"\nCurrent Persona (for reference):\n{entity.persona}")
         user_input_parts.append("\nGenerate a concise communication persona for this contact:")
 
-        sdk = OpenAIAgentsSDK()
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions=PERSONA_INFERENCE_INSTRUCTIONS,
             user_input="\n".join(user_input_parts),

@@ -15,7 +15,10 @@ whether to allow WebSearch / text_editor / etc.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+from xyz_agent_context.agent_framework.api_config import (
+    AnthropicHelperConfig,
+    ClaudeConfig,
+)
 from xyz_agent_context.agent_framework.provider_driver.base import (
     ProviderCard,
     _DriverBase,
@@ -40,4 +43,12 @@ class CustomAnthropicDriver(_DriverBase):
             supports_anthropic_server_tools=bool(
                 self.card.supports_anthropic_server_tools
             ),
+        )
+
+    def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
+        return AnthropicHelperConfig(
+            api_key=self.card.api_key,
+            base_url=self.card.base_url,
+            model=model,
+            auth_type=self.card.auth_type or "api_key",
         )

@@ -1,7 +1,8 @@
 /**
- * NM HTML contract test — verifies index.html does NOT load any web fonts.
- * NM uses pure system font stack (Axiom #7). Loading a web font here would
- * regress FCP and contradict the design system.
+ * NM HTML contract test — fonts are SELF-HOSTED (Space Grotesk / Inter / DM
+ * Mono, aligned with the marketing site), loaded from /fonts/narra-fonts.css.
+ * They must never come from a third-party CDN: self-hosting keeps FCP fast,
+ * works offline / in the desktop DMG, and avoids a Google Fonts privacy hop.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -9,29 +10,20 @@ import { describe, test, expect } from 'vitest';
 
 const html = readFileSync(resolve(__dirname, '../../index.html'), 'utf-8');
 
-describe('NM index.html — no web fonts', () => {
-  test('no preconnect to Google Fonts', () => {
+describe('NM index.html — fonts are self-hosted, no third-party CDN', () => {
+  test('no preconnect / load from Google Fonts', () => {
     expect(html).not.toMatch(/fonts\.googleapis\.com/);
     expect(html).not.toMatch(/fonts\.gstatic\.com/);
   });
 
-  test('no Space Grotesk web font load', () => {
-    expect(html).not.toMatch(/Space\+?Grotesk/);
-  });
-
-  test('no Barlow web font load', () => {
+  test('no Google-Fonts family URLs (the +-encoded form)', () => {
+    expect(html).not.toMatch(/Space\+Grotesk/);
+    expect(html).not.toMatch(/DM\+Mono/);
+    expect(html).not.toMatch(/family=Inter/);
     expect(html).not.toMatch(/Barlow/);
   });
 
-  test('no DM Mono web font load', () => {
-    expect(html).not.toMatch(/DM\+?Mono/);
-  });
-
-  test('no Inter web font load', () => {
-    expect(html).not.toMatch(/family=Inter/);
-  });
-
-  test('NM marker comment present (for human reviewers)', () => {
-    expect(html).toMatch(/NM design system|system font stack|no web font/i);
+  test('self-hosted font stylesheet is linked', () => {
+    expect(html).toMatch(/\/fonts\/narra-fonts\.css/);
   });
 });

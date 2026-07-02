@@ -92,7 +92,8 @@ def _new_artifact_id() -> str:
 
 
 def _workspace_root(agent_id: str, user_id: str) -> str:
-    return os.path.join(settings.base_working_path, f"{agent_id}_{user_id}")
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    return str(agent_workspace_path(agent_id, user_id, base=settings.base_working_path))
 
 
 def _relative_to_base(absolute_path: str) -> str:

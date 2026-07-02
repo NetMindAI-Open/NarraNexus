@@ -28,6 +28,7 @@
  */
 
 import { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   /** Fires ≤ once per frame during the drag. Move the preview indicator here. */
@@ -38,7 +39,8 @@ interface Props {
   label?: string;
 }
 
-export function ResizableDivider({ onResize, onResizeEnd, label = 'Resize panels' }: Props) {
+export function ResizableDivider({ onResize, onResizeEnd, label }: Props) {
+  const { t } = useTranslation();
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -104,10 +106,10 @@ export function ResizableDivider({ onResize, onResizeEnd, label = 'Resize panels
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label={label}
+      aria-label={label ?? t('layout.resizableDivider.ariaLabel')}
       onPointerDown={handlePointerDown}
       className="flex-none w-1.5 mx-1 cursor-col-resize bg-[var(--border-default)] hover:bg-[var(--text-primary)] transition-colors self-stretch"
-      title="Drag to resize chat / artifacts"
+      title={t('layout.resizableDivider.title')}
     />
   );
 }

@@ -1,8 +1,21 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-12
+last_verified: 2026-06-22
 stub: false
 ---
+
+## 2026-06-22 — narramessenger_router 注册
+
+新增 `from backend.routes.narramessenger import router as narramessenger_router`
+和 `app.include_router(...)`，挂载路径 `/api/narramessenger`（`bind` / `unbind` /
+`credential`）。与 lark/slack/telegram channel 的 router 同 pattern。
+
+## 2026-06-17 — executor idle-cull reaper 接入 lifespan
+
+`lifespan` 启动时调 `maybe_start_executor_reaper()`(存 `app.state.executor_reaper_task`),
+teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 None)。
+回收空闲 per-user executor 容器,只碰空闲的(铁律 #14)。见
+`[[../src/xyz_agent_context/agent_runtime/executor_reaper.py]]`。
 
 ## 2026-06-12 — admin_migration_router 注册
 

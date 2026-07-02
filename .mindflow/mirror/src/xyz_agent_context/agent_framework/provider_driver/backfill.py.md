@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/backfill.py
-last_verified: 2026-05-13
+last_verified: 2026-05-31
 stub: false
 ---
 
@@ -33,6 +33,18 @@ exact mis-feature this whole package exists to fix.
 
 ## Re-run safety
 
-Filter is ``driver_type IS NULL``. Once a row is classified, the next
-backfill run skips it. Manual admin edits also stick — we never
-overwrite a non-null value.
+The loop scans all provider rows but only fills missing metadata, so
+already-classified rows are normally no-ops. The one deliberate exception
+is OAuth ``auth_ref`` canonicalization: if a Claude OAuth row carries a
+Codex sentinel, or a Codex OAuth row carries a Claude sentinel from an
+older build, backfill rewrites it to the source-specific canonical value.
+That turns stale local data into a healthy row without forcing users to
+delete and recreate their provider.
+
+## OAuth auth_ref selection
+
+`derive_auth_ref` receives both `auth_type` and `source`. This matters
+because Claude OAuth and Codex OAuth are both `auth_type='oauth'` but
+their host CLI credential files live in different places. Backfill must
+write `claude-cli:~/.claude/.credentials.json` for Claude rows and
+`codex-cli:~/.codex/auth.json` for Codex rows.

@@ -262,8 +262,9 @@ async def test_full_roundtrip(db_client, tmp_workspace_root):
     # but instance_id should be the new one
     assert se_rows[0].instance_id == new_inst
 
-    # Workspace tar was extracted to canonical path
-    new_ws = tmp_workspace_root / f"{new_aid}_{user_id}"
+    # Workspace tar was extracted to canonical path (layout-agnostic via helper)
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+    new_ws = tmp_workspace_root / agent_workspace_relpath(new_aid, user_id)
     assert new_ws.is_dir(), f"workspace not extracted to {new_ws}"
     notes_after = (new_ws / "notes.md").read_text(encoding="utf-8")
     # Layer 4 should rewrite IDs even in workspace text files
@@ -496,7 +497,8 @@ async def test_artifacts_roundtrip_strips_and_restores_prefix(db_client, tmp_wor
     art = new_arts[0]
     assert art["artifact_id"] != art_id
     assert re.fullmatch(ID_KINDS["artifact"], art["artifact_id"])
-    assert art["file_path"] == f"{new_aid}_{user_id}/work/output.html"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+    assert art["file_path"] == f"{agent_workspace_relpath(new_aid, user_id)}/work/output.html"
     assert art["session_id"] is None, f"session_id should be NULL; got {art['session_id']!r}"
     assert int(art["pinned"]) == 1, f"pinned should be forced to 1; got {art['pinned']!r}"
     assert art["user_id"] == user_id

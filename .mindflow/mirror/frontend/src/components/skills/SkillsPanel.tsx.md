@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/skills/SkillsPanel.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-02
 ---
 
 # SkillsPanel.tsx — Orchestrator for skill management, install dialogs, and MCP servers
@@ -8,6 +8,22 @@ last_verified: 2026-06-11
 Owns the skill list query, the two install modals (GitHub / zip), the env
 config modal, the study-status polling, and (since 2026-05-14) embeds
 `[[MCPManager]]` as a second section.
+
+## 2026-07-02 — fix: spinner stuck forever after study completes
+
+`studyingSkillName` (local state set by `handleStudy`) used to be cleared
+**only** in the study mutation's `onError` — a successful study never
+reset it, so `isStudying` passed to `SkillCard` stayed `true` until a
+manual page reload. Fixed by reading `useStudyStatus`'s polled `data` and
+resetting `studyingSkillName` once `study_status` reaches a terminal
+state (`completed` / `failed`).
+
+The reset is done during render (comparing against a `seenStudyStatus`
+state guard), not inside a `useEffect` — calling `setState` directly in
+an effect body trips the `react-hooks/set-state-in-effect` lint rule.
+This follows React's documented "adjust state when a prop changes"
+pattern: compare the latest polled status to the last-seen one, and if
+it differs, update both in the same render pass before commit.
 
 ## 2026-06-11 — atomic `section` prop
 

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-05-19
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — hook_data_gathering 频道查询修正列名 (created_at)
+
+第 4 步 "Fetch channels" 的查询原本 `ORDER BY c.updated_at DESC`，但
+`bus_channels` 表从来没有 `updated_at` 列（schema_registry 里只有
+`channel_id/name/channel_type/created_by/created_at`，且 local_bus 建频道时
+也只写 `created_at`，无任何代码维护 `updated_at`）。SQLite 抛
+`no such column: c.updated_at`，被 `except` 吞成 `logger.debug`，结果
+`bus_channels` 上下文静默缺失。改为 `ORDER BY c.created_at DESC`（表中唯一
+存在的时间列）。同类事故的旁证见 [[message_bus_trigger.py]] :497 的注释。
 
 ## 2026-05-19 — Reply Discipline 段强化 Agent-to-Agent 简洁优先
 

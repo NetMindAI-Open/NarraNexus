@@ -298,6 +298,25 @@ QUOTA_BYPASS_PREFIXES = (
     "/api/transcription",
 )
 
+# HTTP methods that never spend LLM quota. Safe/read-only requests must
+# reach their handler even when the free tier is exhausted -- otherwise an
+# exhausted account is locked out of reading its OWN data (dashboard,
+# agent list, chat history, ...), not just blocked from starting new LLM
+# work (GH #61: quota exhaustion 402'd every /api/ call, including plain
+# GETs, wholesale-locking the dashboard).
+#
+# This is safe because it only widens WHICH requests skip
+# `resolver.resolve_and_set` -- it does not touch the JWT check above,
+# which still runs unconditionally. `resolve_and_set` only pushes LLM
+# provider config onto ContextVars for the current task; GET/HEAD
+# handlers never read those ContextVars because none of them invoke the
+# agent loop or the LLM-facing routes (verified: every quota-spending
+# endpoint in backend/routes/**, including /v1/chat/completions and every
+# agent-run/trigger route, is a POST; the only GET handlers that stream
+# a response, e.g. backend/routes/manyfold_files.py's file-read endpoint,
+# stream bytes off disk and never touch an LLM).
+SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})
+
 
 async def auth_middleware(request: Request, call_next):
     """
@@ -462,8 +481,10 @@ async def auth_middleware(request: Request, call_next):
     #
     # Config-class paths (QUOTA_BYPASS_PREFIXES) skip the resolver entirely
     # so users with an exhausted free tier can still reach /api/providers
-    # or flip /api/quota/me/preference to escape the dead-end. JWT auth
-    # above still applies to those paths.
+    # or flip /api/quota/me/preference to escape the dead-end. Safe/
+    # read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
+    # EVERY path, since reads never spend quota. JWT auth above still
+    # applies in both cases.
     from xyz_agent_context.agent_framework.api_config import set_current_user_id
     from xyz_agent_context.agent_framework.provider_resolver import (
         ProviderResolverError,
@@ -471,7 +492,9 @@ async def auth_middleware(request: Request, call_next):
 
     set_current_user_id(request.state.user_id)
 
-    if any(path.startswith(p) for p in QUOTA_BYPASS_PREFIXES):
+    if request.method in SAFE_HTTP_METHODS or any(
+        path.startswith(p) for p in QUOTA_BYPASS_PREFIXES
+    ):
         return await call_next(request)
 
     resolver = getattr(request.app.state, "provider_resolver", None)

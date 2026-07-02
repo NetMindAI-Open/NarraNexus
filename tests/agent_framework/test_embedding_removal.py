@@ -36,15 +36,25 @@ def test_get_current_embedding_config_not_exported():
 
 # ── 2. set_user_config accepts exactly 2 args (claude, openai) ───────────────
 
-def test_set_user_config_accepts_2_args():
-    """set_user_config must take (claude, openai) — NOT a 3rd embedding arg."""
+def test_set_user_config_has_no_embedding_arg():
+    """set_user_config takes (claude, openai, codex, anthropic_helper) —
+    NO embedding arg.
+
+    Codex and the anthropic helper are the extra configs threaded through
+    set_user_config; the embedding parameter that once sat here has been
+    removed and must not come back.
+    """
     import inspect
     from xyz_agent_context.agent_framework.api_config import set_user_config, ClaudeConfig, OpenAIConfig
 
     sig = inspect.signature(set_user_config)
     params = list(sig.parameters)
-    assert params == ["claude", "openai"], (
-        f"set_user_config signature must be (claude, openai), got {params}"
+    assert "embedding" not in params, (
+        f"set_user_config must not take an embedding arg, got {params}"
+    )
+    assert params == ["claude", "openai", "codex", "anthropic_helper"], (
+        f"set_user_config signature must be "
+        f"(claude, openai, codex, anthropic_helper), got {params}"
     )
 
 
@@ -137,56 +147,73 @@ def test_slot_required_protocols_no_embedding():
     )
 
 
-# ── 6. provider_driver.resolver._SLOT_BUILDERS has no "embedding" key ────────
+# ── 6. provider_driver.resolver._REQUIRED_SLOTS has no "embedding" ───────────
 
 def test_slot_builders_no_embedding():
-    from xyz_agent_context.agent_framework.provider_driver.resolver import _SLOT_BUILDERS
-    assert "embedding" not in _SLOT_BUILDERS, (
-        "_SLOT_BUILDERS in provider_driver.resolver must not contain 'embedding'"
+    from xyz_agent_context.agent_framework.provider_driver.resolver import _REQUIRED_SLOTS
+    assert "embedding" not in _REQUIRED_SLOTS, (
+        "_REQUIRED_SLOTS in provider_driver.resolver must not contain 'embedding'"
     )
 
 
-# ── 7. resolve() in ProviderResolver returns 3-tuple (claude, openai, source)
-#    not 4-tuple (claude, openai, embedding, source) ──────────────────────────
+# ── 7. resolve() returns (RuntimeLLMConfigs, source) with NO embedding ───────
+#    The config carrier must not re-grow an `embedding` field/element.
 
 @pytest.mark.asyncio
-async def test_provider_resolver_resolve_returns_3_tuple():
-    """ProviderResolver.resolve must return (claude, openai, source) — 3 items."""
+async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch):
+    """ProviderResolver.resolve returns (RuntimeLLMConfigs, source) — 2 items —
+    and the RuntimeLLMConfigs carries no embedding slot."""
     from unittest.mock import AsyncMock, MagicMock
+    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.api_config import (
+        ClaudeConfig, OpenAIConfig, RuntimeLLMConfigs,
+    )
     from xyz_agent_context.agent_framework.provider_resolver import ProviderResolver
     from xyz_agent_context.schema.provider_schema import (
-        AuthType, LLMConfig, ProviderConfig, ProviderProtocol, ProviderSource, SlotConfig,
+        AuthType, LLMConfig, ProviderConfig, ProviderProtocol, ProviderSource,
+        SlotConfig,
     )
 
-    prov_a = ProviderConfig(
-        provider_id="p_a", name="a", source=ProviderSource.USER,
-        protocol=ProviderProtocol.ANTHROPIC, auth_type=AuthType.API_KEY,
-        api_key="k", is_active=True, models=["claude-x"],
+    # resolve()'s USER branch delegates to the single-point driver resolver.
+    async def _fake_resolve(_user_id, _db):
+        return RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
+
+    monkeypatch.setattr(
+        provider_driver, "resolve_user_runtime_llm_configs", _fake_resolve
     )
-    prov_o = ProviderConfig(
-        provider_id="p_o", name="o", source=ProviderSource.USER,
-        protocol=ProviderProtocol.OPENAI, auth_type=AuthType.API_KEY,
-        api_key="k", is_active=True, models=["gpt-x"],
-    )
-    cfg = LLMConfig(
-        providers={"p_a": prov_a, "p_o": prov_o},
+
+    # classify() needs a complete own config (agent + helper_llm) to route USER.
+    complete_cfg = LLMConfig(
+        providers={
+            "p_a": ProviderConfig(
+                provider_id="p_a", name="a", source=ProviderSource.USER,
+                protocol=ProviderProtocol.ANTHROPIC, auth_type=AuthType.API_KEY,
+                api_key="k", is_active=True, models=["claude-x"],
+            ),
+            "p_o": ProviderConfig(
+                provider_id="p_o", name="o", source=ProviderSource.USER,
+                protocol=ProviderProtocol.OPENAI, auth_type=AuthType.API_KEY,
+                api_key="k", is_active=True, models=["gpt-x"],
+            ),
+        },
         slots={
             "agent": SlotConfig(provider_id="p_a", model="claude-x"),
             "helper_llm": SlotConfig(provider_id="p_o", model="gpt-x"),
         },
     )
     user_svc = MagicMock()
-    user_svc.get_user_config = AsyncMock(return_value=cfg)
     sys_svc = MagicMock()
     sys_svc.is_enabled.return_value = True
-    # System config also only has agent + helper_llm slots.
-    sys_svc.get_config.return_value = cfg
     quota_svc = MagicMock()
     quota_svc.get = AsyncMock(return_value=None)      # no quota row → opt-out
     quota_svc.check = AsyncMock(return_value=True)
+    user_svc.get_user_config = AsyncMock(return_value=complete_cfg)
 
     resolver = ProviderResolver(user_svc, sys_svc, quota_svc)
     result = await resolver.resolve("usr_x")
-    # result must be (claude, openai, source) — exactly 3 elements
     assert result is not None
-    assert len(result) == 3, f"Expected 3-tuple from ProviderResolver.resolve, got {len(result)}"
+    assert len(result) == 2, f"Expected (configs, source), got len {len(result)}"
+    configs, source = result
+    assert source == "user"
+    assert isinstance(configs, RuntimeLLMConfigs)
+    assert not hasattr(configs, "embedding")

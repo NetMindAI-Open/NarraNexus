@@ -38,7 +38,6 @@ describe('AgentGroupSection', () => {
     collapsed: false,
     onToggleCollapse: vi.fn(),
     onSelectAgent: vi.fn(),
-    onNavigateToTeam: vi.fn(),
     getRowMeta: () => ({ preview: '', time: '', unread: 0 }),
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
@@ -138,39 +137,6 @@ describe('AgentGroupSection', () => {
     );
     // The Ungrouped section header should be present.
     expect(screen.getByText('Ungrouped')).toBeInTheDocument();
-  });
-
-  it('does not render a team-detail nav arrow for the Ungrouped section', () => {
-    render(
-      wrapRouter(
-        <AgentGroupSection
-          {...defaultProps}
-          teamId={null}
-          teamName="Ungrouped"
-          teamColor={null}
-          onNavigateToTeam={vi.fn()}
-        />
-      )
-    );
-    // No navigate-to-team button for Ungrouped
-    expect(screen.queryByRole('button', { name: /go to team/i })).not.toBeInTheDocument();
-  });
-
-  it('calls onNavigateToTeam when the → nav button is clicked for a named team', () => {
-    const onNavigate = vi.fn();
-    render(
-      wrapRouter(
-        <AgentGroupSection
-          {...defaultProps}
-          teamId="t1"
-          onNavigateToTeam={onNavigate}
-        />
-      )
-    );
-    // The nav button should exist for a named team
-    const navBtn = screen.getByRole('button', { name: /go to team/i });
-    fireEvent.click(navBtn);
-    expect(onNavigate).toHaveBeenCalledWith('t1');
   });
 });
 

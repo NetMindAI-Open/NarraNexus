@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-05-19
+last_verified: 2026-06-22
 stub: false
 ---
+
+## 2026-06-22 — `WorkingSource.NARRAMESSENGER` 加入
+
+NarraMessenger IM channel 的触发来源。`is_from_human()=True`(终点是真人，warm
+回复)，已加进下方表格。**注意：它同时被放进 `is_automated()` 集合**（沿用其
+前身 MATRIX 的处理），而 LARK/SLACK/TELEGRAM 都**不在** is_automated 里。后果：
+narramessenger 的 Narrative summary 会走"自动/简洁"策略，而非其它 IM channel
+的 warm/full 策略。**待确认是否应与其它 IM channel 对齐（从 is_automated 移除）。**
 
 ## 2026-05-19 — `WorkingSource.is_from_human()` 新方法
 
@@ -11,7 +19,7 @@ stub: false
 
 | value | is_from_human |
 |---|---|
-| CHAT / LARK / SLACK / TELEGRAM | **True** — 终点是真人，需要 warm 回复 |
+| CHAT / LARK / SLACK / TELEGRAM / NARRAMESSENGER | **True** — 终点是真人，需要 warm 回复 |
 | JOB / MESSAGE_BUS / CALLBACK / SKILL_STUDY | **False** — 终点是 agent / 后台，简洁优先 |
 
 为什么不直接用 `is_user_initiated()`：那个只把 CHAT 当 user，但

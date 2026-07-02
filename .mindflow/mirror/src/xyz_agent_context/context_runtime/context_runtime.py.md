@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-06-12
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — system prompt 第一段注入安全铁律(**云端专属**)
+
+`build_complete_system_prompt` 在所有其它段(temporal / narrative /
+module / bootstrap)之前 append `prompts.SECURITY_IRON_RULES`,确保没有后续
+段落或用户消息能覆盖它。**仅当 `get_deployment_mode()=="cloud"` 时注入** ——
+铁律是多租户保护;本地/桌面是用户自己的机器,用户就是要 agent 跨自己的文件夹
+干活,注入它会废掉本地体验,且本地没有别的租户/平台密钥要保护。详见
+`prompts.py.md`。
 
 ## 2026-06-12 — User Identity Context block REMOVED (治本: moved into basic_info)
 

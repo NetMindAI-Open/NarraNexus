@@ -20,7 +20,9 @@ export function ThemeToggle() {
       size="icon"
       onClick={toggleTheme}
       title={`Theme: ${label}`}
-      className="relative"
+      // Footer toggles: muted by default, ORANGE on hover (no bg highlight) —
+      // matches the language toggle so the pair reads as one control cluster.
+      className="relative text-[var(--text-secondary)] transition-colors hover:bg-transparent! hover:text-[var(--color-carbon)]"
     >
       <Icon className={cn('h-4 w-4 transition-colors duration-150')} />
     </Button>

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/model_catalog.py
-last_verified: 2026-04-29
+last_verified: 2026-06-10
 stub: false
 ---
+## 2026-06-10 (later) — onboarding defaults for aggregator sources
+
+_ONBOARD_AGENT/HELPER_MODELS gained netmind (DeepSeek-V4-Pro / V4-Flash,
+matching the old Quick Add preset pair) and yunwu/openrouter
+(claude-opus-4-8 / gpt-5.4-mini — they proxy the official APIs).
+
+## 2026-06-10 — one-key onboarding default models
+
+`get_default_agent_model(protocol)` / `get_default_helper_model(protocol)`:
+agent = strongest of the family (anthropic → claude-opus-4-8, openai →
+gpt-5.5) because BYOK users pay themselves; helper = cheap+fast (haiku-4-5 /
+gpt-5.4-mini). All four ids already exist in the suggested lists, so
+self-heal never rewrites them.
+
 # model_catalog.py — 静态模型元数据与默认配置库
 
 ## 为什么存在

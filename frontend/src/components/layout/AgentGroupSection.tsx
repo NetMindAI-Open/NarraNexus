@@ -10,7 +10,8 @@
  */
 
 import { useState } from 'react';
-import { Loader2, Check, X, ArrowRight, Globe, Plus } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Loader2, Check, X, Globe } from 'lucide-react';
 import type { AgentInfo } from '@/types';
 import { RingAvatar } from '@/components/nm';
 import { AgentRowMenu } from './AgentRowMenu';
@@ -34,6 +35,9 @@ export interface AgentGroupSectionProps {
 
   agents: AgentInfo[];
   agentId: string | null;
+  /** The team whose group chat is currently open (route /app/teams/:id/chat).
+   *  When set, this team's Group chat row is highlighted and NO agent row is. */
+  activeTeamChatId?: string | null;
 
   /** Whether the section is collapsed (agent rows hidden). */
   collapsed: boolean;
@@ -46,21 +50,6 @@ export interface AgentGroupSectionProps {
   hideHeader?: boolean;
 
   onSelectAgent: (agentId: string) => void;
-
-  /**
-   * Called when the user clicks the hover-visible → arrow on a named team
-   * section header. Not called for the Ungrouped section (teamId=null).
-   */
-  onNavigateToTeam?: (teamId: string) => void;
-
-  /**
-   * Called when the user clicks the hover-visible + button on a named team
-   * section header to create a new agent directly inside that team (#43).
-   * Not offered for the Ungrouped section (teamId=null).
-   */
-  onAddAgentToTeam?: (teamId: string) => void;
-  /** True while an agent create is in flight — disables the per-team +. */
-  addingAgent?: boolean;
 
   getRowMeta: (agentId: string) => RowMeta;
   getIsStreaming: (agentId: string) => boolean;
@@ -103,16 +92,13 @@ export interface AgentGroupSectionProps {
 export function AgentGroupSection({
   teamId,
   teamName,
-  teamColor,
   agents,
   agentId,
+  activeTeamChatId,
   collapsed,
   onToggleCollapse,
   hideHeader = false,
   onSelectAgent,
-  onNavigateToTeam,
-  onAddAgentToTeam,
-  addingAgent = false,
   getRowMeta,
   getIsStreaming,
   completedAgentIds,
@@ -131,32 +117,44 @@ export function AgentGroupSection({
 }: AgentGroupSectionProps) {
   const totalUnread = aggregateSectionUnread(agents, (aid) => getRowMeta(aid).unread);
 
+  // When a team's group chat is the active view, no agent row should look
+  // selected (avoids the confusing "an agent is highlighted while I'm in the
+  // group chat" state). Teams themselves live in the separate TEAMS section.
+  const effectiveAgentId = activeTeamChatId ? null : agentId;
+
   return (
     <div className="group/section relative">
-      {/* Section header */}
+      {/* Section header — clicking the team name opens its group chat; clicking
+          anywhere else on the row toggles the section's collapse. Rendered as a
+          div (not a button) so the name can be a nested button. */}
       {!hideHeader && (
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         aria-label={teamName}
         data-help-id="sidebar.team-section"
         onClick={() => onToggleCollapse(teamId)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggleCollapse(teamId);
+          }
+        }}
         className={cn(
-          'w-full flex items-center gap-2 px-3 py-1.5',
+          'w-full flex items-center gap-2 px-3 py-1.5 cursor-pointer',
           'text-left transition-colors hover:bg-[var(--nm-paper-warm)]',
         )}
       >
-        {/* Color swatch or hollow dot for Ungrouped */}
-        {teamId !== null ? (
-          <span
-            className="w-2 h-2 rounded-full shrink-0"
-            style={{ backgroundColor: teamColor ?? 'var(--nm-ink30)' }}
-          />
-        ) : (
+        {/* The Ungrouped pseudo-section keeps a plain hollow dot; named teams
+            carry their group-chat avatar on the dedicated row below. */}
+        {teamId === null && (
           <span
             className="w-2 h-2 rounded-full shrink-0 border"
             style={{ borderColor: 'var(--nm-ink30)' }}
           />
         )}
 
+        {/* Section label */}
         <span
           className="flex-1 min-w-0 text-[11px] font-mono uppercase tracking-wider truncate"
           style={{ color: 'var(--nm-ink50)' }}
@@ -203,50 +201,7 @@ export function AgentGroupSection({
         >
           ▶
         </span>
-      </button>
-      )}
-
-      {/* Navigate-to-team arrow — hover-visible, only for named teams */}
-      {!hideHeader && teamId !== null && onNavigateToTeam && (
-        <button
-          aria-label="Go to team"
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigateToTeam(teamId);
-          }}
-          className={cn(
-            'absolute right-8 top-0 h-7 w-6 flex items-center justify-center',
-            'opacity-0 group-hover/section:opacity-100 transition-opacity duration-150',
-            'hover:bg-[var(--nm-paper-warm)] rounded-[var(--radius-xs)]',
-          )}
-          title="Go to team detail"
-        >
-          <ArrowRight className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
-        </button>
-      )}
-
-      {/* Add-agent-to-team + — hover-visible, only for named teams (#43) */}
-      {!hideHeader && teamId !== null && onAddAgentToTeam && (
-        <button
-          aria-label="Add agent to team"
-          disabled={addingAgent}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddAgentToTeam(teamId);
-          }}
-          className={cn(
-            'absolute right-14 top-0 h-7 w-6 flex items-center justify-center',
-            'opacity-0 group-hover/section:opacity-100 transition-opacity duration-150',
-            'hover:bg-[var(--nm-paper-warm)] rounded-[var(--radius-xs)]',
-            addingAgent && 'opacity-100 cursor-not-allowed',
-          )}
-          title="Add a new agent to this team"
-        >
-          <Plus
-            className={cn('w-3 h-3', addingAgent && 'animate-pulse')}
-            style={{ color: 'var(--nm-ink50)' }}
-          />
-        </button>
+      </div>
       )}
 
       {/* Agent rows — a headerless section cannot be collapsed */}
@@ -256,7 +211,7 @@ export function AgentGroupSection({
             <AgentRow
               key={agent.agent_id}
               agent={agent}
-              activeAgentId={agentId}
+              activeAgentId={effectiveAgentId}
               index={index}
               getRowMeta={getRowMeta}
               getIsStreaming={getIsStreaming}
@@ -330,9 +285,12 @@ function AgentRow({
   onTogglePublic,
   deletingAgentId,
 }: AgentRowProps) {
+  const { t } = useTranslation();
   const isSelected = activeAgentId === agent.agent_id;
   const completed = completedAgentIds.includes(agent.agent_id);
-  const { preview, time, unread } = getRowMeta(agent.agent_id);
+  // Compact single-line rows: no chat preview (it conflated group-chat content
+  // anyway) — just name + time + unread, so more agents fit on screen.
+  const { time, unread } = getRowMeta(agent.agent_id);
   const streaming = getIsStreaming(agent.agent_id) || !!agent.active_run;
   const displayName = agent.name || agent.agent_id;
 
@@ -351,8 +309,10 @@ function AgentRow({
     <div
       onClick={() => onSelectAgent(agent.agent_id)}
       className={cn(
-        'w-full text-left px-3 py-2 cursor-pointer animate-slide-up',
-        'rounded-[18px] transition-colors duration-150',
+        'w-full text-left px-3 py-1.5 cursor-pointer animate-slide-up',
+        // Slight editorial radius matching the chat bubbles (--radius-lg = 4px)
+        // so the selected-row background reads consistently with the messages.
+        'rounded-[var(--radius-lg)] transition-colors duration-150',
         'group',
         // animate-slide-up retains a transform (fill: forwards), making
         // every row a stacking context — lift the row while its kebab
@@ -374,10 +334,10 @@ function AgentRow({
         }
       }}
     >
-      <div className="flex items-start gap-2.5">
-        {/* Avatar */}
+      <div className="flex items-center gap-2.5">
+        {/* Avatar — small (sm) so rows stay short */}
         <div className="relative shrink-0">
-          <AvatarWithStreaming label={displayName.slice(0, 2)} streaming={streaming} />
+          <AvatarWithStreaming label={displayName.slice(0, 2)} streaming={streaming} size="sm" />
           {completed && !isSelected && (
             <div
               className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full allow-circle"
@@ -408,58 +368,76 @@ function AgentRow({
                 onClick={(e) => onSaveEdit(agent.agent_id, e)}
                 disabled={savingName}
                 className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title="Save (Enter)"
+                title={t('layout.agentRow.saveTitle')}
               >
                 <Check className={cn('w-3.5 h-3.5', savingName && 'animate-pulse')} style={{ color: 'var(--color-success)' }} />
               </button>
               <button
                 onClick={onCancelEdit}
                 className="p-1 shrink-0 rounded-[var(--radius-xs)] hover:bg-[var(--nm-paper-warm)] transition-colors"
-                title="Cancel (Esc)"
+                title={t('layout.agentRow.cancelTitle')}
               >
                 <X className="w-3.5 h-3.5" style={{ color: 'var(--color-error)' }} />
               </button>
             </div>
           ) : (
-            <>
-              {/* Row 1: name + kebab + time */}
-              <div className="flex items-center gap-1">
-                <span
-                  className={cn('text-sm truncate', isSelected ? 'font-semibold' : 'font-medium')}
-                  style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
-                >
-                  {displayName}
+            /* Single line: name + kebab(hover, next to name) … unread + time */
+            <div className="flex items-center gap-1">
+              <span
+                className={cn('min-w-0 truncate text-sm', isSelected ? 'font-semibold' : 'font-medium')}
+                style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-sans)' }}
+              >
+                {displayName}
+              </span>
+              {agent.is_public && !isOwner && (
+                <span title={t('layout.agentRow.publicBy', { name: agent.created_by })} className="shrink-0">
+                  <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
                 </span>
-                {agent.is_public && !isOwner && (
-                  <span title={`Public · by ${agent.created_by}`} className="shrink-0">
-                    <Globe className="w-3 h-3" style={{ color: 'var(--nm-ink50)' }} />
+              )}
+
+              {/* Kebab menu — shown on hover or when selected */}
+              <div
+                className={cn(
+                  'shrink-0',
+                  isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                  'transition-opacity duration-150',
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <AgentRowMenu
+                  agentId={agent.agent_id}
+                  agentName={displayName}
+                  onOpenChange={setMenuOpen}
+                  isOwner={isOwner}
+                  isPublic={!!agent.is_public}
+                  showPublicToggle={showPublicToggle}
+                  onStartEdit={(e) => onStartEdit(agent, e)}
+                  onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
+                  onTogglePublic={(e) => onTogglePublic(agent, e)}
+                />
+              </div>
+
+              {/* Trailing meta — pushed to the right edge */}
+              <div className="ml-auto pl-2 flex items-center gap-1.5 shrink-0">
+                {unread > 0 && (
+                  <span
+                    className="inline-flex items-center justify-center text-[10px] font-semibold"
+                    style={{
+                      minWidth: 18,
+                      height: 16,
+                      padding: '0 5px',
+                      borderRadius: 8,
+                      background: 'transparent',
+                      border: '1px solid var(--nm-ink30)',
+                      color: 'var(--nm-ink70)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    {unread > 99 ? '99+' : unread}
                   </span>
                 )}
-
-                {/* Kebab menu — shown on hover or when selected */}
-                <div
-                  className={cn(
-                    'shrink-0',
-                    isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                    'transition-opacity duration-150',
-                  )}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <AgentRowMenu
-                    agentId={agent.agent_id}
-                    agentName={displayName}
-                    onOpenChange={setMenuOpen}
-                    isOwner={isOwner}
-                    isPublic={!!agent.is_public}
-                    showPublicToggle={showPublicToggle}
-                    onStartEdit={(e) => onStartEdit(agent, e)}
-                    onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
-                    onTogglePublic={(e) => onTogglePublic(agent, e)}
-                  />
-                </div>
-
                 <span
-                  className="ml-auto pl-2 text-[10px] shrink-0"
+                  className="text-[10px]"
                   style={{
                     color: unread > 0 ? 'var(--color-silicon)' : 'var(--nm-ink50)',
                     fontWeight: unread > 0 ? 500 : 400,
@@ -470,36 +448,7 @@ function AgentRow({
                   {time}
                 </span>
               </div>
-
-              {/* Row 2: preview + unread pill */}
-              <div className="flex items-center gap-2 mt-0.5">
-                <p
-                  className="flex-1 min-w-0 text-xs truncate leading-snug"
-                  style={{ color: 'var(--nm-ink70)' }}
-                >
-                  {preview || (
-                    <span style={{ color: 'var(--nm-ink30)' }}>No messages yet</span>
-                  )}
-                </p>
-                {unread > 0 && (
-                  <span
-                    className="inline-flex items-center justify-center text-[10px] font-semibold shrink-0"
-                    style={{
-                      minWidth: 20,
-                      height: 18,
-                      padding: '0 6px',
-                      borderRadius: 9,
-                      background: 'transparent',
-                      border: '1px solid var(--nm-ink30)',
-                      color: 'var(--nm-ink70)',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    {unread > 99 ? '99+' : unread}
-                  </span>
-                )}
-              </div>
-            </>
+            </div>
           )}
         </div>
       </div>

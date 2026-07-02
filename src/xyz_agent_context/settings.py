@@ -147,6 +147,16 @@ class Settings(BaseSettings):
     # ===== Auth =====
     admin_secret_key: str = ""
 
+    # ===== Arena (NetMind Agent Arena) =====
+    # Base URL of the Arena API that auto-provisioned competitor agents register
+    # against and call at runtime. Externalized per deployment so dev does not
+    # pollute the live competitive ladder: prod keeps the default (api.arena42.ai),
+    # the dev stack sets ARENA_API_BASE=https://arena-dev-api.protago-dev.com in
+    # its ops .env (same mechanism as APP_DOMAIN). The value flows into both the
+    # registration call and the agent's installed skill env (ARENA_API_URL), so
+    # the agent's own HTTP calls target the same environment automatically.
+    arena_api_base: str = "https://api.arena42.ai"
+
     # ===== Speed Optimization =====
     # When True, skip the LLM instance decision call in Step 2 and always load
     # all capability modules directly.  This saves ~2.5-3s per turn since the

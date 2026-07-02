@@ -40,7 +40,10 @@ pkill -f "message_bus_trigger" 2>/dev/null || true
 pkill -f "run_lark_trigger" 2>/dev/null || true
 pkill -f "run_slack_trigger" 2>/dev/null || true
 pkill -f "run_telegram_trigger" 2>/dev/null || true
-for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
+pkill -f "run_wechat_trigger" 2>/dev/null || true
+pkill -f "run_narramessenger_trigger" 2>/dev/null || true
+pkill -f "run_discord_trigger" 2>/dev/null || true
+for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
 sleep 1
@@ -58,20 +61,44 @@ echo -e "  ${G}Local Development Server${R}"
 echo -e "  Database: ${Y}$DATABASE_URL${R}"
 echo ""
 
-# --- Ensure venv is fully synced (safety net) ---
-# run.sh already calls `uv sync`, but after branch switches or lockfile
-# changes the venv can be stale (uv reports "Audited" without actually
-# installing new/changed deps). A second `uv sync` here is cheap (no-op
-# when already up-to-date) and prevents the "Failed to spawn: uvicorn"
-# error that bites every new contributor on a fresh checkout.
+# --- Verify the editable install survived run.sh's uv sync ---
+#
+# DO NOT run another ``uv sync`` here. ``uv sync`` strips the
+# editable install of the project itself (lockfile doesn't list
+# the project as editable), and run.sh has already re-added it
+# via ``uv pip install -e . --reinstall-package xyz-agent-context``.
+# A second ``uv sync`` in this file would undo that step and the
+# Backend tmux window would die with
+# ``ModuleNotFoundError: No module named 'xyz_agent_context'``.
+#
+# Instead: import-check; if the editable install really is gone
+# (e.g. user manually nuked .venv, or uv flapped on a Python
+# binary update), heal it once with --no-deps so we don't touch
+# the dep set. Same trick we end up running by hand every time
+# this drifts.
 echo -e "${Y}Verifying Python environment...${R}"
-(cd "$PROJECT_ROOT" && env -u VIRTUAL_ENV uv sync 2>&1 | tail -1)
+if ! "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null; then
+  echo -e "${Y}  xyz_agent_context editable install missing — restoring...${R}"
+  (cd "$PROJECT_ROOT" && env -u VIRTUAL_ENV uv pip install \
+    --python "$PROJECT_ROOT/.venv/bin/python3" \
+    -e "$PROJECT_ROOT" --no-deps --reinstall 2>&1 | tail -3) || {
+    echo -e "${RED}ERROR: failed to restore editable install.${R}"
+    echo -e "  Manual fix: cd $PROJECT_ROOT && rm -rf .venv && uv sync && uv pip install -e . --no-deps"
+    exit 1
+  }
+  # Re-verify; if it still fails, abort with the manual recipe.
+  "$PROJECT_ROOT/.venv/bin/python3" -c "import xyz_agent_context" 2>/dev/null || {
+    echo -e "${RED}ERROR: xyz_agent_context STILL not importable after heal.${R}"
+    echo -e "  Manual fix: cd $PROJECT_ROOT && rm -rf .venv && uv sync && uv pip install -e . --no-deps"
+    exit 1
+  }
+fi
 
-# Quick sanity check: if uvicorn still isn't installed, abort early with
-# a clear message instead of letting the Backend tmux window die silently.
+# uvicorn presence sanity (independent of editable install — uvicorn
+# is a regular dep that ``uv sync`` should have installed earlier).
 if [ ! -x "$PROJECT_ROOT/.venv/bin/uvicorn" ]; then
-  echo -e "${RED}ERROR: uvicorn not found in .venv after uv sync.${R}"
-  echo -e "  Try: cd $PROJECT_ROOT && rm -rf .venv && uv sync"
+  echo -e "${RED}ERROR: uvicorn not found in .venv.${R}"
+  echo -e "  Try: cd $PROJECT_ROOT && rm -rf .venv && uv sync && uv pip install -e ."
   exit 1
 fi
 
@@ -185,6 +212,9 @@ draw_panel() {
   status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
   status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
   status_line "Telegram Trigger"    "pgrep -f 'run_telegram_trigger' >/dev/null"
+  status_line "WeChat Trigger"      "pgrep -f 'run_wechat_trigger' >/dev/null"
+  status_line "NarraMsg Trigger"    "pgrep -f 'run_narramessenger_trigger' >/dev/null"
+  status_line "Discord Trigger"     "pgrep -f 'run_discord_trigger' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -212,13 +242,15 @@ while true; do
       pkill -f "run_lark_trigger" 2>/dev/null || true
       pkill -f "run_slack_trigger" 2>/dev/null || true
       pkill -f "run_telegram_trigger" 2>/dev/null || true
+      pkill -f "run_narramessenger_trigger" 2>/dev/null || true
+      pkill -f "run_discord_trigger" 2>/dev/null || true
       # Kill processes on known ports
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
       done
       sleep 1
       # Force-kill any stragglers
-      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832; do
+      for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
         lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
       done
       echo -e "  ${G}All services stopped.${R}"
@@ -237,8 +269,15 @@ tmux new-session -d -s "$SESSION" -n "Control" \
   "bash '$CONTROL_SCRIPT'"
 
 # --- SQLite Proxy (MUST start first — all other services depend on it) ---
+# Note: ``uv run`` is FORBIDDEN here. It re-syncs the venv on every
+# invocation, which strips the project's editable install — and since
+# DB Proxy is the FIRST service to start, that strip cascades and
+# breaks every subsequent service in this session. ``$VENV_PY`` runs
+# the same Python without the auto-sync side-effect. Cannot use
+# ``$VENV_PY`` directly here because it's defined below — declare it
+# inline.
 tmux new-window -t "$SESSION" -n "DB Proxy" \
-  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; uv run python -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
+  "$ENV_CMD; export SQLITE_PROXY_PORT='$SQLITE_PROXY_PORT'; echo '=== SQLite Proxy :$SQLITE_PROXY_PORT ==='; '$PROJECT_ROOT/.venv/bin/python3' -m xyz_agent_context.utils.sqlite_proxy_server; echo 'DB Proxy stopped. Press Enter to close.'; read"
 
 # Wait for proxy to be ready before starting other services
 echo -n "Waiting for DB Proxy..."
@@ -285,12 +324,25 @@ tmux new-window -t "$SESSION" -n "LarkTrigger" \
   "$ENV_CMD; echo '=== Lark Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
 
 # --- Slack Trigger ---
+# Same ``uv run`` ban as DB Proxy. Use $VENV_PY directly.
 tmux new-window -t "$SESSION" -n "SlackTrigger" \
-  "$ENV_CMD; echo '=== Slack Trigger ==='; uv run python -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Slack Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
 
 # --- Telegram Trigger ---
 tmux new-window -t "$SESSION" -n "TelegramTrigger" \
-  "$ENV_CMD; echo '=== Telegram Trigger ==='; uv run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Telegram Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
+
+# --- WeChat Trigger ---
+tmux new-window -t "$SESSION" -n "WeChatTrigger" \
+  "$ENV_CMD; echo '=== WeChat Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.wechat_module.run_wechat_trigger; echo 'WeChat Trigger stopped. Press Enter to close.'; read"
+
+# --- NarraMessenger Trigger ---
+tmux new-window -t "$SESSION" -n "NarraMsgTrigger" \
+  "$ENV_CMD; echo '=== NarraMessenger Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger; echo 'NarraMessenger Trigger stopped. Press Enter to close.'; read"
+
+# --- Discord Trigger ---
+tmux new-window -t "$SESSION" -n "DiscordTrigger" \
+  "$ENV_CMD; echo '=== Discord Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.discord_module.run_discord_trigger; echo 'Discord Trigger stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

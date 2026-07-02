@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Pencil, Users, Bot, Package } from 'lucide-react';
 import { Button, ScrollArea } from '@/components/ui';
@@ -19,6 +20,7 @@ import { useTeamsStore, useConfigStore } from '@/stores';
 
 export default function TeamDetailPage() {
   const { teamId } = useParams<{ teamId: string }>();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { teams, refresh } = useTeamsStore();
   const { agents, setAgentId } = useConfigStore();
@@ -34,7 +36,7 @@ export default function TeamDetailPage() {
   if (!team) {
     return (
       <div className="h-full flex items-center justify-center text-sm text-[var(--text-tertiary)]">
-        {teams.length === 0 ? 'Loading…' : 'Team not found.'}
+        {teams.length === 0 ? t('pages.teamDetail.loading') : t('pages.teamDetail.notFound')}
       </div>
     );
   }
@@ -51,7 +53,7 @@ export default function TeamDetailPage() {
           <button
             onClick={() => navigate(-1)}
             className="p-1 mt-1 hover:bg-[var(--bg-tertiary)]"
-            title="Back"
+            title={t('pages.teamDetail.back')}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -64,12 +66,12 @@ export default function TeamDetailPage() {
               <h1 className="text-xl font-mono truncate">{team.team.name}</h1>
               {team.team.source === 'bundle' && (
                 <span className="text-[10px] uppercase border border-[var(--border-subtle)] px-1.5 py-0.5 text-[var(--text-tertiary)]">
-                  imported
+                  {t('pages.teamDetail.imported')}
                 </span>
               )}
             </div>
             <div className="text-xs text-[var(--text-tertiary)] mt-1">
-              {team.member_agent_ids.length} member{team.member_agent_ids.length === 1 ? '' : 's'}
+              {t('pages.teamDetail.memberCount', { count: team.member_agent_ids.length })}
               {team.team.description ? ` · ${team.team.description}` : ''}
             </div>
           </div>
@@ -92,12 +94,12 @@ export default function TeamDetailPage() {
               disabled={team.member_agent_ids.length === 0}
               title={
                 team.member_agent_ids.length === 0
-                  ? 'Add agents to this team before exporting'
-                  : 'Export this team as a .nxbundle'
+                  ? t('pages.teamDetail.exportDisabledTitle')
+                  : t('pages.teamDetail.exportTitle')
               }
             >
               <Package className="w-3.5 h-3.5" />
-              Export team
+              {t('pages.teamDetail.exportTeam')}
             </Button>
             <Button
               onClick={() => setEditing(true)}
@@ -106,7 +108,7 @@ export default function TeamDetailPage() {
               className="gap-1"
             >
               <Pencil className="w-3.5 h-3.5" />
-              Edit
+              {t('pages.teamDetail.edit')}
             </Button>
           </div>
         </div>
@@ -114,28 +116,28 @@ export default function TeamDetailPage() {
         {/* Intro markdown */}
         {team.team.intro_md ? (
           <section className="rounded-[var(--radius-md)] border border-[color:var(--nm-hairline)] bg-[color:var(--nm-card)] p-5">
-            <BracketSectionLabel>Team intro</BracketSectionLabel>
+            <BracketSectionLabel>{t('pages.teamDetail.teamIntro')}</BracketSectionLabel>
             <div className="mt-3">
               <Markdown content={team.team.intro_md} />
             </div>
           </section>
         ) : (
           <BracketEmptyState
-            label="No team intro yet"
-            hint="Click Edit to add a description that will travel with the bundle when you export."
+            label={t('pages.teamDetail.noIntroLabel')}
+            hint={t('pages.teamDetail.noIntroHint')}
           />
         )}
 
         {/* Member roster */}
         <section>
           <BracketSectionLabel>
-            <span className="inline-flex items-center gap-2"><Users className="w-3 h-3" /> Members</span>
+            <span className="inline-flex items-center gap-2"><Users className="w-3 h-3" /> {t('pages.teamDetail.members')}</span>
           </BracketSectionLabel>
           {memberAgents.length === 0 ? (
             <div className="mt-3">
               <BracketEmptyState
-                label="No agents in this team yet"
-                hint="Click Edit to add some."
+                label={t('pages.teamDetail.noMembersLabel')}
+                hint={t('pages.teamDetail.noMembersHint')}
               />
             </div>
           ) : (

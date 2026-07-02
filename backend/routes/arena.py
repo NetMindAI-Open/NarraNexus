@@ -28,17 +28,33 @@ async def provision_arena(request: Request) -> dict:
     Ensure the authenticated user has a provisioned Arena agent and return it.
 
     Returns `{success, reused, status, agent_id, arena_agent_id, arena_name,
-    timings_ms, ...}`. Safe to call on every Arena landing — the warm path is a
-    single DB read and returns the existing agent.
+    owner_bind, timings_ms, ...}`. Safe to call on every Arena landing — the warm
+    path is a single DB read (it only re-hits Arena to bind an owner email that a
+    prior call could not).
+
+    Body (optional): `{"user_token": "<NetMind JWT>"}`. The frontend forwards the
+    user's NetMind token so we can bind the agent's owner email via Arena's
+    platform-only endpoint without an email round-trip. The token is forwarded to
+    Arena and never persisted on our side. Absent token → binding is skipped.
     """
     user_id = await resolve_current_user_id(request)
+    # The body is optional; tolerate empty / non-JSON without failing the call.
+    user_token: str | None = None
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            token = body.get("user_token")
+            if isinstance(token, str) and token.strip():
+                user_token = token.strip()
+    except Exception:
+        user_token = None
     try:
         db = await get_db_client()
         from xyz_agent_context.services.arena_provisioning_service import (
             ArenaProvisioningService,
         )
 
-        result = await ArenaProvisioningService(db).provision(user_id)
+        result = await ArenaProvisioningService(db).provision(user_id, user_token=user_token)
         return result
     except HTTPException:
         raise

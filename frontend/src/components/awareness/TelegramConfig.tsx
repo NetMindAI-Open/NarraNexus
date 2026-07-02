@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import {
   Send,
   Link,
@@ -35,6 +36,7 @@ import type { TelegramCredentialData } from '@/types';
 import type { ChannelConfigProps } from './IMChannelsSection';
 
 export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
+  const { t } = useTranslation();
   const { agentId } = useConfigStore();
 
   const [credential, setCredential] = useState<TelegramCredentialData | null>(null);
@@ -65,15 +67,15 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
       if (res.success) {
         setCredential(res.data || null);
       } else {
-        setError(res.error || 'Failed to load Telegram credential');
+        setError(res.error || t('awareness.telegram.errLoad'));
       }
     } catch (e: unknown) {
       if (!mountedRef.current) return;
-      setError(e instanceof Error ? e.message : 'Failed to fetch Telegram credential');
+      setError(e instanceof Error ? e.message : t('awareness.telegram.errFetch'));
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [agentId]);
+  }, [agentId, t]);
 
   useEffect(() => {
     setError('');
@@ -94,7 +96,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     if (!agentId || !botToken) return;
     // Light client-side prefix validation (defensive — backend re-validates)
     if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken.trim())) {
-      setError('Bot token format looks wrong. Expected <digits>:<base64> (e.g. 7981632450:AAH-...).');
+      setError(t('awareness.telegram.errTokenFormat'));
       return;
     }
     setActionLoading(true);
@@ -111,10 +113,10 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         await fetchCredential();
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Bind failed');
+        setError(res.error || t('awareness.telegram.errBind'));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Bind failed');
+      setError(e instanceof Error ? e.message : t('awareness.telegram.errBind'));
     } finally {
       if (mountedRef.current) setActionLoading(false);
     }
@@ -127,7 +129,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     try {
       const res = await api.testTelegramConnection(agentId);
       if (!res.success) {
-        setError(res.error || 'Telegram test failed');
+        setError(res.error || t('awareness.telegram.errTest'));
       } else {
         await fetchCredential();
         onBindStateChange?.();
@@ -139,7 +141,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         }
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Test failed');
+      setError(e instanceof Error ? e.message : t('awareness.telegram.errTestGeneric'));
     } finally {
       if (mountedRef.current) setTestLoading(false);
     }
@@ -148,9 +150,9 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
   const handleUnbind = async () => {
     if (!agentId) return;
     const ok = await confirm({
-      title: 'Unbind Telegram bot?',
-      message: 'The agent will stop receiving Telegram messages and lose all Telegram tools until you bind again.',
-      confirmText: 'Unbind',
+      title: t('awareness.telegram.unbindConfirmTitle'),
+      message: t('awareness.telegram.unbindConfirmMessage'),
+      confirmText: t('awareness.common.unbind'),
       danger: true,
     });
     if (!ok) return;
@@ -162,10 +164,10 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         await fetchCredential();
         onBindStateChange?.();
       } else {
-        setError(res.error || 'Unbind failed');
+        setError(res.error || t('awareness.telegram.errUnbind'));
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unbind failed');
+      setError(e instanceof Error ? e.message : t('awareness.telegram.errUnbind'));
     } finally {
       if (mountedRef.current) setUnbindLoading(false);
     }
@@ -183,7 +185,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           onClick={() => fetchCredential()}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-          title="Refresh"
+          title={t('awareness.common.refresh')}
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
         </button>
@@ -200,8 +202,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
         {!credential && (
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-secondary)]">
-              Bind a Telegram bot to chat with your agent in DMs and groups.
-              You'll need a Bot Token from @BotFather.
+              {t('awareness.telegram.intro')}
             </p>
 
             {/* Disclosure: full @BotFather walkthrough */}
@@ -213,41 +214,53 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               >
                 <span className="flex items-center gap-2 text-[var(--text-primary)] font-medium">
                   {setupOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                  How do I get a Bot Token?
+                  {t('awareness.telegram.setupQuestion')}
                 </span>
-                <span className="text-[var(--text-secondary)]">~3 min</span>
+                <span className="text-[var(--text-secondary)]">{t('awareness.common.threeMin')}</span>
               </button>
               {setupOpen && (
                 <div className="px-3 pb-3 pt-1 space-y-2 text-xs text-[var(--text-secondary)]">
                   <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
                     <li>
-                      Open Telegram, search{' '}
-                      <a
-                        href="https://t.me/BotFather"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[var(--accent-primary)] hover:underline inline-flex items-center gap-0.5"
-                      >
-                        @BotFather
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                      , start a chat. Send <code className="bg-[var(--bg-tertiary)] px-1">/newbot</code>; pick a display name + username (must end in <code className="bg-[var(--bg-tertiary)] px-1">bot</code>).
+                      <Trans i18nKey="awareness.telegram.step1">
+                        Open Telegram, search{' '}
+                        <a
+                          href="https://t.me/BotFather"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[var(--accent-primary)] hover:underline inline-flex items-center gap-0.5"
+                        >
+                          @BotFather
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        , start a chat. Send <code className="bg-[var(--bg-tertiary)] px-1">/newbot</code>; pick a display name + username (must end in <code className="bg-[var(--bg-tertiary)] px-1">bot</code>).
+                      </Trans>
                     </li>
                     <li>
-                      BotFather replies with a token like <code className="bg-[var(--bg-tertiary)] px-1">7981632450:AAH-kxRP...</code>. Paste it below.
+                      <Trans i18nKey="awareness.telegram.step2">
+                        BotFather replies with a token like <code className="bg-[var(--bg-tertiary)] px-1">7981632450:AAH-kxRP...</code>. Paste it below.
+                      </Trans>
                     </li>
                     <li>
-                      <strong className="text-[var(--text-primary)]">Privacy mode — KEEP DEFAULT ON</strong>. By default the bot only sees <code className="bg-[var(--bg-tertiary)] px-1">/commands</code> and @-mentions in groups; this is the right behavior for almost all use cases (saves tokens, prevents spam). DMs are unaffected. Do NOT run <code className="bg-[var(--bg-tertiary)] px-1">/setprivacy → Disable</code> unless you specifically want the bot to see every group message (rare research / note-taking bots only).
+                      <Trans i18nKey="awareness.telegram.step3">
+                        <strong className="text-[var(--text-primary)]">Privacy mode — KEEP DEFAULT ON</strong>. By default the bot only sees <code className="bg-[var(--bg-tertiary)] px-1">/commands</code> and @-mentions in groups; this is the right behavior for almost all use cases (saves tokens, prevents spam). DMs are unaffected. Do NOT run <code className="bg-[var(--bg-tertiary)] px-1">/setprivacy → Disable</code> unless you specifically want the bot to see every group message (rare research / note-taking bots only).
+                      </Trans>
                     </li>
                     <li>
-                      Optional: send <code className="bg-[var(--bg-tertiary)] px-1">/setjoingroups</code> → bot → <strong>Enable</strong> if you want the bot to be addable to groups.
+                      <Trans i18nKey="awareness.telegram.step4">
+                        Optional: send <code className="bg-[var(--bg-tertiary)] px-1">/setjoingroups</code> → bot → <strong>Enable</strong> if you want the bot to be addable to groups.
+                      </Trans>
                     </li>
                     <li>
-                      Optional: paste <strong>your</strong> Telegram @username below so the agent recognises owner-vs-stranger DMs. <strong>After binding, send any message to the bot from your @username</strong> — Telegram's API only reveals your numeric user_id on a real DM, so the trust signal activates on first contact (not at bind time).
+                      <Trans i18nKey="awareness.telegram.step5">
+                        Optional: paste <strong>your</strong> Telegram @username below so the agent recognises owner-vs-stranger DMs. <strong>After binding, send any message to the bot from your @username</strong> — Telegram's API only reveals your numeric user_id on a real DM, so the trust signal activates on first contact (not at bind time).
+                      </Trans>
                     </li>
                   </ol>
                   <div className="text-[var(--text-secondary)] pt-1 border-t border-[var(--border-default)] mt-2">
-                    <strong>Group not getting replies?</strong> @-mention the bot. Privacy mode is intentionally on — flipping it would make the bot try to reply to everything in the group.
+                    <Trans i18nKey="awareness.telegram.troubleNoReply">
+                      <strong>Group not getting replies?</strong> @-mention the bot. Privacy mode is intentionally on — flipping it would make the bot try to reply to everything in the group.
+                    </Trans>
                   </div>
                 </div>
               )}
@@ -255,27 +268,27 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
 
             <div className="space-y-2">
               <label className="block">
-                <span className="sr-only">Bot Token</span>
+                <span className="sr-only">{t('awareness.common.botToken')}</span>
                 <Input
                   type="password"
-                  placeholder="Bot Token (123456789:AAH-...)"
+                  placeholder={t('awareness.telegram.tokenPlaceholder')}
                   value={botToken}
                   onChange={(e) => setBotToken(e.target.value)}
                   className="text-sm"
                   autoComplete="off"
-                  aria-label="Bot Token"
+                  aria-label={t('awareness.common.botToken')}
                 />
               </label>
               <label className="block">
-                <span className="sr-only">Your Telegram @username (optional)</span>
+                <span className="sr-only">{t('awareness.telegram.usernameLabel')}</span>
                 <Input
                   type="text"
-                  placeholder="Your Telegram @username (optional, enables owner trust signal)"
+                  placeholder={t('awareness.telegram.usernamePlaceholder')}
                   value={ownerUsername}
                   onChange={(e) => setOwnerUsername(e.target.value)}
                   className="text-sm"
                   autoComplete="off"
-                  aria-label="Owner Telegram @username"
+                  aria-label={t('awareness.telegram.usernameAria')}
                 />
               </label>
             </div>
@@ -286,7 +299,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               size="sm"
             >
               {actionLoading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Link className="w-4 h-4 mr-2" />}
-              Bind Bot
+              {t('awareness.common.bindBot')}
             </Button>
           </div>
         )}
@@ -304,27 +317,31 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 </span>
               </div>
               <span className="flex items-center gap-1 text-xs text-[var(--color-green-500)]">
-                <CheckCircle className="w-3 h-3" aria-hidden="true" /> Connected
+                <CheckCircle className="w-3 h-3" aria-hidden="true" /> {t('awareness.common.connected')}
               </span>
             </div>
             {credential.owner_user_id ? (
               <div className="text-xs text-[var(--text-secondary)]">
-                Owner: <span className="text-[var(--text-primary)]">{credential.owner_name || `@${credential.owner_username}`}</span>{' '}
+                {t('awareness.common.owner')}: <span className="text-[var(--text-primary)]">{credential.owner_name || `@${credential.owner_username}`}</span>{' '}
                 <span className="text-[var(--text-secondary)]">({credential.owner_user_id})</span>
               </div>
             ) : credential.owner_username ? (
               <div className="text-xs text-[var(--color-yellow-500)]" role="note">
-                ⏳ Owner registration pending — DM <strong>@{credential.bot_username || 'your bot'}</strong> on Telegram
-                from <strong>@{credential.owner_username}</strong> once to activate the trust signal.
+                <Trans
+                  i18nKey="awareness.telegram.ownerPending"
+                  values={{
+                    bot: credential.bot_username || t('awareness.telegram.yourBotFallback'),
+                    username: credential.owner_username,
+                  }}
+                  components={{ b: <strong /> }}
+                />
                 <div className="mt-1 text-[var(--text-secondary)]">
-                  (Telegram's API doesn't let bots resolve @usernames at bind time —
-                  we wait for the first matching DM, then auto-link.)
+                  {t('awareness.telegram.ownerPendingNote')}
                 </div>
               </div>
             ) : (
               <div className="text-xs text-[var(--color-yellow-500)]" role="note">
-                ⚠ No owner registered — agent has no trust signal for Telegram DMs.
-                Re-bind with your @username to enable.
+                {t('awareness.telegram.noOwner')}
               </div>
             )}
             <div className="flex gap-2">
@@ -340,7 +357,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 ) : testPassed ? (
                   <CheckCircle className="w-4 h-4 mr-2 text-[var(--color-green-500)]" />
                 ) : null}
-                {testPassed ? 'Connected' : 'Test'}
+                {testPassed ? t('awareness.common.connected') : t('awareness.common.test')}
               </Button>
               <Button
                 onClick={handleUnbind}
@@ -354,7 +371,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
                 ) : (
                   <Unlink className="w-4 h-4 mr-2" />
                 )}
-                Unbind
+                {t('awareness.common.unbind')}
               </Button>
             </div>
           </div>

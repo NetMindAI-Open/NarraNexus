@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-06-11
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — TeamChatView in the main slot
+
+Added `TeamChatView` (wraps [[TeamChatPanel]]). The route `/app/teams/:id/chat`
+is matched off `location.pathname` and rendered in the SAME main slot as
+`ChatView` — NOT as a sub-page Outlet with the close-X — so switching between a
+single agent and a team's group chat feels seamless. `isSubPage` excludes the
+team-chat path.
 
 ## 2026-06-11 — atomic-tab drawer
 

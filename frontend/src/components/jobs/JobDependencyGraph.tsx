@@ -9,6 +9,7 @@
  */
 
 import { useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactFlow, {
   Background,
   Controls,
@@ -43,14 +44,14 @@ const statusColors: Record<JobNodeStatus, { bg: string; border: string; text: st
   cancelled: { bg: 'var(--nm-paper-warm)',                        border: 'var(--nm-ink30)',       text: 'var(--nm-ink50)' },
 };
 
-// Status display labels
-const statusLabels: Record<JobNodeStatus, string> = {
-  pending: 'Pending',
-  active: 'Active',
-  running: 'Running',
-  completed: 'Completed',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
+// Status display label i18n keys (resolved via t() at render).
+const statusLabelKeys: Record<JobNodeStatus, string> = {
+  pending: 'jobs.status.pending',
+  active: 'jobs.status.active',
+  running: 'jobs.status.running',
+  completed: 'jobs.status.completed',
+  failed: 'jobs.status.failed',
+  cancelled: 'jobs.status.cancelled',
 };
 
 // Calculate topological level
@@ -110,6 +111,7 @@ function calculatePositions(jobs: JobNode[]): Map<string, { x: number; y: number
 }
 
 export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDependencyGraphProps) {
+  const { t } = useTranslation();
   // Convert to React Flow format
   const { initialNodes, initialEdges } = useMemo(() => {
     // Safety check: ensure jobs is a valid array
@@ -132,10 +134,10 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
             label: (
               <div className="text-center px-1">
                 <div className="font-medium text-sm truncate" style={{ color: colors.text }}>
-                  {job.title || 'Untitled Job'}
+                  {job.title || t('jobs.untitledJob')}
                 </div>
                 <div className="text-xs opacity-75 mt-0.5">
-                  {statusLabels[job.status] || job.status}
+                  {statusLabelKeys[job.status] ? t(statusLabelKeys[job.status]) : job.status}
                 </div>
               </div>
             ),
@@ -190,7 +192,7 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
       console.error('Error calculating graph layout:', error);
       return { initialNodes: [], initialEdges: [] };
     }
-  }, [jobs, selectedJobId]);
+  }, [jobs, selectedJobId, t]);
 
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
@@ -205,7 +207,7 @@ export function JobDependencyGraph({ jobs, onNodeClick, selectedJobId }: JobDepe
   if (jobs.length === 0) {
     return (
       <div className="flex items-center justify-center h-full text-[var(--text-tertiary)]">
-        No jobs with dependencies
+        {t('jobs.noDependencies')}
       </div>
     );
   }

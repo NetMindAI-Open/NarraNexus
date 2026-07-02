@@ -30,6 +30,7 @@ from __future__ import annotations
 from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
+    AnthropicHelperConfig,
     ClaudeConfig,
     OpenAIConfig,
 )
@@ -78,6 +79,19 @@ class SystemDriver(_DriverBase):
             api_key=self.card.api_key,
             base_url=self.card.base_url,
             model=model,
+        )
+
+    def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
+        if not self._is_anthropic_row():
+            raise NotImplementedError(
+                f"SystemDriver on protocol={self.card.protocol!r} can't serve "
+                f"helper_llm (anthropic) slot"
+            )
+        return AnthropicHelperConfig(
+            api_key=self.card.api_key,
+            base_url=self.card.base_url,
+            model=model,
+            auth_type=self.card.auth_type or "bearer_token",
         )
 
     async def on_call_completed(

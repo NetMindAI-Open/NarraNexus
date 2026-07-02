@@ -47,9 +47,9 @@ router = APIRouter()
 
 
 def _get_workspace_path(agent_id: str, user_id: str) -> str:
-    """Get Agent-User workspace path."""
-    from xyz_agent_context.settings import settings
-    return os.path.join(settings.base_working_path, f"{agent_id}_{user_id}")
+    """Get Agent-User workspace path (current layout, legacy-flat fallback)."""
+    from xyz_agent_context.utils.workspace_paths import resolve_existing_workspace
+    return str(resolve_existing_workspace(agent_id, user_id))
 
 
 def _build_tree(workspace_root: Path) -> List[FileInfo]:

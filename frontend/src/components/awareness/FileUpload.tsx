@@ -8,6 +8,7 @@
  */
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Upload,
   File as FileIcon,
@@ -39,14 +40,14 @@ function formatFileSize(bytes: number): string {
 
 // ─── kind detection ───────────────────────────────────────────────────────────
 
-const ARTIFACT_KIND_OPTIONS: { value: string; label: string }[] = [
-  { value: 'text/html', label: 'HTML page / app' },
-  { value: 'application/vnd.echarts+json', label: 'ECharts JSON' },
-  { value: 'text/csv', label: 'CSV table' },
-  { value: 'text/markdown', label: 'Markdown report' },
-  { value: 'image/png', label: 'PNG image' },
-  { value: 'image/jpeg', label: 'JPEG image' },
-  { value: 'application/pdf', label: 'PDF document' },
+const ARTIFACT_KIND_OPTIONS: { value: string; labelKey: string }[] = [
+  { value: 'text/html', labelKey: 'awareness.workspace.kindHtml' },
+  { value: 'application/vnd.echarts+json', labelKey: 'awareness.workspace.kindEcharts' },
+  { value: 'text/csv', labelKey: 'awareness.workspace.kindCsv' },
+  { value: 'text/markdown', labelKey: 'awareness.workspace.kindMarkdown' },
+  { value: 'image/png', labelKey: 'awareness.workspace.kindPng' },
+  { value: 'image/jpeg', labelKey: 'awareness.workspace.kindJpeg' },
+  { value: 'application/pdf', labelKey: 'awareness.workspace.kindPdf' },
 ];
 
 function detectKindFromExt(name: string): string | null {
@@ -87,6 +88,7 @@ export function TreeNode({
   agentId,
   userId,
 }: TreeNodeProps) {
+  const { t } = useTranslation();
   // Default ALL folders to expanded. Pre-fix this was `depth < 1`, which
   // auto-expanded only top-level folders; sub-folders showed their name
   // but nothing inside, easily misread as "sub-folders are ignored". The
@@ -108,7 +110,7 @@ export function TreeNode({
           <button
             onClick={() => setExpanded((v) => !v)}
             className="p-0.5 opacity-60 hover:opacity-100"
-            aria-label={expanded ? 'Collapse folder' : 'Expand folder'}
+            aria-label={expanded ? t('awareness.workspace.collapseFolder') : t('awareness.workspace.expandFolder')}
           >
             {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           </button>
@@ -151,24 +153,24 @@ export function TreeNode({
                   }).catch((e) => window.alert(`Download failed: ${String(e)}`))
                 }
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                title="Download"
-                aria-label="Download"
+                title={t('awareness.workspace.download')}
+                aria-label={t('awareness.workspace.download')}
               >
                 <Download className="w-3 h-3" />
               </button>
               <button
                 onClick={() => onPreview(node)}
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                title="Preview"
-                aria-label="Preview"
+                title={t('awareness.workspace.preview')}
+                aria-label={t('awareness.workspace.preview')}
               >
                 <Eye className="w-3 h-3" />
               </button>
               <button
                 onClick={() => onRegister(node)}
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--accent-primary)]"
-                title="Register as artifact"
-                aria-label="Register as artifact"
+                title={t('awareness.workspace.registerArtifact')}
+                aria-label={t('awareness.workspace.registerArtifact')}
               >
                 <Plus className="w-3 h-3" />
               </button>
@@ -177,8 +179,8 @@ export function TreeNode({
           <button
             onClick={() => onDelete(node)}
             className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-error)]"
-            title={node.is_dir ? 'Delete folder (recursive)' : 'Delete'}
-            aria-label="Delete"
+            title={node.is_dir ? t('awareness.workspace.deleteFolderRecursive') : t('awareness.workspace.delete')}
+            aria-label={t('awareness.workspace.delete')}
           >
             <Trash2 className="w-3 h-3" />
           </button>
@@ -214,6 +216,7 @@ interface PreviewModalProps {
 }
 
 function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
+  const { t } = useTranslation();
   const [content, setContent] = useState<
     | { type: 'text'; text: string }
     | { type: 'image'; src: string }
@@ -262,7 +265,7 @@ function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
               type: 'text',
               text:
                 text.length > cap
-                  ? text.slice(0, cap) + `\n\n… (truncated, file is ${formatFileSize(node.size)})`
+                  ? text.slice(0, cap) + `\n\n… ${t('awareness.workspace.truncated', { size: formatFileSize(node.size) })}`
                   : text,
             });
           }
@@ -277,15 +280,15 @@ function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
       cancelled = true;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [agentId, userId, node]);
+  }, [agentId, userId, node, t]);
 
   if (!node) return null;
 
   return (
     <Dialog isOpen onClose={onClose} title={node.path} size="lg">
       <div className="max-h-[70vh] overflow-auto">
-        {error && <div className="p-4 text-red-400 text-sm">Preview failed: {error}</div>}
-        {!content && !error && <div className="p-4 opacity-60">Loading…</div>}
+        {error && <div className="p-4 text-red-400 text-sm">{t('awareness.workspace.previewFailed', { error })}</div>}
+        {!content && !error && <div className="p-4 opacity-60">{t('awareness.workspace.loadingEllipsis')}</div>}
         {content?.type === 'image' && (
           <div className="flex items-center justify-center bg-[var(--bg-deep)] p-4">
             <img src={content.src} alt={node.name} className="max-w-full max-h-[60vh] object-contain" />
@@ -296,8 +299,7 @@ function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
         )}
         {content?.type === 'unsupported' && (
           <div className="p-4 opacity-70 text-sm">
-            Preview is not supported for this file type. Use the download button
-            to open it locally.
+            {t('awareness.workspace.previewUnsupported')}
           </div>
         )}
       </div>
@@ -315,6 +317,7 @@ interface RegisterModalProps {
 }
 
 function RegisterModal({ agentId, node, onClose, onRegistered }: RegisterModalProps) {
+  const { t } = useTranslation();
   const [kind, setKind] = useState<string>('text/html');
   const [title, setTitle] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
@@ -349,13 +352,13 @@ function RegisterModal({ agentId, node, onClose, onRegistered }: RegisterModalPr
   };
 
   return (
-    <Dialog isOpen onClose={onClose} title="Register as artifact" size="md">
+    <Dialog isOpen onClose={onClose} title={t('awareness.workspace.registerArtifact')} size="md">
       <div className="space-y-3 p-4">
         <div className="text-xs opacity-70">
-          File: <span className="font-mono">{node.path}</span>
+          {t('awareness.workspace.fileLabel')} <span className="font-mono">{node.path}</span>
         </div>
         <label className="block text-xs font-medium">
-          Kind
+          {t('awareness.workspace.kind')}
           <select
             value={kind}
             onChange={(e) => setKind(e.target.value)}
@@ -363,19 +366,19 @@ function RegisterModal({ agentId, node, onClose, onRegistered }: RegisterModalPr
           >
             {ARTIFACT_KIND_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
-                {opt.label} ({opt.value})
+                {t(opt.labelKey)} ({opt.value})
               </option>
             ))}
           </select>
         </label>
         <label className="block text-xs font-medium">
-          Title
+          {t('awareness.workspace.titleField')}
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             className="mt-1 block w-full text-sm bg-[var(--bg-primary)] border border-[var(--border-default)] rounded px-2 py-1"
-            placeholder="Tab title shown next to the chat"
+            placeholder={t('awareness.workspace.titlePlaceholder')}
           />
         </label>
         {error && (
@@ -385,10 +388,10 @@ function RegisterModal({ agentId, node, onClose, onRegistered }: RegisterModalPr
         )}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancel
+            {t('awareness.common.cancel')}
           </Button>
           <Button onClick={submit} disabled={submitting}>
-            {submitting ? 'Registering…' : 'Register'}
+            {submitting ? t('awareness.workspace.registering') : t('awareness.workspace.register')}
           </Button>
         </div>
       </div>
@@ -411,6 +414,7 @@ function countNodes(tree: FileInfo[]): number {
 }
 
 export function FileUpload() {
+  const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const [tree, setTree] = useState<FileInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -432,15 +436,15 @@ export function FileUpload() {
       if (res.success) {
         setTree(res.tree);
       } else {
-        setError(res.error || 'Failed to load workspace');
+        setError(res.error || t('awareness.workspace.errLoad'));
       }
     } catch (err) {
-      setError('Failed to load workspace');
+      setError(t('awareness.workspace.errLoad'));
       console.error('Error fetching workspace tree:', err);
     } finally {
       setLoading(false);
     }
-  }, [agentId, userId]);
+  }, [agentId, userId, t]);
 
   useEffect(() => {
     fetchTree();
@@ -453,11 +457,11 @@ export function FileUpload() {
     try {
       for (const file of Array.from(filesToUpload)) {
         const res = await api.uploadFile(agentId, file);
-        if (!res.success) setError(res.error || `Failed to upload ${file.name}`);
+        if (!res.success) setError(res.error || t('awareness.workspace.errUploadFile', { name: file.name }));
       }
       await fetchTree();
     } catch (err) {
-      setError('Upload failed');
+      setError(t('awareness.workspace.errUpload'));
       console.error('Error uploading file:', err);
     } finally {
       setUploading(false);
@@ -467,11 +471,11 @@ export function FileUpload() {
   const handleDelete = async (node: FileInfo) => {
     if (!agentId || !userId) return;
     const ok = await confirm({
-      title: node.is_dir ? 'Delete folder' : 'Delete file',
+      title: node.is_dir ? t('awareness.workspace.deleteFolderTitle') : t('awareness.workspace.deleteFileTitle'),
       message: node.is_dir
-        ? `Recursively delete folder "${node.path}" and everything inside it?`
-        : `Delete "${node.path}"?`,
-      confirmText: 'Delete',
+        ? t('awareness.workspace.deleteFolderMessage', { path: node.path })
+        : t('awareness.workspace.deleteFileMessage', { path: node.path }),
+      confirmText: t('awareness.workspace.delete'),
       danger: true,
     });
     if (!ok) return;
@@ -480,10 +484,10 @@ export function FileUpload() {
       if (res.success) {
         await fetchTree();
       } else {
-        setError(res.error || 'Failed to delete');
+        setError(res.error || t('awareness.workspace.errDelete'));
       }
     } catch (err) {
-      setError('Delete failed');
+      setError(t('awareness.workspace.errDeleteGeneric'));
       console.error('Error deleting workspace path:', err);
     }
   };
@@ -526,7 +530,7 @@ export function FileUpload() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-medium uppercase tracking-wider">
           <FolderOpen className="w-3 h-3" />
-          Workspace
+          {t('awareness.workspace.title')}
         </div>
         <div className="flex items-center gap-1">
           <Badge variant="default" size="sm">{totalCount}</Badge>
@@ -536,7 +540,7 @@ export function FileUpload() {
             onClick={fetchTree}
             disabled={loading}
             className="w-6 h-6"
-            title="Refresh"
+            title={t('awareness.common.refresh')}
           >
             <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
           </Button>
@@ -564,12 +568,12 @@ export function FileUpload() {
         )} />
         <div className="text-center">
           <p className="text-xs text-[var(--text-secondary)]">
-            {isDragging ? 'Drop files here' : 'Drag files here or'}
+            {isDragging ? t('awareness.workspace.dropFiles') : t('awareness.workspace.dragFiles')}
           </p>
           {!isDragging && (
             <label className="cursor-pointer">
               <span className="text-xs text-[var(--accent-primary)] hover:underline">
-                browse
+                {t('awareness.workspace.browse')}
               </span>
               <input
                 type="file"
@@ -602,7 +606,7 @@ export function FileUpload() {
         </div>
       ) : tree.length === 0 ? (
         <div className="text-xs text-[var(--text-tertiary)] text-center py-2">
-          Workspace is empty
+          {t('awareness.workspace.empty')}
         </div>
       ) : (
         // `type="auto"` reveals the scrollbar whenever content overflows

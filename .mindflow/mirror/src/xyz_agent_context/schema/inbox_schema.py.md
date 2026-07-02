@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/inbox_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — `SYSTEM_NOTICE` is no longer reserved/unused
+
+`MessageBusTrigger._notify_permanent_failure` (`message_bus_trigger.py`) now
+writes `InboxMessageType.SYSTEM_NOTICE` rows once a MessageBus message hits
+the poison-failure threshold (fixes NetMindAI-Open/NarraNexus#52 — a broken
+LLM provider silently dropped IM/bus messages with zero owner-facing
+signal). This is the first production writer of this enum value;
+`AGENT_MESSAGE` is still unused/reserved.
 
 # inbox_schema.py
 
@@ -22,7 +31,7 @@ This schema represents the agent's outbound delivery mechanism — the "sent mai
 
 **`source` stored as JSON blob rather than separate `source_type`/`source_id` columns**: the original schema had separate columns but they were consolidated into a single JSON `source` field to keep the table flexible for new source types. `InboxRepository` uses `JSON_EXTRACT(source, '$.type')` to query by source type, which is marginally slower than a column index but avoids schema migrations for new source types.
 
-**`InboxMessageType.AGENT_MESSAGE` and `SYSTEM_NOTICE` are "reserved"**: they exist in the enum to reserve the namespace but no production code currently writes them. Do not build logic that depends on these values being populated.
+**`InboxMessageType.AGENT_MESSAGE` is still "reserved"**: no production code writes it yet. `SYSTEM_NOTICE` is no longer reserved as of 2026-07-02 — `MessageBusTrigger._notify_permanent_failure` writes it for permanent bus-delivery failures (see changelog above).
 
 ## Gotchas
 

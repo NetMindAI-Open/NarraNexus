@@ -26,7 +26,7 @@ Usage:
 from __future__ import annotations
 
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from loguru import logger
@@ -139,10 +139,94 @@ class OpenAIConfig:
 
 
 @dataclass(frozen=True)
+class AnthropicHelperConfig:
+    """Anthropic-protocol helper_llm configuration.
+
+    Used when the helper_llm slot points at an anthropic-protocol
+    provider — the single-Claude-key onboarding path. Consumed by
+    AnthropicHelperSDK (Messages API), never by the agent loop.
+    Parallels :class:`OpenAIConfig` for the helper role; carried
+    separately because the wire protocol (Messages vs Chat
+    Completions) and auth header conventions differ.
+    """
+    api_key: str = ""
+    base_url: str = ""           # Empty = official https://api.anthropic.com
+    model: str = "claude-haiku-4-5"
+    auth_type: str = "api_key"   # "api_key" | "bearer_token"
+
+
+@dataclass(frozen=True)
+class CodexConfig:
+    """OpenAI Codex CLI configuration (passed to ``codex exec`` subprocess).
+
+    Parallels :class:`ClaudeConfig` for the Codex coding-agent path.
+    Carried separately because Codex auth, env var names, and config
+    surface (TOML file vs argv) differ from Claude Code despite both
+    being subprocess-spawned coding agents.
+
+    Auth model:
+      - ``api_key`` empty (default) → ``to_cli_env`` blanks
+        ``CODEX_API_KEY`` so the subprocess falls back to
+        ``$CODEX_HOME/auth.json`` (the ``codex login`` OAuth file).
+      - ``api_key`` non-empty + ``auth_type='api_key'`` → injected as
+        ``CODEX_API_KEY`` env var.
+
+    ``base_url`` + ``model`` flow into Codex's ``config.toml``
+    ``[model_providers.<name>]`` table at run time, NOT env vars —
+    Codex reads the endpoint from the toml file. See
+    :func:`_codex_config_toml_builder.build_codex_config_toml`.
+    """
+
+    api_key: str = ""
+    base_url: str = ""  # Empty = use Codex's bundled OpenAI provider
+    model: str = ""     # Empty = let Codex CLI pick its default
+    auth_type: str = "oauth"  # "oauth" | "api_key"
+    auth_ref: str = ""  # e.g. codex-cli:~/.codex/auth.json for OAuth
+    # Framework-neutral reasoning params from the agent slot — mirror of
+    # ClaudeConfig's. The Codex-dialect mapping (model_reasoning_effort
+    # in config.toml, with clamping) lives in _codex_config_toml_builder;
+    # ``thinking`` has no Codex equivalent and is ignored there.
+    thinking: str = ""
+    reasoning_effort: str = ""
+
+    def to_cli_env(self) -> dict[str, str]:
+        """Build env vars dict for the ``codex exec`` subprocess.
+
+        Mirrors :meth:`ClaudeConfig.to_cli_env` invariants:
+          1. Explicit blank for the auth env var when not in use, so
+             a stray ``CODEX_API_KEY`` from the parent process's
+             ``os.environ`` cannot leak across tenants in a
+             multi-tenant deployment.
+          2. We do NOT set ``OPENAI_API_KEY`` — that's a different
+             env var for the OpenAI Python SDK, not for Codex CLI.
+             If the user has ``OPENAI_API_KEY`` exported globally,
+             Codex CLI may still pick it up; we don't try to fight
+             that, we only own our scoped env.
+        """
+        env: dict[str, str] = {"CODEX_API_KEY": ""}
+        if self.api_key and self.auth_type == "api_key":
+            env["CODEX_API_KEY"] = self.api_key
+        return env
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     """Google Gemini API configuration"""
     api_key: str = ""
     model: str = "gemini-2.5-flash"
+
+
+@dataclass(frozen=True)
+class RuntimeLLMConfigs:
+    """All LLM configs needed for one agent turn."""
+
+    claude: ClaudeConfig
+    openai: OpenAIConfig
+    codex: CodexConfig = field(default_factory=CodexConfig)
+    # Set when the helper_llm slot points at an anthropic-protocol
+    # provider (single-Claude-key path); None means the helper runs
+    # on the OpenAI protocol via ``openai`` above.
+    anthropic_helper: Optional[AnthropicHelperConfig] = None
 
 
 # =============================================================================
@@ -253,6 +337,15 @@ class _ConfigHolder:
         self._claude: Optional[ClaudeConfig] = None
         self._openai: Optional[OpenAIConfig] = None
         self._gemini: Optional[GeminiConfig] = None
+        # Codex defaults to an empty config — user-scoped overrides
+        # arrive via the ``_codex_ctx`` ContextVar at agent_loop time.
+        # No .env / llm_config.json source for now (Codex auth flows
+        # through ``codex login`` rather than NarraNexus config).
+        self._codex: Optional[CodexConfig] = None
+        # Anthropic helper has no global source either — it is only
+        # ever set per-task by the resolver. The holder keeps a benign
+        # empty default so the proxy's fallback path never raises.
+        self._anthropic_helper: Optional[AnthropicHelperConfig] = None
         self._loaded = False
 
     def _ensure_loaded(self) -> None:
@@ -273,6 +366,10 @@ class _ConfigHolder:
             self._claude, self._openai = env_claude, env_openai
 
         self._gemini = _load_gemini_config()
+        # Codex defaults to an empty config — per-user resolver
+        # populates the ContextVar when a Codex agent run begins.
+        self._codex = CodexConfig()
+        self._anthropic_helper = AnthropicHelperConfig()
         self._loaded = True
 
         # Log provider summary so it's clear which providers/models are active
@@ -303,6 +400,16 @@ class _ConfigHolder:
         self._ensure_loaded()
         return self._gemini  # type: ignore
 
+    @property
+    def codex(self) -> CodexConfig:
+        self._ensure_loaded()
+        return self._codex  # type: ignore
+
+    @property
+    def anthropic_helper(self) -> AnthropicHelperConfig:
+        self._ensure_loaded()
+        return self._anthropic_helper  # type: ignore
+
 
 _holder = _ConfigHolder()
 
@@ -326,6 +433,10 @@ _holder = _ConfigHolder()
 
 _claude_ctx: ContextVar[Optional[ClaudeConfig]] = ContextVar("claude_config", default=None)
 _openai_ctx: ContextVar[Optional[OpenAIConfig]] = ContextVar("openai_config", default=None)
+_codex_ctx: ContextVar[Optional[CodexConfig]] = ContextVar("codex_config", default=None)
+_anthropic_helper_ctx: ContextVar[Optional[AnthropicHelperConfig]] = ContextVar(
+    "anthropic_helper_config", default=None
+)
 
 
 class _ConfigProxy:
@@ -355,19 +466,10 @@ class _ConfigProxy:
 claude_config: ClaudeConfig = _ConfigProxy("claude", _claude_ctx)  # type: ignore
 openai_config: OpenAIConfig = _ConfigProxy("openai", _openai_ctx)  # type: ignore
 gemini_config: GeminiConfig = _ConfigProxy("gemini")  # type: ignore
-
-
-def get_current_embedding_config() -> Optional[EmbeddingConfig]:
-    """Embedding config set on the CURRENT task's ContextVar, or None.
-
-    Unlike the ``embedding_config`` proxy, this NEVER falls back to the global
-    holder (.env / llm_config.json). Embedding credentials must come from what
-    the user configured (resolver in cloud, user_providers in local), set per
-    agent turn (AgentRuntime) or per MCP tool call (setup_mcp_llm_context).
-    EmbeddingClient uses this so a missing config fails fast instead of
-    silently embedding against an environment key.
-    """
-    return _embedding_ctx.get()
+codex_config: CodexConfig = _ConfigProxy("codex", _codex_ctx)  # type: ignore
+anthropic_helper_config: AnthropicHelperConfig = _ConfigProxy(
+    "anthropic_helper", _anthropic_helper_ctx
+)  # type: ignore
 
 
 def reload_llm_config() -> None:
@@ -375,7 +477,12 @@ def reload_llm_config() -> None:
     _holder.reload()
 
 
-def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig) -> None:
+def set_user_config(
+    claude: ClaudeConfig,
+    openai: OpenAIConfig,
+    codex: CodexConfig | None = None,
+    anthropic_helper: AnthropicHelperConfig | None = None,
+) -> None:
     """
     Set per-user LLM config for the CURRENT asyncio task only.
 
@@ -383,10 +490,33 @@ def set_user_config(claude: ClaudeConfig, openai: OpenAIConfig) -> None:
     see each other's config. Call this at the start of an agent turn
     after loading the owner's config from the database.
 
+    ``anthropic_helper`` is None unless the helper_llm slot resolved to
+    an anthropic-protocol provider; ``get_helper_sdk`` keys off this
+    ContextVar to pick the helper implementation for the task.
+
     The setting automatically goes out of scope when the task finishes.
     """
     _claude_ctx.set(claude)
     _openai_ctx.set(openai)
+    _codex_ctx.set(codex or CodexConfig())
+    _anthropic_helper_ctx.set(anthropic_helper)
+
+
+def snapshot_user_config() -> dict[str, Optional[object]]:
+    """Return the CURRENT task's provider configs (the ContextVar values).
+
+    Used by the remote agent-loop executor seam: the orchestrator (which
+    has the DB + resolver) snapshots the resolved configs here and ships
+    them to the executor service, which re-applies them via
+    ``set_user_config`` before running the loop. Returns the raw config
+    objects (or None when unset); serialization is the caller's job.
+    """
+    return {
+        "claude": _claude_ctx.get(),
+        "openai": _openai_ctx.get(),
+        "codex": _codex_ctx.get(),
+        "anthropic_helper": _anthropic_helper_ctx.get(),
+    }
 
 
 # =============================================================================
@@ -424,9 +554,17 @@ def clear_user_config() -> None:
     this before resolving each scope: without it, a scope whose resolution
     is skipped (deleted agent, missing owner row) silently inherits the
     PREVIOUS tenant's credentials still sitting in the task's ContextVars.
+
+    ALL FOUR config ContextVars are reset. Resetting only claude/openai
+    (the historical behavior) left ``_codex_ctx`` and ``_anthropic_helper_ctx``
+    carrying the previous tenant's credentials — a cross-tenant leak that the
+    helper-SDK factory keys off (a stale ``_anthropic_helper_ctx`` would route
+    tenant B's helper to tenant A's Claude key).
     """
     _claude_ctx.set(None)
     _openai_ctx.set(None)
+    _codex_ctx.set(CodexConfig())
+    _anthropic_helper_ctx.set(None)
 
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)
@@ -543,6 +681,26 @@ async def get_agent_owner_llm_configs(
     return await get_user_llm_configs(owner_user_id)
 
 
+async def get_agent_owner_runtime_llm_configs(
+    agent_id: str,
+) -> RuntimeLLMConfigs:
+    """Load every LLM config needed for an agent turn based on owner."""
+    from xyz_agent_context.utils.db_factory import get_db_client
+
+    db = await get_db_client()
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    if not agent_row:
+        raise LLMConfigNotConfigured(
+            f"Agent {agent_id!r} not found. Cannot resolve LLM config."
+        )
+    owner_user_id = agent_row.get("created_by")
+    if not owner_user_id:
+        raise LLMConfigNotConfigured(
+            f"Agent {agent_id!r} has no owner (created_by is empty)."
+        )
+    return await get_user_runtime_llm_configs(owner_user_id)
+
+
 async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
     """
     Resolve the LLM config stack for a specific user.
@@ -576,13 +734,26 @@ async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig
         SystemDefaultUnavailable: user opted in but free tier unusable.
         LLMConfigNotConfigured: user opted out but own config missing.
     """
+    cfg = await get_user_runtime_llm_configs(user_id)
+    return cfg.claude, cfg.openai
+
+
+async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
+    """Resolve all runtime LLM configs, including the Codex agent config."""
     quota_service = await _ensure_quota_service()
     quota = await quota_service.get(user_id)
 
     if quota is not None and quota.prefer_system_override:
-        return await _use_system_default_strict(user_id, quota_service)
+        claude, openai_cfg = await _use_system_default_strict(
+            user_id,
+            quota_service,
+        )
+        return RuntimeLLMConfigs(
+            claude=claude,
+            openai=openai_cfg,
+        )
 
-    return await _get_user_llm_configs_strict(user_id)
+    return await _get_user_runtime_llm_configs_strict(user_id)
 
 
 async def _ensure_quota_service():
@@ -647,84 +818,27 @@ async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, Open
     """Strict version: raises LLMConfigNotConfigured on any missing
     slot / broken provider. The public `get_user_llm_configs` wraps
     this with a system-default fallback.
+    """
+    cfg = await _get_user_runtime_llm_configs_strict(user_id)
+    return cfg.claude, cfg.openai
 
-    Provider Unification (2026-05-13): the body has been delegated to
-    ``provider_driver.resolve_user_llm_configs`` — the single-point
-    resolver that also handles reverse-validation self-heal for broken
-    slot/model bindings. The legacy hand-rolled code below remains as
-    a fallback so old call paths still work during the migration window
-    if the new resolver hits an unexpected edge case.
+
+async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfigs:
+    """Resolve agent + helper (+ codex) configs via the single-point
+    Provider Driver resolver. There is deliberately NO second
+    hand-rolled fallback path: a young project keeps one resolver and
+    lets any unexpected error surface (iron rule #2 / #5) rather than
+    silently re-deriving configs through a stale parallel copy — the old
+    fallback predated Codex and would mis-wire a codex agent into a
+    ClaudeConfig.
     """
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_driver import (
-        resolve_user_llm_configs,
+        resolve_user_runtime_llm_configs,
     )
 
     db = await get_db_client()
-    try:
-        return await resolve_user_llm_configs(user_id, db)
-    except LLMConfigNotConfigured:
-        # Let the actionable message bubble up; the caller's UI surfaces it.
-        raise
-    except Exception as e:  # noqa: BLE001 — fall back during migration window
-        logger.warning(
-            f"[api_config] resolve_user_llm_configs raised {type(e).__name__}: {e}. "
-            f"Falling back to legacy resolution for user_id={user_id!r}."
-        )
-
-    # === Legacy fallback path (kept until Phase 1 confidence accumulates) ===
-    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
-
-    service = UserProviderService(db)
-    config = await service.get_user_config(user_id)
-
-    # ─── Agent slot ──────────────────────────────────────────────────
-    agent_slot = config.slots.get(SlotName.AGENT) or config.slots.get("agent")
-    if not agent_slot:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: 'agent' slot is not configured. "
-            "Please add an Anthropic-protocol provider and assign it to "
-            "the agent slot in Settings → Providers."
-        )
-    agent_provider = config.providers.get(agent_slot.provider_id)
-    if not agent_provider:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: agent slot references provider "
-            f"{agent_slot.provider_id!r} which no longer exists."
-        )
-    claude = ClaudeConfig(
-        api_key=agent_provider.api_key,
-        base_url=agent_provider.base_url,
-        model=agent_slot.model,
-        auth_type=agent_provider.auth_type.value if isinstance(agent_provider.auth_type, AuthType) else agent_provider.auth_type,
-        supports_anthropic_server_tools=bool(
-            getattr(agent_provider, "supports_anthropic_server_tools", False)
-        ),
-        thinking=agent_slot.thinking,
-        reasoning_effort=agent_slot.reasoning_effort,
-    )
-
-    # ─── Helper LLM slot ─────────────────────────────────────────────
-    helper_slot = config.slots.get(SlotName.HELPER_LLM) or config.slots.get("helper_llm")
-    if not helper_slot:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: 'helper_llm' slot is not configured. "
-            "Please add an OpenAI-protocol provider and assign it to "
-            "the helper_llm slot in Settings → Providers."
-        )
-    helper_provider = config.providers.get(helper_slot.provider_id)
-    if not helper_provider:
-        raise LLMConfigNotConfigured(
-            f"User {user_id!r}: helper_llm slot references provider "
-            f"{helper_slot.provider_id!r} which no longer exists."
-        )
-    openai_cfg = OpenAIConfig(
-        api_key=helper_provider.api_key,
-        base_url=helper_provider.base_url,
-        model=helper_slot.model,
-    )
-
-    return claude, openai_cfg
+    return await resolve_user_runtime_llm_configs(user_id, db)
 
 
 async def setup_mcp_llm_context(agent_id: str) -> None:
@@ -741,5 +855,5 @@ async def setup_mcp_llm_context(agent_id: str) -> None:
         LLMConfigNotConfigured: if the owner has not configured their
             LLM providers. The caller should surface this as a tool error.
     """
-    claude, openai_cfg = await get_agent_owner_llm_configs(agent_id)
-    set_user_config(claude, openai_cfg)
+    cfg = await get_agent_owner_runtime_llm_configs(agent_id)
+    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)

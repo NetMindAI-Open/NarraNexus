@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/_job_lifecycle.py
-last_verified: 2026-04-21
+last_verified: 2026-06-10
 ---
+## 2026-06-10 — helper obtained via get_helper_sdk()
+
+Both llm_function call sites switched from direct OpenAIAgentsSDK()
+construction to the protocol-agnostic `get_helper_sdk()` factory. Call
+shapes unchanged.
+
 
 # _job_lifecycle.py — Job 执行后生命周期处理
 

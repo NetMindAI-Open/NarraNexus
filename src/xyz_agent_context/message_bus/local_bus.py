@@ -115,14 +115,14 @@ class LocalMessageBus(MessageBusService):
         ph = self._db.placeholder
         if since:
             rows = await self._db.execute(
-                f'SELECT * FROM "bus_messages" WHERE "channel_id" = {ph} '
-                f'AND "created_at" > {ph} ORDER BY "created_at" ASC LIMIT {int(limit)}',
+                f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+                f"AND created_at > {ph} ORDER BY created_at ASC LIMIT {int(limit)}",
                 (channel_id, since),
             )
         else:
             rows = await self._db.execute(
-                f'SELECT * FROM "bus_messages" WHERE "channel_id" = {ph} '
-                f'ORDER BY "created_at" ASC LIMIT {int(limit)}',
+                f"SELECT * FROM bus_messages WHERE channel_id = {ph} "
+                f"ORDER BY created_at ASC LIMIT {int(limit)}",
                 (channel_id,),
             )
         return [self._row_to_message(row) for row in rows]
@@ -176,6 +176,17 @@ class LocalMessageBus(MessageBusService):
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
 
+        # Same-user boundary: an agent may only DM agents owned by the same
+        # user. Cross-user direct messaging is intentionally disabled — never
+        # let an agent message another user's agent.
+        from_owner = await self._agent_owner(from_agent)
+        to_owner = await self._agent_owner(to_agent)
+        if from_owner and to_owner and from_owner != to_owner:
+            raise PermissionError(
+                f"cross-user messaging is not allowed: {from_agent} cannot "
+                f"message {to_agent} (different owners)"
+            )
+
         # Find existing direct channel between these two agents
         rows = await self._db.execute(
             f"SELECT c.channel_id FROM bus_channels c "
@@ -209,6 +220,21 @@ class LocalMessageBus(MessageBusService):
         ch_id = _generate_id("ch")
         now = _now_iso()
         created_by = members[0] if members else "system"
+
+        # Same-user boundary: a channel may only contain agents owned by the
+        # creator's user. Cross-user channels are intentionally disabled so an
+        # agent cannot pull another user's agent into a conversation.
+        creator_owner = await self._agent_owner(created_by)
+        if creator_owner:
+            for member in members:
+                if member == created_by:
+                    continue
+                member_owner = await self._agent_owner(member)
+                if member_owner and member_owner != creator_owner:
+                    raise PermissionError(
+                        f"cross-user channel is not allowed: {member} has a "
+                        f"different owner than {created_by}"
+                    )
 
         await self._db.insert("bus_channels", {
             "channel_id": ch_id,
@@ -271,19 +297,48 @@ class LocalMessageBus(MessageBusService):
             id_field="agent_id",
         )
 
+    async def _agent_owner(self, agent_id: str) -> str:
+        """Owning user_id of an agent (authoritative: agents.created_by).
+
+        Returns "" if unknown. Used to enforce the same-user boundary on bus
+        discovery and direct messaging.
+        """
+        ph = self._db.placeholder
+        try:
+            rows = await self._db.execute(
+                f"SELECT created_by FROM agents WHERE agent_id = {ph}", (agent_id,)
+            )
+            return (rows[0]["created_by"] if rows else "") or ""
+        except Exception:  # noqa: BLE001 — owner lookup must never crash discovery
+            return ""
+
     async def search_agents(
         self,
         query: str,
+        requester_agent_id: Optional[str] = None,
         limit: int = 10,
     ) -> List[BusAgentInfo]:
-        """Search for agents by capability or description."""
+        """Search for agents by capability or description.
+
+        Scoped to the requester's own account: when ``requester_agent_id`` is
+        given, only agents owned by the same user are returned. Cross-user
+        discovery via the bus is intentionally disabled — an agent must never
+        be able to find another user's agents.
+        """
         ph = self._db.placeholder
         search_pattern = f"%{query}%"
+        where = f"WHERE (capabilities LIKE {ph} OR description LIKE {ph})"
+        params: list = [search_pattern, search_pattern]
+        if requester_agent_id is not None:
+            owner = await self._agent_owner(requester_agent_id)
+            if not owner:
+                # Unknown requester owner → return nothing rather than leak all.
+                return []
+            where += f" AND owner_user_id = {ph}"
+            params.append(owner)
         rows = await self._db.execute(
-            f"SELECT * FROM bus_agent_registry "
-            f"WHERE capabilities LIKE {ph} OR description LIKE {ph} "
-            f"LIMIT {int(limit)}",
-            (search_pattern, search_pattern),
+            f"SELECT * FROM bus_agent_registry {where} LIMIT {int(limit)}",
+            tuple(params),
         )
         results = []
         for row in rows:
@@ -340,7 +395,20 @@ class LocalMessageBus(MessageBusService):
         channel_id: str,
         up_to_timestamp: str,
     ) -> None:
-        """Acknowledge messages up to a timestamp as processed."""
+        """Acknowledge messages up to a timestamp as processed.
+
+        The cursor and ``bus_messages.created_at`` are both TEXT and compared
+        lexicographically in ``get_pending_messages``. ``up_to_timestamp`` may
+        arrive as a string OR as an auto-parsed ``datetime`` (db_backend_sqlite
+        converts ``*_at`` columns on read). A ``datetime`` serialised via
+        ``str()`` becomes ``"YYYY-MM-DD HH:MM:SS"`` (space, no 'T') while
+        ``created_at`` is ``_now_iso()`` ``"YYYY-MM-DDTHH:MM:SS+00:00"`` ('T').
+        Since 'T' (0x54) > ' ' (0x20), a space-format cursor makes EVERY newer
+        message look unprocessed → the agent is re-triggered forever (capped
+        only by the rate limiter). Canonicalise to ISO-8601 so both sides match.
+        """
+        if hasattr(up_to_timestamp, "isoformat"):
+            up_to_timestamp = up_to_timestamp.isoformat()
         await self._db.update(
             "bus_channel_members",
             {"agent_id": agent_id, "channel_id": channel_id},
@@ -398,7 +466,7 @@ class LocalMessageBus(MessageBusService):
         """Get all members of a channel."""
         ph = self._db.placeholder
         rows = await self._db.execute(
-            f'SELECT * FROM "bus_channel_members" WHERE "channel_id" = {ph}',
+            f"SELECT * FROM bus_channel_members WHERE channel_id = {ph}",
             (channel_id,),
         )
         return [BusChannelMember(

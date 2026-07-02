@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-06-16
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-24 — compact single-line agent rows (denser list)
+
+Owner: shrink the rows so more agents fit. `AgentRow` is now ONE line —
+**chat preview dropped** (it also conflated group-chat content into the 1:1
+list, an unfixable historical-data leak), avatar down to `size="sm"` (32px),
+row padding `py-2`→`py-1.5`, container `items-start`→`items-center`. The line
+is name + public globe + **kebab next to the name** (not flex-1 on the name, so
+the ⋮ hugs it like TeamChatRow's), then the unread pill + time pushed to the
+right edge via `ml-auto`. `getRowMeta().preview` is no longer read here. Avatar
+is `size="sm"` (32px) to match teams + the user header (all sm now).
+
+## 2026-06-23 — slimmed to agent rows only; group chats moved out
+
+The group-chat row + team rename/delete/open logic was extracted to
+[[TeamChatRow]] (now rendered in [[AgentList]]'s TEAMS section). This component
+is now just the section header (optional) + the agent rows. It keeps
+`activeTeamChatId` only to compute `effectiveAgentId` — when a team group chat is
+open, NO agent row should look selected. In the new layout AgentList always
+passes `hideHeader` + `teamId=null` (a single flat AGENTS list), so the header
+path is effectively vestigial but retained for the tests / ungrouped case.
 
 # AgentGroupSection.tsx — One collapsible team section in the grouped sidebar
 
@@ -28,14 +49,6 @@ AgentList so the list file stays orchestration-only.
 - **依赖谁**: `AgentRowMenu` (kebab), `agentGroupUtils.aggregateSectionUnread`,
   `RingAvatar` (nm), `AgentInfo` from `@/types`. All mutations (rename /
   delete / toggle-public / select) are callbacks owned by AgentList.
-
-## 2026-06-16 (#43) — per-team "+" button in named section headers
-
-Each named team section header now shows a hover-visible "+" button (props
-`onAddAgentToTeam` + `addingAgent`) that creates a new agent directly inside
-that team. It sits beside the existing navigate-to-team arrow ("→"). The
-Ungrouped section has no "+" — it has no team to attach to. `AgentList`
-wires this via `handleCreateAgentInTeam` → `createAgent({ teamId })`.
 
 ## 设计决策
 

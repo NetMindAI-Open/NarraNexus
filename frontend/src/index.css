@@ -15,10 +15,13 @@
 @import 'tailwindcss';
 
 @theme {
-  /* === Font stack (pure system, no web fonts) === */
-  --font-display: -apple-system, "SF Pro Display", "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
-  --font-sans:    -apple-system, "SF Pro Text",    "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
-  --font-mono:    "SF Mono", ui-monospace, "Menlo", "Consolas", "Liberation Mono", monospace;
+  /* === Font stack — aligned with the marketing site (narranexus-website) ===
+     Space Grotesk (display) · Inter (body) · DM Mono (mono), loaded in
+     index.html. Latin renders in the web fonts; CJK falls back to the system
+     stack (PingFang / Noto) so Chinese stays native and offline-safe. */
+  --font-display: "Space Grotesk", "Inter", -apple-system, "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  --font-sans:    "Inter", -apple-system, "PingFang SC", "Noto Sans CJK SC", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    "DM Mono", "SF Mono", ui-monospace, "Menlo", "Consolas", "Liberation Mono", monospace;
 
   /* === Species colors — NM brand core (Axiom #1: identity-only) === */
   --color-carbon:       #E8704A;
@@ -57,15 +60,22 @@
   --color-error:   var(--color-red-500);
   --color-info:    var(--color-silicon);
 
-  /* === Radius scale (Axiom #5) — restored from Archive's forced 0 === */
-  --radius-xs:  4px;
-  --radius-sm:  6px;
-  --radius-md:  10px;
-  --radius-lg:  14px;
-  --radius-xl:  22px;
-  --radius-2xl: 28px;
-  --radius-3xl: 36px;
-  --radius-4xl: 44px;
+  /* === Radius scale (Axiom #5) — "editorial" slight rounding ===
+     Aligned to the Narra Agent App design ref (Narra radii: --r 3px /
+     --r-lg 4px). The whole ladder is compressed from the old soft
+     10–44px range down to a barely-there, paper-document feel: common
+     surfaces (sm/md/lg) land at 3–4px so bubbles, cards, inputs and
+     buttons read as crisp editorial blocks; only the largest containers
+     keep a hair more softness so big modals don't turn into razor boxes.
+     Circles (avatars, status dots) bypass this via 9999px. */
+  --radius-xs:  2px;   /* chips, code, tiny controls */
+  --radius-sm:  3px;   /* small controls — Narra --r (was 6px) */
+  --radius-md:  4px;   /* default surfaces — Narra --r-lg (was 10px) */
+  --radius-lg:  4px;   /* bubbles, cards — Narra --r-lg (was 14px) */
+  --radius-xl:  6px;   /* large panels (was 22px) */
+  --radius-2xl: 8px;   /* modals (was 28px) */
+  --radius-3xl: 10px;  /* hero surfaces (was 36px) */
+  --radius-4xl: 12px;  /* max (was 44px) */
 
   /* === Motion (Axiom #8) === */
   --ease-paper:    cubic-bezier(0.32, 0.72, 0, 1);
@@ -325,11 +335,17 @@ html {
   font-size: 15.5px;
   font-weight: 400;
   line-height: 1.6;
-  -webkit-font-smoothing: subpixel-antialiased;
-  -moz-osx-font-smoothing: auto;
+  /* Grayscale antialiasing (matches the clawcreek reference). On macOS
+     subpixel-antialiased renders small, low-contrast text heavier/fuzzier —
+     the cause of the "blurry" right-sidebar gray labels. Grayscale keeps
+     small mono micro-labels crisp. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'palt' 1;
-  letter-spacing: 0.005em;
+  /* Inter ships well-tuned default spacing — the old +0.005em body tracking
+     was a tweak for SF Pro and only loosens Inter, so it's dropped. Heading
+     and mono letter-spacing are set locally where they matter. */
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1;
 }
 
 body {
@@ -560,8 +576,17 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   color: var(--text-tertiary);
 }
 .markdown-content.markdown-reply {
-  font-size: 1.05rem;
+  /* Match the chat bubble body (0.95rem). The old 1.05rem read noticeably
+     larger than the bubbles when the same reply appears inside the reasoning
+     timeline. */
+  font-size: 0.95rem;
 }
+/* Inside a chat bubble the markdown's outer block must not add margin beyond
+   the bubble's own padding — otherwise the agent bubble (markdown) reads taller
+   than the user's plain-text bubble at the same py. Flatten the first/last
+   block's vertical margins so both bubbles have matching top/bottom spacing. */
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
 .markdown-content h1,
 .markdown-content h2,
 .markdown-content h3,
@@ -686,6 +711,108 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 }
 
 /* ============================================================================
+   Frosted chat panel (light mode only)
+   ----------------------------------------------------------------------------
+   The conversation "背景板" reads as ground glass: a translucent warm-white
+   surface + backdrop blur for depth, plus a faint grain overlay for the matte,
+   tactile 磨砂 quality. A hairline + soft elevation + slight radius lift it off
+   the paper as a floating panel. Dark mode keeps the flat warm-ink card —
+   frosting muddies on dark paper (the NM iteration #6 "patches of glass"
+   failure), so it is explicitly reset under .dark.
+   ============================================================================ */
+.chat-frosted {
+  border-radius: var(--radius-lg);
+  background-color: rgba(255, 255, 255, 0.38);
+  -webkit-backdrop-filter: blur(26px) saturate(1.8) brightness(1.04);
+  backdrop-filter: blur(26px) saturate(1.8) brightness(1.04);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    var(--nm-elev-3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+/* Glass sheen — light catching the top-left of the "screen". Sits above the
+   grain, below the content (z-1), so text stays crisp. */
+.chat-frosted::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(157deg, rgba(255, 255, 255, 0.55) 0%, rgba(255, 255, 255, 0.14) 15%, transparent 40%),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.10) 0%, transparent 12%);
+}
+.dark .chat-frosted::after {
+  /* Subtle top-left sheen on the dark glass. */
+  background: linear-gradient(157deg, rgba(242, 239, 232, 0.07) 0%, rgba(242, 239, 232, 0.02) 16%, transparent 42%);
+}
+
+.chat-frosted::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  /* Grain = the "ground glass" (磨砂) tactile texture. soft-light blend lets
+     the specks lighten/darken the surface rather than sit as a flat gray film,
+     so it reads as roughened glass, not noise. Kept light — just a hint. */
+  opacity: 0.28;
+  mix-blend-mode: soft-light;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.62' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* Keep the panel's own content above the grain layer. */
+.chat-frosted > * { position: relative; z-index: 1; }
+
+.dark .chat-frosted {
+  /* Dark frosted glass — translucent warm-ink + blur, kept low-saturation so
+     it stays a calm dark surface (not a colour patch). Grain + sheen below. */
+  background-color: rgba(33, 28, 22, 0.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  backdrop-filter: blur(24px) saturate(1.2);
+  border: 1px solid rgba(242, 239, 232, 0.1);
+  box-shadow: var(--nm-elev-3), inset 0 1px 0 rgba(242, 239, 232, 0.12);
+}
+.dark .chat-frosted::before {
+  /* Keep the ground-glass grain in dark too — overlay blend reads the texture
+     against the dark surface. Light touch. */
+  opacity: 0.22;
+  mix-blend-mode: overlay;
+}
+
+/* ============================================================================
+   AI (silicon) bubble — tint markdown surfaces blue
+   ----------------------------------------------------------------------------
+   Inside the silicon reply bubble, the default warm-gray code / table-cell
+   fills read as muddy. Rebind just those surface tokens to a silicon tint a
+   notch deeper than the bubble, so inline code, code blocks, table headers /
+   zebra rows and the rules all harmonise with the blue. Scoped to the bubble,
+   so markdown everywhere else keeps the neutral treatment.
+   ============================================================================ */
+.nm-bubble-ai {
+  --code-bg:     rgba(61, 126, 196, 0.16);
+  --code-border: rgba(61, 126, 196, 0.30);
+  --bg-sunken:   rgba(61, 126, 196, 0.12);
+  --rule:        rgba(61, 126, 196, 0.22);
+}
+.dark .nm-bubble-ai {
+  --code-bg:     rgba(123, 177, 232, 0.18);
+  --code-border: rgba(123, 177, 232, 0.34);
+  --bg-sunken:   rgba(123, 177, 232, 0.14);
+  --rule:        rgba(123, 177, 232, 0.26);
+}
+
+/* Mobile: nudge chat copy down a notch — the desktop sizes read large in a
+   narrow phone column. Scoped to chat content so layout / tap targets are
+   unaffected. */
+@media (max-width: 767.98px) {
+  .markdown-content,
+  .markdown-content.markdown-reply { font-size: 0.875rem; }
+}
+
+/* ============================================================================
    Status colors
    ============================================================================ */
 .status-pending   { color: var(--text-tertiary); }
@@ -699,6 +826,17 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
 *:focus-visible {
   outline: 1.5px solid var(--nm-ink);
   outline-offset: 2px;
+}
+/* The chat composer is a self-contained input box — the focus-visible ring
+   would draw a heavy frame just outside it. Suppress it here (the textarea
+   already reads as focused via the caret); higher specificity than the
+   universal rule above. */
+.nx-composer-input:focus,
+.nx-composer-input:focus-visible,
+.nx-cmdk-input:focus,
+.nx-cmdk-input:focus-visible {
+  outline: none;
+  outline-offset: 0;
 }
 ::selection {
   background: var(--nm-ink);
@@ -751,6 +889,46 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   background: linear-gradient(90deg, var(--bg-secondary) 0%, var(--bg-tertiary) 50%, var(--bg-secondary) 100%);
   background-size: 200% 100%;
   animation: shimmer 2s ease-in-out infinite;
+}
+
+/* JourneyBand: a carbon pulse travels the memory→network→team baseline,
+   visualising "the more you work together, the more it carries forward"
+   (onboarding empty state). Honors prefers-reduced-motion via the global
+   reduce block below. */
+@keyframes nm-travel {
+  0%   { left: 2%; }
+  100% { left: 98%; }
+}
+.animate-travel { animation: nm-travel 5s ease-in-out infinite alternate; }
+
+/* Header activity glyph — the agent's heartbeat, drawn as an ECG (silicon =
+   the AI side). Two stacked paths: a faint static baseline, and a bright pulse
+   segment that sweeps along the waveform like a heart monitor while the agent
+   streams / thinks. Idle: baseline + a soft glow only (calm). Honors
+   prefers-reduced-motion via the global reduce block below (pulse falls still). */
+.nm-ecg-base  { stroke: var(--color-carbon); opacity: 0.6; }
+.nm-ecg-pulse { stroke: var(--color-carbon); opacity: 0; }
+
+/* Idle: a clearly-visible line + a slow breathing glow so it reads as "alive"
+   rather than a flat dim icon. Static fallback filter for reduced-motion. */
+.nm-activity-idle {
+  filter: drop-shadow(0 0 3px var(--color-carbon-hair));
+  animation: nm-activity-breathe 2.6s ease-in-out infinite;
+}
+@keyframes nm-activity-breathe {
+  0%, 100% { filter: drop-shadow(0 0 2px var(--color-carbon-hair)); }
+  50%      { filter: drop-shadow(0 0 5px var(--color-carbon)); }
+}
+.nm-activity-working { filter: drop-shadow(0 0 3px var(--color-carbon-hair)); }
+
+.nm-activity-working .nm-ecg-pulse {
+  opacity: 1;
+  stroke-dasharray: 22 78;   /* one short lit segment; 22+78 = pathLength(100) */
+  animation: nm-ecg-run 1.15s linear infinite;
+}
+@keyframes nm-ecg-run {
+  from { stroke-dashoffset: 100; }
+  to   { stroke-dashoffset: 0; }
 }
 .animate-typing-cursor::after {
   content: '|';

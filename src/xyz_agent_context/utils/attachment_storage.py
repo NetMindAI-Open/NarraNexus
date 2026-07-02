@@ -85,7 +85,8 @@ def get_workspace_path(agent_id: str, user_id: str) -> Path:
     Imported lazily so this util has no FastAPI dependency at import time.
     """
     from xyz_agent_context.settings import settings as core_settings
-    return Path(core_settings.base_working_path) / f"{agent_id}_{user_id}"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    return agent_workspace_path(agent_id, user_id, base=core_settings.base_working_path)
 
 
 def _today_str() -> str:

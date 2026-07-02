@@ -44,10 +44,76 @@ Why a registry instead of `if working_source == "lark": ...`
 """
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from loguru import logger
+
+
+# OpenAI Responses-API "citation" tokens that the model emits inline
+# in user-facing text when WebSearch ran. Examples observed in the
+# wild (2026-06-08, gpt-5.5 via codex): ``citeturn6view0``,
+# ``citeturn2news12``, ``citeturn7search9``.
+#
+# ChatGPT's first-party frontend resolves these into clickable
+# Markdown links via a separate annotation table — but the
+# ``openai-codex`` Python SDK 0.1.0b3 doesn't surface that table
+# (``OutputTextContentItem`` carries just ``{text, type}``). Without
+# the URL/title map we can't render proper links; the pragmatic fix
+# is to strip the tokens so users see clean prose instead of
+# literal cryptic markers glued to sentence ends.
+#
+# Strip lives HERE (the single reply-extraction chokepoint shared by
+# every channel) rather than in any per-framework translator,
+# because:
+#  * The tokens come from the model's text written into the
+#    ``content`` argument of ``send_message_to_user_directly``
+#    (or any other reply tool) — they're plain string content, not
+#    SDK-protocol metadata. Stripping at the SDK boundary would
+#    miss tokens that the model writes into ``lark_cli`` markdown,
+#    ``slack_cli`` markdown, ``tg_cli``, etc.
+#  * Every channel funnels its reply through this method, so one
+#    strip here covers all of them.
+#
+# Regex requires TWO alpha+digit cycles after ``cite`` to avoid
+# false-matching the English word "cite" followed by a noun.
+_CITE_TOKEN_RE = re.compile(r"cite[a-z]+\d+[a-z]+\d+")
+
+
+def strip_responses_api_citation_tokens(text: str) -> str:
+    """Public alias — same as ``_strip_responses_api_citation_tokens``,
+    re-exported without the leading underscore so callers outside this
+    module (notably ``response_processor`` building ProgressMessages
+    for live UI streaming) can apply the same strip. Kept on the
+    underscore name too for backwards compat with the internal call
+    site below."""
+    return _strip_responses_api_citation_tokens(text)
+
+
+def _strip_responses_api_citation_tokens(text: str) -> str:
+    """Remove inline citation tokens and tidy up the leftover spacing.
+
+    Returns ``text`` unchanged if no token is present (fast path);
+    otherwise strips every token and collapses doubled spaces / fixes
+    spaces-before-punct that the strip introduces.
+    """
+    if not text or "cite" not in text:
+        return text
+    cleaned = _CITE_TOKEN_RE.sub("", text)
+    if cleaned == text:
+        return text
+    # Tighten up artifacts the strip itself produced.
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    # Strip whitespace that's now ahead of punctuation (Chinese +
+    # English punctuation kept together so this is i18n-safe).
+    cleaned = re.sub(r"\s+([。，；、,.;])", r"\1", cleaned)
+    # Strip trailing horizontal whitespace on every line (the strip
+    # often leaves a token-shaped hole at end-of-paragraph that the
+    # ahead-of-punct rule above doesn't catch because there's no
+    # punctuation after it).
+    cleaned = re.sub(r"[ \t]+$", "", cleaned, flags=re.MULTILINE)
+    return cleaned
 
 
 ReplyExtractor = Callable[[str, Dict[str, Any]], Optional[str]]
@@ -117,13 +183,24 @@ class MessageSourceHandler:
         None if the call wasn't a user reply.
 
         Custom `extract_reply_fn` short-circuits this; otherwise falls
-        back to substring match on `tool_name` + `arguments['content']`."""
+        back to substring match on `tool_name` + `arguments['content']`.
+
+        The extracted text is run through
+        ``_strip_responses_api_citation_tokens`` regardless of which
+        extractor produced it — the strip is a content-layer cleanup
+        that applies uniformly to every channel (chat / lark / slack
+        / telegram / job). See the module-level helper docstring for
+        why we strip rather than resolve.
+        """
         if self.extract_reply_fn is not None:
-            return self.extract_reply_fn(tool_name, arguments or {})
-        if not self.is_user_reply_tool(tool_name):
+            text = self.extract_reply_fn(tool_name, arguments or {})
+        elif self.is_user_reply_tool(tool_name):
+            text = (arguments or {}).get("content", "")
+        else:
             return None
-        content = (arguments or {}).get("content", "")
-        return content if content else None
+        if not text:
+            return None
+        return _strip_responses_api_citation_tokens(text)
 
     def format_row_prefix(self, msg: Dict[str, Any]) -> str:
         """Render the per-row prefix for `msg`.

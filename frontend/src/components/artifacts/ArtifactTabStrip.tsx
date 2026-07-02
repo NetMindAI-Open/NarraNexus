@@ -20,6 +20,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Minus, Trash2, Maximize2 } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
@@ -32,6 +33,7 @@ interface Props {
 }
 
 export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
+  const { t } = useTranslation();
   const artifacts = useArtifactStore((s) => s.artifacts);
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
@@ -45,7 +47,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
   const visible = artifacts.filter((a) => !minimizedTabIds.has(a.artifact_id));
 
   if (visible.length === 0 && !deleteTarget) {
-    return <div className="text-xs opacity-50 px-3 py-2">No artifacts yet</div>;
+    return <div className="text-xs opacity-50 px-3 py-2">{t('artifacts.tabStrip.noArtifacts')}</div>;
   }
 
   const handleDeleteConfirm = async () => {
@@ -55,7 +57,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
       await deleteArtifact(agentId, deleteTarget.artifact_id);
       setDeleteTarget(null);
     } catch (e) {
-      window.alert(`Delete failed: ${e}`);
+      window.alert(t('artifacts.tabStrip.deleteFailed', { error: String(e) }));
     } finally {
       setSubmitting(false);
     }
@@ -80,28 +82,26 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
       <Dialog
         isOpen={!!deleteTarget}
         onClose={() => !submitting && setDeleteTarget(null)}
-        title="Delete artifact"
+        title={t('artifacts.tabStrip.deleteTitle')}
         size="md"
       >
         <DialogContent>
           <div className="text-sm text-[var(--text-secondary)] space-y-3">
             <p>
-              Remove the tab for{' '}
+              {t('artifacts.tabStrip.deletePrompt')}{' '}
               <span className="font-semibold">&ldquo;{deleteTarget?.title}&rdquo;</span>?
             </p>
             <p className="text-xs opacity-80">
-              Only the registry entry is removed. Your workspace files stay
-              where you wrote them — clean them up in the workspace section
-              of the config panel if you want to free disk space.
+              {t('artifacts.tabStrip.deleteNote')}
             </p>
           </div>
         </DialogContent>
         <DialogFooter>
           <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={submitting}>
-            Cancel
+            {t('artifacts.tabStrip.cancel')}
           </Button>
           <Button variant="danger" onClick={handleDeleteConfirm} disabled={submitting}>
-            {submitting ? 'Deleting…' : 'Delete tab'}
+            {submitting ? t('artifacts.tabStrip.deleting') : t('artifacts.tabStrip.deleteTab')}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -119,6 +119,7 @@ function TabButton({
   onMinimize: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       onClick={onClick}
@@ -127,30 +128,30 @@ function TabButton({
         'flex items-center gap-2 px-3 py-2 cursor-pointer border-r border-[var(--border-default)] ' +
         (active ? 'bg-[var(--bg-primary)]' : 'opacity-70 hover:opacity-100')
       }
-      title="Click to select · Double-click to zoom"
+      title={t('artifacts.tabStrip.tabTitle')}
     >
       <span className="text-sm truncate max-w-[12rem]">{artifact.title}</span>
       <button
         onClick={(e) => { e.stopPropagation(); onZoom(); }}
-        title="Zoom (open fullscreen)"
+        title={t('artifacts.tabStrip.zoomTitle')}
         className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
-        aria-label="Zoom artifact"
+        aria-label={t('artifacts.zoom')}
       >
         <Maximize2 className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onMinimize(); }}
-        title="Minimize (does not delete; restore from the bar above)"
+        title={t('artifacts.tabStrip.minimizeTitle')}
         className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
-        aria-label="Minimize tab"
+        aria-label={t('artifacts.tabStrip.minimizeAria')}
       >
         <Minus className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        title="Delete tab (workspace files stay where they are)"
+        title={t('artifacts.tabStrip.deleteTabTitle')}
         className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-red-900/40 hover:text-red-400 transition-colors"
-        aria-label="Delete artifact tab"
+        aria-label={t('artifacts.tabStrip.deleteAria')}
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>

@@ -24,6 +24,31 @@ export interface TeamListResponse {
   teams: TeamWithMembers[];
 }
 
+// ----- Team group chat (over the message bus) -----
+
+export interface TeamChatMessage {
+  message_id: string;
+  from_agent: string;   // 'usr_<user_id>' for the user, else an agent_id
+  author_name: string;
+  is_user: boolean;
+  content: string;
+  created_at: string;
+}
+
+export interface TeamChatHistoryResponse {
+  success: boolean;
+  channel_id: string;
+  messages: TeamChatMessage[];
+  /** Member agent_ids the trigger is currently processing → "…" indicator. */
+  thinking?: string[];
+}
+
+export interface TeamChatSendResponse {
+  success: boolean;
+  message_id: string;
+  channel_id: string;
+}
+
 export interface TeamOperationResponse {
   success: boolean;
   message?: string | null;

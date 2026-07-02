@@ -222,6 +222,114 @@ def test_extract_reply_text_custom_fn_overrides_default():
     assert out2 is None
 
 
+def test_extract_reply_text_strips_citeturn_tokens():
+    """OpenAI Responses-API ``citeturnNviewN`` / ``citeturnNnewsN``
+    tokens that gpt-5.5 emits when WebSearch ran are stripped at the
+    reply-extraction layer (so users see clean prose, not literal
+    cryptic markers). Verified format from incident 2026-06-08:
+    tokens are concatenated to sentence ends with no whitespace."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    raw = "6月7日全国高考开考，今年报名人数1290万人。citeturn6view1"
+    out = h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly",
+        {"content": raw},
+    )
+    assert out == "6月7日全国高考开考，今年报名人数1290万人。"
+
+
+def test_extract_reply_text_strips_multiple_tokens_across_paragraphs():
+    """Several tokens in one reply (with whitespace between them after
+    strip) get the leftover spaces tidied up."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    raw = "新华社/央视消息称习近平抵达平壤。citeturn6view0 citeturn2news12"
+    out = h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly",
+        {"content": raw},
+    )
+    # Both tokens gone; the whitespace between them collapses and the
+    # trailing space before the period (if any) is fixed.
+    assert "citeturn" not in out
+    assert out == "新华社/央视消息称习近平抵达平壤。"
+
+
+def test_extract_reply_text_preserves_text_without_tokens():
+    """Fast-path: if no ``cite`` substring appears at all, the text is
+    returned unchanged (no regex sweep, no whitespace mutation)."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    raw = "Hi there!  Multiple spaces  stay  intact."
+    out = h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly",
+        {"content": raw},
+    )
+    assert out == raw  # NOT modified — fast-path kept doubled spaces
+
+
+def test_extract_reply_text_does_not_match_word_cite():
+    """The regex requires two alpha+digit cycles after ``cite``, so the
+    English word "cite" used in ordinary prose (e.g. "Please cite the
+    source") survives intact."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    raw = "Please cite the relevant section in your write-up."
+    out = h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly",
+        {"content": raw},
+    )
+    assert out == raw
+
+
+def test_extract_reply_text_strips_tokens_through_custom_extractor():
+    """The strip applies AFTER any custom ``extract_reply_fn`` — so
+    channels with non-standard reply tooling (Lark's --markdown flag,
+    Slack/Telegram CLI wrappers, etc.) also get clean text without
+    each having to implement the strip themselves."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    def lark_extractor(tool_name, arguments):
+        # Pretend this is Lark's --markdown extraction
+        return arguments.get("markdown")
+
+    h = MessageSourceHandler(
+        name="lark",
+        user_reply_tool_names=("lark_cli +messages-send",),
+        extract_reply_fn=lark_extractor,
+    )
+    out = h.extract_reply_text(
+        "lark_cli +messages-send",
+        {"markdown": "中朝外交：习近平抵达平壤citeturn6view0"},
+    )
+    assert out == "中朝外交：习近平抵达平壤"
+
+
 def test_dump_returns_serializable_snapshot():
     from xyz_agent_context.channel.message_source_handler import (
         MessageSourceHandler,

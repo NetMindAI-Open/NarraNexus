@@ -145,6 +145,28 @@ def _reset_context():
     set_provider_source(None)
 
 
+@pytest.fixture(autouse=True)
+def _stub_single_resolver(monkeypatch):
+    """resolve()'s USER branch delegates config-building to the single-point
+    driver resolver (resolve_user_runtime_llm_configs). These tests exercise
+    the routing DECISION tree, not config contents, so stub the builder to a
+    bare RuntimeLLMConfigs — no seeded DB needed."""
+    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.api_config import (
+        ClaudeConfig,
+        OpenAIConfig,
+        RuntimeLLMConfigs,
+    )
+
+    async def _fake(_user_id, _db):
+        return RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
+
+    monkeypatch.setattr(
+        provider_driver, "resolve_user_runtime_llm_configs", _fake
+    )
+    yield
+
+
 # ---------- Branch 0: feature disabled -----------------------------------
 
 @pytest.mark.asyncio

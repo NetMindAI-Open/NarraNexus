@@ -19,7 +19,7 @@ from xyz_agent_context.utils import utc_now
 
 from xyz_agent_context.schema.module_schema import ModuleInstance, InstanceStatus
 from xyz_agent_context.schema.decision_schema import DirectTriggerConfig
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.module._module_impl.prompts import INSTANCE_DECISION_PROMPT_TEMPLATE
 
 
@@ -209,8 +209,8 @@ async def llm_decide_instances(
     logger.debug(f"Prompt length: {len(prompt)} characters")
 
     try:
-        # Use OpenAIAgentsSDK's llm_function
-        sdk = OpenAIAgentsSDK()
+        # Use the helper SDK's llm_function (protocol-agnostic dispatch)
+        sdk = get_helper_sdk()
         result = await sdk.llm_function(
             instructions="You are an intelligent Module Instance manager. Make decisions based on user input.",
             user_input=prompt,

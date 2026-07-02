@@ -293,12 +293,12 @@ class NarrativeUpdater:
     ) -> Optional[NarrativeUpdateOutput]:
         """Call LLM to generate Narrative update content"""
         try:
-            from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+            from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 
             instructions = NARRATIVE_UPDATE_INSTRUCTIONS
 
             from xyz_agent_context.narrative.config import config as narrative_config
-            sdk = OpenAIAgentsSDK()
+            sdk = get_helper_sdk()
             result = await sdk.llm_function(
                 instructions=instructions,
                 user_input=context,

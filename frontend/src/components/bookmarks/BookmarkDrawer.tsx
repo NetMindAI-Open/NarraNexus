@@ -20,6 +20,7 @@
  */
 
 import { type ReactNode, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -106,7 +107,7 @@ export function BookmarkDrawer({
         aria-modal={true}
         aria-label={title}
         className={cn(
-          'relative flex flex-col w-[440px] h-full pointer-events-auto',
+          'relative flex flex-col w-full max-w-[440px] h-full pointer-events-auto',
           'animate-slide-in-right',
         )}
         style={{
@@ -140,6 +141,7 @@ interface DrawerHeaderProps {
 }
 
 function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderProps) {
+  const { t } = useTranslation();
   return (
     <div
       className="flex items-center justify-between gap-2 px-4 py-3 shrink-0"
@@ -158,7 +160,7 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
         {pinned ? (
           <button
             type="button"
-            aria-label="Unpin panel"
+            aria-label={t('bookmarks.drawer.unpin')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded-sm',
               'transition-colors duration-100 cursor-pointer',
@@ -175,7 +177,7 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
         ) : (
           <button
             type="button"
-            aria-label="Pin panel"
+            aria-label={t('bookmarks.drawer.pin')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded-sm',
               'transition-colors duration-100 cursor-pointer',
@@ -194,7 +196,7 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
         {/* Close button */}
         <button
           type="button"
-          aria-label="Close panel"
+          aria-label={t('bookmarks.drawer.close')}
           className={cn(
             'flex items-center justify-center w-6 h-6 rounded-sm',
             'transition-colors duration-100 cursor-pointer',

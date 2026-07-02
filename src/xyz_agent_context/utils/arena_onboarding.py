@@ -325,6 +325,92 @@ class ArenaOnboarder:
             referral_code=data.get("referral_code"),  # type: ignore[union-attr]
         )
 
+    def bind_owner(
+        self, credentials: ArenaCredentials, user_token: str
+    ) -> Dict[str, Optional[str]]:
+        """
+        Bind the owner email to this Arena agent via Arena's platform-only
+        endpoint, using the user's NetMind JWT — no email-verification round-trip.
+
+        Arena normally binds an owner email through a user-clicked verification
+        link. Because NarraNexus provisions agents programmatically (no inbox to
+        click), Arena exposes ``POST /api/v1/agents/me/platform-bind-owner``:
+        authenticate as the agent (its api_key) and pass the user's NetMind JWT
+        in the body; Arena verifies the JWT against the shared NetMind account
+        system and writes ``agent.ownerEmail``.
+
+          POST {api_base}/api/v1/agents/me/platform-bind-owner
+            Authorization: Bearer <agent api_key>
+            body: {"user_token": "<NetMind JWT, NO Bearer prefix>"}
+
+        Best-effort by contract — owner email is optional, so this NEVER raises:
+        a failure must not abort provisioning. Returns a structured status the
+        caller records for observability / opportunistic retry:
+
+          status ∈ {
+            "bound"           — 200, email written (``email`` populated),
+            "skipped_no_email"— 200, the NetMind account has no email on record,
+            "already_bound"   — 400 EMAIL_ALREADY_BOUND (idempotent success),
+            "invalid_token"   — 401 INVALID_TOKEN (the user_token is bad/expired),
+            "rate_limited"    — 429,
+            "error"           — anything else, missing api_key/token, or transport
+          }
+
+        Idempotent on Arena's side: a repeat call returns EMAIL_ALREADY_BOUND,
+        which we map to ``already_bound`` (a terminal success the caller can use
+        to skip future attempts).
+        """
+        def _result(status, *, email=None, http_status=None, detail=""):
+            return {
+                "status": status,
+                "email": email,
+                "http_status": http_status,
+                "detail": detail,
+            }
+
+        api_key = credentials.api_key
+        if not api_key:
+            return _result("error", detail="no agent api_key to authenticate bind")
+        if not user_token:
+            return _result("error", detail="no user_token (NetMind JWT) provided")
+
+        try:
+            resp = self._http().post(
+                f"{self.api_base}/api/v1/agents/me/platform-bind-owner",
+                headers={**self._headers, "Authorization": f"Bearer {api_key}"},
+                json={"user_token": user_token},
+            )
+        except httpx.HTTPError as exc:  # transport failure — never fatal here
+            return _result("error", detail=f"transport error: {exc}")
+
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        code = str(body.get("code") or "").upper()
+        message = str(body.get("message") or "")
+
+        if resp.status_code == 200:
+            email = body.get("email")
+            if email:
+                return _result("bound", email=email, http_status=200, detail=message)
+            # 200 with no email → the NetMind account carries no email; Arena
+            # returns 200 but performs no binding ("binding skipped").
+            return _result("skipped_no_email", http_status=200, detail=message)
+        if resp.status_code == 400 and code == "EMAIL_ALREADY_BOUND":
+            return _result("already_bound", http_status=400, detail=message)
+        if resp.status_code == 401:
+            return _result("invalid_token", http_status=401, detail=message or code)
+        if resp.status_code == 429:
+            return _result("rate_limited", http_status=429, detail=message)
+        return _result(
+            "error",
+            http_status=resp.status_code,
+            detail=f"unexpected response: {resp.text[:300]}",
+        )
+
     def fetch_skill_md(self) -> str:
         """Fetch Arena's skill.md (the agent-facing instructions)."""
         resp = self._http().get(self.skill_md_url, headers=self._headers)

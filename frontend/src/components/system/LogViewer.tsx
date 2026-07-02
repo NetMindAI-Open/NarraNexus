@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowDownToLine, Search } from 'lucide-react';
 import { Card, CardHeader, CardTitle, Button, ScrollArea } from '@/components/ui';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -48,6 +49,7 @@ export function LogViewer({
   serviceFilter: initialFilter = null,
   maxEntries = 500,
 }: LogViewerProps) {
+  const { t } = useTranslation();
   const [activeFilter, setActiveFilter] = useState<string | null>(
     initialFilter ?? null,
   );
@@ -101,7 +103,7 @@ export function LogViewer({
   return (
     <Card variant="sunken" noPadding>
       <CardHeader>
-        <CardTitle>Logs</CardTitle>
+        <CardTitle>{t('system.logs.title')}</CardTitle>
         <div className="flex items-center gap-2">
           {!autoScroll && (
             <Button
@@ -111,7 +113,7 @@ export function LogViewer({
                 setAutoScroll(true);
                 bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
               }}
-              title="Scroll to bottom"
+              title={t('system.logs.scrollToBottom')}
             >
               <ArrowDownToLine className="w-3.5 h-3.5" />
             </Button>
@@ -130,7 +132,7 @@ export function LogViewer({
               }
             >
               <TabsList>
-                <TabsTrigger value="__all__">All</TabsTrigger>
+                <TabsTrigger value="__all__">{t('system.logs.allTab')}</TabsTrigger>
                 {serviceIds.map((id) => (
                   <TabsTrigger key={id} value={id}>
                     {id}
@@ -145,7 +147,7 @@ export function LogViewer({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="search event_id / run_id / trigger_id…"
+              placeholder={t('system.logs.searchPlaceholder')}
               className="w-full pl-7 pr-2 py-1 rounded text-xs bg-[var(--bg-secondary)] border border-[var(--border)] focus:outline-none focus:ring-1 focus:ring-[var(--ring)]"
             />
           </div>
@@ -161,7 +163,7 @@ export function LogViewer({
       ><div>
         {visibleLogs.length === 0 ? (
           <p className="text-[var(--text-tertiary)] text-center py-8">
-            No log entries
+            {t('system.logs.empty')}
           </p>
         ) : (
           visibleLogs.map((entry, i) => (

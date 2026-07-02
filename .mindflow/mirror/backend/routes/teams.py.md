@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-05-13
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — team group chat（基于 message bus，无 schema 迁移）
+
+新增两个端点，把"团队群聊"叠在现有 message bus 上：
+- `POST /:id/chat/messages`：用户以合成发送者 `usr_<user_id>` 发言，
+  `mentions` 带 agent_ids（UI 的 `"@all"` → bus `"@everyone"`）。
+- `GET  /:id/chat/messages`：返回转录（`usr_…` 解析为用户名）+
+  `thinking`（在本房间有未处理 @ 的成员 → 前端 "…" 输入指示）。
+
+`_get_or_create_team_room` 把团队映射到一个 group channel,并把
+`created_by` 改写成非 agent 标记 `team_<team_id>`:既能确定性地找到房间
+(不加列),又保证没有"房主 agent"被 MessageBusTrigger 无条件唤醒——
+投递纯靠 @。成员每次同步到团队当前 agents。回复由独立的
+MessageBusTrigger 在服务端产生(见 `message_bus_trigger.py.md` 的 team
+分支),前端只轮询这两个路由。`TEAM_ROOM_OWNER_PREFIX` /
+`USER_SENDER_PREFIX` 与 trigger 保持同步。
 
 ## 2026-05-13 — local 多用户隔离修复
 

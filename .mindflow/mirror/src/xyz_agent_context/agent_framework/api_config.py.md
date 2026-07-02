@@ -1,8 +1,63 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-06-10
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — 新增 `snapshot_user_config()`(Executor seam 用)
+
+`set_user_config` 旁新增 `snapshot_user_config()`,返回当前 task 四个
+provider 配置 ContextVar 的值(claude/openai/codex/anthropic_helper)。
+用途:orchestrator(有 DB + resolver)快照已解析的 scoped 配置 → 经
+`executor_protocol` 序列化 → 发给 Executor 服务 → 它 `set_user_config` 重新
+设上。让 scoped 凭据跨网络边界显式传递(本来只走 ContextVar,过网会丢)。
+
+## 2026-06-17 — 删除 `_get_user_runtime_llm_configs_strict` 的 legacy fallback(铁律 #2/#5)
+
+原函数是"先调单点 resolver,任何意外异常就 fall back 到一份 80 行手写的旧
+解析逻辑"。那份 fallback 是 codex 出现**之前**写的——它无脑从 agent slot 拼
+`ClaudeConfig`,完全不懂 codex,一旦被触发会把 codex agent 配成 ClaudeConfig。
+按铁律 #2(年轻项目不留兼容 shim)+ #5(治根)删掉整段 fallback,函数现在纯
+委托 `resolve_user_runtime_llm_configs`,意外异常直接冒出去报错。这是 agent-loop
+活路径(`get_agent_owner_runtime_llm_configs` → 此函数)。resolver 侧把 codex /
+helper 派发收进 driver 多态(见 resolver.py.md 2026-06-17)。
+
+**同日 — `clear_user_config` 重置全 4 个 config ctxvar(LATENT-3)。** 原来只
+reset `_claude_ctx`/`_openai_ctx`,留下 `_codex_ctx`/`_anthropic_helper_ctx` 携带
+上一租户凭证。顺序多租户 worker(memory consolidation)靠 clear 防串户;把
+provider_resolver 的 priming 修成 4 参后,若不同时补齐 clear,一个 resolve 被
+跳过的 scope 会继承前一租户的 anthropic_helper → helper 工厂据此把 B 的 helper
+路由到 A 的 Claude key。现 reset 全 4 个。
+
+## 2026-06-10 — one-key onboarding: AnthropicHelperConfig joins the config stack
+
+New `AnthropicHelperConfig` (api_key/base_url/model/auth_type) carries the
+helper_llm config when that slot points at an anthropic-protocol provider —
+the single-Claude-key path. It rides a new `_anthropic_helper_ctx` ContextVar
++ `anthropic_helper_config` proxy (holder keeps a benign empty default).
+`set_user_config(claude, openai, codex=None, anthropic_helper=None)` — a call
+WITHOUT the new arg resets the ctx to None, which is what makes
+`get_helper_sdk()` dispatch safe across tasks. `RuntimeLLMConfigs` gains
+`anthropic_helper: Optional[...] = None`. The legacy strict fallback's helper
+block now branches on the provider protocol (anthropic → AnthropicHelperConfig,
+`.openai` left empty). `setup_mcp_llm_context` upgraded from the 2-tuple path
+to `get_agent_owner_runtime_llm_configs` so MCP tool processes see codex +
+anthropic_helper too. `CodexConfig` gains neutral `thinking`/`reasoning_effort`
+(mirror of ClaudeConfig's; dialect mapping in _codex_config_toml_builder).
+
+## 2026-06-10 — merge `dev` into codex branch: embeddings out, Codex stays
+
+Reconciling two opposite directions: `dev` retired embeddings (narrative/
+memory routing is BM25 now), while the codex branch had made an embedding
+slot *required*. Resolution = follow `dev`. `EmbeddingConfig`,
+`_embedding_ctx`, the embedding field on `RuntimeLLMConfigs`, and the
+embedding slot in the strict resolver are all gone. `RuntimeLLMConfigs` is
+now `{claude, openai, codex}`; `set_user_config(claude, openai, codex=None)`;
+`get_user_llm_configs` is back to a 2-tuple `(claude, openai)` — Codex rides
+the `*_runtime_*` accessors. The guardrail test `test_embedding_removal.py`
+was updated so the `set_user_config` signature assertion expects
+`(claude, openai, codex)` (still rejects any embedding arg).
+
 ## 2026-06-10 — ClaudeConfig carries neutral reasoning params
 
 `ClaudeConfig` gained `thinking` / `reasoning_effort` (both default ""
@@ -14,35 +69,38 @@ Claude-dialect mapping lives in xyz_claude_agent_sdk
 these ride ClaudeAgentOptions, not env vars.
 
 
-## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
+## 2026-05-29 — add CodexConfig + codex_config ContextVar
 
-`ClaudeConfig.to_cli_env()` now also sets `API_TIMEOUT_MS` (from
-`settings.llm_api_timeout_ms`) and `CLAUDE_CODE_MAX_RETRIES` (from
-`settings.llm_max_retries`). These are the Claude Code CLI's own knobs for a
-per-REQUEST timeout and built-in transient-error retry. Previously unset →
-inherited CLI defaults; now explicit + .env-tunable so a stalled request is
-bounded and auto-retried (the "卡死无重试" fix). API_TIMEOUT_MS is per-request,
-NOT a run total — it does not violate 铁律 #14 (no agent_loop cap); retry is on
-the SAME provider so it does not govern model choice (铁律 #15).
+Symmetric with the existing ClaudeConfig/OpenAIConfig/EmbeddingConfig
+trio. New ``CodexConfig`` frozen dataclass carries ``api_key`` /
+``base_url`` / ``model`` / ``auth_type`` for the Codex CLI subprocess
+spawned by ``xyz_codex_cli_sdk.CodexSDK``. ``to_cli_env()`` mirrors
+the ClaudeConfig invariant: explicit blank for ``CODEX_API_KEY``
+when not in use so a parent-process env can't leak across tenants.
 
-## 2026-05-13 — `_get_user_llm_configs_strict` delegates to provider_driver
+``base_url`` / ``model`` are NOT exported via env — Codex reads them
+from per-run ``config.toml`` ``[model_providers.<name>]`` instead.
+The wire is via ``_codex_config_toml_builder``.
 
-The user-provider branch now first calls
-`provider_driver.resolve_user_llm_configs(user_id, db)`. That function
-encapsulates the new single-point resolution path including reverse-
-validation self-heal for broken slot.model bindings (the Xiong bug).
-If the new resolver raises `LLMConfigNotConfigured` we re-raise to keep
-the actionable message; any other exception logs a warning and falls
-through to the legacy hand-rolled branch below — kept as a safety net
-during the Phase 1 confidence window.
+Per-task ContextVar (``_codex_ctx``) + ``_ConfigHolder._codex`` slot
+follow the existing pattern. Holder is initialised to an empty
+``CodexConfig()`` by default — there is no .env/llm_config.json
+source path because Codex auth flows through ``codex login`` (host
+CLI) rather than NarraNexus config. Per-user overrides arrive via
+the ContextVar at agent_loop time.
 
-The legacy `_use_system_default_strict` path is untouched. The cloud
-migration that turns env-var system credentials into a regular
-`user_providers` row with `owner_user_id=NULL` (Phase 3) will collapse
-that branch too; until then, opt-in `prefer_system_override=true` users
-keep going through the old path.
+## 2026-05-31 — runtime config bundle includes CodexConfig
 
-See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
+`RuntimeLLMConfigs` groups the four per-turn configs: Claude agent,
+helper LLM, embedding, and Codex agent. `get_user_runtime_llm_configs()`
+and `get_agent_owner_runtime_llm_configs()` return this bundle so
+`AgentRuntime.run()` can inject `codex_config` before Step 3 selects
+`CodexSDK`. The older `get_user_llm_configs()` still returns the three
+non-Codex configs for call sites that do not drive the agent loop.
+
+`CodexConfig` now carries `auth_ref` in addition to api key / base URL /
+model. It is not exported as an env var; `xyz_codex_cli_sdk` uses it to
+copy the host `codex login` auth file into the per-run `CODEX_HOME`.
 
 ## 2026-05-22 — to_cli_env injects API_TIMEOUT_MS + CLAUDE_CODE_MAX_RETRIES (#7)
 

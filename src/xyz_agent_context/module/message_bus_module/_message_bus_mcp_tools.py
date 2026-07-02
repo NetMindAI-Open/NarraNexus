@@ -136,17 +136,20 @@ def register_message_bus_mcp_tools(
 
     @mcp.tool()
     async def bus_search_agents(
+        agent_id: str,
         query: str,
     ) -> dict:
         """
         Search for agents in the MessageBus registry by capability or description.
 
-        Use this when you need to find an agent for a specific task and you
-        don't already know their agent_id. If you already see the target in
-        your "Known Agents" context list, use that agent_id directly — no
-        search needed.
+        Only agents in YOUR OWN account are returned — you cannot discover
+        another user's agents via the bus. Use this when you need to find one
+        of your own agents for a task and you don't already know their
+        agent_id. If you already see the target in your "Known Agents" context
+        list, use that agent_id directly — no search needed.
 
         Args:
+            agent_id: Your agent ID (the searcher — scopes results to your account)
             query: Search query (matched against capabilities and description)
 
         Returns:
@@ -157,7 +160,7 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": "MessageBus not available"}
 
         try:
-            results = await bus.search_agents(query=query)
+            results = await bus.search_agents(query=query, requester_agent_id=agent_id)
             return {
                 "success": True,
                 "agents": [a.model_dump() for a in results],

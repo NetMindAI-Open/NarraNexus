@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   User, Tag, Clock, ChevronDown, ChevronRight, Mail, Phone,
   Building, Briefcase, Star, Link,
@@ -23,10 +24,10 @@ interface EntityCardProps {
 
 type StrengthLevel = 'high' | 'medium' | 'low';
 
-const strengthLabel: Record<StrengthLevel, string> = {
-  high: 'Strong',
-  medium: 'Medium',
-  low: 'Weak',
+const strengthLabelKey: Record<StrengthLevel, string> = {
+  high: 'awareness.entity.strengthStrong',
+  medium: 'awareness.entity.strengthMedium',
+  low: 'awareness.entity.strengthWeak',
 };
 
 const strengthText: Record<StrengthLevel, string> = {
@@ -36,6 +37,7 @@ const strengthText: Record<StrengthLevel, string> = {
 };
 
 export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCardProps) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(isCurrentUser);
 
   const strengthLevel: StrengthLevel =
@@ -77,18 +79,18 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
             </span>
             {isCurrentUser && (
               <span className="text-[9px] px-1.5 py-[1px] bg-[var(--text-primary)] text-[var(--text-inverse)] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em]">
-                You
+                {t('awareness.entity.you')}
               </span>
             )}
           </div>
           <div className="mt-0.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] flex items-center gap-2">
             <span className="truncate">{entity.entity_type}</span>
             <span className="opacity-40">·</span>
-            <span>{actualChatCount} chats</span>
+            <span>{t('awareness.entity.chatsCount', { count: actualChatCount })}</span>
             {entity.familiarity && (
               <>
                 <span className="opacity-40">·</span>
-                <span>{entity.familiarity === 'direct' ? 'Direct' : 'Known of'}</span>
+                <span>{entity.familiarity === 'direct' ? t('awareness.entity.direct') : t('awareness.entity.knownOf')}</span>
               </>
             )}
           </div>
@@ -101,7 +103,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
             strengthText[strengthLevel]
           )}
         >
-          {strengthLabel[strengthLevel]}
+          {t(strengthLabelKey[strengthLevel])}
         </span>
       </button>
 
@@ -110,7 +112,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
         <div className="pb-3 pl-[calc(0.875rem+2rem+0.75rem)] pr-1 space-y-3 animate-fade-in">
           <Detail
             icon={User}
-            label="Communication Style"
+            label={t('awareness.entity.communicationStyle')}
             show={!!entity.persona}
           >
             <p className="leading-relaxed">{entity.persona}</p>
@@ -118,7 +120,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
 
           <Detail
             icon={Briefcase}
-            label={`Related Jobs (${entity.related_job_ids?.length ?? 0})`}
+            label={t('awareness.entity.relatedJobs', { count: entity.related_job_ids?.length ?? 0 })}
             show={!!(entity.related_job_ids && entity.related_job_ids.length > 0)}
           >
             <div className="flex flex-wrap gap-1.5 font-[family-name:var(--font-mono)] text-[11px]">
@@ -136,7 +138,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
 
           <Detail
             icon={Star}
-            label="Expertise"
+            label={t('awareness.entity.expertise')}
             show={!!(entity.expertise_domains && entity.expertise_domains.length > 0)}
           >
             <div className="flex flex-wrap gap-1.5 text-[11px]">
@@ -152,7 +154,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
           </Detail>
 
           {entity.entity_description && (
-            <Detail label="Description" show>
+            <Detail label={t('awareness.entity.description')} show>
               <div className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
                 <Markdown content={entity.entity_description} />
               </div>
@@ -161,7 +163,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
 
           <Detail
             icon={Link}
-            label="Aliases"
+            label={t('awareness.entity.aliases')}
             show={!!(entity.aliases && entity.aliases.length > 0)}
           >
             <div className="flex flex-wrap gap-1.5 text-[11px] font-[family-name:var(--font-mono)]">
@@ -175,7 +177,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
 
           <Detail
             icon={Tag}
-            label="Tags"
+            label={t('awareness.entity.tags')}
             show={!!(entity.tags && entity.tags.length > 0)}
           >
             <div className="flex flex-wrap gap-1.5 text-[11px] font-[family-name:var(--font-mono)]">
@@ -189,13 +191,13 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
 
           <KvGroup
             icon={Building}
-            label="Identity"
+            label={t('awareness.entity.identity')}
             entries={entity.identity_info}
           />
 
           <KvGroup
             icon={Mail}
-            label="Contact"
+            label={t('awareness.entity.contact')}
             entries={entity.contact_info}
             iconOverride={(key) =>
               key === 'email' ? <Mail className="w-3 h-3 text-[var(--text-tertiary)]" /> :
@@ -206,7 +208,7 @@ export function EntityCard({ entity, isCurrentUser, actualChatCount }: EntityCar
 
           <div className="flex items-center justify-between pt-2 border-t border-[var(--rule)] text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.12em] text-[var(--text-tertiary)]">
             <span className="flex items-center gap-1.5">
-              Strength
+              {t('awareness.entity.strength')}
               <span className={cn('tabular-nums', strengthText[strengthLevel])}>
                 {(entity.relationship_strength * 100).toFixed(0)}%
               </span>

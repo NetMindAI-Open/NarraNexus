@@ -1,11 +1,38 @@
 ---
 code_file: frontend/src/components/teams/TeamManagementModal.tsx
-last_verified: 2026-05-08
+last_verified: 2026-06-24
 stub: false
 ---
 
-# TeamManagementModal.tsx — Team CRUD modal (subproject 1)
+# TeamManagementModal.tsx — Full team CRUD modal (create / manage the teams behind the group chats)
 
-双栏：左是 team 列表 + 创建表单；右是选中 team 的元数据（name / color / intro_md）+ 成员勾选 + 删除按钮。
+## Why it exists
 
-`intro_md` 编辑直接落库 `teams.intro_md`，bundle export 时复用作为默认 README.md（议题 8）。
+The management surface behind the sidebar's TEAMS section: where the owner
+creates teams, sets name/color/intro_md, and adds/removes member agents. Each
+team it manages is the roster behind a group chat over the message bus, so
+membership edits here directly change who participates in (and is `@mention`-able
+within) that team's chat.
+
+## How it works / design
+
+- **Two-column layout**: left is the team list + a create form (name + color
+  preset + Create); right is the selected team's metadata (name / color /
+  intro_md) plus a member checklist and a Delete button. State is driven entirely
+  by [[teamsStore]] (`createTeam` / `updateTeam` / `deleteTeam` / `addMember` /
+  `removeMember`); the agent roster comes from `useConfigStore`.
+- **Portals to `<body>`** via `createPortal`. The sidebar `<aside>` uses
+  `translate` (mobile-drawer slide) which — even at the desktop value of 0px —
+  establishes a containing block for `position:fixed` descendants, which would
+  trap this overlay inside the 288px sidebar. Rendering into `<body>` escapes
+  that subtree so the backdrop+modal are viewport-relative and centered.
+- **All member toggles surface failures.** `handleToggleMember` wraps
+  add/remove in try/catch and `window.alert`s any backend rejection. Before this,
+  the handler leaned on unhandled-rejection propagation, so a 403 (cross-user
+  agent / ownership mismatch) or 500 (schema drift / FK violation) silently did
+  nothing — the user saw "click Add, nothing happens". Same alert-on-throw
+  pattern guards create / save-meta / delete.
+- **Gotchas**: `intro_md` edits land directly in `teams.intro_md` and are reused
+  as the bundle's default README on export. Imported teams (`source === 'bundle'`)
+  get an "imported" badge. Deleting a team only unlinks members — the agents
+  themselves are not deleted (the confirm copy says so).

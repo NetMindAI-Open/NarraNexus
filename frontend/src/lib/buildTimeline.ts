@@ -101,6 +101,12 @@ export function buildUnifiedTimeline(
     const isNonChat = msg.working_source && msg.working_source !== 'chat';
     if (isNonChat && msg.content === '(Agent decided no response needed)') continue;
 
+    // Hide message-bus background-activity markers from the agent's 1:1 chat.
+    // A team group-chat turn (the agent was @mentioned) lives in the team room,
+    // not here — surfacing it as "Background activity (message_bus)" just
+    // confuses the owner looking at their direct conversation.
+    if (msg.message_type === 'activity' && msg.working_source === 'message_bus') continue;
+
     items.push({
       id: `h-${i}`,
       role: msg.role,

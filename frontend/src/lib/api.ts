@@ -13,6 +13,9 @@ import type {
   ClearHistoryResponse,
   SocialNetworkResponse,
   SocialNetworkListResponse,
+  MyNarrativesResponse,
+  MyNetworkResponse,
+  MyWorldviewResponse,
   SocialNetworkSearchResponse,
   ChatHistoryResponse,
   SimpleChatHistoryResponse,
@@ -52,6 +55,8 @@ import type {
   LarkAuthCompleteResponse,
   TeamListResponse,
   TeamOperationResponse,
+  TeamChatHistoryResponse,
+  TeamChatSendResponse,
   BundleExportRequest,
   BundlePreflightResponse,
   BundleConfirmResponse,
@@ -63,7 +68,15 @@ import type {
   SlackTestResponse,
   TelegramCredentialResponse,
   TelegramBindResponse,
+  NarramessengerCredentialResponse,
+  NarramessengerBindResponse,
   TelegramTestResponse,
+  WeChatCredentialResponse,
+  WeChatQrStartResponse,
+  WeChatQrPollResponse,
+  DiscordCredentialResponse,
+  DiscordBindResponse,
+  DiscordTestResponse,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -71,6 +84,14 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+
+/** Sources accepted by POST /api/providers/onboard (one-key setup). */
+export type OnboardProviderType =
+  | 'anthropic'
+  | 'openai'
+  | 'netmind'
+  | 'yunwu'
+  | 'openrouter';
 
 class ApiClient {
   // Public so download helpers (lib/download.ts) can attach the same
@@ -265,6 +286,26 @@ class ApiClient {
     );
   }
 
+  /** Owner-scoped: every narrative across all the user's agents, for the
+   *  "You" workspace Narra Memory timeline. Seeded scaffold narratives are
+   *  excluded unless includeDefault is set. */
+  async getMyNarratives(includeDefault = false): Promise<MyNarrativesResponse> {
+    const qs = includeDefault ? '?include_default=true' : '';
+    return this.request<MyNarrativesResponse>(`/api/me/narratives${qs}`);
+  }
+
+  /** Owner-scoped: every entity the user's agents know, merged across agents,
+   *  for the "You" workspace Nexus Network graph. */
+  async getMyNetwork(): Promise<MyNetworkResponse> {
+    return this.request<MyNetworkResponse>('/api/me/network');
+  }
+
+  /** Owner-scoped: how each of the user's agents sees them + each agent's own
+   *  worldview, for the "You" workspace Worldview tab. */
+  async getMyWorldview(): Promise<MyWorldviewResponse> {
+    return this.request<MyWorldviewResponse>('/api/me/worldview');
+  }
+
   // 语义搜索 Social Network Entities
   async searchSocialNetwork(
     agentId: string,
@@ -428,17 +469,24 @@ class ApiClient {
   }
 
   // Arena onboarding: ensure the authenticated user has a provisioned Arena
-  // agent and return it. Idempotent server-side (one Arena agent per user);
-  // no body — the user is derived from the session. See backend/routes/arena.py.
-  async provisionArena(): Promise<{
+  // agent and return it. Idempotent server-side (one Arena agent per user).
+  // The user identity comes from the session; the optional `userToken` is the
+  // user's NetMind JWT, forwarded so the backend can bind the agent's owner
+  // email via Arena's platform-only endpoint (no email round-trip). It is sent
+  // to Arena and never persisted. See backend/routes/arena.py.
+  async provisionArena(userToken?: string): Promise<{
     success: boolean;
     reused?: boolean;
     status?: string;
     agent_id?: string;
     arena_agent_id?: string;
     arena_name?: string;
+    owner_bind?: string;
   }> {
-    return this.request('/api/arena/provision', { method: 'POST' });
+    return this.request('/api/arena/provision', {
+      method: 'POST',
+      body: userToken ? JSON.stringify({ user_token: userToken }) : undefined,
+    });
   }
 
   async createAgent(
@@ -866,6 +914,49 @@ class ApiClient {
     return this.request(`/api/providers`);
   }
 
+  /** One-key onboarding: a single API key wires the agent framework,
+   * the provider, and both slots (agent + helper_llm) in one call.
+   * providerType overrides the backend's sk-ant- prefix detection;
+   * aggregator keys (netmind/yunwu/openrouter) MUST pass it — they
+   * have no recognisable prefix. */
+  async onboard(
+    apiKey: string,
+    providerType?: OnboardProviderType,
+  ): Promise<{
+    success: boolean;
+    detail?: string;
+    provider_ids?: string[];
+    provider_type?: string;
+    agent_framework?: string;
+    agent_model?: string;
+    helper_model?: string;
+    /** "ok" | "unverified (<reason>)" — live key probe result. A
+     * definitively bad key never reaches success (400 instead). */
+    key_check?: string;
+  }> {
+    return this.request(`/api/providers/onboard`, {
+      method: 'POST',
+      body: JSON.stringify({
+        api_key: apiKey,
+        provider_type: providerType ?? null,
+      }),
+    });
+  }
+
+  /** Update one provider slot (e.g. 'agent' / 'helper_llm') — the model the
+   *  user's agents use for that role. Same endpoint Settings › Providers uses;
+   *  surfaced in the composer so the model can be switched without leaving chat. */
+  async setProviderSlot(
+    slot: string,
+    body: { provider_id: string; model: string; thinking?: string; reasoning_effort?: string },
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(`/api/providers/slots/${slot}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
   /** Backfill the latest default models from the catalog into existing providers.
    * Identity comes from the X-User-Id / JWT header — no query param. */
   async syncProviderDefaults(): Promise<{
@@ -881,6 +972,47 @@ class ApiClient {
     total_models_added: number;
   }> {
     return this.request(`/api/providers/sync-defaults`, { method: 'POST' });
+  }
+
+  /** Get the user's coding-agent framework choice + auth probe. */
+  async getAgentFramework(): Promise<{
+    success: boolean;
+    data: {
+      framework: string;
+      supported: string[];
+      probe: { ok: boolean; detail: string };
+    };
+  }> {
+    return this.request(`/api/providers/agent-framework`);
+  }
+
+  /** Set the user's coding-agent framework choice.
+   *
+   * For ``framework === 'codex_cli'``, the backend may auto-install
+   * ``@openai/codex`` via ``npm install -g`` in local mode. The
+   * ``install`` field reports the outcome:
+   *   - ``null``                   — codex install not attempted (claude_code)
+   *   - ``{action: 'already_installed'}`` — binary was already on PATH
+   *   - ``{action: 'auto_installed'}``    — we just installed it
+   *   - ``{action: 'blocked'}``           — cloud mode: install refused
+   *   - ``{action: 'install_failed'}``    — see ``reason``
+   */
+  async setAgentFramework(framework: string): Promise<{
+    success: boolean;
+    data: {
+      framework: string;
+      probe: { ok: boolean; detail: string };
+      install: {
+        installed: boolean;
+        action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed';
+        reason: string;
+      } | null;
+    };
+  }> {
+    return this.request(`/api/providers/agent-framework`, {
+      method: 'POST',
+      body: JSON.stringify({ framework }),
+    });
   }
 
   /**
@@ -1036,6 +1168,89 @@ class ApiClient {
     });
   }
 
+  // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
+  async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
+    return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async startWeChatQrcode(agentId: string): Promise<WeChatQrStartResponse> {
+    return this.request<WeChatQrStartResponse>('/api/wechat/qrcode/start', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async pollWeChatQrcode(
+    agentId: string,
+    qrcode: string,
+  ): Promise<WeChatQrPollResponse> {
+    // No base_url: the gateway host is fixed server-side (a client-supplied
+    // host would be an SSRF vector). The backend ignores any extra field.
+    return this.request<WeChatQrPollResponse>('/api/wechat/qrcode/poll', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, qrcode }),
+    });
+  }
+
+  async unbindWeChat(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/wechat/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async getNarramessengerCredential(agentId: string): Promise<NarramessengerCredentialResponse> {
+    return this.request<NarramessengerCredentialResponse>(`/api/narramessenger/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindNarramessenger(agentId: string, bindCommand: string): Promise<NarramessengerBindResponse> {
+    return this.request<NarramessengerBindResponse>('/api/narramessenger/bind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, bind_command: bindCommand }),
+    });
+  }
+
+  async unbindNarramessenger(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/narramessenger/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  // Discord Integration API
+  async getDiscordCredential(agentId: string): Promise<DiscordCredentialResponse> {
+    return this.request<DiscordCredentialResponse>(`/api/discord/credential?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async bindDiscordBot(
+    agentId: string,
+    botToken: string,
+    ownerUserId: string = '',
+  ): Promise<DiscordBindResponse> {
+    return this.request<DiscordBindResponse>('/api/discord/bind', {
+      method: 'POST',
+      body: JSON.stringify({
+        agent_id: agentId,
+        bot_token: botToken,
+        owner_user_id: ownerUserId,
+      }),
+    });
+  }
+
+  async testDiscordConnection(agentId: string): Promise<DiscordTestResponse> {
+    return this.request<DiscordTestResponse>('/api/discord/test', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async unbindDiscordBot(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/discord/unbind', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
   // System-default free-tier quota
   async getMyQuota(): Promise<QuotaMeResponse> {
     return this.request<QuotaMeResponse>('/api/quota/me');
@@ -1087,6 +1302,24 @@ class ApiClient {
     return this.request<TeamOperationResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(agentId)}`,
       { method: 'DELETE' }
+    );
+  }
+
+  // --- Team group chat (over the message bus) ---
+
+  async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
+    const q = since ? `?since=${encodeURIComponent(since)}` : '';
+    return this.request<TeamChatHistoryResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/chat/messages${q}`,
+    );
+  }
+
+  /** Post a user message into a team's group chat. `mentions` carries
+   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone). */
+  async sendTeamChat(teamId: string, content: string, mentions: string[]): Promise<TeamChatSendResponse> {
+    return this.request<TeamChatSendResponse>(
+      `/api/teams/${encodeURIComponent(teamId)}/chat/messages`,
+      { method: 'POST', body: JSON.stringify({ content, mentions }) },
     );
   }
 

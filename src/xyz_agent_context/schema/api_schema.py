@@ -83,22 +83,6 @@ class ActiveRunInfo(BaseModel):
     current_stage: Optional[str] = None
 
 
-class ActiveRunInfo(BaseModel):
-    """Phase C — summary of the agent's currently running run, if any.
-
-    The frontend uses this to render the "Running" badge on the agent
-    card (pulse + glow, sharing the visual language of the Jobs
-    status badges). When no run is active, the parent AgentInfo
-    carries ``active_run = None``.
-    """
-    run_id: str
-    state: str  # running / cancelling / completed / cancelled / failed
-    started_at: Optional[str] = None
-    last_event_at: Optional[str] = None
-    tool_call_count: int = 0
-    current_stage: Optional[str] = None
-
-
 class AgentInfo(BaseModel):
     """Response model for agent info"""
     agent_id: str

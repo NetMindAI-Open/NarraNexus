@@ -80,9 +80,12 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NarraNexus · NetMind.AI</title>
-    <!-- NM design system uses pure system font stack — no web font loaded here.
-         See frontend/src/index.css @theme --font-display / --font-sans / --font-mono
-         for the SF Pro + CJK fallback chain. -->
+    <!-- Web fonts — aligned with the marketing site (narranexus-website):
+         Space Grotesk (display) · Inter (body) · DM Mono (mono). CJK falls
+         back to the system stack (see index.css @theme). Self-hosted under
+         public/fonts (latin + latin-ext woff2) so the desktop DMG works
+         offline — binding rule #7 (run.sh ≡ DMG). -->
+    <link rel="stylesheet" href="/fonts/narra-fonts.css" />
   </head>
   <body>
     <div id="root"></div>

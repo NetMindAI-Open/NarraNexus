@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/bookmarks/tabs.ts
-last_verified: 2026-06-11
+last_verified: 2026-06-20
 stub: false
 ---
+
+## 2026-06-20 — MCP strip caption shortened
+
+The `mcp` tab gained `stripLabel: 'MCP'` so the strip caption reads "MCP"
+instead of the truncated "MCP SERVE…". The full `label` ("MCP Servers") is kept
+for the tooltip / aria-label.
 
 ## 2026-06-11 (PM)
 

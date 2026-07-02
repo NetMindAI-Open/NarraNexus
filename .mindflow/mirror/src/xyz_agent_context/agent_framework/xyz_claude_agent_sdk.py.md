@@ -1,8 +1,41 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-06-10
+last_verified: 2026-06-11
 stub: false
 ---
+
+## 2026-06-11 — thinking 走 --effort,绝不发 --max-thinking-tokens 正数
+
+CC 在当前代 Claude 模型上每轮 400(`"thinking.type.enabled" is not supported
+for this model`,被 `AGENT-LOOP-RECOVERABLE: Claude API error: unknown` 盖住)。
+**根因不在我们的 API 形状,而在 SDK→CLI 的翻译链**(2026-06-11 实测
+`claude_agent_sdk/_internal/transport/subprocess_cli.py` + CLI 2.1.x):
+
+1. SDK **把 `ClaudeAgentOptions.thinking` 全翻成 `--max-thinking-tokens N`**
+   (adaptive→32000、enabled→budget、disabled→0),**从不发 `--thinking
+   adaptive`**;
+2. Claude Code CLI 把**正数的 `--max-thinking-tokens`** 当成旧版
+   `thinking:{type:"enabled",budget_tokens:N}` 发给 API → 当前模型 400;
+3. CLI 唯一的 adaptive 开关是 **`--effort <level>`**(`--help` 仅此一个;
+   无 `--thinking`)。给 `--effort` 且不给 `--max-thinking-tokens` → adaptive;
+   什么都不给 → 退回被拒的 enabled。
+
+> 之前一版误以为"把 `thinking` 设成 adaptive dict"就行——错。SDK 会把它
+> 变成 `--max-thinking-tokens 32000`,CLI 照样发 enabled,还是 400。
+
+**正解**(`_resolve_reasoning_options`):
+- **on / auto / 未知** → 只回 `{"effort": <level>}`,**不带 `thinking` 键**
+  (SDK 因此不发 --max-thinking-tokens,CLI 走 adaptive)。auto/未知 effort
+  兜底 `"high"`(Anthropic server 默认),**保证 --effort 一定在**——没有任何
+  flag 时 CLI 会退回 enabled。
+- **off** → `{"thinking": {"type": "disabled"}}`(→ --max-thinking-tokens 0,
+  唯一不 400 的 max-thinking-tokens 值;off 时不带 effort)。
+
+我们任何路径都不产生正数 --max-thinking-tokens,故永不发 enabled。
+版本背景:PATH `claude` 2.1.39 / SDK bundled 2.1.56,两者都靠 --effort 走
+adaptive,此改法版本无关。局限:故意 pin 只认 enabled+budget_tokens 的旧模型
+(如 Sonnet 4.5)在此拿不到思考预算——平台面向当前模型。测试:
+tests/agent_framework/test_claude_reasoning_mapping.py。
 
 ## 2026-06-10 — Neutral reasoning params → Claude dialect (L1c)
 

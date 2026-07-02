@@ -5,6 +5,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Brain, Clock, Users, Sparkles, Edit3, Save, X, MessageSquare, Network, TrendingUp, Search, Loader2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Markdown, Textarea, Dialog, DialogContent, DialogFooter, Input, StatStrip, ScrollArea } from '@/components/ui';
 import { BracketEmptyState } from '@/components/nm';
@@ -29,6 +30,7 @@ interface AwarenessPanelProps {
 }
 
 export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProps = {}) {
+  const { t } = useTranslation();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editedAwareness, setEditedAwareness] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -90,10 +92,10 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
         await refreshAwareness(agentId);
         setIsEditModalOpen(false);
       } else {
-        setSaveError(response.error || 'Failed to save awareness — try again.');
+        setSaveError(response.error || t('awareness.panel.errSave'));
       }
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Failed to save awareness — try again.');
+      setSaveError(error instanceof Error ? error.message : t('awareness.panel.errSave'));
     } finally {
       setIsSaving(false);
     }
@@ -112,11 +114,11 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
       if (response.success) {
         setSearchResults(response.entities);
       } else {
-        setSearchError(response.error || 'Search failed — try again.');
+        setSearchError(response.error || t('awareness.panel.errSearch'));
         setSearchResults([]);
       }
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : 'Search failed — try again.');
+      setSearchError(error instanceof Error ? error.message : t('awareness.panel.errSearch'));
       setSearchResults([]);
     } finally {
       setIsSearching(false);
@@ -179,7 +181,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
           {!embedded && (
           <CardTitle>
             <Brain />
-            Context
+            {t('awareness.panel.context')}
           </CardTitle>
           )}
           <Button
@@ -187,7 +189,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
             size="icon"
             onClick={handleRefresh}
             disabled={isLoading}
-            title="Refresh"
+            title={t('awareness.common.refresh')}
           >
             <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
           </Button>
@@ -197,9 +199,9 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
         {(!section || section === 'social') && (
         <StatStrip
           items={[
-            { label: 'Contacts', value: socialNetworkList.length, icon: Users },
-            { label: 'Chats', value: networkMetrics.totalChats, icon: MessageSquare, tone: 'secondary' },
-            { label: 'Strong', value: networkMetrics.strongConnections, icon: TrendingUp, tone: 'success', subtext: `${networkMetrics.avgStrength}% avg` },
+            { label: t('awareness.panel.statContacts'), value: socialNetworkList.length, icon: Users },
+            { label: t('awareness.panel.statChats'), value: networkMetrics.totalChats, icon: MessageSquare, tone: 'secondary' },
+            { label: t('awareness.panel.statStrong'), value: networkMetrics.strongConnections, icon: TrendingUp, tone: 'success', subtext: t('awareness.panel.statAvg', { pct: networkMetrics.avgStrength }) },
           ]}
         />
         )}
@@ -212,7 +214,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em]">
                 <Sparkles className="w-3 h-3" />
-                Agent Awareness
+                {t('awareness.panel.agentAwareness')}
               </div>
               <Button
                 variant="ghost"
@@ -222,7 +224,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 className="h-6 px-1.5"
               >
                 <Edit3 className="w-3 h-3 mr-1" />
-                Edit
+                {t('awareness.panel.edit')}
               </Button>
             </div>
 
@@ -262,14 +264,14 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 {awarenessUpdateTime && (
                   <div className="mt-3 pt-3 border-t border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />
-                    Updated {formatRelativeTime(awarenessUpdateTime)}
+                    {t('awareness.panel.updated', { time: formatRelativeTime(awarenessUpdateTime) })}
                   </div>
                 )}
               </div>
             ) : (
               <BracketEmptyState
-                label="No awareness data"
-                hint="Awareness blurbs from the agent will appear here."
+                label={t('awareness.panel.noAwarenessLabel')}
+                hint={t('awareness.panel.noAwarenessHint')}
                 className="!py-6"
               />
             )}
@@ -290,23 +292,13 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
           </section>
           )}
 
-          {/* ── Section: Workspace ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <FileUpload />
-          </section>
-
-          {/* ── Section: IM Channels (Lark / Slack / Telegram) ── */}
-          <section className="border-t border-[var(--rule)] px-5 py-5">
-            <IMChannelsSection />
-          </section>
-
           {/* ── Section: Social Network ── */}
           {(!section || section === 'social') && (
           <section className={cn('px-5 pt-5 pb-6', !section && 'border-t border-[var(--rule)]')}>
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.16em]">
                 <Network className="w-3 h-3" />
-                Social Network
+                {t('awareness.panel.socialNetwork')}
               </div>
               <span className="text-[10px] font-[family-name:var(--font-mono)] text-[var(--text-tertiary)] tabular-nums">
                 {socialNetworkList.length}
@@ -320,7 +312,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-tertiary)]" />
                   <Input
                     type="text"
-                    placeholder="Search contacts…"
+                    placeholder={t('awareness.panel.searchPlaceholder')}
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={handleSearchKeyDown}
@@ -351,7 +343,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                       : 'text-[var(--text-tertiary)] border-b border-transparent hover:text-[var(--text-primary)]'
                   )}
                 >
-                  Semantic
+                  {t('awareness.panel.semantic')}
                 </button>
                 <button
                   onClick={() => setSearchType('keyword')}
@@ -362,14 +354,14 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                       : 'text-[var(--text-tertiary)] border-b border-transparent hover:text-[var(--text-primary)]'
                   )}
                 >
-                  Keyword
+                  {t('awareness.panel.keyword')}
                 </button>
                 {hasSearched && (
                   <button
                     onClick={handleClearSearch}
                     className="ml-auto px-1.5 py-0.5 uppercase tracking-[0.1em] text-[var(--text-tertiary)] hover:text-[var(--color-red-500)] transition-colors"
                   >
-                    Clear
+                    {t('awareness.panel.clear')}
                   </button>
                 )}
               </div>
@@ -379,7 +371,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
             {hasSearched && (
               <div className="mb-3">
                 <div className="text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.14em] mb-2">
-                  {isSearching ? 'Searching…' : `${searchResults.length} results`}
+                  {isSearching ? t('awareness.panel.searching') : t('awareness.panel.resultsCount', { count: searchResults.length })}
                 </div>
                 {searchError && (
                   <div
@@ -422,8 +414,8 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 </div>
               ) : sortedEntities.length === 0 ? (
                 <BracketEmptyState
-                  label="No contacts yet"
-                  hint="People and agents discovered by the agent will appear here."
+                  label={t('awareness.panel.noContactsLabel')}
+                  hint={t('awareness.panel.noContactsHint')}
                   className="!py-6"
                 />
               ) : (
@@ -450,18 +442,18 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
       <Dialog
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title="Edit Agent Awareness"
+        title={t('awareness.panel.editModalTitle')}
         size="lg"
       >
         <DialogContent>
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-tertiary)]">
-              Edit the agent's self-awareness text. This helps the agent understand its current state, goals, and context.
+              {t('awareness.panel.editModalDesc')}
             </p>
             <Textarea
               value={editedAwareness}
               onChange={(e) => setEditedAwareness(e.target.value)}
-              placeholder="Enter agent awareness..."
+              placeholder={t('awareness.panel.editModalPlaceholder')}
               rows={12}
               className="font-mono text-sm resize-none"
             />
@@ -482,7 +474,7 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
             disabled={isSaving}
           >
             <X className="w-4 h-4 mr-2" />
-            Cancel
+            {t('awareness.common.cancel')}
           </Button>
           <Button
             variant="accent"
@@ -492,12 +484,12 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
             {isSaving ? (
               <>
                 <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
+                {t('awareness.panel.saving')}
               </>
             ) : (
               <>
                 <Save className="w-4 h-4 mr-2" />
-                Save
+                {t('awareness.common.save')}
               </>
             )}
           </Button>

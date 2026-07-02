@@ -18,6 +18,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -50,20 +51,20 @@ import type {
   BundleMcpPreview,
 } from '@/types';
 
-const TABS: { id: TabId; label: string; icon: any }[] = [
-  { id: 'agents', label: 'Agents', icon: Users },
-  { id: 'history', label: 'Narratives & Events', icon: FileText },
+const TABS: { id: TabId; labelKey: string; icon: any }[] = [
+  { id: 'agents', labelKey: 'pages.bundleExport.tabs.agents', icon: Users },
+  { id: 'history', labelKey: 'pages.bundleExport.tabs.history', icon: FileText },
   // Skills sidebar in-app merges Skills + MCP into one Card; the wizard
   // follows the same grouping so users see one consistent surface for
   // "agent tools" no matter whether they're managing or packaging.
-  { id: 'skills', label: 'Skills & MCP', icon: Wrench },
-  { id: 'social', label: 'Social Network', icon: Hexagon },
-  { id: 'bus', label: 'Message Bus', icon: Radio },
+  { id: 'skills', labelKey: 'pages.bundleExport.tabs.skills', icon: Wrench },
+  { id: 'social', labelKey: 'pages.bundleExport.tabs.social', icon: Hexagon },
+  { id: 'bus', labelKey: 'pages.bundleExport.tabs.bus', icon: Radio },
   // Artifacts ride along inside workspace.tar.gz already; this tab controls
   // whether the DB pointer rows ship so the recipient sees the artifact in
   // their Settings → Artifacts table after import.
-  { id: 'artifacts', label: 'Artifacts', icon: Sparkles },
-  { id: 'workspace', label: 'Workspace files', icon: ListTree },
+  { id: 'artifacts', labelKey: 'pages.bundleExport.tabs.artifacts', icon: Sparkles },
+  { id: 'workspace', labelKey: 'pages.bundleExport.tabs.workspace', icon: ListTree },
 ];
 
 type TabId = 'agents' | 'history' | 'skills' | 'social' | 'bus' | 'artifacts' | 'workspace';
@@ -115,6 +116,7 @@ interface ChatHistoryNarrative {
 }
 
 export default function BundleExportPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { agents, userId } = useConfigStore();
@@ -245,7 +247,7 @@ export default function BundleExportPage() {
   // auto-fill (i.e. the user hasn't typed anything custom).
   useEffect(() => {
     const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const team = teams.find((t) => t.team.team_id === selectedTeam);
+    const team = teams.find((tm) => tm.team.team_id === selectedTeam);
     const safeName = team
       ? team.team.name.replace(/[^a-zA-Z0-9_一-龥-]/g, '_').replace(/__+/g, '_')
       : 'bundle';
@@ -371,7 +373,7 @@ export default function BundleExportPage() {
           if (jobsByNar['__orphan__']) {
             narrs.push({
               narrative_id: '__orphan_jobs__',
-              title: '(jobs without a parent narrative)',
+              title: t('pages.bundleExport.history.orphanJobsTitle'),
               events: [],
               jobs: jobsByNar['__orphan__'],
             });
@@ -657,15 +659,15 @@ export default function BundleExportPage() {
 
     if (isOptingInSensitive) {
       const ok = await confirmDialog({
-        title: 'Include sensitive file?',
+        title: t('pages.bundleExport.workspace.confirmSensitiveTitle'),
         message: (
           <>
-            <p><code>{path}</code> matches a sensitive-pattern (e.g. <code>.env</code>, <code>*.key</code>, credentials, wallet).</p>
-            <p>Including it will ship the file's contents inside the bundle. Anyone you share the bundle with will receive these bytes.</p>
-            <p>Confirm only if you've verified this file does not contain secrets you want to keep private.</p>
+            <p><code>{path}</code> {t('pages.bundleExport.workspace.confirmSensitiveLine1')}</p>
+            <p>{t('pages.bundleExport.workspace.confirmSensitiveLine2')}</p>
+            <p>{t('pages.bundleExport.workspace.confirmSensitiveLine3')}</p>
           </>
         ),
-        confirmText: 'Include anyway',
+        confirmText: t('pages.bundleExport.workspace.confirmSensitiveButton'),
         danger: true,
       });
       if (!ok) return;
@@ -924,18 +926,15 @@ export default function BundleExportPage() {
       a.download = finalName;
       a.click();
       URL.revokeObjectURL(url);
-      const parts = [`${finalName} downloaded.`];
+      const parts = [t('pages.bundleExport.toast.downloaded', { name: finalName })];
       if (externalEdgesDropped > 0) {
-        parts.push(
-          `Dropped ${externalEdgesDropped} reference(s) to entities outside the bundle ` +
-          '(expected — your agents had social-network notes about agents not in the closure).'
-        );
+        parts.push(t('pages.bundleExport.toast.externalEdgesDropped', { count: externalEdgesDropped }));
       }
       if (warningsCount > 0) {
-        parts.push(`${warningsCount} warning${warningsCount === 1 ? '' : 's'} (see manifest.json).`);
+        parts.push(t('pages.bundleExport.toast.warnings', { count: warningsCount }));
       }
       await alert({
-        title: 'Bundle created',
+        title: t('pages.bundleExport.toast.createdTitle'),
         message: parts.join(' '),
       });
       navigate('/app/settings');
@@ -945,7 +944,7 @@ export default function BundleExportPage() {
       if (e?.code === 'SENSITIVE_FILES_IN_SKILL_ZIP' && e?.hits) {
         setSensitiveHits(e.hits);
       } else {
-        await alert({ title: 'Export failed', message: e?.message || String(e), danger: true });
+        await alert({ title: t('pages.bundleExport.toast.failedTitle'), message: e?.message || String(e), danger: true });
       }
     } finally {
       setDownloading(false);
@@ -964,7 +963,7 @@ export default function BundleExportPage() {
           <button
             onClick={() => navigate('/app/settings')}
             className="p-1 rounded-[var(--radius-xs)] transition-colors hover:bg-[color:var(--nm-paper-warm)]"
-            aria-label="Back to settings"
+            aria-label={t('pages.bundleExport.backToSettings')}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
@@ -973,11 +972,16 @@ export default function BundleExportPage() {
             className="text-2xl font-bold tracking-tight"
             style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
           >
-            Export bundle
+            {t('pages.bundleExport.title')}
           </h1>
         </div>
         <BracketSectionLabel>
-          {summary.agents} agents · {summary.skills} skills · {summary.socialEntities} entities · {summary.busChannels} channels
+          {t('pages.bundleExport.summaryLine', {
+            agents: summary.agents,
+            skills: summary.skills,
+            entities: summary.socialEntities,
+            channels: summary.busChannels,
+          })}
         </BracketSectionLabel>
       </div>
 
@@ -985,7 +989,7 @@ export default function BundleExportPage() {
       <div className="px-6 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)]">
         <div className="flex items-start gap-3">
           <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)] mt-1.5 font-mono shrink-0">
-            Mode
+            {t('pages.bundleExport.mode.label')}
           </span>
           <div className="flex-1 grid grid-cols-2 gap-2">
             <button
@@ -1002,16 +1006,13 @@ export default function BundleExportPage() {
                   'w-3 h-3 rounded-full border-2',
                   mode === 'full' ? 'border-[var(--text-primary)] bg-[var(--text-primary)]' : 'border-[var(--text-tertiary)]'
                 )} />
-                <span className="font-mono text-sm">Full snapshot</span>
+                <span className="font-mono text-sm">{t('pages.bundleExport.mode.fullTitle')}</span>
                 <span className="text-[10px] px-1.5 py-0.5 border border-[var(--color-yellow-500)] text-[var(--color-yellow-500)]">
                   contains_secrets
                 </span>
               </div>
               <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
-                Self-backup. Includes <strong>all</strong> narratives, events, jobs,
-                social entities, message-bus channels, workspace files, and skills
-                with credentials (env_config, wallet.json, study summaries). Use to
-                clone an entire setup to another of YOUR machines.
+                {t('pages.bundleExport.mode.fullDescPrefix')} <strong>{t('pages.bundleExport.mode.fullDescAll')}</strong> {t('pages.bundleExport.mode.fullDescSuffix')}
               </div>
             </button>
             <button
@@ -1028,12 +1029,11 @@ export default function BundleExportPage() {
                   'w-3 h-3 rounded-full border-2',
                   mode === 'custom' ? 'border-[var(--text-primary)] bg-[var(--text-primary)]' : 'border-[var(--text-tertiary)]'
                 )} />
-                <span className="font-mono text-sm">Custom (recommended for sharing)</span>
+                <span className="font-mono text-sm">{t('pages.bundleExport.mode.customTitle')}</span>
               </div>
               <div className="text-[11px] text-[var(--text-tertiary)] mt-1.5 leading-relaxed">
-                Pick exactly which agents, narratives, events, social entities,
-                workspace files and skills go in. Skill credentials are <strong>stripped</strong>
-                {' '}(unless you explicitly choose Full Copy per skill). Use to share with someone else.
+                {t('pages.bundleExport.mode.customDescPrefix')} <strong>{t('pages.bundleExport.mode.customDescStripped')}</strong>
+                {' '}{t('pages.bundleExport.mode.customDescSuffix')}
               </div>
             </button>
           </div>
@@ -1041,31 +1041,28 @@ export default function BundleExportPage() {
         {mode === 'full' && (
           <div className="mt-2 ml-[60px] text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
             <AlertTriangle className="w-3 h-3" />
-            Pick which agents to ship in the Agents tab. For each picked agent,
-            ALL their skills become Full Copy (carry credentials), narratives /
-            events / social entities / workspace files are fully included.
-            Below tabs are read-only previews.
+            {t('pages.bundleExport.mode.fullNote')}
           </div>
         )}
       </div>
 
       {/* Tab bar */}
       <div className="px-6 border-b border-[var(--border-subtle)] flex">
-        {TABS.map((t) => {
-          const Icon = t.icon;
+        {TABS.map((tabItem) => {
+          const Icon = tabItem.icon;
           return (
             <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
+              key={tabItem.id}
+              onClick={() => setTab(tabItem.id)}
               className={cn(
                 'px-4 py-3 text-sm font-mono flex items-center gap-2 border-b-2 -mb-px',
-                tab === t.id
+                tab === tabItem.id
                   ? 'border-[var(--text-primary)] text-[var(--text-primary)]'
                   : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-primary)]'
               )}
             >
               <Icon className="w-3.5 h-3.5" />
-              {t.label}
+              {t(tabItem.labelKey)}
             </button>
           );
         })}
@@ -1285,7 +1282,7 @@ export default function BundleExportPage() {
         {/* Filename input */}
         <div className="flex items-center gap-2 mb-3">
           <span className="text-xs font-mono uppercase tracking-widest text-[var(--text-tertiary)] shrink-0">
-            File name
+            {t('pages.bundleExport.fileName')}
           </span>
           <input
             value={filename}
@@ -1296,13 +1293,13 @@ export default function BundleExportPage() {
         </div>
         <div className="flex items-center gap-2 mb-2">
           <FileText className="w-4 h-4" />
-          <span className="text-sm font-mono">Bundle Notes (optional, shown to recipient)</span>
+          <span className="text-sm font-mono">{t('pages.bundleExport.bundleNotesLabel')}</span>
         </div>
         <textarea
           value={introMd}
           onChange={(e) => setIntroMd(e.target.value)}
           rows={4}
-          placeholder={`# ${selectedTeam ? teams.find((x) => x.team.team_id === selectedTeam)?.team.name : 'My team'}\n\nDescribe what this team does…`}
+          placeholder={`# ${selectedTeam ? teams.find((x) => x.team.team_id === selectedTeam)?.team.name : t('pages.bundleExport.bundleNotesPlaceholderTeam')}\n\n${t('pages.bundleExport.bundleNotesPlaceholderDesc')}`}
           className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none resize-y"
         />
         <label className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--text-secondary)]">
@@ -1311,13 +1308,13 @@ export default function BundleExportPage() {
             checked={includeChat}
             onChange={(e) => setIncludeChat(e.target.checked)}
           />
-          Include chat history (events + messages). Disable for templates with privacy concerns.
+          {t('pages.bundleExport.includeChatLabel')}
         </label>
       </div>
 
       {/* Footer */}
       <div className="px-6 py-3 border-t border-[var(--border-default)] flex items-center justify-between">
-        <Button onClick={() => navigate('/app/settings')} variant="ghost" size="sm">Cancel</Button>
+        <Button onClick={() => navigate('/app/settings')} variant="ghost" size="sm">{t('pages.bundleExport.cancel')}</Button>
         <Button
           onClick={() => setReviewing(true)}
           disabled={selectedAgents.size === 0}
@@ -1325,7 +1322,7 @@ export default function BundleExportPage() {
           className="gap-1"
         >
           <Search className="w-3.5 h-3.5" />
-          Review &amp; Export
+          {t('pages.bundleExport.reviewExport')}
         </Button>
       </div>
 
@@ -1333,10 +1330,10 @@ export default function BundleExportPage() {
         <ReviewSummaryModal
           summary={summary}
           agents={Array.from(selectedAgents)}
-          team={teams.find((t) => t.team.team_id === selectedTeam) || null}
+          team={teams.find((tm) => tm.team.team_id === selectedTeam) || null}
           introMd={introMd}
           skills={Object.values(skillChoices)}
-          warnings={collectWarnings(skillChoices, workspaceFiles, selectedAgents)}
+          warnings={collectWarnings(skillChoices, workspaceFiles, selectedAgents, t)}
           onCancel={() => setReviewing(false)}
           onConfirm={doExport}
           downloading={downloading}
@@ -1365,18 +1362,19 @@ function collectWarnings(
   skills: Record<string, SkillExportSpec>,
   workspaceFiles: Record<string, any>,
   selectedAgents: Set<string>,
+  t: (key: string, opts?: any) => string,
 ): string[] {
   const warns: string[] = [];
   Object.values(skills).forEach((s) => {
     if (s.install_method === 'full_copy') {
-      warns.push(`"${s.skill_name}" full-copy mode — includes credentials/wallet/etc. if present`);
+      warns.push(t('pages.bundleExport.warnings.fullCopy', { name: s.skill_name }));
     }
   });
   selectedAgents.forEach((aid) => {
     const sens = (workspaceFiles[aid] || []).filter((f: any) => f.sensitive).length;
-    if (sens > 0) warns.push(`agent ${aid}: ${sens} workspace file(s) match sensitive patterns (auto-excluded by default)`);
+    if (sens > 0) warns.push(t('pages.bundleExport.warnings.sensitiveFiles', { agent: aid, count: sens }));
   });
-  warns.push('Free text (awareness / events / messages) is NOT auto-scanned for inline secrets — verify yourself.');
+  warns.push(t('pages.bundleExport.warnings.freeText'));
   return warns;
 }
 
@@ -1388,9 +1386,10 @@ function AgentsTab({
   agents, teams, selected, onToggle, selectedTeam, onSetTeam, onBulkSet,
 }: {
   agents: any[]; teams: TeamWithMembers[]; selected: Set<string>; onToggle: (id: string) => void;
-  selectedTeam: string; onSetTeam: (t: string) => void;
+  selectedTeam: string; onSetTeam: (teamId: string) => void;
   onBulkSet: (next: Set<string>) => void;
 }) {
+  const { t } = useTranslation();
   // Pre-compute (team_id → existing-on-this-instance member ids) so that
   // batch select doesn't try to add agent_ids that no longer exist locally.
   const liveAgentIds = useMemo(() => new Set(agents.map((a) => a.agent_id)), [agents]);
@@ -1415,26 +1414,22 @@ function AgentsTab({
     <div className="space-y-4">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> the
-          set of agents this bundle will contain. Everything else in the wizard (narratives,
-          skills, MCPs, files…) is filtered to this closure.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.agents.whatYouPick')}</strong> {t('pages.bundleExport.agents.intro1')}
         </p>
         <p>
-          Picking a team adds all of its existing members in one click; you can still
-          uncheck individuals afterwards. External references (e.g. a social entity pointing
-          at an agent outside this closure) get dropped automatically on export.
+          {t('pages.bundleExport.agents.intro2')}
         </p>
       </div>
       <div>
-        <label className="text-xs uppercase text-[var(--text-tertiary)]">Bundle this team (optional)</label>
+        <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('pages.bundleExport.agents.bundleTeamLabel')}</label>
         <select
           value={selectedTeam}
           onChange={(e) => onSetTeam(e.target.value)}
           className="mt-1 px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)]"
         >
-          <option value="">— No team / individual agents —</option>
-          {teams.map((t) => (
-            <option key={t.team.team_id} value={t.team.team_id}>{t.team.name} ({t.member_agent_ids.length})</option>
+          <option value="">{t('pages.bundleExport.agents.noTeamOption')}</option>
+          {teams.map((team) => (
+            <option key={team.team.team_id} value={team.team.team_id}>{team.team.name} ({team.member_agent_ids.length})</option>
           ))}
         </select>
       </div>
@@ -1443,16 +1438,16 @@ function AgentsTab({
           one click pulls in (or replaces with) every live member of that team. */}
       {teams.length > 0 && (
         <div>
-          <label className="text-xs uppercase text-[var(--text-tertiary)]">Quick add by team</label>
+          <label className="text-xs uppercase text-[var(--text-tertiary)]">{t('pages.bundleExport.agents.quickAddByTeam')}</label>
           <div className="mt-2 flex flex-wrap gap-2">
-            {teams.map((t) => {
-              const live = teamLiveMembers(t);
+            {teams.map((team) => {
+              const live = teamLiveMembers(team);
               const inSelected = live.filter((id) => selected.has(id)).length;
               const allIn = live.length > 0 && inSelected === live.length;
               const someIn = inSelected > 0 && !allIn;
               return (
                 <div
-                  key={t.team.team_id}
+                  key={team.team.team_id}
                   className={cn(
                     'flex items-center gap-1 border text-[11px] font-mono',
                     allIn
@@ -1463,24 +1458,26 @@ function AgentsTab({
                   )}
                 >
                   <button
-                    onClick={() => (allIn ? dropTeam(t) : addTeam(t))}
+                    onClick={() => (allIn ? dropTeam(team) : addTeam(team))}
                     className="px-2 py-1 hover:bg-[var(--bg-tertiary)] flex items-center gap-1"
-                    title={allIn ? `Deselect all members of "${t.team.name}"` : `Add all members of "${t.team.name}"`}
+                    title={allIn
+                      ? t('pages.bundleExport.agents.deselectTeamTitle', { name: team.team.name })
+                      : t('pages.bundleExport.agents.addTeamTitle', { name: team.team.name })}
                   >
-                    {t.team.color && (
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.team.color }} />
+                    {team.team.color && (
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: team.team.color }} />
                     )}
-                    <span>{t.team.name}</span>
+                    <span>{team.team.name}</span>
                     <span className="text-[var(--text-tertiary)]">
                       ({inSelected}/{live.length})
                     </span>
                   </button>
                   <button
-                    onClick={() => replaceWithTeam(t)}
+                    onClick={() => replaceWithTeam(team)}
                     className="px-1.5 py-1 hover:bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] border-l border-[var(--border-subtle)]"
-                    title={`Replace selection with "${t.team.name}" members`}
+                    title={t('pages.bundleExport.agents.replaceTeamTitle', { name: team.team.name })}
                   >
-                    only
+                    {t('pages.bundleExport.agents.only')}
                   </button>
                 </div>
               );
@@ -1489,13 +1486,13 @@ function AgentsTab({
               onClick={() => onBulkSet(new Set(agents.map((a) => a.agent_id)))}
               className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] text-[11px] font-mono"
             >
-              all agents ({agents.length})
+              {t('pages.bundleExport.agents.allAgents', { count: agents.length })}
             </button>
             <button
               onClick={() => onBulkSet(new Set())}
               className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] text-[11px] font-mono"
             >
-              clear
+              {t('pages.bundleExport.agents.clear')}
             </button>
           </div>
         </div>
@@ -1503,7 +1500,7 @@ function AgentsTab({
 
       <div>
         <label className="text-xs uppercase text-[var(--text-tertiary)]">
-          Agents to include · {selected.size}/{agents.length}
+          {t('pages.bundleExport.agents.agentsToInclude', { selected: selected.size, total: agents.length })}
         </label>
         <div className="mt-2 grid grid-cols-2 gap-2">
           {agents.map((a) => {
@@ -1547,10 +1544,11 @@ function SkillsTab({
   onChange: (agentId: string, dirName: string, spec: SkillExportSpec) => void;
   onAfterBackup: () => void;
 }) {
+  const { t } = useTranslation();
   if (agents.length === 0) {
     return (
       <div className="text-sm text-[var(--text-tertiary)]">
-        Select agents in the previous tab — their skills will appear here.
+        {t('pages.bundleExport.skills.emptySelectAgents')}
       </div>
     );
   }
@@ -1561,14 +1559,14 @@ function SkillsTab({
     return (
       <div className="text-sm text-[var(--text-tertiary)] flex items-center gap-2">
         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        Loading skills for selected agents…
+        {t('pages.bundleExport.skills.loading')}
       </div>
     );
   }
   if (allLoaded && totalSkills === 0) {
     return (
       <div className="text-sm text-[var(--text-tertiary)]">
-        None of the selected agents have any skills installed.
+        {t('pages.bundleExport.skills.noneInstalled')}
       </div>
     );
   }
@@ -1577,16 +1575,12 @@ function SkillsTab({
     <div className="space-y-3">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
-          skills (and MCP servers) ship with each agent, and <em>how</em> they ship —
-          GitHub URL (recipient pulls fresh), Zip (frozen archive), or Full Copy
-          (full directory tree, env vars and study results included).
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.skills.whatYouPick')}</strong> {t('pages.bundleExport.skills.intro1')}
         </p>
         <p>
-          The same skill name can live on multiple agents independently — each row has its
-          own <code>.skill_meta.json</code>, <code>env_config</code>, <code>study_result</code>.
-          Pick per-(agent, skill).
-          {isReadOnly && ' Full snapshot pinned every skill to Full Copy — read-only here.'}
+          {t('pages.bundleExport.skills.intro2Prefix')} <code>.skill_meta.json</code>, <code>env_config</code>, <code>study_result</code>.
+          {' '}{t('pages.bundleExport.skills.intro2Suffix')}
+          {isReadOnly && ` ${t('pages.bundleExport.skills.readOnlyNote')}`}
         </p>
       </div>
       {agents.map((a) => {
@@ -1597,7 +1591,7 @@ function SkillsTab({
             <details key={a.agent_id} className="border border-[var(--border-default)]">
               <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
-                {a.name || a.agent_id} — loading skills…
+                {t('pages.bundleExport.skills.agentLoading', { name: a.name || a.agent_id })}
               </summary>
             </details>
           );
@@ -1606,7 +1600,7 @@ function SkillsTab({
           return (
             <details key={a.agent_id} className="border border-[var(--border-default)]">
               <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)]">
-                {a.name || a.agent_id} — no skills installed
+                {t('pages.bundleExport.skills.agentNoSkills', { name: a.name || a.agent_id })}
               </summary>
             </details>
           );
@@ -1616,7 +1610,7 @@ function SkillsTab({
             <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center justify-between">
               <span>{a.name || a.agent_id}</span>
               <span className="text-[10px] text-[var(--text-tertiary)]">
-                {skills.length} skill{skills.length === 1 ? '' : 's'}
+                {t('pages.bundleExport.skills.skillCount', { count: skills.length })}
               </span>
             </summary>
             <div className="p-2 space-y-2">
@@ -1645,11 +1639,11 @@ function SkillsTab({
                         <div className="text-sm font-mono">{sk.name}</div>
                         <div className="text-[10px] text-[var(--text-tertiary)]">
                           {sameNameCount > 1 && (
-                            <span className="text-[var(--color-yellow-500)] mr-1">dir: {sk.dirName}</span>
+                            <span className="text-[var(--color-yellow-500)] mr-1">{t('pages.bundleExport.skills.dirPrefix', { dir: sk.dirName })}</span>
                           )}
                           {arch?.source_type
-                            ? `archived (${arch.source_type})`
-                            : 'no archive registered'}
+                            ? t('pages.bundleExport.skills.archived', { type: arch.source_type })
+                            : t('pages.bundleExport.skills.noArchiveRegistered')}
                         </div>
                       </div>
                       {choice?.install_method === 'full_copy' && (
@@ -1660,8 +1654,8 @@ function SkillsTab({
                     </div>
                     <div className={cn('grid grid-cols-4 gap-2', isReadOnly && 'opacity-60 pointer-events-none')}>
                       <RadioCard
-                        label="URL install"
-                        desc={hasUrl ? `${arch?.source_url}` : (choice?.install_method === 'url' && choice.source_url ? `(manual) ${choice.source_url}` : 'No URL recorded')}
+                        label={t('pages.bundleExport.skills.urlInstall')}
+                        desc={hasUrl ? `${arch?.source_url}` : (choice?.install_method === 'url' && choice.source_url ? t('pages.bundleExport.skills.manualPrefix', { value: choice.source_url }) : t('pages.bundleExport.skills.noUrlRecorded'))}
                         disabled={isReadOnly}
                         active={choice?.install_method === 'url'}
                         onClick={() => setMethod({
@@ -1671,8 +1665,8 @@ function SkillsTab({
                         })}
                       />
                       <RadioCard
-                        label="Zip install"
-                        desc={hasZip ? `archive ${arch?.archive_path?.split('/').pop()}` : (choice?.install_method === 'zip' && choice.manual_zip_path ? `(manual) ${choice.manual_zip_path}` : 'No archive')}
+                        label={t('pages.bundleExport.skills.zipInstall')}
+                        desc={hasZip ? t('pages.bundleExport.skills.archivePrefix', { name: arch?.archive_path?.split('/').pop() }) : (choice?.install_method === 'zip' && choice.manual_zip_path ? t('pages.bundleExport.skills.manualPrefix', { value: choice.manual_zip_path }) : t('pages.bundleExport.skills.noArchive'))}
                         disabled={isReadOnly}
                         active={choice?.install_method === 'zip'}
                         onClick={() => setMethod({
@@ -1682,15 +1676,15 @@ function SkillsTab({
                         })}
                       />
                       <RadioCard
-                        label="Full copy"
-                        desc="⚠ includes wallets/credentials"
+                        label={t('pages.bundleExport.skills.fullCopy')}
+                        desc={t('pages.bundleExport.skills.fullCopyDesc')}
                         active={choice?.install_method === 'full_copy'}
                         disabled={isReadOnly}
                         onClick={() => setMethod({ skill_name: sk.name, install_method: 'full_copy' })}
                       />
                       <RadioCard
-                        label="Skip"
-                        desc="Don't include this skill"
+                        label={t('pages.bundleExport.skills.skip')}
+                        desc={t('pages.bundleExport.skills.skipDesc')}
                         active={choice?.install_method === 'skip'}
                         disabled={isReadOnly}
                         onClick={() => setMethod({ skill_name: sk.name, install_method: 'skip' })}
@@ -1699,7 +1693,7 @@ function SkillsTab({
                     {/* Manual URL fill */}
                     {!isReadOnly && choice?.install_method === 'url' && !hasUrl && (
                       <div className="mt-2 flex items-center gap-2">
-                        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">GitHub URL:</span>
+                        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">{t('pages.bundleExport.skills.githubUrlLabel')}</span>
                         <input
                           type="text"
                           placeholder="https://github.com/owner/repo"
@@ -1713,7 +1707,7 @@ function SkillsTab({
                         />
                         <input
                           type="text"
-                          placeholder="branch"
+                          placeholder={t('pages.bundleExport.skills.branchPlaceholder')}
                           defaultValue={choice.branch || 'main'}
                           onChange={(e) => setMethod({
                             skill_name: sk.name, install_method: 'url',
@@ -1727,7 +1721,7 @@ function SkillsTab({
                     {/* Manual zip upload */}
                     {!isReadOnly && choice?.install_method === 'zip' && !hasZip && (
                       <div className="mt-2 flex items-center gap-2">
-                        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">Upload zip:</span>
+                        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">{t('pages.bundleExport.skills.uploadZipLabel')}</span>
                         <input
                           type="file"
                           accept=".zip"
@@ -1744,7 +1738,7 @@ function SkillsTab({
                           className="text-[11px]"
                         />
                         <span className="text-[10px] text-[var(--text-tertiary)]">
-                          uploads to your skill_archives so subsequent exports reuse it
+                          {t('pages.bundleExport.skills.uploadZipHint')}
                         </span>
                       </div>
                     )}
@@ -1752,8 +1746,7 @@ function SkillsTab({
                       <div className="mt-2 text-[10px] text-[var(--text-tertiary)] flex items-start gap-1.5">
                         <AlertTriangle className="w-3 h-3 mt-0.5 text-[var(--color-yellow-500)] shrink-0" />
                         <span className="flex-1">
-                          This skill has no archive. Pick URL/Zip to fill in a source manually,
-                          ask the agent to back it up, choose Full copy (含 credentials), or Skip.
+                          {t('pages.bundleExport.skills.noArchiveHint')}
                         </span>
                         <AskAgentToBackupButton
                           agentIds={[a.agent_id]}
@@ -1777,6 +1770,7 @@ function SkillsTab({
 function AskAgentToBackupButton({
   agentIds, userId, skillName, onDone,
 }: { agentIds: string[]; userId: string; skillName: string; onDone: () => void }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   return (
     <button
@@ -1794,7 +1788,7 @@ function AskAgentToBackupButton({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              content: `Please back up the "${skillName}" skill for export — call skill_list_unbackedup() first to confirm it's missing, then choose the correct skill_backup_* MCP tool (skill_backup_from_github / _from_md / _from_local_zip) based on how you originally installed it. After the backup completes, tell me you're done.`,
+              content: t('pages.bundleExport.skills.backupMessage', { name: skillName }),
               user_id: userId,
             }),
           }).catch(() => {});
@@ -1807,9 +1801,9 @@ function AskAgentToBackupButton({
       }}
       disabled={busy || agentIds.length === 0}
       className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
-      title="Send a message to the first selected agent asking it to call skill_backup_*"
+      title={t('pages.bundleExport.skills.backupButtonTitle')}
     >
-      {busy ? '…' : 'Ask agent to back up'}
+      {busy ? '…' : t('pages.bundleExport.skills.backupButton')}
     </button>
   );
 }
@@ -1853,27 +1847,22 @@ function HistoryTab({
    *  skeletons + jobs are still selectable here. */
   chatHistoryEnabled: boolean;
 }) {
+  const { t } = useTranslation();
   if (agents.length === 0) {
-    return (<div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>);
+    return (<div className="text-sm text-[var(--text-tertiary)]">{t('pages.bundleExport.history.selectAgentsFirst')}</div>);
   }
   return (
     <div className="space-y-3">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
-          narratives (the agent's "topic threads") ship in the bundle, and — for each one —
-          which individual events (chat turns) and jobs ride along with it.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.history.whatYouPick')}</strong> {t('pages.bundleExport.history.intro1')}
         </p>
         <p>
-          <strong className="text-[var(--text-secondary)]">Defaults:</strong> all narratives
-          are included; <em>no events</em> are included unless you tick them; all jobs under
-          a kept narrative ship along.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.history.defaultsLabel')}</strong> {t('pages.bundleExport.history.intro2')}
         </p>
         {!chatHistoryEnabled && (
           <p className="text-[var(--color-yellow-500)]">
-            <strong>Chat history is disabled</strong> (toggle in the Bundle Notes section).
-            Narrative skeletons + jobs still ship; events and message bodies do not — your
-            per-event picks below are saved but won't take effect until you re-enable.
+            <strong>{t('pages.bundleExport.history.disabledTitle')}</strong> {t('pages.bundleExport.history.disabledBody')}
           </p>
         )}
       </div>
@@ -1893,11 +1882,11 @@ function HistoryTab({
                 {!loaded ? (
                   <span className="text-[10px] text-[var(--text-tertiary)] flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    Loading…
+                    {t('pages.bundleExport.history.loadingShort')}
                   </span>
                 ) : (
                   <span className="text-[10px] text-[var(--text-tertiary)]">
-                    {narrs.length - exNars.size} / {narrs.length} narratives
+                    {t('pages.bundleExport.history.narrativeCount', { included: narrs.length - exNars.size, total: narrs.length })}
                   </span>
                 )}
                 <button
@@ -1905,14 +1894,14 @@ function HistoryTab({
                   disabled={!loaded}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
                 >
-                  Select all
+                  {t('pages.bundleExport.history.selectAll')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onSelectNoneNarratives(a.agent_id); }}
                   disabled={!loaded}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40"
                 >
-                  Select none
+                  {t('pages.bundleExport.history.selectNone')}
                 </button>
               </div>
             </summary>
@@ -1920,11 +1909,11 @@ function HistoryTab({
               {!loaded && (
                 <div className="px-2 py-3 text-xs text-[var(--text-tertiary)] flex items-center gap-2">
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Loading narratives + events + jobs from this agent…</span>
+                  <span>{t('pages.bundleExport.history.loadingFull')}</span>
                 </div>
               )}
               {loaded && narrs.length === 0 && (
-                <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">No narratives.</div>
+                <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">{t('pages.bundleExport.history.noNarratives')}</div>
               )}
               {narrs.map((n) => {
                 const narExcluded = exNars.has(n.narrative_id);
@@ -1954,15 +1943,15 @@ function HistoryTab({
                         <div className="text-[10px] text-[var(--text-tertiary)] flex flex-wrap gap-x-2">
                           {!isOrphanJobsRow && (
                             <span>
-                              {inEvts.size} / {n.events.length} events
+                              {t('pages.bundleExport.history.eventsCount', { included: inEvts.size, total: n.events.length })}
                             </span>
                           )}
                           {n.jobs.length > 0 && (
-                            <span>{n.jobs.length - exJobs.size} / {n.jobs.length} jobs</span>
+                            <span>{t('pages.bundleExport.history.jobsCount', { included: n.jobs.length - exJobs.size, total: n.jobs.length })}</span>
                           )}
                           {n.type && <span>{n.type}</span>}
                           {(n.instances_count ?? 0) > 0 && (
-                            <span>{n.instances_count} instance(s)</span>
+                            <span>{t('pages.bundleExport.history.instancesCount', { count: n.instances_count })}</span>
                           )}
                           {n.created_at && <span>{(n.created_at || '').slice(0, 10)}</span>}
                           <span className="text-[var(--text-tertiary)]/70">{n.narrative_id}</span>
@@ -1976,13 +1965,13 @@ function HistoryTab({
                                 onClick={(e) => { e.stopPropagation(); onSelectAllEventsInNarrative(n.narrative_id, n.events.map((x) => x.event_id)); }}
                                 className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                               >
-                                All events
+                                {t('pages.bundleExport.history.allEvents')}
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); onSelectNoneEventsInNarrative(n.narrative_id); }}
                                 className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                               >
-                                No events
+                                {t('pages.bundleExport.history.noEvents')}
                               </button>
                             </>
                           )}
@@ -1992,13 +1981,13 @@ function HistoryTab({
                                 onClick={(e) => { e.stopPropagation(); onSelectAllJobsInNarrative(n.narrative_id); }}
                                 className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                               >
-                                All jobs
+                                {t('pages.bundleExport.history.allJobs')}
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); onSelectNoneJobsInNarrative(n.narrative_id, n.jobs.map((x) => x.job_id)); }}
                                 className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                               >
-                                No jobs
+                                {t('pages.bundleExport.history.noJobs')}
                               </button>
                             </>
                           )}
@@ -2033,9 +2022,9 @@ function HistoryTab({
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
-                                    {e.trigger || 'event'} · {(e.created_at || '').slice(0, 19)}
+                                    {e.trigger || t('pages.bundleExport.history.eventFallback')} · {(e.created_at || '').slice(0, 19)}
                                   </div>
-                                  <div className="truncate">{e.preview || '(no preview)'}</div>
+                                  <div className="truncate">{e.preview || t('pages.bundleExport.history.noPreview')}</div>
                                 </div>
                               </label>
                             );
@@ -2043,21 +2032,20 @@ function HistoryTab({
                           {hidden > 0 && (
                             <div className="px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] bg-[var(--bg-secondary)]/40 border-t border-[var(--border-subtle)]">
                               <span className="text-[var(--text-tertiary)]">
-                                Showing {visible.length} / {n.events.length} events
-                                (oldest {hidden} hidden)
+                                {t('pages.bundleExport.history.showingEvents', { visible: visible.length, total: n.events.length, hidden })}
                               </span>
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <button
                                   onClick={(ev) => { ev.stopPropagation(); onShowMoreEvents(n.narrative_id, n.events.length); }}
                                   className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                                 >
-                                  Show {Math.min(eventPageSize, hidden)} more
+                                  {t('pages.bundleExport.history.showMore', { count: Math.min(eventPageSize, hidden) })}
                                 </button>
                                 <button
                                   onClick={(ev) => { ev.stopPropagation(); onShowAllEvents(n.narrative_id, n.events.length); }}
                                   className="px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                                 >
-                                  Show all ({n.events.length})
+                                  {t('pages.bundleExport.history.showAll', { count: n.events.length })}
                                 </button>
                               </div>
                             </div>
@@ -2068,7 +2056,7 @@ function HistoryTab({
                     {!narExcluded && n.jobs.length > 0 && (
                       <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30">
                         <div className="px-3 py-1 text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest">
-                          Jobs ({n.jobs.length - exJobs.size} / {n.jobs.length} included)
+                          {t('pages.bundleExport.history.jobsHeader', { included: n.jobs.length - exJobs.size, total: n.jobs.length })}
                         </div>
                         {n.jobs.map((j) => {
                           const jobExcluded = exJobs.has(j.job_id);
@@ -2085,7 +2073,7 @@ function HistoryTab({
                               />
                               <div className="flex-1 min-w-0">
                                 <div className="font-mono text-[10px] text-[var(--text-tertiary)]">
-                                  {j.job_type || 'job'} · {j.status || ''}
+                                  {j.job_type || t('pages.bundleExport.history.jobFallback')} · {j.status || ''}
                                 </div>
                                 <div className="truncate">{j.title || j.job_id}</div>
                                 {j.description && (
@@ -2115,6 +2103,7 @@ function SensitiveZipConfirmModal({
   onCancel: () => void;
   onAccept: () => void;
 }) {
+  const { t } = useTranslation();
   const [confirmText, setConfirmText] = useState('');
   return (
     <div
@@ -2125,44 +2114,42 @@ function SensitiveZipConfirmModal({
         <div className="px-5 py-3 border-b border-[var(--border-default)] bg-[var(--color-red-500)]/10">
           <div className="flex items-center gap-2 text-[var(--color-red-500)]">
             <AlertTriangle className="w-5 h-5" />
-            <h2 className="font-mono text-sm">Sensitive files detected in skill zip</h2>
+            <h2 className="font-mono text-sm">{t('pages.bundleExport.sensitiveZip.title')}</h2>
           </div>
         </div>
         <div className="p-5 space-y-3 text-sm">
           <p>
-            One or more zip-archived skills in your bundle contain files matching sensitive
-            path patterns (.env, .key, wallet.json, credentials.json, etc.).
-            <strong> If you proceed, recipients will receive these files.</strong>
+            {t('pages.bundleExport.sensitiveZip.body')}
+            <strong> {t('pages.bundleExport.sensitiveZip.bodyStrong')}</strong>
           </p>
           <ul className="list-disc list-inside space-y-1 text-xs font-mono bg-[var(--bg-tertiary)] p-3 max-h-[200px] overflow-y-auto">
             {hits.map((w, i) => (
               <li key={i}>
                 <span className="text-[var(--color-red-500)]">{w.skill}</span>:{' '}
                 {(w.hits || []).slice(0, 5).join(', ')}
-                {(w.hits || []).length > 5 && ` (+${(w.hits || []).length - 5} more)`}
+                {(w.hits || []).length > 5 && ` ${t('pages.bundleExport.sensitiveZip.moreHits', { count: (w.hits || []).length - 5 })}`}
               </li>
             ))}
           </ul>
           <p className="text-xs text-[var(--text-secondary)]">
-            Type <strong className="font-mono">SHARE SECRETS</strong> below to confirm you understand
-            and want to ship these files anyway.
+            {t('pages.bundleExport.sensitiveZip.typePrefix')} <strong className="font-mono">SHARE SECRETS</strong> {t('pages.bundleExport.sensitiveZip.typeSuffix')}
           </p>
           <input
             value={confirmText}
             onChange={(e) => setConfirmText(e.target.value)}
-            placeholder="Type SHARE SECRETS to confirm"
+            placeholder={t('pages.bundleExport.sensitiveZip.inputPlaceholder')}
             className="w-full px-3 py-2 text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] focus:outline-none"
           />
         </div>
         <div className="px-5 py-3 border-t border-[var(--border-default)] flex justify-end gap-2">
-          <Button onClick={onCancel} variant="ghost" size="sm">Cancel</Button>
+          <Button onClick={onCancel} variant="ghost" size="sm">{t('pages.bundleExport.sensitiveZip.cancel')}</Button>
           <Button
             onClick={onAccept}
             disabled={confirmText !== 'SHARE SECRETS'}
             size="sm"
             className="bg-[var(--color-red-500)] text-white hover:bg-[var(--color-red-500)]/80"
           >
-            Ship anyway
+            {t('pages.bundleExport.sensitiveZip.shipAnyway')}
           </Button>
         </div>
       </div>
@@ -2206,24 +2193,20 @@ function SocialTab({
   selectedTeam?: string;
   teams?: TeamWithMembers[];
 }) {
+  const { t } = useTranslation();
   // Unified pagination — both the "All" and "Selected" panes show 30/page (P10).
   const PAGE_SIZE = 30;
   if (agents.length === 0) return (
-    <div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>
+    <div className="text-sm text-[var(--text-tertiary)]">{t('pages.bundleExport.social.selectAgentsFirst')}</div>
   );
   return (
     <div className="space-y-4">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> the
-          "people / organizations / agents this agent remembers" — its social network
-          entities. These travel with the bundle so the recipient gets the agent's
-          context about who's who.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.social.whatYouPick')}</strong> {t('pages.bundleExport.social.intro1')}
         </p>
         <p>
-          Edges pointing at agents <em>outside</em> the bundle's agent closure are
-          dropped automatically. By default, all entities matching the team scope are
-          preselected; uncheck any you don't want shared.
+          {t('pages.bundleExport.social.intro2')}
         </p>
       </div>
       {agents.map((a) => {
@@ -2251,7 +2234,7 @@ function SocialTab({
             <details key={a.agent_id} className="border border-[var(--border-default)]">
               <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
-                {a.name || a.agent_id} — loading social network entities…
+                {t('pages.bundleExport.social.agentLoading', { name: a.name || a.agent_id })}
               </summary>
             </details>
           );
@@ -2262,21 +2245,21 @@ function SocialTab({
               <span>{a.name || a.agent_id}</span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--text-tertiary)]">
-                  {selected.size} / {list.length} selected
+                  {t('pages.bundleExport.social.selectedCount', { selected: selected.size, total: list.length })}
                 </span>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, list.map((x) => x.entity_id)); }}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                   disabled={list.length === 0}
                 >
-                  Select all
+                  {t('pages.bundleExport.social.selectAll')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, []); }}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                   disabled={selected.size === 0}
                 >
-                  Select none
+                  {t('pages.bundleExport.social.selectNone')}
                 </button>
               </div>
             </summary>
@@ -2284,10 +2267,10 @@ function SocialTab({
               {/* Left: all entities (paged 30/page) */}
               <div className="p-2">
                 <div className="text-[10px] text-[var(--text-tertiary)] mb-1 px-2">
-                  All entities (sort by name) — {list.length} total
+                  {t('pages.bundleExport.social.allEntitiesHeader', { count: list.length })}
                 </div>
                 {slice.length === 0 && (
-                  <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">No entities for this agent.</div>
+                  <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">{t('pages.bundleExport.social.noEntities')}</div>
                 )}
                 {slice.map((e) => {
                   const isSel = selected.has(e.entity_id);
@@ -2301,9 +2284,9 @@ function SocialTab({
                             <span className="text-[9px] text-[var(--text-tertiary)]">[{e.entity_type}]</span>
                           </summary>
                           <div className="mt-1 ml-2 text-[10px] text-[var(--text-tertiary)] space-y-0.5">
-                            <div>id: {e.entity_id}</div>
-                            {e.entity_description && <div>desc: {e.entity_description}</div>}
-                            {(e.tags || []).length > 0 && <div>tags: {(e.tags || []).join(', ')}</div>}
+                            <div>{t('pages.bundleExport.social.idLabel', { id: e.entity_id })}</div>
+                            {e.entity_description && <div>{t('pages.bundleExport.social.descLabel', { desc: e.entity_description })}</div>}
+                            {(e.tags || []).length > 0 && <div>{t('pages.bundleExport.social.tagsLabel', { tags: (e.tags || []).join(', ') })}</div>}
                           </div>
                         </details>
                       </div>
@@ -2321,17 +2304,17 @@ function SocialTab({
               {/* Right: selected (paged 30/page) */}
               <div className="p-2">
                 <div className="text-[10px] text-[var(--text-tertiary)] mb-1 px-2">
-                  Selected (will be packaged) — {selectedList.length} total
+                  {t('pages.bundleExport.social.selectedHeader', { count: selectedList.length })}
                 </div>
                 {selSlice.length === 0 && (
-                  <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">Nothing selected.</div>
+                  <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">{t('pages.bundleExport.social.nothingSelected')}</div>
                 )}
                 {selSlice.map((e) => (
                   <div key={e.entity_id} className="flex items-center gap-2 px-2 py-1 text-xs font-mono">
                     <Check className="w-3 h-3 text-[var(--color-green-500)] shrink-0" />
                     <span className="flex-1 truncate">{e.entity_name || e.entity_id}</span>
                     <span className="text-[9px] text-[var(--text-tertiary)]">[{e.entity_type}]</span>
-                    <button onClick={() => onToggle(a.agent_id, e.entity_id)} className="text-[var(--color-red-500)] text-[10px]">remove</button>
+                    <button onClick={() => onToggle(a.agent_id, e.entity_id)} className="text-[var(--color-red-500)] text-[10px]">{t('pages.bundleExport.social.remove')}</button>
                   </div>
                 ))}
                 {selTotalPages > 1 && (
@@ -2379,6 +2362,7 @@ function BusTab({
   onSelectAll: () => void;
   onSelectNone: () => void;
 }) {
+  const { t } = useTranslation();
   const readOnly = mode === 'full';
   const agentNameById: Record<string, string> = useMemo(() => {
     const m: Record<string, string> = {};
@@ -2390,18 +2374,17 @@ function BusTab({
     return (
       <div className="flex items-center gap-2 text-xs text-[var(--text-tertiary)] font-mono py-6">
         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        Loading message bus channels…
+        {t('pages.bundleExport.bus.loading')}
       </div>
     );
   }
   if (agents.length === 0) {
-    return <div className="text-xs text-[var(--text-tertiary)]">Pick at least one agent first.</div>;
+    return <div className="text-xs text-[var(--text-tertiary)]">{t('pages.bundleExport.bus.pickAgentFirst')}</div>;
   }
   if (channels.length === 0) {
     return (
       <div className="text-xs text-[var(--text-tertiary)] py-3">
-        No message-bus channels exist for the selected agent closure. Channels
-        ship only when you own them and at least one closure agent is a member.
+        {t('pages.bundleExport.bus.noChannels')}
       </div>
     );
   }
@@ -2410,20 +2393,15 @@ function BusTab({
     <div className="space-y-3">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
-          Message Bus channels (agent-to-agent chat rooms) ship with the bundle. Only
-          channels you own and that have at least one selected agent as a member appear.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.bus.whatYouPick')}</strong> {t('pages.bundleExport.bus.intro1')}
         </p>
         <p>
-          Default = all eligible channels selected. Channel rows are recreated on import
-          with the recipient as owner; the historical messages inside them ride along
-          with each agent's narrative + event selections (controlled in the Narratives
-          & Events tab).
+          {t('pages.bundleExport.bus.intro2')}
         </p>
       </div>
       <div className="flex items-center justify-between text-xs font-mono">
         <span className="text-[var(--text-tertiary)]">
-          {channels.length} channel{channels.length === 1 ? '' : 's'} eligible · {selected.size} selected
+          {t('pages.bundleExport.bus.eligibleCount', { count: channels.length, selected: selected.size })}
         </span>
         {!readOnly && (
           <div className="flex items-center gap-1">
@@ -2431,23 +2409,19 @@ function BusTab({
               onClick={onSelectAll}
               className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
             >
-              Select all
+              {t('pages.bundleExport.bus.selectAll')}
             </button>
             <button
               onClick={onSelectNone}
               className="px-2 py-1 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
             >
-              Select none
+              {t('pages.bundleExport.bus.selectNone')}
             </button>
           </div>
         )}
       </div>
       <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-        Channels visible here are owned by you AND have at least one selected
-        agent as a member. Unselected channels — and their messages — are
-        excluded from the bundle. External members (agents outside this
-        closure) get rewritten on import as references; members not in the
-        closure don&apos;t come along.
+        {t('pages.bundleExport.bus.note')}
       </div>
       <div className="border border-[var(--border-subtle)]">
         {channels.map((c) => {
@@ -2477,17 +2451,17 @@ function BusTab({
                     </span>
                   )}
                   <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
-                    {c.message_count} msg{c.message_count === 1 ? '' : 's'}
+                    {t('pages.bundleExport.bus.msgCount', { count: c.message_count })}
                   </span>
                 </div>
                 <div className="text-[11px] text-[var(--text-tertiary)] mt-0.5 font-mono break-all">
                   {c.channel_id}
                 </div>
                 <div className="text-[11px] mt-1 text-[var(--text-secondary)]">
-                  In closure: {c.in_closure_member_ids.map((mid) => agentNameById[mid] || mid.slice(0, 8)).join(', ') || '(none)'}
+                  {t('pages.bundleExport.bus.inClosure', { members: c.in_closure_member_ids.map((mid) => agentNameById[mid] || mid.slice(0, 8)).join(', ') || t('pages.bundleExport.bus.none') })}
                   {externalMembers.length > 0 && (
                     <span className="text-[var(--text-tertiary)]">
-                      {' '}· External: {externalMembers.length}
+                      {' '}{t('pages.bundleExport.bus.external', { count: externalMembers.length })}
                     </span>
                   )}
                 </div>
@@ -2499,7 +2473,7 @@ function BusTab({
       {readOnly && (
         <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5">
           <AlertTriangle className="w-3 h-3" />
-          Full snapshot mode auto-includes every eligible channel. Switch to Custom to pick.
+          {t('pages.bundleExport.bus.fullModeNote')}
         </div>
       )}
     </div>
@@ -2519,21 +2493,18 @@ function WorkspaceTab({
   // exclude-all ⇒ excludesSet = {all non-sensitive paths}
   onBulkSet: (aid: string, mode: 'all' | 'non-sensitive' | 'none') => void;
 }) {
-  if (agents.length === 0) return (<div className="text-sm text-[var(--text-tertiary)]">Select agents first.</div>);
+  const { t } = useTranslation();
+  if (agents.length === 0) return (<div className="text-sm text-[var(--text-tertiary)]">{t('pages.bundleExport.workspace.selectAgentsFirst')}</div>);
   return (
     <div className="space-y-4">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
-          files in each agent's workspace ride along inside the bundle's
-          <code>workspace.tar.gz</code>. Sensitive paths (<code>.env</code>,
-          <code>wallet.json</code>, <code>*.key</code>…) are <em>excluded by default</em>;
-          tick them only if you mean to ship secrets.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.workspace.whatYouPick')}</strong> {t('pages.bundleExport.workspace.intro1Prefix')}
+          {' '}<code>workspace.tar.gz</code>. {t('pages.bundleExport.workspace.intro1Mid')} (<code>.env</code>,
+          <code>wallet.json</code>, <code>*.key</code>…) {t('pages.bundleExport.workspace.intro1Suffix')}
         </p>
         <p>
-          Non-sensitive files default to included; deselect any document you don't want
-          recipients to see. Agent artifacts referenced by other tabs already travel here,
-          so keep their source files in.
+          {t('pages.bundleExport.workspace.intro2')}
         </p>
       </div>
       {agents.map((a) => {
@@ -2545,7 +2516,7 @@ function WorkspaceTab({
             <details key={a.agent_id} className="border border-[var(--border-default)]">
               <summary className="px-3 py-2 cursor-pointer text-sm font-mono bg-[var(--bg-secondary)] flex items-center gap-2">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--text-tertiary)]" />
-                {a.name || a.agent_id} — loading workspace files…
+                {t('pages.bundleExport.workspace.agentLoading', { name: a.name || a.agent_id })}
               </summary>
             </details>
           );
@@ -2560,36 +2531,36 @@ function WorkspaceTab({
               <span>{a.name || a.agent_id}</span>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] text-[var(--text-tertiary)]">
-                  {includedCount} / {files.length} files included
-                  {sensitiveCount > 0 && ` · ${sensitiveCount} sensitive`}
+                  {t('pages.bundleExport.workspace.filesIncluded', { included: includedCount, total: files.length })}
+                  {sensitiveCount > 0 && ` ${t('pages.bundleExport.workspace.sensitiveSuffix', { count: sensitiveCount })}`}
                 </span>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'all'); }}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                   disabled={files.length === 0}
                 >
-                  Include all
+                  {t('pages.bundleExport.workspace.includeAll')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'non-sensitive'); }}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                   disabled={sensitiveCount === 0 && includedCount === files.length - 0}
-                  title="Include all NON-sensitive files; sensitive files default-skipped"
+                  title={t('pages.bundleExport.workspace.defaultsTitle')}
                 >
-                  Defaults
+                  {t('pages.bundleExport.workspace.defaults')}
                 </button>
                 <button
                   onClick={(e) => { e.preventDefault(); onBulkSet(a.agent_id, 'none'); }}
                   className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)]"
                   disabled={files.length === 0}
                 >
-                  Exclude all
+                  {t('pages.bundleExport.workspace.excludeAll')}
                 </button>
               </div>
             </summary>
             <div className="p-2 max-h-[320px] overflow-y-auto">
               {files.length === 0 && (
-                <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">No workspace files reported by API.</div>
+                <div className="px-2 py-3 text-xs text-[var(--text-tertiary)]">{t('pages.bundleExport.workspace.noFiles')}</div>
               )}
               {files.map((f) => {
                 const sensitive = f.sensitive;
@@ -2623,7 +2594,7 @@ function WorkspaceTab({
                     </span>
                     {sensitive && (
                       <span className="text-[9px] text-[var(--color-yellow-500)] uppercase tracking-wider font-mono">
-                        {willBeIncluded ? 'sensitive — included' : 'sensitive — click to include'}
+                        {willBeIncluded ? t('pages.bundleExport.workspace.sensitiveIncluded') : t('pages.bundleExport.workspace.sensitiveClickToInclude')}
                       </span>
                     )}
                     <span className="text-[10px] text-[var(--text-tertiary)]">{Math.round(f.size / 1024)} KB</span>
@@ -2646,6 +2617,7 @@ function ReviewSummaryModal({
   summary, team, introMd, skills, warnings, onCancel, onConfirm, downloading,
   filename, mode,
 }: any) {
+  const { t } = useTranslation();
   const skillStats = (skills || []).reduce(
     (acc: Record<string, number>, s: SkillExportSpec) => {
       const m = s.install_method || 'skip';
@@ -2664,52 +2636,53 @@ function ReviewSummaryModal({
     >
       <div className="w-[680px] max-w-[95vw] max-h-[90vh] bg-[var(--bg-primary)] border border-[var(--border-default)] flex flex-col">
         <div className="px-5 py-3 border-b border-[var(--border-default)] flex items-center justify-between">
-          <h2 className="font-mono text-sm">Final review before download</h2>
+          <h2 className="font-mono text-sm">{t('pages.bundleExport.review.title')}</h2>
           <span className="text-[10px] uppercase tracking-widest text-[var(--text-tertiary)]">
-            {mode === 'full' ? 'Full snapshot' : 'Custom'}
+            {mode === 'full' ? t('pages.bundleExport.review.modeFull') : t('pages.bundleExport.review.modeCustom')}
           </span>
         </div>
         <div className="flex-1 overflow-y-auto p-5 space-y-4 text-sm font-mono">
           {/* Filename — show what will be downloaded */}
           <div className="text-[12px] flex items-center gap-2">
-            <span className="text-[var(--text-tertiary)] uppercase tracking-widest text-[10px]">File:</span>
+            <span className="text-[var(--text-tertiary)] uppercase tracking-widest text-[10px]">{t('pages.bundleExport.review.fileLabel')}</span>
             <span className="text-[var(--text-primary)]">{filename || 'bundle.nxbundle'}</span>
           </div>
           <div>
-            <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">✓ Included</div>
+            <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">{t('pages.bundleExport.review.includedHeader')}</div>
             <ul className="list-disc list-inside text-[12px] text-[var(--text-secondary)] space-y-0.5">
-              <li>{summary.agents} agent{summary.agents === 1 ? '' : 's'}</li>
-              {team && <li>1 team "{team.team.name}"</li>}
+              <li>{t('pages.bundleExport.review.agentsItem', { count: summary.agents })}</li>
+              {team && <li>{t('pages.bundleExport.review.teamItem', { name: team.team.name })}</li>}
               <li>
-                {includedSkills} skill entr{includedSkills === 1 ? 'y' : 'ies'}:
-                {' '}{skillStats.url || 0}× url,
-                {' '}{skillStats.zip || 0}× zip,
-                {' '}{skillStats.full_copy || 0}× full-copy
-                {(skillStats.skip || 0) > 0 && `, ${skillStats.skip}× skip (NOT in bundle)`}
+                {t('pages.bundleExport.review.skillsItem', {
+                  count: includedSkills,
+                  url: skillStats.url || 0,
+                  zip: skillStats.zip || 0,
+                  fullCopy: skillStats.full_copy || 0,
+                })}
+                {(skillStats.skip || 0) > 0 && t('pages.bundleExport.review.skillsSkipSuffix', { count: skillStats.skip })}
               </li>
-              <li>{summary.socialEntities} social entit{summary.socialEntities === 1 ? 'y' : 'ies'}</li>
-              <li>{summary.busChannels} message-bus channel{summary.busChannels === 1 ? '' : 's'}</li>
+              <li>{t('pages.bundleExport.review.socialItem', { count: summary.socialEntities })}</li>
+              <li>{t('pages.bundleExport.review.busItem', { count: summary.busChannels })}</li>
               <li>
-                workspace files
                 {mode === 'full'
-                  ? ' (sensitive paths included)'
-                  : ' (sensitive paths excluded by default — opt-in per file)'}
+                  ? t('pages.bundleExport.review.workspaceFull')
+                  : t('pages.bundleExport.review.workspaceCustom')}
               </li>
-              {introMd && <li>README.md ({introMd.length} chars)</li>}
+              {introMd && <li>{t('pages.bundleExport.review.readmeItem', { count: introMd.length })}</li>}
             </ul>
           </div>
           <div>
-            <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">✗ Stripped</div>
+            <div className="text-[var(--text-secondary)] uppercase text-xs mb-1">{t('pages.bundleExport.review.strippedHeader')}</div>
             <ul className="list-disc list-inside text-[12px] text-[var(--text-secondary)] space-y-0.5">
-              <li>LLM API keys, Lark OAuth tokens, password hashes</li>
-              <li>workspace 外 (~/.config 等)</li>
-              <li>env_config of all url/zip-installed skills</li>
+              <li>{t('pages.bundleExport.review.strippedKeys')}</li>
+              <li>{t('pages.bundleExport.review.strippedOutsideWorkspace')}</li>
+              <li>{t('pages.bundleExport.review.strippedEnvConfig')}</li>
             </ul>
           </div>
           {warnings.length > 0 && (
             <div>
               <div className="text-[var(--color-yellow-500)] uppercase text-xs mb-1 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Warnings
+                <AlertTriangle className="w-3 h-3" /> {t('pages.bundleExport.review.warningsHeader')}
               </div>
               <ul className="list-disc list-inside text-[12px] text-[var(--text-secondary)] space-y-0.5">
                 {warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
@@ -2718,10 +2691,10 @@ function ReviewSummaryModal({
           )}
         </div>
         <div className="px-5 py-3 border-t border-[var(--border-default)] flex justify-end gap-2">
-          <Button onClick={onCancel} variant="ghost" size="sm" disabled={downloading}>Cancel</Button>
+          <Button onClick={onCancel} variant="ghost" size="sm" disabled={downloading}>{t('pages.bundleExport.review.cancel')}</Button>
           <Button onClick={onConfirm} size="sm" disabled={downloading} className="gap-1">
             {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            Download .nxbundle
+            {t('pages.bundleExport.review.download')}
           </Button>
         </div>
       </div>
@@ -2745,18 +2718,18 @@ function McpSection({
   onSelectAllForAgent: (agentId: string) => void;
   onClearForAgent: (agentId: string) => void;
 }) {
+  const { t } = useTranslation();
   if (agents.length === 0) return null;
   const readOnly = mode === 'full';
   return (
     <div className="mt-6 pt-5 border-t border-[var(--border-subtle)]">
       <div className="text-xs font-mono text-[var(--text-secondary)] mb-2 flex items-center gap-2">
         <Server className="w-3.5 h-3.5" />
-        MCP servers
+        {t('pages.bundleExport.mcp.title')}
       </div>
       <div className="text-[11px] text-[var(--text-tertiary)] leading-relaxed mb-3">
-        MCP URLs are <strong>not</strong> shipped by default — pick the ones to include.
-        On import, each row goes straight into the recipient&apos;s <code>mcp_urls</code>
-        with <code>connection_status</code> cleared so the local poller re-validates the URL.
+        {t('pages.bundleExport.mcp.introPrefix')} <code>mcp_urls</code>
+        {' '}{t('pages.bundleExport.mcp.introMid')} <code>connection_status</code> {t('pages.bundleExport.mcp.introSuffix')}
       </div>
       <div className="space-y-4">
         {agents.map((a) => {
@@ -2768,7 +2741,7 @@ function McpSection({
                 <div className="font-mono text-xs text-[var(--text-secondary)]">
                   {a.name || a.agent_id}
                   <span className="text-[var(--text-tertiary)] ml-2">
-                    {list ? `· ${list.length} MCP${list.length === 1 ? '' : 's'} · ${selected.size} selected` : '· loading…'}
+                    {list ? t('pages.bundleExport.mcp.agentCount', { count: list.length, selected: selected.size }) : t('pages.bundleExport.mcp.agentLoading')}
                   </span>
                 </div>
                 {list && list.length > 0 && !readOnly && (
@@ -2776,21 +2749,21 @@ function McpSection({
                     <button
                       onClick={() => onSelectAllForAgent(a.agent_id)}
                       className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
-                    >Select all</button>
+                    >{t('pages.bundleExport.mcp.selectAll')}</button>
                     <button
                       onClick={() => onClearForAgent(a.agent_id)}
                       className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
-                    >Clear</button>
+                    >{t('pages.bundleExport.mcp.clear')}</button>
                   </div>
                 )}
               </div>
               {list === null ? (
                 <div className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)] py-2">
-                  <Loader2 className="w-3 h-3 animate-spin" /> loading
+                  <Loader2 className="w-3 h-3 animate-spin" /> {t('pages.bundleExport.mcp.loadingShort')}
                 </div>
               ) : list.length === 0 ? (
                 <div className="text-[11px] text-[var(--text-tertiary)] py-1.5">
-                  No MCP URLs registered.
+                  {t('pages.bundleExport.mcp.noMcps')}
                 </div>
               ) : (
                 <div className="border border-[var(--border-subtle)]">
@@ -2816,7 +2789,7 @@ function McpSection({
                             <span className="font-mono text-sm">{m.name || m.mcp_id}</span>
                             {!m.is_enabled && (
                               <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
-                                disabled
+                                {t('pages.bundleExport.mcp.disabled')}
                               </span>
                             )}
                             {m.connection_status && (
@@ -2846,7 +2819,7 @@ function McpSection({
       {readOnly && (
         <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5 mt-3">
           <AlertTriangle className="w-3 h-3" />
-          Full snapshot mode auto-includes every MCP. Switch to Custom to pick.
+          {t('pages.bundleExport.mcp.fullModeNote')}
         </div>
       )}
     </div>
@@ -2870,9 +2843,10 @@ function ArtifactsTab({
   onSelectAllForAgent: (agentId: string) => void;
   onClearForAgent: (agentId: string) => void;
 }) {
+  const { t } = useTranslation();
   const readOnly = mode === 'full';
   if (agents.length === 0) {
-    return <div className="text-xs text-[var(--text-tertiary)]">Pick at least one agent first.</div>;
+    return <div className="text-xs text-[var(--text-tertiary)]">{t('pages.bundleExport.artifacts.pickAgentFirst')}</div>;
   }
   const fmtSize = (n: number) => {
     if (n < 1024) return `${n} B`;
@@ -2883,17 +2857,11 @@ function ArtifactsTab({
     <div className="space-y-3">
       <div className="space-y-2 text-xs text-[var(--text-tertiary)] leading-relaxed border-l-2 border-[var(--accent-primary)]/40 pl-3">
         <p>
-          <strong className="text-[var(--text-secondary)]">What you pick here:</strong> which
-          artifact pointer rows ship in the bundle. Artifacts are the "this agent made
-          an HTML page / chart / image / PDF" records you see in the chat preview
-          cards.
+          <strong className="text-[var(--text-secondary)]">{t('pages.bundleExport.artifacts.whatYouPick')}</strong> {t('pages.bundleExport.artifacts.intro1')}
         </p>
         <p>
-          The <em>files themselves</em> always ride along inside
-          <code>workspace.tar.gz</code> — this tab only controls whether the DB
-          pointer row ships. Unchecking an artifact hides it from the recipient's
-          Settings → Artifacts table but doesn't delete the underlying file. On
-          import each shipped artifact is auto-pinned and its session_id cleared.
+          {t('pages.bundleExport.artifacts.intro2Prefix')}
+          {' '}<code>workspace.tar.gz</code> {t('pages.bundleExport.artifacts.intro2Suffix')}
         </p>
       </div>
       <div className="space-y-4">
@@ -2906,7 +2874,7 @@ function ArtifactsTab({
                 <div className="font-mono text-xs text-[var(--text-secondary)]">
                   {a.name || a.agent_id}
                   <span className="text-[var(--text-tertiary)] ml-2">
-                    {list ? `· ${list.length} artifact${list.length === 1 ? '' : 's'} · ${selected.size} selected` : '· loading…'}
+                    {list ? t('pages.bundleExport.artifacts.agentCount', { count: list.length, selected: selected.size }) : t('pages.bundleExport.artifacts.agentLoading')}
                   </span>
                 </div>
                 {list && list.length > 0 && !readOnly && (
@@ -2914,21 +2882,21 @@ function ArtifactsTab({
                     <button
                       onClick={() => onSelectAllForAgent(a.agent_id)}
                       className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
-                    >Select all</button>
+                    >{t('pages.bundleExport.artifacts.selectAll')}</button>
                     <button
                       onClick={() => onClearForAgent(a.agent_id)}
                       className="text-[10px] px-2 py-0.5 border border-[var(--border-subtle)] hover:bg-[var(--bg-tertiary)] font-mono"
-                    >Clear</button>
+                    >{t('pages.bundleExport.artifacts.clear')}</button>
                   </div>
                 )}
               </div>
               {list === null ? (
                 <div className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)] py-2">
-                  <Loader2 className="w-3 h-3 animate-spin" /> loading
+                  <Loader2 className="w-3 h-3 animate-spin" /> {t('pages.bundleExport.artifacts.loadingShort')}
                 </div>
               ) : list.length === 0 ? (
                 <div className="text-[11px] text-[var(--text-tertiary)] py-1.5">
-                  This agent has no artifacts.
+                  {t('pages.bundleExport.artifacts.noArtifacts')}
                 </div>
               ) : (
                 <div className="border border-[var(--border-subtle)]">
@@ -2960,7 +2928,7 @@ function ArtifactsTab({
                             </span>
                             {art.pinned && (
                               <span className="text-[10px] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[var(--text-tertiary)] font-mono">
-                                pinned
+                                {t('pages.bundleExport.artifacts.pinned')}
                               </span>
                             )}
                           </div>
@@ -2982,7 +2950,7 @@ function ArtifactsTab({
       {readOnly && (
         <div className="text-[11px] text-[var(--color-yellow-500)] flex items-center gap-1.5 mt-3">
           <AlertTriangle className="w-3 h-3" />
-          Full snapshot mode auto-includes every artifact. Switch to Custom to pick.
+          {t('pages.bundleExport.artifacts.fullModeNote')}
         </div>
       )}
     </div>

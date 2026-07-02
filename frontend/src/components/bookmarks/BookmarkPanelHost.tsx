@@ -13,6 +13,7 @@
  */
 
 import { lazy, Suspense, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { useBookmarkStore } from '@/stores/bookmarkStore';
 import { markTabOpened, type AtomicTabId } from './tabs';
@@ -34,12 +35,13 @@ const NarrativeList = lazy(() =>
 );
 
 function PanelFallback() {
+  const { t } = useTranslation();
   return (
     <div className="h-full flex items-center justify-center py-16">
       <Loader2
         className="w-5 h-5 animate-spin"
         style={{ color: 'var(--text-tertiary)' }}
-        aria-label="Loading panel"
+        aria-label={t('bookmarks.panelHost.loading')}
       />
     </div>
   );

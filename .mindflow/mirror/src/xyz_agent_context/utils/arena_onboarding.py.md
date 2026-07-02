@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/arena_onboarding.py
-last_verified: 2026-06-15
+last_verified: 2026-06-23
 stub: false
 ---
 
@@ -23,8 +23,9 @@ any script or the future `ArenaProvisioningService` can call it the same way.
 ## Upstream / Downstream
 
 **Calls out to:** Arena's public API — `POST /api/v1/agents/register`,
-`GET /api/v1/agents/me`, and `GET arena42.ai/skill.md`. Pure `httpx`; the client
-is injectable for tests.
+`GET /api/v1/agents/me`, `GET arena42.ai/skill.md`, and the platform-only
+`POST /api/v1/agents/me/platform-bind-owner` (owner-email binding). Pure
+`httpx`; the client is injectable for tests.
 
 **Writes into:** an agent workspace at `<workspace>/skills/<skill_name>/`
 (`SKILL.md`, `.skill_meta.json`, `credentials.json`). The `.skill_meta.json`
@@ -56,6 +57,19 @@ free is the same call that claims it, so there is no check-then-act race.
 
 **No DB / settings coupling.** Keeps the class reusable from any context and
 trivially unit-testable (inject `http_client` + a seeded `rng`).
+
+**`bind_owner` is best-effort and never raises (2026-06-23).** Arena normally
+binds an owner email via a user-clicked verification link; because we provision
+programmatically there's no inbox to click, so Arena exposes
+`platform-bind-owner` — authenticate as the agent (its api_key) and pass the
+user's NetMind JWT in the body, and Arena verifies the JWT against the shared
+NetMind account system and writes `agent.ownerEmail`. Owner email is *optional*,
+so this method maps every outcome to a status string instead of raising:
+`bound` / `skipped_no_email` (200, account has no email) / `already_bound` (400
+EMAIL_ALREADY_BOUND — idempotent success) / `invalid_token` (401) /
+`rate_limited` (429) / `error` (anything else, missing api_key/token, transport).
+`already_bound` is treated as a terminal success so callers can skip retries.
+The NetMind JWT is forwarded, never stored.
 
 ## Gotchas
 

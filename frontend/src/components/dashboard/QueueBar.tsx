@@ -5,6 +5,7 @@
  * worrying states (failed/blocked) labeled in plain English. Full mode
  * shows all states with labels under the bar.
  */
+import { useTranslation } from 'react-i18next';
 import type { QueueCounts } from '@/types';
 
 const SEGMENT_CLS: Record<keyof Omit<QueueCounts, 'total'>, string> = {
@@ -20,16 +21,10 @@ const ORDER: Array<keyof Omit<QueueCounts, 'total'>> = [
   'running', 'active', 'pending', 'blocked', 'paused', 'failed',
 ];
 
-const LABEL_SHORT: Record<keyof Omit<QueueCounts, 'total'>, string> = {
-  running: 'running',
-  active: 'active',
-  pending: 'pending',
-  blocked: 'blocked',
-  paused: 'paused',
-  failed: 'failed',
-};
-
 export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compact?: boolean }) {
+  const { t } = useTranslation();
+  const labelShort = (key: keyof Omit<QueueCounts, 'total'>): string =>
+    t(`dashboard.jobState.${key}`);
   if (!queue || queue.total === 0) {
     return null;
   }
@@ -40,7 +35,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
         <div
           data-testid="queue-bar"
           className="flex h-1.5 w-20 overflow-hidden rounded-full bg-[var(--bg-tertiary)]"
-          title={`${queue.total} jobs in queue`}
+          title={t('dashboard.queue.totalInQueue', { count: queue.total })}
         >
           {ORDER.map((key) => {
             const count = queue[key];
@@ -52,7 +47,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
                 data-testid={`queue-seg-${key}`}
                 className={SEGMENT_CLS[key]}
                 style={{ width: `${pct}%` }}
-                title={`${count} ${LABEL_SHORT[key]}`}
+                title={`${count} ${labelShort(key)}`}
               />
             );
           })}
@@ -60,23 +55,23 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
         <span>
           <span className="text-[var(--text-primary)] font-medium">{queue.total}</span>
           <span className="ml-1 text-[10px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)]">
-            jobs
+            {t('dashboard.queue.jobs')}
           </span>
         </span>
         {queue.failed > 0 && (
           <span
             className="text-[var(--color-red-500)] font-medium"
-            title={`${queue.failed} failed`}
+            title={`${queue.failed} ${t('dashboard.jobState.failed')}`}
           >
-            {queue.failed} failed
+            {queue.failed} {t('dashboard.jobState.failed')}
           </span>
         )}
         {queue.blocked > 0 && (
           <span
             className="text-[var(--color-yellow-500)] font-medium"
-            title={`${queue.blocked} blocked`}
+            title={`${queue.blocked} ${t('dashboard.jobState.blocked')}`}
           >
-            {queue.blocked} blocked
+            {queue.blocked} {t('dashboard.jobState.blocked')}
           </span>
         )}
       </div>
@@ -87,7 +82,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-[0.08em] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)]">
-          Queue
+          {t('dashboard.queue.label')}
         </span>
         <div
           data-testid="queue-bar"
@@ -103,7 +98,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
                 data-testid={`queue-seg-${key}`}
                 className={SEGMENT_CLS[key]}
                 style={{ width: `${pct}%` }}
-                title={`${count} ${LABEL_SHORT[key]}`}
+                title={`${count} ${labelShort(key)}`}
               />
             );
           })}
@@ -118,7 +113,7 @@ export function QueueBar({ queue, compact = false }: { queue: QueueCounts; compa
             <span key={key} className="inline-flex items-center gap-1">
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${SEGMENT_CLS[key]}`} />
               <span className="text-[var(--text-primary)] font-medium">{count}</span>
-              <span className="text-[var(--text-tertiary)]">{LABEL_SHORT[key]}</span>
+              <span className="text-[var(--text-tertiary)]">{labelShort(key)}</span>
             </span>
           );
         })}

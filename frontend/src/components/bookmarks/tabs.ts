@@ -42,47 +42,90 @@ export type AtomicTabId =
 export interface AtomicTabDef {
   id: AtomicTabId;
   label: string;
+  /** i18n key (namespace `rail`) for the label; `label` is the fallback. */
+  labelKey: string;
   icon: LucideIcon;
   /** Short caption for the 64px strip when label is too long. */
   stripLabel?: string;
+  /** i18n key for `stripLabel` when present. */
+  stripLabelKey?: string;
 }
 
 export interface StripCategory {
   label: string;
+  /** i18n key (namespace `rail`) for the category label; `label` is the fallback. */
+  labelKey: string;
   tabs: AtomicTabDef[];
+  /** When set, the group shows a colored brand header (instead of just the
+   *  divider hairline). Used for the Narra/Nexus spine. */
+  title?: string;
+  /** i18n key for the brand `title` when present. */
+  titleKey?: string;
+  /** Brand accent for the title: carbon (Narra) or silicon (Nexus). */
+  accent?: 'carbon' | 'silicon';
 }
 
-/** Strip layout, top to bottom. ONE content per tab — no nested stacks. */
+/** Strip layout, top to bottom. ONE content per tab — no nested stacks.
+ *  Narra·Memory (carbon) and Nexus·Network (silicon) carry colored brand
+ *  headers; Memory sits between Inbox and Social so the spine reads
+ *  Activity → Narrative → Nexus. */
 export const STRIP_CATEGORIES: StripCategory[] = [
   {
     label: 'Config',
+    labelKey: 'rail.category.config',
     tabs: [
-      { id: 'awareness', label: 'Awareness', icon: Sparkles },
-      { id: 'workspace', label: 'Workspace', icon: FolderOpen },
-      { id: 'channels', label: 'Channels', icon: Radio },
+      { id: 'awareness', label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles },
+      { id: 'workspace', label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen },
+      { id: 'channels', label: 'Channels', labelKey: 'rail.channels', icon: Radio },
     ],
   },
   {
     label: 'Activity',
+    labelKey: 'rail.category.activity',
     tabs: [
-      { id: 'jobs', label: 'Jobs', icon: ListTodo },
-      { id: 'inbox', label: 'Inbox', icon: Inbox },
+      { id: 'jobs', label: 'Jobs', labelKey: 'rail.jobs', icon: ListTodo },
+      { id: 'inbox', label: 'Inbox', labelKey: 'rail.inbox', icon: Inbox },
     ],
   },
   {
-    label: 'Network',
-    tabs: [{ id: 'social', label: 'Social Network', icon: Network, stripLabel: 'Social' }],
+    label: 'Narra',
+    labelKey: 'rail.category.narra',
+    title: 'Narra',
+    titleKey: 'rail.brand.narra',
+    accent: 'carbon',
+    tabs: [{ id: 'memory', label: 'Memory', labelKey: 'rail.memory', icon: BookOpen }],
+  },
+  {
+    label: 'Nexus',
+    labelKey: 'rail.category.nexus',
+    title: 'Nexus',
+    titleKey: 'rail.brand.nexus',
+    accent: 'silicon',
+    tabs: [
+      {
+        id: 'social',
+        label: 'Social Network',
+        labelKey: 'rail.social',
+        icon: Network,
+        stripLabel: 'Network',
+        stripLabelKey: 'rail.socialShort',
+      },
+    ],
   },
   {
     label: 'Skills',
+    labelKey: 'rail.category.skills',
     tabs: [
-      { id: 'skills', label: 'Skills', icon: Puzzle },
-      { id: 'mcp', label: 'MCP Servers', icon: Server },
+      { id: 'skills', label: 'Skills', labelKey: 'rail.skills', icon: Puzzle },
+      {
+        id: 'mcp',
+        label: 'MCP Servers',
+        labelKey: 'rail.mcp',
+        icon: Server,
+        stripLabel: 'MCP',
+        stripLabelKey: 'rail.mcpShort',
+      },
     ],
-  },
-  {
-    label: 'Memory',
-    tabs: [{ id: 'memory', label: 'Memory', icon: BookOpen }],
   },
 ];
 
@@ -90,6 +133,11 @@ export const ALL_TABS: AtomicTabDef[] = STRIP_CATEGORIES.flatMap((c) => c.tabs);
 
 export function tabLabel(id: AtomicTabId): string {
   return ALL_TABS.find((t) => t.id === id)?.label ?? id;
+}
+
+/** i18n key (namespace `rail`) for a tab's label, for consumers with a `t`. */
+export function tabLabelKey(id: AtomicTabId): string {
+  return ALL_TABS.find((t) => t.id === id)?.labelKey ?? `rail.${id}`;
 }
 
 // ---------------------------------------------------------------------------

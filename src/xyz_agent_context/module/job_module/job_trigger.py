@@ -74,7 +74,7 @@ from xyz_agent_context.schema.job_schema import (
     TriggerConfig,
 )
 from xyz_agent_context.schema.hook_schema import WorkingSource
-from xyz_agent_context.agent_runtime.run_collector import collect_run
+from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
 
 # Utils
 from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, format_for_llm
@@ -739,9 +739,6 @@ class JobTrigger:
         event_id = f"event_{uuid4().hex[:12]}"
 
         try:
-            # Import AgentRuntime lazily to avoid circular imports
-            from xyz_agent_context.agent_runtime import AgentRuntime
-
             logger.info(f"[JobTrigger] Starting AgentRuntime for job {job.job_id}")
 
             # File logging is now owned by setup_logging("job_trigger") at
@@ -753,7 +750,7 @@ class JobTrigger:
             # longer adds/removes file handlers. Each line still carries
             # event_id / run_id via contextvars so per-run trace is
             # recoverable by `grep event_id=...` (M4 / T15).
-            runtime = AgentRuntime()
+            client = get_agent_runtime_client()
 
             # Execution identity: use related_entity_id (if available) as user_id, otherwise use job.user_id
             # This way Job executes in the target user's context, loading their Narrative and related info
@@ -763,8 +760,7 @@ class JobTrigger:
                 f"(related_entity_id={job.related_entity_id}, job.user_id={job.user_id})"
             )
 
-            collection = await collect_run(
-                runtime,
+            collection = await client.run_and_collect(
                 agent_id=job.agent_id,
                 user_id=execution_user_id,
                 input_content=prompt,

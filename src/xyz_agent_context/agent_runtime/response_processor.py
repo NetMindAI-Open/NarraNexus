@@ -24,6 +24,7 @@ from xyz_agent_context.schema import (
     AgentThinking,
     AgentToolCall,
     ErrorMessage,
+    AUTH_EXPIRED_ERROR_TYPE,
 )
 from ._thinking_batcher import _ThinkingBatcher
 from .execution_state import ExecutionState
@@ -31,6 +32,111 @@ from ._agent_runtime_steps.step_display import (
     format_tool_call_for_display,
     format_thinking_for_display,
 )
+from xyz_agent_context.channel.message_source_handler import (
+    strip_responses_api_citation_tokens,
+)
+
+
+# Tool-name substrings whose ``content`` / ``markdown`` / ``text`` arg
+# carries user-visible reply text. When the model is gpt-5.5 with
+# WebSearch, that text contains inline ``citeturnNviewN`` citation
+# tokens that ChatGPT's first-party UI knows how to resolve — but
+# we don't (the SDK doesn't expose the URL/title map). Strip them
+# here so the live-streamed UI sees clean text. Same strip is also
+# applied at ``MessageSourceHandler.extract_reply_text`` for the
+# DB-persist + IM-forward paths; doing both is necessary because
+# they're separate downstream consumers of the same raw tool call.
+_USER_REPLY_TOOL_PATTERNS: tuple[str, ...] = (
+    "send_message_to_user_directly",
+    "lark_cli",
+    "slack_cli",
+    "tg_cli",
+)
+
+
+def _looks_like_user_reply_tool(tool_name: str) -> bool:
+    return bool(tool_name) and any(p in tool_name for p in _USER_REPLY_TOOL_PATTERNS)
+
+
+# Error categories / message fragments that mean "the coding-agent's
+# credentials are dead" — the turn cannot run until the user
+# re-authenticates. Framework-neutral (iron rule #9): covers codex OAuth
+# (``codex_error_info == "unauthorized"`` + "log out and sign in again"),
+# Anthropic/OpenAI 401s, and expired CLI sessions. A turn that fails this
+# way must NOT be papered over by a helper-LLM reply (incident
+# 2026-06-11: a used codex refresh token silently degraded to gpt-5 every
+# turn, and the Settings page kept showing "✓ auth ready").
+_AUTH_FAILURE_TYPES: frozenset[str] = frozenset({
+    "unauthorized",
+    "authentication_error",
+    "invalid_api_key",
+    "permission_error",
+})
+# NB: ``invalid_request_error`` is deliberately NOT a type here. It is
+# OpenAI's catch-all client-error category covering bad/expired keys AND
+# many non-auth 400s (context_length_exceeded, bad model id,
+# content-policy). codex passes those through verbatim, so keying auth on
+# the bare type misfired every long-context / bad-model turn into a fatal
+# "re-login" (and suppressed the helper fallback). Genuine auth still
+# resolves precisely: codex emits ``unauthorized``, Claude emits
+# ``invalid_request`` (no ``_error``), and a bad OpenAI key carries the
+# "Incorrect API key provided" phrase below.
+_AUTH_FAILURE_PHRASES: tuple[str, ...] = (
+    "sign in again",
+    "log out and sign in",
+    "could not be refreshed",
+    "refresh token",
+    "not logged in",
+    "unauthorized",
+    "invalid api key",
+    "invalid_api_key",
+    "incorrect api key",  # OpenAI's bad-key message wording
+    "expired token",
+    "401",
+)
+
+
+def _is_auth_failure(error_type: str, error_message: str) -> bool:
+    """True when an API error means credentials are dead (re-login needed).
+
+    Matches on the error category first (exact / substring) and falls back
+    to message-text fragments, because codex surfaces the category as a
+    bare ``codex_error_info`` string while other providers only put a
+    useful signal in the human message.
+    """
+    et = (error_type or "").lower()
+    if et in _AUTH_FAILURE_TYPES or "auth" in et or "unauthor" in et:
+        return True
+    em = (error_message or "").lower()
+    return any(frag in em for frag in _AUTH_FAILURE_PHRASES)
+
+
+# ``AUTH_EXPIRED_ERROR_TYPE`` (imported from schema above) is the
+# error_type marker the runtime keys on to (a) prompt re-login and
+# (b) skip the helper-LLM no_reply fallback in step_3_agent_loop. It lives
+# in the schema layer to avoid a circular import with step_3_agent_loop.
+_AUTH_EXPIRED_USER_MESSAGE = (
+    "Your coding-agent login has expired or is no longer valid, so this "
+    "turn could not run. Re-authenticate — run `codex login` (or "
+    "`claude login`) on the host, or assign an API-key provider to the "
+    "Agent slot in Settings — then send the message again."
+)
+
+
+def _clean_reply_args_in_place(arguments: dict) -> dict:
+    """Return a copy of ``arguments`` with citation tokens stripped
+    from the fields that carry user-visible text. ``content`` covers
+    chat_module / message_bus / job; ``markdown`` / ``text`` /
+    ``command`` cover Lark / Slack / Telegram CLI wrappers (which
+    embed text inside a command string)."""
+    if not isinstance(arguments, dict):
+        return arguments
+    cleaned: dict = dict(arguments)
+    for key in ("content", "markdown", "text", "command"):
+        v = cleaned.get(key)
+        if isinstance(v, str):
+            cleaned[key] = strip_responses_api_citation_tokens(v)
+    return cleaned
 
 
 class ResponseType(str, Enum):
@@ -244,6 +350,27 @@ class ResponseProcessor:
             # warning) and logged here for ops visibility.
             error_message = data.get("error_message", "Unknown API error")
             error_type = data.get("error_type", "api_error")
+
+            # Auth failures are NOT recoverable by retrying or by a helper
+            # reply — the credentials are dead. Surface a fatal, actionable
+            # message and tag it ``auth_expired`` so step_3 skips the
+            # no_reply fallback (which would otherwise fabricate a reply
+            # over a turn that never ran — incident 2026-06-11).
+            if _is_auth_failure(error_type, error_message):
+                logger.error(
+                    f"[AGENT-LOOP-AUTH] credentials failure "
+                    f"({error_type}): {error_message}"
+                )
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=_AUTH_EXPIRED_USER_MESSAGE,
+                        error_type=AUTH_EXPIRED_ERROR_TYPE,
+                        severity="fatal",
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
             logger.error(f"[AGENT-LOOP-RECOVERABLE] API error ({error_type}): {error_message}")
             return ProcessedResponse(
                 type=ResponseType.ERROR,
@@ -340,6 +467,15 @@ class ResponseProcessor:
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
             arguments = item.get("arguments", {})
+            # Strip OpenAI Responses-API citation tokens from reply
+            # tools' content args. This is the LIVE-STREAMING path —
+            # the cleaned arguments end up in the ProgressMessage we
+            # ship to the frontend, so users see clean text in the
+            # chat bubble as the tool call appears. The persist/IM
+            # paths run their own strip via ``extract_reply_text``;
+            # both are needed because they're independent consumers.
+            if _looks_like_user_reply_tool(tool_name):
+                arguments = _clean_reply_args_in_place(arguments)
             tool_count = state.tool_call_count + 1  # Next tool sequence number
             logger.info(f"Tool call: {tool_name}")
 

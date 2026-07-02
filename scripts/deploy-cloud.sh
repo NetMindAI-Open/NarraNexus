@@ -198,12 +198,15 @@ create_service "slack" "Slack Trigger" \
 create_service "telegram" "Telegram Trigger" \
     "${UV_BIN} run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger"
 
+create_service "discord" "Discord Trigger" \
+    "${UV_BIN} run python -m xyz_agent_context.module.discord_module.run_discord_trigger"
+
 sudo systemctl daemon-reload
 echo -e "${G}  Systemd services created${R}"
 
 # --- Start services ---
 echo -e "${Y}[6/6] Starting services...${R}"
-for svc in backend mcp poller jobs bus lark slack telegram; do
+for svc in backend mcp poller jobs bus lark slack telegram discord; do
     sudo systemctl enable "narranexus-${svc}" --quiet
     sudo systemctl restart "narranexus-${svc}"
     echo -e "  ${G}●${R} narranexus-${svc}"
@@ -232,5 +235,5 @@ echo -e "    sudo systemctl status narranexus-backend"
 echo -e "    sudo journalctl -u narranexus-backend -f"
 echo -e "    sudo systemctl restart narranexus-backend"
 echo ""
-echo -e "  All services: narranexus-{backend,mcp,poller,jobs,bus,lark,slack,telegram}"
+echo -e "  All services: narranexus-{backend,mcp,poller,jobs,bus,lark,slack,telegram,discord}"
 echo -e "${G}============================================================${R}"

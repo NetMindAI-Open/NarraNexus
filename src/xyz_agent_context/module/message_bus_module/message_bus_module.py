@@ -351,7 +351,7 @@ class MessageBusModule(XYZBaseModule):
                     "SELECT c.* FROM bus_channels c "
                     "JOIN bus_channel_members cm ON c.channel_id = cm.channel_id "
                     "WHERE cm.agent_id = %s "
-                    "ORDER BY c.updated_at DESC "
+                    "ORDER BY c.created_at DESC "
                     "LIMIT %s",
                     (self.agent_id, MAX_CHANNELS_IN_CONTEXT),
                 )

@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { api } from '@/lib/api'
 import type { QuotaMeResponse } from '@/types'
 import { useRuntimeStore } from '@/stores/runtimeStore'
@@ -52,6 +53,7 @@ function Bar({
 }
 
 export function QuotaPanel() {
+  const { t } = useTranslation()
   const mode = useRuntimeStore((s) => s.mode)
   const isCloud = mode === 'cloud-web'
   const [data, setData] = useState<QuotaMeResponse | null>(null)
@@ -86,9 +88,7 @@ export function QuotaPanel() {
   if (data.status === 'uninitialized') {
     return (
       <div className="rounded-md border border-[var(--border-default)] bg-[var(--bg-primary)] p-3 text-sm text-[var(--text-secondary)]">
-        System free-tier quota is not set up for your account yet.
-        Please contact an administrator, or configure your own provider
-        below to continue.
+        {t('settings.quota.uninitialized')}
       </div>
     )
   }
@@ -116,25 +116,25 @@ export function QuotaPanel() {
     >
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-sm font-medium text-[var(--text-primary)]">
-          System Free-Tier Quota
+          {t('settings.quota.title')}
           {exhausted && (
             <span className="ml-2 text-xs text-[var(--color-error)]">
-              (exhausted)
+              {t('settings.quota.exhaustedTag')}
             </span>
           )}
         </h4>
         <span className="text-xs text-[var(--text-secondary)]">
-          status: {data.status}
+          {t('settings.quota.statusLabel', { status: data.status })}
         </span>
       </div>
       <Bar
-        label="Input tokens"
+        label={t('settings.quota.inputTokens')}
         used={data.used_input_tokens}
         total={inputTotal}
         accent={exhausted ? 'warn' : 'ok'}
       />
       <Bar
-        label="Output tokens"
+        label={t('settings.quota.outputTokens')}
         used={data.used_output_tokens}
         total={outputTotal}
         accent={exhausted ? 'warn' : 'ok'}
@@ -153,23 +153,20 @@ export function QuotaPanel() {
             className="accent-[var(--accent-primary)]"
           />
           <span>
-            Use free-tier quota even when I have my own provider
-            configured
+            {t('settings.quota.preferToggle')}
           </span>
         </label>
         <div className="mt-1 text-[11px] text-[var(--text-tertiary)] pl-6">
           {exhausted
             ? 'Locked while the free tier is exhausted — re-enables automatically once your quota is replenished.'
             : preferSystem
-              ? 'Currently: routing through system provider — free-tier usage applies. Switches to your own provider automatically if the free tier runs out.'
-              : 'Currently: using your own provider when configured; free tier only applies when you have no provider set.'}
+              ? t('settings.quota.preferOn')
+              : t('settings.quota.preferOff')}
         </div>
       </div>
       {exhausted && (
         <div className="mt-2 text-xs text-[var(--color-error)]">
-          Free tier used up. If you have your own provider configured below,
-          requests now route through it automatically — no action needed.
-          Otherwise, add a provider below to keep working.
+          {t('settings.quota.exhaustedNote')}
         </div>
       )}
     </div>

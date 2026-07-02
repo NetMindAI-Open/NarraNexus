@@ -4,6 +4,7 @@
  * lowercase label so users can scan without decoding icons. Missing data
  * (token_cost_cents) renders as em-dash, not 0.
  */
+import { useTranslation } from 'react-i18next';
 import type { MetricsToday } from '@/types';
 
 const EM_DASH = '—';
@@ -26,13 +27,6 @@ const TREND_ARROW = {
   up: '↑',
   down: '↓',
   flat: '·',
-  unknown: '',
-} as const;
-
-const TREND_TITLE = {
-  up: 'slower than yesterday',
-  down: 'faster than yesterday',
-  flat: 'same as yesterday',
   unknown: '',
 } as const;
 
@@ -67,36 +61,41 @@ function Stat({
 }
 
 export function MetricsRow({ metrics }: { metrics: MetricsToday }) {
+  const { t } = useTranslation();
+  const trendTitle =
+    metrics.avg_duration_trend !== 'unknown'
+      ? t(`dashboard.metrics.trend.${metrics.avg_duration_trend}`)
+      : '';
   return (
     <div
       data-testid="metrics-row"
       className="flex flex-wrap items-baseline gap-x-4 gap-y-1"
     >
-      <Stat label="ok" value={metrics.runs_ok} tone="success" hint="Runs completed today" />
+      <Stat label={t('dashboard.metrics.ok')} value={metrics.runs_ok} tone="success" hint={t('dashboard.metrics.okHint')} />
       <Stat
-        label="errors"
+        label={t('dashboard.metrics.errors')}
         value={metrics.errors}
         tone={metrics.errors > 0 ? 'danger' : 'default'}
-        hint="Errors today"
+        hint={t('dashboard.metrics.errorsHint')}
       />
       <Stat
-        label="avg"
+        label={t('dashboard.metrics.avg')}
         value={
           <>
             {formatAvg(metrics.avg_duration_ms)}
             {metrics.avg_duration_trend !== 'unknown' && (
               <span
                 className="ml-0.5 text-[var(--text-tertiary)]"
-                title={TREND_TITLE[metrics.avg_duration_trend]}
+                title={trendTitle}
               >
                 {TREND_ARROW[metrics.avg_duration_trend]}
               </span>
             )}
           </>
         }
-        hint="Average run duration today"
+        hint={t('dashboard.metrics.avgHint')}
       />
-      <Stat label="cost" value={formatCost(metrics.token_cost_cents)} hint="Token spend today" />
+      <Stat label={t('dashboard.metrics.cost')} value={formatCost(metrics.token_cost_cents)} hint={t('dashboard.metrics.costHint')} />
     </div>
   );
 }

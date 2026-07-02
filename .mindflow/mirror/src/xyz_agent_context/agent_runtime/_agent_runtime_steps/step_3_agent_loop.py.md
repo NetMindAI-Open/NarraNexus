@@ -1,8 +1,51 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-05-29
+last_verified: 2026-06-18
 stub: false
 ---
+## 2026-06-18 — 冷启动 executor 先等就绪再驱动
+
+冷启动分支（`ensured.cold_started`）发完 `executor.warming` UX 事件后,**先
+`await wait_until_ready(executor_url)`(poll executor 的 /health)再驱动 loop**。
+否则容器刚 `docker run` 起、uvicorn 还没起来,第一次连接撞冷启动 → 失败 → 错误地
+落进 fallback(用户看到"醒来中"然后直接 fallback)。等就绪是 infra 等待,不是
+agent-loop 上限(铁律 #14)。
+
+## 2026-06-18 — executor OOM（exit code -9）审计可见性
+
+`_record_oom_if_killed(db_client, user_id, error_str, output_already_emitted)`
+模块级 helper，在 agent loop 的 `except` 捕获点被调用一次：若错误是
+executor 子进程被 OOM-kill（`exit code -9`），best-effort 写一条
+`oom_killed` 审计行（`instance_executor_audit`），供监测发现。**告警本身不在
+这里做**——NarraNexus 开源，只产生信号（审计行 + `/admin/runtime/status`）；推
+Lark 告警由 deploy 仓的 watcher 读这些信号去做（信号/告警分离,开源边界）。
+**故意不做重试**——干净重试要求把流式 loop 改成可从头重跑，风险大，留作
+后续专项（scheduling-resource plan）；今天 OOM 仍照常落入下方 fallback。
+helper 绝不抛错（审计失败只 log），不影响 loop。
+
+## 2026-06-11 — 鉴权失效时跳过 helper fallback（不伪造回复）
+
+agent loop 出现 `ErrorMessage(error_type="auth_expired")`（response_processor
+对 codex OAuth 过期等鉴权失败的归类）时，**跳过 `_stream_fallback_recovery`**，
+不让 helper 编一个回复把"登录已失效"盖住（incident 2026-06-11：codex
+refresh token 已用过 → 每轮静默退化到 gpt-5，用户以为"codex 变笨了"）。
+此时 response_processor 已经发了那条 fatal、可操作的 re-login 提示，用户直接
+看到它即可。
+
+**坑（已避开）**：不能用 `return` 提前退出——后面还有必须 yield 的
+`PathExecutionResult`（Step 4 靠它持久化本轮 Event）。所以是把 fallback 计算
++ `_stream_fallback_recovery` 那段包进 `if not auth_failed: ... else: log`，
+auth_failed 时**继续 fall through** 到 sub-step 收尾 + PathExecutionResult。
+`auth_failed` 通过扫描 `agent_loop_response` 里是否有
+`error_type == AUTH_EXPIRED_ERROR_TYPE`（从 response_processor 导入常量）判定。
+
+## 2026-06-10 — helper obtained via get_helper_sdk()
+
+The fallback-reply stream no longer instantiates OpenAIAgentsSDK directly —
+`get_helper_sdk()` (agent_framework/helper_sdk.py) returns the per-task
+helper (OpenAI or Anthropic Messages API) based on which helper config the
+resolver installed. Call shape (llm_stream) unchanged.
+
 
 ## 2026-05-29 — pluggable driver + EverMemOS removed
 

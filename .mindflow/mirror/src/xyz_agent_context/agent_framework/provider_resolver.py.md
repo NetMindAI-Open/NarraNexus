@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-06-16
+last_verified: 2026-06-17
 ---
+
+## 2026-06-17 — resolve() 并入单点 resolver,不再用 protocol-blind builder
+
+`ProviderResolver` 是"配额/系统默认 vs 用户自配"的**决策树**(classify),但它
+原来还自带一份 protocol-blind 的 config builder(`_llm_config_to_dataclasses`,
+返回 2-tuple,不认 anthropic_helper / codex)——这是 anthropic-helper 后台固化
+bug 的根。本轮:
+- `resolve()` 的 USER 分支改调单点 `resolve_user_runtime_llm_configs`(用注入的
+  `user_provider_svc.db`,DI 不走全局),返回 `(RuntimeLLMConfigs, source)`。
+- `resolve_and_set` 用 **4 参** `set_user_config(claude, openai, codex,
+  anthropic_helper)`,所以 HTTP 请求路径(auth.py)和后台 consolidation worker
+  都正确装上 helper 协议 + codex。
+- `_llm_config_to_dataclasses` 仅留给 SYSTEM/free-tier(受控 openai 形状),
+  docstring 已标注;USER 永不走它。
+- classify 的完整性判断仍读 `user_provider_svc.get_user_config`,与 resolve 的
+  config 构建解耦(决策 vs 构建)。
+这一步把"slot→config"的三份拷贝收敛到一份(另两份:api_config legacy fallback
+本 PR 已删;resolver if 阶梯已多态化)。
 
 # Intent
 

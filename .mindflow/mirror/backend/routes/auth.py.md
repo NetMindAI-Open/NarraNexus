@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-06-16
+last_verified: 2026-06-23
 stub: false
 ---
+
+## 2026-06-23 — sidebar preview excludes group-chat replies (forward only)
+
+`/api/auth/agents`' `last_assistant_preview` window query filters
+`trigger != 'message_bus'`. New team group-chat runs are tagged at creation
+([[step_0_initialize]] / [[models]]), so their replies are excluded → previews
+stay clean **going forward**.
+
+**Why historical rows can't be filtered** (investigated 2026-06-24): the root
+leak is that a message-bus run records its reply under the agent's *regular*
+narratives (default `*_default_N-*` AND topic `nar_*`), identical to a 1:1
+reply — same `trigger_source` (the user), no marker. Most replies never reached
+`bus_messages` (e.g. rabbit: 2 rows vs many leaked events), so content-matching
+is incomplete; and the same reply is duplicated across default + topic
+narratives, so neither narrative-id nor actors separate them. Pre-tag previews
+therefore can't be cleaned by query — they age out as the agent has genuine 1:1
+activity, or the user clears history.
+
+Real fix (pending): stop bus runs writing into 1:1 narratives — route them to a
+dedicated team-room narrative in narrative selection.
 
 ## 2026-06-11 — identity hardening: create_agent / timezone / onboarding
 
@@ -218,12 +238,6 @@ to render a one-shot welcome toast on successful cloud-mode registration
 **Bootstrap.md 触发首次配置**
 
 创建 Agent 时会在工作区写入 `Bootstrap.md`，Agent 在首次运行时检测到这个文件并执行初始化流程。`bootstrap_active` 字段在 GET agents 接口里通过检查文件是否存在来计算，是文件系统状态而非数据库字段。
-
-**create_agent 创建默认实例（2026-06-15）**：`create_agent` 在写入 `agents` 行后会调用 `InstanceFactory.create_agent_level_instances(agent_id)`，补齐 Awareness/SocialNetwork/BasicInfo/MessageBus/Lark 五个 agent 级实例（此前 HTTP 路由只写 agents 行、不建实例，下游 awareness 写入无处挂靠）。幂等（factory 先查后插）、best-effort（失败仅告警，不阻断建 Agent）。
-
-**create_agent 走 bootstrap profile（2026-06-16）**：首次体验不再内联写死 `BOOTSTRAP_MD_TEMPLATE`，而是 `apply_bootstrap(get_profile(request.bootstrap or "default"))`。请求体新增 `bootstrap` 字段选 profile（缺省=`default`=原行为）；profile 渲染 Bootstrap.md + greeting + 删除阈值并写入 workspace/metadata。响应里的 `bootstrap_active` 改为按是否真写了 Bootstrap.md 计算（`none` profile → False）。见 `bootstrap/profiles.py`。
-
-**POST /agents 接受可选 team_id（#43）**：`CreateAgentRequest` 新增可选 `team_id` 字段。创建 Agent 成功后，如果 `team_id` 存在且该 team 属于当前调用者（ownership-checked），则把 agent 加入该 team。操作 best-effort，失败仅告警，不阻断 Agent 创建和响应。
 
 ## Gotcha / 边界情况
 

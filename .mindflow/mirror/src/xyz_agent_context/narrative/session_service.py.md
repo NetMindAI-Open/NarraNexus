@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/narrative/session_service.py
-last_verified: 2026-05-20
+last_verified: 2026-06-10
 stub: false
 ---
+
+## 2026-06-10 — session dir moved to ~/.narranexus/sessions/ (DMG write fix)
+
+The default `_session_dir` no longer derives from `Path(__file__).parents[3]`.
+That resolved to the repo root under an **editable** install (dev / `run.sh`),
+but under the packaged DMG the project is a **non-editable wheel** at
+`.../resources/python/lib/python3.13/site-packages/xyz_agent_context/`, so
+`parents[3]` landed at `.../lib/python3.13/` — **inside the read-only .app
+bundle**. Every `mkdir`/save raised `OSError: [Errno 1] Operation not
+permitted`, sessions never persisted, and the agent lost cross-turn continuity
+(short-reply → amnesia, fallback replies). Now it anchors on
+`Path.home() / ".narranexus" / "sessions"`, the same per-user writable root the
+desktop app already uses for `nexus.db` (state.rs `resolve_db_path`) and logs
+(`~/.narranexus/logs/`). Both run modes (铁律 #7) now write to one writable
+dir. The "设计决策 / 存在项目根目录的 sessions/ 下" note below is
+**superseded** by this. Likely affected every prior DMG release, not just the
+codex branch.
 
 ## 2026-05-20 — sessions never expire (timeout removed)
 

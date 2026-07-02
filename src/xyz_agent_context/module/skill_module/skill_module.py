@@ -10,7 +10,8 @@ Skill Module manages Skills under the user's workspace:
 - Always loaded: No intelligent decision-making or Instance records needed
 
 Skills directory:
-- Located at {agent_workspace}/{agent_id}_{user_id}/skills/
+- Located at {base}/{agent_workspace_relpath}/skills/ (resolved via
+  utils.workspace_paths; nested {user_id}/{agent_id} under current layout)
 - Same as Claude Agent's cwd
 
 MCP Tools:
@@ -209,7 +210,11 @@ class SkillModule(XYZBaseModule):
         self.base_path = Path(settings.base_working_path)
 
         # Skills directory (same as Claude Agent's cwd)
-        self.skills_dir = self.base_path / f"{agent_id}_{user_id}" / "skills" if user_id else None
+        from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+        self.skills_dir = (
+            self.base_path / agent_workspace_relpath(agent_id, user_id) / "skills"
+            if user_id else None
+        )
 
         # MCP Server port
         self.port = 7806

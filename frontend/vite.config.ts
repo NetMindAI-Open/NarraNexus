@@ -19,6 +19,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // Force a single copy of React across deps. react-i18next (and other
+    // React-importing deps) can otherwise be pre-bundled against a second
+    // React instance, which breaks hooks with "Invalid hook call".
+    dedupe: ['react', 'react-dom'],
   },
   build: {
     rollupOptions: {
@@ -69,3 +73,4 @@ export default defineConfig({
     },
   },
 })
+

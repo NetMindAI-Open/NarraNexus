@@ -178,7 +178,8 @@ async def apply_bootstrap(
     ctx = ctx or BootstrapContext(agent_id=agent_id, user_id=user_id)
 
     # 1. workspace Bootstrap.md
-    workspace = Path(settings.base_working_path) / f"{agent_id}_{user_id}"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+    workspace = agent_workspace_path(agent_id, user_id, base=settings.base_working_path)
     workspace.mkdir(parents=True, exist_ok=True)
     bs_file = workspace / "Bootstrap.md"
     md = profile.bootstrap_md(ctx)

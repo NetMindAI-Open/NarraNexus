@@ -29,6 +29,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Download } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
@@ -65,6 +66,7 @@ interface Props {
 }
 
 export default function ArtifactDownloadMenu({ artifact }: Props) {
+  const { t } = useTranslation();
   const isChart = artifact.kind === 'application/vnd.echarts+json';
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
@@ -119,7 +121,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   const exportChartImage = (type: 'png' | 'jpeg') => {
     const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
     if (!instance) {
-      window.alert('Chart is still loading. Please try again in a moment.');
+      window.alert(t('artifacts.download.chartLoading'));
       return;
     }
     const dataUrl = instance.getDataURL({
@@ -143,7 +145,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="cursor-pointer text-xs opacity-60 hover:opacity-100 px-2 py-1 select-none flex items-center gap-1"
-        title="Download / Export"
+        title={t('artifacts.download.title')}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -164,14 +166,14 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
                   className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
                   role="menuitem"
                 >
-                  Export as PNG
+                  {t('artifacts.download.exportPng')}
                 </button>
                 <button
                   onClick={() => exportChartImage('jpeg')}
                   className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
                   role="menuitem"
                 >
-                  Export as JPEG
+                  {t('artifacts.download.exportJpeg')}
                 </button>
                 <div className="my-1 border-t border-[var(--border-default)]" />
               </>
@@ -185,10 +187,10 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
                 className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
                 role="menuitem"
               >
-                Download original (.{ext})
+                {t('artifacts.download.original', { ext })}
               </button>
             ) : (
-              <span className="block px-3 py-1.5 opacity-50">Preparing download…</span>
+              <span className="block px-3 py-1.5 opacity-50">{t('artifacts.download.preparing')}</span>
             )}
           </div>,
           document.body,

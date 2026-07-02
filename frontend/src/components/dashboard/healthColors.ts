@@ -23,11 +23,14 @@ export const HEALTH_COLORS: Record<AgentHealth, HealthColors> = {
     text: 'text-emerald-600 dark:text-emerald-400',
     accent: 'bg-emerald-500',
   },
+  // idle: brand SILICON rail/accent (the agent species colour), but the status
+  // TEXT is neutral ink — the coloured rail already signals "idle", so the
+  // "Idle · last active …" line reads as plain text, not blue.
   healthy_idle: {
-    rail: 'bg-gradient-to-b from-sky-400 to-sky-600 shadow-[inset_-1px_0_2px_rgba(14,165,233,0.45)]',
+    rail: 'bg-[color:var(--color-silicon)] shadow-[inset_-1px_0_3px_var(--color-silicon-hair)]',
     cardTint: '',
-    text: 'text-sky-600 dark:text-sky-400',
-    accent: 'bg-sky-500',
+    text: 'text-[color:var(--text-primary)]',
+    accent: 'bg-[color:var(--color-silicon)]',
   },
   idle_long: {
     rail: 'bg-gradient-to-b from-gray-300 to-gray-500',

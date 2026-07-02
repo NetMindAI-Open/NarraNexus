@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-05-29
+last_verified: 2026-06-23
 stub: false
 ---
+
+> 2026-06-23：`TriggerType` 新增 `MESSAGE_BUS = "message_bus"`，用于把团队群聊
+> (message bus) 的 Event 与 1:1 聊天区分开（侧栏预览据此过滤；见 [[event_service]]
+> / [[step_0_initialize]] / [[auth]]）。这是 `Event.trigger` 用的枚举（CHAT/TASK/
+> API/TOOL/MESSAGE_BUS/OTHER）——注意另有一个同名 `WorkingSource`/`module_schema`
+> 的 `TriggerType`，不是这个。
 
 > 2026-05-29：删除 `EpisodeResult`，并从 `NarrativeSearchResult` 去掉
 > `episode_summaries` / `episode_contents` 字段（EverMemOS 整体移除）。

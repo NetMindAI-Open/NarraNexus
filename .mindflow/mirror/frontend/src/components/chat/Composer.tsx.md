@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/Composer.tsx
-last_verified: 2026-05-22
+last_verified: 2026-06-20
 stub: false
 ---
+
+## 2026-06-20 — ComposerHandle gained setText (suggested-prompt fill)
+
+Added `setText(value)` to the imperative handle: it replaces the textarea
+value, reports the empty↔non-empty flip, then focuses the textarea with the
+caret at the end. Used by [[OnboardingJourney]]'s suggested-prompt chips —
+clicking a chip fills the composer (it does NOT auto-send; the user reviews
+then hits Enter). Needed a real ref to the underlying `<textarea>`, so the
+component now holds `textareaRef` and forwards it to `Textarea` (which already
+forwards refs to the element).
 
 # Composer.tsx — isolated chat message textarea
 

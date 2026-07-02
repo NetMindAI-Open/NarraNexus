@@ -8,10 +8,11 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { Activity, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { RefreshCw } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Button } from '@/components/ui';
-import { usePreloadStore, useConfigStore } from '@/stores';
+import { usePreloadStore, useConfigStore, useChatStore } from '@/stores';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { CostSummary } from '@/types/api';
@@ -32,6 +33,7 @@ function shortModelName(model: string): string {
 }
 
 function SummaryContent({ summary }: { summary: CostSummary }) {
+  const { t } = useTranslation();
   const totalTokens = summary.total_input_tokens + summary.total_output_tokens;
   const models = Object.entries(summary.by_model).sort(
     ([, a], [, b]) => (b.input_tokens + b.output_tokens) - (a.input_tokens + a.output_tokens)
@@ -45,7 +47,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
           {formatTokens(totalTokens)}
         </div>
         <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-          {formatTokens(summary.total_input_tokens)} in / {formatTokens(summary.total_output_tokens)} out
+          {t('cost.popover.inOut', { in: formatTokens(summary.total_input_tokens), out: formatTokens(summary.total_output_tokens) })}
         </div>
       </div>
 
@@ -53,7 +55,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
       {models.length > 0 && (
         <div className="space-y-1.5">
           <div className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
-            By Model
+            {t('cost.popover.byModel')}
           </div>
           {models.map(([model, data]) => (
             <div key={model} className="flex items-center justify-between text-xs">
@@ -77,7 +79,7 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
       {summary.daily.length > 0 && (
         <div className="space-y-1.5 pt-1 border-t border-[var(--border-subtle)]">
           <div className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
-            Daily
+            {t('cost.popover.daily')}
           </div>
           {summary.daily.slice(-5).map((entry) => (
             <div key={entry.date} className="flex items-center justify-between text-xs">
@@ -93,7 +95,8 @@ function SummaryContent({ summary }: { summary: CostSummary }) {
   );
 }
 
-export function CostPopover() {
+export function CostPopover({ compact = false }: { compact?: boolean } = {}) {
+  const { t } = useTranslation();
   const [view, setView] = useState<CostView>('agent');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [allSummary, setAllSummary] = useState<CostSummary | null>(null);
@@ -101,6 +104,9 @@ export function CostPopover() {
 
   const { agentId } = useConfigStore();
   const { costSummary, costLoading, refreshCost } = usePreloadStore();
+  // The current agent's live state drives the icon: streaming/thinking → pulse,
+  // otherwise a calm idle glow.
+  const working = useChatStore((s) => s.isStreaming);
 
   const activeSummary = view === 'agent' ? costSummary : allSummary;
   const activeLoading = view === 'agent' ? costLoading : allLoading;
@@ -139,20 +145,27 @@ export function CostPopover() {
     }
   };
 
-  const totalTokens = activeSummary
-    ? activeSummary.total_input_tokens + activeSummary.total_output_tokens
-    : 0;
-
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" title="Token Usage">
-          <Activity className="w-5 h-5" />
-          {totalTokens > 0 && (
-            <span className="absolute -top-1 -right-1 h-4 min-w-4 px-0.5 flex items-center justify-center text-[9px] font-medium bg-[var(--color-red-500)] text-white rounded-full allow-circle">
-              {formatTokens(totalTokens)}
-            </span>
-          )}
+        <Button variant="ghost" size="icon" className={cn('relative', compact && 'h-7 w-7')} title={t('cost.popover.triggerTitle')}>
+          {/* The activity glyph IS the agent's heartbeat, drawn as an ECG: a
+              bright pulse sweeps the waveform while it streams/thinks, and the
+              line just glows softly when idle. No running token count here —
+              that figure read as an anxiety-inducing meter; the numbers live
+              inside the popover, on click. */}
+          <svg
+            className={cn(compact ? 'w-4 h-4' : 'w-5 h-5', working ? 'nm-activity-working' : 'nm-activity-idle')}
+            viewBox="0 0 24 24"
+            fill="none"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path className="nm-ecg-base" d="M2 12 L6 12 L9 3 L15 21 L18 12 L22 12" />
+            <path className="nm-ecg-pulse" pathLength={100} d="M2 12 L6 12 L9 3 L15 21 L18 12 L22 12" />
+          </svg>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -172,7 +185,7 @@ export function CostPopover() {
                   : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
               )}
             >
-              Agent
+              {t('cost.popover.viewAgent')}
             </button>
             <button
               onClick={() => setView('all')}
@@ -183,7 +196,7 @@ export function CostPopover() {
                   : 'text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
               )}
             >
-              All
+              {t('cost.popover.viewAll')}
             </button>
           </div>
           <Button
@@ -199,17 +212,17 @@ export function CostPopover() {
 
         {/* Subtitle */}
         <div className="text-[10px] text-[var(--text-tertiary)] mb-2">
-          {view === 'agent' ? 'Current agent · 7 days' : 'All agents · 7 days'}
+          {view === 'agent' ? t('cost.popover.subtitleAgent') : t('cost.popover.subtitleAll')}
         </div>
 
         {/* Content */}
         {activeLoading && !activeSummary ? (
-          <div className="py-4 text-center text-xs text-[var(--text-tertiary)]">Loading...</div>
+          <div className="py-4 text-center text-xs text-[var(--text-tertiary)]">{t('cost.popover.loading')}</div>
         ) : activeSummary ? (
           <SummaryContent summary={activeSummary} />
         ) : (
           <div className="py-4 text-center text-xs text-[var(--text-tertiary)]">
-            No usage data yet
+            {t('cost.popover.noData')}
           </div>
         )}
       </PopoverContent>

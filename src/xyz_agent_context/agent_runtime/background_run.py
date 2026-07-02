@@ -63,6 +63,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
+from xyz_agent_context.agent_runtime.admission import get_admission_controller
 from xyz_agent_context.agent_runtime.broadcaster import Broadcaster
 from xyz_agent_context.agent_runtime.cancellation import (
     CancellationToken,
@@ -502,42 +503,45 @@ class BackgroundRun:
         from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
 
         try:
-            async with AgentRuntime() as runtime:
-                async for event in runtime.run(
-                    agent_id=agent_id,
-                    user_id=user_id,
-                    input_content=input_content,
-                    working_source=working_source,
-                    pass_mcp_urls=pass_mcp_urls or {},
-                    cancellation=self.cancellation,
-                    trigger_extra_data=trigger_extra_data or {},
-                ):
-                    # Convert non-dict messages (Pydantic / dataclasses /
-                    # whatever AgentRuntime yields) into a uniform dict
-                    # that emit() can route. Original fidelity preserved
-                    # via _normalise_event.
-                    normalised = _normalise_event(event)
+            # Two-level concurrency gate: queues the START only, never
+            # interrupts a running loop (binding rule #14).
+            async with get_admission_controller().slot(user_id):
+                async with AgentRuntime() as runtime:
+                    async for event in runtime.run(
+                        agent_id=agent_id,
+                        user_id=user_id,
+                        input_content=input_content,
+                        working_source=working_source,
+                        pass_mcp_urls=pass_mcp_urls or {},
+                        cancellation=self.cancellation,
+                        trigger_extra_data=trigger_extra_data or {},
+                    ):
+                        # Convert non-dict messages (Pydantic / dataclasses /
+                        # whatever AgentRuntime yields) into a uniform dict
+                        # that emit() can route. Original fidelity preserved
+                        # via _normalise_event.
+                        normalised = _normalise_event(event)
 
-                    # If run_id is not assigned yet, scan for the step-0
-                    # progress message that carries details.event_id.
-                    # Once found, register this BackgroundRun in
-                    # active_runs and signal ready_event.
-                    if self.run_id is None:
-                        new_run_id = _try_extract_event_id(normalised)
-                        if new_run_id:
-                            await self._on_run_id_assigned(new_run_id)
+                        # If run_id is not assigned yet, scan for the step-0
+                        # progress message that carries details.event_id.
+                        # Once found, register this BackgroundRun in
+                        # active_runs and signal ready_event.
+                        if self.run_id is None:
+                            new_run_id = _try_extract_event_id(normalised)
+                            if new_run_id:
+                                await self._on_run_id_assigned(new_run_id)
 
-                    await self.emit(normalised)
-            # Natural end
-            self.state = STATE_COMPLETED
-            # Funnel ⑤ fires only on a genuine reply. A fatal error (e.g. no
-            # provider configured) ends the generator naturally too, but the
-            # user got a "configure your key" notice, not an agent reply —
-            # that is not a successful round-trip.
-            if not self._had_fatal_error:
-                await _fire_message_success(
-                    user_id=user_id, agent_id=agent_id, run_id=self.run_id,
-                )
+                        await self.emit(normalised)
+                # Natural end
+                self.state = STATE_COMPLETED
+                # Funnel ⑤ fires only on a genuine reply. A fatal error (e.g. no
+                # provider configured) ends the generator naturally too, but the
+                # user got a "configure your key" notice, not an agent reply —
+                # that is not a successful round-trip.
+                if not self._had_fatal_error:
+                    await _fire_message_success(
+                        user_id=user_id, agent_id=agent_id, run_id=self.run_id,
+                    )
         except CancelledByUser as e:
             self.state = STATE_CANCELLED
             logger.info(f"[BackgroundRun {self.run_id}] cancelled: {e.reason}")

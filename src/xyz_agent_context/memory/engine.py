@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.memory.spec import MemoryKindSpec, get_spec
 from xyz_agent_context.memory._memory_impl.repository import MemoryRepository
@@ -48,10 +48,10 @@ class MemoryEngine:
     """One engine per (agent, db). Repositories are created lazily per kind and
     cached, so a turn touching several kinds opens each table once."""
 
-    def __init__(self, db_client: Any, agent_id: str, *, sdk: Optional[OpenAIAgentsSDK] = None):
+    def __init__(self, db_client: Any, agent_id: str, *, sdk: Optional[Any] = None):
         self._db = db_client
         self.agent_id = agent_id
-        self._sdk = sdk or OpenAIAgentsSDK()
+        self._sdk = sdk or get_helper_sdk()
         self._repos: Dict[str, MemoryRepository] = {}
 
     def repo(self, kind: str) -> MemoryRepository:

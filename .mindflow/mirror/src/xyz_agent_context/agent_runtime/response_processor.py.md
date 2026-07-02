@@ -1,8 +1,39 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-05-13
+last_verified: 2026-06-17
 stub: false
 ---
+
+## 2026-06-17 — 收紧 auth 误判:`invalid_request_error` 退出类型集合
+
+`_AUTH_FAILURE_TYPES` 原含 `invalid_request_error`（注释「常包着坏/过期
+key」）。但这是 OpenAI 的 **catch-all 客户端错误类型**,同时覆盖坏 key 和
+大量非 auth 400(context_length_exceeded / 坏 model id / content-policy)。
+codex 把这些原样透传上来,于是每次上下文超长 / 坏 model 的 turn 都被误判成
+`auth_expired`(fatal)+ 掐掉 helper fallback。改为:类型集合删掉
+`invalid_request_error`;phrase 列表补 `"incorrect api key"`。真正的 auth
+仍精确命中——codex 发 `unauthorized`、Claude 发 `invalid_request`(无
+`_error`)、OpenAI 坏 key 靠报文 "Incorrect API key provided" 兜住。回归测试:
+`test_invalid_request_error_is_not_auth_by_type_alone` +
+`test_openai_bad_key_still_classified_by_message`。
+
+## 2026-06-11 — 鉴权失败单独归类为 fatal + auth_expired
+
+`response.error` 分支原来把**所有** API error 一律 `severity="recoverable"`，
+本意是别让一次瞬时 rate-limit 把整轮 turn 拆掉。但鉴权失败（codex OAuth
+token 过期/refresh 已用过 → `error_type="unauthorized"` + "log out and sign
+in again"）是**不可恢复**的——凭证已死，重试或 helper 兜底都没用，而
+helper 还会编一个回复把"登录失效"盖住（incident 2026-06-11：每轮静默退化
+到 gpt-5，Settings 还显示 "✓ auth ready"）。
+
+新增 `_is_auth_failure(error_type, error_message)`（框架无关，铁律 #9）：先
+匹配分类（`unauthorized` / `authentication_error` / 含 "auth"），再兜底匹配
+message 片段（"sign in again" / "refresh token" / "401" 等）。命中则发
+`ErrorMessage(severity="fatal", error_type=AUTH_EXPIRED_ERROR_TYPE,
+error_message=可操作提示)`，提示用户 `codex login` / 换 API key 槽位。
+`AUTH_EXPIRED_ERROR_TYPE = "auth_expired"` 是导出常量，step_3 靠它跳过
+no_reply fallback（见 step_3_agent_loop 2026-06-11 条目）。瞬时错误仍走
+`recoverable`。测试：tests/agent_runtime/test_response_processor_auth_failure.py。
 
 ## 2026-05-13 — Phase B：generator 化 + thinking-delta WS 合并
 

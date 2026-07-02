@@ -6,6 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Ban,
   Loader2,
@@ -46,6 +47,7 @@ interface JobExpandedDetailProps {
 
 /** 点击复制文本，显示短暂的勾号反馈 */
 function CopyableId({ value }: { value: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback((e: React.MouseEvent) => {
@@ -60,7 +62,7 @@ function CopyableId({ value }: { value: string }) {
       type="button"
       onClick={handleCopy}
       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--accent-glow)] transition-colors cursor-pointer group/copy"
-      title="Click to copy"
+      title={t('jobs.expanded.clickToCopy')}
     >
       <span className="font-mono text-[10px] text-[var(--text-secondary)] truncate max-w-[180px]">
         {value}
@@ -95,6 +97,7 @@ export function JobExpandedDetail({
   isPausing = false,
   onPause,
 }: JobExpandedDetailProps) {
+  const { t } = useTranslation();
   const [payloadExpanded, setPayloadExpanded] = useState(false);
 
   // 解析 trigger_config 中可能存在的额外字段
@@ -118,15 +121,15 @@ export function JobExpandedDetail({
     >
       {/* 1. IDs & Metadata */}
       <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
-        <SectionLabel>IDs</SectionLabel>
+        <SectionLabel>{t('jobs.expanded.ids')}</SectionLabel>
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-[var(--text-tertiary)] text-[10px] w-16 shrink-0">Job ID</span>
+            <span className="text-[var(--text-tertiary)] text-[10px] w-16 shrink-0">{t('jobs.expanded.jobId')}</span>
             <CopyableId value={job.job_id} />
           </div>
           {job.instance_id && (
             <div className="flex items-center gap-2">
-              <span className="text-[var(--text-tertiary)] text-[10px] w-16 shrink-0">Instance</span>
+              <span className="text-[var(--text-tertiary)] text-[10px] w-16 shrink-0">{t('jobs.expanded.instance')}</span>
               <CopyableId value={job.instance_id} />
             </div>
           )}
@@ -135,45 +138,45 @@ export function JobExpandedDetail({
 
       {/* 2. Configuration */}
       <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
-        <SectionLabel>Configuration</SectionLabel>
+        <SectionLabel>{t('jobs.expanded.configuration')}</SectionLabel>
         <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
           <div>
-            <span className="text-[var(--text-tertiary)]">Type: </span>
+            <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.type')} </span>
             <span className="text-[var(--accent-primary)]">{job.job_type}</span>
           </div>
           {triggerConfig?.trigger_type && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Trigger: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.trigger')} </span>
               <span className="text-[var(--accent-secondary)]">{triggerConfig.trigger_type}</span>
             </div>
           )}
           {triggerConfig?.cron_expression && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Cron: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.cron')} </span>
               <span className="text-[var(--text-secondary)]">{triggerConfig.cron_expression as string}</span>
             </div>
           )}
           {triggerConfig?.interval_seconds && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Interval: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.interval')} </span>
               <span className="text-[var(--text-secondary)]">{triggerConfig.interval_seconds}s</span>
             </div>
           )}
           {runAt && (
             <div className="col-span-2">
-              <span className="text-[var(--text-tertiary)]">Run at: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.runAt')} </span>
               <span className="text-[var(--text-secondary)]">{formatRelativeTime(runAt)}</span>
             </div>
           )}
           {endCondition && (
             <div className="col-span-2">
-              <span className="text-[var(--text-tertiary)]">End condition: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.endCondition')} </span>
               <span className="text-[var(--text-secondary)]">{endCondition}</span>
             </div>
           )}
           {maxIterations != null && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Max iter: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.maxIter')} </span>
               <span className="text-[var(--text-secondary)]">{maxIterations}</span>
             </div>
           )}
@@ -183,7 +186,7 @@ export function JobExpandedDetail({
       {/* 3. Payload */}
       {payloadText && (
         <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
-          <SectionLabel>Payload</SectionLabel>
+          <SectionLabel>{t('jobs.expanded.payload')}</SectionLabel>
           <pre className="text-[10px] font-mono text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-relaxed">
             {payloadPreview}
           </pre>
@@ -196,12 +199,12 @@ export function JobExpandedDetail({
               {payloadExpanded ? (
                 <>
                   <ChevronUp className="w-3 h-3" />
-                  Show less
+                  {t('jobs.expanded.showLess')}
                 </>
               ) : (
                 <>
                   <ChevronDown className="w-3 h-3" />
-                  Show more
+                  {t('jobs.expanded.showMore')}
                 </>
               )}
             </button>
@@ -211,23 +214,23 @@ export function JobExpandedDetail({
 
       {/* 4. Timing */}
       <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
-        <SectionLabel>Timing</SectionLabel>
+        <SectionLabel>{t('jobs.expanded.timing')}</SectionLabel>
         <div className="grid grid-cols-2 gap-2 font-mono text-[10px]">
           {job.created_at && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Created: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.created')} </span>
               <span className="text-[var(--text-secondary)]">{formatRelativeTime(job.created_at)}</span>
             </div>
           )}
           {job.updated_at && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Updated: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.updated')} </span>
               <span className="text-[var(--text-secondary)]">{formatRelativeTime(job.updated_at)}</span>
             </div>
           )}
           {job.last_run_at && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Last run: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.lastRun')} </span>
               <span className="text-[var(--text-secondary)]">
                 {job.last_run_at}{job.last_run_timezone ? ` (${job.last_run_timezone})` : ''}
               </span>
@@ -235,7 +238,7 @@ export function JobExpandedDetail({
           )}
           {job.next_run_at && (
             <div>
-              <span className="text-[var(--text-tertiary)]">Next run: </span>
+              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.nextRun')} </span>
               <span className="text-[var(--color-success)]">
                 {job.next_run_at}{job.next_run_timezone ? ` (${job.next_run_timezone})` : ''}
               </span>
@@ -247,7 +250,7 @@ export function JobExpandedDetail({
       {/* 5. Dependencies */}
       {job.depends_on && job.depends_on.length > 0 && (
         <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
-          <SectionLabel>Dependencies</SectionLabel>
+          <SectionLabel>{t('jobs.expanded.dependencies')}</SectionLabel>
           <div className="flex flex-wrap gap-1.5">
             {job.depends_on.map((dep) => (
               <Badge key={dep} variant="outline" size="sm" className="font-mono text-[9px]">
@@ -261,7 +264,7 @@ export function JobExpandedDetail({
       {/* 6. Process Log */}
       {job.process && job.process.length > 0 && (
         <div className="p-3 bg-[var(--bg-sunken)] rounded-lg border border-[var(--border-subtle)]">
-          <SectionLabel>Process Log ({job.process.length} entries)</SectionLabel>
+          <SectionLabel>{t('jobs.expanded.processLog', { count: job.process.length })}</SectionLabel>
           <ScrollArea className="max-h-32">
             <div className="space-y-0.5">
             {job.process.map((entry, idx) => (
@@ -283,7 +286,7 @@ export function JobExpandedDetail({
         <div className="p-3 bg-[var(--accent-primary)]/5 rounded-lg border border-[var(--accent-primary)]/20">
           <div className="text-[9px] text-[var(--accent-primary)] font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
             <Users className="w-3 h-3" />
-            Target User (Execution Identity)
+            {t('jobs.expanded.targetUser')}
           </div>
           <span
             className="inline-flex items-center px-2 py-1 text-[9px] rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20 font-mono"
@@ -298,7 +301,7 @@ export function JobExpandedDetail({
         <div className="p-3 bg-[var(--accent-secondary)]/5 rounded-lg border border-[var(--accent-secondary)]/20">
           <div className="text-[9px] text-[var(--accent-secondary)] font-medium uppercase tracking-wider flex items-center gap-1.5 mb-2">
             <FileText className="w-3 h-3" />
-            Linked Narrative
+            {t('jobs.expanded.linkedNarrative')}
           </div>
           <span className="text-[10px] font-mono text-[var(--text-secondary)]">
             {job.narrative_id}
@@ -310,7 +313,7 @@ export function JobExpandedDetail({
       {job.last_error && (
         <div className="p-3 bg-[var(--color-error)]/10 rounded-lg border border-[var(--color-error)]/20">
           <SectionLabel>
-            <span className="text-[var(--color-error)]">Error</span>
+            <span className="text-[var(--color-error)]">{t('jobs.expanded.error')}</span>
           </SectionLabel>
           <p className="text-[10px] font-mono text-[var(--text-secondary)] whitespace-pre-wrap break-words">
             {job.last_error}
@@ -332,12 +335,12 @@ export function JobExpandedDetail({
               {isPausing ? (
                 <>
                   <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                  Pausing...
+                  {t('jobs.action.pausing')}
                 </>
               ) : (
                 <>
                   <Pause className="w-3 h-3 mr-1.5" />
-                  Pause
+                  {t('jobs.action.pause')}
                 </>
               )}
             </Button>
@@ -353,12 +356,12 @@ export function JobExpandedDetail({
               {isResuming ? (
                 <>
                   <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                  Resuming...
+                  {t('jobs.action.resuming')}
                 </>
               ) : (
                 <>
                   <Play className="w-3 h-3 mr-1.5" />
-                  Resume
+                  {t('jobs.action.resume')}
                 </>
               )}
             </Button>
@@ -374,12 +377,12 @@ export function JobExpandedDetail({
               {isCancelling ? (
                 <>
                   <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-                  Cancelling...
+                  {t('jobs.action.cancelling')}
                 </>
               ) : (
                 <>
                   <Ban className="w-3 h-3 mr-1.5" />
-                  Cancel Job
+                  {t('jobs.action.cancelJob')}
                 </>
               )}
             </Button>

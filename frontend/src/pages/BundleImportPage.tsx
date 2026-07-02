@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -31,6 +32,7 @@ type Step = 'upload' | 'review' | 'done';
 
 export default function BundleImportPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { refresh: refreshTeams } = useTeamsStore();
   const { refreshAgents, userId } = useConfigStore();
   const { dialog } = useConfirm();
@@ -80,7 +82,7 @@ export default function BundleImportPage() {
       setPreflight(r);
       setStep('review');
     } catch (e: any) {
-      setError(e?.message || 'Preflight failed');
+      setError(e?.message || t('pages.bundleImport.preflightFailed'));
     } finally {
       setBusy(false);
     }
@@ -127,14 +129,17 @@ export default function BundleImportPage() {
             /load failed|failed to fetch|network|fetch failed|connection|refused|econnrefused/i.test(msg);
           if (isNetworkLike && attempt < RETRY_DELAYS_MS.length) {
             setError(
-              `Waiting for backend (try ${attempt + 1}/${RETRY_DELAYS_MS.length + 1})…`,
+              t('pages.bundleImport.waitingForBackend', {
+                attempt: attempt + 1,
+                total: RETRY_DELAYS_MS.length + 1,
+              }),
             );
             await new Promise((r) => window.setTimeout(r, RETRY_DELAYS_MS[attempt]));
             continue;
           }
           // Final failure: surface message + leave the Retry button to drive
           // a manual re-fire (via retryNonce bump).
-          setError(msg || 'Failed to fetch template');
+          setError(msg || t('pages.bundleImport.fetchFailed'));
           setBusy(false);
           return;
         }
@@ -168,7 +173,7 @@ export default function BundleImportPage() {
       // backend was restarted on a host without persistent volume).
       // Bounce back to upload step so the user can re-pick the file.
       if (/preflight.*(not found|expired|missing)/i.test(msg)) {
-        setError('Your preview session expired (>6h or backend restarted). Please re-upload the bundle.');
+        setError(t('pages.bundleImport.sessionExpired'));
         setStep('upload');
         setPreflight(null);
         setFile(null);
@@ -188,14 +193,14 @@ export default function BundleImportPage() {
         </button>
         <Package className="w-5 h-5" />
         <h1 className="font-mono text-base">
-          {urlMode ? 'Install template' : 'Import bundle'}
+          {urlMode ? t('pages.bundleImport.installTemplate') : t('pages.bundleImport.importBundle')}
         </h1>
         <div className="ml-auto w-[360px]">
           <StepIndicator
             steps={[
-              { key: 'upload', label: urlMode ? 'Fetch' : 'Upload' },
-              { key: 'review', label: 'Review' },
-              { key: 'done', label: 'Done' },
+              { key: 'upload', label: urlMode ? t('pages.bundleImport.stepFetch') : t('pages.bundleImport.stepUpload') },
+              { key: 'review', label: t('pages.bundleImport.stepReview') },
+              { key: 'done', label: t('pages.bundleImport.stepDone') },
             ]}
             currentIndex={step === 'upload' ? 0 : step === 'review' ? 1 : 2}
           />
@@ -210,7 +215,7 @@ export default function BundleImportPage() {
                 <>
                   <Loader2 className="w-10 h-10 mx-auto text-[var(--text-tertiary)] animate-spin" />
                   <p className="mt-3 text-sm text-[var(--text-secondary)]">
-                    Fetching template from <span className="font-mono break-all">{urlMode}</span>…
+                    {t('pages.bundleImport.fetchingFrom')} <span className="font-mono break-all">{urlMode}</span>…
                   </p>
                 </>
               )}
@@ -218,7 +223,7 @@ export default function BundleImportPage() {
                 <>
                   <AlertTriangle className="w-10 h-10 mx-auto text-[var(--color-red-500)]" />
                   <p className="mt-3 text-sm text-[var(--text-secondary)]">
-                    Could not fetch the template.
+                    {t('pages.bundleImport.couldNotFetch')}
                   </p>
                   <Button
                     onClick={() => setRetryNonce((n) => n + 1)}
@@ -226,7 +231,7 @@ export default function BundleImportPage() {
                     className="mt-4 gap-1"
                   >
                     <Loader2 className="w-3.5 h-3.5" />
-                    Retry
+                    {t('pages.bundleImport.retry')}
                   </Button>
                 </>
               )}
@@ -239,8 +244,8 @@ export default function BundleImportPage() {
             <div ref={dropRef}>
               <BracketDropzone active={dragActive}>
                 <Upload className="w-10 h-10 mx-auto mb-3" />
-                <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>Drag &amp; drop a .nxbundle here</p>
-                <p className="mt-1 text-xs" style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}>— or —</p>
+                <p className="text-sm" style={{ color: 'var(--nm-ink70)' }}>{t('pages.bundleImport.dragDrop')}</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--nm-ink50)', fontFamily: 'var(--font-mono)' }}>{t('pages.bundleImport.orSeparator')}</p>
                 <label className="mt-3 inline-block">
                   <input
                     type="file"
@@ -256,14 +261,14 @@ export default function BundleImportPage() {
                       color: 'var(--nm-ink)',
                     }}
                   >
-                    Choose file
+                    {t('pages.bundleImport.chooseFile')}
                   </span>
                 </label>
                 {file && (
                   <div className="mt-4 inline-flex items-center gap-2 text-sm">
                     <Check className="w-4 h-4" style={{ color: 'var(--color-success)' }} />
                     <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink)' }}>{file.name}</span>
-                    <span style={{ color: 'var(--nm-ink50)' }}>({Math.round(file.size / 1024)} KB)</span>
+                    <span style={{ color: 'var(--nm-ink50)' }}>{t('pages.bundleImport.fileSizeKb', { size: Math.round(file.size / 1024) })}</span>
                   </div>
                 )}
               </BracketDropzone>
@@ -272,7 +277,7 @@ export default function BundleImportPage() {
             <div className="flex justify-end">
               <Button onClick={runPreflight} disabled={!file || busy} size="sm" className="gap-1">
                 {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
-                Preview
+                {t('pages.bundleImport.preview')}
               </Button>
             </div>
           </div>
@@ -323,55 +328,61 @@ function ReviewPanel({
   busy: boolean;
   error: string | null;
 }) {
+  const { t } = useTranslation();
   const m = preflight.manifest;
   return (
     <div className="max-w-3xl mx-auto space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <Stat label="Bundle format" value={m.bundle_format_version} />
-        <Stat label="Exported version" value={m.narranexus_version_exported} />
-        <Stat label="Exported at" value={m.exported_at?.slice(0, 19) || '?'} />
-        <Stat label="Integrity sha256" value={m.integrity_sha256?.slice(0, 12) + '…'} />
+        <Stat label={t('pages.bundleImport.review.bundleFormat')} value={m.bundle_format_version} />
+        <Stat label={t('pages.bundleImport.review.exportedVersion')} value={m.narranexus_version_exported} />
+        <Stat label={t('pages.bundleImport.review.exportedAt')} value={m.exported_at?.slice(0, 19) || '?'} />
+        <Stat label={t('pages.bundleImport.review.integritySha')} value={m.integrity_sha256?.slice(0, 12) + '…'} />
       </div>
 
-      <Section title="Will create">
-        <Bullet>{m.agents.length} agent{m.agents.length === 1 ? '' : 's'}{preflight.name_clashes.length > 0 && ` (${preflight.name_clashes.length} will be auto-renamed with (N) suffix)`}</Bullet>
+      <Section title={t('pages.bundleImport.review.willCreate')}>
+        <Bullet>{t('pages.bundleImport.review.agentsLine', { count: m.agents.length })}{preflight.name_clashes.length > 0 && ` ${t('pages.bundleImport.review.agentsRenamedSuffix', { count: preflight.name_clashes.length })}`}</Bullet>
         {m.team && (
-          <Bullet>1 team "{m.team.name}"{preflight.team_clash && ' (renamed (N))'}</Bullet>
+          <Bullet>{t('pages.bundleImport.review.teamLine', { name: m.team.name })}{preflight.team_clash && ` ${t('pages.bundleImport.review.teamRenamedSuffix')}`}</Bullet>
         )}
         {(m.skills || []).length > 0 && (
-          <Bullet>{m.skills.length} skill{m.skills.length === 1 ? '' : 's'} ({m.skills.filter((s: any) => s.install_method === 'url').length}× url, {m.skills.filter((s: any) => s.install_method === 'zip').length}× zip, {m.skills.filter((s: any) => s.install_method === 'full_copy').length}× full)</Bullet>
+          <Bullet>{t('pages.bundleImport.review.skillsLine', {
+            count: m.skills.length,
+            url: m.skills.filter((s: any) => s.install_method === 'url').length,
+            zip: m.skills.filter((s: any) => s.install_method === 'zip').length,
+            full: m.skills.filter((s: any) => s.install_method === 'full_copy').length,
+          })}</Bullet>
         )}
         {(m.mcp_hints_count || 0) > 0 && (
-          <Bullet>{m.mcp_hints_count} suggested external MCP URL{(m.mcp_hints_count || 0) === 1 ? '' : 's'} (you'll be asked to confirm each)</Bullet>
+          <Bullet>{t('pages.bundleImport.review.mcpHintsLine', { count: m.mcp_hints_count })}</Bullet>
         )}
       </Section>
 
       {preflight.name_clashes.length > 0 && (
-        <Section title="Name clashes (auto-renamed)" warning>
+        <Section title={t('pages.bundleImport.review.nameClashesTitle')} warning>
           {preflight.name_clashes.map((c) => (
-            <Bullet key={c.agent_id_in_bundle}>"{c.agent_name}" — {c.existing_count} existing agent(s) with same name</Bullet>
+            <Bullet key={c.agent_id_in_bundle}>{t('pages.bundleImport.review.nameClashLine', { name: c.agent_name, count: c.existing_count })}</Bullet>
           ))}
         </Section>
       )}
 
       {m.warnings.length > 0 && (
-        <Section title="Bundle warnings" warning>
+        <Section title={t('pages.bundleImport.review.warningsTitle')} warning>
           {m.warnings.map((w, i) => <Bullet key={i}>{w}</Bullet>)}
         </Section>
       )}
 
       {(m.info && m.info.length > 0) && (
-        <Section title="Info (expected, no action needed)">
+        <Section title={t('pages.bundleImport.review.infoTitle')}>
           {m.info.map((line, i) => <Bullet key={i}>{line}</Bullet>)}
         </Section>
       )}
 
-      <Section title="Stripped (not present in bundle)">
+      <Section title={t('pages.bundleImport.review.strippedTitle')}>
         {m.stripped.map((s, i) => <Bullet key={i}>{s}</Bullet>)}
       </Section>
 
       {m.team?.intro_md && (
-        <Section title="Bundle notes (README.md)">
+        <Section title={t('pages.bundleImport.review.bundleNotesTitle')}>
           <pre className="whitespace-pre-wrap text-xs font-mono bg-[var(--bg-tertiary)] p-3 max-h-[200px] overflow-y-auto">{m.team.intro_md}</pre>
         </Section>
       )}
@@ -379,10 +390,10 @@ function ReviewPanel({
       {error && <ErrorBanner error={error} />}
 
       <div className="flex justify-between pt-2">
-        <Button onClick={onBack} variant="ghost" size="sm">← Back</Button>
+        <Button onClick={onBack} variant="ghost" size="sm">{t('pages.bundleImport.review.back')}</Button>
         <Button onClick={onConfirm} size="sm" disabled={busy} className="gap-1">
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-          Import now
+          {t('pages.bundleImport.review.importNow')}
         </Button>
       </div>
     </div>
@@ -392,26 +403,27 @@ function ReviewPanel({
 function DonePanel({
   result, onClose, onViewIntro,
 }: { result: BundleConfirmResponse; onClose: () => void; onViewIntro: () => void }) {
+  const { t } = useTranslation();
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div className="border border-[var(--color-green-500)] bg-[var(--color-green-500)]/10 p-5">
         <div className="flex items-center gap-2 mb-3">
           <Check className="w-5 h-5 text-[var(--color-green-500)]" />
-          <h2 className="font-mono text-sm">Bundle imported</h2>
+          <h2 className="font-mono text-sm">{t('pages.bundleImport.done.bundleImported')}</h2>
         </div>
         <ul className="text-sm font-mono space-y-1">
-          <li>{result.agents_created} agent{result.agents_created === 1 ? '' : 's'} created{result.agents_renamed ? ` (${result.agents_renamed} renamed)` : ''}</li>
-          {result.team_created && <li>1 team "{result.team_name}" added to sidebar</li>}
-          <li>{result.narratives_created} narrative{result.narratives_created === 1 ? '' : 's'}, {result.events_created} chat event{result.events_created === 1 ? '' : 's'}</li>
-          <li>{result.instances_created} module instance{result.instances_created === 1 ? '' : 's'}, {result.social_entities_created} social entit{result.social_entities_created === 1 ? 'y' : 'ies'}</li>
-          <li>{result.skills_imported} skill{result.skills_imported === 1 ? '' : 's'}{result.skills_imported ? ' (some may need re-study or new credentials)' : ''}</li>
-          {result.mcp_hints > 0 && <li>{result.mcp_hints} external MCP URL{result.mcp_hints === 1 ? '' : 's'} suggested — review below</li>}
-          {result.warnings.length > 0 && <li className="text-[var(--color-yellow-500)]">{result.warnings.length} warning{result.warnings.length === 1 ? '' : 's'} (see details)</li>}
+          <li>{t('pages.bundleImport.done.agentsCreated', { count: result.agents_created })}{result.agents_renamed ? ` ${t('pages.bundleImport.done.agentsRenamedSuffix', { count: result.agents_renamed })}` : ''}</li>
+          {result.team_created && <li>{t('pages.bundleImport.done.teamAdded', { name: result.team_name })}</li>}
+          <li>{t('pages.bundleImport.done.narrativesEvents', { narratives: result.narratives_created, events: result.events_created })}</li>
+          <li>{t('pages.bundleImport.done.instancesEntities', { instances: result.instances_created, entities: result.social_entities_created })}</li>
+          <li>{t('pages.bundleImport.done.skillsImported', { count: result.skills_imported })}{result.skills_imported ? ` ${t('pages.bundleImport.done.skillsCredsSuffix')}` : ''}</li>
+          {result.mcp_hints > 0 && <li>{t('pages.bundleImport.done.mcpHints', { count: result.mcp_hints })}</li>}
+          {result.warnings.length > 0 && <li className="text-[var(--color-yellow-500)]">{t('pages.bundleImport.done.warnings', { count: result.warnings.length })}</li>}
         </ul>
       </div>
       {(result.mcp_hints_data || []).length > 0 && (
         <div className="border border-[var(--border-default)] p-4">
-          <div className="text-xs font-mono uppercase mb-2 text-[var(--text-secondary)]">Suggested external MCP URLs</div>
+          <div className="text-xs font-mono uppercase mb-2 text-[var(--text-secondary)]">{t('pages.bundleImport.done.suggestedMcpTitle')}</div>
           <ul className="space-y-1 text-xs font-mono">
             {(result.mcp_hints_data || []).map((m, i) => (
               <li key={i} className="flex items-center gap-2">
@@ -424,21 +436,20 @@ function DonePanel({
             ))}
           </ul>
           <div className="mt-2 text-[10px] text-[var(--text-tertiary)]">
-            These are not auto-installed. Add them under each agent's Settings → MCPs if you trust them.
+            {t('pages.bundleImport.done.mcpNotAutoInstalled')}
           </div>
         </div>
       )}
       <div className="text-sm text-[var(--text-secondary)]">
-        Tip: skills marked as "full copy" already have credentials. URL/Zip skills need re-study or new
-        credentials — talk to the imported agents to complete setup.
+        {t('pages.bundleImport.done.skillsTip')}
       </div>
       <div className="flex justify-end gap-2">
         {result.team_id && (
           <Button onClick={onViewIntro} variant="ghost" size="sm" className="gap-1">
-            <FileText className="w-3.5 h-3.5" /> View team intro
+            <FileText className="w-3.5 h-3.5" /> {t('pages.bundleImport.done.viewTeamIntro')}
           </Button>
         )}
-        <Button onClick={onClose} size="sm">Done</Button>
+        <Button onClick={onClose} size="sm">{t('pages.bundleImport.done.doneButton')}</Button>
       </div>
     </div>
   );

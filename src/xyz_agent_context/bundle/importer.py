@@ -933,7 +933,8 @@ async def _confirm_inner(
         ws_target = None
         if ws_tar.exists():
             from xyz_agent_context.settings import settings as core_settings
-            target = Path(core_settings.base_working_path) / f"{new_aid}_{user_id}"
+            from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+            target = agent_workspace_path(new_aid, user_id, base=core_settings.base_working_path)
             target.mkdir(parents=True, exist_ok=True)
             await asyncio.to_thread(_extract_tar_safely, ws_tar, target)
             await asyncio.to_thread(_rewrite_workspace_text_files, target, id_map, user_id)
@@ -954,7 +955,8 @@ async def _confirm_inner(
                     new_ar = rewrite_row("instance_artifacts", arec)
                     fp = (new_ar.get("file_path") or "").lstrip("/")
                     if fp:
-                        new_ar["file_path"] = f"{new_aid}_{user_id}/{fp}"
+                        from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+                        new_ar["file_path"] = f"{agent_workspace_relpath(new_aid, user_id)}/{fp}"
                     new_ar["user_id"] = user_id
                     new_ar["session_id"] = None
                     new_ar["original_session_id"] = None
@@ -1111,7 +1113,8 @@ async def _confirm_inner(
 
     def _copy_skill_to_agent(src_skill_dir: Path, target_aid: str, skill_name: str) -> None:
         """Copy an already-installed skill dir into a target agent's skills/ dir."""
-        base = Path(core_settings.base_working_path) / f"{target_aid}_{user_id}" / "skills"
+        from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+        base = agent_workspace_path(target_aid, user_id, base=core_settings.base_working_path) / "skills"
         base.mkdir(parents=True, exist_ok=True)
         safe_name = sanitize_filename(skill_name, label="skill name")
         target = ensure_within_directory(base, safe_name, label="skill name")

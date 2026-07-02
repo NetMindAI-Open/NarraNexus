@@ -14,7 +14,7 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ className, variant = 'default', size = 'md', pulse = false, children, ...props }, ref) => {
+  ({ className, variant = 'default', size = 'md', pulse = false, glow = false, children, ...props }, ref) => {
     return (
       <span
         ref={ref}
@@ -61,6 +61,11 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
           size === 'md' && 'h-6 px-2 text-[10px]',
           size === 'lg' && 'h-7 px-2.5 text-[11px]',
 
+          // `glow` emphasises an active/selected badge with a soft halo in the
+          // badge's own colour. (Previously declared but unimplemented, which
+          // also leaked `glow={false}` onto the DOM span.)
+          glow && 'shadow-[0_0_8px_-2px_currentColor]',
+
           className
         )}
         {...props}
@@ -79,7 +84,10 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
             )}
           />
         )}
-        <span>{children}</span>
+        {/* inline-flex (not a plain inline span) so an icon + text child pair
+            stays vertically centred — a baseline-aligned svg otherwise rides
+            high above the digits (e.g. the narrative comment-count badge). */}
+        <span className="inline-flex items-center">{children}</span>
       </span>
     );
   }

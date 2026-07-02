@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Any
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 from xyz_agent_context.schema import ContextData, WorkingSource
 from xyz_agent_context.schema.module_schema import (
     HookCallbackResult,
@@ -89,7 +89,7 @@ async def handle_job_execution_result(
     )
 
     # Call LLM to analyze execution results
-    llm_result: JobExecutionResult = await OpenAIAgentsSDK().llm_function(
+    llm_result: JobExecutionResult = await get_helper_sdk().llm_function(
         instructions=prompts,
         user_input="Please analysis it!",
         output_type=JobExecutionResult,
@@ -267,7 +267,7 @@ async def update_ongoing_jobs_from_chat(
             )
 
             # Call LLM analysis
-            llm_result = await OpenAIAgentsSDK().llm_function(
+            llm_result = await get_helper_sdk().llm_function(
                 instructions=prompt,
                 user_input="Please analyze this interaction.",
                 output_type=OngoingExecutionResult,

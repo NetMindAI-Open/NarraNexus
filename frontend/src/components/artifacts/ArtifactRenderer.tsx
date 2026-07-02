@@ -12,6 +12,7 @@
  */
 
 import { lazy, Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Artifact, ArtifactKind } from '@/types/artifact';
 
 const HtmlRenderer = lazy(() => import('./renderers/HtmlRenderer'));
@@ -42,12 +43,13 @@ interface Props {
 }
 
 export default function ArtifactRenderer({ artifact }: Props) {
+  const { t } = useTranslation();
   const Renderer = RENDERER_BY_KIND[artifact.kind];
   if (!Renderer) {
-    return <div className="p-4 opacity-60">Unsupported artifact kind: {artifact.kind}</div>;
+    return <div className="p-4 opacity-60">{t('artifacts.unsupportedKind', { kind: artifact.kind })}</div>;
   }
   return (
-    <Suspense fallback={<div className="p-4 opacity-60">Loading renderer…</div>}>
+    <Suspense fallback={<div className="p-4 opacity-60">{t('artifacts.loadingRenderer')}</div>}>
       <Renderer artifact={artifact} />
     </Suspense>
   );

@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-05-20
+last_verified: 2026-06-20
 stub: false
 ---
+
+## 2026-06-20 — own bubble switched to Carbon (reverses the 2026-05-19 gray rule)
+
+Per the Narra Agent App design ref, the user's own bubble is now the **Carbon
+(human) species variant**: `--color-carbon-soft` fill, `--color-carbon-hair`
+border, 3px solid `--color-carbon` stripe on the RIGHT — mirroring the AI
+bubble's silicon-on-the-LEFT. This **supersedes** the 2026-05-19 "own bubble
+stays neutral gray, species reserved for the other party" decision below: the
+product reads as an explicit human(carbon)·AI(silicon) dialogue, and a fresh
+product decision (Owner) chose that contrast over the multi-user-fan-out
+rationale. Both tints flip in dark mode via token redefinition. If multi-user
+rooms land later, sender-species disambiguation must be re-solved another way
+(it is no longer carried by "own = gray").
+
+**Meta row moved OUTSIDE the bubble** (reverses the 2026-05-19 "footer inside"
+note below): the time + copy/download row now sits just below the bubble,
+aligned to the bubble's side (own → right, agent → left), so the bubble wraps
+only its content and loses the internal footer whitespace — a tighter, more
+refined bubble.
 
 ## 2026-05-20 — assistant avatar label uses agent name (was hardcoded 'A')
 

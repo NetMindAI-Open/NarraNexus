@@ -9,6 +9,7 @@
  */
 
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Building2,
   GitPullRequest,
@@ -37,6 +38,7 @@ interface JobTemplateSelectorProps {
 }
 
 export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelectorProps) {
+  const { t } = useTranslation();
   const [selectedTemplate, setSelectedTemplate] = useState<JobTemplate | null>(null);
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [isCreating, setIsCreating] = useState(false);
@@ -117,7 +119,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                 <ArrowLeft className="w-4 h-4" />
               </Button>
             )}
-            <span>{selectedTemplate ? selectedTemplate.name : 'Select Template'}</span>
+            <span>{selectedTemplate ? selectedTemplate.name : t('jobs.template.selectTemplate')}</span>
           </div>
           {onClose && (
             <Button variant="ghost" size="icon" onClick={onClose}>
@@ -159,10 +161,10 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                       </p>
                       <div className="flex items-center gap-2 mt-2">
                         <Badge variant="default" size="sm">
-                          {template.jobs.length} tasks
+                          {t('jobs.template.tasksCount', { count: template.jobs.length })}
                         </Badge>
                         <Badge variant="default" size="sm">
-                          {template.variables.length} variables
+                          {t('jobs.template.variablesCount', { count: template.variables.length })}
                         </Badge>
                       </div>
                     </div>
@@ -179,7 +181,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
             {/* Variable input */}
             <div className="space-y-4">
               <h3 className="text-sm font-medium text-[var(--text-secondary)]">
-                Configuration
+                {t('jobs.template.configuration')}
               </h3>
               {selectedTemplate.variables.map((v) => (
                 <div key={v.name} className="space-y-1">
@@ -197,7 +199,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                         'focus:border-[var(--accent-primary)] focus:outline-none'
                       )}
                     >
-                      <option value="">Select...</option>
+                      <option value="">{t('jobs.template.selectOption')}</option>
                       {v.options.map((opt) => (
                         <option key={opt} value={opt}>
                           {opt}
@@ -209,7 +211,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                       type={v.type === 'number' ? 'number' : 'text'}
                       value={variables[v.name] || ''}
                       onChange={(e) => handleVariableChange(v.name, e.target.value)}
-                      placeholder={`Enter ${v.label.toLowerCase()}`}
+                      placeholder={t('jobs.template.enterField', { field: v.label.toLowerCase() })}
                     />
                   )}
                 </div>
@@ -219,7 +221,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
             {/* Dependency graph preview */}
             <div className="space-y-2">
               <h3 className="text-sm font-medium text-[var(--text-secondary)]">
-                Dependency Preview
+                {t('jobs.template.dependencyPreview')}
               </h3>
               <div className="h-64 border border-[var(--border-default)] rounded-lg overflow-hidden">
                 <JobDependencyGraph jobs={previewNodes} />
@@ -236,7 +238,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
             {/* Action buttons */}
             <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--border-subtle)]">
               <Button variant="ghost" onClick={handleBack}>
-                Back
+                {t('jobs.template.back')}
               </Button>
               <Button
                 onClick={handleCreate}
@@ -244,7 +246,7 @@ export function JobTemplateSelector({ onCreateJobs, onClose }: JobTemplateSelect
                 className="gap-1"
               >
                 <Play className="w-4 h-4" />
-                {isCreating ? 'Creating...' : 'Create Jobs'}
+                {isCreating ? t('jobs.template.creating') : t('jobs.template.createJobs')}
               </Button>
             </div>
           </div>

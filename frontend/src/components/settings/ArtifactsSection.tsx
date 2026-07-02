@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Trash2, RefreshCw } from 'lucide-react';
 import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -43,6 +44,7 @@ function formatRelativeTime(iso: string): string {
 }
 
 export default function ArtifactsSection() {
+  const { t } = useTranslation();
   const { userId } = useConfigStore();
   const [items, setItems] = useState<Artifact[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -101,14 +103,14 @@ export default function ArtifactsSection() {
       setConfirmOpen(false);
       await refresh();
     } catch (e) {
-      window.alert(`Bulk delete failed: ${e}`);
+      window.alert(t('settings.artifacts.bulkDeleteFailed', { error: String(e) }));
     } finally {
       setSubmitting(false);
     }
   };
 
   if (!userId) {
-    return <p className="text-sm text-[var(--text-secondary)]">Sign in to manage artifacts.</p>;
+    return <p className="text-sm text-[var(--text-secondary)]">{t('settings.artifacts.signIn')}</p>;
   }
 
   return (
@@ -122,12 +124,12 @@ export default function ArtifactsSection() {
             onChange={toggleAll}
             disabled={items.length === 0}
           />
-          Select all ({items.length})
+          {t('settings.artifacts.selectAll', { count: items.length })}
         </label>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="gap-1">
             <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            {t('settings.artifacts.refresh')}
           </Button>
           <Button
             variant="outline"
@@ -137,7 +139,7 @@ export default function ArtifactsSection() {
             className="gap-1 text-red-400 border-red-900/40 hover:bg-red-900/20"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            Delete {selected.size} selected
+            {t('settings.artifacts.deleteSelected', { count: selected.size })}
           </Button>
         </div>
       </div>
@@ -145,41 +147,40 @@ export default function ArtifactsSection() {
       <Dialog
         isOpen={confirmOpen}
         onClose={() => !submitting && setConfirmOpen(false)}
-        title={`Delete ${selected.size} artifact${selected.size === 1 ? '' : 's'}`}
+        title={selected.size === 1
+          ? t('settings.artifacts.deleteDialogTitle', { count: selected.size })
+          : t('settings.artifacts.deleteDialogTitlePlural', { count: selected.size })}
         size="md"
       >
         <DialogContent>
           <div className="text-sm text-[var(--text-secondary)] space-y-3">
             <p>
               {selected.size === 1
-                ? 'Remove the selected artifact tab?'
-                : `Remove the ${selected.size} selected artifact tabs?`}
+                ? t('settings.artifacts.removeOne')
+                : t('settings.artifacts.removeMany', { count: selected.size })}
             </p>
             <p className="text-xs opacity-80">
-              Only the registry rows are removed. Each agent&rsquo;s workspace
-              files stay where they were written — clean those up from the
-              workspace section of each agent&rsquo;s config panel if you want
-              to free disk space.
+              {t('settings.artifacts.removeNote')}
             </p>
           </div>
         </DialogContent>
         <DialogFooter>
           <Button variant="ghost" onClick={() => setConfirmOpen(false)} disabled={submitting}>
-            Cancel
+            {t('settings.artifacts.cancel')}
           </Button>
           <Button variant="danger" onClick={handleBulkDelete} disabled={submitting}>
-            {submitting ? 'Deleting…' : `Delete ${selected.size}`}
+            {submitting ? t('settings.artifacts.deleting') : t('settings.artifacts.deleteN', { count: selected.size })}
           </Button>
         </DialogFooter>
       </Dialog>
 
       {/* List */}
       {error && (
-        <div className="text-sm text-red-400 mb-2">Failed to load: {error}</div>
+        <div className="text-sm text-red-400 mb-2">{t('settings.artifacts.failedToLoad', { error })}</div>
       )}
       {!loading && items.length === 0 && !error && (
         <div className="text-sm text-[var(--text-secondary)] text-center py-8">
-          You don't have any artifacts yet. They'll appear here as agents create them.
+          {t('settings.artifacts.empty')}
         </div>
       )}
       {items.length > 0 && (
@@ -200,7 +201,7 @@ export default function ArtifactsSection() {
                 {KIND_LABEL[a.kind] ?? a.kind}
               </span>
               <span className="text-xs text-[var(--text-tertiary)] w-32 truncate" title={a.agent_id}>
-                agent: {a.agent_id.replace(/^agent_/, '').slice(0, 10)}
+                {t('settings.artifacts.agentPrefix', { id: a.agent_id.replace(/^agent_/, '').slice(0, 10) })}
               </span>
               <span className="text-xs text-[var(--text-tertiary)] w-20 text-right">
                 {formatRelativeTime(a.updated_at)}

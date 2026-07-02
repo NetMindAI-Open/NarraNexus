@@ -1,53 +1,19 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-06-16
+last_verified: 2026-06-23
 stub: false
 ---
 
-## 2026-06-16 — local-only builds; mode chooser removed
+## 2026-06-23 — `/app/you` route added
 
-`useAutoRestoreForcedMode` was replaced by `useResolveAppMode`. The new hook
-runs inside `ProtectedRoute`, `PublicRoute`, and `RootRedirect` (via
-`useResolveAppMode()` calls). Its logic is binary and unconditional:
-
-- `isForcedCloud()` true → `setMode('cloud-web')` — the hosted website.
-- Everything else → `setMode('local')` — DMG, `bash run.sh`, dev, and also
-  **any stale persisted `cloud-app` value**, which is coerced to `local` on
-  the first render after an upgrade.
-
-`ModeSelectPage` was deleted and its `/mode-select` route removed from the
-route tree. `ProtectedRoute` and `PublicRoute` previously redirected to
-`/mode-select` while `mode` was null; they now render `<PageFallback>` (the
-spinner) during the one-tick window before `useResolveAppMode` fills it in.
-`RootRedirect` does the same.
-
-The `VITE_FORCE_CLOUD` build-flag branch in `RootRedirect` was dropped; mode
-is now resolved via `isForcedCloud()` (reads `window.__NARRANEXUS_CONFIG__`)
-in the hook rather than inline during render.
-
-`ModeSelectPage` lazy import: removed.
-
-## 2026-06-16 — inbound entry read pre-render, not from window.location
-
-The bootstrap useEffect no longer calls `takeInboundToken(window.location)`; it
-calls `getInboundEntry()` to read the result captured synchronously in
-`main.tsx` (`captureInboundEntry`, see [[tokenInbound]] / [[main]]).
-
-Why: the old effect read the URL too late for a **logged-out arena entry**
-(`/?source=arena`). React fires effects child-before-parent, and `/` maps to
-`RootRedirect` (NOT a ProtectedRoute). When logged out, `RootRedirect`
-synchronously renders `<Navigate to="/login">`; that descendant navigation
-effect rewrites the URL before App's mount effect runs, so `?source=arena` was
-gone before it could be stashed → `isArenaEntry()` found nothing post-login →
-no Agent provisioned and no prompt. (Logged-in worked only because
-`RootRedirect` waits on the async `checkProviders()` gate before navigating,
-leaving a window for the mount effect to read the URL first.) Capturing pre-
-render removes the dependency on effect ordering entirely. Token-exchange
-logic is unchanged — it just consumes `getInboundEntry()` instead of re-parsing.
+Added a lazy `/app/you` → [[YouWorkspace]] route under the `/app` (MainLayout)
+group. Like `dashboard` / `system`, it is a sub-page rendered through the
+`<Outlet>` overlay (so `isSubPage` in [[MainLayout]] is true and it gets the
+close-X). Entered from the sidebar user avatar ([[Sidebar]]).
 
 ## 2026-06-11 — NetMind ?token= inbound bootstrap; /register removed
 
-Added a one-shot bootstrap useEffect: on app init it calls `takeInboundToken(window.location)` (lib/netmindAuth/tokenInbound) — when the page is opened with `?token=<NetMind loginToken>` (a link from netmind.ai or Arena), it strips the token from the URL immediately and exchanges it for our session via api.netmindLogin, then writes configStore (login + setNetmindToken). `?source=` is stashed in sessionStorage('nx-entry-source') for Phase 2 provisioning. Already-logged-in users are skipped. Also removed the RegisterPage lazy import and the `/register` route — cloud sign-up now links out to NetMind's registration page (see LoginPage). RegisterPage.tsx deleted. (Superseded 2026-06-16: see above — the read moved pre-render.)
+Added a one-shot bootstrap useEffect: on app init it calls `takeInboundToken(window.location)` (lib/netmindAuth/tokenInbound) — when the page is opened with `?token=<NetMind loginToken>` (a link from netmind.ai or Arena), it strips the token from the URL immediately and exchanges it for our session via api.netmindLogin, then writes configStore (login + setNetmindToken). `?source=` is stashed in sessionStorage('nx-entry-source') for Phase 2 provisioning. Already-logged-in users are skipped. Also removed the RegisterPage lazy import and the `/register` route — cloud sign-up now links out to NetMind's registration page (see LoginPage). RegisterPage.tsx deleted.
 
 last_verified: 2026-06-02
 stub: false
@@ -123,13 +89,13 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 
 ## Design decisions
 
-**`ProtectedRoute` checks `!mode` before `!isLoggedIn`.** On the very first tick after a logout/wipe, `mode` may be null for one render cycle before `useResolveAppMode` fills it in. Checking `!mode` first ensures the component renders a spinner rather than a `/login` redirect while the base URL is not yet resolved, avoiding a broken login form with no API URL configured.
+**`ProtectedRoute` checks `!mode` before `!isLoggedIn`.** When the user clicks "Switch Mode", `mode` and `isLoggedIn` are cleared together in a Zustand batch. React Router's navigation to `/mode-select` is enqueued but has lower priority than the render caused by the store update. Without this ordering, `ProtectedRoute` would see `isLoggedIn=false` and redirect to `/login` (with `mode=null`), landing the user on a broken login page with no API URL configured.
 
 **Session validation in `ProtectedRoute` is soft.** If `api.getAgents()` throws (backend unreachable), the user is NOT logged out — they stay in the app. Only a `!res.success` response from a reachable backend triggers logout. This prevents local-mode users from being logged out during a backend restart.
 
 **Hard logout on 401 via `narranexus:auth-expired` event.** The `App` component registers a global listener for `narranexus:auth-expired` and calls `configStore.logout()` on receipt. `api.ts` dispatches this event whenever an authenticated request comes back 401 from a non-auth endpoint (see `request<T>` in `lib/api.ts`). This complements `ProtectedRoute`'s one-shot session check: a JWT that expires mid-session — or is invalidated by a backend restart that recycled session state — gets caught by the next API call instead of leaving the UI to spam silent 401s.
 
-**Mode is resolved by `useResolveAppMode`, not inline in `RootRedirect`.** The hook runs as a `useEffect`, which is React-safe. `RootRedirect` (and the route guards) spin a `PageFallback` if mode is still null on the first render, then re-render once the effect fires — typically one tick. The old `VITE_FORCE_CLOUD` inline `setMode` during render has been removed.
+**`RootRedirect` reads `VITE_FORCE_CLOUD`.** Cloud-web deployments set this env var to skip `ModeSelectPage` entirely. On first render with `mode=null` and `VITE_FORCE_CLOUD=true`, `setMode('cloud-web')` is called inline (not in a `useEffect`), which is a Zustand write during render. This is technically unsafe in React strict mode but is a one-time initialization that only fires when `mode` is null.
 
 **All pages are lazy-loaded.** Every `const Foo = lazy(() => import(...))` call creates a code-split chunk. `Suspense` with `PageFallback` shows a spinner while the chunk loads. The only performance trade-off is a ~100ms delay on first navigation to each page.
 
@@ -141,8 +107,6 @@ Reads from `configStore` (`isLoggedIn`, `userId`, `logout`) and `runtimeStore` (
 
 **`initialize()` is called from `RootRedirect` but is a no-op.** See `runtimeStore.ts` — `initialize` was deprecated and is now an empty function. The call in `RootRedirect` is harmless but should be cleaned up once the need to call it is fully gone from all persisted states.
 
-**`PublicRoute` shows `PageFallback` if `mode=null`.** When localStorage is cleared, mode is null for one tick before `useResolveAppMode` sets it. `PublicRoute` shows a spinner during that window rather than rendering a login form backed by an unresolved API URL. This is expected behavior, not a hang — it resolves on the next render.
+**`PublicRoute` redirects to `/mode-select` if `mode=null`.** A user who navigates directly to `/login` or `/register` with no stored mode (cleared localStorage) will be bounced to `/mode-select`. This is correct but unexpected if the developer clears storage during testing.
 
 **`ProtectedRoute` shows `PageFallback` during session validation.** The `validating` state delays rendering protected content by one async round-trip (`api.getAgents`). On a slow connection this can show the spinner for 1-2 seconds even for logged-in users with valid sessions.
-
-**Arena landing (2026-06-16).** A top-level effect runs `runArenaLandingIfNeeded()` on mount and on the `isLoggedIn` transition (`useConfigStore.subscribe`), so an arrival from arena42.ai (`?source=arena`, stashed in sessionStorage by `takeInboundToken`) provisions/opens the Arena agent — whether the user was already logged in or logs in after landing. A separate effect warms the lazy `MainLayout` chunk on login (`import('@/components/layout/MainLayout')`) so the redirect to `/app/chat` doesn't pay a cold lazy-load (the page-open spinner); `vite.config` `server.warmup` pre-transforms it in dev too.

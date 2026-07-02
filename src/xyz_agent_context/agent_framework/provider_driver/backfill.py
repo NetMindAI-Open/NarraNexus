@@ -14,7 +14,8 @@ Design contract:
 
 * **Idempotent** — running it twice changes nothing the second time.
 * **Forward-only** — never overwrites a non-null new column value (so
-  manual admin edits stick).
+  manual admin edits stick), except OAuth ``auth_ref`` canonicalization
+  where a source-specific sentinel is required for runtime auth.
 * **Best-effort** — rows it can't classify get logged and left alone;
   the resolver's hot path will refuse to handle them and surface a
   clear error to the user (rather than us guessing wrong).
@@ -55,28 +56,26 @@ async def backfill_provider_metadata(db: "AsyncDatabaseClient") -> dict:
       hundred. The loop's cost is negligible compared to the rest of
       backend startup.
     """
-    # Pull rows that still need backfill. We don't have a single "needs
-    # backfill" flag, so we ask for "driver_type IS NULL" — that's the
-    # canonical signal because every classified row gets it set.
-    rows = await db.get("user_providers", {"driver_type": None})
+    # Pull all rows. Most already-classified rows are no-ops, but this
+    # lets us normalize stale OAuth auth_ref sentinels left by older
+    # builds without waiting for users to recreate providers.
+    rows = await db.get("user_providers")
 
     classified = 0
     skipped = 0
     already_set = 0
+    normalized_auth_refs = 0
 
     for row in rows or []:
-        # In sqlite, AsyncDatabaseClient may return rows where driver_type
-        # is already populated but the where clause matched via NULL
-        # equality quirks; double-check before writing.
-        if row.get("driver_type"):
+        driver_type = row.get("driver_type")
+        if driver_type:
             already_set += 1
-            continue
-
-        driver_type = derive_driver_type(
-            row.get("source"),
-            row.get("auth_type"),
-            row.get("protocol"),
-        )
+        else:
+            driver_type = derive_driver_type(
+                row.get("source"),
+                row.get("auth_type"),
+                row.get("protocol"),
+            )
 
         if not driver_type:
             logger.warning(
@@ -89,11 +88,9 @@ async def backfill_provider_metadata(db: "AsyncDatabaseClient") -> dict:
             skipped += 1
             continue
 
-        billing_policy = derive_billing_policy(
-            row.get("source"),
-            row.get("auth_type"),
-        )
-        auth_ref = derive_auth_ref(row.get("auth_type"))
+        auth_ref = None
+        if driver_type in {"claude_oauth", "codex_oauth"}:
+            auth_ref = derive_auth_ref(row.get("auth_type"), row.get("source"))
 
         # owner_user_id: local mode → always self-owned (= user_id).
         # Cloud mode system rows come in with owner_user_id IS NULL by
@@ -101,32 +98,42 @@ async def backfill_provider_metadata(db: "AsyncDatabaseClient") -> dict:
         # script writes the column at insert time.
         owner_user_id = row.get("user_id") or None
 
-        updates = {
-            "driver_type": driver_type,
-            "billing_policy": billing_policy,
-        }
-        if auth_ref is not None:
+        updates = {}
+        if not row.get("driver_type"):
+            updates["driver_type"] = driver_type
+            updates["billing_policy"] = derive_billing_policy(
+                row.get("source"),
+                row.get("auth_type"),
+            )
+        if auth_ref is not None and row.get("auth_ref") != auth_ref:
             updates["auth_ref"] = auth_ref
+            normalized_auth_refs += 1
         if owner_user_id and not row.get("owner_user_id"):
             updates["owner_user_id"] = owner_user_id
+
+        if not updates:
+            continue
 
         await db.update(
             "user_providers",
             {"provider_id": row["provider_id"]},
             updates,
         )
-        classified += 1
+        if "driver_type" in updates:
+            classified += 1
 
     stats = {
         "classified": classified,
         "skipped": skipped,
         "already_set": already_set,
+        "normalized_auth_refs": normalized_auth_refs,
         "total_seen": len(rows or []),
     }
-    if classified or skipped:
+    if classified or skipped or normalized_auth_refs:
         logger.info(
             f"[backfill] user_providers metadata: classified={classified}, "
-            f"skipped={skipped}, already_set={already_set}"
+            f"skipped={skipped}, already_set={already_set}, "
+            f"normalized_auth_refs={normalized_auth_refs}"
         )
     else:
         logger.debug(f"[backfill] user_providers metadata: nothing to do ({stats})")

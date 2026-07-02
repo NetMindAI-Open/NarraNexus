@@ -9,6 +9,7 @@
  * exponential backoff (store.onRateLimited).
  */
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDashboardStore } from '@/stores/dashboardStore';
 import { api } from '@/lib/api';
 import { setTrayBadge, listenTauri } from '@/lib/tauri';
@@ -17,6 +18,7 @@ import { DashboardSummary } from '@/components/dashboard/DashboardSummary';
 import { BracketSectionLabel, BracketEmptyState } from '@/components/nm';
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const agents = useDashboardStore((s) => s.agents);
   const error = useDashboardStore((s) => s.error);
   const setVisibility = useDashboardStore((s) => s.setVisibility);
@@ -89,14 +91,16 @@ export function DashboardPage() {
 
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between gap-3">
+      {/* pr-10 reserves the top-right corner for MainLayout's close (X) so the
+          agents count never sits under it. */}
+      <div className="flex items-center justify-between gap-3 pr-10">
         <h1
           className="text-2xl font-bold tracking-tight"
           style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
         >
-          Agent Dashboard
+          {t('pages.dashboard.title')}
         </h1>
-        <BracketSectionLabel>{agents.length} agents</BracketSectionLabel>
+        <BracketSectionLabel>{t('pages.dashboard.agentsCount', { count: agents.length })}</BracketSectionLabel>
       </div>
 
       {error && (
@@ -114,8 +118,8 @@ export function DashboardPage() {
 
       {agents.length === 0 && !error && (
         <BracketEmptyState
-          label="No agents yet"
-          hint="Create an agent from the sidebar to populate this dashboard."
+          label={t('pages.dashboard.emptyLabel')}
+          hint={t('pages.dashboard.emptyHint')}
         />
       )}
 

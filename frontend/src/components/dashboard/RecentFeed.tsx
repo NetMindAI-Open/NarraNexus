@@ -3,6 +3,7 @@
  * @description: v2.1 — last 3 events for the agent, rendered as a compact
  * feed at the bottom of the card. Collapsible via useExpanded.
  */
+import { useTranslation } from 'react-i18next';
 import type { RecentEvent } from '@/types';
 import { useExpanded } from './expandState';
 
@@ -33,6 +34,7 @@ function formatTime(iso: string | null): string {
 }
 
 export function RecentFeed({ agentId, events }: { agentId: string; events: RecentEvent[] }) {
+  const { t } = useTranslation();
   const { expanded, toggle } = useExpanded(`${agentId}:section:recent`, false);
 
   if (!events || events.length === 0) {
@@ -48,7 +50,7 @@ export function RecentFeed({ agentId, events }: { agentId: string; events: Recen
         aria-expanded={expanded}
       >
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>▸</span>
-        Recent ({events.length})
+        {t('dashboard.recent.title', { count: events.length })}
       </button>
       {expanded && (
         <ul className="mt-1 ml-3 space-y-0.5 border-l-2 border-[var(--rule)] pl-2">

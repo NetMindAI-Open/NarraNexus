@@ -1,22 +1,49 @@
 ---
 code_file: backend/routes/_dashboard_helpers.py
-last_verified: 2026-04-21
-stub: true
+last_verified: 2026-06-24
+stub: false
 ---
 
-# _dashboard_helpers.py
+# _dashboard_helpers.py — pure helpers behind GET /api/dashboard/agents-status
 
-## 为什么存在
+## Why it exists
 
-Dashboard v2.1 视图里多 agent 聚合查询的内部 helper。职责包括：拉 live jobs per agent by state（`_fetch_live_jobs_by_state`）、拉 recent events per agent、拼各种聚合（metrics_today、attention banners、health）。这些查询都是多 agent 批量、有去重/总序语义，不适合放在 route handler 里以免每个 endpoint 各自重写。
+The agents-status endpoint has to fan a single dashboard poll out into many
+per-agent aggregations (last activity, live jobs, recent events, today's
+metrics, in-progress module instances, enhanced signals) and then collapse
+them into permission-correct response models. Keeping that logic out of the
+route handler stops every endpoint from re-deriving "what is this agent doing
+right now" and gives the privacy/visibility rules one enforcement point. It is
+deliberately pure-ish: small sync transformers plus async DB aggregators, no
+route/FastAPI coupling.
 
-## 2026-04-21 · v2 时区协议适配
+## How it works / design
 
-- `_fetch_live_jobs_by_state()` 的 SELECT 列表从 `next_run_time` / `last_run_time`（UTC）换成 β 列 `next_run_at_local` + `next_run_tz` + `last_run_at_local` + `last_run_tz`
-- 返回 dict 的 key 也换成 `next_run_at` / `next_run_timezone` / `last_run_at` / `last_run_timezone`
-- 调用方（`dashboard.py`）读这些新 key 拼最终 API response
-
-## 新人易踩坑
-
-- 此文件只出 β 数据，**不要**再从这里读 `next_run_time`/`last_run_time`——它们是 poller 内部字段
-- 跨 agent 聚合的"下次运行排序"应该**避免**在这一层做（β 是用户本地文本，不同 tz 间无可比性）。如果确实要做时间排序，必须改用 α 列 + 仅在 API 层转换回 β 展示
+- `to_response` is the privacy gate: owner sees [[_dashboard_schema]]'s
+  `OwnedAgentStatus` (full detail); a non-owner of a public agent gets the
+  stripped `PublicAgentStatus` with `bucket_count` fuzzing the running count;
+  private-non-owned returns `None` and the route drops it. `extra='forbid'` on
+  the public model is the second line of defense if a field leaks here.
+- `build_action_line` / `build_run_state_for_agent` deliberately avoid stale
+  `final_output` for running agents (it is null mid-run, Step-4 persistence);
+  they read `instance_jobs.description` / `bus_messages.content` instead. All
+  text is control-char stripped + UTF-8-codepoint truncated to 80 — XSS and
+  layout-break defense even though React escapes at render.
+- `classify_kind` maps `working_source` → the `AgentKind` enum that the
+  frontend rail/verb logic keys off (see [[api.ts]], [[healthColors]],
+  [[DashboardSummary.tsx]]); `derive_health` and `derive_attention_banners`
+  pre-compute the server-driven health bucket and banners so the UI does not
+  reinvent severity ordering.
+- G3 stale detection: `fetch_instances` buckets in_progress module_instances
+  into `active` vs `stale` (older than `STALE_THRESHOLD_SECONDS`, env-tunable),
+  whitelisting genuinely long-running modules (`SkillModule`) per binding-rule
+  14. Stale instances do NOT count toward running_count/kind — they only feed
+  the zombie badge.
+- Gotchas: every DB helper is SQLite/MySQL dual-dialect (datetime objects vs
+  ISO strings normalized via `isoformat()` / dateutil), so don't assume a
+  string. Metrics columns that don't exist yet (duration, token cost) emit
+  `None` on purpose (frontend renders "N/A"). `fetch_jobs` partitions each live
+  state independently — never re-union `pending` with active/blocked/paused or
+  the route double-counts (the v2.1.1 regression). Recent-events maps
+  `trigger == MESSAGE_BUS` to kind `chat` / "Group chat reply" so team group
+  events don't fall through to a raw "Message_Bus" label.

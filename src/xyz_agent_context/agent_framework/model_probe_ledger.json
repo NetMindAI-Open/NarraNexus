@@ -1,0 +1,310 @@
+{
+  "generated_at": "2026-06-24T08:51:17.620218+00:00",
+  "sources": {
+    "netmind": {
+      "models": {
+        "Qwen/Qwen2.5-7B-Instruct": {
+          "anthropic": "fail",
+          "context": "110K",
+          "display_name": "qwen2.5-7b-instruct",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619523+00:00"
+        },
+        "Qwen/Qwen3-Coder-30B-A3B-Instruct": {
+          "anthropic": "fail",
+          "context": "262K",
+          "display_name": "qwen-3-code",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619503+00:00"
+        },
+        "Qwen/Qwen3-Coder-480B-A35B-Instruct": {
+          "anthropic": "pass",
+          "context": "262K",
+          "display_name": "qwen-3-code",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834324+00:00"
+        },
+        "Qwen/Qwen3-Next-80B-A3B-Instruct": {
+          "anthropic": "fail",
+          "context": "256K",
+          "display_name": "qwen3-next-80b-a3b-instruct",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619474+00:00"
+        },
+        "Qwen/Qwen3-Next-80B-A3B-Thinking": {
+          "anthropic": "fail",
+          "context": "256K",
+          "display_name": "qwen3-next-80b-a3b-instruct",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619477+00:00"
+        },
+        "Qwen/Qwen3-VL-235B-A22B-Instruct": {
+          "anthropic": "fail",
+          "context": "256K",
+          "display_name": "Qwen3-VL 235B Instruct",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619496+00:00"
+        },
+        "Qwen/Qwen3.6-35B-A3B": {
+          "anthropic": "pass",
+          "context": "262K",
+          "display_name": "Qwen3.6-35B-A3B",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834271+00:00"
+        },
+        "Qwen/Qwen3.6-Flash": {
+          "anthropic": "pass",
+          "context": "1000K",
+          "display_name": "Qwen3.6-Flash",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834276+00:00"
+        },
+        "Qwen/Qwen3.6-Plus": {
+          "anthropic": "pass",
+          "context": "1000K",
+          "display_name": "Qwen3.6-Plus",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834281+00:00"
+        },
+        "Qwen/Qwen3.7-Max": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "Qwen3.7-Max",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834223+00:00"
+        },
+        "Qwen/Qwen3.7-Plus": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "Qwen3.7-Plus",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834217+00:00"
+        },
+        "XiaomiMiMo/MiMo-V2.5": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "MiMo-V2.5",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834200+00:00"
+        },
+        "XiaomiMiMo/MiMo-V2.5-Pro": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "MiMo-V2.5-Pro",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834206+00:00"
+        },
+        "anthropic/claude-opus-4-7": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "claude-opus-4-7",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834245+00:00"
+        },
+        "anthropic/claude-opus-4-8": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "claude-opus-4-8",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834191+00:00"
+        },
+        "anthropic/claude-sonnet-4-6": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "claude-sonnet-4-6",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834240+00:00"
+        },
+        "deepseek-ai/DeepSeek-R1-Turbo": {
+          "anthropic": "fail",
+          "context": "64K",
+          "display_name": "deepseek-r1-turbo",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619515+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3": {
+          "anthropic": "fail",
+          "context": "128K",
+          "display_name": "deepseek-v3",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619518+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3-0324": {
+          "anthropic": "pass",
+          "context": "128K",
+          "display_name": "deepseek-v3-0324",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834329+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3-Turbo": {
+          "anthropic": "fail",
+          "context": "64K",
+          "display_name": "deepseek-v3-turbo",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619512+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3.1": {
+          "anthropic": "fail",
+          "context": "128K",
+          "display_name": "deepseek-v3.1",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619480+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3.1-Terminus": {
+          "anthropic": "fail",
+          "context": "128K",
+          "display_name": "DeepSeek-V3.1-Terminus",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619486+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3.2": {
+          "anthropic": "pass",
+          "context": "160K",
+          "display_name": "DeepSeek-V3.2",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834366+00:00"
+        },
+        "deepseek-ai/DeepSeek-V3.2-Exp": {
+          "anthropic": "fail",
+          "context": "128K",
+          "display_name": "DeepSeek-V3.2-Exp",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619493+00:00"
+        },
+        "deepseek-ai/DeepSeek-V4-Flash": {
+          "anthropic": "pass",
+          "context": "1024K",
+          "display_name": "DeepSeek-V4-Flash",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834260+00:00"
+        },
+        "deepseek-ai/DeepSeek-V4-Pro": {
+          "anthropic": "pass",
+          "context": "1024K",
+          "display_name": "DeepSeek-V4-Pro",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834256+00:00"
+        },
+        "doubao/Doubao-1.5-pro": {
+          "anthropic": "fail",
+          "context": "32K",
+          "display_name": "Doubao-1.5-pro",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619509+00:00"
+        },
+        "doubao/Doubao-1.5-vision-pro": {
+          "anthropic": "fail",
+          "context": "32K",
+          "display_name": "Doubao-1.5-vision-pro",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619506+00:00"
+        },
+        "google/gemini-3-flash-preview": {
+          "anthropic": "fail",
+          "context": "1024K",
+          "display_name": "gemini-3-flash-preview",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619489+00:00"
+        },
+        "google/gemini-3.1-flash-lite-preview": {
+          "anthropic": "fail",
+          "context": "1024K",
+          "display_name": "gemini-3.1-flash-lite-preview",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619466+00:00"
+        },
+        "google/gemini-3.1-pro-preview": {
+          "anthropic": "fail",
+          "context": "1024K",
+          "display_name": "gemini-3.1-pro-preview",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619470+00:00"
+        },
+        "google/gemini-3.5-flash": {
+          "anthropic": "fail",
+          "context": "1024K",
+          "display_name": "gemini-3.5-flash",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619444+00:00"
+        },
+        "meta-llama/Meta-Llama-3.1-405B": {
+          "anthropic": "fail",
+          "context": "128K",
+          "display_name": "llama3-1-405b",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619483+00:00"
+        },
+        "minimax/minimax-m2.5": {
+          "anthropic": "pass",
+          "context": "200K",
+          "display_name": "minimax-2.5",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834340+00:00"
+        },
+        "minimax/minimax-m2.7": {
+          "anthropic": "pass",
+          "context": "200K",
+          "display_name": "minimax-m2.7",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834292+00:00"
+        },
+        "minimax/minimax-m3": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "minimax-m3",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834228+00:00"
+        },
+        "moonshotai/Kimi-K2.5": {
+          "anthropic": "pass",
+          "context": "262K",
+          "display_name": "Kimi-K2.5",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834345+00:00"
+        },
+        "moonshotai/Kimi-K2.6": {
+          "anthropic": "pass",
+          "context": "262K",
+          "display_name": "Kimi-K2.6",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834266+00:00"
+        },
+        "openai/gpt-5.5": {
+          "anthropic": "fail",
+          "context": "1M",
+          "display_name": "gpt-5.5",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619460+00:00"
+        },
+        "openai/gpt-oss-120b": {
+          "anthropic": "fail",
+          "context": "131K",
+          "display_name": "openai-oss-120b",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:51:17.619499+00:00"
+        },
+        "zai-org/GLM-5": {
+          "anthropic": "pass",
+          "context": "200K",
+          "display_name": "GLM-5",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834350+00:00"
+        },
+        "zai-org/GLM-5.1": {
+          "anthropic": "pass",
+          "context": "200K",
+          "display_name": "GLM-5.1",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834286+00:00"
+        },
+        "zai-org/GLM-5.2": {
+          "anthropic": "pass",
+          "context": "1M",
+          "display_name": "GLM-5.2",
+          "openai": "pass",
+          "tested_at": "2026-06-24T08:48:50.834212+00:00"
+        }
+      }
+    }
+  }
+}

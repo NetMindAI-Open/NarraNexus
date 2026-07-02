@@ -22,11 +22,11 @@ describe('NM @theme tokens', () => {
     expect(css).toMatch(/--color-gray-900:\s*#1A1612/);
   });
 
-  test('radius scale restored to non-zero NM values', () => {
-    expect(css).toMatch(/--radius-xs:\s*4px/);
-    expect(css).toMatch(/--radius-md:\s*10px/);
-    expect(css).toMatch(/--radius-lg:\s*14px/);
-    expect(css).toMatch(/--radius-xl:\s*22px/);
+  test('radius scale (compressed editorial values)', () => {
+    expect(css).toMatch(/--radius-xs:\s*2px/);
+    expect(css).toMatch(/--radius-md:\s*4px/);
+    expect(css).toMatch(/--radius-lg:\s*4px/);
+    expect(css).toMatch(/--radius-xl:\s*6px/);
   });
 
   test('warm status palette declared', () => {
@@ -75,30 +75,28 @@ describe('NM .dark (warm-ink) tokens', () => {
 });
 
 describe('NM font stack', () => {
-  test('SF Pro Display + CJK fallback', () => {
-    expect(css).toMatch(/--font-display:[^;]*SF Pro Display[^;]*PingFang SC[^;]*Noto Sans CJK SC/);
+  // Self-hosted web fonts aligned with the marketing site (narranexus-website):
+  // Space Grotesk (display) / Inter (sans) / DM Mono (mono), each with a CJK
+  // + system fallback chain. Loaded via /fonts/narra-fonts.css (see index.html).
+  test('display font: Space Grotesk + CJK fallback', () => {
+    expect(css).toMatch(/--font-display:[^;]*Space Grotesk[^;]*PingFang SC[^;]*Noto Sans CJK SC/);
   });
 
-  test('SF Pro Text + CJK fallback', () => {
-    expect(css).toMatch(/--font-sans:[^;]*SF Pro Text[^;]*PingFang SC[^;]*Noto Sans CJK SC/);
+  test('sans font: Inter + CJK fallback', () => {
+    expect(css).toMatch(/--font-sans:[^;]*Inter[^;]*PingFang SC[^;]*Noto Sans CJK SC/);
   });
 
-  test('SF Mono fallback', () => {
-    expect(css).toMatch(/--font-mono:[^;]*SF Mono[^;]*ui-monospace/);
+  test('mono font: DM Mono + system fallback', () => {
+    expect(css).toMatch(/--font-mono:[^;]*DM Mono[^;]*ui-monospace/);
   });
 });
 
 describe('Archive tokens REMOVED (banned)', () => {
-  test('no Space Grotesk reference', () => {
-    expect(css).not.toMatch(/Space Grotesk/);
-  });
-
+  // Space Grotesk + DM Mono are now intentional (self-hosted, see the NM font
+  // stack above) — they are no longer banned. Barlow / cold-gray / pure-black /
+  // paper-grid remain retired.
   test('no Barlow reference', () => {
     expect(css).not.toMatch(/Barlow/);
-  });
-
-  test('no DM Mono reference', () => {
-    expect(css).not.toMatch(/DM Mono/);
   });
 
   test('no cold gray paper #f1f3f5', () => {
