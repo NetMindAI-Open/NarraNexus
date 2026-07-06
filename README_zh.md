@@ -220,6 +220,7 @@ bash run.sh
 
 ## 社群
 
+- 微信 WeChat：[扫码加入群聊](https://wechat-group-qr.narranexus.workers.dev/)
 - Discord：[discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - Twitter / X：[@NetMindAI](https://x.com/NetMindAI)
 - 反馈：[GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)

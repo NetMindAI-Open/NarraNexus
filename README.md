@@ -220,6 +220,7 @@ More templates at [narra.nexus/templates](https://www.narra.nexus/templates).
 
 ## Community
 
+- WeChat: [join the group chat](https://wechat-group-qr.narranexus.workers.dev/)
 - Discord: [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
 - Twitter / X: [@NetMindAI](https://x.com/NetMindAI)
 - Feedback: [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
