@@ -7,7 +7,7 @@ name = "xyz-agent-context"
 version = "1.8.4"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
-license = {text = "CC-BY-NC-4.0"}
+license = {text = "Apache-2.0"}
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.72.0",
