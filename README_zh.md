@@ -12,6 +12,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-lightgrey.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://www.narra.nexus/docs/getting-started/quick-start)
+[![WeChat](https://img.shields.io/badge/WeChat-Join-07C160)](https://wechat-group-qr.narranexus.workers.dev/)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 [English](./README.md) | **中文**
