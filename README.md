@@ -42,13 +42,14 @@ It doesn't just let multiple agents chat or execute tasks together. Every agent 
 
 What you manage is no longer a set of disposable assistants, but an AI team that remembers the past, understands each other, accumulates experience, and keeps participating in real work. Agents can take on product, engineering, operations, research, and other roles — helping one person gradually build and run their own one-person company.
 
-| Dimension | OpenClaw | WorkBuddy / AionUI | NarraNexus |
+| Capability | OpenClaw / Hermes | WorkBuddy / AionUI | NarraNexus |
 |---|---|---|---|
-| Positioning | Self-hosted, execution-oriented personal agents; emphasizes automation, channel integration, and local control | WorkBuddy leans toward a multi-agent cowork workbench; AionUI leans toward a self-hosted personal agent platform | Brings agents to life: create, run, and manage a long-term working AI team |
-| How agents are organized | Multiple isolated agent instances, each with its own workspace, sessions, persona, and tools | Unified management or parallel execution of multiple agents, focused on task dispatch and user experience | Agents are not throwaway instances but long-lived team members with stable identities, responsibilities, relationships, and collaboration boundaries |
-| Memory & identity | Context and persona maintained through files, session logs, and memory search | Mostly relies on session history, RAG, knowledge bases, and the underlying agents' own capabilities | Narrative + Awareness let agents remember experiences, sustain identity, and evolve their understanding over time |
-| Multi-agent collaboration | Mainly agent isolation, routing, and extension-style collaboration | Mainly unified invocation, parallel execution, task dispatch, and run monitoring | MessageBus, Jobs, and Social Network give agents durable division of labor, relationships, and team experience |
-| Key difference | More like several personal agents running independently | More like a workbench or gateway for managing many agents | Not just putting agents side by side — giving them memory, identity, relationships, and the ability to grow into a living AI team |
+| Create agents | ❌ CLI + config | ✅ GUI | ✅ GUI |
+| Long-term memory | ⚠️ Session / RAG | ⚠️ Session / RAG | ✅ Narrative Memory |
+| Persistent identity | ⚠️ Persona | ⚠️ Persona | ✅ Identity + Awareness |
+| Agent-initiated communication | ❌ | ❌ | ✅ MessageBus |
+| Long-term AI team | ❌ | ❌ | ✅ Long-term collaboration, experience accumulation |
+| Lark / Slack / WeChat channels | ✅ | ❌ | ✅ |
 
 ---
 
