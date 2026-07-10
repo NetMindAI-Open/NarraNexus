@@ -128,8 +128,13 @@ async def get_agent_inbox(
 
         for cid in channel_ids:
             query = (
+                # The writer stamps a turn's inbound and reply one microsecond
+                # apart (channel_inbox_writer), so created_at orders a turn
+                # correctly; message_id is a determinism backstop for the rare
+                # case of two turns completing in the same microsecond, so the
+                # order never flickers between requests.
                 f"SELECT * FROM bus_messages WHERE channel_id = %s "
-                f"ORDER BY created_at DESC LIMIT {int(effective_limit)}"
+                f"ORDER BY created_at DESC, message_id DESC LIMIT {int(effective_limit)}"
             )
             msg_rows = await db.execute(query, (cid,))
             msg_rows = list(reversed(msg_rows))

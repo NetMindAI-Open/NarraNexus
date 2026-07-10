@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — per-agent slot overlay (agent_id)
+
+``resolve_user_runtime_llm_configs`` gained ``agent_id: str | None``. After
+building ``by_slot_name`` from ``user_slots`` it calls ``_apply_agent_overrides``:
+load ``agent_slots`` rows for the agent and, for each row whose ``slot_name`` ∈
+``_REQUIRED_SLOTS`` with a non-empty ``provider_id``, overlay it. Both agent and
+helper slots can be overridden; empty-provider stub rows are skipped (a
+framework-only stub must not shadow the user default — matches
+``step_3._resolve_agent_framework_name``). No ``agent_id`` / no override rows →
+byte-identical to the user-only path. The overlaid row carries ``agent_id`` (not
+``user_id``), which is how [[self_heal]] routes its writeback to ``agent_slots``.
+
 ## 2026-06-17 — 把 codex / helper 派发收进 driver 多态(铁律 #9)
 
 去掉 resolve loop 里两处 `if` 特判,改成单一决策点 `_resolve_slot_target(
@@ -108,3 +121,7 @@ Every failure raises ``LLMConfigNotConfigured`` with an actionable
 message. The caller's UX layer surfaces it to the user. No silent
 fallback to a different account — that was a leading cause of
 billing surprises in the old code.
+
+## 2026-07-07 — helper_llm 槽的 OAuth 走 CLI helper
+
+`_resolve_slot_target` 的 helper_llm 分支：`auth_type==oauth` 的 card 先于 protocol 判断，路由到 `build_cli_helper_config` → cfgs 键 `cli_helper` → 装进 `RuntimeLLMConfigs.cli_helper`。

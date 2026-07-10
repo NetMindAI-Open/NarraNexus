@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-06-20
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — red error badge (any error surfaces on the bubble)
+
+A red AlertCircle badge sits at the bubble's top corner whenever the message
+carries isError (whole turn failed: no reply / silent fallback / expired login
+— content IS the error text) OR warnings (reply came through but something
+errored). Click opens a Popover explaining the situation (failed vs
+finished-with-errors) + the raw error detail. The pre-existing red-bubble/red-
+text/amber-warning-list rendering is kept; the badge is the unified, always-
+visible entry point the Owner asked for.
 
 ## 2026-06-20 — own bubble switched to Carbon (reverses the 2026-05-19 gray rule)
 

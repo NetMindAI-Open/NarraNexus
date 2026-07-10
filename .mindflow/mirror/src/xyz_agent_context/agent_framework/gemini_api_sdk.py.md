@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/gemini_api_sdk.py
-last_verified: 2026-04-10
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
+
+`_record_usage` now calls `cost_tracker.warn_missing_usage("Gemini", model,
+"llm_function")` when a live cost context is present but the response carried no
+`usage_metadata` — previously a silent skip. Observability only.
+
+
 # gemini_api_sdk.py — Gemini LLM 适配层（PDF 原生多模态专用）
 
 ## 为什么存在

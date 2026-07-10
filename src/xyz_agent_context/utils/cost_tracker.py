@@ -70,6 +70,27 @@ def get_cost_context() -> Optional[Tuple[str, object]]:
     return _cost_context.get()
 
 
+def warn_missing_usage(source: str, model: str, call_type: str) -> None:
+    """De-silence a zero/absent usage report.
+
+    Every LLM call site resolves a cost context and records tokens only when
+    ``input+output > 0``. When a live context (agent_id + db) is present but the
+    provider returned no usage, the tokens go UNRECORDED — historically silent,
+    which is exactly how the consolidation-worker hole hid for weeks. Emitting a
+    warning here turns a silent miss into an auditable L2 signal.
+
+    Observability only — never raises (iron rule: cost_tracker is not flow
+    control), so even a logging-layer failure can't break the LLM call path.
+    """
+    try:
+        logger.warning(
+            f"[cost] {source}: provider returned no token usage for "
+            f"model={model} call_type={call_type} — usage UNRECORDED"
+        )
+    except Exception:
+        pass
+
+
 def calculate_cost(
     model: str,
     input_tokens: int,

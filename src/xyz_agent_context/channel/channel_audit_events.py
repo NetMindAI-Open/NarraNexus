@@ -24,6 +24,10 @@ EVENT_INGRESS_DROPPED_DEDUP = "ingress_dropped_dedup"
 EVENT_INGRESS_DROPPED_HISTORIC = "ingress_dropped_historic"
 EVENT_INGRESS_DROPPED_ECHO = "ingress_dropped_echo"
 EVENT_INGRESS_DROPPED_UNBOUND = "ingress_dropped_unbound"
+# parse_event returned None (unsupported message type: sticker / image /
+# voice on a text-only channel). Was a bare `continue` with zero trace —
+# unanswerable "why didn't the bot reply?" tickets (lessons #3/#5).
+EVENT_INGRESS_DROPPED_UNPARSED = "ingress_dropped_unparsed"
 EVENT_DEDUP_FAIL_OPEN = "dedup_fail_open"
 EVENT_DEBOUNCE_MERGED = "debounce_merged"
 
@@ -35,6 +39,14 @@ EVENT_SUBSCRIBER_STOPPED = "subscriber_stopped"
 EVENT_TRANSPORT_CONNECTED = "transport_connected"
 EVENT_TRANSPORT_DISCONNECTED = "transport_disconnected"
 EVENT_TRANSPORT_BACKOFF = "transport_backoff"
+# Reply-side transport failure (added 2026-07-02 for MatrixTrigger, but
+# generic — any channel whose reply path can fail out-of-band after the
+# agent finished should emit this). Distinct from ``inbox_write_failed``:
+# that one is about our own DB row; this one is about the platform
+# refusing / dropping our outbound message. Details typically carry
+# ``error_code`` (M_LIMIT_EXCEEDED / M_UNKNOWN_TOKEN / network / …),
+# ``attempts``, and the truncated reply body for post-mortem.
+EVENT_TRANSPORT_SEND_FAILED = "transport_send_failed"
 
 # ─── Worker pool ──────────────────────────────────────────────────────────
 EVENT_WORKER_ERROR = "worker_error"

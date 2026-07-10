@@ -37,12 +37,7 @@ pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
 pkill -f "module_poller" 2>/dev/null || true
 pkill -f "job_trigger" 2>/dev/null || true
 pkill -f "message_bus_trigger" 2>/dev/null || true
-pkill -f "run_lark_trigger" 2>/dev/null || true
-pkill -f "run_slack_trigger" 2>/dev/null || true
-pkill -f "run_telegram_trigger" 2>/dev/null || true
-pkill -f "run_wechat_trigger" 2>/dev/null || true
-pkill -f "run_narramessenger_trigger" 2>/dev/null || true
-pkill -f "run_discord_trigger" 2>/dev/null || true
+pkill -f "run_channel_triggers" 2>/dev/null || true
 for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
@@ -209,12 +204,7 @@ draw_panel() {
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
-  status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
-  status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
-  status_line "Telegram Trigger"    "pgrep -f 'run_telegram_trigger' >/dev/null"
-  status_line "WeChat Trigger"      "pgrep -f 'run_wechat_trigger' >/dev/null"
-  status_line "NarraMsg Trigger"    "pgrep -f 'run_narramessenger_trigger' >/dev/null"
-  status_line "Discord Trigger"     "pgrep -f 'run_discord_trigger' >/dev/null"
+  status_line "Channel Triggers"    "pgrep -f 'run_channel_triggers' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -239,11 +229,7 @@ while true; do
       pkill -f "module_poller" 2>/dev/null || true
       pkill -f "job_trigger" 2>/dev/null || true
       pkill -f "message_bus_trigger" 2>/dev/null || true
-      pkill -f "run_lark_trigger" 2>/dev/null || true
-      pkill -f "run_slack_trigger" 2>/dev/null || true
-      pkill -f "run_telegram_trigger" 2>/dev/null || true
-      pkill -f "run_narramessenger_trigger" 2>/dev/null || true
-      pkill -f "run_discord_trigger" 2>/dev/null || true
+      pkill -f "run_channel_triggers" 2>/dev/null || true
       # Kill processes on known ports
       for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
@@ -319,30 +305,12 @@ tmux new-window -t "$SESSION" -n "Jobs" \
 tmux new-window -t "$SESSION" -n "BusTrigger" \
   "$ENV_CMD; echo '=== Bus Trigger ==='; '$VENV_PY' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
 
-# --- Lark Trigger ---
-tmux new-window -t "$SESSION" -n "LarkTrigger" \
-  "$ENV_CMD; echo '=== Lark Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
-
-# --- Slack Trigger ---
-# Same ``uv run`` ban as DB Proxy. Use $VENV_PY directly.
-tmux new-window -t "$SESSION" -n "SlackTrigger" \
-  "$ENV_CMD; echo '=== Slack Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
-
-# --- Telegram Trigger ---
-tmux new-window -t "$SESSION" -n "TelegramTrigger" \
-  "$ENV_CMD; echo '=== Telegram Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
-
-# --- WeChat Trigger ---
-tmux new-window -t "$SESSION" -n "WeChatTrigger" \
-  "$ENV_CMD; echo '=== WeChat Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.wechat_module.run_wechat_trigger; echo 'WeChat Trigger stopped. Press Enter to close.'; read"
-
-# --- NarraMessenger Trigger ---
-tmux new-window -t "$SESSION" -n "NarraMsgTrigger" \
-  "$ENV_CMD; echo '=== NarraMessenger Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger; echo 'NarraMessenger Trigger stopped. Press Enter to close.'; read"
-
-# --- Discord Trigger ---
-tmux new-window -t "$SESSION" -n "DiscordTrigger" \
-  "$ENV_CMD; echo '=== Discord Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.discord_module.run_discord_trigger; echo 'Discord Trigger stopped. Press Enter to close.'; read"
+# --- Channel Triggers (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) ---
+# One supervisor process runs every IM channel in a single event loop,
+# replacing the old six-window layout. Same ``uv run`` ban as DB Proxy —
+# use $VENV_PY directly.
+tmux new-window -t "$SESSION" -n "ChannelTriggers" \
+  "$ENV_CMD; echo '=== Channel Triggers ==='; '$VENV_PY' -m xyz_agent_context.module.run_channel_triggers; echo 'Channel Triggers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

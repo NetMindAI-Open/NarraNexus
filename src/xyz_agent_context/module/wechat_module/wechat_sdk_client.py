@@ -31,9 +31,11 @@ import asyncio
 import base64
 import os
 import random
+import uuid
 from typing import Any, Optional
 
 import httpx
+from loguru import logger
 
 
 class WeChatSDKError(RuntimeError):
@@ -89,6 +91,12 @@ def extract_text(msg: dict) -> str:
         if text:
             parts.append(text)
     return "".join(parts)
+
+
+# NOTE (2026-07-03): a sanitize_bmp() emoji strip briefly lived here — the
+# "non-BMP chars kill delivery" theory was a coincidental correlation. The
+# real drop rule was the missing per-message client_id (see send_message);
+# with it present, astral-plane emoji deliver and render fine (probe P11).
 
 
 # ---------------------------------------------------------------------------
@@ -205,12 +213,22 @@ class WeChatSDKClient:
             chunk = text[start:start + MSG_CHUNK]
             body = {
                 "msg": {
+                    "from_user_id": "",
                     "to_user_id": to_user_id,
+                    # Server-side dedup key. MUST be unique per message: with it
+                    # missing, every send shares the same empty key, so the
+                    # first message of a login session delivers and every later
+                    # one is silently dropped as a duplicate (HTTP 200, empty
+                    # body — no error surface). 2026-07-03 incident, reproduced
+                    # across two QR sessions. Stable across the retry below on
+                    # purpose: a retry IS the same message.
+                    "client_id": uuid.uuid4().hex,
                     "message_type": 2,
                     "message_state": 2,
                     "context_token": context_token,
                     "item_list": [{"type": 1, "text_item": {"text": chunk}}],
-                }
+                },
+                "base_info": {"channel_version": CHANNEL_VERSION},
             }
             for attempt in range(2):
                 try:
@@ -225,7 +243,13 @@ class WeChatSDKClient:
                     if ret != 0:
                         raise WeChatSDKError(ret, "send")
                     break
-                except Exception:
+                except Exception as e:  # noqa: BLE001
+                    # Audit trail, not noise-hiding: chunk sends used to fail
+                    # with zero trace (lesson #3) — every attempt is logged.
+                    logger.warning(
+                        f"[wechat send] chunk at {start} attempt {attempt + 1}/2 "
+                        f"failed: {type(e).__name__}: {e}"
+                    )
                     if attempt == 0:
                         await asyncio.sleep(1.0)
                         continue

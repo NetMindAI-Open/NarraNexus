@@ -341,7 +341,7 @@ async def fetch_recent_events(agent_ids: list[str], limit_per_agent: int = 3) ->
     for aid in agent_ids:
         try:
             rows = await db.execute(
-                "SELECT event_id, agent_id, trigger, trigger_source, "
+                "SELECT event_id, agent_id, `trigger`, trigger_source, "
                 "final_output, created_at "
                 "FROM events WHERE agent_id=%s "
                 "ORDER BY created_at DESC LIMIT %s",

@@ -118,6 +118,19 @@ async def _run_hook(mode_env_value: str | None, monkeypatch, db_client):
             "is_public": 0,
         },
     )
+    # Seed the owner's agent slot so the LLM-identity resolver renders a
+    # real framework + model (Codex CLI / gpt-5) into the prompt instead
+    # of the formerly hardcoded "Claude Agent SDK".
+    await db_client.insert(
+        "user_slots",
+        {
+            "user_id": "owner_user",
+            "slot_name": "agent",
+            "provider_id": "prov_test",
+            "model": "gpt-5",
+            "agent_framework": "codex_cli",
+        },
+    )
 
     module = BasicInfoModule(
         agent_id="agent_deploytest",
@@ -155,20 +168,11 @@ async def test_hook_explicit_local(db_client, monkeypatch):
 # -------- rendered system prompt contains the block -------------------
 
 
-def _with_render_extras(ctx):
-    """``context_runtime`` sets two extra placeholders at render time
-    that aren't on the ContextData schema proper. Stub them in the
-    tests so the top-level template's ``.format()`` doesn't KeyError."""
-    setattr(ctx, "agent_info_model_type", "Claude Agent SDK")
-    setattr(ctx, "model_name", "test-model")
-    return ctx
-
-
 @pytest.mark.asyncio
 async def test_rendered_prompt_contains_cloud_block_when_cloud(
     db_client, monkeypatch
 ):
-    ctx = _with_render_extras(await _run_hook("cloud", monkeypatch, db_client))
+    ctx = await _run_hook("cloud", monkeypatch, db_client)
     module = BasicInfoModule(
         agent_id="agent_deploytest",
         user_id="owner_user",
@@ -183,12 +187,27 @@ async def test_rendered_prompt_contains_cloud_block_when_cloud(
 
 
 @pytest.mark.asyncio
+async def test_rendered_prompt_states_real_llm_identity(db_client, monkeypatch):
+    """The LLM-Model line must reflect the agent's REAL framework + model
+    (seeded as codex_cli / gpt-5), NOT the old hardcoded Claude Sonnet-4."""
+    ctx = await _run_hook("local", monkeypatch, db_client)
+    module = BasicInfoModule(
+        agent_id="agent_deploytest",
+        user_id="owner_user",
+        database_client=db_client,
+    )
+    rendered = await module.get_instructions(ctx)
+    assert "Codex CLI" in rendered
+    assert "gpt-5" in rendered
+    assert "Claude Agent SDK" not in rendered
+    assert "sonnet-4" not in rendered
+
+
+@pytest.mark.asyncio
 async def test_rendered_prompt_contains_local_block_when_local(
     db_client, monkeypatch
 ):
-    ctx = _with_render_extras(
-        await _run_hook(None, monkeypatch, db_client)
-    )  # default → local
+    ctx = await _run_hook(None, monkeypatch, db_client)  # default → local
     module = BasicInfoModule(
         agent_id="agent_deploytest",
         user_id="owner_user",

@@ -36,11 +36,12 @@ below.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 import time
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Optional, TYPE_CHECKING
+from typing import Any, AsyncIterator, List, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from xyz_agent_context.agent_runtime.run_collector import RunError
@@ -62,6 +63,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_HISTORIC,
     EVENT_INGRESS_DROPPED_ECHO,
     EVENT_INGRESS_DROPPED_UNBOUND,
+    EVENT_INGRESS_DROPPED_UNPARSED,
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_DEBOUNCE_MERGED,
     EVENT_SUBSCRIBER_STARTED,
@@ -102,6 +104,13 @@ from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
 # nulls, escape sequences). Public so subclasses with stricter rules can
 # compose their own regex on top.
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+# Inbox sentinel: the agent finished a turn without calling ANY user-reply
+# tool. Written to the inbox only, NEVER sent to the channel (respect the
+# agent's / silent-mode choice not to speak). Shared across channels so the
+# error-fallback path can tell "agent stayed silent" from "agent replied".
+CHANNEL_SILENT_SENTINEL = "(stayed silent)"
 
 
 def _compute_next_backoff(
@@ -167,6 +176,14 @@ class ChannelTriggerBase(ABC):
     # If non-zero, submit messages through ChannelDebounceMerger with this
     # window before processing. 0 disables debounce (Lark today, Phase 2).
     DEBOUNCE_WINDOW_MS: int = 0
+
+    # If non-zero, dedup ALSO fingerprints (chat, sender, content) for this
+    # many seconds — for platforms that re-dispatch the same message under a
+    # NEW message_id (NarraMessenger's 15-min invocation deadline → X1
+    # double-reply). Costs: a user re-sending the exact same text within the
+    # window is treated as the platform's re-dispatch and dropped — size the
+    # window to the platform's re-dispatch horizon, no larger.
+    CONTENT_DEDUP_WINDOW_SECONDS: int = 0
 
     # ── Construction ──────────────────────────────────────────────────────
     def __init__(self, *, base_workers: int = 3, history_config: Optional[ChannelHistoryConfig] = None):
@@ -474,6 +491,24 @@ class ChannelTriggerBase(ABC):
     # Lifecycle
     # ────────────────────────────────────────────────────────────────────
 
+    async def pre_start(self, db) -> None:
+        """One-time, channel-specific bootstrap run BEFORE ``start()``.
+
+        Default is a no-op. The consolidated supervisor
+        (``module/run_channel_triggers.py``) calls ``pre_start(db)`` then
+        ``start(db)`` for each trigger. Subclasses override this to run their
+        own idempotent one-off migrations here — keeping channel-specific
+        logic inside the channel (rule #4) instead of in the shared entrypoint.
+
+        Example: ``LarkTrigger`` migrates the legacy ``auth_status`` value that
+        used to live in the standalone ``run_lark_trigger`` entrypoint.
+
+        MUST be idempotent (it runs on every process start) and SHOULD NOT
+        raise — the supervisor wraps the call, but a channel that fails
+        pre_start is skipped entirely, so swallow recoverable errors here.
+        """
+        return None
+
     async def start(self, db) -> None:
         """Start workers + credential watcher. Idempotent ish — call once per process."""
         self.running = True
@@ -485,6 +520,7 @@ class ChannelTriggerBase(ABC):
         self._dedup_store = ChannelDedupStore(
             channel=self.channel_name,
             repo=seen_repo,
+            content_window_seconds=self.CONTENT_DEDUP_WINDOW_SECONDS,
         )
         # First baseline = process startup. Subclasses' transport hook
         # advances it on reconnect.
@@ -716,6 +752,7 @@ class ChannelTriggerBase(ABC):
                         break
                     parsed = self.parse_event(raw)
                     if parsed is None:
+                        await self._on_unparsed(credential, raw)
                         continue
                     await self._dedup_and_handle(credential, parsed)
 
@@ -817,6 +854,7 @@ class ChannelTriggerBase(ABC):
             message.message_id,
             message.timestamp_ms,
             agent_id=agent_id,
+            content_fingerprint=self._content_fingerprint(message),
         )
 
         if decision["accept"]:
@@ -1139,25 +1177,220 @@ class ChannelTriggerBase(ABC):
                 a.model_dump(mode="json") for a in attachments
             ]
 
-        result = await get_agent_runtime_client().run_and_collect(
-            agent_id=agent_id,
-            user_id=owner_user_id,
-            input_content=tagged_prompt,
-            working_source=self.working_source,
-            trigger_extra_data=extra_data,
-        )
+        try:
+            result = await get_agent_runtime_client().run_and_collect(
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=tagged_prompt,
+                working_source=self.working_source,
+                trigger_extra_data=extra_data,
+            )
+        except Exception as e:  # noqa: BLE001
+            # The runtime is DESIGNED to yield MessageType.ERROR rather than
+            # raise (see run_collector), but a defensive guard here means an
+            # unexpected crash still tells the user something failed instead of
+            # vanishing into channel silence.
+            logger.exception(
+                f"{type(self).__name__}[{agent_id}] run_and_collect raised: "
+                f"{type(e).__name__}: {e}"
+            )
+            from xyz_agent_context.agent_runtime.run_collector import RunError
+            err_text = self.format_error_reply(
+                RunError(error_type=type(e).__name__, error_message=str(e))
+            )
+            await self._send_error_fallback(
+                credential, message, err_text, already_replied=False
+            )
+            return err_text
 
         if result.is_error:
             logger.warning(
                 f"{type(self).__name__}[{agent_id}] runtime error "
                 f"({result.error.error_type}): {result.error.error_message}"
             )
-            return self.format_error_reply(result.error)
+            err_text = self.format_error_reply(result.error)
+            # Distinguish "agent failed" from "agent stayed silent": if the
+            # agent already sent a real reply via its own tool before the
+            # failure (partial_reply_then_error), the user has heard from it —
+            # don't double-message. Otherwise the turn vanished silently, so
+            # surface the error into the channel. A run that stayed silent by
+            # CHOICE never sets is_error, so this never fires on intended
+            # silence (group non-@ / nothing to add).
+            sent = self.extract_output(result, message, credential)
+            already_replied = bool(sent and sent.strip()) and sent != CHANNEL_SILENT_SENTINEL
+            await self._send_error_fallback(
+                credential, message, err_text, already_replied=already_replied
+            )
+            return err_text
 
         # Subclasses may want to extract platform-specific tool-call output;
         # default returns the agent's text. Lark's subclass will override
         # to look at result.raw_items in Phase 2.
         return self.extract_output(result, message, credential)
+
+    async def _build_and_run_agent_silent_batch(
+        self,
+        credential: Any,
+        messages: List[ParsedMessage],
+        sender_name_by_id: Optional[dict[str, str]] = None,
+        *,
+        attachments_by_index: Optional[List[List[Attachment]]] = None,
+    ) -> None:
+        """Run one silent AgentRuntime pass over a batch of messages.
+
+        Purpose. Group non-@ messages (and reconnect burst backfill) should
+        land in memory — chat_history, observations, entity_description —
+        WITHOUT calling the agent LLM. This method merges the batch into a
+        single input_content, invokes AgentRuntime with silent=True, and
+        passes per-message metadata through trigger_extra_data so
+        ChatModule can write one user row per original event.
+
+        Runtime shape:
+        - Narrative selection runs once on the merged content (topic
+          centroid). Modules load; instances sync.
+        - step_3 (agent LLM) is skipped.
+        - hook_persist_turn writes N user rows (from batch_messages) with
+          no assistant row.
+        - hook_after_event_execution runs (observation extraction from
+          the merged content; entity update per unique sender).
+
+        Args:
+            credential: Loaded credential row (must have agent_id).
+            messages: Non-empty list of ParsedMessage in chronological
+                order, sharing the same chat_id.
+            sender_name_by_id: Pre-resolved display names keyed by
+                sender_id. Missing entries fall back to resolve_sender_name.
+            attachments_by_index: Optional parallel list — attachments[i]
+                is the list returned by fetch_attachments(messages[i]).
+                Serialised into batch_messages[i]["attachments"] so
+                ChatModule can persist them on the individual user row.
+
+        Returns:
+            None. Silent runs produce no user-facing text; the caller
+            should NOT send anything to the IM platform.
+        """
+        if not messages:
+            logger.warning(
+                f"{type(self).__name__}._build_and_run_agent_silent_batch called with empty batch"
+            )
+            return
+
+        from xyz_agent_context.agent_runtime.client import (
+            get_agent_runtime_client,
+        )
+
+        agent_id = getattr(credential, "agent_id", "")
+        anchor_msg = messages[-1]
+        chat_id = anchor_msg.chat_id
+
+        # Resolve display names for every unique sender in the batch,
+        # falling back to resolve_sender_name for any not pre-supplied.
+        # sender_name_by_id may be partial; sanitize whatever we end up with.
+        resolved_names: dict[str, str] = dict(sender_name_by_id or {})
+        for m in messages:
+            sid = m.sender_id or ""
+            if not sid or sid in resolved_names:
+                continue
+            name = m.sender_name
+            if (not name or name == "Unknown") and sid:
+                name = await self.resolve_sender_name(sid, credential)
+            resolved_names[sid] = self.sanitize_display_name(name or sid)
+
+        # Merge batch into a single input_content. Each line carries
+        # timestamp + sender name + body so narrative selection's embedding
+        # sees the actual dialogue shape, not just a naked concatenation.
+        # The merged string ALSO becomes hook_after's user_input for
+        # observation extraction — GeneralMemoryModule will read it as
+        # "the users said X, Y, Z". That's the desired behaviour: silent
+        # observation sink treats the batch as one conversational chunk.
+        merged_lines: List[str] = []
+        for m in messages:
+            display = resolved_names.get(m.sender_id or "", m.sender_id or "unknown")
+            ts_ms = getattr(m, "timestamp_ms", 0) or 0
+            body = (m.content or "").strip()
+            if not body:
+                continue
+            merged_lines.append(f"[{ts_ms}] {display}: {body}")
+        merged_input = "\n".join(merged_lines) if merged_lines else (anchor_msg.content or "")
+
+        # Build per-message metadata for ChatModule's batch write path.
+        # Each entry is written as one user row keyed by its own event_id
+        # + timestamp + sender_id, so chat_history shows the group thread
+        # with per-speaker attribution.
+        batch_messages: List[dict[str, Any]] = []
+        for idx, m in enumerate(messages):
+            iso_ts = ""
+            ts_ms = getattr(m, "timestamp_ms", 0) or 0
+            if ts_ms:
+                try:
+                    from datetime import datetime, timezone
+                    iso_ts = datetime.fromtimestamp(
+                        ts_ms / 1000.0, tz=timezone.utc
+                    ).isoformat()
+                except (ValueError, OSError):
+                    iso_ts = ""
+            sid = m.sender_id or ""
+            entry: dict[str, Any] = {
+                "event_id": m.message_id,
+                "timestamp": iso_ts,
+                "sender_id": sid,
+                "sender_name": resolved_names.get(sid, sid),
+                "content": m.content or "",
+            }
+            if attachments_by_index and idx < len(attachments_by_index):
+                atts = attachments_by_index[idx] or []
+                if atts:
+                    entry["attachments"] = [a.model_dump(mode="json") for a in atts]
+            batch_messages.append(entry)
+
+        # ChannelTag anchors on the LAST message (most recent = strongest
+        # topic signal); narrative routing uses this as the retrieval
+        # anchor rather than embedding the whole merged blob.
+        anchor_sender_name = resolved_names.get(
+            anchor_msg.sender_id or "", anchor_msg.sender_id or ""
+        )
+        channel_tag = ChannelTag(
+            channel=self.channel_name,
+            sender_name=anchor_sender_name,
+            sender_id=anchor_msg.sender_id,
+            room_id=chat_id,
+        )
+
+        owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
+
+        extra_data: dict[str, Any] = {
+            "channel_tag": channel_tag.to_dict(),
+            "retrieval_anchor": (anchor_msg.content or "").strip() or None,
+            "trigger_id": (
+                f"{self.channel_name}_batch_{anchor_msg.message_id}"
+                if anchor_msg.message_id
+                else f"{self.channel_name}_batch_unknown"
+            ),
+            "batch_messages": batch_messages,
+            "silent_batch_size": len(batch_messages),
+        }
+
+        try:
+            result = await get_agent_runtime_client().run_and_collect(
+                agent_id=agent_id,
+                user_id=owner_user_id,
+                input_content=merged_input,
+                working_source=self.working_source,
+                trigger_extra_data=extra_data,
+                silent=True,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}[{agent_id}] silent batch runtime raised: "
+                f"{type(e).__name__}: {e}"
+            )
+            return
+
+        if result.is_error:
+            logger.warning(
+                f"{type(self).__name__}[{agent_id}] silent batch runtime error "
+                f"({result.error.error_type}): {result.error.error_message}"
+            )
 
     # ────────────────────────────────────────────────────────────────────
     # Owner resolution + agent output extraction (subclass override hooks)
@@ -1184,6 +1417,48 @@ class ChannelTriggerBase(ABC):
             "Please try again in a bit, or contact the bot's owner."
         )
 
+    async def send_channel_reply(
+        self, credential: Any, message: ParsedMessage, text: str
+    ) -> None:
+        """Send ``text`` into the originating chat OUTSIDE the agent's own
+        reply tool.
+
+        Used by the error-fallback path (:meth:`_send_error_fallback`) so a run
+        that failed before the agent could call its reply tool still surfaces
+        *something* to the user — distinguishing "agent failed" from "agent
+        stayed silent". IM subclasses override this with the SDK client they
+        already hold (keyed by subscriber), addressing the reply via
+        ``message.chat_id`` / ``message.sender_id`` / ``message.raw``.
+
+        Default: no-op. Channels that must not be sent to from the trigger
+        (message_bus stays quiet, job has its own delivery) simply inherit it.
+        """
+        return None
+
+    async def _send_error_fallback(
+        self,
+        credential: Any,
+        message: ParsedMessage,
+        error_text: str,
+        *,
+        already_replied: bool,
+    ) -> None:
+        """Surface a run failure into the channel — unless the agent already
+        replied this turn (then don't double-message).
+
+        Best-effort: a send failure must not mask the original error or break
+        inbox recording, so it is logged and swallowed.
+        """
+        if already_replied:
+            return
+        try:
+            await self.send_channel_reply(credential, message, error_text)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: error-fallback send_channel_reply "
+                f"failed: {type(e).__name__}: {e}"
+            )
+
     def extract_output(self, result, message: ParsedMessage, credential: Any) -> str:
         """
         Return the text to record in the inbox.
@@ -1199,10 +1474,37 @@ class ChannelTriggerBase(ABC):
     # Audit helpers
     # ────────────────────────────────────────────────────────────────────
 
+    def _content_fingerprint(self, message: ParsedMessage) -> str:
+        """Stable identity of a message independent of its platform id.
+
+        Only computed when CONTENT_DEDUP_WINDOW_SECONDS opts the channel in;
+        empty string disables the fingerprint layer for this message (e.g.
+        no content to fingerprint).
+        """
+        if self.CONTENT_DEDUP_WINDOW_SECONDS <= 0 or not message.content:
+            return ""
+        material = f"{message.chat_id}|{message.sender_id}|{message.content}"
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+
     async def _audit(self, event_type: str, **kwargs) -> None:
         if self._audit_repo is None:
             return
         await self._audit_repo.append(event_type, **kwargs)
+
+    async def _on_unparsed(self, credential: Any, raw: dict) -> None:
+        """Audit a raw event that ``parse_event`` rejected (unsupported type).
+
+        Keys only, never payloads — enough to answer "the sticker you sent
+        at 12:03 was dropped as unsupported" without shipping media bytes
+        or message text into the audit table.
+        """
+        raw_keys = sorted(raw)[:10] if isinstance(raw, dict) else [type(raw).__name__]
+        await self._audit(
+            EVENT_INGRESS_DROPPED_UNPARSED,
+            agent_id=getattr(credential, "agent_id", ""),
+            app_id=getattr(credential, "app_id", ""),
+            details={"raw_keys": raw_keys},
+        )
 
     async def _maybe_heartbeat(self) -> None:
         if self._audit_repo is None:

@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-06-16
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — "LLM Model" 行改渲染真实 framework + model
+
+模板里的 `Your LLM model: **{agent_info_model_type}** ({model_name}).` 段保持不变，
+但两个占位符的**来源**变了：此前由 [[context_runtime.py]] 写死成
+"Claude Agent SDK / sonnet-4"（所有 agent 都自称 Claude Sonnet-4，违反铁律#9），
+现在由 [[basic_info_module.py]] `hook_data_gathering` 经 [[agent_model_identity.py]]
+按 agent 真实 slot 填（如 "Codex CLI (gpt-5)"）。占位符名没动，故模板文本与文档
+注释（131-132）无需改。
 
 ## 2026-06-16 — re-surface machine IDs (account vs user_id), fixing register_artifact
 

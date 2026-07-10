@@ -233,6 +233,44 @@ class NarrativeUpdater:
             narrative: Narrative object
             event: Latest Event object
         """
+        from xyz_agent_context.agent_framework.llm_failure import is_credential_error
+        from xyz_agent_context.agent_framework.provider_resolver import (
+            ProviderResolverError,
+            inject_owner_helper_credentials,
+        )
+        from xyz_agent_context.services.background_llm_alerts import (
+            alert_background_llm_failure,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        # This runs in a detached ``asyncio.create_task`` (see caller) whose
+        # context does NOT carry the per-turn helper-LLM config that
+        # AgentRuntime.run set. Resolve the agent OWNER's Helper LLM here so the
+        # update runs on the user's provider — never the platform key it used to
+        # silently fall through to (2026-07 credential incident).
+        owner_user_id = None
+        try:
+            db = await get_db_client()
+            owner_user_id = await inject_owner_helper_credentials(
+                narrative.agent_id, db
+            )
+        except ProviderResolverError as e:
+            # No usable provider / free tier exhausted. Do NOT fall through to
+            # the platform key — skip the update and surface it to the owner.
+            await alert_background_llm_failure(
+                agent_id=narrative.agent_id,
+                owner_user_id=None,
+                source="narrative_update",
+                error=e,
+                source_id=narrative.id,
+            )
+            return
+        except Exception as e:
+            logger.exception(
+                f"Narrative update credential injection failed: {narrative.id}, error={e}"
+            )
+            return
+
         try:
             logger.info(f"Starting LLM update for Narrative: {narrative.id}")
 
@@ -250,6 +288,17 @@ class NarrativeUpdater:
                 logger.warning(f"LLM update failed, skipping: {narrative.id}")
 
         except Exception as e:
+            # A credential-class failure here means the resolved key is bad
+            # (expired/revoked) — alert the owner instead of silently degrading
+            # long memory. Transient failures stay log-only (retried next turn).
+            if is_credential_error(e):
+                await alert_background_llm_failure(
+                    agent_id=narrative.agent_id,
+                    owner_user_id=owner_user_id,
+                    source="narrative_update",
+                    error=e,
+                    source_id=narrative.id,
+                )
             logger.exception(f"LLM Narrative update exception: {narrative.id}, error={e}")
 
     async def _build_update_context(self, narrative: Narrative, event: Event) -> str:
@@ -291,27 +340,29 @@ class NarrativeUpdater:
         narrative: Narrative,
         context: str
     ) -> Optional[NarrativeUpdateOutput]:
-        """Call LLM to generate Narrative update content"""
-        try:
-            from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+        """Call LLM to generate Narrative update content.
 
-            instructions = NARRATIVE_UPDATE_INSTRUCTIONS
+        Exceptions propagate to ``_async_llm_update``, which classifies them:
+        a credential-class failure raises an owner alert (it used to be
+        swallowed here as ``return None``, which is exactly how an expired key
+        went unnoticed for two weeks). The caller treats a ``None`` return as
+        "LLM produced nothing" and skips the update quietly.
+        """
+        from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
 
-            from xyz_agent_context.narrative.config import config as narrative_config
-            sdk = get_helper_sdk()
-            result = await sdk.llm_function(
-                instructions=instructions,
-                user_input=context,
-                output_type=NarrativeUpdateOutput,
-                model=narrative_config.NARRATIVE_LLM_UPDATE_MODEL,
-                reasoning_effort=narrative_config.NARRATIVE_LLM_UPDATE_REASONING_EFFORT or None,
-            )
+        instructions = NARRATIVE_UPDATE_INSTRUCTIONS
 
-            return result.final_output
+        from xyz_agent_context.narrative.config import config as narrative_config
+        sdk = get_helper_sdk()
+        result = await sdk.llm_function(
+            instructions=instructions,
+            user_input=context,
+            output_type=NarrativeUpdateOutput,
+            model=narrative_config.NARRATIVE_LLM_UPDATE_MODEL,
+            reasoning_effort=narrative_config.NARRATIVE_LLM_UPDATE_REASONING_EFFORT or None,
+        )
 
-        except Exception as e:
-            logger.exception(f"LLM call failed: {e}")
-            return None
+        return result.final_output
 
     async def _apply_llm_update(
         self,

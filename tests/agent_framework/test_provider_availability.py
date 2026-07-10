@@ -83,8 +83,9 @@ def _mk_quota_svc(*, prefer_system, has_budget):
         row.prefer_system_override = prefer_system
         m.get = AsyncMock(return_value=row)
     m.check = AsyncMock(return_value=has_budget)
-    # classify() auto-disables the free-tier preference on exhaustion (#48).
-    m.set_preference = AsyncMock()
+    # classify() compare-and-swaps the free-tier preference OFF on exhaustion
+    # (#48); the winner returns True and fires the one-time auto-switch notice.
+    m.disable_preference_if_enabled = AsyncMock(return_value=True)
     return m
 
 
@@ -118,16 +119,18 @@ async def test_opted_in_with_budget_is_system_ok_even_with_own_config():
 
 
 @pytest.mark.asyncio
-async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user_ok():
+async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user_ok(monkeypatch):
     """#48: pref=1 + exhausted + own provider. Instead of dead-ending on the
     exhausted free tier, the free-tier preference is auto-disabled and the user
     routes to their own key — so the verdict is USER_OK and IS runnable."""
+    from xyz_agent_context.agent_framework import provider_resolver as pr
+    monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", AsyncMock())
     r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=True, has_budget=False)
     verdict = await r.classify("u")
     assert verdict == ProviderAvailability.USER_OK
     assert is_runnable(verdict) is True
-    # the preference flip was persisted (toggle visibly unchecks)
-    r.quota_svc.set_preference.assert_awaited_once_with("u", False)
+    # the preference flip was persisted via compare-and-swap (toggle unchecks)
+    r.quota_svc.disable_preference_if_enabled.assert_awaited_once_with("u")
 
 
 @pytest.mark.asyncio

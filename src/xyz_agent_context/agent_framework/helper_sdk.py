@@ -43,11 +43,17 @@ def _load_openai_helper() -> Any:
     return OpenAIAgentsSDK()
 
 
+def _load_cli_helper() -> Any:
+    from xyz_agent_context.agent_framework.cli_helper_sdk import CliHelperSDK
+    return CliHelperSDK()
+
+
 # protocol -> zero-arg loader. Adding a helper protocol = register a loader
 # here and have the resolver mark that protocol on the helper config.
 _HELPER_SDK_BY_PROTOCOL: Dict[str, Callable[[], Any]] = {
     "anthropic": _load_anthropic_helper,
     "openai": _load_openai_helper,
+    "cli": _load_cli_helper,
 }
 
 _DEFAULT_HELPER_PROTOCOL = "openai"
@@ -56,14 +62,19 @@ _DEFAULT_HELPER_PROTOCOL = "openai"
 def _resolved_helper_protocol() -> str:
     """The single point that decides the current task's helper protocol.
 
-    The resolver installs an ``AnthropicHelperConfig`` (via
-    ``_anthropic_helper_ctx``) exactly when the helper_llm slot is an
-    anthropic-protocol provider; otherwise the helper runs on the
-    openai-protocol ``OpenAIConfig``. Reading this one ContextVar is the
-    sole protocol signal — every helper call site funnels through here.
+    Precedence: ``cli`` (a subscription/OAuth helper installed via
+    ``_cli_helper_ctx``) wins, then ``anthropic`` (an anthropic-protocol
+    provider via ``_anthropic_helper_ctx``), else the openai-protocol
+    ``OpenAIConfig`` default. The resolver installs exactly one of these per
+    task; reading these ContextVars is the sole protocol signal.
     """
-    from xyz_agent_context.agent_framework.api_config import _anthropic_helper_ctx
+    from xyz_agent_context.agent_framework.api_config import (
+        _anthropic_helper_ctx,
+        _cli_helper_ctx,
+    )
 
+    if _cli_helper_ctx.get() is not None:
+        return "cli"
     if _anthropic_helper_ctx.get() is not None:
         return "anthropic"
     return _DEFAULT_HELPER_PROTOCOL

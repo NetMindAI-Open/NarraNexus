@@ -1,8 +1,35 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-06-14
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — `_is_cloud` delegates to deployment_mode
+
+`_is_cloud()` no longer re-sniffs `DATABASE_URL`; it delegates to
+[[deployment_mode]]'s `is_cloud_mode()` (the single source of truth — honours
+`NARRANEXUS_DEPLOYMENT_MODE`, treats an unset `DATABASE_URL` as local). This was
+one of three skewed copies; the per-agent config route ([[agents_llm_config]])
+converged on the same helper. Import is top-level now.
+
+## 2026-07-07 — use-subscription wires minted key to the env's inference base
+
+/use-subscription now passes inference_base=settings.netmind_inference_base into
+onboard_one_key, so a dev-minted key is registered against dev inference
+(test.api.netmind.ai) rather than the hardcoded prod. /onboard (manual paste) is
+unchanged (prod). See [[user_provider_service]].
+
+
+
+## 2026-07-06 — use-subscription pre-flip caveats expanded
+
+Expanded the pre-flip TODO on the in-process _use_sub_locks: before enabling
+netmind_use_subscription_enabled in a multi-worker deploy, a distributed guard
+must also cover the OTHER netmind-source creators (add_provider/onboard), and the
+unbounded per-user lock dict should become TTL/bounded. Current single-worker,
+flag-off deployment is unaffected.
+
+
 ## 2026-06-14 — PR #25 review §3：写接口补「凭证骑乘」门禁
 
 云端镜像单 `app` 用户、单 HOME，所以 `~/.codex/auth.json` /
@@ -243,3 +270,33 @@ migration service 全局单例对云端多用户是错的。
 多进程部署下，per-user 进度仍然是"当前处理这次请求的进程"内的状态；不同进程不
 共享。前端轮询时若请求 load-balance 到不同进程，会看到进度波动。未来可考虑把
 进度落到 DB 或 Redis，但本轮修复不包括。
+
+## 2026-07-02（Phase 5）— POST /use-subscription（模块 F）
+
+一键“使用此订阅”：cloud 门禁（规范 is_cloud_mode）+ 功能开关
+`settings.netmind_use_subscription_enabled`（默认关，待 C1）+ X-Netmind-Token +
+**先显式去重**（已有 source=netmind → 409，避免生成孤儿 key）→
+[[netmind_key_client]] 生成推理 key → 复用 `onboard_one_key(uid, key, "netmind")`
+建双 provider + 绑槽 → 抄 /onboard 的 hot-reload + rearm。错误：KeyAuthError→401、
+KeyUpstreamError→502、onboard ValueError→400。
+
+## 审查加固（2026-07-02）
+
+- **per-user 锁** `_use_sub_lock(uid)`：串行化 dedup+mint+onboard，挡同进程双击/多标签
+  并发双 mint（安全/质量 HIGH TOCTOU）。**仅同进程**——多 worker 需分布式/DB 守卫，
+  flag-flip 前 TODO（注：(user_id,source) 唯一约束不适用，netmind 是双行）。
+- **孤儿 key 清理**：onboard 任何失败后 `key_client.delete_key(token, minted.token_id)`
+  best-effort 撤销刚 mint 的 key，避免留下花钱的孤儿（安全 HIGH）。
+- **ValueError 映射细化**：dedup "already exists"→409、我方 mint 的 key 被 NetMind 拒
+  "rejected"→502（上游集成失败，非用户输入错）、其它→400。
+
+## 2026-07-07 — POST /onboard 支持 replace + needs_replace 信号
+
+`OnboardRequest` 加 `replace: bool=False`，透传给 `onboard_one_key`。当服务返回
+`meta.needs_replace` 时，路由返回 `{success: False, needs_replace: True, provider_type,
+existing_masked}`（**HTTP 200**，非错误），让前端按结构化字段分支弹确认，而不是解析
+"already exists" 错误串。确认后前端带 `replace=true` 重发，服务原子换 key。
+
+## 2026-07-07 (bug#3) — hot-reload 传 cli_helper
+
+add/onboard/set-slot/use-subscription 的 4 处 `set_user_config(cfg...)` 均增传 `cfg.cli_helper`，订阅（OAuth）helper 才能在当前进程即时生效。OAuth 登录后 add_provider 自动绑定 agent+helper 两槽。

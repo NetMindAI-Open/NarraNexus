@@ -1,8 +1,46 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-06-24
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — per-agent LLM config methods
+
+Added ``getAgentLlmConfig`` / ``setAgentLlmConfig`` / ``resetAgentLlmConfig``
+(GET/PUT/DELETE ``/api/agents/{id}/llm-config[/{slot}]``) backing the chat-page
+per-agent override surfaces. Types ``AgentSlotView`` / ``AgentSlotEffective`` in
+[[api.ts]] (types). setProviderSlot / getAgentFramework stay — they now write the
+user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
+
+ 
+## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
+
+`recharge(amount, currency?, successUrl?, cancelUrl?)` POSTs the top-up and returns
+`{checkout_url, session_id}`; `rechargeStatus(sessionId)` GETs by-session. Both forward the
+loginToken via X-Netmind-Token. Types RechargeResponse/RechargeStatusResponse added in
+[[api]] (types). The panel opens checkout_url then polls rechargeStatus.
+
+
+
+## 2026-07-02 (Phase 3) — 订阅写操作
+
+`subscribe()` / `cancelSubscription()` / `reactivateSubscription()`——共用私有
+`billingWrite()`（POST + `X-Netmind-Token`，空 token 早退）。subscribe 返
+checkout_url，面板 openExternal + 轮询 `/me`。
+
+## 2026-07-02 — NetMind billing 方法 + billing 401 不触发全局登出
+
+新增 `getPlans()` / `getSubscription()`（[[billing]] 代理）+ 私有
+`getNetmindToken()`（从 localStorage `narra-nexus-config` 读 netmindToken，经
+`X-Netmind-Token` 头带上）。两个关键决策：① `getSubscription()` 空 token 直接
+throw（不发空头 round-trip，安全审查 H-1）；② `request()` 的 401 自动登出处理
+**跳过 `/api/billing/`**（`isBillingEndpoint`）——billing 401 是 NetMind token
+失效，不是 NarraNexus 会话失效，绝不能把有效会话登出（code review HIGH）。
+
+## 2026-07-03 — bus-failures + notices client methods (upstream #52)
+
+`getBusFailures` / `retryBusFailure` (per-agent recovery endpoints) and
+`getNotices` / `markNoticeRead` (user-scope inbox_table read side).
 
 ## 2026-06-24 — team group chat: getTeamChat / sendTeamChat + setProviderSlot
 
@@ -172,3 +210,22 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 **`provisionArena(userToken?)` (2026-06-16; body added 2026-06-23).** `POST /api/arena/provision` — identity comes from the session headers. When `userToken` (the user's NetMind JWT) is passed it goes in the body as `{user_token}` so the backend can bind the agent's owner email via Arena's platform-only endpoint (optional; omitted → bind skipped; the token is forwarded to Arena, never persisted). Idempotent server-side (one Arena agent per user). Called by `lib/arenaLanding.ts` after login when the entry source is Arena.
 
 **`createAgent()` 4th arg (2026-06-16, #43).** Optional `opts?: { teamId }` adds `team_id` to the `POST /api/auth/agents` body, so an agent created from a team's sidebar "+" is attached to that team server-side.
+
+## 2026-07-02 (Phase 2) — getFeeInfo
+
+`getFeeInfo()`（GET /api/billing/fee-info，X-Netmind-Token，空 token 早退）。余额
+数据源，模块 B。
+
+## 2026-07-02 (Phase 5) — useSubscription
+
+`useSubscription()`（POST /api/providers/use-subscription，X-Netmind-Token）。触发后端
+生成 key→建 netmind provider→绑槽（模块 F）。
+
+## 2026-07-03 (G1) — getRecords
+
+`getRecords(direction?)`（GET /api/billing/records，X-Netmind-Token）。消费/充值流水。
+
+## 2026-07-07 — onboard() 加 replace 参数 + needs_replace 返回
+
+`onboard(apiKey, providerType, replace?)` 新增可选 `replace`，请求体带 `replace`；返回
+类型加 `needs_replace` / `existing_masked`，供 OneKeyOnboard 的换 key 确认流程使用。

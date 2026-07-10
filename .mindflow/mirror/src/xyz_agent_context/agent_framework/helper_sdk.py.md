@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/helper_sdk.py
-last_verified: 2026-06-17
+last_verified: 2026-07-07
 stub: false
 ---
 
@@ -48,3 +48,7 @@ module load (both SDK modules import api_config).
 - Dispatch is per-task and resets on every `set_user_config` call
   (passing no anthropic_helper clears the ctx), so multi-tenant
   concurrent turns cannot leak each other's helper choice.
+
+## 2026-07-07 — 新增 cli helper 协议（订阅覆盖 Helper）
+
+`_HELPER_SDK_BY_PROTOCOL` 加 `"cli" -> CliHelperSDK`；`_resolved_helper_protocol` 优先级改为 cli > anthropic > openai（读 `_cli_helper_ctx`）。订阅（OAuth）helper 走 CLI 一次性，而非直连 API。

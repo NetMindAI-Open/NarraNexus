@@ -23,6 +23,7 @@ without hand-written SQL.
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from loguru import logger
 
@@ -96,6 +97,17 @@ class ChannelInboxWriter:
                 now=now,
             )
 
+            # Inbound and reply are ONE conversational turn but two rows that
+            # must sort inbound-then-reply. Both are written here at turn end,
+            # so a single ``now`` gave them an identical created_at — with
+            # ``ORDER BY created_at`` and no tie-break the reply could sort
+            # above the message it answered (worst on WeChat, whose messages
+            # carry no timestamp of their own). Stamp them one microsecond
+            # apart so created_at alone orders the turn; the natural advance
+            # of utc_now() between turns keeps turns in completion order.
+            inbound_at = now
+            reply_at = now + timedelta(microseconds=1)
+
             # 4. Inbound — from the pseudo-agent representing the IM sender.
             await db.insert("bus_messages", {
                 "message_id": f"{self._channel}_in_{uuid.uuid4().hex[:12]}",
@@ -103,7 +115,7 @@ class ChannelInboxWriter:
                 "from_agent": f"{self._channel}_user_{sender_id}",
                 "content": original_message,
                 "msg_type": "text",
-                "created_at": now,
+                "created_at": inbound_at,
             })
 
             # 5. Outbound — only when the agent actually replied.
@@ -114,7 +126,7 @@ class ChannelInboxWriter:
                     "from_agent": agent_id,
                     "content": agent_response,
                     "msg_type": "text",
-                    "created_at": now,
+                    "created_at": reply_at,
                 })
 
             logger.info(

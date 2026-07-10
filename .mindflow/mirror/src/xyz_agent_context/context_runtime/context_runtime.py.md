@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-06-17
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — 移除写死的假模型身份（改由 BasicInfoModule 动态填）
+
+`run()` 构造 `ContextData` 时曾写死 `agent_info_model_type="Claude Agent SDK"` +
+`model_name="sonnet-4"`，经 basic_info [[prompts.py]] 的 "LLM Model" 段灌进系统
+prompt → **每个** agent（含 codex_cli+gpt5）都自称 Claude Sonnet-4，被问模型就照读
+（违反铁律#9）。两行 kwargs 已删；这两个字段改由 [[basic_info_module.py]]
+`hook_data_gathering` 经 [[agent_model_identity.py]] 按真实 slot 动态填。
+ContextRuntime 从此不掺和模型身份（本就不该知道），字段也在 [[context_schema.py]]
+正式声明了。
+
+## 2026-07-09 — current-turn attachment marker injection
+
+`build_input_for_framework` 追加"当前 turn user message"时，读 `ctx_data.extra_data["attachments"]`，通过 `Attachment.markers_from_dicts(agent_id=ctx_data.agent_id, user_id=ctx_data.user_id)` 合成 marker 拼在 LLM 视图的 content 尾部。**关键：不动 `ctx_data.input_content`**——那个字符串会被 `ChatModule.hook_persist_turn` 原样写成用户消息的 `content`，`backend/routes/agents_chat_history.py` 又会把它回显到前端。marker 只走 LLM 视图，绝对路径不进 UI 也不进 DB。
+
+`ctx_data.user_id` 已被 `AgentRuntime` 覆写为 agent owner（`_agent.created_by`，agent_runtime.py:245），marker 里的路径拿到的就是 owner workspace 的绝对路径——跟 trigger 落盘时的路径一致，agent Read 直接命中。
+
+覆盖范围：所有 IM 渠道 + WS 前端 chat 都已把 `attachments` 放进 `trigger_extra_data`（channel_trigger_base.py 的 `_build_and_run_agent` line 1175-1178；backend/routes/websocket.py line 679），零 trigger 侧改动。下一轮读历史时 `ChatModule._synthesize_attachment_markers`（同一 `Attachment.markers_from_dicts` 底层）再合成一次，marker 格式两条路径完全一致，agent 行为在当前 turn vs 历史 turn 上无差别。
+
+Regression：`tests/channel/test_current_turn_attachment_marker.py` 5 条锁死"注入不动 input_content / owner routing / malformed 有 WARNING / 空列表零动作"。
 
 ## 2026-06-17 — system prompt 第一段注入安全铁律(**云端专属**)
 

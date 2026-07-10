@@ -147,10 +147,7 @@ draw_panel() {
   status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
   status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
   status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
-  status_line "Lark Trigger"        "pgrep -f 'run_lark_trigger' >/dev/null"
-  status_line "Slack Trigger"       "pgrep -f 'run_slack_trigger' >/dev/null"
-  status_line "Telegram Trigger"    "pgrep -f 'run_telegram_trigger' >/dev/null"
-  status_line "Discord Trigger"     "pgrep -f 'run_discord_trigger' >/dev/null"
+  status_line "Channel Triggers"    "pgrep -f 'run_channel_triggers' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -237,21 +234,10 @@ tmux new-window -t "$SESSION" -n "Jobs" \
 tmux new-window -t "$SESSION" -n "BusTrigger" \
   "$ENV_CMD; echo '=== Bus Trigger ==='; '$VENV_PY' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
 
-# --- Lark Trigger ---
-tmux new-window -t "$SESSION" -n "LarkTrigger" \
-  "$ENV_CMD; echo '=== Lark Trigger ==='; '$VENV_PY' -m xyz_agent_context.module.lark_module.run_lark_trigger; echo 'Lark Trigger stopped. Press Enter to close.'; read"
-
-# --- Slack Trigger ---
-tmux new-window -t "$SESSION" -n "SlackTrigger" \
-  "$ENV_CMD; echo '=== Slack Trigger ==='; uv run python -m xyz_agent_context.module.slack_module.run_slack_trigger; echo 'Slack Trigger stopped. Press Enter to close.'; read"
-
-# --- Telegram Trigger ---
-tmux new-window -t "$SESSION" -n "TelegramTrigger" \
-  "$ENV_CMD; echo '=== Telegram Trigger ==='; uv run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger; echo 'Telegram Trigger stopped. Press Enter to close.'; read"
-
-# --- Discord Trigger ---
-tmux new-window -t "$SESSION" -n "DiscordTrigger" \
-  "$ENV_CMD; echo '=== Discord Trigger ==='; uv run python -m xyz_agent_context.module.discord_module.run_discord_trigger; echo 'Discord Trigger stopped. Press Enter to close.'; read"
+# --- Channel Triggers (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) ---
+# One supervisor process runs every IM channel in a single event loop.
+tmux new-window -t "$SESSION" -n "ChannelTriggers" \
+  "$ENV_CMD; echo '=== Channel Triggers ==='; '$VENV_PY' -m xyz_agent_context.module.run_channel_triggers; echo 'Channel Triggers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

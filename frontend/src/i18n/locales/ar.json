@@ -113,6 +113,28 @@
       "statusRunning": "قيد التشغيل",
       "statusFailed": "فشل",
       "statusPending": "قيد الانتظار"
+    },
+    "inner": {
+      "viewLoop": "عرض ما تم في هذه الجولة",
+      "loading": "جارٍ التحميل…",
+      "empty": "لا توجد خطوات تنفيذ لهذه الجولة",
+      "loadFailed": "تعذّر تحميل التفاصيل",
+      "source": {
+        "job": "مهمة مجدولة",
+        "collaboration": "تعاون",
+        "im": "رسالة",
+        "skill": "تعلّم مهارة",
+        "activity": "نشاط في الخلفية",
+        "lark": "Lark",
+        "callback": "استدعاء"
+      }
+    },
+    "error": {
+      "badgeLabel": "عرض تفاصيل الخطأ",
+      "titleFailed": "فشل التشغيل",
+      "titleRecovered": "اكتمل مع وجود أخطاء",
+      "situationFailed": "واجه هذا التشغيل خطأ ولم يتمكن الوكيل من الرد بشكل طبيعي. التفاصيل:",
+      "situationRecovered": "رد الوكيل، لكن حدثت أخطاء أثناء التشغيل. التفاصيل:"
     }
   },
   "awareness": {
@@ -867,6 +889,12 @@
       "roomsSub": "القنوات",
       "read": "مقروء",
       "readSub": "المعدّل"
+    },
+    "busFailures": {
+      "title": "رسائل لم يتم تسليمها",
+      "retry": "إعادة المحاولة",
+      "unknownError": "خطأ غير معروف",
+      "attempts": "{{count}} محاولات فاشلة"
     }
   },
   "help": {

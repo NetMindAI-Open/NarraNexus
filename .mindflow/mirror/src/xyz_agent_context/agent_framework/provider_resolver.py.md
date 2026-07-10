@@ -1,8 +1,64 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 — resolve_and_set 串 cli_helper(订阅覆盖 helper)
+
+`resolve_and_set` 的 `set_user_config(...)` 增传 `cfgs.cli_helper`,让"订阅覆盖
+Helper LLM"的 CLI-backed helper 在**这条统一解析路径**上也被激活——即 HTTP 请求路径
+(auth 中间件)和后台注入原语(`resolve_and_set_provider_for_user` →
+`inject_owner_helper_credentials`)拿到 OAuth helper 时,`get_helper_sdk` 能 dispatch
+到 `cli`。与 `RuntimeLLMConfigs.cli_helper`(见 [[api_config]])一致。
+
+## 2026-07-09 — agent_id on resolve / resolve_and_set / helper injection
+
+``ProviderResolver.resolve`` + ``resolve_and_set`` gained optional ``agent_id``,
+passed into ``resolve_user_runtime_llm_configs`` on the USER_OK / SYSTEM_DISABLED
+own-config branches (SYSTEM free-tier ignores it). ``resolve_and_set_provider_for_user``
+and ``inject_owner_helper_credentials`` thread it too — the memory-consolidation
+worker's detached helper task for agent A now overlays A's per-agent helper
+override (helper follows its agent), not just the owner default.
+
+## 2026-07-08 — 后台 helper 在 SYSTEM_DISABLED 下兜底到 user config
+
+`resolve()` 在系统免费层禁用(本地/desktop 模式)时返回 None,`resolve_and_set`
+原本一律 strict no-op。请求路径(auth 中间件)靠这个 no-op 保留全局/desktop 配置,
+是对的。但 `inject_owner_helper_credentials`(detached hook 的 helper 注入,#68)
+**先 `clear_user_config()`** 再走后台孪生函数 `resolve_and_set_provider_for_user`
+→ no-op 把 helper 配置留成**空**。于是所有后台 LLM hook(记忆抽取 / 社交实体摘要 /
+叙事更新)对**配了自己 provider(如 NetMind)**的用户,裸打空 key 的官方
+`api.openai.com` → 401。主 agent 回复不受影响,因为 agent-loop 路径
+(`get_user_runtime_llm_configs`)对 None 已有兜底到 user config。
+
+修法:`resolve_and_set` 加 `own_config_when_system_disabled`。请求路径保持默认
+no-op;后台孪生传 True,在 None 时 fall through 到
+`resolve_user_runtime_llm_configs`(用户自己的 provider)——与 agent-loop 路径一致。
+真实 NetMind 环境验证:注入后 helper 带上 NetMind 的 openai key + base_url + model,
+不再是空默认。
+
+**异常契约(review 抓到的坑)**:`resolve_user_runtime_llm_configs` 在无可用配置时抛
+`LLMConfigNotConfigured`(属 `LLMResolverError`/`RuntimeError`),而后台三个调用方
+(narrative updater / `_run_hooks_background` / memory worker)catch 的是**互不相交**的
+`ProviderResolverError` 家族。若不翻译,unhappy path(SYSTEM_DISABLED + 无 own config)
+会绕过 `except ProviderResolverError` 的凭证告警,落进泛 `except` → agent_runtime **继续
+跑 hook 且退回全局平台 key**——正是这套机制要防的 2026-07 事故。所以 fall-through 里把
+`LLMConfigNotConfigured` 翻译成 `NoProviderConfiguredError`(方向与 api_config 里
+`ProviderResolverError → SystemDefaultUnavailable` 互为镜像),保持调用方异常契约不变。
+
+## 2026-07-07 — auto-switch 改竞态安全 CAS + 一次性通知(#48)
+
+`classify()` 的「用尽 + 有 own provider → 关免费层偏好 → USER_OK」分支,原本
+无条件 `set_preference(user_id, False)`(每次都写、并发多写)。改为
+`quota_svc.disable_preference_if_enabled(user_id)` —— 底层
+`UPDATE … SET prefer=0 WHERE prefer=1` 的 compare-and-swap:并发请求里**只有
+一个**拿到 rowcount>0(赢得 1→0 翻转),它才调 `_emit_free_tier_switch_notice`
+写一条 `SYSTEM_NOTICE`(source.type `free_tier_switch`,前端 App.tsx 弹一次性
+banner 再 mark-read)。通知是 best-effort:失败只 warn、绝不拖垮已切到用户
+key 的 run。**为什么这里是唯一的 flip 点**:`classify()` 是全项目单一决策树,
+agent-run 路径(api_config)现已收敛到它(见 api_config.py.md 2026-07-07),所以
+HTTP / 后台 job·bus / lark 全部共享同一次性 auto-switch。
 
 ## 2026-06-17 — resolve() 并入单点 resolver,不再用 protocol-blind builder
 
@@ -119,3 +175,15 @@ request path, that function is authoritative for the agent-owner path
   resolver. auth_middleware must catch it explicitly and emit 402. If
   any other caller invokes `resolve_and_set` directly, it MUST handle
   `QuotaExceededError` or let it propagate.
+
+## 2026-07-07 — inject_owner_helper_credentials（后台任务的凭据注入原语）
+
+新增 `inject_owner_helper_credentials(agent_id, db)`：给**脱离任务**（narrative
+updater、Step-5 hooks、memory worker）在自身 ContextVar 上放 agent OWNER 的有效 LLM
+配置。这些 task 不继承 `AgentRuntime.run`（async generator）设的 per-turn 配置，此前
+一路回退到全局 `_holder` = 平台 `settings.openai_api_key`（2026-07 事故根因）。
+
+先 `clear_user_config()` 再查 owner、`resolve_and_set_provider_for_user`，避免复用该
+协程处理别的租户时继承上一租户凭据。无 owner → 返回 None（保持清空，严格全局兜底）；
+配额/无 provider → 抛 `ProviderResolverError`（调用方隔离并发告警，绝不落平台 key）。
+`memory_consolidation_worker._inject_owner_credentials` 现委托此函数（去重）。

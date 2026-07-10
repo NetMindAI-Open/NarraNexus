@@ -337,7 +337,7 @@ async def get_agents(request: Request):
                           -- (message bus) replies. New runs are tagged at
                           -- creation (step_0_initialize); see the note below on
                           -- why historical rows can't be filtered reliably.
-                          AND (trigger IS NULL OR trigger != 'message_bus')
+                          AND (`trigger` IS NULL OR `trigger` != 'message_bus')
                     ) ranked
                     WHERE rn = 1
                     """,
@@ -1080,6 +1080,19 @@ async def delete_agent(
                 stats["inbox_table_orphans"] = ib_cnt
         except Exception as e:
             logger.warning(f"inbox orphan sweep failed (non-critical): {e}")
+
+        # 14f. Per-agent LLM slot overrides (agent_slots). Keyed by agent_id;
+        # without this, a deleted agent's override rows linger as orphans.
+        try:
+            as_res = await db_client.execute(
+                "DELETE FROM agent_slots WHERE agent_id = %s",
+                (agent_id,), fetch=False,
+            )
+            as_cnt = as_res if isinstance(as_res, int) else 0
+            if as_cnt > 0:
+                stats["agent_slots"] = as_cnt
+        except Exception as e:
+            logger.warning(f"agent_slots cascade cleanup failed (non-critical): {e}")
 
         # 15. The Agent itself
         result = await db_client.execute(

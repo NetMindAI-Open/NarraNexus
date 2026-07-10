@@ -11,6 +11,7 @@ both SQLite (local) and MySQL (cloud).
 
 from __future__ import annotations
 
+import asyncio
 import os
 
 from fastapi import APIRouter, HTTPException, Request
@@ -28,6 +29,7 @@ from xyz_agent_context.schema.provider_schema import (
     SlotName,
     SLOT_REQUIRED_PROTOCOLS,
 )
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
 router = APIRouter()
 
@@ -69,6 +71,10 @@ class OnboardRequest(BaseModel):
     # netmind is only reachable explicitly — its keys have no
     # recognisable prefix.
     provider_type: str | None = None
+    # Key rotation: when the user already has a provider of this (aggregator)
+    # type, the first call returns needs_replace instead of erroring; the UI
+    # confirms and re-sends with replace=true to swap the key.
+    replace: bool = False
 
 
 class UpdateModelsRequest(BaseModel):
@@ -120,8 +126,10 @@ _OAUTH_CARD_TYPES = frozenset({"claude_oauth", "codex_oauth"})
 
 
 def _is_cloud() -> bool:
-    """Cloud deployment runs on a non-sqlite backend (MySQL)."""
-    return not os.environ.get("DATABASE_URL", "").startswith("sqlite")
+    """Cloud deployment. Delegates to the single deployment-mode source of
+    truth (honours NARRANEXUS_DEPLOYMENT_MODE + treats an unset DATABASE_URL as
+    local) rather than re-sniffing the DB URL here."""
+    return is_cloud_mode()
 
 
 def _is_staff(request: Request) -> bool:
@@ -250,7 +258,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
                 set_user_config,
             )
             cfg = await get_user_runtime_llm_configs(uid)
-            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
         except Exception:
             pass
 
@@ -282,10 +290,21 @@ async def onboard(req: OnboardRequest, request: Request):
     try:
         service = await _get_service()
         config, new_ids, meta = await service.onboard_one_key(
-            uid, req.api_key, req.provider_type,
+            uid, req.api_key, req.provider_type, replace=req.replace,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Key already present and not confirmed: ask the UI to confirm a replace
+    # rather than erroring. Nothing was mutated. HTTP 200 (not an error) so the
+    # frontend branches on a structured flag instead of parsing an error string.
+    if meta.get("needs_replace"):
+        return {
+            "success": False,
+            "needs_replace": True,
+            "provider_type": meta.get("provider_type"),
+            "existing_masked": meta.get("existing_masked"),
+        }
 
     # Hot-reload for current process (mirror add_provider / set_slot)
     try:
@@ -294,11 +313,159 @@ async def onboard(req: OnboardRequest, request: Request):
             set_user_config,
         )
         cfg = await get_user_runtime_llm_configs(uid)
-        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
     except Exception:
         pass
 
     # Edge-triggered recovery: the user just became runnable.
+    from xyz_agent_context.module.job_module.job_recovery import (
+        schedule_user_no_quota_rearm,
+    )
+    schedule_user_no_quota_rearm(uid)
+
+    return {
+        "success": True,
+        "provider_ids": new_ids,
+        **meta,
+        "data": _config_to_response(config),
+    }
+
+
+# Per-user in-process lock for use-subscription: serialize dedup + mint +
+# onboard so a double-click / concurrent tabs on the SAME worker can't both pass
+# the dedup check and mint two live (money-spending) keys. In-process only.
+#
+# Pre-flip TODO — before `netmind_use_subscription_enabled` is set True in a
+# multi-worker deploy, replace this with a DB/distributed guard, because:
+#   1. A (user_id, source) unique index does NOT fit — a netmind provider is
+#      intentionally TWO rows (anthropic + openai), so the DB can't dedup it.
+#   2. This lock does NOT serialize against the OTHER netmind-creating routes
+#      (add_provider / onboard with card_type="netmind"): a user firing
+#      use-subscription in one tab and pasting a netmind key in another can
+#      still double-provision (self-inflicted extra billed key on their own
+#      account — cost/UX, not authz). A distributed guard should cover all
+#      netmind-source creators, not just this route.
+#   3. This dict is unbounded (one Lock per user_id, never evicted) — fine while
+#      the flag is off, but swap for a TTL/bounded structure when enabling.
+_use_sub_locks: dict[str, asyncio.Lock] = {}
+
+
+def _use_sub_lock(uid: str) -> asyncio.Lock:
+    lock = _use_sub_locks.get(uid)
+    if lock is None:
+        lock = asyncio.Lock()
+        _use_sub_locks[uid] = lock
+    return lock
+
+
+@router.post("/use-subscription")
+async def use_subscription(request: Request):
+    """Module F: one-click "use my NetMind subscription".
+
+    Generates a NetMind inference key on the user's account and wires it into
+    the agent/helper slots by REUSING ``onboard_one_key`` (dual-provider
+    creation + slot binding). The only new dependency vs /onboard is generating
+    the key. The user's NetMind loginToken arrives via ``X-Netmind-Token``.
+
+    Gated by ``settings.netmind_use_subscription_enabled`` until the C1 contract
+    is confirmed with NetMind (that the generated key's consumption bills
+    against the subscription grant / account balance). Cloud-only.
+    """
+    from xyz_agent_context.settings import settings
+    from xyz_agent_context.utils.db_factory import get_db_client
+
+    uid = _get_user_id(request)
+    if not is_cloud_mode():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
+    if not settings.netmind_use_subscription_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Using a NetMind subscription is not enabled yet "
+                "(pending billing-integration confirmation)."
+            ),
+        )
+
+    token = request.headers.get("X-Netmind-Token", "").strip()
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+    if not token:
+        raise HTTPException(
+            status_code=401, detail="Missing NetMind token (X-Netmind-Token header)"
+        )
+
+    from xyz_agent_context.services.netmind_key_client import (
+        KeyAuthError,
+        KeyUpstreamError,
+        NetmindKeyClient,
+    )
+
+    key_client = NetmindKeyClient(base_url=settings.netmind_key_api_base)
+
+    # Serialize the dedup + mint + onboard critical section per user so a
+    # double-click / concurrent tabs can't both mint a key (in-process guard).
+    async with _use_sub_lock(uid):
+        # Dedup BEFORE minting — avoid an orphan key when already connected.
+        db = await get_db_client()
+        existing = await db.get_one(
+            "user_providers", {"user_id": uid, "source": "netmind"}
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409, detail="A NetMind provider is already connected."
+            )
+
+        # 1) Mint an inference key on the user's NetMind account.
+        try:
+            minted = await key_client.create_key(token)
+        except KeyAuthError:
+            raise HTTPException(
+                status_code=401, detail="NetMind token invalid or expired"
+            )
+        except KeyUpstreamError as e:
+            logger.error(f"[use-subscription] key generation failed: {e}")
+            raise HTTPException(
+                status_code=502, detail="Could not generate a NetMind API key"
+            )
+
+        # 2) Reuse onboarding (dual provider + slot binding). On ANY failure
+        #    after minting, best-effort revoke the key so it doesn't linger as a
+        #    money-spending orphan on the user's NetMind account.
+        try:
+            service = await _get_service()
+            # Minted key belongs to the deployment's NetMind env, so it must be
+            # wired to the MATCHING inference base (dev key -> dev inference).
+            # Manual /onboard paste does NOT pass this — a user's own key is prod.
+            config, new_ids, meta = await service.onboard_one_key(
+                uid, minted.apitoken, provider_type="netmind",
+                inference_base=settings.netmind_inference_base,
+            )
+        except ValueError as e:
+            await key_client.delete_key(token, minted.token_id)
+            msg = str(e)
+            if "already exists" in msg:
+                raise HTTPException(status_code=409, detail=msg)
+            if "rejected" in msg.lower():
+                # A key WE just minted was rejected by NetMind's own endpoint —
+                # an upstream integration failure, not the user's bad input.
+                raise HTTPException(
+                    status_code=502, detail="Generated key was rejected by NetMind"
+                )
+            raise HTTPException(status_code=400, detail=msg)
+        except Exception:
+            await key_client.delete_key(token, minted.token_id)
+            raise
+
+    # Hot-reload + edge-triggered recovery (mirror /onboard).
+    try:
+        from xyz_agent_context.agent_framework.api_config import (
+            get_user_runtime_llm_configs,
+            set_user_config,
+        )
+        cfg = await get_user_runtime_llm_configs(uid)
+        set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
+    except Exception:
+        pass
     from xyz_agent_context.module.job_module.job_recovery import (
         schedule_user_no_quota_rearm,
     )
@@ -441,7 +608,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
                 set_user_config,
             )
             cfg = await get_user_runtime_llm_configs(uid)
-            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+            set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)
         except Exception:
             pass
 

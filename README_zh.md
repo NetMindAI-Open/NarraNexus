@@ -1,20 +1,3 @@
-<!--
-Draft: Structure A+ (Dev-focused, governance-aware) — 中文
-Date: 2026-05-28
-README_A 的变体 —— 采纳同事在 README_advice.md 中关于 contribution
-section 的建议（#3、#4、#6）。clone-URL 建议（#2）按用户要求未采纳。
-AI 助手 callout（#1）试过后撤掉 —— 底部的"贡献与治理"已经把 AI 友好
-的故事讲清楚了，前面再放一遍重复。
-
-相对 README_A.zh.md 的改动：
-  - 语言切换下方加一行小字 "遇到 bug 或需要帮助？" 链接到 Issues / Discussions（#6）
-  - "## 如何贡献" 重写为 "## 贡献与治理" —— 纯导航，链接 AGENTS.md /
-    CLAUDE.md / GOVERNANCE.md / MAINTAINERS.md / CODE_OF_CONDUCT.md /
-    SECURITY.md / .mindflow/_overview.md，结尾给 git-shortlog 提示
-    （#3 + #4）。"我做了 template / Module / 改代码" 的细节移到
-    CONTRIBUTING.md 处理。
--->
-
 <div align="center">
 
 <picture>
@@ -25,10 +8,11 @@ AI 助手 callout（#1）试过后撤掉 —— 底部的"贡献与治理"已经
 <br/>
 <br/>
 
-# 别从零搭一个 Agent。一键和一支专业团队协作。
+# 让长期存在的 Agent 像同事一样记得、修正、协作
 
-[![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-lightgrey.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Docs](https://img.shields.io/badge/Docs-Quick%20Start-blue)](https://www.narra.nexus/docs/getting-started/quick-start)
+[![WeChat](https://img.shields.io/badge/WeChat-Join-07C160)](https://wechat-group-qr.narranexus.workers.dev/)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2)](https://discord.gg/ReCMd6a2wf)
 
 [English](./README.md) | **中文**
@@ -40,56 +24,152 @@ AI 助手 callout（#1）试过后撤掉 —— 底部的"贡献与治理"已经
 
 ---
 
-<br/>
-
 <p align="center">
-  <em>懂记忆、懂协作、会用工具的 agent —— template 起步，也可以自己搭。</em>
+  <em>NarraNexus 是一个赋予 Agent 生命力、帮助用户打造“一人公司”的长期 AI 团队平台。</em>
 </p>
 
 <p align="center">
   <img src="docs/images/hero-intro.gif" alt="90 秒看完 NarraNexus：安装、核心理念、几个 template 速览。" width="760" />
 </p>
 
-<p align="center">
-  <em>90 秒看完：安装、核心理念、几个 template 速览。</em>
-</p>
+---
 
-<p align="center">
-  <a href="#templates">看更多 templates →</a>
-</p>
+## NarraNexus 是什么
 
-<br/>
+NarraNexus 是一个赋予 Agent 生命力、帮助用户打造“一人公司”的长期 AI 团队平台。
+
+它不只是让多个 Agent 一起聊天或执行任务，而是让每个 Agent 都拥有持续存在的身份、会演化的长期记忆、独立工具和稳定的社交关系。多个 Agent 可以通过 MessageBus 协议互相 @mention、创建房间、群聊、分工和交接任务。
+
+你管理的不再是一组用完即走的临时助手，而是一支能够记住过去、理解彼此、积累经验，并持续参与真实工作场景的 AI 团队。它们可以承担产品、研发、运营、研究等不同角色，帮助一个人逐步搭建并运营自己的“一人公司”。
+
+| 维度 | OpenClaw | WorkBuddy / AionUI | NarraNexus |
+|---|---|---|---|
+| 产品定位 | 面向个人的自托管执行型 Agent，强调自动化、渠道接入和本地控制 | WorkBuddy 偏多 Agent Cowork 工作台；AionUI 偏自托管个人 Agent 平台 | 赋予 Agent 生命力，创建、运行和管理长期工作的 AI 团队 |
+| Agent 组织方式 | 多个相互隔离的 Agent 实例，各自拥有 workspace、session、persona 和工具 | 统一管理或并行运行多个 Agent，重点是任务分派和使用体验 | Agent 不是临时实例，而是长期存在的团队成员，拥有固定身份、职责、关系和协作边界 |
+| 记忆与身份 | 通过文件、会话记录和 memory search 维持上下文与 persona | 主要依赖会话历史、RAG、知识库及底层 Agent 自身能力 | Narrative + Awareness 让 Agent 记住经历、维持身份，并让认知随时间持续演化 |
+| 多 Agent 协作 | 以 Agent 隔离、路由和扩展式协作为主 | 以统一调用、并行执行、任务分派和运行监控为主 | 通过 MessageBus、Job 和 Social Network，让 Agent 形成可持续的分工、关系和团队经验 |
+| 核心差异 | 更像多个独立运行的个人 Agent | 更像统一管理多个 Agent 的工作台或网关 | 不只是把多个 Agent 放在一起，而是让它们拥有记忆、身份、关系和成长能力，成为一支有生命力的 AI 团队 |
 
 ---
 
-##  60 秒上手
+## 为什么需要 NarraNexus
 
-NarraNexus 是一个多 Agent 产品 —— 不是给开发者搭 agent 的 framework，是直接给你一支可以协作的 agent 团队。三种部署方式，选你顺手的一种。
+大多数 Agent 产品已经不只是一次性工具。OpenClaw 能长期运行、接入渠道并管理多个独立 Agent；Hermes 能跨会话保存记忆、学习用户并沉淀 Skills；WorkBuddy、AionUI 等产品则让用户统一调用、并行运行和管理多个 Agent。
 
-### ☁️ 云端注册 —— 最快，带免费体验额度
+但它们解决的重点并不相同：OpenClaw 更偏个人 Agent 的运行、隔离和自动化；Hermes 更关注单个 Agent 如何从经验中成长；Agent IM 更关注如何在一个界面里调度和观察多个 Agent。它们能让 Agent 更强、更好用，却不一定把多个 Agent 建模成一支长期存在的团队。
+
+当 Agent 要连续工作几天、几周，甚至成为固定岗位时，核心问题不再是“能不能完成这一轮任务”，而是它能不能像真实同事一样形成连续的自我：
+
+- **知道自己是谁**：为谁工作、负责什么、有什么偏好和边界。
+- **知道事情怎么变了**：旧结论被推翻后，不再继续误导判断。
+- **知道和谁打过交道**：针对不同用户、客户、队友形成不同关系。
+- **知道团队里谁知道什么**：经验能在权限和边界内传递给其他 Agent。
+
+传统记忆往往只能保存更多内容，却难以处理身份连续性、时间变化、关系边界和团队经验。滑动窗口会忘，简单 RAG 会混入过期事实，固定 persona 只是静态设定，共享知识库也容易把协作变成无边界的信息池。
+
+NarraNexus 要解决的，正是 Agent 的生命力问题：通过 Narrative、Awareness、Social Network 和 MessageBus，让 Agent 拥有持续身份、会演化的记忆、稳定关系和长期协作能力。
+
+它不是再做一个更强的个人 Agent，也不是再做一个多 Agent 工作台，而是把 Agent 从“用完即走的工具”推进为“长期存在、能够成长和协作的 AI 团队成员”。
+
+> 失忆的东西是工具。连续且会自我修正的记忆，才是生命的起点。
+
+---
+
+## 核心设计
+
+### 1. Narrative 长期记忆
+
+NarraNexus 不把聊天记录简单堆进一个向量库，而是把对话和事件组织成不同的 storyline。Agent 可以跨会话延续同一条故事线，知道任务做到哪、过去发生过什么、哪些判断已经不再成立。
+
+记忆带有时间观。一个旧结论被新事实推翻后，不会被粗暴删除，也不会继续作为当前事实污染判断，而是被标记为失效并保留其历史来源。Agent 因此能表达“我曾经以为是这样，后来发现不是”。
+
+### 2. Awareness 持久身份
+
+长期 Agent 不能只靠一段开场 prompt 维持人格。NarraNexus 用 Awareness module 承载 Agent 的身份、职责、偏好和行为边界，让它跨会话记得“我是谁、我为谁工作、我该如何做判断”。
+
+这让 Agent 更接近一个岗位，而不是一次 prompt 运行。
+
+### 3. Social Network 关系记忆
+
+真实工作不是只处理任务，还要处理人、组织、客户、项目和它们之间的关系。Social Network module 让 Agent 记住长期互动对象，并逐渐形成差异化的沟通方式。
+
+同一句“帮我跟进一下”，对内部队友、外部客户、投资人、创作者，应该触发不同的语气、边界和行动路径。
+
+<p align="center">
+  <img src="docs/images/product-tour.gif" alt="界面速览：Narra 记忆（记忆时间轴）、Nexus 网络（关系图谱）、世界观（每个 Agent 眼中的你）三个核心界面。" width="820" />
+</p>
+
+### 4. 有边界的团队协作
+
+NarraNexus 支持多 Agent 组成团队，但不是把所有信息倒进一个共享大脑。每条记忆都有作用域：Agent、用户、故事线、团队或全局共享。默认有墙，需要共享时才通过治理过的通道流动。
+
+一个 Agent 验证过的方法可以被团队复用；一个 Agent 的私有策略不会因为“协作”而泄漏给不该知道的人。
+
+### 5. 每个 Agent 独立 Skill 和 MCP 工具集
+
+每个 Agent 都可以拥有自己的工具、Skill 和 MCP 服务。你可以按 Agent 安装能力，热插拔扩展，不需要为了一个新工具修改全局代码，也不会让所有 Agent 被迫共享同一套插件。
+
+<p align="center">
+  <img src="docs/images/agent-modules.gif" alt="每个 Agent 内的三个模块：记忆（storyline 卡片）、社交网络（联系人与紧密度）、技能（可热插拔的 Skill）。" width="900" />
+</p>
+
+---
+
+## 适合什么场景
+
+### 市场与竞品持续跟踪
+
+一个人运营公司，很难每天同时跟进竞品更新、行业新闻、用户反馈和市场机会。普通 Agent 每次都像重新开始，容易重复汇报旧信息，甚至继续沿用已经失效的判断。
+
+NarraNexus 可以让研究 Agent 沿着长期 storyline 持续监控，只保留当前有效的认知，并把重要变化同步给产品、运营和内容 Agent。
+
+### 多岗位协同执行
+
+一人公司最大的痛点不是没有想法，而是一个人要同时负责产品、研发、运营、销售和内容。
+
+在 NarraNexus 中，不同 Agent 可以承担项目经理、研究员、开发者、内容编辑和增长运营等岗位，通过 MessageBus 沟通、分工和交接任务。你只需要确定目标和关键决策，不必反复向每个 Agent 补充相同背景。
+
+### 客户与合作关系管理
+
+客户需求、KOL 商单、渠道合作和社群沟通往往分散在不同对话中。时间一长，很容易忘记对方的背景、历史承诺、沟通偏好和当前进度。
+
+NarraNexus 不只保存聊天记录，还会沉淀客户、合作方和项目之间的关系，让 Agent 在后续跟进时知道对方是谁、之前发生过什么，以及应该采用什么沟通方式。
+
+### 项目长期推进
+
+一人公司通常会同时推进产品开发、内容发布、客户交付和商业合作。普通 Agent 可以完成单个任务，却很难持续理解项目为什么这样做、哪些方案已经否决、下一步由谁负责。
+
+NarraNexus 会将任务、记忆、关系和协作记录连接起来，让 Agent 跨天续跑项目，延续已有决策和进度，而不是每次重新梳理上下文。
+
+### 经验沉淀与业务复制
+
+一个人最容易遇到的问题，是所有经验都留在自己脑中：什么内容有效、客户为什么流失、哪种开发方案踩过坑，都难以稳定复用。
+
+NarraNexus 让不同 Agent 保留自己的岗位经验，并在权限边界内传递给团队。随着业务持续运行，这支 AI 团队会逐步理解你的工作方式，减少重复试错，帮助你把个人经验转化为可复用的公司能力。
+
+---
+
+## 60 秒上手
+
+NarraNexus 提供三种使用方式，选你顺手的一种。
+
+### 云端注册
+
+最快开始，带免费体验额度。
 
 1. 打开 [agent.narra.nexus](https://agent.narra.nexus/login)
 2. 注册账号
-3. 选一个 template，开始
+3. 选一个 template，开始使用
 
-<!-- TODO: 云端注册 demo video, ~30s -->
+### macOS 桌面应用
 
-> [!NOTE]
-> **想在本地跑（桌面端或源码）？** 两件事要知道：
-> - **需要你自己的 LLM API key。** 桌面端和本地 build 都用你自己的 key —— 可以用 Claude Code 登录，或申请一个 NetMind.AI Power key（一个 key，一分钟搞定）。在 **Settings** 里配置 —— 见 [Configure LLM Providers](https://www.narra.nexus/docs/getting-started/quick-start)。
-> - **本地端口要空着。** 两种方式都会起若干本地 service，确认对应端口没被占用。
-
-### 💻 macOS 桌面应用
-
-桌面端自带 runtime —— 不用装 Python / Node / Docker。
+桌面端自带 runtime，不用额外安装 Python、Node 或 Docker。
 
 1. [下载 app](https://github.com/NetMindAI-Open/NarraNexus/releases/latest/download/NarraNexus.dmg)
 2. 拖入 Applications 文件夹
-3. 启动 → 选一个 template，开始
+3. 启动后选择一个 template
 
-<!-- TODO: dmg 安装 demo video, ~30s -->
-
-### 🛠️ 从源码（开发者）
+### 从源码运行
 
 ```bash
 git clone https://github.com/NetMindAI-Open/NarraNexus.git
@@ -97,137 +177,70 @@ cd NarraNexus
 bash run.sh
 ```
 
-`run.sh` 自动检测前置依赖（`uv` / `node` / `tmux`）并启动所有本地 service。完整的 service / 端口列表和详细安装见 [开发文档](https://www.narra.nexus/docs/getting-started/quick-start)。
+`run.sh` 会检测前置依赖并启动本地服务。完整安装步骤见 [Quick Start](https://www.narra.nexus/docs/getting-started/quick-start)。
 
-<p align="center">
-  <video src="docs/videos/install-local.mp4" controls width="720">
-    你的浏览器不支持 video tag。<a href="docs/videos/install-local.mp4">下载 demo (MP4)</a>。
-  </video>
-</p>
-
-> 三种入口，殊途同归。
-
----
-
-##  三大能力
-
-按"agent 实际能做什么"组织。
-
-### 类人的 Agent 员工
-
-- **身份** —— 每个 agent 有持久的身份和偏好（**Awareness module**），跨会话记得"它是谁、在为谁工作"。
-- **记忆** —— 对话被自动归到不同 storyline；**Narrative memory** 用 embedding 检索话题，不是按时间无脑排。
-- **人脉** —— **Social Network module** 让 agent 记住打交道的人和实体，并对每个对象形成定制化的互动风格。
-- **工具** —— 每个 agent 都能调用 MCP 工具，装一个新 skill 一句话就能搞定，不用改代码。
-
-### Agent 间真协作
-
-- **MessageBus 协议** —— agent 之间直接对话：@mention、建房间、群聊，不只是跟你聊。
-- **防失控** —— 内置 rate limit 和 poison message 检测，防止 agent loop 跑飞。
-- **按能力发现** —— 一个 agent 要找懂 SQL 的 helper，搜一下就有。
-
-### Batteries included
-
-- **10 个内置模块** —— Memory · Awareness · Chat · SocialNetwork · Jobs · Skills · MessageBus · Lark · CommonTools · BasicInfo。每个模块自带 DB schema、MCP tools 和生命周期 hook。
-- **多 LLM** —— Anthropic / OpenAI / Gemini 通过统一适配层接入。
-- **4 种 Trigger 模式** —— Chat / Job / MessageBus / Matrix·Lark，共用同一个 6 步流水线。
+> 本地运行和桌面端需要配置自己的 LLM API key。云端版本提供免费体验额度。
 
 ---
 
 <a name="templates"></a>
 
-##  Reference Templates
+## Reference Templates
 
-参考实现 —— 直接套用，或 fork 一份自己改。
+### 金融市场晨报
 
-### 金融市场晨报 (Financial Morning Briefing)
+适合每天要看市场的投资者和研究员。6 个 Agent 每天生成分析师级别的 HTML 简报，回答“今天市场在交易什么，我该进攻、防守还是观望”。
 
-适合每天 7 点要看市场的投资者、研究员。**6 个 agent** 每天 08:00 (Asia/Shanghai) 把一份分析师级别的 HTML 简报送到你邮箱。不是又一份新闻摘要 —— 回答的是 *"今天市场在交易什么？我该进攻、防守还是观望？"*
-
-**[narra.nexus/templates/financial-morning-briefing →](https://www.narra.nexus/templates/financial-morning-briefing)**
-
-<!-- TODO: Financial Morning Briefing template demo video, ~30s -->
+[narra.nexus/templates/financial-morning-briefing](https://www.narra.nexus/templates/financial-morning-briefing)
 
 ### KOL Assistant
 
-适合接 sponsorship 的内容创作者。**4 个 agent** 解析进来的 sponsor 邮件、维护 CRM、跨平台监测品牌提及 —— 让你把时间花在下一条视频上，而不是收件箱。
+适合接 sponsorship 的内容创作者。4 个 Agent 解析 sponsor 邮件、维护 CRM、跨平台监测品牌提及，让创作者少花时间处理收件箱。
 
-**[narra.nexus/templates/kol-assistant →](https://www.narra.nexus/templates/kol-assistant)**
-
-<!-- TODO: KOL Assistant template demo video, ~30s -->
+[narra.nexus/templates/kol-assistant](https://www.narra.nexus/templates/kol-assistant)
 
 ### PM Bridge Bot
 
-适合同时要管内部协作和外部客户沟通的团队。一个 bot 维护两套可搜索的知识库 —— 内部专用 + 对客共享 —— 把每段聊天、每份文档、每条会议记录自动归档到正确的范围。说话语气按对象调整，语种自动识别。
+适合同时管理内部协作和外部客户沟通的团队。一个 Bot 维护内部专用和对客共享两套知识库，把聊天、文档、会议记录归档到正确范围。
 
-**[narra.nexus/templates/pm-bridge-bot →](https://www.narra.nexus/templates/pm-bridge-bot)**
+[narra.nexus/templates/pm-bridge-bot](https://www.narra.nexus/templates/pm-bridge-bot)
 
-<!-- TODO: PM Bridge Bot template demo video, ~30s -->
-
-### 更多社区贡献的 template → [浏览全部](https://www.narra.nexus/templates)
-
-> *全部由 NarraNexus agent 自主完成。*
+更多 template 见 [narra.nexus/templates](https://www.narra.nexus/templates)。
 
 ---
 
-##  诚实边界
+## 诚实边界
 
-- **LLM API key**：线上版有免费额度可以试用。日常或本地用，需要你自己的 LLM API key —— 一两分钟在 NetMind / OpenAI / Anthropic 注册一个就够。
-- **Agent 不是一上来就 100 分**：它需要你纠错、给反馈，越用越合手。把它当一个新员工，不是当神。
-- **协作不是一次完美**：复杂任务往往要 agent 跑两三轮才上手；总有一些判断只能你来做 —— 团队跑通大部分，关键的判断留给你自己。
-- **架构权衡**：每个 agent 启动自己的 MCP 进程，启动时大约多 100ms。chat-style workflow 不在意；高频 job 可以切到 Direct Trigger mode。
-
----
-
-##  社群
-
-<a name="社群"></a>
-
-- **Discord** —— [discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
-- **Twitter / X** —— [@NetMindAI](https://x.com/NetMindAI)
-- **邮件订阅** —— `即将上线`
-- **反馈** —— [GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
+- **Agent 不是一上来就 100 分**：它需要你的纠错和反馈，越用越合手。更像新同事入职，不是神谕机。
+- **记忆不是越多越好**：NarraNexus 的重点不是无限保存，而是让记忆有身份、时间、作用域和可修正机制。
+- **协作需要设计边界**：多 Agent 团队不是把所有信息混在一起。好的协作来自清楚的职责和受治理的共享。
+- **本地运行需要 API key**：桌面端和源码运行使用你自己的 LLM API key。云端版本有免费体验额度。
 
 ---
 
-##  贡献与治理
+## 社群
+
+- 微信 WeChat：[扫码加入群聊](https://wechat-group-qr.narranexus.workers.dev/)
+- Discord：[discord.gg/ReCMd6a2wf](https://discord.gg/ReCMd6a2wf)
+- Twitter / X：[@NetMindAI](https://x.com/NetMindAI)
+- 反馈：[GitHub Issues](https://github.com/NetMindAI-Open/NarraNexus/issues)
+- 讨论：[GitHub Discussions](https://github.com/NetMindAI-Open/NarraNexus/discussions)
+
+---
+
+## 贡献与治理
 
 NarraNexus 同时为人类贡献者和 AI Agent 贡献者设计。
 
-**从这里开始：**
-
-- 新贡献者 → [`CONTRIBUTING.md`](./CONTRIBUTING.md)
-- AI 编码助手 → [`AGENTS.md`](./AGENTS.md)（厂商中立）或直接读 [`CLAUDE.md`](./CLAUDE.md)
-- 给 AI 看的项目地图 → [`.mindflow/_overview.md`](./.mindflow/_overview.md)
-
-**项目治理：**
-
-- 治理与维护者团队 → [`GOVERNANCE.md`](./GOVERNANCE.md)、[`MAINTAINERS.md`](./MAINTAINERS.md)
-- 社区准则 → [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
-- 安全策略 → [`SECURITY.md`](./SECURITY.md)
-
-当前维护者团队见 [`MAINTAINERS.md`](./MAINTAINERS.md)。运行 `git shortlog -sn` 可看完整贡献者列表。
+- 新贡献者请看 [`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- AI 编码助手请先看 [`AGENTS.md`](./AGENTS.md) 或 [`CLAUDE.md`](./CLAUDE.md)
+- 项目地图见 [`.mindflow/_overview.md`](./.mindflow/_overview.md)
+- 治理与维护者团队见 [`GOVERNANCE.md`](./GOVERNANCE.md) 和 [`MAINTAINERS.md`](./MAINTAINERS.md)
+- 社区准则见 [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
+- 安全策略见 [`SECURITY.md`](./SECURITY.md)
 
 ---
 
 ## 许可证
 
-[CC BY-NC 4.0](./LICENSE)
-
-<!--
-Alternative hooks (kept for record):
-
-Current (A3):
-  - "别只部署一个 agent。直接组一支团队。"  ← CURRENT (A3-zh)
-  - "Don't deploy an agent. Launch a team."   ← A3-en counterpart
-
-Other candidates considered:
-  - A1: "一支 agent 团队，一键启动。"
-  - A2: "一键启动你的 agent 团队。"
-  - A4: "一键。一支 agent 团队。上线。"
-  - A5: "不止 personal assistant —— 一键启动一支 agent 团队。"
-  - A6: "一个多 Agent 产品，一键启动。"
-
-合并版金句（备用，给老板挑）：
-  "大多数 agent 工具是为开发者做的。NarraNexus 是为其他所有人做的。"
--->
+[Apache 2.0](./LICENSE)

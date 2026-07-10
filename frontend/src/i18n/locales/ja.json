@@ -109,6 +109,28 @@
       "statusRunning": "実行中",
       "statusFailed": "失敗",
       "statusPending": "保留中"
+    },
+    "inner": {
+      "viewLoop": "このターンの内容を見る",
+      "loading": "読み込み中…",
+      "empty": "このターンに展開できる実行記録はありません",
+      "loadFailed": "詳細を読み込めませんでした",
+      "source": {
+        "job": "定期ジョブ",
+        "collaboration": "連携",
+        "im": "メッセージ",
+        "skill": "スキル学習",
+        "activity": "バックグラウンド活動",
+        "lark": "Lark",
+        "callback": "コールバック"
+      }
+    },
+    "error": {
+      "badgeLabel": "エラー詳細を表示",
+      "titleFailed": "実行に失敗しました",
+      "titleRecovered": "エラーありで完了",
+      "situationFailed": "この実行でエラーが発生し、エージェントは正常に応答できませんでした。詳細：",
+      "situationRecovered": "エージェントは応答しましたが、実行中にエラーが発生しました。詳細："
     }
   },
   "awareness": {
@@ -858,6 +880,12 @@
       "roomsSub": "チャンネル",
       "read": "既読",
       "readSub": "率"
+    },
+    "busFailures": {
+      "title": "配信に失敗したメッセージ",
+      "retry": "再試行",
+      "unknownError": "不明なエラー",
+      "attempts": "{{count}} 回失敗"
     }
   },
   "help": {

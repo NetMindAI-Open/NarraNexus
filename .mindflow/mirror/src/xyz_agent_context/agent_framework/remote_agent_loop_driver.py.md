@@ -1,8 +1,65 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/remote_agent_loop_driver.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 (P0 fix) — read stream via `iter_any()`, not line iterator
+
+The original code used `async for raw_line in resp.content`, which
+calls aiohttp's `StreamReader.readuntil` under the hood. That helper
+raises `LineTooLong` once its buffer crosses `_high_water = limit * 2
+= 131072` bytes without seeing a newline. A single NDJSON event line
+from the executor carrying a base64 image runs 150-400 KiB (Read
+tool's `tool_call_output_item` embeds the image bytes *twice* — once
+in `message.content` and once in `toolUseResult` metadata — so even
+CLI-downsampled images blow past the 128 KiB ceiling). Result of the
+old code path: every multimodal turn on the cloud died silently at
+transport, the `async with` unwound the connection, executor observed
+disconnect and killed the agent from outside, and the step-3 fallback
+covered it up by feeding the pre-crash reasoning to a helper LLM
+which invented a plausible-looking reply. The user saw the reply and
+believed the agent had read the image; the agent had not (see
+"多模态大文件读取事故" root-cause writeup 2026-07-08).
+
+Fix:
+
+1. Read with `resp.content.iter_any()` — that iterator yields whatever
+   bytes the transport has, with no per-line ceiling of its own.
+2. Manually accumulate an in-memory `bytearray`, split on `\n`, and
+   yield each complete NDJSON event.
+3. Hold an emergency ceiling `_MAX_STREAM_BYTES = 50 MiB` (aligned
+   with the SDK's `max_buffer_size` in `xyz_claude_agent_sdk`) so a
+   truly malformed stream still fails fast rather than eating memory.
+   Experiment 3 in the writeup showed real image event lines top out
+   around 365 KiB even for 3.4 MB source images, so 50 MiB is a
+   generous belt-and-suspenders bound, not a tight fit.
+4. Tolerate a trailing event without `\n` — the executor should end
+   NDJSON cleanly but we don't want to lose the last event to a
+   missing newline.
+
+The `_FakeContent` shim in `tests/agent_runtime/test_executor_seam.py`
+was updated to expose `iter_any()` (the driver no longer touches
+`content` as an async iterator directly). Five new regressions
+locked in on the same commit:
+
+- `test_remote_driver_handles_event_line_over_128kib` — 200 KiB
+  single event line arrives intact.
+- `test_remote_driver_reassembles_line_split_across_chunks` — one
+  event fragmented across four `iter_any()` yields.
+- `test_remote_driver_multiple_events_in_one_chunk` — two full NDJSON
+  events in one chunk both yield.
+- `test_remote_driver_raises_when_line_exceeds_max_bytes` — a chunk
+  without any newline past the ceiling raises fast.
+- `test_remote_driver_yields_trailing_line_without_newline` — the
+  no-trailing-newline case yields the last event.
+
+Follow-ups filed separately (see writeup §六): SDK upgrade 0.1.43 →
+≥0.2.113 for two independent large-output bugs; IM channel
+`ErrorMessage` persistence for the zero-feedback case
+(`working_source != "chat"` skips the helper-LLM fallback entirely);
+post-fix multimodal e2e; and a design discussion about whether huge
+payloads belong on the event stream at all.
 
 ## Why it exists
 

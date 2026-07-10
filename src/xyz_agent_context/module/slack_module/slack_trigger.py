@@ -63,7 +63,10 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
     ChannelHistoryConfig,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.channel_trigger_base import (
+    CHANNEL_SILENT_SENTINEL,
+    ChannelTriggerBase,
+)
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -725,15 +728,24 @@ class SlackTrigger(ChannelTriggerBase):
             output_text = "\n".join(slack_replies)
         else:
             # Agent produced reasoning but never called slack_cli to send.
-            # Mark explicitly in the inbox — same convention as Lark's
-            # "(stayed silent)" sentinel.
-            output_text = "(stayed silent)"
+            # Mark explicitly in the inbox — same convention across channels.
+            output_text = CHANNEL_SILENT_SENTINEL
 
         logger.info(
             f"SlackTrigger [{credential.team_name or credential.agent_id}] "
             f"agent responded: {output_text[:200]}"
         )
         return output_text
+
+    async def send_channel_reply(
+        self, credential: SlackCredential, message: ParsedMessage, text: str
+    ) -> None:
+        """Error-fallback send: post into the originating Slack channel
+        (threaded when the inbound message was in a thread)."""
+        thread_ts = (message.raw or {}).get("thread_ts") or None
+        await SlackSDKClient(credential.bot_token).send_message(
+            message.chat_id, text, thread_ts=thread_ts
+        )
 
     @staticmethod
     def _extract_slack_reply(item: dict) -> str:

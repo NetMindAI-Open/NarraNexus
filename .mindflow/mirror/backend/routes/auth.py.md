@@ -1,8 +1,25 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-06-23
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — agent-delete cascades agent_slots
+
+The delete-agent cascade (step 14f, before deleting the agent row) now
+``DELETE FROM agent_slots WHERE agent_id = %s`` so a removed agent leaves no
+orphan per-agent LLM overrides.
+
+## 2026-07-07 — `trigger` is a MySQL reserved word: must be backticked
+
+The `last_assistant_preview` window query filters on the `trigger` column.
+`trigger` is a **MySQL reserved word**; written bare it raises `(1064, ...
+near 'trigger IS NULL ...')` on prod (MySQL) — 2585 WARNINGs in 2 days,
+sidebar previews silently empty. SQLite tolerates a bare `trigger`, so local
+dev never caught it. Fix: `` `trigger` `` (backticks work on both dialects).
+Any raw SQL touching this column must quote it — see the same fix in
+[[_dashboard_helpers]]. Regression: `tests/backend/test_trigger_reserved_word_sql.py`
+emulates MySQL's rejection in-process (SQLite can't reproduce it).
 
 ## 2026-06-23 — sidebar preview excludes group-chat replies (forward only)
 

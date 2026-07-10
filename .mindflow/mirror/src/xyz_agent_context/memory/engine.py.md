@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/memory/engine.py
-last_verified: 2026-06-17
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — explicit db to the dedup tie-break LLM call (Phase 0 / module H)
+
+`_llm_tiebreak` and `consolidate()` now pass `db=self._db` to the helper SDK so
+token usage is recorded even with no ambient cost context — double insurance on
+top of the caller's `set_cost_context` (the consolidation worker). Turn-time
+dedup was already covered by the runtime's cost context; this makes the memory
+paths self-sufficient. See [[cost_tracker]] and the audit checklist.
+
+
 
 ## 2026-06-17 — helper SDK 不再硬绑 OpenAIAgentsSDK
 

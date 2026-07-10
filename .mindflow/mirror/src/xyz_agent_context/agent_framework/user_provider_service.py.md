@@ -1,8 +1,74 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/user_provider_service.py
-last_verified: 2026-06-10
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — 移除 codex agent slot 的 source 白名单(恢复 pre-#81,铁律 #15)
+
+`validate_slot_binding` 的 **codex source 白名单已删除**。以前 codex_cli 的 agent
+slot 被 `source ∈ {codex_oauth, user}` 二次收紧,把 NetMind / Yunwu / OpenRouter
+的 openai-protocol row 挡在外面(理由:聚合商只有 chat-completions、不实现
+Responses API)。这条限制是 **#81 才加的**;#81 之前(见 git 723d250a→21b31cb9)
+codex 能选任意 openai-protocol provider。
+
+删除理由 = **铁律 #15**:这条本质是「平台替用户判断某 provider 不配当 agent
+slot」,#15 明确禁止。codex 仍走 `wire_api="responses"`(硬编码,见
+[[xyz_codex_official_sdk]]),端点是否真的服务 `/v1/responses` 是 provider 的特性,
+运行时才见分晓——跟任何用户自选端点一样,是用户接受的成本,不在配置期拦。
+
+**现在 codex agent slot 只剩 protocol 一道闸**(anthropic provider 仍会被拒)。
+连带修掉一个前端 bug:`agentFramework.ts::getModelsForSlot` 以前对**所有** codex
+agent slot 强制返回 `CODEX_CURATED_MODELS`,导致选了 netmind 也只看得到 OpenAI
+那三个模型。现在 curated 列表**只对 `source=='codex_oauth'`** 生效(与后端
+`get_user_config` 的 codex_oauth-only 覆盖对齐),其他 openai provider 暴露自己的
+模型列表。三处前端过滤(`AgentLlmConfigPanel` / `ModelDefaultsSettings` /
+`CODEX_ALLOWED_PROVIDER_SOURCES` 常量)一并清掉。测试:
+`test_agent_slot_service.py::test_codex_framework_accepts_aggregator_source` +
+`test_codex_framework_rejects_protocol_mismatch`;
+`test_agents_llm_config_routes.py::test_put_codex_accepts_aggregator_openai_provider`。
+
+## 2026-07-09 — validate_slot_binding 放开 helper 的 OAuth(订阅覆盖 helper)
+
+合并 #81 后,`validate_slot_binding` 的 **Rule 3(helper_llm 拒 OAuth)已移除**:helper
+现在**接受** claude_oauth / codex_oauth——resolver 把 OAuth helper 路由成
+`CliHelperConfig`,`CliHelperSDK` 用同一个 CLI 一次性跑结构化调用(见
+`build_cli_helper_config`)。因 #81 把三条规则抽成共享的 `validate_slot_binding`,
+删这条同时让 **per-agent override(`AgentSlotService`)** 也一致放开 OAuth helper。
+
+## 2026-07-09 — extracted validate_slot_binding + agent_slots cleanup
+
+The three provider↔slot binding rules (protocol / codex-source / helper-OAuth)
+were extracted from ``set_slot`` into a module-level ``validate_slot_binding``,
+now the single source of truth shared with [[agent_slot_service]] so a per-agent
+override enforces identical rules. ``remove_provider`` also deletes matching
+``agent_slots`` rows (by ``provider_id``, globally unique) — else a deleted
+provider leaves dangling per-agent overrides that fail at resolve.
+
+## 2026-07-08 — codex OAuth auto-bind: helper 用便宜 mini,不复用旗舰
+
+`add_provider` 的 OAuth auto-bind:claude 分支拆成 `opus`(agent)/`haiku`
+(helper);codex 分支原本把 **agent 和 helper 都设成 `curated[0]`**
+(`CODEX_CURATED_MODELS[0]` = 旗舰 `gpt-5.5`),导致 helper slot 也被绑成 gpt-5.5。
+按设计意图(`_ONBOARD_HELPER_MODELS["openai"] = "gpt-5.4-mini"`,helper 干小结构化
+活、便宜快为先),codex helper 应固定为 `gpt-5.4-mini`(在 `CODEX_CURATED_MODELS`
+里、ChatGPT 账号验证可用)。修法:agent 仍 `curated[0]`(旗舰),helper 固定
+`gpt-5.4-mini`,与 claude 的 opus/haiku 拆分对齐。auto-bind 只填空 slot,故不影响
+已绑账户(需手动改或删了重加)。测试见 `test_oauth_dual_slot.py`
+(`test_codex_oauth_add_binds_both_slots` 断言 agent=gpt-5.5 / helper=gpt-5.4-mini)。
+## 2026-07-07 — netmind inference base env-configurable (minted-key path only)
+
+_build_dual_providers / _verify_onboard_key / add_provider / onboard_one_key gained
+an optional inference_base. When set AND card_type=="netmind", the two provider
+rows' base_url is derived from it (_netmind_base_for: {base}/anthropic,
+{base}/openai/v1) and the pre-write probe uses the same base. Default (None) =
+the hardcoded prod _DUAL_PROVIDER_CONFIGS. ONLY use-subscription passes it (from
+settings.netmind_inference_base); manual /onboard paste passes nothing → prod.
+Rationale: a minted key belongs to the deployment's NetMind env (dev key → dev
+inference), but a user-pasted key is their own public prod key. See [[settings]]
+and reference/self_notebook/todo/2026-07-03-netmind-inference-base-hardcoded.md.
+
+
 ## 2026-06-10 (5th pass) — onboard live-verifies the key before writing
 
 onboard_one_key now probes the key via provider_registry.test_provider
@@ -102,11 +168,9 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
 
 **codex_oauth 的 `models` 列读时强制覆盖**：常量 `CODEX_CURATED_MODELS` 才是 source of truth；DB 里那列只是缓存。`get_user_config` 看到 `source=='codex_oauth'` 直接用常量替换 `models` 字段，**所以 code 改 seed 时下次 reload Settings 即时生效**——不需要 DB migration、不需要用户跑 SQL、不需要重建 provider。Codex 模型 user 不能自定义（user 自定义没意义，codex CLI 不认非 picker 的名字），这种"server 决定"的字段就该这么做。其他 source（claude_oauth、netmind、custom_openai 等）正常走 DB 存储 + user 自定义路径，不受这一规则影响。
 
-**`CODEX_CURATED_MODELS` 同时也是前端 dropdown 的 source of truth**：当 agent slot + `agent_framework=codex_cli` 时，**无论 provider source 是 codex_oauth 还是 custom_openai**，前端 dropdown 都只能显示这三个模型。这一条由前端 `ProviderSettings.tsx::getModelsForSlot` 执行——它对 Custom OpenAI provider 的 `models` 字段（用户填了 gpt-4.1 / o3 之类）在 codex_cli 框架下直接忽略，返回硬编码的 curated 列表。Backend 这边只保证 codex_oauth 一定覆盖；如果只改 backend，Custom OpenAI 路径下用户能选到 codex CLI 不接受的 o3 / gpt-4.1，跑起来会被 codex 子进程拒绝。两层都要对齐。
+**`CODEX_CURATED_MODELS` 只对 `codex_oauth` 生效（2026-07-10 收窄）**：早期前端 `getModelsForSlot` 对**所有** codex agent slot 一刀切返回这三个模型，理由是"codex CLI 不认非 picker 名字"。但这只对 **OpenAI 自己的 codex 后端(codex_oauth)** 成立——它按账号 tier 网关。第三方 openai-protocol provider(netmind/yunwu/openrouter/custom base_url)有自己的模型目录,codex 把 model 字符串透传给那个端点、由端点决定。所以现在 curated 列表**只在 `source=='codex_oauth'` 时**覆盖(前端 `agentFramework.ts::getModelsForSlot` + 后端 `get_user_config` 两边都是 codex_oauth-only,保持对齐)。
 
-**`codex_cli` 框架的 provider source 白名单 = {codex_oauth, user}**：set_slot 服务端校验 + 前端 `CODEX_ALLOWED_PROVIDER_SOURCES` 共同 enforce。**注意是 source 不是 protocol**——`"openai"` 是 protocol 值，所有 NetMind/Yunwu/OpenRouter 的 openai-protocol row 也会通过 protocol check，但它们 source 是 `netmind` / `yunwu` / `openrouter`，会被 source 白名单挡掉。`source = "user"` 是 "+ Custom OpenAI" / "+ Custom Anthropic" 表单加的所有 provider 的统一 source 标记（protocol 区分 anthropic vs openai）。第三方 OpenAI-protocol 聚合器**只暴露 chat-completions API，不实现 Responses API**——codex CLI exec 模式硬性要求 Responses API（reasoning model 全部只能这条路），跑起来会 missing model / tool-call 形状不对 / MCP 集成 broken。CC 框架就没这个问题：Claude SDK 接受 chat-completions endpoint，所以 CC + NetMind/DeepSeek 是 valid 组合，Codex + NetMind 不是。两个 framework 看似对称实则约束不同。
-
-> **踩过的坑**：第一次写这个白名单时把 `"openai"` 当 source 用了，结果用户的 Custom OpenAI provider 因为真实 source 是 `"user"` 被错误过滤掉，dropdown 全空。**Provider 的 source 字段在创建分支里看清楚再写白名单**（见 [user_provider_service.py:265](src/xyz_agent_context/agent_framework/user_provider_service.py#L265)）。
+**`codex_cli` 框架只有 protocol 一道闸（无 source 白名单，2026-07-10）**：见文件顶部当日条目。agent slot 只要求 openai protocol;NetMind/Yunwu/OpenRouter 的 openai-protocol row 现在能选。第三方聚合器可能只有 chat-completions、不实现 Responses API,而 codex 硬编码 `wire_api="responses"`——所以运行时可能失败,但这按铁律 #15 是用户/provider 的事,不在配置期拦。OpenRouter 已上线 Responses beta(`/v1/responses`),属于能用;netmind/yunwu 无 Responses 证据,属于选得了、跑起来大概率 404——用户自担。
 
 **踩过的坑（写在这里防再犯）**：早期我们假设过 `gpt-5.4-codex` 存在（线性外推 "有 5.4-mini 就有 5.4-codex"）。**不存在**——OpenAI 5.4 系列只有 base/mini/nano，codex 路线 5.3 → 5.5 跳过了 5.4。之前 `codex exec --model gpt-5.4-codex` 返回 `"not supported when using Codex with a ChatGPT account"` 不代表模型存在，那是 OAuth gateway 对任意 codex 请求的统一拒绝字符串。
 
@@ -127,3 +191,20 @@ route 层 `backend/routes/providers.py` 现在 import 本文件的 `_SUPPORTED_A
 
 - `user_providers.models` 和 `user_slots` 的 `updated_at` 用 ISO 8601 字符串存储（`datetime.now(timezone.utc).isoformat()`），而不是 datetime 对象。读回来需要 `datetime.fromisoformat()`。
 - `get_user_config()` 不抛出异常，如果用户没有配置任何 provider，返回空的 `LLMConfig`，后续 `get_user_llm_configs()` 里才会因 slot 缺失抛出 `LLMConfigNotConfigured`。
+
+## 2026-07-07 — quick-add 支持换 key（replace 流程）
+
+`add_provider` 加 `replace` 参数：为 True 时跳过 netmind/yunwu/openrouter 的
+按-source 唯一性守卫（换 key 时先插新对再删旧对，provider_id 随机不冲突）。
+
+`onboard_one_key` 加 `replace` 参数，仅对聚合类型（netmind/yunwu/openrouter）：
+- 已有同源 provider 且 `replace=False` → **不报错**，返回 meta
+  `{needs_replace: True, existing_masked, provider_type}`，不改动任何数据，让 UI 弹确认。
+- `replace=True`（或本无）→ **expand-contract**：验 key → 加新对（replace=True）→
+  两个槽位改指新对 → 删旧对及其槽位。中途失败也不会让用户落到"无 provider"，比
+  用户手动"先删后加"更安全。官方 anthropic/openai（source="user"，本就不守卫）不走此逻辑。
+背景：过期 key 场景（配合 background-llm 修复）用户要换 key，旧逻辑直接报"已存在"。
+
+## 2026-07-07 (bug#3) — OAuth 登录自动覆盖 helper 槽
+
+`add_provider(claude_oauth/codex_oauth)`：只填**空**的 agent/helper 槽（不覆盖已有配置），一次登录即 可用。`set_slot` 移除了"helper 拒绝 OAuth"的守卫（现在 OAuth 经 CliHelperSDK 服务 helper）。

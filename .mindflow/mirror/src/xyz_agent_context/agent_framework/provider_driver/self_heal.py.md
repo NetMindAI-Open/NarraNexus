@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/self_heal.py
-last_verified: 2026-05-13
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — table-aware writeback (agent_slots vs user_slots)
+
+``self_heal_if_broken`` now heals into the RIGHT table: a per-agent override row
+carries ``agent_id`` → repair ``agent_slots`` keyed by ``(agent_id, slot_name)``;
+a plain user slot carries ``user_id`` → repair ``user_slots`` as before. Landed
+WITH the resolver overlay ([[resolver]]) — without it, healing an overlaid
+override would silently rewrite the user-level default it was shadowing. The
+notification still goes to the owner (``card.user_id``).
 
 # self_heal.py — reverse-validation + auto-repair
 

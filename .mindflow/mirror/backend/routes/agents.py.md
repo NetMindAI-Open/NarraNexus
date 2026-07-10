@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/agents.py
-last_verified: 2026-07-02
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — mounted agents_llm_config sub-router
+
+Aggregator now ``include_router``s [[agents_llm_config]] (per-agent LLM config
+overrides), alongside awareness / social / files / etc. under ``/api/agents``.
 
 ## 2026-07-02 — `agents_bus_failures` sub-router added
 

@@ -1,5 +1,27 @@
 # cost_tracker.py
 
+## 2026-07-06 — warn_missing_usage is exception-safe
+
+warn_missing_usage wraps its logger.warning in try/except: observability must
+never become flow control, so even a logging-layer failure cannot break the LLM
+call path that calls it.
+
+
+## 2026-07-03 — second setter + de-silence helper (Phase 0 / module H)
+
+Two additions. (1) `set_cost_context` now has a SECOND legitimate caller besides
+`AgentRuntime.run()`: the memory consolidation worker
+([[memory_consolidation_worker]]) sets it per background pass so consolidation
+LLM calls are finally accounted — RECORD only, it never sets `current_user_id`
+so the deduct hook stays dormant (background work is never billed). (2) New
+`warn_missing_usage(source, model, call_type)`: helper SDKs used to skip
+recording silently when a live context existed but the provider returned no
+usage; they now call this to emit an auditable L2 WARNING instead of a silent
+miss. Observability only, never raises. Note: there is no embedding caller in the
+codebase anymore (memory = BM25 + grep, no vectors) — the historical "OpenAI
+Embeddings" caller no longer exists.
+
+
 LLM API cost calculation and recording — a contextvars-based ambient context that lets any LLM call record its cost without passing `agent_id` and `db` explicitly.
 
 ## Why it exists

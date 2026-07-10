@@ -1,35 +1,41 @@
 /**
  * @file ProviderSettings.tsx
- * @description LLM Provider configuration for the web frontend Settings modal
+ * @description LLM Providers — the credential WALLET (Settings › LLM Providers).
  *
- * Layout (always expanded, no collapsed state):
+ * Layout (a card grid + two modals):
  *
  *   ┌─────────────────────────────────────────┐
- *   │  SECTION 1: Add Providers               │
- *   │  ┌ Quick Add (preset selector + key) ─┐ │
- *   │  │ Claude Code Login card              │ │
- *   │  │ + Anthropic / + OpenAI buttons      │ │
- *   │  │ Configured Providers list           │ │
- *   │  └────────────────────────────────────-┘ │
- *   ├─────────────────────────────────────────┤
- *   │  SECTION 2: Model Assignment            │
- *   │  ┌ Agent slot ────────────────────────┐ │
- *   │  │ Helper LLM slot                   │ │
- *   │  │ Apply / Discard                    │ │
- *   │  └───────────────────────────────────-┘ │
+ *   │  Your providers          [Update models] │
+ *   │  ┌ provider card ┐ ┌ provider card ┐     │
+ *   │  ┌ provider card ┐ ┌ + Add provider ┐    │
  *   └─────────────────────────────────────────┘
+ *   • click a provider card → detail modal (models, masked key, endpoint,
+ *     Test / Edit / Delete)
+ *   • "+ Add provider" card → add modal with 3 methods: OAuth sign-in
+ *     (Claude Code / Codex CLI), one-key preset, custom endpoint.
+ *
+ * The GLOBAL DEFAULT model/framework does NOT live here anymore — it moved to
+ * the "Model Defaults" nav section (ModelDefaultsSettings). Per-agent overrides
+ * live in the chat page.
  *
  * Uses the bioluminescent terminal design system CSS variables.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { RefreshCw, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { OneKeyOnboard } from './OneKeyOnboard'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useConfigStore } from '@/stores'
 import { getApiBaseUrl } from '@/stores/runtimeStore'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui'
 import { api } from '@/lib/api'
 import { isTauri, triggerClaudeLogin, triggerClaudeLogout, cancelClaudeLogin } from '@/lib/tauri'
+import {
+  MODEL_SUGGESTION_GROUPS,
+  type ModelSuggestionGroup,
+} from '@/lib/agentFramework'
 
 /** How long we let `claude auth login` block before auto-aborting it.
  *  Anthropic's OAuth flow itself has no hard upper bound, but past ~10 min
@@ -86,165 +92,15 @@ interface ProviderSummary {
   base_url?: string
 }
 
-interface SlotConfig {
-  provider_id: string
-  model: string
-  // Framework-neutral reasoning params (agent slot only). '' = Auto =
-  // backend adapter passes nothing and the framework keeps its defaults.
-  thinking?: '' | 'on' | 'off'
-  reasoning_effort?: '' | 'low' | 'medium' | 'high' | 'max'
-}
-
-interface SlotData {
-  config: SlotConfig | null
-  required_protocols: string[]
-}
-
-interface KnownModelMeta {
-  model_id: string
-  display_name: string
-  max_output_tokens: number | null
-}
 
 // Preset quick-add moved to the shared OneKeyOnboard component (one-key
 // setup via POST /api/providers/onboard) — the provider list, Get Key
 // URLs, and recommended default models now live there / in
 // model_catalog._ONBOARD_*_MODELS.
 
-// =============================================================================
-// Agent Framework definitions
-// =============================================================================
-
-interface AgentFramework {
-  id: string
-  label: string
-  protocol: string
-  desc: string
-}
-
-// One framework name per agent kind. ``codex_cli`` runs the official
-// ``openai-codex`` Python SDK under the hood; the older hand-rolled
-// implementation file is kept in the repo as a revival fallback only,
-// not registered as a driver.
-const AGENT_FRAMEWORKS: AgentFramework[] = [
-  { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
-  { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
-]
-
-// Codex-framework predicate. Kept as a helper rather than an inline
-// ``=== 'codex_cli'`` comparison so a future v3 framework id lands in
-// one spot instead of being scattered across three UI branches
-// (model curation, provider source filter, install banner).
-const isCodexFramework = (framework: string | null | undefined): boolean =>
-  framework === 'codex_cli'
-
-const SLOT_DEFS: { key: string; label: string; desc: string; protocol: string }[] = [
-  { key: 'agent', label: 'Agent', desc: 'Main dialogue (Anthropic)', protocol: 'anthropic' },
-  { key: 'helper_llm', label: 'Helper LLM', desc: 'Auxiliary tasks (OpenAI / Anthropic)', protocol: 'openai' },
-]
-
-// What the helper_llm "Default (recommended)" option actually resolves to,
-// per provider protocol. Mirrors backend ``_ONBOARD_HELPER_MODELS`` in
-// model_catalog.py (openai → gpt-5.4-mini, anthropic → claude-haiku-4-5).
-// Surfaced in the option label so users aren't left guessing what "default"
-// means. Keep in sync with the backend map.
-const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {
-  openai: 'gpt-5.4-mini',
-  anthropic: 'claude-haiku-4-5',
-}
-
-// =============================================================================
-// Model Name Suggestions
-// =============================================================================
-//
-// UX affordance for users who don't know the exact model IDs off the top
-// of their head. Rendered as dimmed chips below the ModelBubbleInput —
-// click a chip and it moves into the selected-models bubble row.
-//
-// Why we DON'T filter by the form's protocol: in practice almost all of
-// our users hit providers through a forwarding platform (Yunwu /
-// OpenRouter / NetMind / custom proxies) that does its own protocol
-// translation. A Custom Anthropic endpoint may be fronting GPT, Gemini,
-// or MiniMax; a Custom OpenAI endpoint may be fronting Claude. Hiding
-// suggestions based on the form's declared protocol would steer users
-// away from valid model names. Always show the full set and let the
-// user pick — they know what their forwarder exposes.
-//
-// List curation rules:
-//   - OpenAI: 10 newest text / chat / reasoning models
-//   - Anthropic: all current models
-//   - Gemini: all current text models, exclude deprecated / embedding /
-//     audio / live / TTS / image / computer-use
-//   - Chinese vendors (Zhipu, Kimi, Qwen, MiniMax, DeepSeek): top 3
-//     newest text models each (Kimi has only 1 listed)
-//   - DeepSeek compatibility aliases (deepseek-chat, deepseek-reasoner)
-//     excluded — users who want them can still type them in manually.
-
-interface ModelSuggestionGroup {
-  label: string
-  models: string[]
-}
-
-const MODEL_SUGGESTION_GROUPS: ModelSuggestionGroup[] = [
-  {
-    label: 'Anthropic',
-    models: [
-      'claude-opus-4-8',
-      'claude-sonnet-4-6',
-      'claude-haiku-4-5',
-      'claude-haiku-4-5-20251001',
-    ],
-  },
-  {
-    label: 'OpenAI',
-    models: [
-      'gpt-5.4',
-      'gpt-5.4-mini',
-      'gpt-5.4-nano',
-      'gpt-5.2',
-      'gpt-5.2-mini',
-      'gpt-5.1',
-      'gpt-5',
-      'gpt-4.1',
-      'o4-mini',
-      'o3',
-    ],
-  },
-  {
-    label: 'Google Gemini',
-    models: [
-      'gemini-3.1-pro-preview',
-      'gemini-3.1-pro-preview-customtools',
-      'gemini-3-flash-preview',
-      'gemini-3.1-flash-lite-preview',
-      'gemini-2.5-pro',
-      'gemini-2.5-flash',
-      'gemini-2.5-flash-lite',
-      'gemini-deep-research-preview',
-      'gemini-deep-research-max-preview',
-    ],
-  },
-  {
-    label: 'Zhipu / GLM',
-    models: ['glm-5.1', 'glm-5', 'glm-5-turbo'],
-  },
-  {
-    label: 'Kimi (Moonshot)',
-    models: ['kimi-k2.6'],
-  },
-  {
-    label: 'Qwen (DashScope)',
-    models: ['qwen3.6-max-preview', 'qwen3.6-plus', 'qwen3.6-flash'],
-  },
-  {
-    label: 'MiniMax',
-    models: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5'],
-  },
-  {
-    label: 'DeepSeek',
-    models: ['deepseek-v4-pro', 'deepseek-v4-flash'],
-  },
-]
+// MODEL_SUGGESTION_GROUPS (imported above) powers the custom-provider form's
+// model bubble input. The framework/slot machinery that used to live here moved
+// out with the global default → ModelDefaultsSettings.
 
 // =============================================================================
 // Model Bubble Tag Input
@@ -411,18 +267,23 @@ function formatExpiresAt(raw: string | null | undefined): string | null {
 // Section Header
 // =============================================================================
 
-function SectionHeader({ step, title, subtitle }: { step: number; title: string; subtitle: string }) {
+function SectionHeader({ step, title, subtitle, action }: { step?: number; title: string; subtitle: string; action?: ReactNode }) {
   return (
     <div className="mb-4">
-      <div className="flex items-baseline gap-3 mb-1">
-        <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
-          {String(step).padStart(2, '0')}
-        </span>
-        <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
-          {title}
-        </h3>
+      <div className="flex items-baseline justify-between gap-3 mb-1">
+        <div className="flex items-baseline gap-3 min-w-0">
+          {step != null && (
+            <span className="text-[10px] font-[family-name:var(--font-mono)] uppercase tracking-[0.18em] text-[var(--text-tertiary)] tabular-nums">
+              {String(step).padStart(2, '0')}
+            </span>
+          )}
+          <h3 className="text-base font-[family-name:var(--font-display)] font-semibold text-[var(--text-primary)] tracking-tight">
+            {title}
+          </h3>
+        </div>
+        {action && <div className="shrink-0 self-center">{action}</div>}
       </div>
-      <p className="text-sm text-[var(--text-tertiary)] ml-[44px] leading-relaxed">{subtitle}</p>
+      <p className={cn('text-sm text-[var(--text-tertiary)] leading-relaxed', step != null && 'ml-[44px]')}>{subtitle}</p>
     </div>
   )
 }
@@ -431,13 +292,10 @@ function SectionHeader({ step, title, subtitle }: { step: number; title: string;
 // Main Component
 // =============================================================================
 
-// Security hardening (2026-06-17): user-supplied custom (arbitrary
-// base_url) providers let an agent's LLM traffic be pointed at an
-// external endpoint. The "+ Custom Anthropic / + Custom OpenAI" add
-// flow is temporarily disabled pending the workspace/credential
-// isolation work. Flip this back to `true` to restore it — the form
-// code below is preserved and only gated, so re-enabling is one line.
-const CUSTOM_PROVIDER_ENABLED = false
+// Security note (2026-06-17 → re-enabled 2026-07-09, Owner-authorized): custom
+// endpoints are a first-class add method (the "Custom" tab). A user-supplied
+// base_url routes the agent's LLM traffic to a host they choose — the tradeoff
+// the original hardening flagged; kept visible here.
 
 export function ProviderSettings() {
   const { t } = useTranslation()
@@ -463,9 +321,6 @@ export function ProviderSettings() {
   }, [userId])
 
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({})
-  const [slots, setSlots] = useState<Record<string, SlotData>>({})
-  const [knownModels, setKnownModels] = useState<Record<string, KnownModelMeta>>({})
-  const [officialBaseUrls, setOfficialBaseUrls] = useState<Record<string, string[]>>({})
   const [error, setError] = useState('')
   // ``allowed`` is false only when the backend gated this caller out:
   // cloud mode + non-staff. Staff and local mode omit it (→ undefined →
@@ -500,33 +355,11 @@ export function ProviderSettings() {
   const [formModels, setFormModels] = useState<string[]>([])
   const [formAdding, setFormAdding] = useState(false)
 
-  // Agent framework — loaded from backend on mount + on every refresh.
-  // ``probe`` reports whether the chosen framework's host CLI auth is
-  // currently usable (e.g. ``codex login`` was completed). null until
-  // the first fetch lands.
-  const [agentFramework, setAgentFramework] = useState<string>(AGENT_FRAMEWORKS[0].id)
-  const [agentFrameworkProbe, setAgentFrameworkProbe] = useState<{ ok: boolean; detail: string } | null>(null)
-  const [agentFrameworkSaving, setAgentFrameworkSaving] = useState(false)
-  const [agentFrameworkError, setAgentFrameworkError] = useState<string>('')
-  // Install banner — surfaced after switching to codex_cli. Post-2026-06-08
-  // the codex binary ships as a Python wheel (``openai-codex-cli-bin``)
-  // so the install side-effect is just a wheel-presence check; no more
-  // npm path. ``auto_installed`` / ``blocked`` no longer fire from the
-  // backend but the union keeps them for forward-compat in case we
-  // add a different fallback later.
-  const [agentFrameworkInstall, setAgentFrameworkInstall] = useState<{
-    installed: boolean
-    action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed'
-    reason: string
-  } | null>(null)
-
-  // Pending slot changes (local draft, not yet submitted)
-  const [pendingSlots, setPendingSlots] = useState<Record<string, SlotConfig>>({})
-  const [applying, setApplying] = useState(false)
 
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; msg: string }>>({})
+
 
   // Edit-models dialog. We only support editing the models list (backend has
   // PUT /{id}/models) — name / url / key changes aren't exposed, so the
@@ -536,12 +369,20 @@ export function ProviderSettings() {
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
 
+  // Card-grid modals: the "+ Add provider" card opens the add modal (3 methods),
+  // and clicking a provider card opens its detail modal.
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [detailProviderId, setDetailProviderId] = useState<string | null>(null)
+  // Add-provider modal is a two-step wizard: 'menu' shows the three methods,
+  // then the chosen one fills the modal (with a back link). Avoids the old
+  // "everything stacked at once" wall — especially the custom form.
+  const [addMethod, setAddMethod] = useState<'onekey' | 'oauth' | 'custom'>('onekey')
+
   // ---- Data loading ----
   const refreshConfig = useCallback(async () => {
     try {
-      const [cfgRes, catRes, claudeRes, codexRes] = await Promise.all([
+      const [cfgRes, claudeRes, codexRes] = await Promise.all([
         authFetch(providerUrl()).then((r) => r.json()),
-        authFetch(providerUrl('/catalog')).then((r) => r.json()),
         authFetch(providerUrl('/claude-status')).then((r) => r.json()).catch(() => null),
         authFetch(providerUrl('/codex-status')).then((r) => r.json()).catch(() => null),
       ])
@@ -549,12 +390,6 @@ export function ProviderSettings() {
       if (codexRes?.success) setCodexStatus(codexRes.data)
       if (cfgRes.success) {
         setProviders(cfgRes.data.providers)
-        setSlots(cfgRes.data.slots)
-        setPendingSlots({})
-      }
-      if (catRes.success) {
-        setKnownModels(catRes.known_models)
-        if (catRes.official_base_urls) setOfficialBaseUrls(catRes.official_base_urls)
       }
     } catch (err) {
       console.error('[ProviderSettings] refreshConfig failed:', err)
@@ -562,25 +397,6 @@ export function ProviderSettings() {
   }, [providerUrl])
 
   useEffect(() => { refreshConfig() }, [refreshConfig])
-
-  // Load the user's coding-agent framework choice + auth probe on
-  // mount and whenever refreshConfig fires (so a Settings page
-  // re-open re-checks whether the OAuth file is still present).
-  useEffect(() => {
-    let cancelled = false
-    api.getAgentFramework().then((resp) => {
-      if (cancelled) return
-      if (resp.success) {
-        setAgentFramework(resp.data.framework)
-        setAgentFrameworkProbe(resp.data.probe)
-      }
-    }).catch((err: unknown) => {
-      if (cancelled) return
-      // Non-fatal — keep the default selection visible
-      console.error('[ProviderSettings] getAgentFramework failed:', err)
-    })
-    return () => { cancelled = true }
-  }, [refreshConfig])
 
   // Login auto-abort timer. Set claudeLoginRemaining to N to start
   // counting down to 0; reaching 0 fires cancelClaudeLogin which
@@ -607,18 +423,6 @@ export function ProviderSettings() {
   const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
-  // Compute effective config per slot: pending overrides server state
-  const getEffectiveSlotConfig = (slotKey: string): SlotConfig | null => {
-    if (pendingSlots[slotKey]) return pendingSlots[slotKey]
-    return slots[slotKey]?.config || null
-  }
-
-  const allSlotsReady = SLOT_DEFS.every((s) => {
-    const cfg = getEffectiveSlotConfig(s.key)
-    return cfg?.provider_id && cfg?.model
-  })
-
-  const hasPendingChanges = Object.keys(pendingSlots).length > 0
 
   // ---- Provider actions ----
   const addProvider = async (body: Record<string, unknown>) => {
@@ -690,13 +494,6 @@ export function ProviderSettings() {
 
   const handleDelete = async (id: string) => {
     await authFetch(providerUrl(`/${id}`), { method: 'DELETE' })
-    setPendingSlots((prev) => {
-      const next = { ...prev }
-      for (const [k, v] of Object.entries(next)) {
-        if (v.provider_id === id) delete next[k]
-      }
-      return next
-    })
     await refreshConfig()
   }
 
@@ -772,68 +569,6 @@ export function ProviderSettings() {
 
   // Local slot change. Preserves the slot's reasoning params: switching
   // provider/model must not silently reset Thinking/Reasoning Effort.
-  const handleLocalSlotChange = (slot: string, pid: string, model: string) => {
-    const cur = getEffectiveSlotConfig(slot)
-    setPendingSlots((prev) => ({
-      ...prev,
-      [slot]: {
-        provider_id: pid,
-        model,
-        thinking: cur?.thinking || '',
-        reasoning_effort: cur?.reasoning_effort || '',
-      },
-    }))
-  }
-
-  // Reasoning param change (agent slot). Requires an effective provider —
-  // the dropdowns are disabled until one is selected.
-  const handleLocalReasoningChange = (
-    slot: string,
-    field: 'thinking' | 'reasoning_effort',
-    value: string,
-  ) => {
-    const cur = getEffectiveSlotConfig(slot)
-    if (!cur?.provider_id) return
-    setPendingSlots((prev) => ({
-      ...prev,
-      [slot]: {
-        provider_id: cur.provider_id,
-        model: cur.model,
-        thinking: cur.thinking || '',
-        reasoning_effort: cur.reasoning_effort || '',
-        [field]: value,
-      },
-    }))
-  }
-
-  // Apply all pending slot changes to backend
-  const handleApply = async () => {
-    setApplying(true)
-    setError('')
-    try {
-      for (const [slot, cfg] of Object.entries(pendingSlots)) {
-        const res = await authFetch(providerUrl(`/slots/${slot}`), {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider_id: cfg.provider_id,
-            model: cfg.model,
-            thinking: cfg.thinking || '',
-            reasoning_effort: cfg.reasoning_effort || '',
-          }),
-        }).then((r) => r.json())
-        if (!res.success) {
-          setError(t('settings.provider.failedToSetSlot', { slot, detail: res.detail || t('settings.provider.unknownError') }))
-          break
-        }
-      }
-      await refreshConfig()
-    } catch {
-      setError(t('settings.provider.applyNetworkError'))
-    }
-    setApplying(false)
-  }
-
-  const handleDiscard = () => { setPendingSlots({}) }
 
   const openForm = (protocol: 'anthropic' | 'openai') => {
     setShowForm(protocol)
@@ -842,397 +577,126 @@ export function ProviderSettings() {
     setFormKey(''); setFormAuth('api_key'); setFormModels([]); setError('')
   }
 
-  const isOfficialProvider = (prov: ProviderSummary) => {
-    const urls = officialBaseUrls[prov.protocol] || []
-    return urls.includes(prov.base_url || '')
-  }
-
-  // Curated model list the Codex CLI subprocess actually accepts.
-  // Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
-  // ``user_provider_service.py`` — verified 2026-06-02 from
-  // codex CLI's interactive "Select Model and Effort" picker.
-  // Both codex_oauth and "Custom OpenAI provider used as codex_cli
-  // agent" funnel through this list; otherwise the dropdown would
-  // offer e.g. gpt-4.1 / o3 which codex CLI rejects at runtime.
-  const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
-
-  // Provider sources the codex_cli framework actually works with.
-  // Codex CLI expects OpenAI's Responses API; third-party
-  // aggregators (NetMind / Yunwu / OpenRouter / etc.) only expose
-  // ``chat/completions``, so codex CLI silently fails — model is
-  // missing, tool-calling format mismatches, MCP integration
-  // broken. Without testing each aggregator against codex CLI
-  // we can't claim support. Whitelist what's verified:
-  //   * codex_oauth — ChatGPT login (OpenAI's own backend)
-  //   * user        — Provider added via "+ Custom OpenAI" form
-  //                  (assumes user pointed it at api.openai.com or
-  //                  a Responses-API-compatible endpoint — that's
-  //                  on the user to get right).
-  // Anything else (netmind, yunwu, openrouter, etc.) is hidden
-  // from the agent slot dropdown when framework=codex_cli.
-  // Note: "openai" is a PROTOCOL value, not a SOURCE — preset
-  // aggregators are openai-protocol too. Filter by source, not
-  // protocol (protocol is already enforced upstream by the slot
-  // framework check).
-  const CODEX_ALLOWED_PROVIDER_SOURCES = ['codex_oauth', 'user']
-
-  const getModelsForSlot = (prov: ProviderSummary, slotKey: string) => {
-    // Agent slot + codex_cli framework → always show the codex-
-    // curated set, regardless of provider source AND regardless of
-    // whether the provider's stored ``models`` happens to include
-    // them. A Custom OpenAI provider's ``models`` column is the
-    // user's "I have access to these" claim for non-agent slots
-    // (helper_llm). The codex CLI subprocess talks straight to
-    // OpenAI with the API key — OpenAI's tier check is the real
-    // gate, not this list. Offer all three; if the user's tier
-    // doesn't permit one, they'll see a clear error at run time.
-    if (slotKey === 'agent' && isCodexFramework(agentFramework)) {
-      return CODEX_CURATED_MODELS.map((mid) => ({
-        model_id: mid,
-        display_name: knownModels[mid]?.display_name || mid,
-      }))
-    }
-    return prov.models
-      .map((mid) => ({ model_id: mid, display_name: knownModels[mid]?.display_name || mid }))
-  }
-
-  // Switching the agent framework is staff-only in cloud (a framework
-  // with no API-key provider falls back to the shared CLI credentials —
-  // the backend 403s it; see providers.py §3 gate). The status routes
-  // already encode that exact predicate as ``allowed === false``, so we
-  // reuse it rather than re-deriving cloud + staff here. Fail-open on the
-  // UI if neither status loaded — the backend stays the security boundary.
-  const frameworkSwitchBlocked =
-    claudeStatus?.allowed === false || codexStatus?.allowed === false
-
-  // ---- Slot row renderer ----
-  const renderSlotRow = (slot: typeof SLOT_DEFS[number]) => {
-    const selectedFramework = AGENT_FRAMEWORKS.find((f) => f.id === agentFramework)
-    // Protocols this slot accepts. Agent follows the selected framework;
-    // other slots use the SERVER's required_protocols (helper_llm is
-    // [openai, anthropic] since the one-key work — a hardcoded 'openai'
-    // here silently hid anthropic providers from the helper dropdown).
-    const effectiveProtocols: string[] = slot.key === 'agent' && selectedFramework
-      ? [selectedFramework.protocol]
-      : (slots[slot.key]?.required_protocols?.length
-          ? slots[slot.key].required_protocols
-          : [slot.protocol])
-
-    const cfg = getEffectiveSlotConfig(slot.key)
-    const ready = !!(cfg?.provider_id && cfg?.model)
-    // Agent slot + codex_cli framework → hide third-party
-    // aggregators that codex CLI can't talk to (Responses API
-    // gate); see CODEX_ALLOWED_PROVIDER_SOURCES above.
-    // Helper slot → hide OAuth providers (claude_oauth / codex_oauth):
-    // CLI OAuth credentials only drive the agent subprocess and cannot
-    // make direct Messages / Chat-Completions calls — picking one here
-    // would only fail at agent-loop time with NotImplementedError.
-    const matching = providerList.filter((p) =>
-      effectiveProtocols.includes(p.protocol) && p.is_active &&
-      (
-        !(slot.key === 'agent' && isCodexFramework(agentFramework)) ||
-        CODEX_ALLOWED_PROVIDER_SOURCES.includes(p.source)
-      ) &&
-      !(slot.key === 'helper_llm' && p.auth_type === 'oauth')
-    )
-    const curProv = cfg?.provider_id ? providers[cfg.provider_id] : null
-    const isChanged = !!pendingSlots[slot.key]
-    const slotDesc = slot.key === 'agent' && selectedFramework
-      ? `Main dialogue (${selectedFramework.label})`
-      : slot.desc
-
-    return (
-      <div key={slot.key} className={cn('p-4 rounded-xl border',
-        isChanged ? 'border-[var(--accent-primary)]/30 bg-[var(--accent-primary)]/5' :
-        ready ? 'border-[var(--color-success)]/20 bg-[var(--color-success)]/5' : 'border-[var(--color-error)]/20 bg-[var(--color-error)]/5'
-      )}>
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-medium text-[var(--text-primary)]">
-            {slot.label}
-            <span className="text-[var(--text-tertiary)] font-normal ml-2">{slotDesc}</span>
-          </span>
-          <div className="flex items-center gap-2">
-            {isChanged && <span className="text-xs text-[var(--accent-primary)]">{t('settings.provider.modified')}</span>}
-            {ready
-              ? <span className="text-[var(--color-success)] text-base">{'\u2713'}</span>
-              : <span className="text-sm text-[var(--color-error)]">{t('settings.provider.needed')}</span>}
-          </div>
-        </div>
-
-        {/* Agent Framework selector */}
-        {slot.key === 'agent' && (
-          <div className="mb-3">
-            <label className="block text-sm text-[var(--text-tertiary)] mb-1">
-              {t('settings.provider.agentFramework')}
-              {agentFrameworkProbe !== null && (
-                <span
-                  className={`ml-2 text-xs ${
-                    agentFrameworkProbe.ok
-                      ? 'text-[var(--color-success)]'
-                      : 'text-[var(--color-error)]'
-                  }`}
-                  title={agentFrameworkProbe.detail}
-                >
-                  {agentFrameworkProbe.ok ? '✓ auth ready' : '✗ auth missing'}
-                </span>
-              )}
-            </label>
-            {frameworkSwitchBlocked ? (
-              // Cloud + non-staff: switching is backend-gated (403). Show the
-              // current choice read-only instead of a control that errors.
-              <div className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
-                {selectedFramework
-                  ? `${selectedFramework.label} — ${selectedFramework.desc}`
-                  : agentFramework}
-                <span className="ml-2 text-xs text-[var(--text-tertiary)]">
-                  · managed by staff in cloud
-                </span>
-              </div>
-            ) : (
-              <select
-                value={agentFramework}
-                disabled={agentFrameworkSaving}
-                onChange={async (e) => {
-                  const next = e.target.value
-                  setAgentFramework(next)
-                  setAgentFrameworkSaving(true)
-                  setAgentFrameworkError('')
-                  setAgentFrameworkInstall(null)
-                  try {
-                    const resp = await api.setAgentFramework(next)
-                    if (resp.success) {
-                      setAgentFrameworkProbe(resp.data.probe)
-                      setAgentFrameworkInstall(resp.data.install)
-                    }
-                  } catch (err: unknown) {
-                    setAgentFrameworkError(
-                      err instanceof Error ? err.message : 'Failed to save framework'
-                    )
-                  } finally {
-                    setAgentFrameworkSaving(false)
-                  }
-                }}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:opacity-50"
-              >
-                {AGENT_FRAMEWORKS.map((fw) => (
-                  <option key={fw.id} value={fw.id}>{fw.label} — {fw.desc}</option>
-                ))}
-              </select>
-            )}
-            {agentFrameworkSaving && isCodexFramework(agentFramework) && (
-              <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
-                {'Verifying Codex CLI…'}
-              </div>
-            )}
-            {agentFrameworkError && (
-              <div className="text-xs text-[var(--color-error)] mt-1">
-                {agentFrameworkError}
-              </div>
-            )}
-            {agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed' && (
-              <div className="text-xs text-[var(--color-error)] mt-1">
-                Codex binary unavailable: {agentFrameworkInstall.reason}
-              </div>
-            )}
-            {agentFrameworkProbe !== null && !agentFrameworkProbe.ok &&
-             !(agentFrameworkInstall && agentFrameworkInstall.action === 'install_failed') && (
-              <div className="text-xs text-[var(--text-tertiary)] mt-1">
-                {agentFrameworkProbe.detail}
-              </div>
-            )}
-          </div>
-        )}
-
-        {matching.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3">
-            {/* Provider dropdown */}
-            <div>
-              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerLabel')}</label>
-              <select value={cfg?.provider_id || ''}
-                onChange={(e) => {
-                  const pid = e.target.value
-                  const prov = providers[pid]
-                  if (!prov) return
-                  const slotModels = getModelsForSlot(prov, slot.key)
-                  if (slot.key === 'helper_llm' && isOfficialProvider(prov)) {
-                    handleLocalSlotChange(slot.key, pid, 'default')
-                  } else if (slotModels.length > 0) {
-                    handleLocalSlotChange(slot.key, pid, slotModels[0].model_id)
-                  } else {
-                    handleLocalSlotChange(slot.key, pid, '')
-                  }
-                }}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                <option value="">{t('settings.provider.selectProvider')}</option>
-                {matching.map((p) => <option key={p.provider_id} value={p.provider_id}>{p.name}</option>)}
-              </select>
-            </div>
-
-            {/* Model dropdown */}
-            <div>
-              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.modelLabel')}</label>
-              {(() => {
-                if (!curProv) return (
-                  <select disabled className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-tertiary)] outline-none">
-                    <option>{t('settings.provider.selectProviderFirst')}</option>
-                  </select>
-                )
-
-                if (slot.key === 'helper_llm' && isOfficialProvider(curProv)) {
-                  const llmModels = getModelsForSlot(curProv, 'helper_llm')
-                  // Show which concrete model "Default" resolves to, so the
-                  // user isn't left guessing (e.g. "Default · gpt-5.4-mini").
-                  const recHelperModel =
-                    RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[curProv.protocol] || 'gpt-5.4-mini'
-                  const recHelperLabel = knownModels[recHelperModel]?.display_name || recHelperModel
-                  return (
-                    <>
-                      <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                        <option value="default">Default · {recHelperLabel} (recommended)</option>
-                        {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
-                      </select>
-                      {cfg?.model && cfg.model !== 'default' && (
-                        <p className="text-xs text-[var(--color-warning)] mt-1">{t('settings.provider.auxModelWarning')}</p>
-                      )}
-                    </>
-                  )
-                }
-
-                const llmModels = getModelsForSlot(curProv, slot.key)
-                if (llmModels.length > 0) {
-                  return (
-                    <select value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]">
-                      <option value="">{t('settings.provider.selectModel')}</option>
-                      {llmModels.map((m) => <option key={m.model_id} value={m.model_id}>{m.display_name}</option>)}
-                    </select>
-                  )
-                }
-
-                return (
-                  <input type="text" value={cfg?.model || ''} onChange={(e) => { if (cfg?.provider_id) handleLocalSlotChange(slot.key, cfg.provider_id, e.target.value) }}
-                    placeholder={t('settings.provider.enterModelName')}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-                )
-              })()}
-            </div>
-
-            {/* Reasoning params — agent slot only. Framework-neutral values;
-                each backend adapter maps them to its own dialect. Auto = ''
-                = adapter passes nothing (framework default behavior). */}
-            {slot.key === 'agent' && (
-              <>
-                <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.thinking')}</label>
-                  <select
-                    value={cfg?.thinking || ''}
-                    disabled={!cfg?.provider_id}
-                    onChange={(e) => handleLocalReasoningChange(slot.key, 'thinking', e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
-                  >
-                    <option value="">{t('settings.provider.autoDefault')}</option>
-                    <option value="on">{t('settings.provider.on')}</option>
-                    <option value="off">{t('settings.provider.off')}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.reasoningEffort')}</label>
-                  <select
-                    value={cfg?.reasoning_effort || ''}
-                    disabled={!cfg?.provider_id}
-                    onChange={(e) => handleLocalReasoningChange(slot.key, 'reasoning_effort', e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] disabled:bg-[var(--bg-tertiary)]"
-                  >
-                    <option value="">{t('settings.provider.autoDefault')}</option>
-                    <option value="low">{t('settings.provider.low')}</option>
-                    <option value="medium">{t('settings.provider.medium')}</option>
-                    <option value="high">{t('settings.provider.high')}</option>
-                    <option value="max">{t('settings.provider.max')}</option>
-                  </select>
-                </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <p className="text-sm text-[var(--color-error)]">
-            {slot.key === 'agent' && isCodexFramework(agentFramework)
-              ? 'Codex CLI needs an OpenAI provider that speaks the Responses API: ' +
-                'sign in with Codex CLI (codex login) or add a Custom OpenAI key in Step 1. ' +
-                'Aggregator providers (NetMind / Yunwu / OpenRouter) are not supported by Codex.'
-              : `No ${effectiveProtocols.join(' / ')} protocol provider configured. Add one in Step 1 above.`}
-          </p>
-        )}
-      </div>
-    )
-  }
-
   // ---- Full view (always expanded) ----
   return (
     <div className="space-y-8">
 
-      {/* System free-tier quota is surfaced at the Providers-panel top level
-          (SettingsPage), not here — keeping it inside this collapsed-by-
-          default Advanced section hid it from cloud users. */}
-
       {/* ================================================================= */}
-      {/* SECTION 1: Add Providers                                          */}
+      {/* ① Your providers — the configured list, at the TOP. Claude Code    */}
+      {/*    Login / Codex CLI Login are provider types too: they show here   */}
+      {/*    once added, and as sign-in options in "Add a provider" below.    */}
       {/* ================================================================= */}
       <div>
         <SectionHeader
-          step={1}
-          title={t('settings.provider.section1Title')}
-          subtitle={t('settings.provider.section1Subtitle')}
+          title={t('settings.provider.providersListTitle')}
+          subtitle={t('settings.provider.providersListSubtitle')}
+          action={
+            hasProviders ? (
+              // "Update available models" — maintenance on the existing
+              // providers (backfills the latest default model lists). A header
+              // action, not an add step: hover → what it does, click → run it.
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={handleSyncDefaults}
+                      disabled={syncing || !userId}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', syncing && 'animate-spin')} />
+                      {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-[280px]">
+                    {t('settings.provider.updateModelsDesc')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            ) : undefined
+          }
         />
-
-        <div className="space-y-4 ml-[34px]">
-          {/* One-key preset setup (pick provider + paste key) now lives at
-              the panel level — SettingsPage embeds <OneKeyOnboard> directly,
-              and SetupPage shows it as the first-run hero. It used to be
-              duplicated here; removed so Advanced doesn't repeat it. This
-              section is the rest: model sync, CLI OAuth sign-in, and custom
-              (base_url) endpoints. */}
-
-          {/* ---- Sync available models ---- */}
-          {/*
-            One-click backfill: takes the current default model list out of
-            `model_catalog._DEFAULT_MODELS` for every preset source and
-            appends any missing entries onto the user's already-configured
-            providers. Useful when we ship new models — the user keeps
-            their existing slot assignments and provider IDs while picking
-            up the additions. Quick Add would re-create + lose those bonds.
-          */}
-          <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-            <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1.5">{t('settings.provider.updateModelsTitle')}</h4>
-            <p className="text-sm text-[var(--text-tertiary)]">
-              {t('settings.provider.updateModelsDesc')}
-            </p>
-            {/* Gap lives on this row, not the <p>/<h4> above: index.css resets
-                `p`/`h*` margins (unlayered), which kills any mb-* utility on
-                them — so the spacing must sit on a div. */}
-            <div className="flex items-center gap-3 mt-5">
+        {syncResult && (
+          <p
+            className={cn(
+              'text-xs whitespace-pre-wrap leading-relaxed mb-3 ml-[34px] -mt-2',
+              syncResult.kind === 'ok'
+                ? 'text-[var(--text-secondary)]'
+                : 'text-[var(--color-red-500)]'
+            )}
+          >
+            {syncResult.text}
+          </p>
+        )}
+        <div className="ml-[34px]">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {providerList.map((prov) => (
               <button
-                onClick={handleSyncDefaults}
-                disabled={syncing || !userId}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors"
+                key={prov.provider_id}
+                type="button"
+                onClick={() => setDetailProviderId(prov.provider_id)}
+                className="text-left p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)] hover:border-[var(--accent-primary)]/40 transition-colors"
               >
-                {syncing ? t('settings.provider.syncing') : t('settings.provider.updateModelsBtn')}
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase shrink-0">{prov.protocol}</span>
+                </div>
+                <div className="text-xs text-[var(--text-tertiary)] truncate">
+                  {prov.api_key_masked || prov.source} · {t('settings.provider.modelsCount', { count: prov.models.length })}
+                </div>
               </button>
-              {syncResult && (
-                <span
-                  className={cn(
-                    'text-xs whitespace-pre-wrap leading-relaxed',
-                    syncResult.kind === 'ok'
-                      ? 'text-[var(--text-secondary)]'
-                      : 'text-[var(--color-red-500)]'
-                  )}
-                >
-                  {syncResult.text}
-                </span>
-              )}
-            </div>
+            ))}
+            {/* + Add provider card — opens the 3-method add modal. */}
+            <button
+              type="button"
+              onClick={() => { setAddMethod('onekey'); setAddModalOpen(true) }}
+              className="flex flex-col items-center justify-center gap-1 p-4 rounded-xl border border-dashed border-[var(--border-default)] text-[var(--text-tertiary)] hover:border-[var(--accent-primary)]/50 hover:text-[var(--text-secondary)] transition-colors min-h-[76px]"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="text-sm">{t('settings.provider.addProviderTitle')}</span>
+            </button>
           </div>
+        </div>
+      </div>
 
+      {/* ================================================================= */}
+      {/* ② Add a provider — a modal opened from the "+ Add provider" grid card.
+          Three methods: OAuth sign-in (Claude Code / Codex CLI), the one-key
+          preset, and a custom endpoint. */}
+      <Dialog
+        isOpen={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        title={t('settings.provider.addProviderTitle')}
+        size="2xl"
+      >
+        <DialogContent>
+          {/* Tabs — three ways to add, switched in place (no wizard menu). */}
+          <div className="flex gap-1 border-b border-[var(--border-subtle)] mb-4">
+            {([
+              { id: 'onekey', label: t('settings.provider.tabApiKey') },
+              { id: 'oauth', label: t('settings.provider.tabSignin') },
+              { id: 'custom', label: t('settings.provider.tabCustom') },
+            ] as const).map((tb) => (
+              <button
+                key={tb.id}
+                type="button"
+                onClick={() => setAddMethod(tb.id)}
+                className={cn(
+                  'px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                  addMethod === tb.id
+                    ? 'border-[var(--accent-primary)] text-[var(--text-primary)]'
+                    : 'border-transparent text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]'
+                )}
+              >
+                {tb.label}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-4">
+          {/* API key — one-key preset dropdown + paste key. */}
+          {addMethod === 'onekey' && <OneKeyOnboard onComplete={refreshConfig} />}
+
+          {addMethod === 'oauth' && (<>
           {/* ---- Claude Code Login Card ----
             *
             * The card surfaces TWO independent pieces of state and lets the
@@ -1440,190 +904,143 @@ export function ProviderSettings() {
               </div>
             )}
           </div>
+          </>)}
 
-          {/* ---- Custom: Add Protocol Buttons ----
-            *
-            * Note: API-key Codex flows through ``+ Custom OpenAI`` —
-            * the resolver builds CodexConfig from any OpenAI-protocol
-            * provider when ``agent_framework=codex_cli`` is set on
-            * the slot. No dedicated card needed; auth.json fetch is
-            * the only thing the OAuth card adds functionally.
-            */}
-          {CUSTOM_PROVIDER_ENABLED ? (
-          <>
-          <div className="flex gap-2">
-            <button onClick={() => openForm('anthropic')}
-              className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-              {t('settings.provider.customAnthropic')}
-            </button>
-            <button onClick={() => openForm('openai')}
-              className="flex-1 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-              {t('settings.provider.customOpenai')}
-            </button>
-          </div>
+          {addMethod === 'custom' && (
+          <div className="space-y-4">
+            {/* Step 1: pick the protocol; the fields only appear after that. */}
+            <div>
+              <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.protocolLabel')}</label>
+              <select
+                value={showForm || ''}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (!v) setShowForm(null)
+                  else openForm(v as 'anthropic' | 'openai')
+                }}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+              >
+                <option value="">{t('settings.provider.selectProtocol')}</option>
+                <option value="openai">{t('settings.provider.protocolOpenai')}</option>
+                <option value="anthropic">{t('settings.provider.protocolAnthropic')}</option>
+              </select>
+            </div>
 
-          {/* ---- Protocol Form ---- */}
-          {showForm && (
-            <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-[var(--text-primary)]">
-                  {showForm === 'anthropic' ? t('settings.provider.customAnthropicProvider') : t('settings.provider.customOpenaiProvider')}
-                </h4>
-                <button onClick={() => setShowForm(null)} className="text-sm text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]">{t('settings.provider.cancel')}</button>
-              </div>
-              <p className="text-sm text-[var(--text-tertiary)]">
-                {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
-              </p>
-              <div className="grid grid-cols-2 gap-3">
+            {/* Step 2: the endpoint fields (shown once a protocol is chosen). */}
+            {showForm && (
+              <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] space-y-3">
+                <p className="text-sm text-[var(--text-tertiary)]">
+                  {showForm === 'anthropic' ? t('settings.provider.anthropicEndpointHint') : t('settings.provider.openaiEndpointHint')}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
+                    <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
+                      placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
+                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                  </div>
+                  {showForm === 'anthropic' ? (
+                    <div>
+                      <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
+                      <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
+                        className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
+                        <option value="api_key">{t('settings.provider.authApiKey')}</option>
+                        <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
+                      </select>
+                    </div>
+                  ) : <div />}
+                </div>
                 <div>
-                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.providerNameLabel')}</label>
-                  <input type="text" value={formName} onChange={(e) => setFormName(e.target.value)}
-                    placeholder={showForm === 'anthropic' ? t('settings.provider.providerNameEgAnthropic') : t('settings.provider.providerNameEgOpenai')}
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
+                  <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
+                    placeholder={t('settings.provider.baseUrl')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
-                {showForm === 'anthropic' ? (
-                  <div>
-                    <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
-                    <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
-                      className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
-                      <option value="api_key">{t('settings.provider.authApiKey')}</option>
-                      <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
-                    </select>
-                  </div>
-                ) : <div />}
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
+                  <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
+                    placeholder={t('settings.provider.yourApiKey')}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
+                  <ModelBubbleInput
+                    models={formModels}
+                    onChange={setFormModels}
+                    suggestions={MODEL_SUGGESTION_GROUPS}
+                  />
+                </div>
+                <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
+                  className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
+                  {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
+                </button>
               </div>
-              <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
-                <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
-                  placeholder={t('settings.provider.baseUrl')}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-              </div>
-              <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
-                <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
-                  placeholder={t('settings.provider.yourApiKey')}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
-              </div>
-              <div>
-                <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
-                <ModelBubbleInput
-                  models={formModels}
-                  onChange={setFormModels}
-                  suggestions={MODEL_SUGGESTION_GROUPS}
-                />
-              </div>
-              <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
-              </button>
-            </div>
-          )}
-          </>
-          ) : (
-            <div className="p-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]">
-              <h4 className="text-sm font-medium text-[var(--text-primary)] mb-1">
-                Adding custom providers is temporarily unavailable
-              </h4>
-              <p className="text-sm text-[var(--text-tertiary)]">
-                Custom (custom base URL) provider setup is paused for security
-                hardening and will be restored soon. Your already-configured
-                providers remain fully usable.
-              </p>
-            </div>
+            )}
+          </div>
           )}
 
           {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
+          </div>
+        </DialogContent>
+      </Dialog>
 
-          {/* ---- Configured Providers List ---- */}
-          {hasProviders && (
-            <div className="space-y-2">
-              <span className="text-xs text-[var(--text-tertiary)] uppercase tracking-wider font-medium">
-                {t('settings.provider.configuredProviders')}
-              </span>
-              {providerList.map((prov) => (
-                <div key={prov.provider_id} className="flex items-center justify-between p-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-primary)]">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-[var(--text-primary)] truncate">{prov.name}</span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
-                    </div>
-                    <span className="text-sm text-[var(--text-tertiary)]">{prov.api_key_masked} · {t('settings.provider.modelsCount', { count: prov.models.length })}</span>
+      {/* Provider detail modal — opened by clicking a provider card. Shows the
+          provider's models + masked key + endpoint, plus Test / Edit / Delete
+          (reusing the existing handlers). */}
+      {(() => {
+        const prov = detailProviderId ? providers[detailProviderId] : null
+        if (!prov) return null
+        return (
+          <Dialog isOpen={!!prov} onClose={() => setDetailProviderId(null)} title={prov.name} size="xl">
+            <DialogContent>
+              <div className="space-y-3 text-sm">
+                <div className="flex flex-wrap gap-2">
+                  <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)] uppercase">{prov.protocol}</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{prov.source}</span>
+                  <span className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-tertiary)]">{prov.auth_type}</span>
+                </div>
+                {prov.base_url && (
+                  <div>
+                    <span className="text-[var(--text-tertiary)]">Endpoint: </span>
+                    <span className="font-mono text-xs break-all">{prov.base_url}</span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
-                      className="px-3 py-1.5 text-sm text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 rounded-lg disabled:opacity-40 transition-colors">
-                      {testing === prov.provider_id ? '...' : t('settings.provider.test')}
-                    </button>
-                    <button onClick={() => openEditModels(prov)}
-                      className="px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] rounded-lg transition-colors">
-                      {t('settings.provider.edit')}
-                    </button>
-                    <button onClick={() => handleDelete(prov.provider_id)}
-                      className="px-3 py-1.5 text-sm text-[var(--color-error)] hover:bg-[var(--color-error)]/5 rounded-lg transition-colors">
-                      {t('settings.provider.delete')}
-                    </button>
-                    {testResults[prov.provider_id] && (
-                      <span className={cn('text-sm', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
-                        {testResults[prov.provider_id].msg}
-                      </span>
-                    )}
+                )}
+                <div>
+                  <span className="text-[var(--text-tertiary)]">API key: </span>
+                  <span className="font-mono text-xs">{prov.api_key_masked || '—'}</span>
+                </div>
+                <div>
+                  <div className="text-[var(--text-tertiary)] mb-1">{t('settings.provider.modelsCount', { count: prov.models.length })}</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {prov.models.map((m) => (
+                      <span key={m} className="text-xs px-2 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-mono">{m}</span>
+                    ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ================================================================= */}
-      {/* SECTION 2: Model Assignment                                        */}
-      {/* ================================================================= */}
-      {hasProviders && (
-        <div>
-          <SectionHeader
-            step={2}
-            title={t('settings.provider.section2Title')}
-            subtitle={t('settings.provider.section2Subtitle')}
-          />
-
-          <div className="space-y-3 ml-[34px]">
-            {SLOT_DEFS.map((slot) => renderSlotRow(slot))}
-
-            {/* Apply / Discard buttons */}
-            {hasPendingChanges && (
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={handleApply}
-                  disabled={applying}
-                  className={cn(
-                    'flex-1 py-2.5 text-sm font-medium transition-colors',
-                    'bg-[var(--text-primary)] text-[var(--text-inverse)]',
-                    'hover:opacity-90',
-                    'disabled:opacity-40'
-                  )}
-                >
-                  {applying ? t('settings.provider.applying') : t('settings.provider.applyChanges')}
-                </button>
-                <button
-                  onClick={handleDiscard}
-                  disabled={applying}
-                  className="px-6 py-2.5 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] disabled:opacity-40 transition-colors"
-                >
-                  {t('settings.provider.discard')}
-                </button>
+                {testResults[prov.provider_id] && (
+                  <p className={cn('text-sm', testResults[prov.provider_id].ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
+                    {testResults[prov.provider_id].msg}
+                  </p>
+                )}
               </div>
-            )}
-
-            {/* Status indicator */}
-            {allSlotsReady && !hasPendingChanges && (
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-[var(--color-success)]/10 border border-[var(--color-success)]/20">
-                <span className="text-[var(--color-success)] text-base">{'\u2713'}</span>
-                <span className="text-sm text-[var(--color-success)]">{t('settings.provider.allSlotsReady')}</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+            </DialogContent>
+            <DialogFooter>
+              <button onClick={() => handleTest(prov.provider_id)} disabled={testing === prov.provider_id}
+                className="px-4 py-2 text-sm rounded-lg text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 disabled:opacity-40 transition-colors">
+                {testing === prov.provider_id ? '...' : t('settings.provider.test')}
+              </button>
+              <button onClick={() => openEditModels(prov)}
+                className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+                {t('settings.provider.edit')}
+              </button>
+              <button onClick={() => { handleDelete(prov.provider_id); setDetailProviderId(null) }}
+                className="px-4 py-2 text-sm rounded-lg text-[var(--color-error)] hover:bg-[var(--color-error)]/5 transition-colors">
+                {t('settings.provider.delete')}
+              </button>
+            </DialogFooter>
+          </Dialog>
+        )
+      })()}
 
       {/* ================================================================= */}
       {/* Edit-models dialog                                                 */}

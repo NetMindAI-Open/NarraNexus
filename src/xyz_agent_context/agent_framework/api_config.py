@@ -84,6 +84,15 @@ class ClaudeConfig:
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_AUTH_TOKEN": "",
             "ANTHROPIC_BASE_URL": self.base_url or "",
+            # Nested-session guard suppression. When the backend itself was
+            # launched from inside a Claude Code session (dev workflow:
+            # `bash run.sh` typed into a Claude Code terminal), the inherited
+            # CLAUDECODE var makes every spawned `claude` CLI refuse to start
+            # ("cannot be launched inside another Claude Code session", exit 1)
+            # — killing both the agent loop and the CLI helper. We are a
+            # platform spawning claude as a managed subprocess, not a human
+            # nesting sessions; blank it so the child env is deterministic.
+            "CLAUDECODE": "",
         }
         if self.api_key:
             if self.auth_type == "bearer_token":
@@ -101,6 +110,33 @@ class ClaudeConfig:
         env["API_TIMEOUT_MS"] = str(_settings.llm_api_timeout_ms)
         env["CLAUDE_CODE_MAX_RETRIES"] = str(_settings.llm_max_retries)
 
+        # Isolate the subprocess from the host user's personal
+        # ``~/.claude/settings.json``. Claude Code applies that file's ``env``
+        # block ABOVE the subprocess env we set here (it even survives
+        # ``--setting-sources ""``), so a developer who runs their own Claude
+        # Code with a custom ``ANTHROPIC_BASE_URL``/``ANTHROPIC_AUTH_TOKEN``
+        # would have every agent_loop silently redirected to their personal
+        # endpoint — the netmind config we inject loses the precedence fight.
+        #  → 2026-07-08 incident: personal relay in the env block returned
+        #    ``503 No available accounts`` for every frontend message.
+        # Both auth kinds get a dedicated NarraNexus config dir (the CLI
+        # auto-creates it) so the personal settings.json is never read:
+        #   * keyed (api_key/bearer) → ``claude_cli_config_path``; the key is
+        #     injected via env above, no credential file needed.
+        #   * oauth → ``claude_oauth_config_path``; a SEPARATE dir into which
+        #     ``_stage_claude_oauth_credentials`` (in xyz_claude_agent_sdk)
+        #     copies ONLY ``.credentials.json`` before the spawn. OAuth used to
+        #     point straight at ``~/.claude`` here, which re-exposed the exact
+        #     hijack above AND raced the user's own Claude Code on
+        #     ``~/.claude/.claude.json`` (2026-07-09 incident).
+        # Always set the key (never omit) so a stray inherited
+        # ``CLAUDE_CONFIG_DIR`` can't leak in via the SDK's
+        # ``{**os.environ, **options.env}`` merge.
+        if self.auth_type == "oauth":
+            env["CLAUDE_CONFIG_DIR"] = _settings.claude_oauth_config_path
+        else:
+            env["CLAUDE_CONFIG_DIR"] = _settings.claude_cli_config_path
+
         # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
         # subagent task dispatch, alias-to-model resolution) to the same
         # provider as the main loop. Without these, those calls fall back
@@ -108,10 +144,33 @@ class ClaudeConfig:
         # with an unknown model, and either fail or drift off-provider.
         # Docs: https://code.claude.com/docs/en/model-config
         if self.model:
-            env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = self.model
-            env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = self.model
-            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self.model
-            env["CLAUDE_CODE_SUBAGENT_MODEL"] = self.model
+            # CLI family aliases ("opus") are invalid on raw API transports —
+            # normalize here so the CLI's internal calls can't 400 either
+            # (same rule as the main-loop model in xyz_claude_agent_sdk).
+            from xyz_agent_context.agent_framework.model_catalog import (
+                is_cli_family_alias,
+                resolve_cli_alias,
+            )
+
+            model = resolve_cli_alias(self.model, auth_type=self.auth_type)
+            if is_cli_family_alias(model):
+                # OAuth keeps family aliases verbatim ("opus") — but the
+                # ANTHROPIC_DEFAULT_*_MODEL redirects may only carry CONCRETE
+                # ids: pointing an alias at itself makes the CLI reject the
+                # model outright ("There's an issue with the selected model",
+                # exit 1 — killed every claude_oauth agent turn AND the CLI
+                # helper). Blank the redirects (official backend needs no
+                # anti-drift pinning; the CLI resolves aliases itself) and
+                # keep only the subagent pin, which accepts aliases.
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = ""
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = ""
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = ""
+                env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
+            else:
+                env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model
+                env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model
+                env["CLAUDE_CODE_SUBAGENT_MODEL"] = model
         else:
             # No explicit model → blank these so a stale inherited value
             # from os.environ can't steer CLI behavior for this run.
@@ -210,6 +269,33 @@ class CodexConfig:
 
 
 @dataclass(frozen=True)
+class CliHelperConfig:
+    """CLI-backed helper_llm configuration (subscription / OAuth helper).
+
+    Used when the helper_llm slot points at a subscription provider —
+    Claude Code (``claude_oauth``) or Codex (``codex_oauth``). Those OAuth
+    credentials cannot make direct Messages / Chat-Completions API calls, so
+    the helper's small structured-output calls run through the SAME CLI the
+    subscription already authorizes (one-shot, no separate API key). This is
+    what lets a single subscription login cover BOTH the agent slot and the
+    helper_llm slot. Consumed by :class:`CliHelperSDK`, never by the agent
+    loop.
+
+    ``framework`` selects the CLI backend: "claude_code" (via
+    ``claude_agent_sdk.query()``) or "codex_cli" (via ``codex exec``).
+    ``model`` is the model to request. ``auth_type`` / ``api_key`` /
+    ``base_url`` mirror the agent config so the SDK can reuse the exact
+    ``ClaudeConfig``/``CodexConfig`` ``to_cli_env`` credential wiring — for
+    OAuth the key is blank and the CLI reads its own credential file.
+    """
+    framework: str = "claude_code"  # "claude_code" | "codex_cli"
+    model: str = ""
+    base_url: str = ""
+    auth_type: str = "oauth"  # "oauth" | "api_key"
+    api_key: str = ""
+
+
+@dataclass(frozen=True)
 class GeminiConfig:
     """Google Gemini API configuration"""
     api_key: str = ""
@@ -227,6 +313,10 @@ class RuntimeLLMConfigs:
     # provider (single-Claude-key path); None means the helper runs
     # on the OpenAI protocol via ``openai`` above.
     anthropic_helper: Optional[AnthropicHelperConfig] = None
+    # Set when the helper_llm slot points at a subscription (OAuth)
+    # provider — the helper runs through the same CLI as the agent. Takes
+    # precedence over ``anthropic_helper`` / ``openai`` in get_helper_sdk().
+    cli_helper: Optional[CliHelperConfig] = None
 
 
 # =============================================================================
@@ -410,6 +500,15 @@ class _ConfigHolder:
         self._ensure_loaded()
         return self._anthropic_helper  # type: ignore
 
+    @property
+    def cli_helper(self) -> "CliHelperConfig":
+        # No global/desktop source for a CLI helper — it is only ever derived
+        # from an OAuth provider onto the per-task ContextVar. This default
+        # (never a real config) exists so the ``cli_helper_config`` proxy's
+        # fall-through (ContextVar is None) returns a benign object instead of
+        # raising AttributeError if something reads it off the helper path.
+        return CliHelperConfig()
+
 
 _holder = _ConfigHolder()
 
@@ -436,6 +535,9 @@ _openai_ctx: ContextVar[Optional[OpenAIConfig]] = ContextVar("openai_config", de
 _codex_ctx: ContextVar[Optional[CodexConfig]] = ContextVar("codex_config", default=None)
 _anthropic_helper_ctx: ContextVar[Optional[AnthropicHelperConfig]] = ContextVar(
     "anthropic_helper_config", default=None
+)
+_cli_helper_ctx: ContextVar[Optional[CliHelperConfig]] = ContextVar(
+    "cli_helper_config", default=None
 )
 
 
@@ -470,6 +572,9 @@ codex_config: CodexConfig = _ConfigProxy("codex", _codex_ctx)  # type: ignore
 anthropic_helper_config: AnthropicHelperConfig = _ConfigProxy(
     "anthropic_helper", _anthropic_helper_ctx
 )  # type: ignore
+cli_helper_config: CliHelperConfig = _ConfigProxy(
+    "cli_helper", _cli_helper_ctx
+)  # type: ignore
 
 
 def reload_llm_config() -> None:
@@ -482,6 +587,7 @@ def set_user_config(
     openai: OpenAIConfig,
     codex: CodexConfig | None = None,
     anthropic_helper: AnthropicHelperConfig | None = None,
+    cli_helper: CliHelperConfig | None = None,
 ) -> None:
     """
     Set per-user LLM config for the CURRENT asyncio task only.
@@ -500,6 +606,7 @@ def set_user_config(
     _openai_ctx.set(openai)
     _codex_ctx.set(codex or CodexConfig())
     _anthropic_helper_ctx.set(anthropic_helper)
+    _cli_helper_ctx.set(cli_helper)
 
 
 def snapshot_user_config() -> dict[str, Optional[object]]:
@@ -516,6 +623,7 @@ def snapshot_user_config() -> dict[str, Optional[object]]:
         "openai": _openai_ctx.get(),
         "codex": _codex_ctx.get(),
         "anthropic_helper": _anthropic_helper_ctx.get(),
+        "cli_helper": _cli_helper_ctx.get(),
     }
 
 
@@ -565,6 +673,7 @@ def clear_user_config() -> None:
     _openai_ctx.set(None)
     _codex_ctx.set(CodexConfig())
     _anthropic_helper_ctx.set(None)
+    _cli_helper_ctx.set(None)
 
 def set_provider_source(src: Optional[str]) -> None:
     _provider_source_ctx.set(src)
@@ -678,13 +787,21 @@ async def get_agent_owner_llm_configs(
         raise LLMConfigNotConfigured(
             f"Agent {agent_id!r} has no owner (created_by is empty)."
         )
-    return await get_user_llm_configs(owner_user_id)
+    # Bill to the owner, but resolve with THIS agent's per-agent overrides
+    # overlaid on the owner's user-level defaults.
+    return await get_user_llm_configs(owner_user_id, agent_id=agent_id)
 
 
 async def get_agent_owner_runtime_llm_configs(
     agent_id: str,
 ) -> RuntimeLLMConfigs:
-    """Load every LLM config needed for an agent turn based on owner."""
+    """Load every LLM config needed for an agent turn based on owner.
+
+    Billed to the owner (``agents.created_by``); the agent slot + helper slot
+    are resolved with this agent's per-agent overrides (``agent_slots``)
+    overlaid on the owner's user-level defaults, falling back to the defaults
+    for any slot the agent hasn't overridden.
+    """
     from xyz_agent_context.utils.db_factory import get_db_client
 
     db = await get_db_client()
@@ -698,62 +815,110 @@ async def get_agent_owner_runtime_llm_configs(
         raise LLMConfigNotConfigured(
             f"Agent {agent_id!r} has no owner (created_by is empty)."
         )
-    return await get_user_runtime_llm_configs(owner_user_id)
+    return await get_user_runtime_llm_configs(owner_user_id, agent_id=agent_id)
 
 
-async def get_user_llm_configs(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
+async def get_user_llm_configs(
+    user_id: str, agent_id: str | None = None
+) -> tuple[ClaudeConfig, OpenAIConfig]:
     """
-    Resolve the LLM config stack for a specific user.
+    Resolve the (claude, openai) config pair for a specific user.
 
-    Decision tree (deliberately simple, no silent fallback):
+    Thin wrapper over :func:`get_user_runtime_llm_configs`, which routes the
+    decision through the single ``ProviderResolver`` tree. Decision summary:
 
-      1. ``prefer_system_override = True``  → strictly use the system
-         free tier. If disabled or quota exhausted →
-         ``SystemDefaultUnavailable`` (no fallback to the user's own
-         provider).
-      2. ``prefer_system_override = False`` (or no quota row) → strictly
-         use the user's own providers. If misconfigured →
-         ``LLMConfigNotConfigured`` (no fallback to the free tier).
+      1. ``prefer_system_override = True`` + budget → system free tier
+         (tags ``provider_source="system"`` so cost_tracker deducts quota).
+      2. ``prefer_system_override = True`` + exhausted + complete own provider
+         → auto-switch to the user's own key (#48); the free-tier preference
+         is flipped off and a one-time notice is surfaced.
+      3. ``prefer_system_override = True`` + exhausted + no own provider →
+         ``SystemDefaultUnavailable`` (add a provider / ask for more quota).
+      4. ``prefer_system_override = False`` (or no quota row) → strictly the
+         user's own providers; if misconfigured → ``LLMConfigNotConfigured``.
 
-    The user's Settings toggle is the single source of truth. When they
-    opted in we honour it even if the free tier is broken; when they
-    opted out we honour it even if they forgot to configure their own
-    provider — both error messages direct them to the right place.
-
-    The system branch tags ``provider_source="system"`` and
-    ``current_user_id=user_id`` on the current asyncio task's ContextVars
-    so ``cost_tracker.record_cost`` deducts the quota after the LLM call
-    completes.
-
-    QuotaService is lazily bootstrapped via ``_ensure_quota_service``,
-    so every entry point (backend.main, job_trigger, bus_trigger,
-    run_lark_trigger, standalone MCP runner) works out-of-the-box
-    without each having to call ``bootstrap_quota_subsystem``.
+    QuotaService is lazily bootstrapped via ``_ensure_quota_service``, so every
+    entry point (backend.main, job_trigger, bus_trigger, run_lark_trigger,
+    standalone MCP runner) works without calling ``bootstrap_quota_subsystem``.
 
     Raises:
-        SystemDefaultUnavailable: user opted in but free tier unusable.
-        LLMConfigNotConfigured: user opted out but own config missing.
+        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
+        LLMConfigNotConfigured: opted out but own config missing/incomplete.
     """
-    cfg = await get_user_runtime_llm_configs(user_id)
+    cfg = await get_user_runtime_llm_configs(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai
 
 
-async def get_user_runtime_llm_configs(user_id: str) -> RuntimeLLMConfigs:
-    """Resolve all runtime LLM configs, including the Codex agent config."""
-    quota_service = await _ensure_quota_service()
-    quota = await quota_service.get(user_id)
+async def get_user_runtime_llm_configs(
+    user_id: str, agent_id: str | None = None
+) -> RuntimeLLMConfigs:
+    """Resolve all runtime LLM configs (agent + helper + codex) for a user.
 
-    if quota is not None and quota.prefer_system_override:
-        claude, openai_cfg = await _use_system_default_strict(
-            user_id,
-            quota_service,
-        )
-        return RuntimeLLMConfigs(
-            claude=claude,
-            openai=openai_cfg,
-        )
+    ``agent_id`` (optional) overlays that agent's per-agent slot overrides
+    (``agent_slots``) on the owner's user-level defaults — used by the
+    agent-run + MCP-tool paths so each agent can pin its own framework/model
+    (agent slot) and helper model. The cloud SYSTEM free-tier branch ignores
+    it (fixed one-model pool).
 
-    return await _get_user_runtime_llm_configs_strict(user_id)
+    Delegates to the ONE provider decision tree — ``ProviderResolver`` — the
+    same classifier the HTTP quota gate and background workers use, so every
+    run path shares a single source of truth. In particular the agent-run path
+    now inherits the #48 auto-switch: an opted-in user whose free tier is
+    exhausted but who has a complete own provider is flipped to their own key
+    here too. Previously this path kept a divergent strict copy of the tree
+    that 402'd on exhaustion, ignoring the configured key on any run that did
+    not first pass through the HTTP middleware (background job/bus triggers).
+
+    ``resolve()`` returns ``(configs, source)``; we tag ``provider_source`` /
+    ``current_user_id`` so ``cost_tracker`` deducts the free-tier quota only on
+    the system branch. ``None`` means the free tier is disabled (local/desktop
+    mode) — fall back to the strict own-config resolution unchanged.
+
+    Raises (ProviderResolverError translated into the LLMResolverError family
+    the agent runtime + job/lark triggers already handle):
+        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
+        LLMConfigNotConfigured: opted out, own provider missing/incomplete.
+    """
+    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        NoProviderConfiguredError,
+        ProviderResolver,
+        ProviderResolverError,
+    )
+    from xyz_agent_context.agent_framework.system_provider_service import (
+        SystemProviderService,
+    )
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        UserProviderService,
+    )
+
+    db = await get_db_client()
+    resolver = ProviderResolver(
+        user_provider_svc=UserProviderService(db),
+        system_provider_svc=SystemProviderService.instance(),
+        quota_svc=await _ensure_quota_service(),
+    )
+    try:
+        resolved = await resolver.resolve(user_id, agent_id=agent_id)
+    except NoProviderConfiguredError as e:
+        # Opted out but own config missing/broken — same UX the strict
+        # own-config path raised before.
+        raise LLMConfigNotConfigured(str(e)) from e
+    except ProviderResolverError as e:
+        # Opted in, free tier gone, no own provider (QuotaExceededError), plus
+        # any other gate. Keep the SystemDefaultUnavailable *type* so triggers
+        # that string-match the class name (job_trigger, lark_trigger) are
+        # unaffected by the convergence.
+        raise SystemDefaultUnavailable(str(e)) from e
+
+    if resolved is None:
+        # SYSTEM_DISABLED — local/desktop mode, free tier not in play.
+        return await _get_user_runtime_llm_configs_strict(user_id, agent_id=agent_id)
+
+    cfgs, source = resolved
+    set_provider_source(source)
+    set_current_user_id(user_id)
+    return cfgs
 
 
 async def _ensure_quota_service():
@@ -778,52 +943,22 @@ async def _ensure_quota_service():
         return await bootstrap_quota_subsystem(db)
 
 
-async def _use_system_default_strict(
-    user_id: str,
-    quota_service,
+
+
+async def _get_user_llm_configs_strict(
+    user_id: str, agent_id: str | None = None
 ) -> tuple[ClaudeConfig, OpenAIConfig]:
-    """Strict system-default branch. Raises SystemDefaultUnavailable
-    with an actionable message if the free tier can't serve the request."""
-    from xyz_agent_context.agent_framework.system_provider_service import (
-        SystemProviderService,
-    )
-    from xyz_agent_context.agent_framework.provider_resolver import (
-        _llm_config_to_dataclasses,
-    )
-
-    sys_provider = SystemProviderService.instance()
-    if not sys_provider.is_enabled():
-        raise SystemDefaultUnavailable(
-            f"User {user_id!r} has opted in to the system free tier, but "
-            f"the administrator has disabled it. Either turn off 'Use free "
-            f"quota' in Settings and configure your own provider, or ask "
-            f"the administrator to enable SYSTEM_DEFAULT_LLM_ENABLED."
-        )
-
-    if not await quota_service.check(user_id):
-        raise SystemDefaultUnavailable(
-            f"User {user_id!r}: system free-tier quota exhausted. Either "
-            f"turn off 'Use free quota' in Settings and configure your "
-            f"own provider, or ask the administrator to grant more tokens."
-        )
-
-    # Budget available — tag ContextVars so cost_tracker's deduct hook
-    # attributes the cost correctly when the LLM call completes.
-    set_provider_source("system")
-    set_current_user_id(user_id)
-    return _llm_config_to_dataclasses(sys_provider.get_config())
-
-
-async def _get_user_llm_configs_strict(user_id: str) -> tuple[ClaudeConfig, OpenAIConfig]:
     """Strict version: raises LLMConfigNotConfigured on any missing
     slot / broken provider. The public `get_user_llm_configs` wraps
     this with a system-default fallback.
     """
-    cfg = await _get_user_runtime_llm_configs_strict(user_id)
+    cfg = await _get_user_runtime_llm_configs_strict(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai
 
 
-async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfigs:
+async def _get_user_runtime_llm_configs_strict(
+    user_id: str, agent_id: str | None = None
+) -> RuntimeLLMConfigs:
     """Resolve agent + helper (+ codex) configs via the single-point
     Provider Driver resolver. There is deliberately NO second
     hand-rolled fallback path: a young project keeps one resolver and
@@ -831,6 +966,8 @@ async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfig
     silently re-deriving configs through a stale parallel copy — the old
     fallback predated Codex and would mis-wire a codex agent into a
     ClaudeConfig.
+
+    ``agent_id`` (optional) overlays that agent's per-agent slot overrides.
     """
     from xyz_agent_context.utils.db_factory import get_db_client
     from xyz_agent_context.agent_framework.provider_driver import (
@@ -838,7 +975,7 @@ async def _get_user_runtime_llm_configs_strict(user_id: str) -> RuntimeLLMConfig
     )
 
     db = await get_db_client()
-    return await resolve_user_runtime_llm_configs(user_id, db)
+    return await resolve_user_runtime_llm_configs(user_id, db, agent_id=agent_id)
 
 
 async def setup_mcp_llm_context(agent_id: str) -> None:
@@ -856,4 +993,4 @@ async def setup_mcp_llm_context(agent_id: str) -> None:
             LLM providers. The caller should surface this as a tool error.
     """
     cfg = await get_agent_owner_runtime_llm_configs(agent_id)
-    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper)
+    set_user_config(cfg.claude, cfg.openai, cfg.codex, cfg.anthropic_helper, cfg.cli_helper)

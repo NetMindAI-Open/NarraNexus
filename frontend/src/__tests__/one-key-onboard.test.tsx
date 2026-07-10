@@ -112,6 +112,50 @@ describe('OneKeyOnboard', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 
+  test('needs_replace prompts to confirm, then re-sends with replace=true', async () => {
+    onboardMock
+      .mockResolvedValueOnce({
+        success: false,
+        needs_replace: true,
+        provider_type: 'netmind',
+        existing_masked: '***fXQA',
+      })
+      .mockResolvedValueOnce({ success: true, agent_model: 'claude-opus-4-8' });
+    const onComplete = vi.fn();
+    render(<OneKeyOnboard onComplete={onComplete} />);
+    selectProvider('netmind');
+    typeKey('nm-key-new');
+
+    fireEvent.click(screen.getByText('Start using NarraNexus'));
+
+    // Confirm dialog names the existing masked key.
+    await screen.findByText(/\*\*\*fXQA/);
+    fireEvent.click(screen.getByText('Replace key'));
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    expect(onboardMock).toHaveBeenNthCalledWith(1, 'nm-key-new', 'netmind');
+    expect(onboardMock).toHaveBeenNthCalledWith(2, 'nm-key-new', 'netmind', true);
+  });
+
+  test('declining the replace prompt does not re-send or complete', async () => {
+    onboardMock.mockResolvedValueOnce({
+      success: false,
+      needs_replace: true,
+      provider_type: 'netmind',
+      existing_masked: '***fXQA',
+    });
+    const onComplete = vi.fn();
+    render(<OneKeyOnboard onComplete={onComplete} />);
+    selectProvider('netmind');
+    typeKey('nm-key-new');
+
+    fireEvent.click(screen.getByText('Start using NarraNexus'));
+    fireEvent.click(await screen.findByText('Keep current'));
+
+    await waitFor(() => expect(onboardMock).toHaveBeenCalledTimes(1));
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
   test('start button is disabled while the key field is empty', () => {
     render(<OneKeyOnboard onComplete={() => {}} />);
     const button = screen.getByText('Start using NarraNexus').closest('button');

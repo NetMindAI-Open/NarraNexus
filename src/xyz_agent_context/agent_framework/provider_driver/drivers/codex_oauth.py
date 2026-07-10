@@ -33,7 +33,10 @@ credential can't serve chat-completions.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.api_config import CodexConfig
+from xyz_agent_context.agent_framework.api_config import (
+    CliHelperConfig,
+    CodexConfig,
+)
 from xyz_agent_context.agent_framework.provider_driver.base import (
     DriverHealth,
     _DriverBase,
@@ -55,8 +58,19 @@ class CodexOAuthDriver(_DriverBase):
 
     # build_claude_config / build_openai_config keep the _DriverBase
     # NotImplementedError defaults — Codex is not anthropic, and the OAuth
-    # credential can't serve chat-completions. Only build_codex_config
-    # (agent slot, codex_cli framework) is overridden below.
+    # credential can't serve chat-completions DIRECTLY. The agent slot uses
+    # build_codex_config; the helper slot uses build_cli_helper_config
+    # (framework="codex_cli"), which runs one-shot through the same codex CLI
+    # so a single subscription covers both slots.
+
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        return CliHelperConfig(
+            framework="codex_cli",
+            model=model,
+            base_url=self.card.base_url or "",
+            auth_type=self.card.auth_type or "oauth",
+            api_key=self.card.api_key or "",
+        )
 
     def build_codex_config(
         self,

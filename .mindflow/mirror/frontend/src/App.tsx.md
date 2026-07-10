@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-06-23
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-07 — free-tier auto-switch one-time banner (#48)
+
+When the free tier runs out and the backend auto-switches the user to their own
+provider, it writes a one-time SYSTEM notice tagged `source.type
+"free_tier_switch"`. New effect polls `api.getNotices(true)` on mount + window
+`focus` (the switch happens mid-session, server-side, on a request that
+otherwise succeeds — no error for api.ts to catch), and on a hit shows a green
+dismissible top banner then `markNoticeRead` so it surfaces exactly once. Mirrors
+the existing `quota-exceeded` / `session-expired` banner pattern (hard-coded
+English copy, click-to-dismiss).
 
 ## 2026-06-23 — `/app/you` route added
 

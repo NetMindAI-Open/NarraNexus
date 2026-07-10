@@ -2,29 +2,36 @@
 @file_name: test_llm_config_fallback.py
 @author: Bin Liang
 @date: 2026-04-20
-@description: Unit tests for the strict system-default branch of the
-provider resolver (`_use_system_default_strict`).
+@description: System-default (free-tier) branch of the agent-run config
+resolver, exercised end-to-end through `get_user_runtime_llm_configs`.
 
-The old `_try_system_default_fallback` returned ``None`` silently when the
-feature was off or the quota was exhausted. That let callers chain a
-"then fall back to the user's own provider" — i.e. the system-default
-free tier was an opt-out safety net.
+History: this used to test a private `_use_system_default_strict` helper. The
+#48 convergence removed that divergent second decision tree — the agent-run
+path now delegates to the single `ProviderResolver`. These tests therefore
+drive the public entry point with the real resolver (only the outer wiring —
+db factory, user-provider service, quota service — is stubbed) and pin:
 
-The new contract (Bug 2 design) is explicit: when a user opts in to the
-system free tier we strictly use it or raise `SystemDefaultUnavailable`.
-No silent fallback in either direction. These tests pin that contract.
+  - opted in + budget → system config returned, ContextVars tagged "system"
+  - opted in + exhausted + no own provider → SystemDefaultUnavailable
+  - free tier disabled → NO hard error; falls through to the own-config path
+    (behavior change from the old strict helper, which raised here)
 
-Broader decision-tree tests live in `test_provider_resolution.py`.
+Broader decision-tree tests live in `test_provider_resolver.py`; the #48
+auto-switch + notice specifics live in `test_free_tier_auto_switch.py`.
 """
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import xyz_agent_context.agent_framework.api_config as api_config
 from xyz_agent_context.agent_framework.api_config import (
+    ClaudeConfig,
+    OpenAIConfig,
+    RuntimeLLMConfigs,
     SystemDefaultUnavailable,
-    _use_system_default_strict,
     get_current_user_id,
     get_provider_source,
+    get_user_runtime_llm_configs,
     set_current_user_id,
     set_provider_source,
 )
@@ -92,39 +99,69 @@ def _stub_sys(enabled: bool, cfg: LLMConfig | None = None):
     )
 
 
-def _stub_quota(has_budget: bool) -> MagicMock:
+def _mk_quota_svc(*, prefer_system: bool, has_budget: bool) -> MagicMock:
     svc = MagicMock()
+    quota_row = MagicMock()
+    quota_row.prefer_system_override = prefer_system
+    svc.get = AsyncMock(return_value=quota_row)
     svc.check = AsyncMock(return_value=has_budget)
-    QuotaService.set_default(svc)
+    svc.disable_preference_if_enabled = AsyncMock(return_value=True)
     return svc
 
 
+def _wire(monkeypatch, quota_svc, *, user_cfg=None):
+    """Stub the outer wiring get_user_runtime_llm_configs constructs, leaving
+    the real ProviderResolver decision tree in play. SystemProviderService is
+    stubbed via its singleton (_stub_sys)."""
+    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.agent_framework import user_provider_service
+
+    monkeypatch.setattr(api_config, "_ensure_quota_service",
+                        AsyncMock(return_value=quota_svc))
+    monkeypatch.setattr(db_factory, "get_db_client",
+                        AsyncMock(return_value=MagicMock()))
+
+    user_svc = MagicMock()
+    user_svc.get_user_config = AsyncMock(return_value=user_cfg)
+    monkeypatch.setattr(user_provider_service, "UserProviderService",
+                        lambda _db: user_svc)
+
+
 @pytest.mark.asyncio
-async def test_raises_when_system_disabled():
+async def test_system_disabled_falls_through_to_own_config(monkeypatch):
+    """Behavior change (#48 convergence): a disabled free tier is no longer a
+    hard error for an opted-in user — resolve() returns None (SYSTEM_DISABLED)
+    and we fall through to the strict own-config path."""
     _stub_sys(enabled=False)
-    svc = _stub_quota(True)
-    with pytest.raises(SystemDefaultUnavailable, match="(disabled|administrator)"):
-        await _use_system_default_strict("usr_x", svc)
+    _wire(monkeypatch, _mk_quota_svc(prefer_system=True, has_budget=True))
+    sentinel = RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
+    monkeypatch.setattr(api_config, "_get_user_runtime_llm_configs_strict",
+                        AsyncMock(return_value=sentinel))
+
+    cfg = await get_user_runtime_llm_configs("usr_x")
+    assert cfg is sentinel  # fell through, did not raise
 
 
 @pytest.mark.asyncio
-async def test_raises_when_quota_exhausted():
+async def test_raises_when_quota_exhausted_and_no_own_provider(monkeypatch):
     _stub_sys(enabled=True, cfg=_valid_system_cfg())
-    svc = _stub_quota(has_budget=False)
+    _wire(monkeypatch, _mk_quota_svc(prefer_system=True, has_budget=False),
+          user_cfg=None)
     with pytest.raises(SystemDefaultUnavailable, match="quota"):
-        await _use_system_default_strict("usr_x", svc)
+        await get_user_runtime_llm_configs("usr_x")
 
 
 @pytest.mark.asyncio
-async def test_success_sets_context_vars_and_returns_dataclasses():
+async def test_success_sets_context_vars_and_returns_dataclasses(monkeypatch):
     _stub_sys(enabled=True, cfg=_valid_system_cfg())
-    svc = _stub_quota(has_budget=True)
-    claude, openai_cfg = await _use_system_default_strict("usr_y", svc)
+    _wire(monkeypatch, _mk_quota_svc(prefer_system=True, has_budget=True))
 
-    assert claude.api_key == "sk-system"
-    assert claude.model == "claude-sonnet-4-5"
-    assert openai_cfg.api_key == "sk-system"
-    assert openai_cfg.model == "gpt-sys"
+    cfg = await get_user_runtime_llm_configs("usr_y")
+
+    assert cfg.claude.api_key == "sk-system"
+    assert cfg.claude.model == "claude-sonnet-4-5"
+    assert cfg.openai.api_key == "sk-system"
+    assert cfg.openai.model == "gpt-sys"
 
     # ContextVars tagged so cost_tracker's post-call hook deducts to the
     # right user's quota.

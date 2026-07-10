@@ -109,6 +109,28 @@
       "statusRunning": "em execução",
       "statusFailed": "falhou",
       "statusPending": "pendente"
+    },
+    "inner": {
+      "viewLoop": "Ver o que fez neste turno",
+      "loading": "Carregando…",
+      "empty": "Sem passos de execução neste turno",
+      "loadFailed": "Não foi possível carregar os detalhes",
+      "source": {
+        "job": "Tarefa agendada",
+        "collaboration": "Colaboração",
+        "im": "Mensagem",
+        "skill": "Aprendizado de habilidade",
+        "activity": "Atividade em segundo plano",
+        "lark": "Lark",
+        "callback": "Retorno de chamada"
+      }
+    },
+    "error": {
+      "badgeLabel": "Ver detalhes do erro",
+      "titleFailed": "A execução falhou",
+      "titleRecovered": "Concluído com erros",
+      "situationFailed": "Esta execução encontrou um erro e o agente não conseguiu responder normalmente. Detalhes:",
+      "situationRecovered": "O agente respondeu, mas ocorreram erros durante a execução. Detalhes:"
     }
   },
   "awareness": {
@@ -859,6 +881,12 @@
       "roomsSub": "Canais",
       "read": "Lidas",
       "readSub": "Taxa"
+    },
+    "busFailures": {
+      "title": "Mensagens não entregues",
+      "retry": "Tentar novamente",
+      "unknownError": "Erro desconhecido",
+      "attempts": "{{count}} tentativas falhadas"
     }
   },
   "help": {

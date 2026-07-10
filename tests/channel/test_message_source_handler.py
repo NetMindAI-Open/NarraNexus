@@ -23,11 +23,17 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def reset_registry():
-    """Each test gets a clean registry — registration is global state."""
+    """Each test gets a clean registry — and the ORIGINAL registrations come
+    back afterwards. Modules register at import time, so a bare clear() left
+    the registry permanently empty for every test that ran later in the same
+    session (broke tests/message_bus/test_bus_channel_inbox_skip.py, which
+    checks the real registrations)."""
     from xyz_agent_context.channel.message_source_handler import MessageSourceRegistry
+    saved = dict(MessageSourceRegistry._handlers)  # type: ignore[attr-defined]
     MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
     yield
     MessageSourceRegistry._handlers.clear()  # type: ignore[attr-defined]
+    MessageSourceRegistry._handlers.update(saved)  # type: ignore[attr-defined]
 
 
 def test_register_and_get_returns_handler():

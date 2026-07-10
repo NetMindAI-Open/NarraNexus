@@ -187,26 +187,19 @@ create_service "jobs" "Job Trigger" \
 create_service "bus" "Bus Trigger" \
     "${UV_BIN} run python -m xyz_agent_context.message_bus.message_bus_trigger"
 
-# IM channel triggers — must mirror scripts/dev-local.sh so cloud and local
-# stay in lockstep. Missing any of these means the bot never receives events.
-create_service "lark" "Lark Trigger" \
-    "${UV_BIN} run python -m xyz_agent_context.module.lark_module.run_lark_trigger"
-
-create_service "slack" "Slack Trigger" \
-    "${UV_BIN} run python -m xyz_agent_context.module.slack_module.run_slack_trigger"
-
-create_service "telegram" "Telegram Trigger" \
-    "${UV_BIN} run python -m xyz_agent_context.module.telegram_module.run_telegram_trigger"
-
-create_service "discord" "Discord Trigger" \
-    "${UV_BIN} run python -m xyz_agent_context.module.discord_module.run_discord_trigger"
+# Consolidated IM channel triggers — one supervisor process runs every channel
+# (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) in a single
+# event loop, replacing the old one-service-per-channel layout. Must mirror
+# scripts/dev-local.sh so cloud and local stay in lockstep.
+create_service "channels" "Channel Triggers" \
+    "${UV_BIN} run python -m xyz_agent_context.module.run_channel_triggers"
 
 sudo systemctl daemon-reload
 echo -e "${G}  Systemd services created${R}"
 
 # --- Start services ---
 echo -e "${Y}[6/6] Starting services...${R}"
-for svc in backend mcp poller jobs bus lark slack telegram discord; do
+for svc in backend mcp poller jobs bus channels; do
     sudo systemctl enable "narranexus-${svc}" --quiet
     sudo systemctl restart "narranexus-${svc}"
     echo -e "  ${G}●${R} narranexus-${svc}"

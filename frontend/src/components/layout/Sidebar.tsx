@@ -65,6 +65,12 @@ export function Sidebar() {
   const { clearAll: clearChat } = useChatStore();
   const { mode, features, setMode, setCloudApiUrl } = useRuntimeStore();
   const clearPreload = usePreloadStore((s) => s.clearAll);
+
+  // The cloud/local mode switcher is hidden from the sidebar — we don't want
+  // users choosing the deployment mode. All the switching logic (handleSwitchMode,
+  // mode state, /mode-select) is kept intact behind this flag so it can be
+  // re-enabled by flipping to true; only the UI entry points are gated.
+  const SHOW_MODE_SWITCHER = false;
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { isDark } = useTheme();
   const { t } = useTranslation();
@@ -295,7 +301,8 @@ export function Sidebar() {
       <div className="px-3 py-2 border-t border-[var(--rule)] space-y-1">
         {!collapsed ? (
           <>
-            {/* Mode Switcher */}
+            {/* Mode Switcher — hidden (SHOW_MODE_SWITCHER); logic preserved */}
+            {SHOW_MODE_SWITCHER && (
             <div className="relative">
               <Button
                 variant="ghost"
@@ -335,6 +342,7 @@ export function Sidebar() {
                 </div>
               )}
             </div>
+            )}
             <Button
               variant="ghost"
               size="sm"
@@ -384,6 +392,7 @@ export function Sidebar() {
           </>
         ) : (
           <div className="flex flex-col items-center gap-1">
+            {SHOW_MODE_SWITCHER && (
             <Button
               variant="ghost"
               size="icon"
@@ -397,6 +406,7 @@ export function Sidebar() {
                 <Cloud className="w-4 h-4" />
               )}
             </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"

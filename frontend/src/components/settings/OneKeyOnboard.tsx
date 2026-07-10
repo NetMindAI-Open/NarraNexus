@@ -19,7 +19,7 @@
 
 import { useMemo, useState } from 'react';
 import { ArrowRight, CheckCircle2, ExternalLink, KeyRound, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui';
+import { Button, useConfirm } from '@/components/ui';
 import { PaperCard, FormField, TextInput } from '@/components/nm';
 import { api, type OnboardProviderType } from '@/lib/api';
 
@@ -97,12 +97,27 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
     keyCheck: string;
   } | null>(null);
 
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const selected = ONE_KEY_PROVIDERS.find((p) => p.id === providerType)!;
   const detected = useMemo(() => detectOfficialType(apiKey), [apiKey]);
   const mismatch =
     detected !== null &&
     detected !== providerType &&
     (providerType === 'anthropic' || providerType === 'openai' || detected === 'anthropic');
+
+  const finishSuccess = (res: Awaited<ReturnType<typeof api.onboard>>) => {
+    setApiKey('');
+    // Explicit success state — on /setup onComplete navigates away
+    // immediately, but in Settings the card stays mounted and a
+    // silent success reads as "nothing happened".
+    setDone({
+      agentModel: res.agent_model ?? '',
+      helperModel: res.helper_model ?? '',
+      framework: res.agent_framework ?? '',
+      keyCheck: res.key_check ?? '',
+    });
+    onComplete();
+  };
 
   const handleStart = async () => {
     const key = apiKey.trim();
@@ -114,19 +129,25 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
     setError('');
     setDone(null);
     try {
-      const res = await api.onboard(key, providerType);
-      if (res.success) {
-        setApiKey('');
-        // Explicit success state — on /setup onComplete navigates away
-        // immediately, but in Settings the card stays mounted and a
-        // silent success reads as "nothing happened".
-        setDone({
-          agentModel: res.agent_model ?? '',
-          helperModel: res.helper_model ?? '',
-          framework: res.agent_framework ?? '',
-          keyCheck: res.key_check ?? '',
+      let res = await api.onboard(key, providerType);
+      // Key rotation: the user already has a key for this provider. Confirm the
+      // swap, then re-send with replace=true — the backend atomically switches
+      // both slots to the new key (no manual delete-then-add dance).
+      if (res.needs_replace) {
+        const ok = await confirm({
+          title: 'Replace your existing key?',
+          message: `You already have a ${selected.keyName} key (${res.existing_masked ?? '***'}) set up. Replace it with the new key? Your agent and helper will switch to the new key right away.`,
+          confirmText: 'Replace key',
+          cancelText: 'Keep current',
         });
-        onComplete();
+        if (!ok) {
+          setSubmitting(false);
+          return;
+        }
+        res = await api.onboard(key, providerType, true);
+      }
+      if (res.success) {
+        finishSuccess(res);
       } else {
         setError(res.detail || 'Setup failed');
       }
@@ -272,6 +293,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
           </div>
         )}
       </div>
+      {confirmDialog}
     </PaperCard>
   );
 }

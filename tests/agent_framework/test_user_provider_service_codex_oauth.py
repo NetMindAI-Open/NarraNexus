@@ -136,6 +136,10 @@ async def test_claude_agent_framework_rejects_openai_provider_for_agent_slot():
     db = _FakeDB()
     svc = UserProviderService(db)
     _, new_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
+    # Adding codex_oauth auto-sets framework=codex_cli (subscription covers
+    # both slots). Force claude_code back to exercise the protocol guard:
+    # a claude_code agent slot must reject an openai-protocol provider.
+    await svc.set_user_agent_framework("u1", "claude_code")
 
     with pytest.raises(ValueError, match="requires protocol \\['anthropic'\\]"):
         await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex")

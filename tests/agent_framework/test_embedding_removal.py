@@ -52,9 +52,9 @@ def test_set_user_config_has_no_embedding_arg():
     assert "embedding" not in params, (
         f"set_user_config must not take an embedding arg, got {params}"
     )
-    assert params == ["claude", "openai", "codex", "anthropic_helper"], (
+    assert params == ["claude", "openai", "codex", "anthropic_helper", "cli_helper"], (
         f"set_user_config signature must be "
-        f"(claude, openai, codex, anthropic_helper), got {params}"
+        f"(claude, openai, codex, anthropic_helper, cli_helper), got {params}"
     )
 
 
@@ -175,7 +175,7 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
     )
 
     # resolve()'s USER branch delegates to the single-point driver resolver.
-    async def _fake_resolve(_user_id, _db):
+    async def _fake_resolve(_user_id, _db, agent_id=None):
         return RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
 
     monkeypatch.setattr(

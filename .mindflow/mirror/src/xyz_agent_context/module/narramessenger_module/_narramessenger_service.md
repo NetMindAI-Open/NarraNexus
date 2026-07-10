@@ -4,13 +4,44 @@ stub: false
 last_verified: 2026-07-02
 ---
 
+## 2026-07-02 (Commit 6) — bind flow switched to Direct Matrix
+
+The driver now completes the bind by calling
+`POST /bind-agent/runtime-ready?token=<bind_token>` (Direct Matrix) instead
+of `POST /api/agent-gateway/connect` (Gateway/Polling). The setup guide's
+Runtime Selection Rule is explicit that Direct Matrix is the default path
+("Do not ask the creator to choose Matrix vs Gateway"). Gateway is still a
+supported transport on the NarraMessenger backend for callers that hit
+`/connect` directly with a stored bearer, but this driver no longer takes
+that path.
+
+Two new behaviours land with the switch:
+
+1. `_parse_setup_guide` now extracts a fourth field — `matrix_access_token`,
+   the `syt_...` string from the guide's Matrix Connection Details table.
+   The Matrix HTTP API accepts ONLY this token; the guide is explicit that
+   Matrix rejects the Narra bearer with `M_UNKNOWN_TOKEN`. The regex is
+   conservative (`syt_` + 20+ alphanumerics) so stray `syt_short` prose
+   examples don't shadow the real value.
+2. `do_bind` refuses to persist a credential row when the guide reveals
+   the bearer but not the Matrix access token. Reason: MatrixTrigger.connect
+   raises ValueError on empty access_token, which the base treats as a
+   permanent failure and disables the credential. Returning a clean error
+   from `do_bind` gives the owner a better recovery hint ("re-copy the bind
+   link and try again") than a silent auto-disable of a half-provisioned
+   row.
+
+The response's `roomId` is stored as `bind_room_id` on the credential — the
+room where the owner will send the first test message per the guide's
+Post-Bind Routing Verification step.
+
 ## Why it exists
 
 The deterministic bind-flow driver, shared by the `narra_bind` MCP tool and the
 `/api/narramessenger/bind` backend route. It replaces the original fragile path
 (tell the agent to read `setup-guide.md` and self-bind) — where the agent could
 pick Direct/Gateway on its own and often failed to persist the credential to our
-DB. Here WE always pick Gateway and always write the row.
+DB. Here WE always pick Direct Matrix and always write the row.
 
 ## Design decisions
 

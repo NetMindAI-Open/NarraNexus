@@ -55,6 +55,13 @@ class ContextData(BaseModel):
     bootstrap_active: bool = False  # Whether bootstrap mode is active for this context
     user_role: Optional[str] = None  # Current user role description ("Creator (Boss)" or "User/Customer")
 
+    # Runtime LLM identity (populated by BasicInfoModule.hook_data_gathering
+    # via agent_framework.resolve_agent_model_identity). Rendered into the
+    # system prompt's "LLM Model" line so the agent states its REAL framework
+    # + model instead of a hardcoded brand. See basic_info_module prompts.py.
+    agent_info_model_type: Optional[str] = None  # Framework display name, e.g. "Codex CLI"
+    model_name: Optional[str] = None  # Configured model string, e.g. "gpt-5"
+
     # Deployment environment (populated by BasicInfoModule.hook_data_gathering).
     # Short tag + verbose description block — both rendered into the system
     # prompt so the agent can reason about cloud vs local constraints.

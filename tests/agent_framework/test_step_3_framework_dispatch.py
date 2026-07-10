@@ -34,16 +34,39 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop impo
 
 
 class _FakeDB:
-    """Minimal stand-in for AsyncDatabaseClient — only ``get_one`` is
-    used by the dispatcher."""
+    """Table-aware stand-in for AsyncDatabaseClient.
 
-    def __init__(self, row):
-        self.row = row
+    ``_resolve_agent_framework_name`` is now keyed by agent_id and resolves
+    framework from the OWNER's user_slots, honouring a per-agent agent_slots
+    override that actually rebinds the slot (has a provider_id). Seed those
+    three tables here.
+    """
+
+    def __init__(self, *, owner_framework=None, override=None, owner="u1",
+                 agent_id="ag1"):
         self.calls: list[tuple] = []
+        self.tables: dict[str, list[dict]] = {
+            "agents": [], "user_slots": [], "agent_slots": []
+        }
+        if owner is not None:
+            self.tables["agents"].append(
+                {"agent_id": agent_id, "created_by": owner}
+            )
+            row = {"user_id": owner, "slot_name": "agent"}
+            if owner_framework is not None:
+                row["agent_framework"] = owner_framework
+            self.tables["user_slots"].append(row)
+        if override is not None:
+            self.tables["agent_slots"].append(
+                {"agent_id": agent_id, "slot_name": "agent", **override}
+            )
 
     async def get_one(self, table, filters):
         self.calls.append((table, dict(filters)))
-        return self.row
+        for r in self.tables.get(table, []):
+            if all(r.get(k) == v for k, v in filters.items()):
+                return r
+        return None
 
 
 class _DeadDB:
@@ -80,16 +103,16 @@ def test_registry_resolves_codex_cli_to_codex_sdk_v2(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_dispatch_returns_codex_when_user_chose_codex():
-    db = _FakeDB({"agent_framework": "codex_cli"})
-    name = await _resolve_agent_framework_name("u1", db)
+async def test_dispatch_returns_codex_when_owner_chose_codex():
+    db = _FakeDB(owner_framework="codex_cli")
+    name = await _resolve_agent_framework_name("ag1", db)
     assert name == "codex_cli"
 
 
 @pytest.mark.asyncio
-async def test_dispatch_returns_claude_when_user_chose_claude():
-    db = _FakeDB({"agent_framework": "claude_code"})
-    name = await _resolve_agent_framework_name("u1", db)
+async def test_dispatch_returns_claude_when_owner_chose_claude():
+    db = _FakeDB(owner_framework="claude_code")
+    name = await _resolve_agent_framework_name("ag1", db)
     assert name == "claude_code"
 
 
@@ -97,9 +120,21 @@ async def test_dispatch_returns_claude_when_user_chose_claude():
 async def test_dispatch_returns_codex_cli_v2_verbatim():
     """v2 framework names must pass through verbatim so the registry
     can route them to CodexSDKv2."""
-    db = _FakeDB({"agent_framework": "codex_cli_v2"})
-    name = await _resolve_agent_framework_name("u1", db)
+    db = _FakeDB(owner_framework="codex_cli_v2")
+    name = await _resolve_agent_framework_name("ag1", db)
     assert name == "codex_cli_v2"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_per_agent_override_wins():
+    """A per-agent override that rebinds the agent slot (has a provider)
+    overrides the owner default framework."""
+    db = _FakeDB(
+        owner_framework="claude_code",
+        override={"provider_id": "p_x", "agent_framework": "codex_cli"},
+    )
+    name = await _resolve_agent_framework_name("ag1", db)
+    assert name == "codex_cli"
 
 
 # ----- fallback paths ----------------------------------------------
@@ -107,17 +142,17 @@ async def test_dispatch_returns_codex_cli_v2_verbatim():
 
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_when_row_missing():
-    """New user with no user_slots row → claude_code default."""
-    db = _FakeDB(None)
-    name = await _resolve_agent_framework_name("u_new", db)
+    """Owner with no user_slots agent row → claude_code default."""
+    db = _FakeDB(owner_framework=None)
+    name = await _resolve_agent_framework_name("ag1", db)
     assert name == "claude_code"
 
 
 @pytest.mark.asyncio
-async def test_dispatch_falls_back_when_agent_framework_null():
-    """Existing row where agent_framework column is null (pre-migration row)."""
-    db = _FakeDB({"agent_framework": None, "provider_id": "p1"})
-    name = await _resolve_agent_framework_name("u1", db)
+async def test_dispatch_falls_back_when_owner_missing():
+    """Agent with no owner row → defensive claude_code."""
+    db = _FakeDB(owner=None)
+    name = await _resolve_agent_framework_name("ag1", db)
     assert name == "claude_code"
 
 
@@ -127,8 +162,8 @@ async def test_dispatch_passes_unknown_framework_through():
     by the dispatcher anymore — they propagate to ``get_agent_loop_driver``
     which raises ``ValueError`` so a typo surfaces. This is the v2
     behaviour deliberately chosen over silent fallback."""
-    db = _FakeDB({"agent_framework": "future_framework_X"})
-    name = await _resolve_agent_framework_name("u1", db)
+    db = _FakeDB(owner_framework="future_framework_X")
+    name = await _resolve_agent_framework_name("ag1", db)
     assert name == "future_framework_X"
     with pytest.raises(ValueError):
         get_agent_loop_driver(framework=name, working_path="/tmp")
@@ -137,7 +172,7 @@ async def test_dispatch_passes_unknown_framework_through():
 @pytest.mark.asyncio
 async def test_dispatch_falls_back_on_db_error():
     """Any DB error (connection lost, etc) → defensive claude_code."""
-    name = await _resolve_agent_framework_name("u1", _DeadDB())
+    name = await _resolve_agent_framework_name("ag1", _DeadDB())
     assert name == "claude_code"
 
 
@@ -145,8 +180,13 @@ async def test_dispatch_falls_back_on_db_error():
 
 
 @pytest.mark.asyncio
-async def test_dispatch_queries_user_slots_with_agent_slot_filter():
-    """Pin down that we read from the right table + filter shape."""
-    db = _FakeDB({"agent_framework": "codex_cli"})
-    await _resolve_agent_framework_name("u123", db)
-    assert db.calls == [("user_slots", {"user_id": "u123", "slot_name": "agent"})]
+async def test_dispatch_reads_override_then_owner_default():
+    """Pin the read order: agent_slots override first, then agents(owner) +
+    the owner's user_slots agent row."""
+    db = _FakeDB(owner_framework="codex_cli")
+    await _resolve_agent_framework_name("ag1", db)
+    assert db.calls == [
+        ("agent_slots", {"agent_id": "ag1", "slot_name": "agent"}),
+        ("agents", {"agent_id": "ag1"}),
+        ("user_slots", {"user_id": "u1", "slot_name": "agent"}),
+    ]

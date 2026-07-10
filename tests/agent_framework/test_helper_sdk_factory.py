@@ -121,7 +121,7 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
         AnthropicHelperSDK,
     )
 
-    async def _fake_resolve(_uid, _db):
+    async def _fake_resolve(_uid, _db, agent_id=None):
         return RuntimeLLMConfigs(
             claude=ClaudeConfig(),
             openai=OpenAIConfig(),

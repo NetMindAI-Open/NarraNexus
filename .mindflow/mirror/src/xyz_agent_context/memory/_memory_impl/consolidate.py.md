@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/memory/_memory_impl/consolidate.py
-last_verified: 2026-06-14
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — thread db for explicit cost accounting (Phase 0 / module H)
+
+`consolidate()` and `_plan_with_bisect()` gained an optional `db` param, passed
+through to `sdk.llm_function(db=...)`, so consolidation records its token usage
+even when no ambient cost context is set (double insurance; the worker also sets
+one via [[memory_consolidation_worker]]). Bisect recursion forwards `db`.
+
+
 
 # consolidate.py — unified Agent Memory
 

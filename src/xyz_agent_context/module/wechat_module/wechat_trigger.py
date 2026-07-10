@@ -32,6 +32,7 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
 )
 from xyz_agent_context.channel.channel_trigger_base import (
+    CHANNEL_SILENT_SENTINEL,
     ChannelHistoryConfig,
     ChannelTriggerBase,
 )
@@ -44,7 +45,12 @@ from xyz_agent_context.schema.parsed_message import (
 
 from ._wechat_credential_manager import WeChatCredential, WeChatCredentialManager
 from .wechat_context_builder import WeChatContextBuilder
-from .wechat_sdk_client import WeChatSDKClient, WeChatSDKError, extract_text
+from .wechat_sdk_client import (
+    WeChatSDKClient,
+    WeChatSDKError,
+    extract_text,
+    send_text_once,
+)
 
 
 class WeChatTrigger(ChannelTriggerBase):
@@ -213,9 +219,23 @@ class WeChatTrigger(ChannelTriggerBase):
             sent = self._extract_wechat_reply(item)
             if sent:
                 replies.append(sent)
-        output = "\n".join(replies) if replies else "(stayed silent)"
+        output = "\n".join(replies) if replies else CHANNEL_SILENT_SENTINEL
         logger.info(f"WeChatTrigger [{credential.agent_id}] agent responded: {output[:200]}")
         return output
+
+    async def send_channel_reply(
+        self, credential: WeChatCredential, message: ParsedMessage, text: str
+    ) -> None:
+        """Error-fallback send: a WeChat DM addressed by the inbound message's
+        sender + context_token — the same routing ``wechat_send`` uses."""
+        context_token = (message.raw or {}).get("context_token", "") or ""
+        await send_text_once(
+            credential.bot_token,
+            credential.base_url,
+            message.sender_id,
+            context_token,
+            text,
+        )
 
     @staticmethod
     def _extract_wechat_reply(item: dict) -> str:

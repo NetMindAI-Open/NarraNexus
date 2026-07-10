@@ -323,19 +323,17 @@ async def test_set_slot_helper_accepts_anthropic_provider():
 
 
 @pytest.mark.asyncio
-async def test_set_slot_helper_rejects_oauth_providers():
-    """OAuth rows (claude_oauth / codex_oauth) can't make direct API
-    calls — the helper slot must reject them at assignment time, not
-    fail cryptically at agent-loop time."""
+async def test_set_slot_helper_accepts_oauth_providers():
+    """OAuth rows (claude_oauth / codex_oauth) now serve the helper slot via
+    the CLI helper (subscription covers both slots, 2026-07). set_slot must
+    accept them — the resolver routes them to a CliHelperConfig."""
     db = _FakeDB()
     svc = UserProviderService(db)
     _, claude_ids = await svc.add_provider(user_id="u1", card_type="claude_oauth")
-    _, codex_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
 
-    with pytest.raises(ValueError, match="cannot use OAuth provider"):
-        await svc.set_slot("u1", "helper_llm", claude_ids[0], "haiku")
-    with pytest.raises(ValueError, match="cannot use OAuth provider"):
-        await svc.set_slot("u1", "helper_llm", codex_ids[0], "gpt-5.4-mini")
+    # Re-assigning an OAuth provider to the helper slot must NOT raise.
+    cfg = await svc.set_slot("u1", "helper_llm", claude_ids[0], "haiku")
+    assert cfg.slots["helper_llm"].provider_id == claude_ids[0]
 
 
 @pytest.mark.asyncio
@@ -711,3 +709,64 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
     probe = await _probe_agent_framework_auth("claude_code", user_id="u2")
     assert probe["ok"] is True
     assert "API-key provider" in probe["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 follow-up: netmind inference base is env-configurable, but ONLY on
+# the use-subscription (minted-key) path. Manual paste keeps the prod default.
+# ---------------------------------------------------------------------------
+
+def test_build_dual_providers_netmind_default_is_prod():
+    """No inference_base → the hardcoded prod bases (manual-paste path)."""
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {r["protocol"]: r for r in _build_dual_providers("netmind", "k", "g")}
+    assert rows["anthropic"]["base_url"] == "https://api.netmind.ai/inference-api/anthropic"
+    assert rows["openai"]["base_url"] == "https://api.netmind.ai/inference-api/openai/v1"
+
+
+def test_build_dual_providers_netmind_inference_base_override():
+    """use-subscription passes a base → both rows point at that env (dev)."""
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {
+        r["protocol"]: r
+        for r in _build_dual_providers(
+            "netmind", "k", "g",
+            inference_base="https://test.api.netmind.ai/inference-api",
+        )
+    }
+    assert rows["anthropic"]["base_url"] == "https://test.api.netmind.ai/inference-api/anthropic"
+    assert rows["openai"]["base_url"] == "https://test.api.netmind.ai/inference-api/openai/v1"
+
+
+def test_build_dual_providers_trailing_slash_normalized():
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {
+        r["protocol"]: r
+        for r in _build_dual_providers(
+            "netmind", "k", "g",
+            inference_base="https://test.api.netmind.ai/inference-api/",  # trailing /
+        )
+    }
+    assert rows["openai"]["base_url"] == "https://test.api.netmind.ai/inference-api/openai/v1"
+
+
+def test_inference_base_override_only_applies_to_netmind():
+    """A stray inference_base must NOT rewrite yunwu/openrouter bases."""
+    from xyz_agent_context.agent_framework.user_provider_service import (
+        _build_dual_providers,
+    )
+    rows = {
+        r["protocol"]: r
+        for r in _build_dual_providers(
+            "yunwu", "k", "g",
+            inference_base="https://test.api.netmind.ai/inference-api",
+        )
+    }
+    assert "netmind" not in rows["openai"]["base_url"]
+    assert rows["openai"]["base_url"] == "https://api.yunwuai.cloud/v1"

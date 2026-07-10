@@ -179,51 +179,10 @@ class NarramessengerClient:
             total_timeout=self._SHORT_TIMEOUT,
         )
 
-    # ------------------------------------------------------------------
-    # Outbound (reply / proactive send) — chat proxy
-    # ------------------------------------------------------------------
-
-    async def chat_send(
-        self,
-        room_id: str,
-        text: str,
-        txn_id: str,
-        conversation_type: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Send a text message to an authorized room.
-
-        Bearer-only, no invocation binding, no reply deadline — this is the
-        v1 reply AND proactive-send path. Returns ``data`` with ``event_id``.
-        """
-        body: dict[str, Any] = {"room_id": room_id, "text": text, "txn_id": txn_id}
-        if conversation_type:
-            body["conversation_type"] = conversation_type
-        resp = await self._request(
-            "POST",
-            "/api/agent-runtime/chat/send",
-            json_body=body,
-            total_timeout=self._SHORT_TIMEOUT,
-        )
-        # Envelope shape: {"command": "im send", "status": "ok", "data": {...}}
-        return resp.get("data", resp) if isinstance(resp, dict) else {}
-
-    async def reply(self, invocation_id: str, text: str) -> dict[str, Any]:
-        """Reply to a specific gateway invocation.
-
-        This BOTH delivers the message AND closes the invocation — so it does
-        not leave the invocation hanging until the 15-min server deadline
-        (unlike ``chat_send``, which delivers but never acks). Use this for
-        replying to the message the agent was invoked on; use ``chat_send``
-        for proactive/agent-initiated messages (no invocation to ack).
-
-        Returns ``{"success": true}`` on success.
-        """
-        return await self._request(
-            "POST",
-            f"/api/agent-gateway/invocations/{invocation_id}/reply",
-            json_body={"text": text},
-            total_timeout=self._SHORT_TIMEOUT,
-        )
+    # NOTE: outbound send is Matrix-native now — see ``_matrix_send`` (upload +
+    # room_send). The old Gateway ``/chat/send`` + ``/invocations/{id}/reply``
+    # methods were removed in the Phase-3 send unification (2026-07-03); this
+    # client is now bind + status only.
 
     async def status(self) -> dict[str, Any]:
         """Liveness / binding status for this bearer token."""

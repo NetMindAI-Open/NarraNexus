@@ -109,6 +109,28 @@
       "statusRunning": "실행 중",
       "statusFailed": "실패",
       "statusPending": "대기 중"
+    },
+    "inner": {
+      "viewLoop": "이번 턴 내용 보기",
+      "loading": "불러오는 중…",
+      "empty": "이번 턴에 펼칠 실행 기록이 없습니다",
+      "loadFailed": "세부 정보를 불러오지 못했습니다",
+      "source": {
+        "job": "예약 작업",
+        "collaboration": "협업",
+        "im": "메시지",
+        "skill": "스킬 학습",
+        "activity": "백그라운드 활동",
+        "lark": "Lark",
+        "callback": "콜백"
+      }
+    },
+    "error": {
+      "badgeLabel": "오류 세부정보 보기",
+      "titleFailed": "실행 실패",
+      "titleRecovered": "오류와 함께 완료됨",
+      "situationFailed": "이번 실행에서 오류가 발생하여 에이전트가 정상적으로 응답하지 못했습니다. 세부정보:",
+      "situationRecovered": "에이전트가 응답했지만 실행 중 오류가 발생했습니다. 세부정보:"
     }
   },
   "awareness": {
@@ -858,6 +880,12 @@
       "roomsSub": "채널",
       "read": "읽음",
       "readSub": "비율"
+    },
+    "busFailures": {
+      "title": "전달 실패 메시지",
+      "retry": "재시도",
+      "unknownError": "알 수 없는 오류",
+      "attempts": "{{count}}회 실패"
     }
   },
   "help": {

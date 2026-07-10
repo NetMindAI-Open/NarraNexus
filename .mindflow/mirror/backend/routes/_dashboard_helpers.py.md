@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/_dashboard_helpers.py
-last_verified: 2026-06-24
+last_verified: 2026-07-07
 stub: false
 ---
 
@@ -41,7 +41,13 @@ route/FastAPI coupling.
   the zombie badge.
 - Gotchas: every DB helper is SQLite/MySQL dual-dialect (datetime objects vs
   ISO strings normalized via `isoformat()` / dateutil), so don't assume a
-  string. Metrics columns that don't exist yet (duration, token cost) emit
+  string. **`trigger` is a MySQL reserved word** — `fetch_recent_events`
+  SELECTs it, so it must be backticked (`` `trigger` ``); bare, it raises
+  `(1064 ...)` on MySQL and the function's `except` silently returns an empty
+  feed. SQLite tolerates it bare, hiding the bug locally (fixed 2026-07-07,
+  same class as [[auth]]; regression in
+  `tests/backend/test_trigger_reserved_word_sql.py`). Metrics columns that
+  don't exist yet (duration, token cost) emit
   `None` on purpose (frontend renders "N/A"). `fetch_jobs` partitions each live
   state independently — never re-union `pending` with active/blocked/paused or
   the route double-counts (the v2.1.1 regression). Recent-events maps

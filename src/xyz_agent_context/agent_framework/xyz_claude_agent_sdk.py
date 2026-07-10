@@ -8,6 +8,7 @@
 
 import asyncio
 from contextlib import suppress
+from pathlib import Path
 
 from loguru import logger
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions, HookMatcher
@@ -19,11 +20,160 @@ from xyz_agent_context.utils.logging import timed
 try:
     from .output_transfer import output_transfer
     from .api_config import claude_config
+    from .model_catalog import resolve_cli_alias
     from ._tool_policy_guard import build_tool_policy_guard
 except ImportError:
     from output_transfer import output_transfer
     from api_config import claude_config
+    from model_catalog import resolve_cli_alias
     from _tool_policy_guard import build_tool_policy_guard
+
+
+def _stage_claude_oauth_from_keychain(config_dir: str | Path) -> bool:
+    """macOS: materialize the Claude Code OAuth credential from the login
+    Keychain into the isolated CONFIG_DIR as ``.credentials.json`` (0600).
+
+    Returns True when the isolated credential is present (already staged, or
+    exported now), False when the Keychain has no entry / the export failed (the
+    caller then emits the login hint). macOS-only — the caller gates on
+    ``sys.platform == "darwin"``; on Linux/cloud the host credential FILE exists
+    so this path is never reached.
+
+    Why it's needed: on macOS the OAuth token lives in the Keychain, not in
+    ~/.claude/.credentials.json, so there's no file for the file-copy path to
+    stage; and because CLAUDE_CONFIG_DIR is explicitly set (for #76's isolation)
+    the CLI reads a file and ignores the Keychain. Exporting the Keychain item
+    into the isolated dir bridges the two. The token is the user's own, on their
+    own machine, written 0600 — same exposure class as Codex's plaintext
+    ~/.codex/auth.json and claude-on-Linux's .credentials.json.
+
+    Stage-ONCE (not newest-wins): the Keychain item carries no mtime to compare,
+    and re-exporting every spawn would clobber a token the isolated file-mode CLI
+    refreshed in place (re-injecting an already-consumed refresh token → logout,
+    the failure #76's newest-wins avoids). So export ONLY when the isolated file
+    is missing. COST: after a fresh ``claude login`` (updates the Keychain) the
+    stale isolated copy is not refreshed — delete the isolated dir
+    (``settings.claude_oauth_config_path``) to re-stage. Accepted, mirrors the
+    one-way host→isolated staging of the file path.
+    """
+    import os
+    import subprocess
+
+    dest_dir = Path(config_dir)
+    dest = dest_dir / ".credentials.json"
+    if dest.is_file():
+        return True  # already staged — preserve any in-place CLI refresh
+
+    try:
+        proc = subprocess.run(
+            ["security", "find-generic-password",
+             "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except Exception as e:  # noqa: BLE001 — Keychain read is best-effort
+        logger.warning(f"[ClaudeAgentSDK] macOS Keychain read failed: {e}")
+        return False
+    blob = (proc.stdout or "").strip()
+    if proc.returncode != 0 or not blob:
+        return False  # no Keychain entry → caller emits the 'run claude login' hint
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
+    try:
+        tmp.write_text(blob, encoding="utf-8")  # NEVER log `blob` — it's the token
+        with suppress(OSError):
+            tmp.chmod(0o600)  # keep the credential private
+        os.replace(tmp, dest)  # atomic
+    finally:
+        with suppress(OSError):
+            tmp.unlink()
+    logger.info(
+        f"[ClaudeAgentSDK] staged Claude OAuth credential from macOS Keychain "
+        f"→ {dest} (0600)"
+    )
+    return True
+
+
+def _stage_claude_oauth_credentials(config_dir: str | Path) -> None:
+    """Copy the host Claude OAuth credential into the isolated CONFIG_DIR.
+
+    OAuth used to point ``CLAUDE_CONFIG_DIR`` straight at ``~/.claude`` so the
+    CLI could read ``~/.claude/.credentials.json``. That re-opened the very
+    leak #72 closed for keyed auth: the personal ``~/.claude/settings.json``
+    ``env`` block (ANTHROPIC_BASE_URL/AUTH_TOKEN) overrode our provider and
+    503'd, and the agent_loop raced the user's own Claude Code on
+    ``~/.claude/.claude.json`` (2026-07-09 incident). OAuth now gets its own
+    isolated dir; we stage ONLY the credential file into it — never
+    ``settings.json`` — mirroring Codex's ``_stage_codex_oauth_credentials``.
+
+    ``config_dir`` is ``settings.claude_oauth_config_path`` (a ``str`` or
+    ``Path``); it is the same dir ``ClaudeConfig.to_cli_env`` puts in
+    ``CLAUDE_CONFIG_DIR`` for the OAuth branch.
+
+    newest-wins: copy the host credential in only when it is newer than the
+    already-staged copy (or the staged copy is missing). This propagates a
+    fresh ``claude auth login`` while NOT clobbering a token the CLI refreshed
+    in-place inside the isolated dir — clobbering it would break rotating
+    refresh tokens (the host copy still carries the already-consumed one).
+
+    KNOWN COST (host may be logged out): this stages one-way host → isolated
+    dir. If the isolated CLI refreshes the OAuth token in place, the host
+    ``~/.claude/.credentials.json`` keeps the now-rotated refresh token and the
+    user's own interactive ``claude`` gets logged out once its access token
+    expires. Accepted tradeoff, matching Codex's one-way ``_stage_codex_oauth_
+    credentials``; there is no write-back. See the mirror md for the rationale.
+    """
+    import os
+    import shutil
+    import sys
+
+    from xyz_agent_context.agent_framework.provider_driver.derive import (
+        CLAUDE_CLI_CREDENTIALS_REF,
+        resolve_claude_credentials_path,
+    )
+
+    source = resolve_claude_credentials_path(CLAUDE_CLI_CREDENTIALS_REF)
+    if source is None or not source.is_file():
+        # macOS: Claude Code stores the OAuth token in the login KEYCHAIN, not
+        # in ~/.claude/.credentials.json — so there is no host FILE to copy, yet
+        # an explicitly-set CLAUDE_CONFIG_DIR (this isolated dir) makes the CLI
+        # read a file and ignore the Keychain → "Not logged in". Materialize the
+        # Keychain credential into the isolated dir so the CLI authenticates
+        # while #76's settings.json / .claude.json isolation is preserved.
+        # darwin-ONLY: `security` is macOS; on Linux/cloud the file above exists
+        # so this branch is never reached and behavior is byte-identical to #76.
+        if sys.platform == "darwin" and _stage_claude_oauth_from_keychain(config_dir):
+            return
+        logger.warning(
+            f"[ClaudeAgentSDK] OAuth credential not found at "
+            f"{source or '~/.claude/.credentials.json'}; the agent_loop CLI "
+            "may prompt for login or fail auth. Run 'claude auth login' or "
+            "sign in from Settings → Providers."
+        )
+        return
+
+    dest_dir = Path(config_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    if dest.exists() and dest.stat().st_mtime >= source.stat().st_mtime:
+        return  # staged copy is at least as fresh — preserve any CLI refresh
+    # Atomic stage: copy2 into a same-dir temp, then os.replace (atomic rename
+    # on POSIX). The OAuth config dir is SHARED across concurrent agent_loops
+    # and a running CLI may be reading ``.credentials.json`` at this instant —
+    # a bare copy2 onto ``dest`` truncates-then-writes, re-opening the very
+    # half-read / concurrent-write window this fix set out to close. copy2
+    # preserves mtime so newest-wins still holds after the rename. chmod the
+    # temp BEFORE the rename so ``dest`` is never briefly world-readable.
+    tmp = dest_dir / f".credentials.json.{os.getpid()}.tmp"
+    try:
+        shutil.copy2(source, tmp)
+        with suppress(OSError):
+            tmp.chmod(0o600)  # credential file: keep it private
+        os.replace(tmp, dest)  # atomic
+    finally:
+        with suppress(OSError):
+            tmp.unlink()  # no-op after a successful replace; cleans up on error
+
 
 def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str, Any]:
     """Map the framework-neutral slot params to ClaudeAgentOptions kwargs.
@@ -92,6 +242,36 @@ def _resolve_reasoning_options(thinking: str, reasoning_effort: str) -> dict[str
     # emit --max-thinking-tokens, which the CLI turns into the rejected
     # ``enabled`` shape. --effort alone drives adaptive thinking.
     return {"effort": effort}
+
+
+def _zero_output_error_event(cli_stderr_lines: list[str]) -> dict:
+    """Build a ``response.error`` event for a run where the Claude CLI
+    yielded zero messages.
+
+    Zero messages means the run silently produced nothing — the CLI is not
+    logged in / the OAuth session expired / it crashed / quota is exhausted.
+    Emitting this event (instead of only logging and letting the generator
+    end quietly) is what stops the downstream helper-LLM from fabricating a
+    hollow reply over a turn that never ran (the "mysterious fallback" the
+    Owner reported). Classification stays in response_processor: the raw CLI
+    stderr rides along in ``error_message`` so ``_is_auth_failure`` turns an
+    auth/login stderr into a fatal ``AUTH_EXPIRED`` (re-login prompt, no_reply
+    fallback skipped) while a non-auth crash stays a recoverable "no output"
+    error. The base sentence is kept auth-phrase-free on purpose so it can't
+    false-positive the classifier when stderr is empty.
+    """
+    stderr = "\n".join((cli_stderr_lines or [])[-30:]).strip()
+    detail = f"\n\nCLI stderr:\n{stderr}" if stderr else ""
+    return {
+        "type": "raw_response_event",
+        "data": {
+            "type": "response.error",
+            "error_type": "no_output",
+            "error_message": (
+                "The coding agent produced no output (0 messages)." + detail
+            ),
+        },
+    }
 
 
 async def _probe_provider_reachable(base_url: str | None, timeout_seconds: float) -> bool | None:
@@ -166,9 +346,25 @@ class ClaudeAgentSDK:
         # History: agents often run 10+ turns; 50K keeps 3-5 full turns.
         # System prompt: T8 (ENABLE_TOOL_SEARCH=false for non-Claude models)
         # forces the full MCP tool schemas (~40 tools) into the base prompt,
-        # typically 60-80K chars; 100K gives headroom without hitting the
-        # 128 KiB argv byte ceiling for mixed-language content.
-        MAX_SYSTEM_PROMPT_LENGTH = 100_000  # chars
+        # typically 60-80K chars.
+        #
+        # 2026-07-03: bumped 100K -> 115K after live diagnosis on
+        # agent_62cf67080ad4 showed the assembled system_prompt clocking
+        # in at 91-93K chars (15 modules × ~6K module_instructions each,
+        # currently ALL loaded per turn because SKIP_MODULE_DECISION_LLM=True
+        # disables the per-turn module-selection LLM). At 100K that left
+        # only ~5-8K for history, evicting 20-23 of ~29 rows on every turn
+        # and starving the LLM of context.
+        #
+        # 115K still fits comfortably under MAX_SYSTEM_PROMPT_BYTES = 120 KiB
+        # for pure-ASCII prompts, and mixed-language content is still
+        # clamped by the byte ceiling below. Argv hard limit is 128 KiB,
+        # so 13 KiB headroom remains. This is a TREATMENT of the symptom
+        # (system_prompt is bloated because we load every module every
+        # turn); the ROOT fix is a smarter module-selection loader that
+        # skips channel modules unrelated to this turn — deferred as a
+        # separate follow-up.
+        MAX_SYSTEM_PROMPT_LENGTH = 115_000  # chars
         MAX_SYSTEM_PROMPT_BYTES = 120 * 1024  # ~120 KiB, leaves 8 KiB for argv overhead
         MAX_HISTORY_LENGTH = 50_000  # chars
 
@@ -339,6 +535,12 @@ class ClaudeAgentSDK:
         # 从 api_config 构建传给 Claude CLI 子进程的环境变量（仅包含非空值）
         cli_env: dict[str, str] = claude_config.to_cli_env()
 
+        # OAuth runs against an isolated CLAUDE_CONFIG_DIR (see to_cli_env):
+        # stage the host credential file into it before the spawn, so the CLI
+        # authenticates without ever reading the host's personal settings.json.
+        if claude_config.auth_type == "oauth":
+            _stage_claude_oauth_credentials(cli_env["CLAUDE_CONFIG_DIR"])
+
         # 确保 CLI 子进程绕过代理直连 localhost 的 MCP 服务器。
         # 系统若设置了 http_proxy / https_proxy（如 VPN 代理），会导致
         # Claude Code CLI 访问 localhost:780x 时走代理返回 502 Bad Gateway。
@@ -423,7 +625,12 @@ class ClaudeAgentSDK:
             disallowed_tools=disallowed_tools,
         )
         if claude_config.model:
-            options_kwargs["model"] = claude_config.model
+            # CLI family aliases only work on the OAuth/CLI path; raw API
+            # transports 400 on them (upstream #57 → no_reply). Normalize at
+            # the transport boundary — model strings are free text upstream.
+            options_kwargs["model"] = resolve_cli_alias(
+                claude_config.model, auth_type=claude_config.auth_type
+            )
         # Neutral reasoning params (slot-configured); absent keys keep CLI
         # defaults — identical to today's behavior when unconfigured.
         options_kwargs.update(reasoning_options)
@@ -639,6 +846,11 @@ class ClaudeAgentSDK:
                 )
                 if cli_stderr_lines:
                     logger.error("[ClaudeAgentSDK] CLI stderr 输出:\n" + "\n".join(cli_stderr_lines))
+                # Surface the silent void as a real error so response_processor
+                # can classify it (auth → fatal AUTH_EXPIRED; else recoverable)
+                # instead of the pipeline treating "no messages" as "agent
+                # chose not to reply" and fabricating a hollow fallback.
+                yield _zero_output_error_event(cli_stderr_lines)
         except GeneratorExit:
             logger.warning(f"Agent loop generator was closed early (client disconnected). Messages received: {message_count}")
         except Exception as e:

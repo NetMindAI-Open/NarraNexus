@@ -108,9 +108,28 @@ def test_executor_url_none_falls_back_to_local(monkeypatch):
 
 # ---------- remote streaming (mock aiohttp) ----------
 
+class _FakeContent:
+    """Mimics ``aiohttp.StreamReader``'s ``iter_any()`` surface.
+
+    2026-07-09: the driver moved from ``async for line in resp.content``
+    to ``async for chunk in resp.content.iter_any()`` to bypass aiohttp's
+    128 KiB line-length ceiling. This fake only needs to expose the
+    ``iter_any()`` method the new code uses; the async iterator protocol
+    is no longer touched by the driver."""
+
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+
+    def iter_any(self):
+        async def _gen():
+            for c in self._chunks:
+                yield c
+        return _gen()
+
+
 class _FakeResp:
-    def __init__(self, lines):
-        self._lines = lines
+    def __init__(self, chunks):
+        self._content = _FakeContent(chunks)
 
     async def __aenter__(self):
         return self
@@ -123,15 +142,12 @@ class _FakeResp:
 
     @property
     def content(self):
-        async def _gen():
-            for ln in self._lines:
-                yield ln
-        return _gen()
+        return self._content
 
 
 class _FakeSession:
-    def __init__(self, lines):
-        self._lines = lines
+    def __init__(self, chunks):
+        self._chunks = chunks
 
     async def __aenter__(self):
         return self
@@ -140,12 +156,18 @@ class _FakeSession:
         return False
 
     def post(self, url, json=None):
-        return _FakeResp(self._lines)
+        return _FakeResp(self._chunks)
 
 
-def _patch_aiohttp(monkeypatch, lines):
+def _patch_aiohttp(monkeypatch, chunks):
+    """Patch aiohttp so the driver sees ``chunks`` as its stream body.
+
+    ``chunks`` is a list of bytes objects. Each element is delivered as
+    one call to the ``iter_any()`` iterator — so tests can either pass
+    one-line-per-chunk (the historical shape) or split a single line
+    across multiple chunks (the more realistic transport shape)."""
     import aiohttp
-    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeSession(lines))
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeSession(chunks))
     monkeypatch.setattr(aiohttp, "ClientTimeout", lambda *a, **k: None)
 
 
@@ -202,3 +224,93 @@ async def test_remote_driver_raises_on_error_line(monkeypatch):
         async for e in d.agent_loop([], {}):
             got.append(e)
     assert got == [{"type": "text", "delta": "partial"}]
+
+
+# ---------- 2026-07-09: LineTooLong incident regressions ----------
+
+@pytest.mark.asyncio
+async def test_remote_driver_handles_event_line_over_128kib(monkeypatch):
+    """Direct regression for the 2026-07-08 multimodal-large-file incident.
+
+    A single NDJSON event line carrying a base64 image is 150-400 KiB.
+    aiohttp's ``async for line in resp.content`` raises ``LineTooLong``
+    at 131,072 bytes, which is what killed the executor connection and
+    let the fallback helper LLM cover it up with a fake reply. The fix
+    uses ``iter_any()`` + manual buffering; this test locks in that a
+    200 KiB event line now passes through intact.
+    """
+    payload = "x" * (200 * 1024)  # 200 KiB, well past the 128 KiB aiohttp ceiling
+    line = (
+        b'{"event": {"type": "tool_call_output_item", "output": "'
+        + payload.encode()
+        + b'"}}\n'
+    )
+    _patch_aiohttp(monkeypatch, [line])
+    d = RemoteAgentLoopDriver("claude_code", "/ws", "http://x:8020")
+    out = [e async for e in d.agent_loop([], {})]
+    assert len(out) == 1
+    assert out[0]["type"] == "tool_call_output_item"
+    assert len(out[0]["output"]) == 200 * 1024
+
+
+@pytest.mark.asyncio
+async def test_remote_driver_reassembles_line_split_across_chunks(monkeypatch):
+    """Realistic transport shape: TCP fragments a large event across
+    several ``iter_any()`` yields, and the newline may land inside one
+    of them. The manual accumulator must stitch a single event out of
+    N chunks, not treat each chunk as its own line."""
+    line = b'{"event": {"type": "text", "delta": "hello world across chunks"}}\n'
+    # Split into 4 arbitrary chunks, with the newline inside the last one.
+    chunks = [line[0:20], line[20:40], line[40:55], line[55:]]
+    _patch_aiohttp(monkeypatch, chunks)
+    d = RemoteAgentLoopDriver("claude_code", "/ws", "http://x:8020")
+    out = [e async for e in d.agent_loop([], {})]
+    assert out == [{"type": "text", "delta": "hello world across chunks"}]
+
+
+@pytest.mark.asyncio
+async def test_remote_driver_multiple_events_in_one_chunk(monkeypatch):
+    """A single ``iter_any()`` chunk may hold several complete NDJSON
+    lines. The accumulator must yield all of them, not just the first."""
+    two_lines = (
+        b'{"event": {"type": "a"}}\n'
+        b'{"event": {"type": "b"}}\n'
+    )
+    _patch_aiohttp(monkeypatch, [two_lines])
+    d = RemoteAgentLoopDriver("claude_code", "/ws", "http://x:8020")
+    out = [e async for e in d.agent_loop([], {})]
+    assert out == [{"type": "a"}, {"type": "b"}]
+
+
+@pytest.mark.asyncio
+async def test_remote_driver_raises_when_line_exceeds_max_bytes(monkeypatch):
+    """Belt-and-suspenders: a genuinely malformed stream (no newline
+    ever arrives, buffer grows past ``_MAX_STREAM_BYTES``) must fail
+    fast rather than eat memory. We lower the ceiling in this test so
+    the assertion doesn't require 50 MB of test data."""
+    from xyz_agent_context.agent_framework import remote_agent_loop_driver as m
+
+    monkeypatch.setattr(m, "_MAX_STREAM_BYTES", 1024)  # 1 KiB test ceiling
+    junk = b"x" * 2000  # 2 KiB, no newline
+    _patch_aiohttp(monkeypatch, [junk])
+    d = RemoteAgentLoopDriver("claude_code", "/ws", "http://x:8020")
+    with pytest.raises(RuntimeError, match="event line exceeded"):
+        async for _ in d.agent_loop([], {}):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_remote_driver_yields_trailing_line_without_newline(monkeypatch):
+    """If the executor's stream ends without a final ``\\n``, the last
+    event MUST still be yielded — losing it is what caused the
+    reasoning-tail drops in the original incident's fallback path."""
+    _patch_aiohttp(monkeypatch, [
+        b'{"event": {"type": "text", "delta": "first"}}\n',
+        b'{"event": {"type": "text", "delta": "tail (no newline)"}}',
+    ])
+    d = RemoteAgentLoopDriver("claude_code", "/ws", "http://x:8020")
+    out = [e async for e in d.agent_loop([], {})]
+    assert out == [
+        {"type": "text", "delta": "first"},
+        {"type": "text", "delta": "tail (no newline)"},
+    ]

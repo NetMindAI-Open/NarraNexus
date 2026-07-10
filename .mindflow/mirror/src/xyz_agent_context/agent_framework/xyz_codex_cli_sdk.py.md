@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_cli_sdk.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 ---
+
+## 2026-07-09 (P0 fix) — bump subprocess StreamReader line limit to 50 MiB
+
+Companion to the [[remote_agent_loop_driver.py]] LineTooLong fix. Same
+class of bug, one hop upstream: `asyncio.create_subprocess_exec` without
+an explicit `limit=` kwarg uses `asyncio.streams._DEFAULT_LIMIT = 65536`
+(64 KiB). Once a codex CLI NDJSON event line exceeds it,
+`StreamReader.readline` raises `ValueError: Separator not found, and
+chunk exceed the limit`. The ceiling is HALF of aiohttp's (64 KiB vs
+128 KiB), so `framework="codex"` agents reading large tool outputs
+(images, big MCP payloads) would crash inside the executor process
+before the event even reached the HTTP hop.
+
+Fix: pass `limit=_STDOUT_LINE_LIMIT` (50 MiB, matching the Claude SDK's
+`max_buffer_size`) to `create_subprocess_exec`. Also new module
+constant so tests and future readers can see the ceiling without
+grepping for the magic number.
+
+v1 is currently a revival fallback (not registered), but per binding
+rule #8 we sweep adjacent code — leaving this bug in a "revival" path
+would just re-set the same trap if the wrapper is reactivated.
+
+Regression: `tests/agent_framework/test_codex_cli_stdout_line_limit.py`
+locks that the subprocess spawn passes the 50 MiB limit and that a
+`StreamReader` at that limit can readline a 200 KiB line intact.
 
 ## 2026-06-17 — 安全修复:env 改白名单(不再全量注入)
 

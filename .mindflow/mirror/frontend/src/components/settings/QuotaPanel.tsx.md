@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/settings/QuotaPanel.tsx
 stub: false
-last_verified: 2026-06-16
+last_verified: 2026-07-07
 ---
+
+## 2026-07-07 — toggle 解锁:用尽时只禁「开」不禁「关」(#48)
+
+「Use free quota」勾选框原为 `disabled={exhausted}` —— 用尽时**两个方向都锁**。
+若用尽时偏好恰为 ON,用户无法取消勾选切到自己的 provider → 死锁 402(#48
+reporter 的直接投诉)。改为 `disabled={exhausted && !preferSystem}`(代码里
+`freeTierLocked`):用尽时只禁止「开启」(开启需预算),永远允许「关闭」——
+与后端 `set_preference` 的 "OFF always allowed" 对齐。exhausted 文案拆成
+`exhaustedPreferOn`(叫用户关掉切自己 key)/ `exhaustedPreferOff`(已在用自己
+key,额度恢复后可重开)两条 i18n key。
 
 # Intent
 

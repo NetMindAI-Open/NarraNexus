@@ -8,11 +8,14 @@ at the middleware layer with a clear, actionable error_code.
 
 Decision tree:
 
-  0. SystemProviderService.is_enabled() == False -> strict no-op.
+  0. SystemProviderService.is_enabled() == False
+     -> request path (default): strict no-op.
+     -> background path (own_config_when_system_disabled=True): fall through to
+        the user's own config; missing own config -> NoProviderConfiguredError.
   1. quota row exists and prefer_system_override=True (default for new users)
      1a. has budget  -> route "system"
-     1b. no budget + has own complete config -> FreeTierExhaustedError
-         (user can disable the Settings toggle to switch to own provider)
+     1b. no budget + has own complete config -> auto-switch (#48): compare-and-
+         swap the preference OFF, route "user", winner fires a one-time notice
      1c. no budget + no own provider          -> QuotaExceededError
          (user must add a provider)
   2. prefer_system_override=False (or quota row missing = implicit opt-out)
@@ -123,8 +126,12 @@ def _mk_user_svc(user_cfg):
     return m
 
 
-def _mk_quota_svc(*, prefer_system: bool | None, has_budget: bool):
-    """`prefer_system=None` means no quota row exists."""
+def _mk_quota_svc(*, prefer_system: bool | None, has_budget: bool,
+                  flip_wins: bool = True):
+    """`prefer_system=None` means no quota row exists. `flip_wins` controls
+    whether this caller wins the compare-and-swap that auto-disables the
+    free-tier preference on exhaustion (#48) — True for the single winner,
+    False for a concurrent loser."""
     m = MagicMock()
     if prefer_system is None:
         m.get = AsyncMock(return_value=None)
@@ -133,8 +140,9 @@ def _mk_quota_svc(*, prefer_system: bool | None, has_budget: bool):
         quota_row.prefer_system_override = prefer_system
         m.get = AsyncMock(return_value=quota_row)
     m.check = AsyncMock(return_value=has_budget)
-    # classify() auto-disables the free-tier preference on exhaustion (#48).
-    m.set_preference = AsyncMock()
+    # classify() compare-and-swaps the preference OFF on exhaustion (#48);
+    # only the winner (True) fires the one-time auto-switch notice.
+    m.disable_preference_if_enabled = AsyncMock(return_value=flip_wins)
     return m
 
 
@@ -158,7 +166,7 @@ def _stub_single_resolver(monkeypatch):
         RuntimeLLMConfigs,
     )
 
-    async def _fake(_user_id, _db):
+    async def _fake(_user_id, _db, agent_id=None):
         return RuntimeLLMConfigs(claude=ClaudeConfig(), openai=OpenAIConfig())
 
     monkeypatch.setattr(
@@ -186,6 +194,89 @@ async def test_system_disabled_is_strict_noop():
     quota_svc.check.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_system_disabled_falls_through_to_own_config_when_flagged(monkeypatch):
+    """Background helper injection (local/desktop mode): with SYSTEM_DISABLED,
+    ``own_config_when_system_disabled=True`` must fall through to the user's OWN
+    provider config instead of a strict no-op. The background path clears the
+    ContextVars first, so a no-op leaves the helper config EMPTY and detached
+    hooks 401 on the bare platform OpenAI endpoint. Mirrors the agent-loop path.
+    """
+    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.api_config import (
+        ClaudeConfig,
+        OpenAIConfig,
+        RuntimeLLMConfigs,
+        clear_user_config,
+        openai_config,
+    )
+
+    async def _own(_user_id, _db, agent_id=None):
+        return RuntimeLLMConfigs(
+            claude=ClaudeConfig(api_key="own-claude"),
+            openai=OpenAIConfig(
+                api_key="own-openai-key",
+                base_url="https://api.netmind.ai/inference-api/openai/v1",
+                model="deepseek",
+            ),
+        )
+
+    monkeypatch.setattr(provider_driver, "resolve_user_runtime_llm_configs", _own)
+
+    r = ProviderResolver(
+        user_provider_svc=_mk_user_svc(None),
+        system_provider_svc=_mk_sys(enabled=False),
+        quota_svc=_mk_quota_svc(prefer_system=True, has_budget=True),
+    )
+    clear_user_config()
+    await r.resolve_and_set("usr_x", own_config_when_system_disabled=True)
+
+    # The user's OWN helper config must now be live (not the empty default).
+    assert openai_config.api_key == "own-openai-key"
+    assert openai_config.base_url == "https://api.netmind.ai/inference-api/openai/v1"
+    assert get_provider_source() == "user"
+
+
+@pytest.mark.asyncio
+async def test_system_disabled_flagged_no_own_config_raises_catchable_error(monkeypatch):
+    """SYSTEM_DISABLED + own config missing/broken: the fall-through must raise a
+    ``NoProviderConfiguredError`` (the ``ProviderResolverError`` family the
+    background callers catch to fire a credential alert) — NOT the raw
+    ``LLMConfigNotConfigured`` (an ``LLMResolverError``/``RuntimeError``), which
+    would slip past ``except ProviderResolverError`` into a generic handler that
+    continues on the cleared/global platform key (the 2026-07 incident). The
+    ContextVars must also stay cleared (no silent platform-key fallback).
+    """
+    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.api_config import (
+        LLMConfigNotConfigured,
+        _openai_ctx,
+        clear_user_config,
+    )
+
+    async def _no_own(_user_id, _db, agent_id=None):
+        raise LLMConfigNotConfigured("no usable provider for user")
+
+    monkeypatch.setattr(provider_driver, "resolve_user_runtime_llm_configs", _no_own)
+
+    r = ProviderResolver(
+        user_provider_svc=_mk_user_svc(None),
+        system_provider_svc=_mk_sys(enabled=False),
+        quota_svc=_mk_quota_svc(prefer_system=True, has_budget=True),
+    )
+    clear_user_config()
+    with pytest.raises(NoProviderConfiguredError):
+        await r.resolve_and_set("usr_x", own_config_when_system_disabled=True)
+
+    # The per-user ContextVar must NOT have been written (assert on the ctxvar
+    # directly, NOT via ``openai_config`` — that proxy falls back to the global
+    # _holder / platform key, so it can't distinguish "cleared" from "fell back
+    # to platform key"). Platform-key isolation is guaranteed by the caller
+    # aborting on NoProviderConfiguredError + alerting, not by an empty read.
+    assert _openai_ctx.get() is None
+    assert get_provider_source() is None
+
+
 # ---------- Branch 1: opted-in (prefer_system_override=True) -------------
 
 @pytest.mark.asyncio
@@ -203,10 +294,15 @@ async def test_opted_in_with_budget_routes_system_even_when_own_config_exists():
 
 
 @pytest.mark.asyncio
-async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user():
+async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user(monkeypatch):
     """#48: exhausted free tier + complete own config no longer 402s. The
-    free-tier preference is auto-disabled and the request routes to the user's
-    own provider, so the configured key is actually used."""
+    free-tier preference is auto-disabled (compare-and-swap) and the request
+    routes to the user's own provider, so the configured key is actually used.
+    The winning flip fires exactly one auto-switch notice."""
+    from xyz_agent_context.agent_framework import provider_resolver as pr
+    notice = AsyncMock()
+    monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", notice)
+
     quota_svc = _mk_quota_svc(prefer_system=True, has_budget=False)
     r = ProviderResolver(
         user_provider_svc=_mk_user_svc(_complete_user_cfg()),
@@ -215,7 +311,28 @@ async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user():
     )
     await r.resolve_and_set("usr_x")
     assert get_provider_source() == "user"
-    quota_svc.set_preference.assert_awaited_once_with("usr_x", False)
+    quota_svc.disable_preference_if_enabled.assert_awaited_once_with("usr_x")
+    notice.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_exhaustion_flip_notifies_only_the_winner(monkeypatch):
+    """Under concurrent exhausted requests, the compare-and-swap lets exactly
+    one caller flip 1→0. A loser (disable_preference_if_enabled → False) still
+    routes to the user's key but must NOT emit a second notice."""
+    from xyz_agent_context.agent_framework import provider_resolver as pr
+    notice = AsyncMock()
+    monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", notice)
+
+    quota_svc = _mk_quota_svc(prefer_system=True, has_budget=False, flip_wins=False)
+    r = ProviderResolver(
+        user_provider_svc=_mk_user_svc(_complete_user_cfg()),
+        system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
+        quota_svc=quota_svc,
+    )
+    await r.resolve_and_set("usr_x")
+    assert get_provider_source() == "user"
+    notice.assert_not_awaited()
 
 
 @pytest.mark.asyncio

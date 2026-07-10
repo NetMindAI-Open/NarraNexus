@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-05-28
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — message_id tie-break in the per-channel message query
+
+``ORDER BY created_at DESC`` gained ``, message_id DESC``. The writer stamps
+a turn's inbound/reply one microsecond apart so created_at already orders a
+turn; message_id is a determinism backstop for two turns completing in the
+same microsecond, so the order never flickers between requests. created_at
+reaches the client as a microsecond ISO string via _to_iso (already
+lexicographically sortable) — the frontend relies on that precision.
 
 ## 2026-05-28 — POST /rooms/{room_id}/read (room-level mark-all-read)
 

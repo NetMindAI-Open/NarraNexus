@@ -3,15 +3,26 @@
 @date: 2026-06-17
 @description: Build execution context for NarraMessenger-triggered messages.
 
-Inherits ChannelContextBuilderBase. Unlike Telegram (which keeps its own
-``bus_messages`` log), NarraMessenger ships conversation context INLINE in
-every invocation:
-  - DM:    ``context`` = recent ``[{role, sender, content}]`` (up to ~20).
-  - Group: ``group_context.history_messages`` + ``compressed_context`` +
-           ``members`` (with role / identity_badge / governance_status).
+Inherits ``ChannelContextBuilderBase``. Post-Direct-Matrix migration
+(Commit 7, 2026-07-02) the trigger reads raw ``m.room.message`` events
+off ``/sync``; there is NO inline history or member roster on the
+invocation payload — ``ParsedMessage.raw`` only carries the fields
+``matrix_trigger._wrap_event`` populates (text / mxc_url / mimetype /
+size / event_id / room_id / sender_id / server_ts).
 
-So ``get_conversation_history`` / ``get_room_members`` read straight from
-``ParsedMessage.raw`` (the full invocation), no extra API call.
+Consequences for the abstract methods:
+  - ``get_conversation_history`` → ``[]``. History is served by
+    ChatModule's chat_history assembly during ``hook_data_gathering``
+    (persisted turns + attachment markers all end up in the system
+    prompt).
+  - ``get_room_members`` → ``[]``. If a future turn actually needs a
+    live roster, the ``narra_room_members`` MCP tool queries Matrix on
+    demand. Baking the roster into every prompt is expensive and would
+    duplicate what the tool already returns per-agent-decision.
+
+Only ``get_message_info`` still reads a bit of ``raw`` — the
+``room_name`` from ``group_context.room.name`` (graceful ``""``
+fallback when absent, which is the current default).
 """
 
 from __future__ import annotations
@@ -47,8 +58,14 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         room_name = ((gc.get("room") or {}).get("name")) or ""
 
         reply_instruction = (
-            f'call `narra_send(room_id="{room_id}", text="YOUR_REPLY")`. '
-            f"Send exactly ONE message with your real answer (plain text)."
+            'call `narra_reply(text="YOUR_REPLY")` — your reply is delivered '
+            "to this NarraMessenger room automatically. Send exactly ONE "
+            "message with your real answer (plain text / markdown). The room "
+            "stays quiet until you call this tool — there is no intermediate "
+            "status message, so if the work takes a while, just do it and send "
+            "the final answer when ready. To attach an image or file, put it "
+            "in your workspace first, then call "
+            f'`narra_send_media(room_id="{room_id}", file_path="...")`.'
         )
 
         return {
@@ -63,73 +80,51 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
             "timestamp": str(self._message.timestamp_ms),
             "my_channel_id": self._credential.matrix_user_id,
             "message_body": self._message.content,
-            "send_tool_name": "narra_send",
+            "send_tool_name": "narra_reply",
             "reply_instruction": reply_instruction,
         }
 
     async def get_conversation_history(self, limit: int) -> List[Dict[str, Any]]:
-        """Read recent turns from the invocation payload itself.
+        """Always returns an empty list — history is served from memory.
 
-        Group invocations expose richer ``group_context.history_messages``;
-        DM invocations carry ``context`` (``[{role, sender, content}]``). We
-        normalise either into ``[{sender, timestamp, body}]`` and drop the
-        current trigger message (the last user turn), which the prompt renders
-        separately as the "Current Message" section.
+        Pre-Matrix (Gateway/polling) NarraMessenger shipped inline
+        ``group_context.history_messages`` (group) / ``context`` (DM)
+        in every invocation, and this method normalised them into the
+        base's ``[{sender, timestamp, body}]`` shape so the
+        ``## Conversation History`` slot in the channel prompt could
+        carry a few rounds of context.
+
+        Direct Matrix (Commit 7, 2026-07-02) removed that channel:
+        ``matrix_trigger._wrap_event`` produces neither field in
+        ``ParsedMessage.raw``, so every call returned ``[]`` via the
+        fallback branch. The method now returns ``[]``
+        unconditionally.
+
+        The intended path is ChatModule's chat_history: past turns
+        (including their attachments) are recalled from persisted
+        messages during ``hook_data_gathering`` and rendered into the
+        system prompt. Historical attachment markers are synthesised
+        there via ``Attachment.markers_from_dicts``; the current
+        turn's marker is appended at
+        ``context_runtime.build_input_for_framework`` — same helper,
+        same shape.
         """
-        raw = self._message.raw or {}
-        gc = raw.get("group_context") or {}
-
-        entries: List[Dict[str, Any]] = []
-        history_messages = gc.get("history_messages")
-        if isinstance(history_messages, list) and history_messages:
-            for m in history_messages:
-                if not isinstance(m, dict):
-                    continue
-                entries.append({
-                    "sender": m.get("sender_display_name")
-                    or m.get("sender_matrix_user_id")
-                    or m.get("sender", "unknown"),
-                    "timestamp": str(m.get("origin_server_ts", "") or m.get("sent_at", "")),
-                    "body": m.get("body", "") or m.get("content", ""),
-                })
-        else:
-            context = raw.get("context")
-            if isinstance(context, list):
-                for c in context:
-                    if not isinstance(c, dict):
-                        continue
-                    sender = c.get("sender", "") or ""
-                    is_bot = bool(sender) and sender == self._credential.matrix_user_id
-                    entries.append({
-                        "sender": "Me (agent)" if is_bot else (sender or c.get("role", "user")),
-                        "timestamp": "",
-                        "body": c.get("content", ""),
-                    })
-
-        # Drop a trailing entry that duplicates the current trigger message.
-        if entries and entries[-1].get("body", "").strip() == (self._message.content or "").strip():
-            entries = entries[:-1]
-
-        if len(entries) > limit:
-            entries = entries[-limit:]
-        return entries
+        del limit  # signature contract only
+        return []
 
     async def get_room_members(self) -> List[Dict[str, Any]]:
-        """Group member list from ``group_context.members``. DM → empty (the
-        base hides the members section for <=2 members anyway)."""
-        gc = (self._message.raw or {}).get("group_context") or {}
-        members = gc.get("members")
-        if not isinstance(members, list):
-            return []
-        out: List[Dict[str, Any]] = []
-        for m in members:
-            if not isinstance(m, dict):
-                continue
-            uid = m.get("matrix_user_id", "") or ""
-            if not uid:
-                continue
-            out.append({
-                "user_id": uid,
-                "display_name": m.get("display_name", "") or uid,
-            })
-        return out
+        """Always returns an empty list — no inline roster on Direct Matrix.
+
+        Pre-Matrix Gateway shipped ``group_context.members`` (with
+        ``matrix_user_id`` / ``display_name`` per member), and this
+        method normalised them for the base's ``## Conversation
+        Members`` section. Direct Matrix's ``_wrap_event`` produces no
+        ``group_context`` at all — this method returned ``[]`` on
+        every call anyway.
+
+        If a specific turn needs the live roster, the
+        ``narra_room_members`` MCP tool queries the homeserver on
+        demand. Baking the roster into every prompt would duplicate
+        what that tool already exposes per-agent-decision.
+        """
+        return []

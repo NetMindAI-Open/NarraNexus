@@ -12,7 +12,11 @@ from pydantic import BaseModel
 from google import genai
 
 from xyz_agent_context.agent_framework.api_config import gemini_config
-from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
+from xyz_agent_context.utils.cost_tracker import (
+    get_cost_context,
+    record_cost,
+    warn_missing_usage,
+)
 from xyz_agent_context.utils.logging import timed
 
 
@@ -57,19 +61,20 @@ class GeminiAPISDK:
             return
         try:
             usage = getattr(response, "usage_metadata", None)
-            if usage:
-                input_tokens = getattr(usage, "prompt_token_count", 0) or 0
-                output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-                if input_tokens > 0 or output_tokens > 0:
-                    await record_cost(
-                        db=db,
-                        agent_id=agent_id,
-                        event_id=None,
-                        call_type="llm_function",
-                        model=self.model,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                    )
+            input_tokens = getattr(usage, "prompt_token_count", 0) or 0
+            output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+            if input_tokens > 0 or output_tokens > 0:
+                await record_cost(
+                    db=db,
+                    agent_id=agent_id,
+                    event_id=None,
+                    call_type="llm_function",
+                    model=self.model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                )
+            else:
+                warn_missing_usage("Gemini", self.model, "llm_function")
         except Exception as e:
             logger.warning(f"Failed to record Gemini cost: {e}")
 

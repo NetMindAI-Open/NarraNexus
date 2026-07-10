@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/schema/attachment_schema.py
-last_verified: 2026-05-06
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — `Attachment.markers_from_dicts` staticmethod added
+
+Single seam for "list of Attachment-shaped dicts → newline-joined Read-tool markers". Replaces the three private copies (`chat_module._synthesize_attachment_markers`, ad-hoc loops in prior WS route drafts and prior channel context builder drafts) with one implementation on the schema. Malformed entries produce a WARNING (`[Attachment.markers_from_dicts] skipping malformed attachment dict: <type>: <msg>`) — silent drops would recreate the "agent claims no file received" incident the 2026-07-09 fix addresses (see [[context_runtime.py]] for the current-turn callsite; [[chat_module.py]] for the history callsite).
 
 # attachment_schema.py
 

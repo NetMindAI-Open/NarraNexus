@@ -111,6 +111,7 @@ try:
         user_reply_tool_names=("lark_cli", "send_message_to_user_directly"),
         row_prefix_template="[Lark · {sender_name} in {room_name}]",
         extract_reply_fn=_extract_lark_reply,
+        dedicated_trigger=True,
     ))
 except ValueError:
     # Re-import (test hot-reload, etc.) — handler already registered.

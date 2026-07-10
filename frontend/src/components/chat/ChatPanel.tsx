@@ -14,7 +14,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo, memo, useDeferredValue } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic } from 'lucide-react';
+import { CornerDownLeft, Square, Loader2, Plus, X, FileText, Image as ImageIcon, Mic, SlidersHorizontal } from 'lucide-react';
 import { flushSync } from 'react-dom';
 import { Card, Button, ScrollArea } from '@/components/ui';
 import { CostPopover } from '@/components/cost/CostPopover';
@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/Dialog';
 import { BracketEmptyState, BracketLoading, BracketSectionLabel, BindingDot, RingAvatar } from '@/components/nm';
 import { OnboardingJourney } from './OnboardingJourney';
 import { ComposerModelBadge } from './ComposerModelBadge';
+import { AgentLlmConfigPanel } from './AgentLlmConfigPanel';
 import { useChatStore, useConfigStore, useArtifactStore } from '@/stores';
 import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
@@ -30,6 +31,7 @@ import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
+import { InnerThoughtCard } from './InnerThoughtCard';
 import { TurnTimeline } from './TurnTimeline';
 import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
@@ -228,6 +230,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const [transcriptionAvailable, setTranscriptionAvailable] = useState<boolean | undefined>(undefined);
   const [transcriptionReason, setTranscriptionReason] = useState<string>('');
   const [voiceUnavailableDialogOpen, setVoiceUnavailableDialogOpen] = useState(false);
+  // Per-agent model/framework panel, opened from the header. A bump on save
+  // tells the composer model chip to re-read the (possibly changed) model.
+  const [agentCfgOpen, setAgentCfgOpen] = useState(false);
+  const [modelReloadKey, setModelReloadKey] = useState(0);
   // Tracks how many uploads are in-flight so the send button can wait.
   const [uploadingCount, setUploadingCount] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -514,6 +520,24 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     if (!shouldAutoScrollRef.current) return;
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [isStreaming, currentAssistantMessage, currentThinking, currentSteps, currentToolCalls]);
+
+  // ── Inner Thoughts defaults to the bottom (newest activity) ──
+  // Like a chat log, not an inbox: the newest activity sits at the bottom, so
+  // opening the tab (or a new activity arriving) snaps to the end and the user
+  // sees the latest without scrolling down manually.
+  const innerCount = useMemo(
+    () => timeline.reduce((n, i) => (i.messageType === 'activity' ? n + 1 : n), 0),
+    [timeline],
+  );
+  useEffect(() => {
+    if (chatTab !== 'inner') return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const id = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [chatTab, innerCount]);
 
   // ── Auto-load more if content doesn't fill the container ──
   // When activity messages are small, the initial page may not cause overflow,
@@ -812,6 +836,20 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
 
         <div className="flex items-center gap-3 shrink-0">
           {isStreaming && <ExecutionPopover steps={currentSteps} />}
+          {/* Per-agent model & framework settings — sits left of the cost
+              chip in the header icon cluster. Opens the detailed panel;
+              the composer chip stays the quick model switch. */}
+          {agentId && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              title="Model & framework (this agent)"
+              onClick={() => setAgentCfgOpen(true)}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+            </Button>
+          )}
           {/* Cost chip — a proper header member (it used to float
               absolutely over this corner and collided with the
               Processing indicator during runs). */}
@@ -952,18 +990,9 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           // Route by tab: each tab renders only its own items.
           if (chatTab === 'inner' ? !isInner : isInner) return null;
 
-          // Activity record → small centered text (Inner Thoughts only).
+          // Activity record → source-labelled, expandable card (Inner Thoughts only).
           if (isActivity) {
-            return (
-              <div key={item.id} className="flex justify-center py-1">
-                <span className="text-[10px] text-[var(--text-tertiary)] italic">
-                  {item.content}
-                  <span className="ml-2 opacity-60">
-                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </span>
-              </div>
-            );
+            return <InnerThoughtCard key={item.id} item={item} agentId={agentId} />;
           }
 
           // Full message bubble (Conversation: owner↔agent chat; Inner Thoughts:
@@ -989,6 +1018,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   toolCalls: item.toolCalls,
                   attachments: item.attachments,
                   timeline: item.timeline,
+                  isError: item.isError,
+                  warnings: item.warnings,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}
@@ -1302,9 +1333,19 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             }}
           />
           </div>
-          <ComposerModelBadge />
+          <ComposerModelBadge agentId={agentId} reloadKey={modelReloadKey} />
         </div>
       </div>
+
+      {/* Per-agent model & framework panel (opened from the header). */}
+      {agentId && (
+        <AgentLlmConfigPanel
+          agentId={agentId}
+          isOpen={agentCfgOpen}
+          onClose={() => setAgentCfgOpen(false)}
+          onSaved={() => setModelReloadKey((k) => k + 1)}
+        />
+      )}
 
       {/* Voice-input unavailable dialog. Triggered by clicking the mic
           button when the availability probe came back false — we surface

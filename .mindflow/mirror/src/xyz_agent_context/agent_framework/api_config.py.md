@@ -1,8 +1,103 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — _ConfigHolder.cli_helper property(代理无回退兜底)
+
+`_ConfigHolder` 新增 `cli_helper` property(返回默认 `CliHelperConfig()`)。`cli_helper_config`
+是 `_ConfigProxy`,ContextVar 为 None 时回退到 `getattr(_holder, "cli_helper")`——而 holder
+原本没有这个属性(其余四个代理都有对应 property),一旦有人在 CLI-helper 路径外读
+`cli_helper_config.framework` 就是 AttributeError。CLI helper 无全局/桌面来源(只由 OAuth
+provider 派生到 per-task ContextVar),故这个 property 返回的是**永不作为真实配置**的默认值,
+纯粹为让代理回退安全。
+
+## 2026-07-09 — agent_id threaded through the resolver entry points
+
+Per-agent overrides ([[resolver]]) reach the run + MCP-tool paths by threading an
+optional ``agent_id`` through: ``get_agent_owner_runtime_llm_configs(agent_id)``
+→ ``get_user_runtime_llm_configs(owner, agent_id=agent_id)`` →
+``resolver.resolve(user_id, agent_id)`` / ``_get_user_runtime_llm_configs_strict``
+→ ``resolve_user_runtime_llm_configs(..., agent_id=agent_id)``. Owner still bills;
+the agent + helper slots resolve with this agent's overrides overlaid on the
+owner default. ``get_user_llm_configs`` / ``_get_user_llm_configs_strict`` gained
+the same optional param. The cloud SYSTEM free-tier branch ignores ``agent_id``
+(fixed one-model pool). ``setup_mcp_llm_context`` is override-aware for free (it
+funnels through the owner helper).
+
+## 2026-07-09 — OAuth 分支也隔离 CONFIG_DIR(补完 #72 的漏)
+
+事故延续:#72(下条)只隔离了 keyed 路径,OAuth 分支被特意放行、`CLAUDE_CONFIG_DIR`
+仍指向真正的 `~/.claude`。结果同一个洞在 OAuth 上复现——`~/.claude/settings.json`
+的 `env` 块(个人 relay)照样劫持 OAuth run,`503 No available accounts` 再现;
+且 agent_loop 与用户自己的交互式 Claude Code **并发写同一个 `~/.claude/.claude.json`**,
+互相清空(实测该文件在 55KB 与 50 字节间反复横跳,CLI 触发自救备份)。
+
+修法:OAuth 也改指独立目录 `settings.claude_oauth_config_path`
+(`~/.nexusagent/claude_oauth_config`,与 keyed 的 `claude_cli_config_path` **分开**)。
+`to_cli_env()` 只负责设 `CLAUDE_CONFIG_DIR`(纯函数、无 I/O);真正把凭据搬进去的是
+`xyz_claude_agent_sdk._stage_claude_oauth_credentials`——spawn 前**只拷 `.credentials.json`**
+一个文件(绝不拷 `settings.json`),对齐 Codex 的 `_stage_codex_oauth_credentials`。
+
+一个必须记住的边界——**newest-wins 拷贝**:仅当宿主 `~/.claude/.credentials.json`
+比已暂存副本更新(或副本不存在)时才覆盖。这样既能让新的 `claude auth login` 传进来,
+又不会把 CLI 在隔离目录里就地刷新过的 token 冲掉(宿主副本可能还带着已被消费/轮转
+作废的旧 refresh token,盲目回灌会把用户登出)。宿主没有凭据文件时 warn + no-op,
+不抛错。守卫测试见 `tests/agent_framework/test_claude_config_isolation.py`
+(`test_oauth_isolates_config_dir` + 三个 `_stage_*` 用例)。
+
+## 2026-07-08 — `to_cli_env()` 用 `CLAUDE_CONFIG_DIR` 隔离个人 `~/.claude`(治根)
+
+> ⚠️ 下面这条描述的 OAuth「显式指向真正的 `~/.claude`」已被上面 2026-07-09 条**取代**——
+> OAuth 现在也走独立目录。保留本条记录当时的推理链。
+
+事故:某开发者机器上每条前端消息都 `503 No available accounts`。根因不在
+netmind、也不在 NarraNexus 代码,而是 Claude Code 的 `~/.claude/settings.json`
+里那个 `env` 块——它把 `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` 指到个人私
+有 relay,**优先级高于我们注入给 subprocess 的环境变量**,把 agent_loop 的
+provider 悄悄改道过去;relay 账号池耗尽 → 每次必挂。实测这个覆盖连 SDK 的
+`--setting-sources ""` 都压不住。
+
+修法:`to_cli_env()` 现在**总是**设 `CLAUDE_CONFIG_DIR`——keyed 认证
+(api_key/bearer)指向独立的 `settings.claude_cli_config_path`
+(`~/.nexusagent/claude_config`,CLI 会自动创建),那份个人 settings.json 从此
+不被读取;`auth_type == "oauth"` 则显式指向真正的 `~/.claude`,因为 OAuth 的
+凭据文件 `.credentials.json` 就在那、CLI 要从里面读 token。两个分支都显式赋值
+(不留空、不省略),这样父进程若带了 `CLAUDE_CONFIG_DIR` 也无法经 SDK 的
+`{**os.environ, **options.env}` 合并泄进来。守卫测试见
+`tests/agent_framework/test_claude_config_isolation.py`;新增的 settings 字段
+`claude_cli_config_path` 与 `base_working_path` 同风格(user-home 绝对路径)。
+
+## 2026-07-07 — `get_user_runtime_llm_configs` 收敛到单一 ProviderResolver(#48)
+
+根因:agent-run 路径(`get_agent_owner_runtime_llm_configs` → 此函数)原本自带
+**第二份**决策树(读 `prefer_system_override` 后 if/else + `_use_system_default_strict`),
+它**没有** `ProviderResolver.classify()` 的 #48 auto-switch。于是免费额度用尽 +
+配了 own key 的用户,在任何**不经过 HTTP 中间件**的 run(后台 job/bus 触发)上仍被
+硬 402,配置的 key 被忽略。
+
+改法:`get_user_runtime_llm_configs` 删掉那份 if/else + `_use_system_default_strict`,
+改为构造 `ProviderResolver` 并 `await resolver.resolve(user_id)`。这样 classify 的
+auto-switch/通知在所有 run 路径统一生效,全项目只剩一棵决策树。
+
+两个必须记住的边界:
+1. **错误翻译**:resolve() 抛的是 `ProviderResolverError` 家族(≠ `LLMResolverError`)。
+   agent_runtime / job_trigger / lark_trigger 只认 `LLMResolverError`(且按类名字符串
+   匹配 `SystemDefaultUnavailable`)。所以此函数 catch 并翻译:
+   `NoProviderConfiguredError→LLMConfigNotConfigured`,其余(`QuotaExceededError` 等)
+   `→SystemDefaultUnavailable`。**改类名会连累那些字符串匹配**。
+2. **SYSTEM_DISABLED 行为变化**:免费层被禁(本地/desktop 模式,或运营关掉)时
+   resolve() 返回 None → 此函数 fall through 到 `_get_user_runtime_llm_configs_strict`
+   (用 own config)。旧版对 opted-in 用户是硬抛 `SystemDefaultUnavailable`;现在与
+   resolver 的 passthrough 语义一致(有 own→用之,无 own→`LLMConfigNotConfigured`)。
+
+## 2026-07-03 — `to_cli_env` normalizes CLI aliases (upstream #57)
+
+The four `ANTHROPIC_DEFAULT_*_MODEL` / `CLAUDE_CODE_SUBAGENT_MODEL` env
+values now pass through `model_catalog.resolve_cli_alias` — the CLI's
+internal calls (WebFetch summarizer, subagent dispatch) would otherwise
+send a bare alias to a raw API transport and 400. OAuth path unchanged.
 
 ## 2026-06-17 — 新增 `snapshot_user_config()`(Executor seam 用)
 
@@ -218,3 +313,13 @@ Claim: these additions do NOT alter existing behaviour of `set_user_config`,
 - 在没有调用 `set_user_config()` 的代码路径（如单元测试、独立脚本）里读 `claude_config.model` 会穿透 ContextVar 到全局 `_holder`，行为取决于环境配置。测试时最好 patch `api_config` 模块级别的代理对象或 patch `_holder`。
 - 不要把 `embedding_config.dimensions` 传给 OpenAI embeddings API 调用，虽然 `EmbeddingConfig` 有这个字段但它只用于 UI 展示，真正的请求故意不带它。
 - `LLMConfigNotConfigured` 是 `RuntimeError` 子类，在 `agent_runtime.py` 的 run() 里被捕获后会 yield `ErrorMessage` 给前端并 return，不会继续执行后续步骤。
+
+## 2026-07-07 — CliHelperConfig（订阅 Helper 第三通道）
+
+新增 `CliHelperConfig`（framework=claude_code|codex_cli + model/base_url/auth_type/api_key）、`_cli_helper_ctx`、`cli_helper_config` 代理、`RuntimeLLMConfigs.cli_helper`；`set_user_config` 加 `cli_helper` 形参，`snapshot_user_config`/`clear_user_config` 同步。用于让订阅（OAuth）登录同时覆盖 helper 槽——helper 走 CLI 一次性（见 cli_helper_sdk.py）。dispatch 优先级 cli>anthropic>openai。
+
+## 2026-07-07 (实测跟进) — to_cli_env 两个致命 env 修复
+
+本地实测 claude_oauth 后发现两个让 `claude` 子进程直接退出码 1 的 env 问题(主循环和 CLI helper 同死):
+1. **CLAUDECODE 嵌套守卫**:后端若从 Claude Code 会话里启动(dev 常见),继承的 `CLAUDECODE` 让每次 spawn 报 'cannot be launched inside another Claude Code session'。 to_cli_env 现在显式置空(平台受管子进程,非人为嵌套)。
+2. **别名自指**:oauth 路径 `resolve_cli_alias` 保留家族别名('opus'),但把 `ANTHROPIC_DEFAULT_*_MODEL` 指向别名是自引用 → CLI 报 'issue with the selected model' 拒启。现在别名时重定向置空(官方后端无漂移风险),仅保留接受别名的 `CLAUDE_CODE_SUBAGENT_MODEL`;具体 id(api_key 转换后)行为不变。

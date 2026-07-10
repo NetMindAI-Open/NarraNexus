@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-05-31
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-02 — `silent: bool = False` kwarg on `run()`
+
+`run()` now accepts `silent: bool = False`. When True, steps 0-2.5 run
+normally (event created, narrative selected, modules loaded, instances
+synced) but step_3 (agent LLM invocation) is skipped; a minimal
+`PathExecutionResult(final_output="", ctx_data=<from ctx>)` is
+fabricated so step_4 / hook_persist_turn / step_5 read a consistent
+result. This is the memory-only path used by IM triggers (Matrix /
+Lark / Slack, via [[channel_trigger_base]]) for group non-@ messages
+and reconnect burst backfill: chat_history writes, observation
+extraction, entity_description updates all still fire; the agent just
+doesn't reply.
+
+Per-message batch metadata (event_id / timestamp / sender_id / content
+/ attachments) travels in `trigger_extra_data["batch_messages"]` and
+is picked up by ChatModule's silent-batch write path (see
+[[chat_module.py]]). The default `silent=False` keeps owner-facing
+runs byte-identical — no regression on the WS / A2A / job paths. See
+`tests/agent_runtime/test_silent_mode.py` for the seam locks.
 
 ## 2026-05-20 — Step 4.6: synchronous turn persistence before background
 
@@ -124,3 +144,19 @@ intentional (no back-compat per ironclad rule #2).
 
 - `run()` 是 async generator，必须用 `async for msg in runtime.run(...)` 消费，不能用 `await`。WebSocket handler 必须 iterate 完整个 generator，否则后台 Steps 5-6 的 `asyncio.create_task` 不会被调度（generator 还没运行到那一行）。
 - `forced_narrative_id` 参数用于 Job trigger，跳过 Narrative 选择直接用指定 Narrative。如果传了不存在的 ID，会 fallback 到正常选择流程，这是有意的降级。
+
+## 2026-07-07 — Step-5 后台 hooks 注入 owner 的 Helper LLM
+
+`_run_hooks_background`（`asyncio.create_task` 脱离任务）此前不继承 run() 设的 per-turn
+helper 配置，其 Step-5 LLM hooks（社交实体摘要、memory extraction）一路回退到平台
+`settings.openai_api_key`（2026-07 事故）。现在协程开头 `inject_owner_helper_credentials(_agent_id, db)`：
+解析失败（配额/无 provider）→ 告警 + 跳过（绝不落平台 key）；hooks 内凭据类异常
+（`is_credential_error`）→ `alert_background_llm_failure`，不再仅记日志。
+
+## 2026-07-07 (PR#68 review) — post_turn_hooks 告警补上 owner
+
+`_run_hooks_background` 此前丢弃 `inject_owner_helper_credentials` 的返回值、两处告警写死 `owner_user_id=None`,导致 Step-5 hooks(entity/memory)路径的凭据失败只落审计、进不了 owner inbox(正是事故里静默退化那条路)。现在捕获 owner 并传给告警;ProviderResolverError 分支额外查 agents 表补 owner。通用 except 保持 continue(而非 narrative updater 的 skip)——已加注释说明:Step-5 非 LLM hooks + Step-6 callback 仍需执行,需要凭据的 LLM hook 在内层 except fail-fast 并告警。
+
+## 2026-07-07 (bug#3) — set_user_config 传 cli_helper
+
+run() 起始的 `set_user_config(owner_configs...)` 增传 `owner_configs.cli_helper`，订阅 helper 才能 在本次 turn 生效。

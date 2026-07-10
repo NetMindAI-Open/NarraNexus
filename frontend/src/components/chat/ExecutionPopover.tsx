@@ -40,9 +40,23 @@ function StepStatusIcon({ status }: { status: Step['status'] }) {
   return <Circle className="w-3 h-3 shrink-0" style={{ color: 'var(--nm-ink30)' }} aria-label={t('chat.execution.statusPending')} />;
 }
 
+/** Safely read a string field out of a Step's free-form details bag. */
+function detailStr(details: Record<string, unknown> | undefined, key: string): string {
+  const v = details?.[key];
+  return typeof v === 'string' ? v : '';
+}
+
 export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
   const { t } = useTranslation();
-  const completed = steps.filter((s) => s.status === 'completed').length;
+  // The chip shows the CURRENT stage by name, not "X/Y". The pipeline is a
+  // stream of an unknown number of steps (the agent loop's tool-call count is
+  // decided by the LLM at runtime), so steps.length is only "steps seen so
+  // far", never a real total — the old "· completed/steps.length" always read
+  // as X/(X+1) and meant nothing. The latest running step (or the last step)
+  // is what's actually happening now.
+  const current =
+    [...steps].reverse().find((s) => s.status === 'running') ?? steps[steps.length - 1];
+  const currentStage = current?.title ?? '';
 
   return (
     <Popover>
@@ -62,9 +76,9 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
         >
           <Sparkles className="w-3 h-3 animate-pulse" aria-hidden />
           {t('chat.execution.processing')}
-          {steps.length > 0 && (
-            <span className="tabular-nums normal-case tracking-normal opacity-80">
-              · {completed}/{steps.length}
+          {currentStage && (
+            <span className="normal-case tracking-normal opacity-80 truncate max-w-[160px]">
+              · {currentStage}
             </span>
           )}
         </button>
@@ -121,6 +135,26 @@ export function ExecutionPopover({ steps }: ExecutionPopoverProps) {
                         </span>
                         {s.title}
                       </span>
+                      {/* Detail already flows here in Step.description / .details
+                          (e.g. the narrative match summary + why it was chosen)
+                          — surface it instead of dropping it. Wraps, not
+                          truncated, so the reason is readable. */}
+                      {s.description && s.description !== s.title && (
+                        <span
+                          className="block text-[11px] leading-snug mt-0.5 break-words"
+                          style={{ color: 'var(--text-tertiary)' }}
+                        >
+                          {s.description}
+                        </span>
+                      )}
+                      {detailStr(s.details, 'selection_reason') && (
+                        <span
+                          className="block text-[11px] leading-snug mt-0.5 break-words italic"
+                          style={{ color: 'var(--text-tertiary)' }}
+                        >
+                          {detailStr(s.details, 'selection_reason')}
+                        </span>
+                      )}
                     </span>
                   </li>
                 );

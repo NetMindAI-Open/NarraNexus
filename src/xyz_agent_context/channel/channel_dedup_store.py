@@ -72,6 +72,7 @@ class ChannelDedupStore:
         repo: Optional[ChannelSeenMessageRepository] = None,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         history_buffer_ms: int = DEFAULT_HISTORY_BUFFER_MS,
+        content_window_seconds: int = 0,
     ):
         if not channel:
             raise ValueError("channel must be a non-empty string")
@@ -79,6 +80,18 @@ class ChannelDedupStore:
         self._repo = repo
         self._ttl_seconds = ttl_seconds
         self._history_buffer_ms = history_buffer_ms
+
+        # Layer 4 (opt-in): platforms that re-dispatch a message under a NEW
+        # message_id (NarraMessenger re-issues an invocation when its 15-min
+        # server deadline expires mid-processing — the X1 double-reply
+        # incident) defeat every id-keyed layer above. When > 0, a caller-
+        # supplied content fingerprint is remembered for this many seconds
+        # and a second id with the same fingerprint is dropped. In-memory on
+        # purpose: re-dispatch lands in the same subscriber process within
+        # the window, and a durable fingerprint would block a user's
+        # legitimately repeated message long after the window.
+        self._content_window_seconds = content_window_seconds
+        self._fingerprint_cache: dict[str, float] = {}
 
         # Layer 2 state
         self._memory_cache: dict[str, float] = {}
@@ -105,13 +118,14 @@ class ChannelDedupStore:
         message_id: str,
         create_time_ms: int,
         agent_id: str = "",
+        content_fingerprint: str = "",
     ) -> dict:
         """
         Classify an incoming event. Returns a dict with at least:
 
             accept: bool
             layer: str   — one of:
-                "historic", "no_msg_id", "memory_dedup",
+                "historic", "no_msg_id", "content_dedup", "memory_dedup",
                 "db_new", "db_dedup", "db_fail_open", "no_repo"
 
         Plus optional diagnostic keys (``age_min`` for historic,
@@ -135,6 +149,31 @@ class ChannelDedupStore:
         if not message_id:
             # No id → can't dedup. Process defensively.
             return {"accept": True, "layer": "no_msg_id"}
+
+        # Layer 4: content-fingerprint window (opt-in — see __init__). Checked
+        # before the id layers commit state so a re-dispatch under a fresh id
+        # is caught here; an empty fingerprint (caller opted out for this
+        # message) always passes. Same threading.Lock discipline as Layer 2.
+        if self._content_window_seconds > 0 and content_fingerprint:
+            fp_key = f"{agent_id}:{content_fingerprint}"
+            now = time.time()
+            with self._memory_lock:
+                seen_at = self._fingerprint_cache.get(fp_key)
+                if seen_at is not None and now - seen_at < self._content_window_seconds:
+                    # SLIDING window: a hit refreshes the stamp. With a fixed
+                    # window shorter than the worker timeout (30 min), the
+                    # platform's SECOND re-dispatch of a long turn would land
+                    # past the original stamp and be accepted — X1 again. As
+                    # long as re-dispatch intervals stay below the window, a
+                    # turn of any length stays covered (铁律 #14 makes long
+                    # turns first-class, so the guard must scale with them).
+                    self._fingerprint_cache[fp_key] = now
+                    return {"accept": False, "layer": "content_dedup"}
+                self._fingerprint_cache[fp_key] = now
+                cutoff_ts = now - self._content_window_seconds
+                self._fingerprint_cache = {
+                    k: v for k, v in self._fingerprint_cache.items() if v > cutoff_ts
+                }
 
         # Layer 2: in-memory hot cache. ``threading.Lock`` is intentional;
         # SDK callbacks may reach us from non-async threads.

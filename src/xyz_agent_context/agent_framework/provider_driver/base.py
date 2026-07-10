@@ -30,6 +30,7 @@ from typing import Optional, Protocol, runtime_checkable
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
+    CliHelperConfig,
     CodexConfig,
     OpenAIConfig,
 )
@@ -198,6 +199,16 @@ class Driver(Protocol):
         """
         ...
 
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        """Build a ``CliHelperConfig`` for the HELPER_LLM slot when it points
+        at a subscription (OAuth) provider — the helper runs through the same
+        CLI as the agent (one subscription covers both slots).
+
+        Implemented only by the OAuth drivers (ClaudeOAuthDriver /
+        CodexOAuthDriver); raises NotImplementedError elsewhere.
+        """
+        ...
+
     def build_codex_config(
         self,
         model: str,
@@ -292,6 +303,11 @@ class _DriverBase:
     def build_anthropic_helper_config(self, model: str) -> AnthropicHelperConfig:
         raise NotImplementedError(
             f"{type(self).__name__} does not support helper_llm (anthropic) slot"
+        )
+
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support helper_llm (cli) slot"
         )
 
     def build_codex_config(

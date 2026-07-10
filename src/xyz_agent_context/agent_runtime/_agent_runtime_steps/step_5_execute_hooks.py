@@ -49,25 +49,22 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
     active_instances = ctx.active_instances
 
     if active_instances:
-        if ctx.working_source == WorkingSource.CHAT:
-            user_chat_id = None
-            if current_narrative and hasattr(ctx, 'user_chat_instances'):
-                user_chat_id = ctx.user_chat_instances.get(current_narrative.id)
-
-            if user_chat_id:
-                for instance in active_instances:
-                    if instance.instance_id == user_chat_id:
-                        current_instance = instance
-                        logger.info(f"  → Current instance: {instance.instance_id} (user_chat)")
-                        break
-            else:
-                from xyz_agent_context.module import module_class_provides_chat_history
-                for instance in active_instances:
-                    if module_class_provides_chat_history(instance.module_class):
-                        current_instance = instance
-                        logger.info(f"  → Current instance: {instance.instance_id} (chat_fallback)")
-                        break
-        elif ctx.working_source == WorkingSource.JOB:
+        # Two resolution shapes:
+        #
+        # - JOB: an explicit ``job_instance_id`` (from RunContext or the
+        #   ctx_data.extra_data set up by step_2's DIRECT_TRIGGER path)
+        #   pins the run to a specific JobModule instance.
+        # - All other working_sources (CHAT, LARK, SLACK, TELEGRAM,
+        #   DISCORD, NARRAMESSENGER, WECHAT, MESSAGE_BUS, A2A, ...) are
+        #   conversation-shaped: the "current instance" is whichever
+        #   ChatModule instance carries this narrative's chat history.
+        #   Extended from the CHAT-only branch on 2026-07-02 so IM
+        #   channels stop resolving to ``params.instance=None`` (which
+        #   would silently break any future hook that reads it —
+        #   ChatModule.hook_persist_turn is unaffected because it uses
+        #   ``self.instance_id``, but ``_job_lifecycle`` and any
+        #   symmetric hooks added later would trip).
+        if ctx.working_source == WorkingSource.JOB:
             job_instance_id = ctx.job_instance_id or (
                 execution_result.ctx_data.extra_data.get("instance_id")
                 if execution_result.ctx_data and execution_result.ctx_data.extra_data
@@ -78,6 +75,27 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
                     if instance.instance_id == job_instance_id:
                         current_instance = instance
                         logger.info(f"  → Current instance: {instance.instance_id} (job)")
+                        break
+        else:
+            user_chat_id = None
+            if current_narrative and hasattr(ctx, 'user_chat_instances'):
+                user_chat_id = ctx.user_chat_instances.get(current_narrative.id)
+
+            if user_chat_id:
+                for instance in active_instances:
+                    if instance.instance_id == user_chat_id:
+                        current_instance = instance
+                        logger.info(f"  → Current instance: {instance.instance_id} (user_chat)")
+                        break
+            if current_instance is None:
+                # Fallback: any instance whose module class declares
+                # provides_chat_history() = True. ChatModule is the only
+                # one that does today.
+                from xyz_agent_context.module import module_class_provides_chat_history
+                for instance in active_instances:
+                    if module_class_provides_chat_history(instance.module_class):
+                        current_instance = instance
+                        logger.info(f"  → Current instance: {instance.instance_id} (chat_fallback)")
                         break
 
     if current_instance:

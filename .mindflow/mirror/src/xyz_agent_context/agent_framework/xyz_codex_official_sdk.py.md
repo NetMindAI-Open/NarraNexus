@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_codex_official_sdk.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-08
 ---
+
+## 2026-07-08 — per-run CODEX_HOME tempdir: ignore_cleanup_errors=True
+
+`agent_loop` 的 `tempfile.TemporaryDirectory(prefix="codex_v2_agent_")` 加了
+`ignore_cleanup_errors=True`。codex 把插件克隆进 `$CODEX_HOME/.tmp/
+plugins-clone-*/`,macOS 上这棵刚写完的树在 `__exit__` rmtree 时偶发"非空",
+严格默认会抛 `[Errno 66] Directory not empty` **从生成器 `__exit__` 抛出**——
+而所有事件在 `__exit__` 之前就已 yield 完,于是一次**生成已成功**的调用在清理阶段
+被拖垮(真机实测:本地 codex CLI-helper 约 1/5 死在这里,而非生成失败)。清理改为
+尽力而为;临时目录在 OS 临时根下、总会被回收,清理小毛病不该让调用失败。
+（触发放大:2026-07 修好本地模式后台 helper 回落 own-config 后,更多 helper 调用
+打到 codex,把这个本就存在的 codex 驱动毛病暴露了出来。见 [[provider_resolver]]。）
 
 ## 2026-06-17 — 安全修复:env 改白名单(不再全量注入)
 

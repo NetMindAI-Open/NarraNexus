@@ -1,8 +1,51 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 (latest) — new "Model Defaults" nav section
+
+Added a `NAV_ITEMS` entry `{ id: 'modeldefaults', label: 'Model Defaults' }`
+(after `providers`) rendering [[ModelDefaultsSettings]] — the global default
+agent/helper model + framework, extracted out of LLM Providers. LLM Providers is
+now purely the credential wallet ([[ProviderSettings]] card grid). Panel is
+gated by `{active === 'modeldefaults'}` like the others.
+
+## 2026-07-09 — LLM Providers: ProviderSettings owns the whole flow
+
+``ProvidersSection`` is now just the "LLM Providers" ``SectionHeader`` +
+``<ProviderSettings/>``. Everything else moved INTO [[ProviderSettings]], which
+renders the ordered flow ① your providers (list) → ② add a provider (one-key +
+CLI sign-in + custom + sync) → ③ global default. Removed from this file: the
+external "Advanced" collapse (``showAdvanced``), the separate
+``ProviderSummaryCard`` (redundant with the list + global default), the top-level
+``OneKeyOnboard`` (moved into ② Add a provider), the providerCount probe, and the
+now-unused useEffect / api / ProviderSummaryCard / OneKeyOnboard / Chevron
+imports. Rationale: per-agent model/framework moved to chat, so this page is a
+credential wallet + a global default — a single top-to-bottom flow, no junk
+drawer.
+
+## 2026-07-06 — nav reorder + Account consolidates billing
+
+Cloud IA cleanup: NAV_ITEMS now leads with the "account" entry (Account &
+Subscription), and that entry is "cloudOnly" (new flag; the account/billing
+panels render null locally, so the entry would otherwise open a blank pane).
+Default active tab is the first VISIBLE item (items[0]), so cloud opens on
+Account, local on LLM Providers. QuotaPanel (system free tier) moved OUT of
+ProvidersSection INTO the Account section — all "what are my credits / how is
+usage paid" concerns (platform free tier + NetMind.AI Power
+balance/subscription/top-up) now live together; LLM Providers is
+bring-your-own only.
+
+
+## 2026-07-02 — 新增「Account & Subscription」导航项（Phase 1）
+
+`NAV_ITEMS` 加 `account`（CreditCard 图标，位于 providers 与 bundle 之间），
+`active==='account'` 渲染 [[NetmindAccountPanel]]（NetMind 订阅状态 + 沙盒声明）。
+注意：这是**真正被挂载**的设置页（route `/app/settings`）——`SettingsModal` 是
+死代码（无任何引用），billing 面板务必加在这里而非那里。
+
 ## 2026-06-11 — master–detail：左侧导航 + 右侧内容(取代折叠堆叠)
 
 页面从"竖直折叠堆叠"改成 **master–detail**:左侧 `NAV_ITEMS` 导航

@@ -202,3 +202,44 @@ class Attachment(BaseModel):
         if self.transcript:
             parts.append(f"transcript={self.transcript}")
         return ", ".join(parts) + " — use Read tool to view]"
+
+    @staticmethod
+    def markers_from_dicts(
+        attachments: "list[dict] | None",
+        *,
+        agent_id: str,
+        user_id: str,
+    ) -> str:
+        """Render a list of Attachment-shaped dicts as newline-joined
+        Read-tool markers.
+
+        Single seam for turning stored attachment metadata (as it lives
+        in ``ctx_data.extra_data["attachments"]`` for the current turn
+        or in ``msg["attachments"]`` for historical turns) into the
+        agent-facing marker block. Callers use the returned string
+        directly — same shape at every callsite, so agent behaviour is
+        uniform across current vs historical, IM channels vs WS chat.
+
+        Malformed entries are logged (WARNING) and skipped — silent
+        drops would recreate the "agent claims no file received" class
+        of failure that motivated the 2026-07-09 fix. Empty / missing
+        input → empty string (caller decides how to compose with the
+        surrounding message).
+        """
+        if not attachments:
+            return ""
+        from loguru import logger  # local import — schema stays log-free at module level
+        lines: list[str] = []
+        for att in attachments:
+            try:
+                marker = Attachment.model_validate(att).synthesize_marker(
+                    agent_id=agent_id,
+                    user_id=user_id,
+                )
+                lines.append(marker)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[Attachment.markers_from_dicts] skipping malformed "
+                    f"attachment dict: {type(e).__name__}: {e}"
+                )
+        return "\n".join(lines)

@@ -125,6 +125,7 @@ class MemoryEngine:
                 user_input=f"NEW:\n{incoming.content_text}\n\nCANDIDATES:\n{listing}",
                 output_type=_DedupTieBreak,
                 agent_id=self.agent_id,
+                db=self._db,  # explicit — record even when no ambient cost ctx
             )
             idx = result.final_output.match_index
             return candidates[idx] if idx is not None and 0 <= idx < len(candidates) else None
@@ -213,6 +214,7 @@ class MemoryEngine:
             scope_type=scope_type, scope_id=scope_id, kind=target_kind,
             new_facts=new_facts, existing=existing,
             prompt=spec.consolidate_prompt, sdk=self._sdk,
+            db=self._db,  # explicit — record even when no ambient cost ctx
         )
 
     async def evict(self, kind: str, *, scope_type: str, scope_id: str) -> int:

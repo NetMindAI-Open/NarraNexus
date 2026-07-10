@@ -95,6 +95,39 @@ export interface AgentInboxListResponse extends ApiResponse {
   total_unread: number;
 }
 
+// Bus-failure recovery (upstream #52): messages an agent permanently gave
+// up on (retry_count >= 3), plus the user-scope system notices that
+// announced them.
+export interface BusFailureItem {
+  message_id: string;
+  channel_id: string;
+  from_agent: string;
+  content: string;
+  retry_count: number;
+  last_error: string;
+  last_retry_at: string;
+  message_created_at: string;
+}
+
+export interface BusFailuresResponse extends ApiResponse {
+  failures: BusFailureItem[];
+}
+
+export interface NoticeItem {
+  message_id: string;
+  message_type: string;
+  title: string;
+  content: string;
+  is_read: boolean;
+  created_at: string;
+  source: { type: string; id: string } | null;
+}
+
+export interface NoticesResponse extends ApiResponse {
+  notices: NoticeItem[];
+  unread_count: number;
+}
+
 // Awareness types
 export interface AwarenessResponse extends ApiResponse {
   awareness?: string;
@@ -965,4 +998,166 @@ export interface DiscordTestResponse extends ApiResponse {
     bot_user_id: string;
     bot_username: string;
   };
+}
+
+// =============================================================================
+// NetMind billing / subscription (Phase 1: account status panel)
+// Field shapes verified against dev 2026-07-02 live probe — do NOT hardcode
+// rpm/period values (dev drifts: Free rpm=60, Pro period="2day").
+// =============================================================================
+
+export interface SubscriptionPlanPrice {
+  period: string; // e.g. "month" / "2day" (env-dependent)
+  currency: string;
+  stripe_price_id: string;
+}
+
+export interface SubscriptionPlan {
+  plan_id: string; // "free" | "pro"
+  name: string;
+  quota_limits: { rpm: number };
+  features: { support: boolean; member_price: boolean };
+  monthly_grant_usd: number;
+  prices: SubscriptionPlanPrice[];
+}
+
+export interface SubscriptionStatus {
+  subscription_id: string;
+  status: string; // e.g. "ACTIVE"
+  current_period_start: number; // Unix seconds
+  current_period_end: number; // Unix seconds
+  auto_renew: boolean;
+}
+
+// GET /api/billing/subscription -> data. Plan fields are flat at top level;
+// `subscription` is null when the user is on Free.
+export interface SubscriptionMe extends SubscriptionPlan {
+  subscription: SubscriptionStatus | null;
+}
+
+export interface PlanList {
+  plans: SubscriptionPlan[];
+}
+
+export interface SubscriptionMeResponse extends ApiResponse {
+  data?: SubscriptionMe;
+}
+
+export interface PlanListResponse extends ApiResponse {
+  data?: PlanList;
+}
+
+// POST /api/billing/subscribe -> Stripe checkout to redirect the user to.
+export interface SubscribeCheckout {
+  session_id: string;
+  checkout_url: string;
+}
+
+export interface SubscribeResponse extends ApiResponse {
+  data?: SubscribeCheckout;
+}
+
+// POST /api/billing/cancel | /reactivate -> small status envelope
+// (cancel: { status: "auto_renew_off" }; reactivate shape TBD).
+export interface BillingActionResponse extends ApiResponse {
+  data?: Record<string, unknown>;
+}
+
+// GET /api/billing/fee-info -> user balance + eligibility (module B).
+// Amounts are strings (USD). NOTE (G1): no per-period consumption field, and
+// `free_credit` conflates subscription grant + recharge — degraded display.
+//
+// Every field is OPTIONAL: the backend proxies NetMind's JSON verbatim (no
+// schema validation), so a partial/misshapen 200 is possible. Call sites MUST
+// use optional chaining + fallbacks — never assume a field is present, or a
+// malformed-but-200 response crashes the render.
+export interface FeeInfo {
+  user_id?: string;
+  eligible?: boolean;
+  checks?: {
+    has_arrears?: boolean;
+    card_within_limit?: boolean;
+    has_bound_card?: boolean;
+  };
+  metrics?: {
+    balance?: { usd?: string; nmt?: string; cny?: string };
+    free_credit?: string; // current balance (recharge + subscription grant + activity)
+    monthly_free_credit?: string; // monthly grant, listed separately
+    arrears?: { pending_bills_count?: number; pending_payments_count?: number };
+    card_month?: {
+      spent_usd?: string;
+      limit_usd?: string | null;
+      remaining_usd?: string | null;
+    };
+  };
+}
+
+export interface FeeInfoResponse extends ApiResponse {
+  data?: FeeInfo;
+}
+
+// GET /api/billing/records -> financial transactions (module B activity, G1).
+// Amounts are strings. direction: "expense" (consumption) / "income".
+export interface FinanceRecord {
+  kind: string; // Payment / Recharge / Refund / Withdraw
+  record_id: string;
+  created_at: string; // ISO-8601 UTC
+  amount: string;
+  currency: string;
+  product?: string;
+  method?: string; // free_credit / stripe / card
+  status: string; // succeeded / pending / failed
+  type: string;
+  direction: string; // "expense" | "income"
+}
+
+export interface RecordsResponse extends ApiResponse {
+  data?: FinanceRecord[];
+  has_next?: boolean;
+}
+
+// POST /api/billing/recharge -> hosted Stripe checkout for a top-up (module E).
+export interface RechargeCheckout {
+  recharge_id?: string;
+  session_id: string;
+  checkout_url: string;
+  status?: string; // pending at creation
+}
+
+export interface RechargeResponse extends ApiResponse {
+  data?: RechargeCheckout;
+}
+
+// GET /api/billing/recharge/{session_id} -> poll status by Stripe session.
+export interface RechargeStatus {
+  recharge_id?: string;
+  session_id?: string;
+  status?: string; // pending | succeeded | failed
+  amount?: string;
+  currency?: string;
+}
+
+export interface RechargeStatusResponse extends ApiResponse {
+  data?: RechargeStatus;
+}
+
+// ── per-agent LLM config (GET /api/agents/{id}/llm-config) ────────────────
+
+/** The flat, effective config for one slot (override or owner default). */
+export interface AgentSlotEffective {
+  provider_id: string;
+  model: string;
+  thinking: string;
+  reasoning_effort: string;
+  // Present only on the 'agent' slot.
+  agent_framework?: string;
+}
+
+/** Per-slot view: whether the agent inherits the owner default, the effective
+ *  config, and (if any) the raw override + owner default. */
+export interface AgentSlotView {
+  inheriting: boolean;
+  effective: AgentSlotEffective | null;
+  override: AgentSlotEffective | null;
+  owner_default: AgentSlotEffective | null;
 }

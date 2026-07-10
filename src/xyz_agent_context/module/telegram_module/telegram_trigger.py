@@ -49,7 +49,10 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
     ChannelHistoryConfig,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.channel_trigger_base import (
+    CHANNEL_SILENT_SENTINEL,
+    ChannelTriggerBase,
+)
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -775,13 +778,23 @@ class TelegramTrigger(ChannelTriggerBase):
             output_text = "\n".join(replies)
         else:
             # Agent produced reasoning but never called tg_cli to send.
-            output_text = "(stayed silent)"
+            output_text = CHANNEL_SILENT_SENTINEL
 
         bot_label = credential.bot_username or credential.agent_id
         logger.info(
             f"TelegramTrigger [{bot_label}] agent responded: {output_text[:200]}"
         )
         return output_text
+
+    async def send_channel_reply(
+        self, credential: TelegramCredential, message: ParsedMessage, text: str
+    ) -> None:
+        """Error-fallback send: a plain-text message to the originating chat.
+        Reuses the per-subscriber SDK client (shared aiohttp session) when
+        present, else constructs a short-lived one."""
+        key = self._subscriber_key(credential)
+        client = self._sdk_clients.get(key) or TelegramSDKClient(credential.bot_token)
+        await client.send_message(message.chat_id, text)
 
     @staticmethod
     def _extract_tg_reply(item: dict) -> str:

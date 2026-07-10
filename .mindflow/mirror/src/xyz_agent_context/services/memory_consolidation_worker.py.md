@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/services/memory_consolidation_worker.py
-last_verified: 2026-06-11
+last_verified: 2026-07-07
 stub: false
 ---
+
+## 2026-07-03 — cost accounting: worker sets the cost context (Phase 0 / module H)
+
+The worker runs in the backend lifespan — outside `AgentRuntime.run()`, the only
+place that used to `set_cost_context`. So every consolidation LLM call resolved
+`get_cost_context()==None` and recorded **zero** tokens: the largest silent hole
+in token accounting (visible as the ~30s `[memory.consolidation] … falling back`
+cadence). `_default_engine_consolidate` now wraps its work in
+`set_cost_context(agent_id, self._db)` / `clear_cost_context()` (try/finally →
+no cross-tenant bleed). **Record-only, never bill:** it sets the cost context but
+deliberately NOT `current_user_id` (only `_inject_owner_credentials` →
+`provider_source`), so `record_cost`'s deduct hook cannot fire — consolidation is
+accounted yet never charged to the owner's free tier (iron rule #15). Adding
+`set_current_user_id` here would silently drain the owner's quota — forbidden.
+See [[cost_tracker]]; regression tests test_consolidation_worker_cost.py +
+test_cost_tracker_deduct_hook.py. Full inventory:
+reference/self_notebook/token-accounting-audit-checklist.md.
+
+
 
 # memory_consolidation_worker.py — unified Agent Memory
 
@@ -30,3 +49,9 @@ isolated as `failed` with pending_count and raw facts untouched.
 Systemic failures log at ERROR (lesson #4: L2 health = useful work,
 not loop-alive).
 
+
+## 2026-07-07 — _inject_owner_credentials 委托到共享原语
+
+`_inject_owner_credentials` 的 clear-first / 查 owner / resolve 序列抽到了
+`provider_resolver.inject_owner_helper_credentials`（narrative updater、Step-5 hooks
+现在共用同一原语）。本文件行为不变，只是不再各留一份副本（铁律 #8）。

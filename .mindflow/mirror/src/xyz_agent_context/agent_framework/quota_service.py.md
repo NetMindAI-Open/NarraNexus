@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/quota_service.py
 stub: false
-last_verified: 2026-06-16
+last_verified: 2026-07-07
 ---
+
+## 2026-07-07 — `disable_preference_if_enabled` (compare-and-swap, #48)
+
+New method wrapping `QuotaRepository.disable_if_enabled`: turn the free-tier
+preference OFF **only if currently ON**, returning True iff this call did the
+1→0 transition. The provider resolver uses it so the #48 auto-switch flips the
+preference and fires its one-time "switched to your own key" notice exactly
+once under concurrent exhausted requests. Distinct from `set_preference`
+(unconditional write, still used by the user-facing toggle).
 
 # Intent
 

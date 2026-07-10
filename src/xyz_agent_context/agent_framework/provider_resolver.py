@@ -10,9 +10,13 @@ business-layer `api_config.get_user_llm_configs` so the two entry points
 cannot disagree):
 
   0. SystemProviderService.is_enabled() == False
-     -> strict no-op; local mode / disabled env leaves every ContextVar
-        untouched. Agent code paths continue to use the existing
+     -> request path (default): strict no-op; local mode / disabled env leaves
+        every ContextVar untouched, agent code paths keep the existing
         llm_config.json global fallback.
+     -> background path (resolve_and_set(..., own_config_when_system_disabled=
+        True)): fall through to the user's OWN provider config, because the
+        detached-helper injection clears the ContextVars first. See
+        resolve_and_set / resolve_and_set_provider_for_user.
 
   1. quota row exists AND prefer_system_override=True (the default for
      newly registered users — they start on the free tier):
@@ -37,13 +41,17 @@ pattern-matches on this string to decide which remediation UI to show.
 """
 from __future__ import annotations
 
+import uuid
 from enum import Enum
 from typing import Optional
+
+from loguru import logger
 
 from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
     OpenAIConfig,
     RuntimeLLMConfigs,
+    clear_user_config,
     set_provider_source,
     set_user_config,
 )
@@ -147,6 +155,44 @@ class NoProviderConfiguredError(ProviderResolverError):
         )
 
 
+async def _emit_free_tier_switch_notice(db, user_id: str) -> None:
+    """One-time inbox notice that the free tier ran out and NarraNexus
+    auto-switched the user to their own configured provider (#48).
+
+    Best-effort: the notice is a courtesy, never load-bearing. A failure to
+    write it must NOT break the run that triggered the switch, so we swallow
+    and log rather than propagate (the run still succeeds on the user's key).
+    Callers gate this on ``disable_preference_if_enabled`` returning True, so
+    it fires at most once per exhaustion episode; a fresh ``message_id`` per
+    call is therefore safe (no concurrent double-write to dedup against).
+    """
+    try:
+        from xyz_agent_context.repository.inbox_repository import InboxRepository
+        from xyz_agent_context.schema.inbox_schema import (
+            InboxMessageType,
+            MessageSource,
+        )
+
+        await InboxRepository(db).create_message(
+            user_id=user_id,
+            message_id=f"freeswitch_{uuid.uuid4().hex[:16]}",
+            title="Switched to your own provider",
+            content=(
+                "Your free-tier quota is used up. NarraNexus has automatically "
+                "switched to the API provider you configured — new runs now use "
+                "your own key. You can change this any time in Settings → Quota."
+            ),
+            message_type=InboxMessageType.SYSTEM_NOTICE,
+            # `source.type` lets the frontend recognise this specific notice and
+            # surface it as a one-time banner (App.tsx), then mark it read.
+            source=MessageSource(type="free_tier_switch", id=user_id),
+        )
+    except Exception as e:  # noqa: BLE001 — notice is best-effort, never fatal
+        logger.warning(
+            f"free-tier auto-switch notice failed for {user_id}: {e}"
+        )
+
+
 class ProviderResolver:
     """Arbitrates which LLMConfig feeds the current request's ContextVar."""
 
@@ -195,7 +241,13 @@ class ProviderResolver:
             # gated in QuotaService.set_preference). With no own provider there
             # is nothing to fall back to → surface the gate unchanged.
             if has_own:
-                await self.quota_svc.set_preference(user_id, False)
+                # Compare-and-swap: exactly one concurrent caller wins the 1→0
+                # flip and is the one that surfaces the one-time "switched to
+                # your own key" notice — no double-notify under load (#48).
+                if await self.quota_svc.disable_preference_if_enabled(user_id):
+                    await _emit_free_tier_switch_notice(
+                        self.user_provider_svc.db, user_id
+                    )
                 return ProviderAvailability.USER_OK
             return ProviderAvailability.QUOTA_EXCEEDED
 
@@ -203,7 +255,7 @@ class ProviderResolver:
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
 
     async def resolve(
-        self, user_id: str
+        self, user_id: str, agent_id: str | None = None
     ) -> Optional[tuple[RuntimeLLMConfigs, str]]:
         """Resolve a user's effective LLM configs WITHOUT mutating ContextVars.
 
@@ -215,10 +267,13 @@ class ProviderResolver:
         The USER branch delegates to the single-point Provider Driver
         resolver (``resolve_user_runtime_llm_configs``) — the SAME builder the
         agent-loop path uses — so a codex agent or an anthropic-protocol
-        helper is wired correctly here too. There is intentionally no second
-        protocol-blind builder on this path (that drift was the root of the
-        consolidation anthropic-helper bug). The SYSTEM/free-tier branch keeps
-        the controlled NetMind (openai-protocol) shape.
+        helper is wired correctly here too. When ``agent_id`` is given it also
+        overlays that agent's per-agent slot overrides on the USER branch.
+        There is intentionally no second protocol-blind builder on this path
+        (that drift was the root of the consolidation anthropic-helper bug).
+        The SYSTEM/free-tier branch keeps the controlled NetMind
+        (openai-protocol) shape — per-agent overrides do NOT apply there
+        (scope: the free tier is a fixed one-model pool).
         """
         verdict = await self.classify(user_id)
 
@@ -237,7 +292,7 @@ class ProviderResolver:
             # Use the db behind the injected user_provider_svc (DI), not a
             # global — the same dependency classify() already read from.
             cfgs = await resolve_user_runtime_llm_configs(
-                user_id, self.user_provider_svc.db
+                user_id, self.user_provider_svc.db, agent_id=agent_id
             )
             return cfgs, "user"
         if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
@@ -246,19 +301,65 @@ class ProviderResolver:
             raise QuotaExceededError(user_id)
         raise NoProviderConfiguredError(user_id)  # NO_PROVIDER
 
-    async def resolve_and_set(self, user_id: str) -> None:
+    async def resolve_and_set(
+        self,
+        user_id: str,
+        *,
+        agent_id: str | None = None,
+        own_config_when_system_disabled: bool = False,
+    ) -> None:
         """Resolve the user's configs and push them onto the request ContextVars.
 
         Thin wrapper over :meth:`resolve` — pushes ALL FOUR configs (claude /
         openai / codex / anthropic_helper) so the helper-SDK factory and the
         codex agent slot are wired correctly off the request/background task.
+
+        ``own_config_when_system_disabled`` governs the SYSTEM_DISABLED branch
+        (``resolve`` returns None — local/desktop mode):
+
+        - **False (default, request path)**: strict no-op. The caller keeps
+          whatever global/desktop config is already in effect (the auth
+          middleware never clears the ContextVars).
+        - **True (background path)**: fall through to the user's OWN provider
+          config. ``inject_owner_helper_credentials`` clears the ContextVars
+          first, so a no-op would leave the helper config EMPTY and detached
+          hooks (memory / entity / narrative) would 401 on the bare platform
+          OpenAI endpoint. This mirrors the agent-loop path
+          (``get_user_runtime_llm_configs`` → ``_get_user_runtime_llm_configs_strict``).
+
+          The strict own-config resolver raises ``LLMConfigNotConfigured`` (an
+          ``LLMResolverError``/``RuntimeError``) when the owner has no usable
+          config — a DIFFERENT family than the ``ProviderResolverError`` this
+          method's callers catch. We translate it to ``NoProviderConfiguredError``
+          so the exception contract holds: callers' ``except ProviderResolverError``
+          still fires the credential alert instead of the exception slipping
+          into a generic ``except`` that continues on the cleared/global
+          platform key (the exact 2026-07 incident this path prevents).
         """
-        resolved = await self.resolve(user_id)
+        resolved = await self.resolve(user_id, agent_id=agent_id)
         if resolved is None:
-            return
-        cfgs, source = resolved
+            if not own_config_when_system_disabled:
+                return
+            from xyz_agent_context.agent_framework.api_config import (
+                LLMConfigNotConfigured,
+            )
+            from xyz_agent_context.agent_framework.provider_driver import (
+                resolve_user_runtime_llm_configs,
+            )
+
+            try:
+                cfgs = await resolve_user_runtime_llm_configs(
+                    user_id, self.user_provider_svc.db, agent_id=agent_id
+                )
+            except LLMConfigNotConfigured as e:
+                raise NoProviderConfiguredError(user_id) from e
+            source = "user"
+        else:
+            cfgs, source = resolved
+
         set_user_config(
-            cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper
+            cfgs.claude, cfgs.openai, cfgs.codex, cfgs.anthropic_helper,
+            cfgs.cli_helper,
         )
         set_provider_source(source)
 
@@ -280,14 +381,27 @@ async def classify_provider_for_user(user_id: str, db) -> ProviderAvailability:
     return await resolver.classify(user_id)
 
 
-async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
+async def resolve_and_set_provider_for_user(
+    user_id: str, db, agent_id: str | None = None
+) -> None:
     """Wire the default services and push the user's effective LLM config
     onto this task's ContextVars — the background-job twin of the
     auth_middleware path, for callers that run OUTSIDE any HTTP request
     (memory consolidation worker; future lifespan jobs).
 
-    Local mode / system-provider disabled: strict no-op, the global
-    llm_config.json / .env fallback stays in effect (iron rule #7).
+    When ``agent_id`` is given, the owner's config is overlaid with that
+    agent's per-agent slot overrides (helper_llm is per-agent, so a background
+    helper task for agent A must use A's helper override, not the owner
+    default).
+
+    Local mode / system-provider disabled: falls through to the user's OWN
+    provider config (NOT a no-op). Background callers (this + the memory
+    consolidation worker) clear the ContextVars before calling, so a no-op
+    would leave the helper config empty and detached LLM hooks would 401 on
+    the bare platform endpoint — that was the local/desktop-mode gap in the
+    detached-helper injection (#68). The agent-loop path already resolves the
+    owner's own config here; this mirrors it.
+
     Quota / no-provider verdicts raise the same ProviderResolverError
     subclasses the request path uses — callers isolate, never drop data.
     """
@@ -299,7 +413,52 @@ async def resolve_and_set_provider_for_user(user_id: str, db) -> None:
         system_provider_svc=SystemProviderService.instance(),
         quota_svc=QuotaService.default(),
     )
-    await resolver.resolve_and_set(user_id)
+    await resolver.resolve_and_set(
+        user_id, agent_id=agent_id, own_config_when_system_disabled=True
+    )
+
+
+async def inject_owner_helper_credentials(agent_id: str, db) -> Optional[str]:
+    """Put the agent OWNER's effective LLM config onto this task's ContextVars.
+
+    Call this at the top of every DETACHED background task (``asyncio.create_task``)
+    that makes helper-LLM calls — the narrative updater, the Step-5 entity/memory
+    hooks. Those tasks do NOT inherit the per-turn ContextVar that
+    ``AgentRuntime.run`` sets (it is set inside an async generator whose context
+    does not propagate to children spawned off the driver task), so without this
+    they fall through ``_ConfigProxy`` to the global ``_holder`` — i.e. the
+    platform ``settings.openai_api_key``. That is exactly the 2026-07 incident:
+    an expired platform OpenAI key 401'd every background helper call for ~2
+    weeks while long memory silently degraded. This is the background twin of
+    ``AgentRuntime.run``'s ``set_user_config`` and of the memory worker's own
+    injection (which now delegates here).
+
+    ``clear_user_config`` runs first so a task that reused this coroutine for a
+    different tenant (or that cannot resolve an owner) cannot inherit the
+    previous tenant's credentials.
+
+    Returns the resolved owner ``user_id``, or ``None`` when the agent row has
+    no owner (creds left cleared → the strict global fallback applies, which in
+    cloud mode has no usable key so the helper call fails fast rather than
+    billing the platform). Raises ``ProviderResolverError`` subclasses
+    (quota exhausted / no provider configured) — the caller isolates the
+    scope and surfaces a credential alert rather than dropping to the platform
+    key.
+    """
+    # Reset first: never inherit a prior tenant's creds when we bail early.
+    clear_user_config()
+    agent_row = await db.get_one("agents", {"agent_id": agent_id})
+    owner = (agent_row or {}).get("created_by")
+    if not owner:
+        logger.warning(
+            f"[background-llm] agent {agent_id} has no owner row — helper "
+            f"credentials left cleared (global fallback)."
+        )
+        return None
+    # Pass agent_id so the owner's helper_llm is overlaid with this agent's
+    # per-agent helper override (helper follows its agent).
+    await resolve_and_set_provider_for_user(owner, db, agent_id=agent_id)
+    return owner
 
 
 def _is_user_config_complete(cfg: LLMConfig | None) -> bool:

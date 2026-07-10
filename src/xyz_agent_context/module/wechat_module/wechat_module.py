@@ -65,6 +65,7 @@ try:
         user_reply_tool_names=("wechat_send", "send_message_to_user_directly"),
         row_prefix_template="[WeChat · {sender_name} · {sender_id}]",
         extract_reply_fn=_extract_wechat_reply,
+        dedicated_trigger=True,
     ))
 except ValueError:
     pass

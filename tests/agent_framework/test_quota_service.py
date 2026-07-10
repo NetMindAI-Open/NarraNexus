@@ -60,6 +60,30 @@ async def test_check_returns_true_when_budget_available(service):
 
 
 @pytest.mark.asyncio
+async def test_disable_preference_if_enabled_is_compare_and_swap(service, db_client):
+    """#48 CAS: the first call flips prefer_system_override 1→0 and returns
+    True; a second call finds it already OFF and returns False. This is what
+    guarantees exactly one caller fires the one-time auto-switch notice under
+    concurrent exhausted requests."""
+    repo = QuotaRepository(db_client)
+    await service.init_for_user("usr_cas")  # new row defaults prefer=True
+    assert (await repo.get_by_user_id("usr_cas")).prefer_system_override is True
+
+    first = await service.disable_preference_if_enabled("usr_cas")
+    assert first is True
+    assert (await repo.get_by_user_id("usr_cas")).prefer_system_override is False
+
+    second = await service.disable_preference_if_enabled("usr_cas")
+    assert second is False  # already off — the loser must not re-notify
+
+
+@pytest.mark.asyncio
+async def test_disable_preference_if_enabled_no_row_returns_false(service):
+    """No quota row → nothing to flip → False (no spurious notice)."""
+    assert await service.disable_preference_if_enabled("usr_ghost") is False
+
+
+@pytest.mark.asyncio
 async def test_check_returns_false_when_no_record(service):
     assert await service.check("usr_nobody") is False
 

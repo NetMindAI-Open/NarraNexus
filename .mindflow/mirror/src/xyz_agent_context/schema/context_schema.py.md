@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/context_schema.py
-last_verified: 2026-06-12
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — ContextData 正式声明 LLM 身份字段
+
+新增 `agent_info_model_type`（framework 展示名）+ `model_name`（真实 model），
+Optional/默认 None。这两个字段此前**没声明**，靠 `model_config extra='allow'`
+被 [[context_runtime.py]] 用写死值裸传（"Claude Agent SDK / sonnet-4"）。现在改由
+[[basic_info_module.py]] `hook_data_gathering` 经 [[agent_model_identity.py]] 按
+真实 slot 动态填，正式建模让它们跟其它 identity 字段一样走 schema。
 
 ## 2026-06-12 — ContextData gains human-name + sender-aware identity fields
 

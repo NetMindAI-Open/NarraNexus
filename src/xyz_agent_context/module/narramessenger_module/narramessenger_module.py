@@ -4,22 +4,23 @@
 @description: NarraMessenger channel module — subclass of ChannelModuleBase.
 
 NarraMessenger (formerly NexusMatrix) is NetMind's Matrix-based IM platform.
-We integrate via Gateway Polling + ``/chat/send`` — pure bearer-token HTTP,
-no Matrix client. This module owns the agent-facing surface:
-  - ``send_to_agent`` (registered in ChannelSenderRegistry) → ``/chat/send``
-  - ``narra_send`` / ``narra_status`` MCP tools (the agent's reply path)
+We integrate via a Direct Matrix client (``MatrixTrigger`` — ``/sync`` in,
+``room_send`` out; Commit 7 deleted the legacy Gateway poller). This module
+owns the agent-facing surface:
+  - ``narra_reply`` (reply — a marker the trigger delivers) / ``narra_send``
+    (proactive text) / ``narra_send_media`` (image/file) MCP tools — the
+    agent's Matrix-native send path
   - ``get_instructions`` (system-prompt behaviour, incl. an output-hygiene
     rule against leaking identity/trust text as a reply)
   - ``build_extra_data`` (the is_owner_interacting trust signal)
 
-Mirrors ``telegram_module.py``; the deltas are transport (gateway HTTP, not a
+Mirrors ``telegram_module.py``; the deltas are transport (Matrix client, not a
 bot SDK) and identity (Matrix principals, not Telegram @usernames).
 """
 
 from __future__ import annotations
 
 import json
-import uuid
 from typing import Any, Optional
 
 from loguru import logger
@@ -36,7 +37,7 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.schema.hook_schema import HookAfterExecutionParams
 
-from ._narramessenger_client import NarramessengerAPIError, NarramessengerClient
+from ._matrix_send import MatrixSendError, matrix_room_send
 from ._narramessenger_credential_manager import (
     NarramessengerCredential,
     NarramessengerCredentialManager,
@@ -49,20 +50,22 @@ NARRAMESSENGER_MCP_PORT = 7833
 
 # ───────────────────────────────────────────────────────────────────────────
 # MessageSourceRegistry handler — so ChatModule captures NarraMessenger
-# replies into chat history. The agent replies via ``narra_send`` (or the
-# generic ``send_message_to_user_directly``); without this handler every turn
-# would persist as "Background activity (narramessenger)" and the agent would
-# lose multi-turn context. Mirrors telegram_module._extract_telegram_reply.
+# replies into chat history. The agent replies via ``narra_reply`` (or sends
+# proactively via ``narra_send``); without this handler every turn would
+# persist as "Background activity (narramessenger)" and the agent would lose
+# multi-turn context. ``send_message_to_user_directly`` is intentionally NOT
+# here — the shared channel prompt reserves it for OWNER messages, not this
+# channel. Mirrors telegram_module._extract_telegram_reply.
 # ───────────────────────────────────────────────────────────────────────────
 
 
 def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[str]:
     """Extract the user-visible reply text from an agent tool call.
 
-    Recognises ``narra_reply(invocation_id, text)`` (the reply path),
-    ``narra_send(room_id, text)`` (proactive), and the generic
-    ``send_message_to_user_directly(content)``. Returns None when the call
-    isn't a user-facing reply.
+    Recognises ``narra_reply(text)`` (the reply marker) and
+    ``narra_send(room_id, text)`` (proactive) — both carry the user-facing
+    text in the ``text`` arg. Returns None when the call isn't a user-facing
+    reply.
     """
     args = arguments
     if isinstance(args, str):
@@ -72,10 +75,6 @@ def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[s
             args = {}
     if not isinstance(args, dict):
         return None
-
-    if "send_message_to_user_directly" in (tool_name or ""):
-        content = args.get("content", "")
-        return content or None
 
     if "narra_reply" in (tool_name or "") or "narra_send" in (tool_name or ""):
         text = args.get("text", "")
@@ -87,11 +86,10 @@ def _extract_narramessenger_reply(tool_name: str, arguments: dict) -> Optional[s
 try:
     MessageSourceRegistry.register(MessageSourceHandler(
         name="narramessenger",
-        user_reply_tool_names=(
-            "narra_reply", "narra_send", "send_message_to_user_directly",
-        ),
+        user_reply_tool_names=("narra_reply", "narra_send"),
         row_prefix_template="[NarraMessenger · {sender_name} · {sender_id} · {chat_id}]",
         extract_reply_fn=_extract_narramessenger_reply,
+        dedicated_trigger=True,
     ))
 except ValueError:
     # Re-import (test hot-reload, etc.) — handler already registered.
@@ -130,11 +128,17 @@ _BEHAVIOUR = """\
 ### Behaviour
 
 1. In **direct messages**, every message is for you — reply normally.
-2. In **group rooms** you are only invoked when @-mentioned; reply to the point
-   and don't repeat the whole conversation back.
-3. Non-text content (images, files, audio) arrives as short placeholders like
-   `[Image]` / `[File: report.pdf]` — acknowledge them as such; you cannot open
-   them.
+2. In **group rooms** you SEE every message (silently ingested into your
+   conversation memory even when you weren't summoned), but you only
+   REPLY when directly @-mentioned. When you are @-mentioned, you may
+   reference earlier group discussion you observed — it's in your
+   chat history under this room, marked with the sender's name and
+   `silent=true` in the metadata. Reply to the point and don't repeat
+   the whole conversation back.
+3. Incoming images / files / audio are downloaded into your workspace and
+   announced in chat history with their on-disk path — open them with your
+   `Read` tool (it handles images and PDFs natively). To send an image or
+   file back, put it in your workspace and call `narra_send_media`.
 """
 
 _IRON_RULES = """\
@@ -150,23 +154,23 @@ _IRON_RULES = """\
 """
 
 # Shown on a NON-NarraMessenger-triggered turn (owner web chat, a Job, etc.)
-# where there is no inbound invocation to reply to. Tells the agent to use the
-# proactive sender (``narra_send``), never ``narra_reply`` (which needs an
-# invocation_id that only exists on a channel-triggered turn).
+# where there is no inbound message to reply to. Tells the agent to use the
+# proactive sender (``narra_send``), never ``narra_reply`` (whose delivery is
+# wired to a channel-triggered turn's originating room).
 _PROACTIVE_ACTION = """\
 ### Sending proactively
 
 This turn was NOT triggered by an incoming NarraMessenger message, so there is
-no invocation to reply to. To message a NarraMessenger room on your own
+no inbound message to reply to. To message a NarraMessenger room on your own
 initiative (e.g. delivering a finished task result, or because the owner asked
 you to), call `narra_send(room_id="<room id>", text="<your message>")`.
-Use `narra_send` here — NOT `narra_reply` (that one needs an incoming
-invocation_id, which this turn does not have).
+Use `narra_send` here — NOT `narra_reply` (that one only delivers on a turn
+triggered by an incoming NarraMessenger message).
 """
 
 
 class NarramessengerModule(ChannelModuleBase):
-    """NarraMessenger channel module (Gateway Polling + /chat/send)."""
+    """NarraMessenger channel module (Direct Matrix — /sync in, room_send out)."""
 
     # ── ChannelModuleBase contract ──────────────────────────────────────
     channel_name = "narramessenger"
@@ -182,7 +186,7 @@ class NarramessengerModule(ChannelModuleBase):
             name="NarramessengerModule",
             priority=8,
             enabled=True,
-            description="NarraMessenger channel integration (gateway poll + /chat/send).",
+            description="NarraMessenger channel integration (Direct Matrix client).",
             module_type="capability",
         )
 
@@ -202,28 +206,25 @@ class NarramessengerModule(ChannelModuleBase):
         """Sender registered in ChannelSenderRegistry.
 
         ``target_id`` is a NarraMessenger ``room_id`` (Matrix room id).
-        Delivery goes through the chat-proxy ``/chat/send`` (bearer-only,
-        no reply deadline) — used for both replies and proactive/composite
-        sends.
+        Delivered natively via Matrix ``room_send`` — used for both replies
+        and proactive/composite sends routed from other parts of the system.
         """
         cred = await self.get_credential(agent_id)
         if not cred:
             return {"success": False, "error": "no NarraMessenger credential bound"}
+        if not cred.matrix_access_token or not cred.matrix_homeserver_url:
+            return {"success": False, "error": "no_matrix_credentials"}
 
-        conversation_type = kwargs.get("conversation_type")
-        client = NarramessengerClient(cred.bearer_token, cred.backend_base_url)
         try:
-            data = await client.chat_send(
+            event_id = await matrix_room_send(
+                homeserver=cred.matrix_homeserver_url,
+                token=cred.matrix_access_token,
                 room_id=target_id,
-                text=message,
-                txn_id=str(uuid.uuid4()),
-                conversation_type=conversation_type,
+                content={"msgtype": "m.text", "body": message},
             )
-            return {"success": True, "data": {"event_id": data.get("event_id")}}
-        except NarramessengerAPIError as e:
+            return {"success": True, "data": {"event_id": event_id}}
+        except MatrixSendError as e:
             return {"success": False, "error": e.code}
-        finally:
-            await client.close()
 
     def register_mcp_tools(self, mcp) -> None:
         register_narramessenger_mcp_tools(mcp)
@@ -290,25 +291,22 @@ class NarramessengerModule(ChannelModuleBase):
     def _reply_action_block(info: dict) -> str:
         """Identity block for an inbound turn — the ids + the reply tool call.
 
-        The ``invocation_id`` comes from the poll payload (threaded via
-        ``build_extra_data``). The agent passes it back to ``narra_reply`` —
-        same as it already copies ``room_id`` — and ``/reply`` both delivers
-        the message and closes the invocation (no 15-min timeout).
+        Direct Matrix: the agent just calls ``narra_reply(text=...)``; the
+        MatrixTrigger delivers it to THIS room via ``room_send`` once the turn
+        ends (no room_id or invocation_id to pass — the trigger knows both).
         """
-        invocation_id = info.get("current_invocation_id", "")
         room_id = info.get("current_room_id", "")
         sender_id = info.get("current_sender_id", "")
         return (
             "### This turn — reply to the incoming message\n\n"
             f"- sender: `{sender_id}`\n"
-            f"- room_id: `{room_id}`\n"
-            f"- invocation_id: `{invocation_id}`\n\n"
-            f"To reply, call "
-            f"`narra_reply(invocation_id=\"{invocation_id}\", text=\"<your reply>\")`. "
-            "This delivers your message AND closes the invocation (so the sender "
-            "never sees a timeout). Send ONE real, plain-text answer, using the "
-            "`invocation_id` exactly as shown above. For a proactive message to a "
-            "different room, use `narra_send(room_id, text)` instead."
+            f"- room_id: `{room_id}`\n\n"
+            'To reply, call `narra_reply(text="<your reply>")` — your reply is '
+            "delivered to this room automatically. Send ONE real, plain-text (or "
+            "markdown) answer. To attach an image/file, put it in your workspace "
+            'and call `narra_send_media(room_id="' + room_id + '", file_path="...")`. '
+            "For a proactive message to a DIFFERENT room, use "
+            "`narra_send(room_id, text)`."
         )
 
     async def build_extra_data(
@@ -322,15 +320,6 @@ class NarramessengerModule(ChannelModuleBase):
             current_sender_id = ct.get("sender_id", "") or ""
             current_room_id = ct.get("room_id", "") or ""
 
-        # invocation_id == message_id, carried by the base in
-        # ``trigger_id = "narramessenger_<invocation_id>"``. Present only on a
-        # narramessenger-triggered turn; the agent uses it for ``narra_reply``.
-        current_invocation_id = ""
-        trigger_id = ctx_data.extra_data.get("trigger_id", "") or ""
-        prefix = f"{self.channel_name}_"
-        if trigger_id.startswith(prefix):
-            current_invocation_id = trigger_id[len(prefix):]
-
         is_owner_interacting = bool(
             cred.owner_matrix_user_id
             and current_sender_id
@@ -343,7 +332,6 @@ class NarramessengerModule(ChannelModuleBase):
             "owner_name": cred.owner_name,
             "current_sender_id": current_sender_id,
             "current_room_id": current_room_id,
-            "current_invocation_id": current_invocation_id,
             "is_owner_interacting": is_owner_interacting,
             "connection_mode": cred.connection_mode,
             "enabled": cred.enabled,

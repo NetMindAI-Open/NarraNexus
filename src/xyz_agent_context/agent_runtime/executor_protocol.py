@@ -28,6 +28,7 @@ from typing import Any, Optional
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
+    CliHelperConfig,
     CodexConfig,
     OpenAIConfig,
     set_user_config,
@@ -40,6 +41,7 @@ _CONFIG_TYPES = {
     "openai": OpenAIConfig,
     "codex": CodexConfig,
     "anthropic_helper": AnthropicHelperConfig,
+    "cli_helper": CliHelperConfig,
 }
 
 
@@ -75,6 +77,7 @@ def apply_provider_configs(payload: dict[str, Optional[dict]]) -> None:
         openai=_build("openai") or OpenAIConfig(),
         codex=_build("codex"),
         anthropic_helper=_build("anthropic_helper"),
+        cli_helper=_build("cli_helper"),
     )
 
 

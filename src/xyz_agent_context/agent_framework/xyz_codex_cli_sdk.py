@@ -101,6 +101,18 @@ _EMPTY = ""
 _IDLE_PROBE_SECONDS_DEFAULT = 30
 
 
+# Per-line ceiling for the StreamReader that reads codex CLI stdout.
+# ``asyncio.create_subprocess_exec`` defaults to
+# ``streams._DEFAULT_LIMIT = 65536`` (64 KiB); once a single NDJSON event
+# line exceeds it, ``StreamReader.readline`` raises
+# ``ValueError: Separator not found, and chunk exceed the limit``.
+# A tool_result carrying a base64 image can easily hit 150-400 KiB
+# (see the 2026-07-08 multimodal-large-file incident writeup for the
+# aiohttp twin of this bug). Lift the limit to match the Claude wrapper's
+# ``max_buffer_size`` so both wrappers share the same ceiling.
+_STDOUT_LINE_LIMIT = 50 * 1024 * 1024
+
+
 class CodexSDK:
     """Codex CLI wrapper. Same interface as :class:`ClaudeAgentSDK`.
 
@@ -272,6 +284,9 @@ class CodexSDK:
                     stderr=asyncio.subprocess.PIPE,
                     cwd=self.working_path,
                     env=full_env,
+                    # Bump StreamReader's per-line ceiling above the
+                    # asyncio 64 KiB default — see _STDOUT_LINE_LIMIT.
+                    limit=_STDOUT_LINE_LIMIT,
                 )
             except FileNotFoundError as e:
                 raise RuntimeError(

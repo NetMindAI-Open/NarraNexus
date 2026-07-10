@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-06-12
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — hook 填入真实 LLM 身份（framework + model）
+
+`hook_data_gathering` 新增一段：调 [[agent_model_identity.py]]
+`resolve_agent_model_identity(self.agent_id, self.db)`，把
+`ctx_data.agent_info_model_type`（framework 展示名，如 "Codex CLI"）+
+`ctx_data.model_name`（真实 model，如 "gpt-5"）填上，供 [[prompts.py]] 的
+`Your LLM model: **{...}** ({...})` 行渲染。此前这两个值在 [[context_runtime.py]]
+被写死成 "Claude Agent SDK / sonnet-4"，导致所有 agent 自称 Claude Sonnet-4
+（违反铁律#9）。resolver 绝不抛异常；此处再包一层 try/except，失败也给两字段赋
+安全非-None 值，防模板 `.format()` 渲染出 "None"。
 
 ## 2026-06-12 — hook_data_gathering resolves identity by human name + real sender
 

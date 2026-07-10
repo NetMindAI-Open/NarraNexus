@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_inbox_writer.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — turn's inbound/reply stamped 1µs apart (ordering fix)
+
+Both rows of a turn were written at turn end with one shared
+``now = utc_now()`` — identical created_at. With ``ORDER BY created_at`` and
+no tie-break, two rows sharing a microsecond sort unstably, so the reply
+could render above the message it answered (worst on WeChat, whose messages
+carry no timestamp of their own — timestamp_ms == 0). Fix: ``inbound_at =
+now``, ``reply_at = now + timedelta(microseconds=1)``; created_at alone
+orders a turn, utc_now()'s advance between turns keeps turns in completion
+order. Read side: inbox route adds a message_id tie-break; the frontend
+compares created_at as a microsecond ISO STRING (inboxOrder.ts) rather than
+via new Date() (millisecond), which would drop the 1µs gap.
 
 ## Why it exists
 

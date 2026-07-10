@@ -50,7 +50,10 @@ from xyz_agent_context.channel.channel_context_builder_base import (
     ChannelContextBuilderBase,
     ChannelHistoryConfig,
 )
-from xyz_agent_context.channel.channel_trigger_base import ChannelTriggerBase
+from xyz_agent_context.channel.channel_trigger_base import (
+    CHANNEL_SILENT_SENTINEL,
+    ChannelTriggerBase,
+)
 from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import (
@@ -535,12 +538,20 @@ class DiscordTrigger(ChannelTriggerBase):
             if sent:
                 replies.append(sent)
 
-        output_text = "\n".join(replies) if replies else "(stayed silent)"
+        output_text = "\n".join(replies) if replies else CHANNEL_SILENT_SENTINEL
         logger.info(
             f"DiscordTrigger [{credential.bot_username or credential.agent_id}] "
             f"agent responded: {output_text[:200]}"
         )
         return output_text
+
+    async def send_channel_reply(
+        self, credential: DiscordCredential, message: ParsedMessage, text: str
+    ) -> None:
+        """Error-fallback send: post into the originating Discord channel."""
+        await DiscordSDKClient(credential.bot_token).send_message(
+            message.chat_id, text
+        )
 
     @staticmethod
     def _extract_sent_text(item: dict) -> str:

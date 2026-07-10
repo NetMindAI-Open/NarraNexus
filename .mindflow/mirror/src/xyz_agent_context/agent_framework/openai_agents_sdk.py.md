@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/openai_agents_sdk.py
-last_verified: 2026-05-29
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — 平衡扫描精确化(PR review Minor)
+
+抽出 `_balanced_end(text, start)`:用**类型化配对栈**(`{`↔`}`、`[`↔`]`)而非共享
+depth 计数,`{"a": 1]` 这类错配会被判为不平衡(而非"平衡但随后 loads 失败")。
+`_first_balanced_json` 改为**遍历每个 opener**:某个候选虽平衡但 `json.loads` 失败时,
+继续找下一个 opener(不再一失败就 return None),对象内含数组等嵌套仍整段捕获。
+
+## 2026-07-08 — `_extract_json_from_llm_output`: 首个平衡对象兜底
+
+抽取器原本只做贪婪匹配(首个 `{` → 末个 `}`),单个**嵌套**对象要靠贪婪才能整段
+捕获。但 codex CLI helper 的流会把消息**重复两遍**(流式增量 + item.completed 全量
+副本,措辞有时略有出入),于是文本里是 `{...}{...}` 两个拼接对象,贪婪跨到最后一个
+`}` → 整段 `json.loads` 失败 → 原来直接返回 None,结构化 helper 调用全挂。
+
+新增 `_first_balanced_json`(带字符串/转义感知的括号配平扫描)作为**兜底**:仅在贪婪
+路径解析失败后才跑,返回**第一个**平衡的 `{...}`/`[...]`。纯增量、零回归(既有能解析
+的输入行为不变)。回归测试见 `tests/agent_framework/test_json_extraction.py`。
+
+> 注:文本重复的**根因**在 codex_official translator 对 `agentMessageDelta`(增量)
+> 与 `item.completed`(全量)双重 emit 成 `response.text.delta`——这条也影响 agent
+> 主链路的 `ResponseProcessor.append_text`,风险面大,单独立项处理(见
+> `reference/self_notebook/todo/2026-07-08-codex-official-double-emit.md`)。这里只在
+> helper 抽取侧做鲁棒化,保证结构化调用正确。
+
+## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
+
+The three cost sites (`_record_cost` for the Agents-SDK path, the stream path,
+the structured-fallback path) now branch: when a live cost context exists but the
+provider returned 0/absent usage, call `cost_tracker.warn_missing_usage(...)`
+instead of silently skipping. Turns an invisible accounting miss into an
+auditable WARNING. The response_format ladder consumes no tokens on a failed
+level (provider rejects before generating), so nothing is multi-counted — see
+reference/self_notebook/token-accounting-audit-checklist.md.
+
+
 
 ## 2026-05-29 — self-downgrade events audited to DB (E2)
 

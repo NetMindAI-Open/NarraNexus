@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-05-14
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — carry error state (isError/warnings) through the timeline
+
+TimelineItem gained isError + warnings, and toSessionItem now copies them.
+The May-2026 unified-timeline refactor defined TimelineItem WITHOUT these two
+fields, so a failed turn lost its error flag on the session→timeline hop and
+rendered as an innocuous message — the red error bubble/warning list (still
+live in MessageBubble) silently stopped firing. This re-connects the data.
 
 # buildTimeline.ts — pure history⊕session merge + dedup for the chat timeline
 

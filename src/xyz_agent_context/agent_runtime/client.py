@@ -23,6 +23,12 @@ methods that cover the two consumer shapes already present in the code:
 * ``run_stream`` — yield runtime events live (the streaming consumers:
   backend WS via BackgroundRun, chat-A2A-SSE).
 
+Both methods forward ``**extra_kwargs`` verbatim to ``AgentRuntime.run``,
+so newer optional parameters (e.g. ``silent=True`` for skip-agent-loop
+memory-only writes; ``trigger_extra_data`` for per-turn context) reach
+the runtime without a signature bump here. Callers pass them as regular
+keyword arguments to ``run_and_collect`` / ``run_stream``.
+
 Transports:
 
 * ``InProcessAgentRuntimeClient`` — calls ``AgentRuntime`` in the same

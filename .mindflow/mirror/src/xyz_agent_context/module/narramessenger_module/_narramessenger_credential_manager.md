@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_credential_manager.py
 stub: false
-last_verified: 2026-07-02
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 (review fix) — dead `update_matrix_credentials` deleted
+
+PR #60 review #5. The method was never called anywhere — the real bind path
+writes creds via `upsert(...)`. Keeping a second, divergent token-write path
+risked silent drift (铁律 #8/#5), so it's deleted. `upsert` is the single
+credential write path; `update_since_token` / `update_device_id` remain the
+narrow single-column updaters.
+
+## 2026-07-02 (Commit 7) — `list_active_by_mode` removed
+
+Direct Matrix is the only transport; there is no second trigger to
+disambiguate credential rows for. `list_active_by_mode(connection_mode)`
+is gone; MatrixTrigger's `load_active_credentials()` now calls
+`list_active()` directly. The `connection_mode` column stays in the
+schema for existing rows (see [[schema_registry.py]] `channel_narramessenger_credentials`
+block); the composite `(connection_mode, enabled)` index becomes dead
+weight but is left in place — dropping the index requires a manual
+migration and the extra bytes per row are negligible.
+
+Pre-Matrix rows without a `matrix_access_token` load through
+`list_active()`, then MatrixTrigger.connect raises `ValueError` on the
+missing token → base flips `enabled=False` → owner must re-bind. This
+is by design: silently upgrading a Gateway row would need a Matrix
+access token we don't have, and asking the owner to re-bind is the
+honest recovery path.
 
 ## Why it exists
 

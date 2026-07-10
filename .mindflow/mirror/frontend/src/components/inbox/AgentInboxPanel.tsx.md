@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — messages sorted via compareInboxMessages (microsecond, ascending)
+
+Per-room message sort switched from an inline ``new Date().getTime()``
+(millisecond, DESC) comparator to ``compareInboxMessages`` (lib/inboxOrder),
+which compares created_at as microsecond ISO strings and orders ASCENDING
+(chat reading order: oldest at top, Q1 A1 Q2 A2). The old millisecond clock
+collapsed a turn's 1µs-apart inbound/reply to an equal value, leaving the
+reply-vs-question order to chance; the old DESC direction also contradicted
+the "chat-style list" the panel renders. Room-list sort (by latest_at) is
+unchanged.
+
+## 2026-07-03 — hosts BusFailuresSection (upstream #52)
+
+The panel body now renders `<BusFailuresSection agentId>` above the room
+list — the recovery surface for messages the agent permanently gave up
+on. Self-hiding when there are no parked failures.
 
 ## 2026-06-10 — embedded mode
 

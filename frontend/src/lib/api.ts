@@ -8,7 +8,9 @@ import type {
   JobDetailResponse,
   CancelJobResponse,
   AgentInboxListResponse,
+  BusFailuresResponse,
   MarkReadResponse,
+  NoticesResponse,
   AwarenessResponse,
   ClearHistoryResponse,
   SocialNetworkResponse,
@@ -77,6 +79,16 @@ import type {
   DiscordCredentialResponse,
   DiscordBindResponse,
   DiscordTestResponse,
+  PlanListResponse,
+  SubscriptionMeResponse,
+  SubscribeResponse,
+  BillingActionResponse,
+  FeeInfoResponse,
+  RecordsResponse,
+  RechargeResponse,
+  RechargeStatusResponse,
+  AgentSlotView,
+  AgentSlotEffective,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -157,7 +169,12 @@ class ApiClient {
         const isAuthEndpoint =
           endpoint.startsWith('/api/auth/login') ||
           endpoint.startsWith('/api/auth/register');
-        if (!isAuthEndpoint) {
+        // Billing routes authenticate the NetMind loginToken (X-Netmind-Token),
+        // NOT the NarraNexus session JWT. A 401 here means the NetMind token is
+        // missing/expired — it must NOT log the user out of their valid
+        // NarraNexus session. The panel handles this failure locally.
+        const isBillingEndpoint = endpoint.startsWith('/api/billing/');
+        if (!isAuthEndpoint && !isBillingEndpoint) {
           window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
         }
       }
@@ -255,6 +272,35 @@ class ApiClient {
   async markAgentRoomRead(roomId: string, agentId: string): Promise<MarkReadResponse> {
     return this.request<MarkReadResponse>(
       `/api/agent-inbox/rooms/${encodeURIComponent(roomId)}/read?agent_id=${encodeURIComponent(agentId)}`,
+      { method: 'POST' }
+    );
+  }
+
+  // Bus-failure recovery (upstream #52) — messages the agent gave up on.
+  async getBusFailures(agentId: string): Promise<BusFailuresResponse> {
+    return this.request<BusFailuresResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/bus-failures`
+    );
+  }
+
+  /** Clear one parked failure so the next bus poll re-delivers it. */
+  async retryBusFailure(agentId: string, messageId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/bus-failures/${encodeURIComponent(messageId)}/retry`,
+      { method: 'POST' }
+    );
+  }
+
+  // User-scope system notices (inbox_table read side).
+  async getNotices(unreadOnly = false, limit = 50): Promise<NoticesResponse> {
+    return this.request<NoticesResponse>(
+      `/api/notices?unread_only=${unreadOnly}&limit=${limit}`
+    );
+  }
+
+  async markNoticeRead(messageId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(
+      `/api/notices/${encodeURIComponent(messageId)}/read`,
       { method: 'POST' }
     );
   }
@@ -922,6 +968,7 @@ class ApiClient {
   async onboard(
     apiKey: string,
     providerType?: OnboardProviderType,
+    replace?: boolean,
   ): Promise<{
     success: boolean;
     detail?: string;
@@ -933,12 +980,18 @@ class ApiClient {
     /** "ok" | "unverified (<reason>)" — live key probe result. A
      * definitively bad key never reaches success (400 instead). */
     key_check?: string;
+    /** Set when the user already has a provider of this (aggregator) type.
+     * The UI confirms and re-sends with replace=true to rotate the key. */
+    needs_replace?: boolean;
+    /** Masked tail of the currently-configured key, e.g. "***fXQA". */
+    existing_masked?: string;
   }> {
     return this.request(`/api/providers/onboard`, {
       method: 'POST',
       body: JSON.stringify({
         api_key: apiKey,
         provider_type: providerType ?? null,
+        replace: replace ?? false,
       }),
     });
   }
@@ -1013,6 +1066,55 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ framework }),
     });
+  }
+
+  // ── per-agent LLM config overrides ────────────────────────────────────
+  // An agent inherits the owner's user-level slots by default; these override
+  // just that agent's agent/helper slots. See backend agents_llm_config.py.
+
+  /** Per-slot view: inheriting/effective/override/owner_default for the
+   *  agent's 'agent' and 'helper_llm' slots. */
+  async getAgentLlmConfig(agentId: string): Promise<{
+    success: boolean;
+    data?: {
+      agent_id: string;
+      slots: Record<string, AgentSlotView>;
+    };
+  }> {
+    return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
+  }
+
+  /** Set (or replace) this agent's override for one slot. */
+  async setAgentLlmConfig(
+    agentId: string,
+    slot: string,
+    body: {
+      provider_id: string;
+      model: string;
+      thinking?: string;
+      reasoning_effort?: string;
+      agent_framework?: string | null;
+    },
+  ): Promise<{ success: boolean; detail?: string; data?: { slot: AgentSlotEffective | null } }> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/llm-config/${slot}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    );
+  }
+
+  /** Reset a slot to inherit the owner default. slot='all' resets both. */
+  async resetAgentLlmConfig(
+    agentId: string,
+    slot: string,
+  ): Promise<{ success: boolean; detail?: string }> {
+    return this.request(
+      `/api/agents/${encodeURIComponent(agentId)}/llm-config/${slot}`,
+      { method: 'DELETE' },
+    );
   }
 
   /**
@@ -1261,6 +1363,116 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
     });
+  }
+
+  // =========================================================================
+  // NetMind billing / subscription (Phase 1)
+  // The user's NetMind loginToken lives in configStore.netmindToken and is
+  // forwarded per-request via X-Netmind-Token (backend never stores it).
+  // =========================================================================
+
+  private getNetmindToken(): string {
+    try {
+      const raw = localStorage.getItem('narra-nexus-config');
+      if (raw) return JSON.parse(raw)?.state?.netmindToken || '';
+    } catch {
+      /* localStorage unavailable — fall through to empty */
+    }
+    return '';
+  }
+
+  async getPlans(): Promise<PlanListResponse> {
+    return this.request<PlanListResponse>('/api/billing/plans');
+  }
+
+  async getSubscription(): Promise<SubscriptionMeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) {
+      // Fail fast client-side: no NetMind loginToken means the account isn't
+      // linked (or the session predates the ?token= bootstrap). Don't send an
+      // empty header round-trip; let the panel show its error/link state.
+      throw new Error('NetMind account not linked (no loginToken)');
+    }
+    return this.request<SubscriptionMeResponse>('/api/billing/subscription', {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  async getFeeInfo(): Promise<FeeInfoResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<FeeInfoResponse>('/api/billing/fee-info', {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Recent financial records (consumption + recharge history). Optional
+  // direction filter: 'expense' | 'income'.
+  async getRecords(direction?: 'expense' | 'income'): Promise<RecordsResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    const qs = direction ? `?direction=${direction}` : '';
+    return this.request<RecordsResponse>(`/api/billing/records${qs}`, {
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Module F: one-click "use my NetMind subscription" — backend mints an
+  // inference key and wires it to the agent/helper slots. POST + loginToken.
+  async useSubscription(): Promise<{ success: boolean; provider_ids?: string[] }> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<{ success: boolean; provider_ids?: string[] }>(
+      '/api/providers/use-subscription',
+      { method: 'POST', headers: { 'X-Netmind-Token': token } },
+    );
+  }
+
+  private billingWrite<T>(endpoint: string): Promise<T> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<T>(endpoint, {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+    });
+  }
+
+  // Start a Pro subscription — returns Stripe checkout_url to redirect to.
+  async subscribe(): Promise<SubscribeResponse> {
+    return this.billingWrite<SubscribeResponse>('/api/billing/subscribe');
+  }
+
+  // Cancel = turn off auto-renew (stays Pro until period end).
+  async cancelSubscription(): Promise<BillingActionResponse> {
+    return this.billingWrite<BillingActionResponse>('/api/billing/cancel');
+  }
+
+  // Re-enable auto-renew on a cancelled-but-in-period subscription.
+  async reactivateSubscription(): Promise<BillingActionResponse> {
+    return this.billingWrite<BillingActionResponse>('/api/billing/reactivate');
+  }
+
+  // Module E: top-up. Create a hosted Stripe checkout for `amount` (USD by
+  // default) and return checkout_url to open externally, then poll
+  // rechargeStatus(session_id) until succeeded/failed.
+  async recharge(amount: number, currency = 'USD'): Promise<RechargeResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<RechargeResponse>('/api/billing/recharge', {
+      method: 'POST',
+      headers: { 'X-Netmind-Token': token },
+      body: JSON.stringify({ amount, currency }),
+    });
+  }
+
+  // Poll a recharge by its Stripe session id -> { status: pending|succeeded|failed }.
+  async rechargeStatus(sessionId: string): Promise<RechargeStatusResponse> {
+    const token = this.getNetmindToken();
+    if (!token) throw new Error('NetMind account not linked (no loginToken)');
+    return this.request<RechargeStatusResponse>(
+      `/api/billing/recharge/${encodeURIComponent(sessionId)}`,
+      { headers: { 'X-Netmind-Token': token } },
+    );
   }
 
   // =========================================================================

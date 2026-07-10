@@ -22,13 +22,19 @@ are both empty. The ``ClaudeConfig.to_cli_env`` builder already does
 the right thing for that case, so this Driver just produces a
 ClaudeConfig with empty api_key + auth_type="oauth".
 
-OAuth rows can't serve the helper_llm slot — that needs a
-chat-completions endpoint, which Claude
-provides via the OAuth credential.
+The helper_llm slot is served the SAME way — a subscription login covers
+both the agent slot (``build_claude_config``) and the helper slot
+(``build_cli_helper_config``, framework="claude_code"): the helper's small
+structured-output calls run one-shot through the same ``claude`` CLI, so no
+separate API key is needed (bug: "Claude Code subscription should also apply
+to Helper LLM", 2026-07).
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.api_config import ClaudeConfig
+from xyz_agent_context.agent_framework.api_config import (
+    ClaudeConfig,
+    CliHelperConfig,
+)
 from xyz_agent_context.agent_framework.provider_driver.base import (
     DriverHealth,
     _DriverBase,
@@ -56,12 +62,31 @@ class ClaudeOAuthDriver(_DriverBase):
             supports_anthropic_server_tools=True,
         )
 
+    def build_cli_helper_config(self, model: str) -> CliHelperConfig:
+        # Same subscription, run one-shot through the claude CLI for the
+        # helper slot — no separate API key.
+        return CliHelperConfig(
+            framework="claude_code",
+            model=model,
+            base_url=self.card.base_url or "",
+            auth_type="oauth",
+            api_key="",
+        )
+
     async def probe(self) -> DriverHealth:
-        """Check whether the host CLI credentials file actually exists.
+        """Check whether the host CLI credentials actually exist.
 
         We don't parse the token — that's the CLI's job. Existence is a
         sufficient signal for the Settings page to show "✓ Claude OAuth
         linked" vs "✗ run `claude auth login`".
+
+        Two storage backends, checked in order:
+        1. The credentials FILE (~/.claude/.credentials.json or the
+           CLAUDE_CLI_* overrides) — Linux/containers.
+        2. The macOS KEYCHAIN — Claude Code on macOS stores the OAuth token
+           as a "Claude Code-credentials" generic password and never writes
+           the file, so the file-only probe false-negatived on every Mac
+           ("credentials file not found" while the CLI worked fine).
         """
         path = resolve_claude_credentials_path(self.card.auth_ref)
         if path is None:
@@ -69,14 +94,42 @@ class ClaudeOAuthDriver(_DriverBase):
                 ok=False,
                 detail="auth_ref is missing or not a claude-cli: reference",
             )
-        if not path.exists():
+        if path.is_file():
+            return DriverHealth(ok=True, detail=f"credentials present at {path}")
+        if await self._keychain_has_credentials():
             return DriverHealth(
-                ok=False,
-                detail=f"credentials file not found at {path}",
+                ok=True, detail="credentials present in macOS Keychain"
             )
-        if not path.is_file():
+        if path.exists():
             return DriverHealth(
                 ok=False,
                 detail=f"credentials path exists but is not a file: {path}",
             )
-        return DriverHealth(ok=True, detail=f"credentials present at {path}")
+        return DriverHealth(
+            ok=False,
+            detail=f"credentials file not found at {path}",
+        )
+
+    @staticmethod
+    async def _keychain_has_credentials() -> bool:
+        """True when the macOS Keychain holds Claude Code's OAuth token.
+
+        Uses ``security find-generic-password`` (exit 0 = found). Never
+        reads or logs the secret itself; existence only. Non-macOS or any
+        error → False (fall through to the file-based verdict).
+        """
+        import asyncio
+        import sys
+
+        if sys.platform != "darwin":
+            return False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "security", "find-generic-password",
+                "-s", "Claude Code-credentials",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            return (await proc.wait()) == 0
+        except Exception:  # noqa: BLE001 — probe is best-effort
+            return False

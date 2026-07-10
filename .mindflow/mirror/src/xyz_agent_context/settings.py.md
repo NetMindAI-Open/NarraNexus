@@ -1,8 +1,81 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-06-18
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — claude_oauth_config_path (OAuth config-dir isolation)
+
+Added `claude_oauth_config_path` (default `~/.nexusagent/claude_oauth_config`),
+a dir kept SEPARATE from both the host `~/.claude` and the keyed
+`claude_cli_config_path` below. #72 (below) isolated only the keyed path and
+left OAuth pointing at the real `~/.claude`, which re-exposed the same hijack
+(personal `settings.json` `env` block overriding the OAuth run) AND raced the
+user's own Claude Code on `~/.claude/.claude.json` (2026-07-09 incident). OAuth
+now uses this isolated dir; `xyz_claude_agent_sdk._stage_claude_oauth_credentials`
+stages ONLY `.credentials.json` into it before the spawn (never `settings.json`).
+Consumed by `api_config.ClaudeConfig.to_cli_env()`.
+
+## 2026-07-08 — claude_cli_config_path (agent_loop config-dir isolation)
+
+Added `claude_cli_config_path` (default `~/.nexusagent/claude_config`). It
+becomes the `CLAUDE_CONFIG_DIR` of the keyed agent_loop CLI subprocess so the
+host user's personal `~/.claude/settings.json` — whose `env` block outranks the
+subprocess env we inject — can no longer hijack the provider (2026-07-08
+incident: personal relay in that `env` block returned `503 No available
+accounts` for every message). Consumed by `api_config.ClaudeConfig.to_cli_env()`.
+Same user-home-absolute-path style as `base_working_path`. (2026-07-09: OAuth no
+longer "keeps the real ~/.claude" — see `claude_oauth_config_path` above.)
+
+## 2026-07-07 — deploy env vars added by the NetMind billing integration (count + prod/local impact)
+
+The NetMind subscription/billing feature (PRs #62 + #70) added **5** deployment
+env vars (names only — values are per-environment, see `.env.cloud.example`):
+
+- `BILLING_API_BASE`
+- `BILLING_API_TIMEOUT_SECONDS`
+- `NETMIND_KEY_API_BASE`
+- `NETMIND_INFERENCE_BASE`
+- `NETMIND_USE_SUBSCRIPTION_ENABLED`
+
+`NETMIND_AUTH_API_URL` is NOT one of them — it predates this (the NetMind login
+feature). The system free-tier vars (`SYSTEM_DEFAULT_NETMIND_*`) are also separate.
+
+**Local/desktop mode: unaffected — needs none of these.** The billing and
+use-subscription routes are cloud-gated (`is_cloud_mode()` → 404 in local), so
+these settings are never read off the local path. Local behavior is identical
+whether or not they are set.
+
+**Prod-upgrade checklist (so nothing is missed):**
+- The three base URLs (`BILLING_API_BASE` / `NETMIND_KEY_API_BASE` /
+  `NETMIND_INFERENCE_BASE`) DEFAULT to prod, so a prod deploy needs **no change**
+  to them — the defaults are already the prod hosts.
+- The ONE deliberate prod action is `NETMIND_USE_SUBSCRIPTION_ENABLED`: keep
+  **False** until the C1 billing contract is verified end-to-end on prod, then flip.
+- Dev/staging must override all three base URLs (+ the pre-existing
+  `NETMIND_AUTH_API_URL`) to the dev NetMind env AND set the flag True. Full
+  dev↔prod mapping lives in `.env.cloud.example`.
+
+## 2026-07-07 — netmind_inference_base
+
+Added `netmind_inference_base` (default prod `https://api.netmind.ai/inference-api`;
+dev sets `NETMIND_INFERENCE_BASE=https://test.api.netmind.ai/inference-api`). Used
+ONLY by the use-subscription minted-key path; must match the same NetMind env as
+NETMIND_KEY_API_BASE / BILLING_API_BASE / NETMIND_AUTH_API_URL. Manual key paste
+stays on prod. See [[providers]] / [[user_provider_service]].
+
+
+
+## 2026-07-06 — NetMind billing / subscription settings
+
+Added the NetMind billing block (externalize-per-env, same pattern as
+arena_api_base): `billing_api_base` (default prod `billing.api.netmind.ai`; dev
+sets `BILLING_API_BASE=https://billing.api.protago-dev.com`),
+`billing_api_timeout_seconds`, `netmind_key_api_base` (key-mint API, default
+`platform-api.netmind.ai`), and `netmind_use_subscription_enabled` — the flag
+gating the one-click "use my subscription" key-mint (default **False**, stays off
+until the C1 billing contract is confirmed and a multi-worker distributed guard
+lands; see [[providers]] / [[netmind_billing_client]] / [[netmind_key_client]]).
 
 ## 2026-06-18 — arena_api_base (per-env Arena)
 

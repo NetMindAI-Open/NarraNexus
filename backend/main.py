@@ -330,6 +330,7 @@ from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
 from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
+from backend.routes.notices import router as notices_router
 from backend.routes.dashboard import router as dashboard_router
 from backend.routes.lark import router as lark_router
 from backend.routes.slack import router as slack_router
@@ -350,6 +351,7 @@ from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
 from backend.routes.arena import router as arena_router
 from backend.routes.me import router as me_router
+from backend.routes.billing import router as billing_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
@@ -362,7 +364,9 @@ app.include_router(providers_router, prefix="/api/providers", tags=["Providers"]
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
+app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
+app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(lark_router, prefix="/api/lark", tags=["Lark"])
 app.include_router(slack_router, prefix="/api/slack", tags=["Slack"])

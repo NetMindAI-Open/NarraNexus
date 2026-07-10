@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_client.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-03
 ---
+
+## 2026-07-03 — outbound methods removed (send is Matrix-native now)
+
+`chat_send` (`/chat/send`) and `reply` (`/invocations/{id}/reply`) were deleted:
+outbound moved to Matrix `room_send` / media upload (see [[_matrix_send]]). This
+client is now **bind + status only** (connect / poll / ack / setup-guide /
+report-profile / runtime-ready / status). It stays because those bind-flow
+endpoints are still Gateway-shaped bearer HTTP, unrelated to the message plane.
 
 ## Why it exists
 

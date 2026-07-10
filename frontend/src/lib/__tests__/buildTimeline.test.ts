@@ -26,6 +26,20 @@ describe('buildUnifiedTimeline', () => {
     expect(buildUnifiedTimeline([], [])).toEqual([]);
   });
 
+  it('carries a session message error state (isError + warnings) onto the timeline item', () => {
+    const errored = buildUnifiedTimeline(
+      [],
+      [sess({ id: 's1', role: 'assistant', content: 'API rate limit exceeded', timestamp: 1000, isError: true })],
+    );
+    expect(errored[0].isError).toBe(true);
+
+    const warned = buildUnifiedTimeline(
+      [],
+      [sess({ id: 's2', role: 'assistant', content: 'done', timestamp: 2000, warnings: ['module LLM failed'] })],
+    );
+    expect(warned[0].warnings).toEqual(['module LLM failed']);
+  });
+
   it('passes history-only and session-only through', () => {
     const h = buildUnifiedTimeline(
       [hist({ role: 'user', content: 'hi', timestamp: '2026-05-14T08:00:00Z' })],

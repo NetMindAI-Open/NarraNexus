@@ -147,6 +147,26 @@ class BasicInfoModule(XYZBaseModule):
             else DEPLOYMENT_CONTEXT_LOCAL
         )
 
+        # 1.6. Runtime LLM identity — the agent's REAL framework + model,
+        # resolved from the same slot overlay the runtime dispatches on
+        # (single source of truth; `_resolve_agent_framework_name` delegates
+        # to it too). Replaces a formerly hardcoded "Claude Agent SDK /
+        # sonnet-4" that made every agent misreport itself. The resolver
+        # itself never raises; the try/except here only guards the local
+        # import + any truly unexpected error, and still sets safe non-None
+        # strings so the prompt's `.format()` never renders "None".
+        try:
+            from xyz_agent_context.agent_framework.agent_model_identity import (
+                resolve_agent_model_identity,
+            )
+            identity = await resolve_agent_model_identity(self.agent_id, self.db)
+            ctx_data.agent_info_model_type = identity.framework_display
+            ctx_data.model_name = identity.model or "(provider default)"
+        except Exception as e:  # noqa: BLE001 — identity is best-effort
+            logger.warning(f"            Failed to resolve model identity: {e}")
+            ctx_data.agent_info_model_type = "the configured agent runtime"
+            ctx_data.model_name = "(unknown)"
+
         # 2. Get Agent information from database
         try:
             from xyz_agent_context.repository import AgentRepository

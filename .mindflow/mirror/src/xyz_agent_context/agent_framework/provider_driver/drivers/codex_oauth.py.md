@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/drivers/codex_oauth.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-07
 ---
 
 ## 2026-06-17 — override build_codex_config(凭证 ref 特例归位)
@@ -77,3 +77,7 @@ going through the driver's ``build_*_config`` methods.
   intentionally doesn't fit that — see ``step_3_agent_loop``
   dispatch and ``user_slots.agent_framework`` column for the
   Codex-specific routing path.
+
+## 2026-07-07 — helper 槽也由订阅覆盖
+
+新增 `build_cli_helper_config`（framework=codex_cli）。OAuth 仍不能直连 chat-completions，但 helper 经 CliHelperSDK 走 `codex exec` 一次性，故订阅同时覆盖 agent+helper 两槽。

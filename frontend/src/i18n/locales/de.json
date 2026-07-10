@@ -109,6 +109,28 @@
       "statusRunning": "läuft",
       "statusFailed": "fehlgeschlagen",
       "statusPending": "ausstehend"
+    },
+    "inner": {
+      "viewLoop": "Ansehen, was es getan hat",
+      "loading": "Lädt…",
+      "empty": "Keine Ausführungsschritte für diese Runde",
+      "loadFailed": "Details konnten nicht geladen werden",
+      "source": {
+        "job": "Geplante Aufgabe",
+        "collaboration": "Zusammenarbeit",
+        "im": "Nachricht",
+        "skill": "Skill-Lernen",
+        "activity": "Hintergrundaktivität",
+        "lark": "Lark",
+        "callback": "Rückruf"
+      }
+    },
+    "error": {
+      "badgeLabel": "Fehlerdetails anzeigen",
+      "titleFailed": "Ausführung fehlgeschlagen",
+      "titleRecovered": "Mit Fehlern abgeschlossen",
+      "situationFailed": "Bei dieser Ausführung trat ein Fehler auf und der Agent konnte nicht normal antworten. Details:",
+      "situationRecovered": "Der Agent hat geantwortet, aber während der Ausführung traten Fehler auf. Details:"
     }
   },
   "awareness": {
@@ -859,6 +881,12 @@
       "roomsSub": "Kanäle",
       "read": "Gelesen",
       "readSub": "Rate"
+    },
+    "busFailures": {
+      "title": "Nicht zugestellte Nachrichten",
+      "retry": "Erneut versuchen",
+      "unknownError": "Unbekannter Fehler",
+      "attempts": "{{count}} fehlgeschlagene Versuche"
     }
   },
   "help": {

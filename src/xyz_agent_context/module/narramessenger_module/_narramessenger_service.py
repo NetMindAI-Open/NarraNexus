@@ -1,25 +1,30 @@
 """
 @file_name: _narramessenger_service.py
-@date: 2026-06-18
+@date: 2026-07-02
 @description: Bind-flow driver for NarraMessenger — shared by the ``narra_bind``
 MCP tool and the ``/api/narramessenger/bind`` backend route.
 
-Drives the platform's **Gateway** bind deterministically from a single bind
-token (the public token inside a link like
+Drives the platform's **Direct Matrix** bind deterministically from a single
+bind token (the public token inside a link like
 ``https://api.netmind.chat/<token>/setup-guide.md``):
 
   1. ``report-profile`` (the agent's name + bio) to advance the bind session.
-  2. Re-fetch the setup-guide (now at waiting_connection/connected) and
-     regex out the runtime **bearer** token (+ Matrix homeserver, best-effort).
-  3. ``POST /api/agent-gateway/connect`` with that bearer → activates Gateway
-     transport, completes the bind, and returns matrixUserId/principalId/roomId.
-  4. Upsert the credential row → the trigger's credential watcher auto-starts
-     receiving.
+  2. Re-fetch the setup-guide (now at ``waiting_connection`` / ``connected``)
+     and regex out the runtime **bearer** token, the **Matrix access token**,
+     the Matrix user id, and the homeserver URL.
+  3. ``POST /bind-agent/runtime-ready?token=<bind_token>`` — completes the
+     Direct Matrix bind and returns the initial ``bind_room_id`` where the
+     owner will send the first test message.
+  4. Upsert the credential row with ``connection_mode='matrix'`` and both
+     tokens → :class:`MatrixTrigger`'s credential watcher auto-starts syncing.
 
-This replaces the fragile "tell the agent to read setup-guide.md and self-bind"
-path (the agent could pick Direct/Gateway on its own and often failed to
-persist the credential to our DB). Here WE always pick Gateway and always
-write the row.
+Direct Matrix is the DEFAULT bind path per the NarraMessenger guide's
+Runtime Selection Rule ("Do not ask the creator to choose Matrix vs
+Gateway"). Gateway (Polling) is a fallback for environments that cannot
+host a Matrix client — supported by NarraMessenger via
+``POST /api/agent-gateway/connect`` on the same bearer, but not exercised
+by this bind flow anymore. If the owner needs Gateway later, they can hit
+that endpoint directly with the stored bearer.
 
 Caveat: extracting the bearer relies on regexing the rendered markdown, and the
 bind state machine may require a human confirmation step on the NarraMessenger
@@ -50,6 +55,12 @@ _BEARER_RE = re.compile(r"Authorization:\s*Bearer\s+([A-Za-z0-9._\-]{8,})")
 _MATRIX_USER_RE = re.compile(r"(@[A-Za-z0-9_\-./=]+:[A-Za-z0-9_.\-]+)")
 # `| Homeserver URL | `https://matrix...` |` — same-line, non-greedy to the URL
 _HOMESERVER_RE = re.compile(r"Homeserver URL[^\n]*?(https?://[A-Za-z0-9_.\-:]+)")
+# Matrix access token — Synapse-style tokens prefix ``syt_`` and are the only
+# token flavour Matrix's HTTP API accepts (Bearer <token>). Constrained to
+# a conservative alphabet + minimum length so a stray URL fragment or an
+# unrelated syt-lookalike inside the guide's OpenClaw JSON5 example isn't
+# picked up ahead of the canonical Matrix Connection Details table row.
+_MATRIX_ACCESS_TOKEN_RE = re.compile(r"(syt_[A-Za-z0-9_\-]{20,})")
 # `.../<token>/setup-guide...` inside a pasted link
 _URL_TOKEN_RE = re.compile(
     r"https?://([A-Za-z0-9_.\-]+)/([A-Za-z0-9_\-]+)/setup-guide", re.IGNORECASE
@@ -94,7 +105,22 @@ async def _agent_profile(db, agent_id: str) -> Tuple[str, str]:
 
 
 def _parse_setup_guide(md: str) -> dict[str, str]:
-    """Pull the runtime bearer (+ homeserver, matrix_user_id) out of the guide."""
+    """Pull runtime credentials out of the rendered setup guide.
+
+    Extracted fields (all optional — absence means "not yet revealed by
+    the bind state machine", not "failed"):
+
+    - ``bearer``: Narra agent secret token, used for
+      ``/bind-agent/runtime-ready`` and every subsequent
+      ``/api/agent-runtime/*`` call (including the authorize-event gate).
+    - ``matrix_access_token``: Matrix homeserver access token (``syt_...``),
+      used ONLY for Matrix HTTP API calls. Never mix with the Narra
+      bearer — the guide is explicit that Matrix rejects the Narra bearer
+      with ``M_UNKNOWN_TOKEN``.
+    - ``homeserver``: Matrix homeserver URL from the Matrix Connection
+      Details table.
+    - ``matrix_user_id``: The agent's own MXID.
+    """
     out: dict[str, str] = {}
     if not md:
         return out
@@ -107,6 +133,9 @@ def _parse_setup_guide(md: str) -> dict[str, str]:
     um = _MATRIX_USER_RE.search(md)
     if um:
         out["matrix_user_id"] = um.group(1)
+    am = _MATRIX_ACCESS_TOKEN_RE.search(md)
+    if am:
+        out["matrix_access_token"] = am.group(1)
     return out
 
 
@@ -194,25 +223,50 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
                     "again.",
                 }
 
-            connect = await _post_json(
-                session, f"{base}/api/agent-gateway/connect", None, bearer=bearer
+            # Direct Matrix bind. This is a bind-token URL (query param
+            # ``?token=<bind_token>``), NOT a bearer-auth endpoint —
+            # confusingly the guide has both ``/bind-agent/runtime-ready``
+            # (this call, initial bind) and ``/api/agent-runtime/direct-ready``
+            # (bearer-authenticated, used only when upgrading FROM Gateway
+            # BACK to Direct after an initial bind). Do not mix them.
+            ready = await _post_json(
+                session, f"{base}/bind-agent/runtime-ready?token={token}", None
             )
-            if not connect.get("ok"):
+            if not ready.get("ok"):
                 return {
                     "success": False,
-                    "error": f"gateway connect failed: {connect.get('error') or connect.get('status')}",
+                    "error": (
+                        "runtime-ready failed: "
+                        f"{ready.get('error') or ready.get('status')}"
+                    ),
                 }
-            cdata = connect.get("data") or {}
+            rdata = ready.get("data") or {}
     except aiohttp.ClientError as e:
         return {
             "success": False,
             "error": f"network error reaching NarraMessenger: {type(e).__name__}",
         }
 
-    matrix_user_id = cdata.get("matrixUserId") or parsed.get("matrix_user_id", "")
-    principal_id = cdata.get("principalId", "") or ""
-    bind_room_id = cdata.get("roomId", "") or ""
+    matrix_user_id = rdata.get("matrixUserId") or parsed.get("matrix_user_id", "")
+    principal_id = rdata.get("principalId", "") or ""
+    bind_room_id = rdata.get("roomId", "") or ""
     homeserver = parsed.get("homeserver", "")
+    matrix_access_token = parsed.get("matrix_access_token", "")
+    if not matrix_access_token:
+        # The bearer / user id / homeserver arrived but the Matrix
+        # access token did not — the guide should have revealed it
+        # together with the rest. Treat this as a hard bind error
+        # rather than silently persisting a Matrix-mode row that the
+        # trigger cannot use (MatrixTrigger.connect raises ValueError
+        # on missing access_token, which the base then treats as a
+        # permanent failure and disables the credential — worse UX
+        # than telling the owner to retry the bind).
+        return {
+            "success": False,
+            "error": "Matrix access token missing from the setup guide. Re-copy "
+            "the bind link and try again; if the problem persists, contact the "
+            "NarraMessenger team.",
+        }
 
     mgr = NarramessengerCredentialManager(db)
     await mgr.upsert(
@@ -222,15 +276,17 @@ async def do_bind(db, agent_id: str, bind_command: str) -> dict[str, Any]:
             backend_base_url=base,
             matrix_homeserver_url=homeserver,
             matrix_user_id=matrix_user_id,
+            matrix_access_token=matrix_access_token,
             nexus_principal_id=principal_id,
             bind_room_id=bind_room_id,
-            connection_mode="gateway",
+            connection_mode="matrix",
             enabled=True,
         )
     )
     logger.info(
-        f"[narramessenger:{agent_id}] bound via token "
-        f"(matrix_user_id={matrix_user_id}, principal={principal_id})"
+        f"[narramessenger:{agent_id}] bound via Direct Matrix "
+        f"(matrix_user_id={matrix_user_id}, principal={principal_id}, "
+        f"bind_room={bind_room_id})"
     )
     return {
         "success": True,

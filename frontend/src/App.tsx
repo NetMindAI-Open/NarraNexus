@@ -279,6 +279,39 @@ function App() {
     return () => window.removeEventListener('narranexus:auth-expired', handler);
   }, []);
 
+  // #48: when the free tier runs out and we auto-switch to the user's own
+  // provider, the backend writes a one-time SYSTEM notice tagged
+  // source.type="free_tier_switch". Surface it as a dismissible banner and
+  // mark it read so the reminder shows exactly once. Checked on mount and on
+  // window focus (the switch happens mid-session, server-side, on a request
+  // that otherwise succeeds — there's no error for api.ts to catch).
+  const [freeTierSwitched, setFreeTierSwitched] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      if (!useConfigStore.getState().isLoggedIn) return;
+      try {
+        const res = await api.getNotices(true);
+        const hit = (res.notices ?? []).find(
+          (n) => n.source?.type === 'free_tier_switch',
+        );
+        if (hit && !cancelled) {
+          setFreeTierSwitched(true);
+          window.setTimeout(() => setFreeTierSwitched(false), 10000);
+          void api.markNoticeRead(hit.message_id).catch(() => {});
+        }
+      } catch {
+        // non-critical surface — never break the app over a notice check.
+      }
+    };
+    void check();
+    window.addEventListener('focus', check);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', check);
+    };
+  }, []);
+
   // Bring the unified auto-updater store online once per app load.
   // No-op on web/cloud. The store fetches the current snapshot AND
   // subscribes to live `updater:state` events; the global
@@ -349,6 +382,16 @@ function App() {
           role="alert"
         >
           Your session expired. Please sign in again. (click to dismiss)
+        </div>
+      )}
+      {freeTierSwitched && (
+        <div
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-emerald-600,#059669)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
+          onClick={() => setFreeTierSwitched(false)}
+          role="status"
+        >
+          Free-tier quota used up — switched to your own provider. New runs
+          use your own API key. (click to dismiss)
         </div>
       )}
       <Suspense fallback={<PageFallback />}>

@@ -139,6 +139,24 @@ class Settings(BaseSettings):
     # dev server, Electron bundle, and CLI scripts.
     base_working_path: str = str(Path.home() / ".nexusagent" / "workspaces")
 
+    # Dedicated CLAUDE_CONFIG_DIR for the agent_loop CLI subprocess, kept
+    # OUT of the host user's ~/.claude. Claude Code applies that file's `env`
+    # block above the subprocess env we inject, so a developer's personal
+    # config (custom ANTHROPIC_BASE_URL/AUTH_TOKEN/model) would otherwise
+    # silently redirect the agent_loop off its configured provider. The keyed
+    # auth paths use this dir. See api_config.ClaudeConfig.to_cli_env.
+    claude_cli_config_path: str = str(Path.home() / ".nexusagent" / "claude_config")
+
+    # Dedicated CLAUDE_CONFIG_DIR for the OAuth agent_loop path. Kept SEPARATE
+    # from both the host ~/.claude and the keyed dir above: OAuth used to point
+    # straight at ~/.claude so the CLI could read `.credentials.json`, but that
+    # re-opened the same hijack (personal settings.json env block overrides the
+    # OAuth run) AND raced the user's own Claude Code on ~/.claude/.claude.json
+    # (2026-07-09 incident). Now the credential file is STAGED into this
+    # isolated dir by _stage_claude_oauth_credentials; the personal settings.json
+    # is never copied, so it can't leak. See api_config.ClaudeConfig.to_cli_env.
+    claude_oauth_config_path: str = str(Path.home() / ".nexusagent" / "claude_oauth_config")
+
 
     # ===== Export Paths =====
     narrative_markdown_path: str = str(Path.home() / ".nexusagent" / "data" / "narratives")
@@ -156,6 +174,40 @@ class Settings(BaseSettings):
     # registration call and the agent's installed skill env (ARENA_API_URL), so
     # the agent's own HTTP calls target the same environment automatically.
     arena_api_base: str = "https://api.arena42.ai"
+
+    # ===== NetMind Billing / Subscription =====
+    # Base URL of NetMind's billing+subscription API (balance / plan / subscription / recharge).
+    # Externalized per deployment the same way as arena_api_base: prod keeps the
+    # default (billing.api.netmind.ai); the dev stack sets
+    # BILLING_API_BASE=https://billing.api.protago-dev.com in its ops .env.
+    # The NarraNexus backend proxies the user's NetMind loginToken to this host
+    # (see backend/routes/billing.py) — we never store the token, only forward.
+    billing_api_base: str = "https://billing.api.netmind.ai"
+    billing_api_timeout_seconds: float = 10.0
+
+    # NetMind Key-management API (generate/list inference API keys). This is a
+    # DIFFERENT host + auth from billing: header is `token` (not `loginToken`),
+    # body is form-encoded, envelope is HTTP 200 + {success:false} on error.
+    # prod platform-api.netmind.ai; dev sets
+    # NETMIND_KEY_API_BASE=https://mind-web.protago-dev.com.
+    netmind_key_api_base: str = "https://platform-api.netmind.ai"
+
+    # NetMind inference base (chat/completions + messages). ONLY the
+    # use-subscription (minted-key) path uses this: a key we mint via
+    # NETMIND_KEY_API_BASE must hit the MATCHING inference env, so this must be
+    # set to the same NetMind environment as the key/auth/billing hosts.
+    # Manual "paste your own key" (OneKeyOnboard) intentionally does NOT use it —
+    # a user's own key is a public prod NetMind key, so that path stays on prod.
+    # prod api.netmind.ai; dev sets
+    # NETMIND_INFERENCE_BASE=https://test.api.netmind.ai/inference-api.
+    netmind_inference_base: str = "https://api.netmind.ai/inference-api"
+
+    # Module F gate (Phase 5): "use this subscription" auto-generates a NetMind
+    # inference key and wires it to the agent/helper slots. Kept OFF until the
+    # C1 contract is confirmed with NetMind — i.e. that the generated key's
+    # consumption bills against the subscription grant / account balance (and
+    # is reflected in user-fee-info). Flip to True once confirmed.
+    netmind_use_subscription_enabled: bool = False
 
     # ===== Speed Optimization =====
     # When True, skip the LLM instance decision call in Step 2 and always load

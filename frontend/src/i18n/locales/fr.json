@@ -109,6 +109,28 @@
       "statusRunning": "en cours",
       "statusFailed": "échoué",
       "statusPending": "en attente"
+    },
+    "inner": {
+      "viewLoop": "Voir ce qu'il a fait",
+      "loading": "Chargement…",
+      "empty": "Aucune étape d'exécution pour ce tour",
+      "loadFailed": "Impossible de charger les détails",
+      "source": {
+        "job": "Tâche planifiée",
+        "collaboration": "Collaboration",
+        "im": "Message",
+        "skill": "Apprentissage de compétence",
+        "activity": "Activité en arrière-plan",
+        "lark": "Lark",
+        "callback": "Rappel"
+      }
+    },
+    "error": {
+      "badgeLabel": "Afficher les détails de l'erreur",
+      "titleFailed": "Échec de l'exécution",
+      "titleRecovered": "Terminé avec des erreurs",
+      "situationFailed": "Cette exécution a rencontré une erreur et l'agent n'a pas pu répondre normalement. Détails :",
+      "situationRecovered": "L'agent a répondu, mais des erreurs se sont produites pendant l'exécution. Détails :"
     }
   },
   "awareness": {
@@ -859,6 +881,12 @@
       "roomsSub": "Canaux",
       "read": "Lus",
       "readSub": "Taux"
+    },
+    "busFailures": {
+      "title": "Messages non distribués",
+      "retry": "Réessayer",
+      "unknownError": "Erreur inconnue",
+      "attempts": "{{count}} tentatives échouées"
     }
   },
   "help": {

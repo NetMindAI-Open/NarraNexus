@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/anthropic_helper_sdk.py
-last_verified: 2026-06-17
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
+
+Both cost sites (structured `llm_function` + stream) now call
+`cost_tracker.warn_missing_usage(...)` when a live cost context exists but the
+provider returned no usage, instead of silently skipping the record.
+
+
 
 ## 2026-06-17 — llm_function 必须内部 streaming(否则大输入必挂)
 

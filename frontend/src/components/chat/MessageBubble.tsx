@@ -12,7 +12,8 @@
  *   3. eventLogThinking + eventLogToolCalls (older backend; grouped)
  */
 
-import { Sparkles, AlertTriangle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
+import { Sparkles, AlertTriangle, AlertCircle, Copy, Download, Check, Loader2, FileText, Image as ImageIcon } from 'lucide-react';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Attachment, ChatMessage, TurnEvent } from '@/types';
@@ -274,6 +275,42 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                   }
           }
         >
+          {/* Red error badge — any error surfaces here, whether the whole
+              turn failed (isError: no reply / silent fallback / login
+              expired, content IS the error text) or the reply came through
+              but something errored on the way (warnings). Click to read the
+              situation + the error detail. Sits at the bubble's top corner. */}
+          {(message.isError || (message.warnings && message.warnings.length > 0)) && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t('chat.error.badgeLabel')}
+                  className="absolute -top-2 -right-2 z-10 flex items-center justify-center w-5 h-5 rounded-full shadow-sm"
+                  style={{ background: 'var(--color-error)', color: 'white' }}
+                >
+                  <AlertCircle className="w-3.5 h-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent side="top" align="end" className="w-[300px] p-3">
+                <div className="text-xs font-semibold mb-1" style={{ color: 'var(--color-error)' }}>
+                  {message.isError ? t('chat.error.titleFailed') : t('chat.error.titleRecovered')}
+                </div>
+                <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  {message.isError ? t('chat.error.situationFailed') : t('chat.error.situationRecovered')}
+                </div>
+                <div
+                  className="whitespace-pre-wrap break-words font-[family-name:var(--font-mono)] text-[11px] max-h-40 overflow-y-auto"
+                  style={{ color: 'var(--text-tertiary)' }}
+                >
+                  {message.warnings && message.warnings.length > 0
+                    ? message.warnings.join('\n\n')
+                    : message.content}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+
           {/* Inline timeline (reasoning + tool calls + tool output)
               for assistant messages. Renders only when expanded; the
               user clicks the affordance below to reveal. Two cases:

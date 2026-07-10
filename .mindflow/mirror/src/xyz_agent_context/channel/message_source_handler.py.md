@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-06-17
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — `dedicated_trigger` flag + `handlers()` accessor
+
+`MessageSourceHandler` gains `dedicated_trigger: bool = False`: True for
+sources with their own long-running trigger process (all six IM channels).
+MessageBusTrigger derives its do-not-redispatch channel prefixes from this
+flag via the new `MessageSourceRegistry.handlers()` snapshot accessor,
+replacing a hand-maintained prefix tuple that had drifted (wechat/discord/
+narramessenger missing → double dispatch). Any module shipping a
+run_*_trigger.py entrypoint MUST set the flag — enforced by
+tests/message_bus/test_bus_channel_inbox_skip.py.
 # message_source_handler.py — 按 WorkingSource 分发的聊天历史处理表
 
 ## 为什么存在

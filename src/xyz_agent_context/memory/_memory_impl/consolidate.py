@@ -160,10 +160,15 @@ async def consolidate(
     existing: Sequence[MemoryRecord],
     prompt: Optional[str] = None,
     sdk: Optional[Any] = None,
+    db: Optional[Any] = None,
 ) -> int:
     """Run one consolidation pass for a scope. `repo` is the MemoryRepository
     for the CONSOLIDATED kind (e.g. observation). Returns the number of records
     written/changed. Bisects on LLM failure; never raises for a content error.
+
+    `db` is threaded to the LLM call for explicit cost accounting so the pass
+    records tokens even when no ambient cost context is set (double insurance
+    on top of the worker's set_cost_context; module H).
     """
     facts = [f for f in new_facts if f.content_text.strip()]
     if not facts:
@@ -171,7 +176,7 @@ async def consolidate(
     sdk = sdk or get_helper_sdk()
     instructions = prompt or DEFAULT_CONSOLIDATION_PROMPT
 
-    plan = await _plan_with_bisect(sdk, instructions, facts, existing, agent_id)
+    plan = await _plan_with_bisect(sdk, instructions, facts, existing, agent_id, db)
     if plan is None:
         return 0
 
@@ -231,6 +236,7 @@ async def _plan_with_bisect(
     facts: Sequence[MemoryRecord],
     existing: Sequence[MemoryRecord],
     agent_id: str,
+    db: Optional[Any] = None,
 ) -> Optional[_ConsolidationPlan]:
     """Call the LLM for a plan; on failure bisect the fact batch and merge the
     sub-plans. A single fact that still fails is dropped (logged), never fatal."""
@@ -240,6 +246,7 @@ async def _plan_with_bisect(
             user_input=_render_context(existing, facts),
             output_type=_ConsolidationPlan,
             agent_id=agent_id,
+            db=db,  # explicit — record even when no ambient cost ctx
         )
         return result.final_output  # type: ignore[no-any-return]
     except Exception as e:  # noqa: BLE001 — bisect-and-isolate is the policy
@@ -256,8 +263,8 @@ async def _plan_with_bisect(
             logger.warning(f"[memory.consolidate] dropping unconsolidatable fact: {e}")
             return None
         mid = len(facts) // 2
-        left = await _plan_with_bisect(sdk, instructions, facts[:mid], existing, agent_id)
-        right = await _plan_with_bisect(sdk, instructions, facts[mid:], existing, agent_id)
+        left = await _plan_with_bisect(sdk, instructions, facts[:mid], existing, agent_id, db)
+        right = await _plan_with_bisect(sdk, instructions, facts[mid:], existing, agent_id, db)
         return _merge_plans(left, right, mid)
 
 

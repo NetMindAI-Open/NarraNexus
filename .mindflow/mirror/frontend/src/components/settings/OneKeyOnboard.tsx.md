@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/settings/OneKeyOnboard.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-07
 stub: false
 ---
 ## 2026-06-10 (4th pass) — success panel + key verification feedback
@@ -77,3 +77,10 @@ onComplete navigates to chat.
 
 frontend/src/__tests__/one-key-onboard.test.tsx — detection, override
 call shape, success → onComplete, error surfacing, disabled state.
+
+## 2026-07-07 — 换 key 确认流程（replace）
+
+提交 onboard 后若返回 `needs_replace`，用 `useConfirm()` 弹"你已有 xx key（***fXQA），
+替换？"；确认则以 `replace=true` 重发 onboard，后端原子切换两个槽位到新 key。用户 ~30s
+完成换 key，无需理解 provider 概念。本组件仍全英文字面量（未接 i18n），确认文案沿用英文
+以匹配周边风格。

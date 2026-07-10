@@ -57,6 +57,14 @@ export interface TimelineItem {
   toolCalls?: AgentToolCall[];    // Tool calls (from session messages)
   attachments?: Attachment[];     // User-uploaded files referenced by this message
   timeline?: TurnEvent[];         // Live-stream timeline carried over (just-finished turn)
+  // Error state carried through so MessageBubble can surface it. Dropping
+  // these two on the session→timeline hop is exactly why the red error
+  // bubble + warning list silently stopped rendering after the May-2026
+  // unified-timeline refactor — a real error looked like a normal "no
+  // reply" message. isError = the turn failed (content IS the error text);
+  // warnings = non-fatal errors that occurred alongside a real reply.
+  isError?: boolean;
+  warnings?: string[];
 }
 
 /** Match window for the event-id-less content fallback. Generous because
@@ -76,6 +84,8 @@ function toSessionItem(msg: ChatMessage): TimelineItem {
     toolCalls: msg.toolCalls,
     attachments: msg.attachments,
     timeline: msg.timeline,
+    isError: msg.isError,
+    warnings: msg.warnings,
   };
 }
 

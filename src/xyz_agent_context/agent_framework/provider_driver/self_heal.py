@@ -121,11 +121,22 @@ async def self_heal_if_broken(
     now = utc_now()
     now_iso = now.isoformat()
 
-    # Persist the swap. We update by (user_id, slot_name) — both columns
-    # form the unique index on user_slots so this is a single-row write.
+    # Persist the swap. Table-aware: a per-agent OVERRIDE row (from
+    # agent_slots) carries ``agent_id`` and must heal back into agent_slots,
+    # keyed by (agent_id, slot_name) — NOT user_slots, which would silently
+    # rewrite the user-level default the override was shadowing. A plain
+    # user_slots row carries ``user_id`` and heals in place. Both filters hit
+    # the respective table's unique index, so each is a single-row write.
+    override_agent_id = slot.get("agent_id")
+    if override_agent_id:
+        heal_table = "agent_slots"
+        heal_filter = {"agent_id": override_agent_id, "slot_name": slot_name}
+    else:
+        heal_table = "user_slots"
+        heal_filter = {"user_id": user_id, "slot_name": slot_name}
     await db.update(
-        "user_slots",
-        {"user_id": user_id, "slot_name": slot_name},
+        heal_table,
+        heal_filter,
         {
             "model": new_model,
             "last_auto_repaired_at": now_iso,

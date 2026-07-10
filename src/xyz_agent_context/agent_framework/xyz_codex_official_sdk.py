@@ -501,7 +501,19 @@ class CodexSDKv2:
         # ---- Step 2: per-run CODEX_HOME tempdir ----
         # Tempfile context manager guarantees cleanup even on
         # CancelledError / unexpected exception.
-        with tempfile.TemporaryDirectory(prefix="codex_v2_agent_") as home_str:
+        #
+        # ignore_cleanup_errors=True: codex clones plugins into
+        # $CODEX_HOME/.tmp/plugins-clone-*/; on macOS that freshly-written tree
+        # is intermittently not empty when __exit__ rmtree's it, and the strict
+        # default would raise ENOTEMPTY ("[Errno 66] Directory not empty") OUT
+        # of this generator — AFTER every event was already yielded — failing
+        # an otherwise-successful helper/agent call at teardown (2026-07:
+        # ~1-in-5 codex CLI-helper calls died here, not in generation). Cleanup
+        # is best-effort; the dir lives under the OS temp root, which is
+        # reclaimed regardless. A cleanup hiccup must not fail the call.
+        with tempfile.TemporaryDirectory(
+            prefix="codex_v2_agent_", ignore_cleanup_errors=True
+        ) as home_str:
             codex_home_path = Path(home_str)
 
             # 2a. instructions.md (system prompt + history). The SDK

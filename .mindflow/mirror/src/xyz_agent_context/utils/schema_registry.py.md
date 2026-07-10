@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-06-17
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — agent_slots (per-agent LLM slot overrides)
+
+New table ``agent_slots`` (registered right after ``user_slots``), mirroring
+``user_slots`` column-for-column but keyed by ``agent_id``. A row here overrides
+the owner's ``user_slots`` for that slot on runs of THIS agent only; absence =
+inherit the user default. Both ``agent`` and ``helper_llm`` slots may be
+overridden (helper follows its agent). Identical column vocabulary is deliberate:
+``resolver._apply_agent_overrides`` overlays a row onto ``by_slot_name`` and the
+existing card-lookup / self-heal / driver-dispatch consumes it unchanged. Unique
+index ``(agent_id, slot_name)`` + ``(agent_id)``. Additive migration only.
+
 ## 2026-06-10 — user_slots.params_json column
 
 `user_slots` gained a nullable `params_json` (TEXT/MEDIUMTEXT) column: one

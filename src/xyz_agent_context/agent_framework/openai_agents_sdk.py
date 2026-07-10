@@ -20,7 +20,11 @@ from pydantic import BaseModel, TypeAdapter
 from openai import AsyncOpenAI
 
 from xyz_agent_context.agent_framework.api_config import openai_config
-from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
+from xyz_agent_context.utils.cost_tracker import (
+    get_cost_context,
+    record_cost,
+    warn_missing_usage,
+)
 from xyz_agent_context.utils.logging import timed
 
 
@@ -71,7 +75,8 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
     # Strip markdown code fences
     text = re.sub(r"```(?:json)?\s*", "", text).strip()
     text = text.rstrip("`").strip()
-    # Find the outermost JSON object or array
+    # Find the outermost JSON object or array. Greedy (first opener → last
+    # closer) so a single nested object like {"a": {"b": 1}} is captured whole.
     for pattern in [r"\{[\s\S]*\}", r"\[[\s\S]*\]"]:
         match = re.search(pattern, text)
         if match:
@@ -81,6 +86,61 @@ def _extract_json_from_llm_output(text: str) -> Optional[str]:
                 return candidate
             except json.JSONDecodeError:
                 continue
+    # Fallback: the greedy span didn't parse — most often because the text
+    # carries TWO concatenated objects ({...}{...}). This happens with the
+    # codex CLI helper, whose stream repeats the message (streamed increments
+    # + an item.completed full copy, sometimes slightly reworded), so greedy
+    # grabs first-{ … last-} = both objects = invalid. Return the FIRST
+    # balanced object/array instead (string- and escape-aware so braces inside
+    # JSON strings don't miscount).
+    return _first_balanced_json(text)
+
+
+def _balanced_end(text: str, start: int) -> Optional[int]:
+    """Index of the closer that balances the opener at ``text[start]``, matching
+    ``{``↔``}`` and ``[``↔``]`` via a type-checked stack (so ``{"a": 1]`` is
+    rejected, not mis-accepted), string/escape aware. ``None`` if unbalanced."""
+    pairs = {"{": "}", "[": "]"}
+    stack: list[str] = []
+    in_str = False
+    esc = False
+    for j in range(start, len(text)):
+        c = text[j]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c in "{[":
+            stack.append(pairs[c])
+        elif c in "}]":
+            if not stack or stack[-1] != c:
+                return None  # mismatched closer → not balanced from here
+            stack.pop()
+            if not stack:
+                return j
+    return None
+
+
+def _first_balanced_json(text: str) -> Optional[str]:
+    """Return the FIRST balanced ``{...}`` / ``[...]`` substring that parses as
+    JSON. Scans every opener in order; a candidate that balances but does not
+    parse falls through to the next opener (instead of giving up)."""
+    for i, c in enumerate(text):
+        if c in "{[":
+            end = _balanced_end(text, i)
+            if end is not None:
+                candidate = text[i:end + 1]
+                try:
+                    json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    continue  # balanced but invalid → try the next opener
     return None
 
 
@@ -437,19 +497,25 @@ class OpenAIAgentsSDK:
         )
 
         _agent_id, _db = self._resolve_cost_context(None, None)
-        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
-            try:
-                await record_cost(
-                    db=_db,
-                    agent_id=_agent_id,
-                    event_id=None,
-                    call_type="llm_stream",
-                    model=model_name,
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                )
-            except Exception as e:
-                logger.warning(f"[HelperLLM-Stream] failed to record cost: {e}")
+        if _agent_id and _db:
+            if input_tokens > 0 or output_tokens > 0:
+                try:
+                    await record_cost(
+                        db=_db,
+                        agent_id=_agent_id,
+                        event_id=None,
+                        call_type="llm_stream",
+                        model=model_name,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(f"[HelperLLM-Stream] failed to record cost: {e}")
+            else:
+                # No usage chunk arrived (provider lacks stream usage, or the
+                # stream was cut before the final usage frame). Don't fail — but
+                # don't hide it either.
+                warn_missing_usage("HelperLLM-Stream", model_name, "llm_stream")
 
     async def _try_agents_sdk(
         self, client, model_name, instructions, user_input, output_type,
@@ -616,18 +682,22 @@ class OpenAIAgentsSDK:
 
         # ── 5. Cost accounting
         raw_content = resp.choices[0].message.content or ""
-        input_tokens = getattr(resp.usage, "prompt_tokens", 0) or 0
-        output_tokens = getattr(resp.usage, "completion_tokens", 0) or 0
+        _usage = getattr(resp, "usage", None)
+        input_tokens = getattr(_usage, "prompt_tokens", 0) or 0
+        output_tokens = getattr(_usage, "completion_tokens", 0) or 0
         _agent_id, _db = self._resolve_cost_context(None, None)
         if _agent_id and _db:
-            try:
-                await record_cost(
-                    db=_db, agent_id=_agent_id, event_id=None,
-                    call_type="llm_function", model=model_name,
-                    input_tokens=input_tokens, output_tokens=output_tokens,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to record cost: {e}")
+            if input_tokens > 0 or output_tokens > 0:
+                try:
+                    await record_cost(
+                        db=_db, agent_id=_agent_id, event_id=None,
+                        call_type="llm_function", model=model_name,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to record cost: {e}")
+            else:
+                warn_missing_usage("HelperLLM", model_name, "llm_function")
 
         if not output_type:
             return _SimpleResult(raw_content, resp)
@@ -690,6 +760,8 @@ class OpenAIAgentsSDK:
                     call_type="llm_function", model=model_name,
                     input_tokens=input_tokens, output_tokens=output_tokens,
                 )
+            else:
+                warn_missing_usage("HelperLLM-Agents", model_name, "llm_function")
         except Exception as e:
             logger.warning(f"Failed to record OpenAI cost: {e}")
 

@@ -124,6 +124,25 @@ class QuotaRepository(BaseRepository[Quota]):
             fetch=False,
         )
 
+    async def disable_if_enabled(self, user_id: str) -> bool:
+        """Atomically turn the free-tier preference OFF, but ONLY if it is
+        currently ON. Returns True iff THIS call performed the 1→0 transition.
+
+        The ``WHERE prefer_system_override = 1`` guard makes the write a
+        compare-and-swap: under concurrent requests exactly one caller sees the
+        row still ON and flips it (affected rows = 1); everyone else finds it
+        already OFF (affected rows = 0). The single winner is the one allowed
+        to fire a one-time side-effect (the #48 auto-switch notice) without a
+        separate lock. See ``QuotaService.disable_preference_if_enabled``.
+        """
+        sql = f"""
+        UPDATE {self.table_name}
+        SET prefer_system_override = 0
+        WHERE user_id = %s AND prefer_system_override = 1
+        """
+        affected = await self._db.execute(sql, params=(user_id,), fetch=False)
+        return bool(affected)
+
     def _row_to_entity(self, row: Dict[str, Any]) -> Quota:
         return Quota(
             user_id=row["user_id"],

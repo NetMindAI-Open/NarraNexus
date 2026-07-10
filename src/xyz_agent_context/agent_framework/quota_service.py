@@ -163,6 +163,17 @@ class QuotaService:
         assert result is not None
         return result
 
+    async def disable_preference_if_enabled(self, user_id: str) -> bool:
+        """Compare-and-swap the free-tier preference from ON to OFF.
+
+        Returns True iff this call performed the transition (see
+        ``QuotaRepository.disable_if_enabled``). Used by the provider resolver
+        to auto-switch an exhausted opted-in user to their own provider (#48)
+        while emitting the "switched to your own key" notice exactly once.
+        """
+        repo = await self._get_repo()
+        return await repo.disable_if_enabled(user_id)
+
 
 async def bootstrap_quota_subsystem(db) -> QuotaService:
     """Initialise the QuotaService.default() singleton for a process.

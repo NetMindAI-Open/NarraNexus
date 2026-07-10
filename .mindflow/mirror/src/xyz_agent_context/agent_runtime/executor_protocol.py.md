@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-07
 ---
 
 ## Why it exists
@@ -36,3 +36,7 @@ serializes those configs so they cross explicitly.
 Provider config dataclasses are frozen — reconstructed via
 `Cls(**dict)`. If a config gains a field, asdict↔kwargs round-trips
 automatically; if it gains a non-trivial type, add explicit handling.
+
+## 2026-07-07 — 快照/回放 cli_helper
+
+`_CONFIG_TYPES` 加 `cli_helper: CliHelperConfig`，`apply_provider_configs` 回放时 `set_user_config` 传 `cli_helper`——远程 executor 才能复现订阅 helper 的 ContextVar 状态。

@@ -68,12 +68,7 @@ stop_all() {
   pkill -f "module_poller" 2>/dev/null || true
   pkill -f "job_trigger" 2>/dev/null || true
   pkill -f "message_bus_trigger" 2>/dev/null || true
-  pkill -f "run_lark_trigger" 2>/dev/null || true
-  pkill -f "run_slack_trigger" 2>/dev/null || true
-  pkill -f "run_telegram_trigger" 2>/dev/null || true
-  pkill -f "run_wechat_trigger" 2>/dev/null || true
-  pkill -f "run_narramessenger_trigger" 2>/dev/null || true
-  pkill -f "run_discord_trigger" 2>/dev/null || true
+  pkill -f "run_channel_triggers" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 
@@ -379,22 +374,13 @@ run_container_mode() {
   "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
   # 5. Message bus trigger
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
-  # 5b. Discord channel trigger (Gateway receive → AgentRuntime). dev-local.sh
-  #     already launches this; run.sh must match it (binding rule #7).
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.discord_module.run_discord_trigger &
-
-  # 6. IM channel triggers (inbound long-poll). message_bus_trigger
-  #    deliberately defers IM channels to these dedicated processes, so
-  #    without them inbound Lark / Slack / Telegram messages are never
-  #    received — outbound still works because it goes straight through the
-  #    module, not a trigger (the asymmetry behind issue #54). Mirrors the
-  #    dev stack (scripts/dev-local.sh). Each trigger no-ops when no channel
-  #    of its kind is bound, so starting all three unconditionally is safe.
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.lark_module.run_lark_trigger &
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.slack_module.run_slack_trigger &
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.telegram_module.run_telegram_trigger &
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.wechat_module.run_wechat_trigger &
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.narramessenger_module.run_narramessenger_trigger &
+  # 5b. Consolidated IM channel triggers (Lark / Slack / Telegram / Discord /
+  #     WeChat / NarraMessenger) — ONE supervisor process running every channel
+  #     in a single event loop, replacing the old six-process layout. Each
+  #     channel no-ops when nothing is bound, so launching all is safe.
+  #     message_bus_trigger deliberately defers IM channels to this supervisor,
+  #     so without it inbound IM messages are never received (issue #54).
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_channel_triggers &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \

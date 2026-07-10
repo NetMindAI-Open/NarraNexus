@@ -1,8 +1,18 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-06-22
+last_verified: 2026-07-06
 stub: false
 ---
+
+## 2026-07-02 — billing_router 注册
+
+新增 `from backend.routes.billing import router as billing_router` 和
+`app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])`。
+NetMind 订阅/计费代理（[[billing]]）——`/plans`、`/subscription`。Phase 1。
+
+## 2026-07-03 — notices router mounted at /api/notices
+
+See backend/routes/notices.py.md.
 
 ## 2026-06-22 — narramessenger_router 注册
 

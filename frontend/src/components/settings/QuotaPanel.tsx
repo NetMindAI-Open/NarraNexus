@@ -100,6 +100,13 @@ export function QuotaPanel() {
   const inputTotal = data.initial_input_tokens + data.granted_input_tokens
   const outputTotal = data.initial_output_tokens + data.granted_output_tokens
   const preferSystem = data.prefer_system_override
+  // #48: the toggle is only LOCKED when the free tier is exhausted AND already
+  // off — turning the free tier ON needs budget, but turning it OFF (to route
+  // through your own provider) must ALWAYS be allowed, matching the backend's
+  // `set_preference` guard ("OFF is always allowed"). Previously this was
+  // `disabled={exhausted}`, which trapped an opted-in user: exhausted → greyed
+  // → could not uncheck → 402 loop.
+  const freeTierLocked = exhausted && !preferSystem
 
   const togglePreference = async () => {
     try {
@@ -142,14 +149,14 @@ export function QuotaPanel() {
       <div className="mt-3 pt-3 border-t border-[var(--border-subtle)]">
         <label
           className={`flex items-center gap-2 text-xs text-[var(--text-secondary)] ${
-            exhausted ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+            freeTierLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
           }`}
         >
           <input
             type="checkbox"
             checked={preferSystem}
             onChange={togglePreference}
-            disabled={exhausted}
+            disabled={freeTierLocked}
             className="accent-[var(--accent-primary)]"
           />
           <span>
@@ -157,11 +164,13 @@ export function QuotaPanel() {
           </span>
         </label>
         <div className="mt-1 text-[11px] text-[var(--text-tertiary)] pl-6">
-          {exhausted
-            ? 'Locked while the free tier is exhausted — re-enables automatically once your quota is replenished.'
-            : preferSystem
+          {!exhausted
+            ? preferSystem
               ? t('settings.quota.preferOn')
-              : t('settings.quota.preferOff')}
+              : t('settings.quota.preferOff')
+            : preferSystem
+              ? t('settings.quota.exhaustedPreferOn')
+              : t('settings.quota.exhaustedPreferOff')}
         </div>
       </div>
       {exhausted && (

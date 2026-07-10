@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/model_catalog.py
-last_verified: 2026-06-10
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — `resolve_cli_alias` (upstream #57)
+
+New `_CLI_ALIAS_TO_MODEL_ID` map + `resolve_cli_alias(model_id, auth_type)`
+next to the alias ModelMeta registrations. CLI family aliases ("opus") are
+only valid on the OAuth/CLI path; raw Anthropic-compatible APIs 400 on them
+and the runtime surfaces no_reply. Model strings are free text end to end
+(no backend catalog validation), so normalization lives at the transport
+boundary: non-OAuth → full id, OAuth → verbatim (the CLI resolves "latest
+of family" itself, keeping it un-stale). When a family ships a new latest,
+update the map with the ModelMeta entries —
+tests/agent_framework/test_model_alias_normalization.py guards that map
+targets are registered catalog ids.
 ## 2026-06-10 (later) — onboarding defaults for aggregator sources
 
 _ONBOARD_AGENT/HELPER_MODELS gained netmind (DeepSeek-V4-Pro / V4-Flash,
@@ -65,3 +78,7 @@ Settings 页面需要知道"NetMind 支持哪些模型"、"text-embedding-3-larg
    脚本是幂等的——已经包含了的 model 会被识别为 `[OK]` 跳过；只追加缺失项到 `models` JSON 数组末尾。该脚本目前硬编码 `source="netmind"` + 双协议遍历；如果以后要给 yunwu / openrouter 也做同样的事，复制这个脚本改 source 即可。
 
 后端**必须重起**才能让新 model 的元数据进入 catalog 缓存——`_KNOWN_MODELS` 和 `_DEFAULT_MODELS` 是模块级的，import 时初始化一次。前端再刷一下页面，Settings 下拉就能看到新 model。
+
+## 2026-07-07 — is_cli_family_alias
+
+新增 `is_cli_family_alias(model_id)`(即 `_CLI_ALIAS_TO_MODEL_ID` 成员判定),供 `to_cli_env` 判断 DEFAULT 重定向是否会自指(别名进重定向会让 CLI 拒启)。

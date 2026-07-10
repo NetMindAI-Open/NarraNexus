@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/client.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-02
 ---
+
+## 2026-07-02 — `silent=True` opt-in flows through the extra_kwargs seam
+
+No signature change. Both `run_and_collect` and `run_stream` already
+forward `**extra_kwargs` verbatim to `AgentRuntime.run` (via
+`collect_run` for the collect case, direct for streaming), so newer
+opt-ins like `silent=True` (skip step_3; memory-only writes; see
+[[agent_runtime.py]] silent-mode note) reach the runtime without a
+protocol bump. The module docstring now names this behaviour
+explicitly so triggers know they can pass `silent=True` as a plain
+kwarg. Locked by `tests/agent_runtime/test_silent_mode.py` — the
+kwarg propagation test would break loudly if any future filter
+in the client silently dropped it.
 
 ## Why it exists
 

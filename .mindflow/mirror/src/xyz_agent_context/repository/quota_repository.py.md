@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/repository/quota_repository.py
 stub: false
-last_verified: 2026-04-23
+last_verified: 2026-07-07
 ---
+
+## 2026-07-07 — `disable_if_enabled` compare-and-swap (#48)
+
+`UPDATE … SET prefer_system_override=0 WHERE user_id=%s AND
+prefer_system_override=1`, returning `rowcount>0`. The `WHERE prefer=1` guard
+makes it a CAS: under concurrent exhausted requests exactly one caller sees the
+row still ON and flips it, so exactly one gets True — the single owner of the
+one-time auto-switch notice. Relies on `execute(fetch=False)` returning the
+affected-row count.
 
 # Intent
 

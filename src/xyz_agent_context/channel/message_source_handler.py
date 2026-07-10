@@ -164,6 +164,17 @@ class MessageSourceHandler:
     `content` argument (Lark stuffs it into `command`'s `--markdown`
     flag, for example)."""
 
+    dedicated_trigger: bool = False
+    """True when this source has its own long-running trigger process
+    (LarkTrigger, WeChatTrigger, ...) that already runs AgentRuntime for
+    every inbound message. ChannelInboxWriter persists those turns to
+    ``bus_messages`` under ``{name}_{chat_id}`` purely for history/Inbox
+    display; MessageBusTrigger uses this flag to derive the channel-id
+    prefixes it must NOT re-dispatch (a second run would send duplicate
+    replies — 2026-07-03 wechat double-dispatch incident). Every module
+    that ships a ``run_*_trigger.py`` entrypoint must set this; enforced
+    by tests/message_bus/test_bus_channel_inbox_skip.py."""
+
     def is_user_reply_tool(self, tool_name: str) -> bool:
         """True when `tool_name` matches any registered reply tool.
 
@@ -260,6 +271,15 @@ class MessageSourceRegistry:
         default handler when nothing is registered. Never returns None
         — callers can use the result unconditionally."""
         return cls._handlers.get(working_source, _DEFAULT_HANDLER)
+
+    @classmethod
+    def handlers(cls) -> Dict[str, MessageSourceHandler]:
+        """Read-only snapshot of all registered handlers.
+
+        Exists so MessageBusTrigger can derive the dedicated-trigger
+        channel prefixes from registrations instead of a hand-maintained
+        list (which drifted: wechat/narramessenger/discord were missing)."""
+        return dict(cls._handlers)
 
     @classmethod
     def dump(cls) -> Dict[str, Dict[str, Any]]:

@@ -44,35 +44,46 @@ _DROPPED_PREFIX_MARKER = "[... earlier activity omitted to fit context budget ..
 _EMPTY_RESPONSE_SENTINEL = "(no activity recorded)"
 
 
-async def _resolve_agent_framework_name(user_id: str, db_client: Any) -> str:
-    """Return the user's coding-agent framework name (for the driver
-    registry). Reads ``user_slots[user_id, slot_name='agent'].agent_framework``.
+async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
+    """Return the coding-agent framework name for THIS agent (for the driver
+    registry).
 
-    Always falls back to ``"claude_code"`` on:
-      - row missing (new users)
-      - column null (rows from before Task 1 migration)
-      - DB lookup error (defensive — never let an ``agent_framework``
-        column issue block an agent run)
+    Resolution mirrors the config resolver's overlay so framework and config
+    never disagree:
 
-    Unknown framework names are NOT silently rewritten here — they're
-    handed to ``get_agent_loop_driver`` which raises ``ValueError`` so a
-    typo in config surfaces at the dispatch site instead of masquerading
-    as "claude". The driver registry has both ``claude_code`` and
-    ``codex_cli`` aliases registered, so the two values
-    ``user_slots.agent_framework`` ever holds resolve cleanly.
+      1. Per-agent override — ``agent_slots[agent_id, 'agent'].agent_framework``,
+         but ONLY when that override actually rebinds the agent slot (has a
+         ``provider_id``). A framework-only stub with no provider does NOT win,
+         because the config resolver
+         (``resolver._apply_agent_overrides``) skips empty-provider rows and
+         would fall back to the owner default — honouring the stub framework
+         here would run e.g. the Codex driver against a Claude config.
+      2. Owner default — ``user_slots[owner, 'agent'].agent_framework`` where
+         ``owner = agents.created_by``.
+
+    Keyed by ``agent_id`` (NOT the trigger's ``user_id``): the owner bills and
+    configures the run, so the framework must resolve from the owner + this
+    agent's override — the same identity the config resolver uses. (Reading the
+    trigger identity was a latent bug for background triggers.)
+
+    Always falls back to ``"claude_code"`` on missing row / null column / DB
+    lookup error — never let an ``agent_framework`` issue block an agent run.
+    Unknown framework names are NOT silently rewritten here — they're handed to
+    ``get_agent_loop_driver`` which raises ``ValueError`` so a config typo
+    surfaces at the dispatch site instead of masquerading as "claude".
+
+    The overlay itself lives in ``agent_framework.agent_model_identity`` — the
+    SINGLE source of truth shared with the prompt's "LLM Model" line, so the
+    displayed identity can never disagree with the driver we dispatch. This
+    thin wrapper just projects the ``framework`` field (identity resolution
+    never raises; unknown names pass through verbatim on the ``framework``
+    field, so the registry still fails loud on typos).
     """
-    try:
-        row = await db_client.get_one(
-            "user_slots", {"user_id": user_id, "slot_name": "agent"}
-        )
-    except Exception as e:  # noqa: BLE001 — defensive: any DB hiccup
-        logger.warning(
-            f"[step_3] agent_framework lookup failed for user={user_id}: {e}; "
-            f"falling back to claude_code"
-        )
-        return "claude_code"
+    from xyz_agent_context.agent_framework.agent_model_identity import (
+        resolve_agent_model_identity,
+    )
 
-    return (row or {}).get("agent_framework") or "claude_code"
+    return (await resolve_agent_model_identity(agent_id, db_client)).framework
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -742,8 +753,11 @@ async def step_3_agent_loop(
     # the canonical user-facing names (claude_code / codex_cli) and
     # short aliases (claude / codex), so any value we read here that
     # the system supports will resolve.
-    framework_name = await _resolve_agent_framework_name(ctx.user_id, db_client)
-    logger.info(f"[step_3] agent_loop framework: {framework_name!r} (user={ctx.user_id})")
+    framework_name = await _resolve_agent_framework_name(ctx.agent_id, db_client)
+    logger.info(
+        f"[step_3] agent_loop framework: {framework_name!r} "
+        f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
+    )
     # Per-user executor routing (cloud): ask the broker to ensure this
     # user's Executor container and use its URL. Returns None when no
     # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),

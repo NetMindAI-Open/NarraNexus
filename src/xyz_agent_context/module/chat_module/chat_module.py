@@ -90,32 +90,19 @@ def _synthesize_attachment_markers(
     agent_id: str,
     user_id: str,
 ) -> str:
-    """Render a list of attachment dicts as natural-language markers.
+    """Thin wrapper around ``Attachment.markers_from_dicts``.
 
-    Used by hook_data_gathering when assembling chat_history for the LLM —
-    the persisted message keeps its `content` as the user's original text,
-    and the markers (which carry the resolved absolute path on disk) are
-    appended only into the in-memory copy fed to the next turn's prompt.
-    Invalid entries are skipped silently rather than failing the whole
-    turn (defensive: the dict shape is data we control, but a future
-    schema change shouldn't crash old conversations).
-
-    Path resolution requires the workspace owner's identity, so
-    `agent_id` and `user_id` are threaded through; for orphaned uploads
-    (file deleted) the marker still reports `path=<unavailable>`.
+    Kept as a module-local alias so existing history-assembly call
+    sites (``hook_data_gathering`` at chat_module.py:508 / :889) don't
+    have to import the schema helper directly. The runtime-layer
+    current-turn injection (context_runtime.build_input_for_framework)
+    calls ``Attachment.markers_from_dicts`` directly — the two
+    codepaths share one implementation now, so agent behaviour is
+    identical for current-turn vs historical attachments.
     """
-    if not attachments:
-        return ""
-    lines: List[str] = []
-    for att in attachments:
-        try:
-            marker = Attachment.model_validate(att).synthesize_marker(
-                agent_id=agent_id, user_id=user_id,
-            )
-            lines.append(marker)
-        except Exception as e:
-            logger.warning(f"Skipping malformed attachment in chat history: {e}")
-    return "\n".join(lines)
+    return Attachment.markers_from_dicts(
+        attachments, agent_id=agent_id, user_id=user_id,
+    )
 
 
 def _detect_fatal_error_in_agent_loop(
@@ -412,10 +399,20 @@ class ChatModule(XYZBaseModule):
         Returns:
             Short activity description string
         """
-        if working_source == "job":
-            return "Executed a background job"
+        # Say WHAT happened, not just the source — the UI already badges the
+        # source (working_source) with its own colour + name, so repeating
+        # "(wechat)" here is noise. Use the channel_tag the IM triggers attach
+        # (sender / room) to make the one-line summary actually informative.
+        tag = meta.get("channel_tag") or {}
+        who = tag.get("sender_name") or tag.get("room_name")
 
-        return f"Background activity ({working_source})"
+        if working_source == "job":
+            return "Ran a scheduled job"
+        if working_source in ("message_bus", "a2a"):
+            return f"Replied to {who}" if who else "Handled a peer-agent message"
+        if who:
+            return f"Handled a message from {who}"
+        return "Handled a background activity"
 
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         """
@@ -978,6 +975,75 @@ class ChatModule(XYZBaseModule):
         # Get existing history (using instance_id)
         existing_memory = await self.event_memory_module.search_instance_json_format_memory(module_name, instance_id)
         messages = existing_memory.get("messages", []) if existing_memory else []
+
+        # ── Silent batch write path ──────────────────────────────────────
+        # AgentRuntime.run(silent=True) skipped step_3, so there is no
+        # assistant reply to persist. The trigger passed per-message metadata
+        # via trigger_extra_data["batch_messages"] (list of
+        # {event_id, timestamp, sender_id, content, attachments?}) so we can
+        # write one user row per original event with its own timestamp /
+        # sender_id, rather than collapsing them into a single row keyed by
+        # the merged input_content.
+        # Used by IM channels (Matrix / Lark / Slack) for group non-@
+        # messages and reconnect burst backfill — see
+        # channel_trigger_base._build_and_run_agent_silent_batch.
+        batch_messages_raw: Any = None
+        if params.ctx_data and params.ctx_data.extra_data:
+            batch_messages_raw = params.ctx_data.extra_data.get("batch_messages")
+        if isinstance(batch_messages_raw, list) and batch_messages_raw:
+            batch_working_source = (
+                params.execution_ctx.working_source.value
+                if params.execution_ctx
+                else "unknown"
+            )
+            channel_tag_data = None
+            if params.ctx_data and params.ctx_data.extra_data:
+                channel_tag_data = params.ctx_data.extra_data.get("channel_tag")
+                if channel_tag_data is not None and hasattr(channel_tag_data, "to_dict"):
+                    channel_tag_data = channel_tag_data.to_dict()
+            appended = 0
+            for item in batch_messages_raw:
+                if not isinstance(item, dict):
+                    continue
+                content = str(item.get("content") or "")
+                if not content.strip() and not item.get("attachments"):
+                    continue
+                meta: Dict[str, Any] = {
+                    "event_id": item.get("event_id") or params.event_id,
+                    "timestamp": item.get("timestamp") or utc_now().isoformat(),
+                    "instance_id": instance_id,
+                    "working_source": batch_working_source,
+                    "silent": True,
+                }
+                if item.get("sender_id"):
+                    meta["sender_id"] = item["sender_id"]
+                if item.get("sender_name"):
+                    meta["sender_name"] = item["sender_name"]
+                if channel_tag_data:
+                    meta["channel_tag"] = channel_tag_data
+                row: Dict[str, Any] = {
+                    "role": "user",
+                    "content": content,
+                    "meta_data": meta,
+                }
+                attachments_raw = item.get("attachments")
+                if isinstance(attachments_raw, list) and attachments_raw:
+                    row["attachments"] = [a for a in attachments_raw if isinstance(a, dict)]
+                messages.append(row)
+                appended += 1
+            memory = {
+                "messages": messages,
+                "last_event_id": params.event_id,
+                "updated_at": utc_now().isoformat(),
+            }
+            await self.event_memory_module.add_instance_json_format_memory(
+                module_name, instance_id, memory
+            )
+            logger.info(
+                f"ChatModule.hook_persist_turn: silent batch wrote {appended} "
+                f"user rows (no assistant row) to instance_id={instance_id}"
+            )
+            return
 
         # Bootstrap greeting injection: if this is the first turn and bootstrap is active,
         # prepend the static greeting as the first assistant message so DB history starts with it.

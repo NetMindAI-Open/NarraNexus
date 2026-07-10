@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-03
 stub: false
 ---
+
+## 2026-07-03 — cloud/local mode switcher hidden
+
+Both sidebar entry points to the mode switcher (expanded button+popup and the
+collapsed icon button) are gated behind a module-local `SHOW_MODE_SWITCHER =
+false` — users should not choose the deployment mode. All switching logic
+(handleSwitchMode, mode state, /mode-select navigation, the data-wipe on
+switch) is kept intact and still referenced (so lint stays clean); only the UI
+is hidden. Flip the flag to true to restore the control.
 
 > 2026-06-24: Sidebar is now the shell for the TEAMS/AGENTS restructure. It no
 > longer owns any team grouping itself — it just renders `<AgentList collapsed/>`

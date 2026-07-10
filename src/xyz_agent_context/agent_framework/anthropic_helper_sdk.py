@@ -32,7 +32,11 @@ from xyz_agent_context.agent_framework.openai_agents_sdk import (
     _extract_json_from_llm_output,
     _last_llm_call_info,
 )
-from xyz_agent_context.utils.cost_tracker import record_cost, get_cost_context
+from xyz_agent_context.utils.cost_tracker import (
+    get_cost_context,
+    record_cost,
+    warn_missing_usage,
+)
 from xyz_agent_context.utils.logging import timed
 
 
@@ -171,15 +175,18 @@ class AnthropicHelperSDK:
         input_tokens = getattr(usage, "input_tokens", 0) or 0
         output_tokens = getattr(usage, "output_tokens", 0) or 0
         _agent_id, _db = self._resolve_cost_context(agent_id, db)
-        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
-            try:
-                await record_cost(
-                    db=_db, agent_id=_agent_id, event_id=None,
-                    call_type="llm_function", model=model_name,
-                    input_tokens=input_tokens, output_tokens=output_tokens,
-                )
-            except Exception as e:
-                logger.warning(f"[AnthropicHelper] failed to record cost: {e}")
+        if _agent_id and _db:
+            if input_tokens > 0 or output_tokens > 0:
+                try:
+                    await record_cost(
+                        db=_db, agent_id=_agent_id, event_id=None,
+                        call_type="llm_function", model=model_name,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(f"[AnthropicHelper] failed to record cost: {e}")
+            else:
+                warn_missing_usage("AnthropicHelper", model_name, "llm_function")
 
         if not output_type:
             _last_llm_call_info.set({"model": model_name, "structured": "no_schema"})
@@ -259,17 +266,20 @@ class AnthropicHelperSDK:
         )
 
         _agent_id, _db = self._resolve_cost_context(None, None)
-        if _agent_id and _db and (input_tokens > 0 or output_tokens > 0):
-            try:
-                await record_cost(
-                    db=_db, agent_id=_agent_id, event_id=None,
-                    call_type="llm_stream", model=model_name,
-                    input_tokens=input_tokens, output_tokens=output_tokens,
-                )
-            except Exception as e:
-                logger.warning(
-                    f"[AnthropicHelper-Stream] failed to record cost: {e}"
-                )
+        if _agent_id and _db:
+            if input_tokens > 0 or output_tokens > 0:
+                try:
+                    await record_cost(
+                        db=_db, agent_id=_agent_id, event_id=None,
+                        call_type="llm_stream", model=model_name,
+                        input_tokens=input_tokens, output_tokens=output_tokens,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"[AnthropicHelper-Stream] failed to record cost: {e}"
+                    )
+            else:
+                warn_missing_usage("AnthropicHelper-Stream", model_name, "llm_stream")
 
     def _resolve_cost_context(self, agent_id, db):
         _agent_id, _db = agent_id, db

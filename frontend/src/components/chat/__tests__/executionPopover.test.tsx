@@ -25,11 +25,31 @@ const STEPS: Step[] = [
 ];
 
 describe('ExecutionPopover', () => {
-  it('shows the Processing chip with progress count', () => {
+  it('shows the current stage on the chip, not a misleading X/Y fraction', () => {
     render(<ExecutionPopover steps={STEPS} />);
     const trigger = screen.getByLabelText('Show execution steps');
     expect(trigger).toHaveTextContent('Processing');
-    expect(trigger).toHaveTextContent('2/4');
+    // The current stage = the latest running step, shown by name.
+    expect(trigger).toHaveTextContent('Tool call');
+    // The old "seen-steps-as-total" fraction (2/4, 3/4, …) is gone.
+    expect(trigger).not.toHaveTextContent('2/4');
+    expect(trigger.textContent).not.toMatch(/\d+\/\d+/);
+  });
+
+  it('renders each step description and the narrative selection reason', () => {
+    const steps: Step[] = [
+      {
+        id: 's1', step: '1', title: 'Narrative Selection', status: 'completed',
+        description: 'Matched narrative "Morning Briefing" (score 0.82)',
+        substeps: [],
+        details: { selection_reason: 'topic continued from the last turn', selection_method: 'session' },
+        timestamp: 0,
+      },
+    ];
+    render(<ExecutionPopover steps={steps} />);
+    fireEvent.click(screen.getByLabelText('Show execution steps'));
+    expect(screen.getByText(/Matched narrative "Morning Briefing"/)).toBeInTheDocument();
+    expect(screen.getByText(/topic continued from the last turn/)).toBeInTheDocument();
   });
 
   it('click opens the step list with statuses', () => {

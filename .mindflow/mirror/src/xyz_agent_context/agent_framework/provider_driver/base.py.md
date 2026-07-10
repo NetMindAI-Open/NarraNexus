@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/base.py
-last_verified: 2026-06-17
+last_verified: 2026-07-07
 stub: false
 ---
 ## 2026-06-17 — Driver grows build_codex_config(codex 进多态,铁律 #9)
@@ -53,3 +53,7 @@ be mutated mid-flight between cost_tracker layers.
 Output of ``probe()``. Three fields, all optional except ``ok``.
 ``expires_at`` is here for the OAuth driver's TTL surfacing — other
 drivers leave it as ``None``.
+
+## 2026-07-07 — build_cli_helper_config
+
+Driver Protocol + `_DriverBase` 新增 `build_cli_helper_config`（默认 NotImplementedError）。仅 OAuth driver 覆盖它，为 helper 槽产出 `CliHelperConfig`（订阅同时覆盖两槽）。

@@ -1,8 +1,113 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-06-11
+last_verified: 2026-07-09
 stub: false
 ---
+
+## 2026-07-09 — macOS: OAuth 凭据从 Keychain 导出进隔离目录(#76 的 macOS 补丁)
+
+#76 把 claude OAuth 隔离进独立 `CLAUDE_CONFIG_DIR`(`claude_oauth_config_path`)
+并把 `~/.claude/.credentials.json` **拷**进去。但 macOS 上 claude 把 OAuth token 存
+**Keychain、没有那个文件** → 文件拷贝 no-op、隔离目录空;而显式设了 `CLAUDE_CONFIG_DIR`
+又让 CLI 走文件模式忽略 Keychain → "Not logged in"(真机实测)。
+
+新增 `_stage_claude_oauth_from_keychain(config_dir)`:`_stage_claude_oauth_credentials`
+在**源文件缺失且 `sys.platform=="darwin"`** 时调它——用 `security find-generic-password
+-s "Claude Code-credentials" -w` 读出 Keychain 凭据,原子写成隔离目录里的
+`.credentials.json`(0600,**绝不 log 内容**)。**darwin-only**:Linux/云端那个源文件存在,
+永远走不到此分支,行为与 #76 逐字一致(零云端影响)。
+
+**stage-once**(非 newest-wins):Keychain 无 mtime 可比,且每次 spawn 重导会覆盖 CLI
+在隔离文件里刷新过的 token(重新注入已消费的 refresh token → 登出,正是 #76 newest-wins
+要避免的)。故仅在隔离文件缺失时导出一次。**代价**:重新 `claude login`(更新 Keychain)
+后隔离副本不自动刷新——删隔离目录重新 stage。安全面:token 是本人本机、0600,与 codex
+的明文 `~/.codex/auth.json`、claude-on-Linux 的 `.credentials.json` 同级。
+
+`CliHelperSDK._run_claude_oneshot` 也会调 `_stage_claude_oauth_credentials`(见
+[[cli_helper_sdk]]),使 claude helper 自足——agent 槽是 codex 或后台单独调 helper 时
+隔离目录也能被 seed。
+
+## 2026-07-09 — `_stage_claude_oauth_credentials`(OAuth 隔离目录的凭据搬运)
+
+OAuth 的 `CLAUDE_CONFIG_DIR` 现在指向独立目录
+`settings.claude_oauth_config_path`(见 [[api_config]] 2026-07-09 条),不再是
+宿主 `~/.claude`。`agent_loop` 在 `to_cli_env()` 之后、spawn 之前,若
+`auth_type == "oauth"` 就调用这个新的模块级函数,把宿主
+`~/.claude/.credentials.json`(经 `provider_driver.derive.resolve_claude_credentials_path`
+解析,尊重 `CLAUDE_CLI_CREDENTIALS_PATH`/`CLAUDE_CLI_HOME` 覆盖)**单文件**拷进隔离目录。
+只拷 `.credentials.json`、绝不拷 `settings.json` —— 后者的 `env` 块正是劫持源。
+
+**newest-wins**:仅当宿主副本比已暂存副本更新(或副本缺失)才覆盖;否则保留 CLI 在
+隔离目录里就地刷新过的 token(避免把已轮转作废的旧 refresh token 回灌、把用户登出)。
+宿主无凭据文件 → warn + no-op,不抛错。对齐 Codex 的 `_stage_codex_oauth_credentials`
+(那边是 per-run temp `CODEX_HOME`;Claude 这边用持久隔离目录,与 keyed 路径同风格,
+故用 newest-wins 而非每次覆盖)。守卫测试见
+`tests/agent_framework/test_claude_config_isolation.py`。
+
+**原子落盘(必须)**:`claude_oauth_config_path` 是**所有 OAuth agent_loop 共用的固定
+目录**(不是 Codex 那种 per-run temp),staging 那一刻隔离目录里可能正好有一个 CLI 在读
+`.credentials.json`。裸 `shutil.copy2(source, dest)` 会先 truncate `dest` 再写,重新打开
+了本 fix 要堵的「半读 / 并发写」窗口(与当初 `~/.claude/.claude.json` 在 55KB↔50 字节
+反复横跳同形)。所以落盘走**同目录临时文件 + `os.replace`**(POSIX 原子 rename);`copy2`
+保留 mtime,rename 后 newest-wins 仍成立;`chmod(0o600)` 在 rename **之前**做,避免 `dest`
+短暂出现 0644。
+
+**已知代价 — 宿主可能被登出(单向拷贝的取舍)**:staging 是**单向** 宿主 → 隔离目录,
+没有回写。若隔离目录里的 CLI 就地刷新了 OAuth token,宿主 `~/.claude/.credentials.json`
+仍留着已被服务端轮转作废的旧 refresh token,用户自己的交互式 `claude` 在 access token
+过期后拿旧 refresh token 去刷 → 401 → 被登出、需重新 `claude auth login`。DMG 模式下
+agent_loop 与宿主是同一个人,体感尤其差,且只在数小时后 token 过期时才炸、难归因。
+这是**已接受的取舍**,与 Codex 单向 `_stage_codex_oauth_credentials` 一致——当前不做
+token 回写(真要回写,也必须走同样的原子 rename,否则回到上面「原子落盘」那条)。下一个
+碰到「宿主被登出」的人:这是设计取舍,不是 bug,别再重推一遍这条链。
+
+## 2026-07-03 — MAX_SYSTEM_PROMPT_LENGTH bumped 100K → 115K
+
+Symptom-treatment for a bloated system_prompt observed on live agent
+`agent_62cf67080ad4`: assembled prompts clocked in at 91–93K chars
+across five consecutive turns, leaving only ~5–8K of the 100K char
+budget for history. Source-aware eviction was dropping 20–23 of ~29
+history rows on every turn, starving the LLM of NarraMessenger
+context (silent-ingested rows in particular, since they're keyed
+`_source != "chat"` and drop in Tier-1).
+
+Direct cause: `SKIP_MODULE_DECISION_LLM = True` forces the loader to
+inline all 15 modules' `get_instructions()` on every turn, regardless
+of relevance. Sampled sizes: ChatModule 13K, CommonTools 8K, Slack 8K,
+MessageBus 6K, Telegram 6K, Skill 4K, Discord 3K, Lark 2K,
+NarraMessenger 0.8K, WeChat 0.7K, plus BasicInfo / SocialNetwork /
+Awareness / Job (not measurable without an active ctx_data but ~15K
+combined in production). Total steadily >90K.
+
+115K keeps mixed-CJK content comfortably below
+`MAX_SYSTEM_PROMPT_BYTES = 120 KiB` and the 128 KiB argv hard limit,
+and gives history 20–30K of budget instead of 5–8K — enough to
+retain the last full turn on IM channels where history rows are
+long. This is TREATMENT, not cure; the root fix is a
+module-selection loader that only inlines instructions relevant to
+this turn's channel/context (deferred as a separate follow-up per
+the design note added inline at the constant's block comment).
+
+## 2026-07-03 — 0-message run emits a classifiable error (no more silent fallback)
+
+When the Claude CLI yields 0 messages (expired OAuth / not logged in / crash /
+quota) the generator used to only log and end, so the pipeline read no-messages
+as "agent chose not to reply" and the helper-LLM fabricated a hollow fallback —
+the Owner reported "mysterious fallback, no error". It now yields
+_zero_output_error_event (a response.error carrying the raw CLI stderr).
+Classification stays in response_processor._is_auth_failure: an auth/login
+stderr becomes a fatal AUTH_EXPIRED (re-login prompt, no_reply fallback skipped);
+anything else stays a recoverable no-output error. The base sentence is kept
+auth-phrase-free so an empty stderr is never misclassified as auth. Guarded by
+tests/agent_framework/test_zero_output_error_event.py.
+
+## 2026-07-03 — main-loop model normalized via `resolve_cli_alias` (upstream #57)
+
+`options_kwargs["model"]` passes through `resolve_cli_alias(model,
+auth_type)`: bare family aliases become full ids on api_key/bearer
+transports, stay verbatim on OAuth. Complements the earlier
+`_is_claude_native` fix (906312b5) which only adjusted tool policy, not
+the model string itself.
 
 ## 2026-06-11 — thinking 走 --effort,绝不发 --max-thinking-tokens 正数
 

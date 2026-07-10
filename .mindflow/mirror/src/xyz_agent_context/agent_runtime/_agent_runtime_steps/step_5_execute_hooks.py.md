@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_5_execute_hooks.py
-last_verified: 2026-05-29
+last_verified: 2026-07-02
 stub: false
 ---
+
+## 2026-07-02 — `build_after_execution_params` default is CHAT-shape
+
+Structural change to `build_after_execution_params`: the special-case
+branch for `WorkingSource.JOB` is unchanged, but everything else
+(`CHAT`, `LARK`, `SLACK`, `TELEGRAM`, `DISCORD`, `NARRAMESSENGER`,
+`WECHAT`, `MESSAGE_BUS`, `A2A`, ...) now runs the CHAT resolution
+logic — user_chat_instances by narrative_id → fallback to
+`provides_chat_history()==True` — rather than falling through to
+`current_instance = None` with a warning.
+
+Why. All non-JOB working_sources are conversation-shaped and route
+through ChatModule for the turn's chat history; the "current
+instance" for hook purposes is naturally the ChatModule instance
+that carries that narrative's history. The old CHAT-only branch was
+a pre-multi-IM leftover — LARK / SLACK / etc. hit `None` and logged
+"No instance found for working_source=..." on every turn.
+
+Impact today. Zero user-visible behaviour change:
+
+- `_job_lifecycle.py` is the only site that reads `params.instance`,
+  and it only fires on `working_source=JOB`, which still takes the
+  JOB branch.
+- `ChatModule.hook_persist_turn` uses `self.instance_id` (bound
+  during step_2 module load), not `params.instance` — chat history
+  writes were never dependent on this field.
+- The change eliminates a persistent per-turn WARN on IM channels.
+- Future hooks that legitimately want "which chat instance is this
+  turn about" now get the right answer for all IM channels for free.
+
 
 ## 2026-05-20 — extracted `build_after_execution_params(ctx)`
 
