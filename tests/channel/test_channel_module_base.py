@@ -285,4 +285,6 @@ def test_default_on_event_executed_is_no_op():
     import asyncio
     m = _make_module(_NoOverrideModule)
     coro = m._on_event_executed(MagicMock())
-    asyncio.get_event_loop().run_until_complete(coro)  # must not raise
+    # asyncio.run (fresh loop): get_event_loop() raises on 3.12+ once a
+    # prior pytest-asyncio test has set-and-closed the thread's loop.
+    asyncio.run(coro)  # must not raise

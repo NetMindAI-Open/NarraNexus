@@ -68,15 +68,11 @@ def _assert_local_bind_is_loopback(is_cloud_mode: bool) -> None:
         # Container deployments inherently bind 0.0.0.0 (the Docker
         # network namespace IS the security boundary). The loopback
         # check is for laptops on shared LANs, not containers.
-        logger.info(
-            "Container mode active — skipping local-bind loopback assertion."
-        )
+        logger.info("Container mode active — skipping local-bind loopback assertion.")
         return
     host = _detect_bind_host()
     if host not in ("127.0.0.1", "localhost", "::1"):
-        logger.critical(
-            f"Local mode requires loopback bind; detected host={host!r}. Exiting."
-        )
+        logger.critical(f"Local mode requires loopback bind; detected host={host!r}. Exiting.")
         sys.exit(1)
 
 
@@ -122,6 +118,7 @@ async def lifespan(app: FastAPI):
 
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
     from xyz_agent_context.utils.schema_registry import auto_migrate
+
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
 
@@ -132,6 +129,7 @@ async def lifespan(app: FastAPI):
     from xyz_agent_context.agent_framework.provider_driver import (
         backfill_provider_metadata,
     )
+
     await backfill_provider_metadata(db)
 
     # Agent Runtime Lifecycle (Phase C) — initialize the in-memory
@@ -172,6 +170,7 @@ async def lifespan(app: FastAPI):
         heal_legacy_singleton_ownership,
         migrate_jobs_protocol_v2_timezone,
     )
+
     migration_stats = await migrate_jobs_protocol_v2_timezone(db)
     if migration_stats.get("cancelled"):
         logger.warning(
@@ -188,9 +187,7 @@ async def lifespan(app: FastAPI):
     try:
         heal_stats = await heal_legacy_singleton_ownership(db)
         if heal_stats.get("teams"):
-            logger.info(
-                f"[singleton-heal] re-attributed {heal_stats['teams']} legacy team(s)"
-            )
+            logger.info(f"[singleton-heal] re-attributed {heal_stats['teams']} legacy team(s)")
     except Exception as e:  # noqa: BLE001
         # Self-heal is best-effort — never block startup on it.
         logger.warning(f"[singleton-heal] skipped due to error: {e}")
@@ -203,6 +200,7 @@ async def lifespan(app: FastAPI):
     # startup). See xyz_agent_context/migrations/.
     try:
         from xyz_agent_context.migrations import run_pending_migrations
+
         migrated = await run_pending_migrations(db)
         if migrated:
             logger.info(f"[migrate] applied {len(migrated)} pending migration(s): {list(migrated)}")
@@ -241,9 +239,7 @@ async def lifespan(app: FastAPI):
         system_provider_svc=system_provider,
         quota_svc=quota_service,
     )
-    logger.info(
-        f"Quota subsystem wired (enabled={system_provider.is_enabled()})"
-    )
+    logger.info(f"Quota subsystem wired (enabled={system_provider.is_enabled()})")
 
     # Unified Agent Memory — start the background consolidation worker
     # (design 2026-06-03 §7.4). Drains the dirty-scope queue and distils raw
@@ -252,6 +248,7 @@ async def lifespan(app: FastAPI):
     from xyz_agent_context.services.memory_consolidation_worker import (
         MemoryConsolidationWorker,
     )
+
     memory_worker = MemoryConsolidationWorker(db)
     await memory_worker.start()
     app.state.memory_consolidation_worker = memory_worker
@@ -263,6 +260,7 @@ async def lifespan(app: FastAPI):
     from xyz_agent_context.agent_runtime.executor_reaper import (
         maybe_start_executor_reaper,
     )
+
     app.state.executor_reaper_task = maybe_start_executor_reaper()
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
@@ -283,6 +281,7 @@ async def lifespan(app: FastAPI):
     # Drain analytics queue so buffered funnel events are not lost on exit.
     try:
         from xyz_agent_context.analytics import shutdown_analytics
+
         await shutdown_analytics()
     except Exception:  # noqa: BLE001
         pass
@@ -316,6 +315,7 @@ app.add_middleware(
 # was added via add_middleware above and runs at a different stage.)
 from backend.auth import auth_middleware
 from backend.middleware.access_log import access_log_middleware
+
 app.middleware("http")(auth_middleware)
 app.middleware("http")(access_log_middleware)
 
@@ -347,16 +347,23 @@ from backend.routes.admin_runtime import router as admin_runtime_router
 from backend.routes.transcription import router as transcription_router
 from backend.routes.transcription_public import router as transcription_public_router
 from backend.routes.artifacts_public import router as artifacts_public_router
+from backend.routes.office_watch_proxy import (
+    router as office_watch_router,
+    public_router as office_watch_public_router,
+)
 from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
 from backend.routes.arena import router as arena_router
 from backend.routes.me import router as me_router
 from backend.routes.billing import router as billing_router
+from backend.routes.feedback import router as feedback_router
 
 app.include_router(websocket_router, tags=["WebSocket"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Auth"])
 app.include_router(agents_router, prefix="/api/agents", tags=["Agents"])
 app.include_router(agents_artifacts_router, prefix="/api/agents", tags=["Artifacts"])
+app.include_router(office_watch_router, prefix="/api", tags=["OfficeWatch"])
+app.include_router(office_watch_public_router, prefix="/api/public", tags=["OfficeWatch"])
 app.include_router(users_artifacts_router, prefix="/api/users", tags=["Artifacts"])
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(skills_router, prefix="/api/skills", tags=["Skills"])
@@ -365,6 +372,7 @@ app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])
+app.include_router(feedback_router, prefix="/api", tags=["Feedback"])
 app.include_router(inbox_router, prefix="/api/agent-inbox", tags=["Inbox"])
 app.include_router(notices_router, prefix="/api/notices", tags=["Notices"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
@@ -382,7 +390,9 @@ app.include_router(admin_runtime_router, tags=["AdminRuntime"])
 app.include_router(notifications_router, tags=["Notifications"])
 app.include_router(admin_logs_router, prefix="/api/admin/logs", tags=["AdminLogs"])
 app.include_router(
-    transcription_router, prefix="/api/transcription", tags=["Transcription"],
+    transcription_router,
+    prefix="/api/transcription",
+    tags=["Transcription"],
 )
 app.include_router(
     transcription_public_router,
@@ -429,6 +439,7 @@ if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
         router as manyfold_diagnostics_router,
     )
     from backend.routes.manyfold_files import router as manyfold_files_router
+
     app.include_router(openai_compat_router, tags=["ManyfoldOpenAI"])
     app.include_router(manyfold_agents_router, tags=["ManyfoldAgents"])
     app.include_router(manyfold_diagnostics_router, tags=["ManyfoldDiagnostics"])
@@ -455,6 +466,7 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
     @app.head("/")
     async def preflight_head():
         from fastapi.responses import Response
+
         return Response(status_code=200)
 
     # Cache policy: index.html and the SPA fallback MUST NOT be cached
@@ -484,6 +496,7 @@ if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").exists():
         """
         if full_path.startswith("v1/") or full_path.startswith("manyfold/"):
             from fastapi.responses import JSONResponse
+
             return JSONResponse(status_code=404, content={"detail": "not found"})
         file_path = _FRONTEND_DIST / full_path
         if full_path and file_path.is_file():
@@ -511,9 +524,13 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
+
     # ws_ping_interval / ws_ping_timeout override uvicorn's 20s/20s defaults
     # that were hanging WS streams on long LLM turns — see BUG_FIX_LOG Bug 32.
     uvicorn.run(
-        app, host="0.0.0.0", port=8000,
-        ws_ping_interval=30, ws_ping_timeout=60,
+        app,
+        host="0.0.0.0",
+        port=8000,
+        ws_ping_interval=30,
+        ws_ping_timeout=60,
     )

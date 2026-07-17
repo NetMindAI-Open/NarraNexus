@@ -94,7 +94,7 @@ async def collect_run(
 
     Any keyword argument accepted by ``AgentRuntime.run`` can be passed
     through ``extra_kwargs`` (e.g. ``trigger_extra_data``,
-    ``job_instance_id``, ``forced_narrative_id``, ``pass_mcp_urls``,
+    ``job_instance_id``, ``forced_narrative_id``, ``pass_mcp_servers``,
     ``cancellation``).
     """
     text_parts: list[str] = []

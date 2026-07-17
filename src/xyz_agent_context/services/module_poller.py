@@ -488,6 +488,21 @@ class ModulePoller:
             trigger_data: Trigger data
         """
         try:
+            # Circuit-breaker skip-gate. This is the ModulePoller's only path
+            # that triggers AgentRuntime directly (Path A). It is currently
+            # DORMANT — Path B (JobTrigger, which has its own breaker) is
+            # active — so this gate is defensive: if Path A is ever switched
+            # on, a broken agent (dead key / quota) won't be re-triggered here
+            # either. Fail-open on read error.
+            from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+            cb_skip, cb_reason = await should_skip(agent_id)
+            if cb_skip:
+                logger.info(
+                    f"ModulePoller: skipping callback for instance {instance_id} "
+                    f"— agent {agent_id} circuit-breaker open ({cb_reason})"
+                )
+                return
+
             # Lazy import to avoid circular dependencies
             from xyz_agent_context.agent_runtime import AgentRuntime
 

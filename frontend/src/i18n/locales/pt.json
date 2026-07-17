@@ -130,7 +130,14 @@
       "titleFailed": "A execução falhou",
       "titleRecovered": "Concluído com erros",
       "situationFailed": "Esta execução encontrou um erro e o agente não conseguiu responder normalmente. Detalhes:",
-      "situationRecovered": "O agente respondeu, mas ocorreram erros durante a execução. Detalhes:"
+      "situationRecovered": "O agente respondeu, mas ocorreram erros durante a execução. Detalhes:",
+      "titleActionable": "Ação necessária",
+      "action": {
+        "context_window": "A janela de contexto do modelo selecionado é pequena demais para este agente. Troque por um modelo com janela de contexto maior nas Configurações e envie novamente.",
+        "insufficient_balance": "O provedor do modelo informa saldo ou cota insuficiente. Recarregue ou troque o provedor nas Configurações e envie novamente.",
+        "model_not_found": "O id do modelo configurado foi rejeitado pelo provedor (não encontrado ou inválido). Escolha um modelo válido nas Configurações e envie novamente.",
+        "generic": "Este turno não pôde ser executado devido a um problema de configuração que você pode corrigir nas Configurações. Corrija e envie novamente."
+      }
     }
   },
   "awareness": {
@@ -378,7 +385,8 @@
       "dropFiles": "Solte os arquivos aqui",
       "dragFiles": "Arraste os arquivos aqui ou",
       "browse": "navegar",
-      "empty": "O espaço de trabalho está vazio"
+      "empty": "O espaço de trabalho está vazio",
+      "kindOffice": "Documento do Office (ao vivo)"
     }
   },
   "dashboard": {
@@ -1755,6 +1763,7 @@
       "env": "Env",
       "enable": "Ativar",
       "disable": "Desativar",
+      "builtin": "Integrado",
       "remove": "Remover"
     },
     "install": {
@@ -1805,6 +1814,10 @@
       "delete": "Excluir",
       "namePlaceholder": "Nome do MCP",
       "urlPlaceholder": "URL SSE (ex.: https://your-host/sse)",
+      "headerKeyPlaceholder": "Nome do cabeçalho (ex.: Authorization)",
+      "headerValuePlaceholder": "Valor do cabeçalho (ex.: Bearer <token>)",
+      "addHeader": "Adicionar cabeçalho",
+      "removeHeader": "Remover cabeçalho",
       "add": "Adicionar",
       "cancel": "Cancelar",
       "deleteTitle": "Excluir MCP",
@@ -1817,9 +1830,18 @@
         "endpoint": "Deve ser um endpoint SSE remoto sobre http(s) — normalmente terminando em /sse.",
         "reachable": "O servidor deve conseguir acessar a URL (host público ou um que esta máquina possa conectar).",
         "noStdio": "MCPs locais via stdio / npx não são suportados aqui — apenas servidores SSE baseados em URL.",
-        "apiKey": "Se precisar de uma chave de API, coloque-a na URL ou nos cabeçalhos que seu MCP espera; nós conectamos de forma anônima.",
+        "apiKey": "Se precisar de uma chave de API, adicione-a como cabeçalho de requisição (ex.: Authorization: Bearer <token>) — os cabeçalhos são enviados em cada conexão.",
         "validation": "Após adicionar, o indicador de status valida a conexão — Com falha significa que a URL estava inacessível ou não era um endpoint SSE válido."
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "Fechar pré-visualização",
+    "desktopUnsupported": "A pré-visualização ao vivo ainda não está disponível no aplicativo de desktop.",
+    "desktopHint": "Abra o NarraNexus em um navegador para ver a pré-visualização ao vivo do documento.",
+    "loading": "Abrindo a pré-visualização ao vivo…",
+    "loadError": "Não foi possível abrir a pré-visualização ao vivo.",
+    "livePreview": "Pré-visualização ao vivo"
   }
 }

@@ -1,7 +1,11 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-05-27
+last_verified: 2026-07-14
 ---
+
+## 2026-07-13 — install_skill target_dir_name + meta preservation
+
+`install_skill(zip, target_dir_name=None)` — bundle import pins the dest folder to the manifest's known `skill_dir` instead of re-deriving it from SKILL.md frontmatter (which fell back to the extraction temp-dir basename for a frontmatter-less SKILL.md, leaving a stray `skills/tmpXXXX/`). And `_save_skill_meta` now MERGES onto the existing `.skill_meta.json` (keeps `env_config` / `study_result` / `requires` that travelled with a full_copy) instead of overwriting from scratch. Test: `tests/bundle/test_skill_import.py`.
 
 # skill_module.py — SkillModule 主体
 
@@ -23,6 +27,12 @@ last_verified: 2026-05-27
 **工作空间规则按部署模式分叉（`WORKSPACE_RULES_CLOUD` / `WORKSPACE_RULES_LOCAL`）**：NarraNexus 同时跑在共享云端和用户自己的机器上，两种环境的约束根本不同——云端必须严格沙箱（workspace-only、禁全局安装、凭证不出技能目录），本地是用户自己机器应该放松（允许全局安装，但附带「告诉用户装了什么」的 advisory）。`_resolve_workspace_rules(ctx_data)` 在 `get_instructions` 时根据 `ctx_data.deployment_mode`（由 BasicInfoModule 填）选择一个块渲染进模板。缺省时 fallback 到云端（更严格的那份），宁可过严也不能让本地版提示意外流入云端 Agent。对应的硬约束由 `agent_framework/_tool_policy_guard.py` 在 PreToolUse hook 里强制执行（工作空间越界 / 全局安装等），两者需同步改动。
 
 **扫描包含无 SKILL.md 的目录**：`_scan_skills()` 不只扫描有 `SKILL.md` 的标准技能目录，也扫描只有 `.skill_meta.json` 的目录（Agent 自行创建的技能）。这支持了 Agent 自主学习和创建新技能的场景，而不仅限于从 ClawHub 安装的标准技能。
+
+**内置技能物化（`_materialize_builtin_skills`）**：把 `BUILTIN_SKILLS_DIR`（`= Path(__file__).parent / "builtin_skills"`）里的 vendored 技能 `copytree` 到 workspace `skills/<name>/`，`.skill_meta.json` 打 `builtin: true`（`source_type="builtin"`）。**两个触发入口**：`hook_data_gathering` 顶部（运行时）和 `list_skills` 顶部（读时）。为什么两处都要——物化只在 `hook_data_gathering` 会导致「新建、从未运行的 agent」打开 Skills 面板看不到内置技能（`GET /api/skills` → `list_skills` → `_scan_skills` 不物化）；所以 `list_skills` 也物化一次，保证 API/UI 首次即可见。副作用刻意不放在 `_scan_skills`（保持 scan 纯只读，它被 backup 等多处调用）。幂等性判据是 **disable-aware**：`skills/<name>/` 或 `skills/.disabled/<name>/` 任一存在即跳过——否则用户禁用（move 到 `.disabled/`）后每轮被复活。`_scan_skills` / `_parse_skill_md` 都从 `.skill_meta.json` 回填 `SkillInfo.builtin`。`remove_skill` 对内置技能抛 `ValueError`（`_dir_is_builtin` 同时查 live 与 `.disabled/` 目录），路由层 `routes/skills.py` 把它翻成 400。首个内置技能是 `officecli`，其二进制由 shell/构建层预装进 PATH（见 `_overview.md`）。
+
+**物化的并发安全（2026-07-14）**：`hook_data_gathering` 与 `list_skills` 两个入口可能并发跑物化（同一 workspace 的多协程，或多进程）。两者都通过了上面的 `.exists()` 判据后，若直接 `copytree(src, dest)` 会撞车、败者抛 `FileExistsError` 被宽 `except` 吞成 warning、掩盖真实竞态。现改为**先 `tempfile.mkdtemp` 私有暂存目录 → `os.rename` 原子换入**：`mkdtemp` 保证每个 racer 拿到唯一暂存名，`os.rename` 落到已存在的 `dest` 会干净失败（`OSError`），败者删掉自己的暂存拷贝并跳过 → 物化恰好一次、无伪 warning。暂存目录以 `.` 前缀命名，`_scan_skills` / `_builtin_skill_relpaths` 都跳过 `.` 开头目录，不会被误当技能。
+
+**`_dir_is_builtin` 委托（2026-07-14）**：原本这里自带一份判定，和 `bundle/skill_backup.py` 逐字重复。现改为薄委托到 [[skill_secrets.py]] 的 `dir_is_builtin`，三处同源、`builtin` 语义不再漂移。
 
 **install_skill 的拒因消息必须具体可操作**：每个 ValueError 都必须告诉用户「哪里出了问题 + 应该怎么改」。例如 SKILL.md 缺失时不能只说 "SKILL.md not found"，要补上「放在 zip 根目录或者唯一的顶层子文件夹下」；超出文件数限制时要带上实际 count 和上限；超出大小时要带上 MB 单位的上限。原因：这条消息会经由 `routes/skills.py` 透传给前端的错误提示，是用户唯一能看到的反馈，不能让他们去翻 Network 才知道为什么失败。配套的服务端日志在 `routes/skills.py` 的 `_reject()` 里——拒绝点统一打 `WARNING`，留下 prod 排查的 breadcrumb。
 

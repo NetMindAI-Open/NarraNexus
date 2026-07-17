@@ -130,7 +130,14 @@
       "titleFailed": "実行に失敗しました",
       "titleRecovered": "エラーありで完了",
       "situationFailed": "この実行でエラーが発生し、エージェントは正常に応答できませんでした。詳細：",
-      "situationRecovered": "エージェントは応答しましたが、実行中にエラーが発生しました。詳細："
+      "situationRecovered": "エージェントは応答しましたが、実行中にエラーが発生しました。詳細：",
+      "titleActionable": "対応が必要です",
+      "action": {
+        "context_window": "選択中のモデルのコンテキストウィンドウがこの Agent には小さすぎます。設定でより大きなコンテキストのモデルに変更してから再送信してください。",
+        "insufficient_balance": "モデルプロバイダーが残高またはクォータ不足を報告しています。設定でチャージするかプロバイダーを変更してから再送信してください。",
+        "model_not_found": "設定されたモデル ID がプロバイダーに拒否されました（存在しないか無効）。設定で有効なモデルを選択してから再送信してください。",
+        "generic": "設定で修正できる構成の問題により、今回の実行はできませんでした。修正後に再送信してください。"
+      }
     }
   },
   "awareness": {
@@ -378,7 +385,8 @@
       "dropFiles": "ここにファイルをドロップ",
       "dragFiles": "ここにファイルをドラッグするか",
       "browse": "参照",
-      "empty": "ワークスペースは空です"
+      "empty": "ワークスペースは空です",
+      "kindOffice": "Office ドキュメント(ライブ)"
     }
   },
   "dashboard": {
@@ -1754,6 +1762,7 @@
       "env": "環境変数",
       "enable": "有効化",
       "disable": "無効化",
+      "builtin": "組み込み",
       "remove": "削除"
     },
     "install": {
@@ -1804,6 +1813,10 @@
       "delete": "削除",
       "namePlaceholder": "MCP 名",
       "urlPlaceholder": "SSE URL（例: https://your-host/sse）",
+      "headerKeyPlaceholder": "ヘッダー名（例：Authorization）",
+      "headerValuePlaceholder": "ヘッダー値（例：Bearer <token>）",
+      "addHeader": "リクエストヘッダーを追加",
+      "removeHeader": "ヘッダーを削除",
       "add": "追加",
       "cancel": "キャンセル",
       "deleteTitle": "MCP を削除",
@@ -1816,9 +1829,18 @@
         "endpoint": "http(s) 経由のリモート SSE エンドポイントである必要があります — 通常は /sse で終わります。",
         "reachable": "サーバーがその URL に到達できる必要があります（公開ホスト、またはこのマシンが接続できるホスト）。",
         "noStdio": "ローカルの stdio / npx MCP はここではサポートされていません — URL ベースの SSE サーバーのみです。",
-        "apiKey": "API キーが必要な場合は、MCP が想定する URL またはヘッダーに含めてください。接続は匿名で行われます。",
+        "apiKey": "APIキーが必要な場合は、リクエストヘッダーとして追加してください（例：Authorization: Bearer <token>）。接続のたびに送信されます。",
         "validation": "追加後、ステータスドットが接続を検証します — 「失敗」は URL に到達できなかったか、有効な SSE エンドポイントでなかったことを意味します。"
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "プレビューを閉じる",
+    "desktopUnsupported": "デスクトップアプリではライブプレビューはまだ利用できません。",
+    "desktopHint": "ブラウザで NarraNexus を開くとライブプレビューを表示できます。",
+    "loading": "ライブプレビューを開いています…",
+    "loadError": "ライブプレビューを開けませんでした。",
+    "livePreview": "ライブプレビュー"
   }
 }

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-06-08
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — 恢复字段进白名单 + 未调度僵尸查询
+
+`update_job_fields` 的 `allowed_fields` 白名单新增 `paused_reason` /
+`consecutive_failure_count` / `cooldown_until`——`job_service.update_job` 复活 job
+时要能清掉这三个恢复态,不加白名单会被静默过滤(事故 2026-07-13)。
+
+新增 `get_active_scheduled_jobs_missing_next_run()`:查 `status=active 且
+next_run_time IS NULL 且 job_type IN (scheduled, ongoing)` 的僵尸 job(ONE_OFF 排除,
+它完成后本就没有 next_run)。供 `JobTrigger._heal_unscheduled_active_jobs` 自愈用——
+这类 job `get_due_jobs`(`next_run_time <= now`)永远选不到。
 
 ## 2026-06-08 — job search index (projection)
 

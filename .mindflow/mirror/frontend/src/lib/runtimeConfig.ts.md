@@ -1,10 +1,24 @@
 ---
 code_file: frontend/src/lib/runtimeConfig.ts
-last_verified: 2026-06-11
+last_verified: 2026-07-13
 stub: false
 ---
 
 # runtimeConfig.ts — runtime deploy-time config, injected via /config.js
+
+## 2026-07-13 — Power-login availability + compiled-in dev NetMind defaults
+
+Added `isPowerLoginAvailable()` (frontend twin of the backend
+`is_power_login_enabled()`): true when forced-cloud, OR `VITE_ENABLE_POWER_LOGIN`
+is truthy, OR /config.js injected NetMind endpoints. `getNetmindConfig()` now
+resolves each field with precedence **injected /config.js → VITE_\* → compiled-in
+dev default** (protago-dev), so desktop/Tauri and `npm run dev` builds (which
+have no /config.js) can still offer Power login. **This changed a prior
+behaviour**: with nothing injected, `getNetmindConfig()` no longer returns empty
+strings — it returns the dev defaults (the "empty when nothing injected" test was
+updated). Availability is deliberately NOT keyed on those dev defaults alone
+(they're endpoint VALUES, not the on/off decision), so it stays in lockstep with
+the backend flag and we never show a Power entry the backend would 404.
 
 ## 2026-06-11 — NetMind endpoint config keys
 

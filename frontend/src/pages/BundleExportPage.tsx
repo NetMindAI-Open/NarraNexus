@@ -131,6 +131,7 @@ export default function BundleExportPage() {
   const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [introMd, setIntroMd] = useState('');
   const [includeChat, setIncludeChat] = useState(true);
+  const [includeChannelCredentials, setIncludeChannelCredentials] = useState(false);
 
   // Skills state. Each agent's skills are stored as objects (not strings)
   // because SkillInfo.name comes from SKILL.md frontmatter and CAN duplicate
@@ -859,6 +860,9 @@ export default function BundleExportPage() {
         social_entity_selection: social,
         workspace_excludes: excludes,
         include_chat_history: includeChat,
+        // One "full mode" opt-in carries both channel credentials and skill secrets.
+        include_channel_credentials: includeChannelCredentials,
+        include_skill_secrets: includeChannelCredentials,
         // Full mode user has already accepted "ship credentials" semantics by
         // picking that mode; auto-flag so they don't have to confirm twice.
         accept_sensitive_zips: mode === 'full' ? true : acceptSensitiveZips,
@@ -1310,6 +1314,20 @@ export default function BundleExportPage() {
           />
           {t('pages.bundleExport.includeChatLabel')}
         </label>
+        <label className="mt-3 flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={includeChannelCredentials}
+            onChange={(e) => setIncludeChannelCredentials(e.target.checked)}
+          />
+          {t('pages.bundleExport.includeChannelCredentialsLabel')}
+        </label>
+        {includeChannelCredentials && (
+          <div className="mt-2 ml-6 text-[11px] text-[var(--color-yellow-500)] flex items-start gap-1.5">
+            <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+            <span>{t('pages.bundleExport.channelCredentialsWarning')}</span>
+          </div>
+        )}
       </div>
 
       {/* Footer */}

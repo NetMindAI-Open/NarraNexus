@@ -82,6 +82,38 @@ export async function listenTauri(
 }
 
 /**
+ * Open NetMind's OAuth page (auth.html) in a Rust-created child webview and let
+ * the launcher bridge its postMessage result back via the
+ * "netmind-oauth-callback" Tauri event. Desktop-only replacement for the
+ * browser's window.open popup, which WKWebView blocks. No-op outside Tauri.
+ * See tauri/src-tauri/src/commands/netmind_oauth.rs.
+ */
+export async function openNetmindOAuth(url: string): Promise<void> {
+  if (!isTauri()) return;
+  const invoke = _getInvoke();
+  if (!invoke) return;
+  await invoke('open_netmind_oauth', { url });
+}
+
+/**
+ * Drain the buffered NetMind OAuth result (URI-encoded or plain JSON string),
+ * or null if none yet. The frontend polls this after openNetmindOAuth — a
+ * poll-based delivery that (unlike a live Tauri event) never depends on
+ * window.__TAURI__ being present. See commands/netmind_oauth.rs.
+ */
+export async function takeNetmindOAuthResult(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const invoke = _getInvoke();
+  if (!invoke) return null;
+  try {
+    const r = await invoke('take_netmind_oauth_result');
+    return typeof r === 'string' && r.length > 0 ? r : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Trigger Claude Code OAuth login from the desktop app.
  * Spawns `claude auth login` which opens the system browser for OAuth.
  * Returns the result string on success, or throws on failure.

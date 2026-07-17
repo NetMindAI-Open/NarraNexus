@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/awareness/WeChatConfig.tsx
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — activation toggle + parent-list sync
+
+Renders the shared `ChannelActiveToggle` in the bound state (flip `enabled` via `POST /api/wechat/set-active`) — primary use is activating a bundle-imported (inactive) credential. The toggle handler AND the header refresh button now call `onBindStateChange` so the parent `IMChannelsSection` status badge updates immediately (was stale until remount).
 
 ## Why it exists
 

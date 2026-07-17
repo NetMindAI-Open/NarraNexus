@@ -285,6 +285,26 @@ class MessageBusTrigger:
         the next poll fire a second AgentRuntime for the same pending
         message. See ``__init__`` for the production incident this guards.
         """
+        # Circuit-breaker skip-gate: a paused (dead key / quota) or cooling
+        # agent is skipped entirely — its pending messages are left queued
+        # (NOT acked), so they are handled once it resumes. This is what
+        # frees the bus from re-triggering a broken agent every poll. Checked
+        # before the semaphore so a paused agent doesn't hold a slot.
+        #
+        # Accepted trade-off: while an agent stays paused (owner hasn't fixed
+        # the key yet), its channel backlog accumulates and is drained in one
+        # burst on resume. That's intended — dropping/ack'ing messages for a
+        # temporarily-broken agent would be silent data loss; the backlog
+        # converges once the owner reconfigures and the breaker re-arms.
+        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        cb_skip, cb_reason = await should_skip(agent_id)
+        if cb_skip:
+            logger.debug(
+                f"MessageBusTrigger: skipping agent {agent_id} "
+                f"(circuit-breaker: {cb_reason})"
+            )
+            return False
+
         lock = self._agent_locks.setdefault(agent_id, asyncio.Lock())
         async with lock, self._semaphore:
             try:

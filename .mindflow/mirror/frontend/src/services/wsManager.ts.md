@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-06-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+run() 的 onmessage 识别后端 `agent_circuit_open` 帧 → `dispatchAgentCircuitOpen({agentId,reason})` + 标记 completed + processMessage + stopStreaming（清 spinner，避免卡在 streaming），mirror auth-expired 桥。仅 run() 路径（reconnect 不过 fresh-run 闸门）。
+
 
 ## 2026-06-10 — run_reconnect 注入幂等 + 终结性 reconnect 错误帧停止重连循环
 

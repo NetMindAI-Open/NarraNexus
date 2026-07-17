@@ -13,6 +13,7 @@ import { MessageSquare, Link, Unlink, ExternalLink, Loader2, CheckCircle, AlertC
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
+import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { LarkCredentialData, LarkErrorDetail, LarkBindWarning } from '@/types';
 
 // App ID validation regex — matches the `cli_<16+ alphanumeric>` pattern
@@ -238,6 +239,21 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     }
   };
 
+  // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
+  // credential live (or the reverse). Flipping is_active is what makes the
+  // trigger's watcher claim / release this app's single Lark WS slot.
+  const handleToggleActive = async (next: boolean) => {
+    if (!agentId) return;
+    const res = await api.setLarkActive(agentId, next);
+    if (!mountedRef.current) return;
+    if (res.success) {
+      await fetchCredential();
+      onBindStateChange?.();  // refresh the parent list's status badge
+    } else {
+      setError(res.error || t('awareness.lark.errUnbind'));
+    }
+  };
+
   if (loading) {
     return (
       <Card>
@@ -256,7 +272,7 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           Lark / Feishu
         </CardTitle>
         <button
-          onClick={() => fetchCredential()}
+          onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
@@ -599,6 +615,10 @@ export function LarkConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               <Unlink className="w-4 h-4 mr-2" /> {t('awareness.lark.unbindRebindCorrect')}
             </Button>
           </div>
+        )}
+
+        {credential && (
+          <ChannelActiveToggle active={!!credential.is_active} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>

@@ -25,11 +25,29 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._discord_credential_manager import DiscordCredentialManager
 from ._discord_service import _friendly_discord_error, do_bind, do_test_connection
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
+
+
+# Semantic reaction vocabulary → Discord unicode emoji (shared cross-channel
+# set; each IM module maps it to its own platform tokens).
+_DISCORD_REACTIONS = {
+    "on_it": "⌨️",
+    "searching": "🔍",
+    "done": "✅",
+    "celebrate": "🎉",
+    "thumbs_up": "👍",
+    "heart": "❤️",
+    "thanks": "🙏",
+    "applause": "👏",
+    "hundred": "💯",
+    "warning": "⚠️",
+    "problem": "❌",
+}
 
 
 async def _get_credential(agent_id: str):
@@ -76,6 +94,35 @@ def register_discord_mcp_tools(mcp: Any) -> None:
             return {"success": True, "data": {"message_id": str(msg.get("id", ""))}}
         except DiscordSDKError as e:
             return {"success": False, "error": _friendly_discord_error(e.code or "")}
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without a full message. ``room_id`` is the channel id,
+        ``message_id`` the inbound message id (both shown in your channel
+        instructions). ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
+
+        Best-effort: needs the Add Reactions permission; a failure returns
+        ``{"success": false, "reason": ...}`` and never breaks your turn.
+        """
+        if not room_id or not message_id:
+            return {"success": False, "reason": "room_id and message_id are required"}
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "reason": "no_credential"}
+        client = DiscordSDKClient(cred.bot_token)
+        return await best_effort_react(
+            _DISCORD_REACTIONS,
+            emoji,
+            lambda token: client.add_reaction(room_id, message_id, token),
+            log_label=f"discord:{agent_id}",
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

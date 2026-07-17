@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_runner.py
-last_verified: 2026-05-19
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -116,3 +116,7 @@ stays in the workspace; the backend serves it straight off disk.
 
 - The DB `file_path` is relative to `base_working_path`, so moving the workspace
   only needs a settings change; stored paths still resolve.
+
+## 2026-07-13 — office 文档作为实时 artifact
+
+新增 `OFFICE_LIVE_KIND`(= `application/vnd.officecli-live`,从 `utils/office_watch` import,单一真源)到 `ALL_KINDS`。register_artifact **按扩展名自动纠正**:entry 以 .pptx/.docx/.xlsx 结尾时强制 kind = OFFICE_LIVE_KIND——既支持 office-as-artifact,又修掉'把 pptx 注册成 text/html 渲染坏掉'的坑。office artifact 由前端 `OfficeWatchViewer` 渲染成实时预览(watch),不是静态文件。

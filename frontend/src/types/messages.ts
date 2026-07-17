@@ -79,6 +79,15 @@ export interface ErrorMessage extends BaseMessage {
    * Optional for backwards-compat with older payloads.
    */
   severity?: 'fatal' | 'recoverable' | 'recovered' | 'recovered_after_reply';
+  /**
+   * Only set when error_type === 'config_actionable': the concrete, user-
+   * self-serviceable reason so the UI can show "what you can do" guidance
+   * (switch model / top up / fix model id) instead of a generic "turn
+   * failed". These deterministic failures recur every turn with the same
+   * config and are NOT masked by the helper-LLM fallback. Optional /
+   * open-ended for forward-compat with new reasons.
+   */
+  action_reason?: 'context_window' | 'insufficient_balance' | 'model_not_found' | string;
   traceback?: string;
 }
 
@@ -168,6 +177,11 @@ export interface ChatMessage {
   thinking?: string;
   toolCalls?: AgentToolCall[];
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
+  // Set when the turn failed a DETERMINISTIC, user-self-serviceable way
+  // (config_actionable): carries the reason so MessageBubble renders "what
+  // you can do" guidance (switch model / top up / fix model id) instead of a
+  // generic failure. Pairs with isError=true (these turns produce no reply).
+  actionReason?: 'context_window' | 'insufficient_balance' | 'model_not_found' | string;
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
   attachments?: Attachment[];  // User-uploaded files referenced by this message
   // Inline timeline carried over from the live stream. Set on assistant

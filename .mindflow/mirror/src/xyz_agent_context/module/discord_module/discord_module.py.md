@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/discord_module/discord_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+
+The "ack early" block is gone from `get_instructions`; it's now injected per-turn
+by the trigger (`_early_feedback_prefix`, see [[channel_trigger_base]]).
+
+## 2026-07-10 — PR #87 review: early-feedback via shared render
+
+The Discord early-feedback section is now produced by [[channel_reactions]]
+`render_early_feedback(tool_ref="react_to_user_message", …)` instead of an inline
+hardcoded string.
+
+## 2026-07-10 — get_instructions surfaces early-feedback affordance
+
+Operational prompt now includes an "Early feedback" block (when in the Discord
+channel with a `source_message_id`): a generic SHOULD directive — for non-trivial
+requests, ACK FIRST (react `on_it` via `react_to_user_message` with real
+channel/message id embedded, or a quick "on it") THEN do the work. Generic
+interaction rule in the system prompt, not per-agent Awareness (rule #4); not a
+hard guarantee (rule #15).
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

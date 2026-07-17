@@ -145,7 +145,10 @@ echo "Python downloaded: $("$PYTHON_DIR/bin/python3" --version)"
 # fully relocatable — move the .app anywhere and the imports still resolve.
 echo ""
 echo "--- Step 3: Installing Python dependencies ---"
-"$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir "$PROJECT_ROOT" 2>&1 | tail -5
+# --timeout/--retries: ride through transient network stalls instead of hanging
+# forever on one wedged socket. Output streamed (not `| tail`) so a stall is
+# visible in the log rather than silent.
+"$PYTHON_DIR/bin/python3" -m pip install --no-cache-dir --timeout 30 --retries 10 "$PROJECT_ROOT"
 echo "Python dependencies installed"
 
 # Step 3.5: Bundle Node.js + CLI runtime dependencies.
@@ -311,6 +314,49 @@ for bin in claude lark-cli; do
         exit 1
     fi
 done
+
+# Step 3.6b: Bundle OfficeCLI (powers the built-in `officecli` skill for
+# docx/xlsx/pptx). Unlike claude/lark-cli it's a GitHub-Releases self-contained
+# binary (embedded .NET), not an npm package, so we curl the target-arch asset
+# straight into $NODE_DIR/bin/ — already on the runtime PATH via
+# state.rs::resolve_bundled_node_bins(). Version pinned; bump in lockstep with
+# docker/Dockerfile.manyfold and run.sh (_try_install_officecli).
+# Escape hatch: SKIP_OFFICECLI=1 skips this step (offline builds).
+OFFICECLI_VERSION="${OFFICECLI_VERSION:-v1.0.135}"
+if [ "${SKIP_OFFICECLI:-0}" = "1" ]; then
+    echo "--- Step 3.6b: Skipping OfficeCLI bundle (SKIP_OFFICECLI=1) ---"
+else
+    echo ""
+    echo "--- Step 3.6b: Bundling OfficeCLI $OFFICECLI_VERSION ---"
+    if [ "$NODE_ARCH" = "arm64" ]; then
+        OFFICECLI_ASSET="officecli-mac-arm64"
+    else
+        OFFICECLI_ASSET="officecli-mac-x64"
+    fi
+    OFFICECLI_URL="https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/${OFFICECLI_ASSET}"
+    # Retry to survive transient GitHub-Releases blips — one stalled download
+    # must not kill a ~20-min build. If GitHub stays unreachable, fall back to a
+    # local officecli of the same arch (dev machines already have it on PATH via
+    # run.sh's _try_install_officecli); CI runners have none, so the retry is
+    # what protects them.
+    if ! curl -L --fail --retry 4 --retry-delay 5 --retry-all-errors \
+            --connect-timeout 30 --max-time 300 \
+            -o "$NODE_DIR/bin/officecli" "$OFFICECLI_URL"; then
+        echo "  OfficeCLI download failed after retries; trying a local officecli..."
+        LOCAL_OFFICECLI="$(command -v officecli || true)"
+        [ -x "$LOCAL_OFFICECLI" ] || LOCAL_OFFICECLI="$HOME/.local/bin/officecli"
+        if [ -x "$LOCAL_OFFICECLI" ]; then
+            cp "$LOCAL_OFFICECLI" "$NODE_DIR/bin/officecli"
+            echo "  Using local officecli: $LOCAL_OFFICECLI"
+        fi
+    fi
+    chmod +x "$NODE_DIR/bin/officecli" 2>/dev/null || true
+    if [ ! -x "$NODE_DIR/bin/officecli" ]; then
+        echo "ERROR: OfficeCLI unavailable (download failed and no local officecli on PATH)"
+        exit 1
+    fi
+    echo "  OfficeCLI bundled: $("$NODE_DIR/bin/officecli" --version 2>/dev/null || echo '(version check skipped)')"
+fi
 
 # Pre-install the Lark skill pack into the bundle.
 #

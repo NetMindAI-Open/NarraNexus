@@ -130,7 +130,14 @@
       "titleFailed": "실행 실패",
       "titleRecovered": "오류와 함께 완료됨",
       "situationFailed": "이번 실행에서 오류가 발생하여 에이전트가 정상적으로 응답하지 못했습니다. 세부정보:",
-      "situationRecovered": "에이전트가 응답했지만 실행 중 오류가 발생했습니다. 세부정보:"
+      "situationRecovered": "에이전트가 응답했지만 실행 중 오류가 발생했습니다. 세부정보:",
+      "titleActionable": "조치가 필요합니다",
+      "action": {
+        "context_window": "선택한 모델의 컨텍스트 창이 이 에이전트에 비해 너무 작습니다. 설정에서 컨텍스트가 더 큰 모델로 변경한 후 다시 보내세요.",
+        "insufficient_balance": "모델 제공자가 잔액 또는 할당량 부족을 보고했습니다. 설정에서 충전하거나 제공자를 변경한 후 다시 보내세요.",
+        "model_not_found": "구성된 모델 ID가 제공자에 의해 거부되었습니다(없거나 잘못됨). 설정에서 유효한 모델을 선택한 후 다시 보내세요.",
+        "generic": "설정에서 고칠 수 있는 구성 문제로 인해 이번 실행을 수행할 수 없습니다. 수정 후 다시 보내세요."
+      }
     }
   },
   "awareness": {
@@ -378,7 +385,8 @@
       "dropFiles": "여기에 파일을 놓으세요",
       "dragFiles": "여기로 파일을 끌어다 놓거나",
       "browse": "찾아보기",
-      "empty": "워크스페이스가 비어 있습니다"
+      "empty": "워크스페이스가 비어 있습니다",
+      "kindOffice": "Office 문서(실시간)"
     }
   },
   "dashboard": {
@@ -1754,6 +1762,7 @@
       "env": "환경 변수",
       "enable": "활성화",
       "disable": "비활성화",
+      "builtin": "내장",
       "remove": "제거"
     },
     "install": {
@@ -1804,6 +1813,10 @@
       "delete": "삭제",
       "namePlaceholder": "MCP 이름",
       "urlPlaceholder": "SSE URL (예: https://your-host/sse)",
+      "headerKeyPlaceholder": "헤더 이름 (예: Authorization)",
+      "headerValuePlaceholder": "헤더 값 (예: Bearer <token>)",
+      "addHeader": "요청 헤더 추가",
+      "removeHeader": "헤더 삭제",
       "add": "추가",
       "cancel": "취소",
       "deleteTitle": "MCP 삭제",
@@ -1816,9 +1829,18 @@
         "endpoint": "http(s)를 통한 원격 SSE 엔드포인트여야 합니다 — 보통 /sse로 끝납니다.",
         "reachable": "서버가 해당 URL에 접근할 수 있어야 합니다 (공개 호스트 또는 이 머신이 연결할 수 있는 호스트).",
         "noStdio": "로컬 stdio / npx MCP는 여기서 지원되지 않습니다 — URL 기반 SSE 서버만 가능합니다.",
-        "apiKey": "API 키가 필요하면 MCP가 기대하는 URL이나 헤더에 넣으세요; 연결은 익명으로 이루어집니다.",
+        "apiKey": "API 키가 필요한 경우 요청 헤더로 추가하세요 (예: Authorization: Bearer <token>). 연결할 때마다 전송됩니다.",
         "validation": "추가 후 상태 점이 연결을 검증합니다 — 실패는 URL에 접근할 수 없거나 유효한 SSE 엔드포인트가 아님을 의미합니다."
       }
     }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "미리보기 닫기",
+    "desktopUnsupported": "데스크톱 앱에서는 실시간 미리보기를 아직 사용할 수 없습니다.",
+    "desktopHint": "브라우저에서 NarraNexus를 열면 실시간 문서 미리보기를 볼 수 있습니다.",
+    "loading": "실시간 미리보기를 여는 중…",
+    "loadError": "실시간 미리보기를 열 수 없습니다.",
+    "livePreview": "실시간 미리보기"
   }
 }

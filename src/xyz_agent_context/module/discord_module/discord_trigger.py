@@ -89,6 +89,7 @@ class DiscordTrigger(ChannelTriggerBase):
     channel_name = "discord"
     brand_display = "Discord"
     working_source = WorkingSource.DISCORD
+    react_tool_ref = "react_to_user_message"
 
     # ── Worker pool ──────────────────────────────────────────────────────
     MIN_WORKERS = 3

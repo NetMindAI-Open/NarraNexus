@@ -64,16 +64,23 @@ export function SkillCard({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 mb-1">
-            <span
-              className={cn(
-                'text-sm font-semibold truncate',
-                skill.disabled
-                  ? 'text-[var(--text-tertiary)] line-through'
-                  : 'text-[var(--text-primary)]'
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span
+                className={cn(
+                  'text-sm font-semibold truncate',
+                  skill.disabled
+                    ? 'text-[var(--text-tertiary)] line-through'
+                    : 'text-[var(--text-primary)]'
+                )}
+              >
+                {skill.name}
+              </span>
+              {skill.builtin && (
+                <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--accent-secondary)]/10 text-[var(--accent-secondary)]">
+                  {t('skills.card.builtin')}
+                </span>
               )}
-            >
-              {skill.name}
-            </span>
+            </div>
           </div>
 
           {skill.description && (
@@ -201,20 +208,24 @@ export function SkillCard({
               {skill.disabled ? t('skills.card.enable') : t('skills.card.disable')}
             </Button>
 
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onRemove(skill)}
-              disabled={isRemoving}
-              className="text-xs text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
-            >
-              {isRemoving ? (
-                <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
-              ) : (
-                <Trash2 className="w-3 h-3 mr-1.5" />
-              )}
-              {t('skills.card.remove')}
-            </Button>
+            {/* Built-in skills ship with the app and re-materialize on run, so
+                removal is disallowed — offer disable instead (button above). */}
+            {!skill.builtin && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onRemove(skill)}
+                disabled={isRemoving}
+                className="text-xs text-[var(--color-error)] hover:bg-[var(--color-error)]/10"
+              >
+                {isRemoving ? (
+                  <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3 mr-1.5" />
+                )}
+                {t('skills.card.remove')}
+              </Button>
+            )}
           </div>
         </div>
       </div>

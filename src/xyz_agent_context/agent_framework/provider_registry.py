@@ -684,7 +684,23 @@ class ProviderRegistry:
         if resp.status_code == 200:
             return True, "Connected successfully"
         elif resp.status_code in (400, 404, 422):
-            # Auth passed, model/payload issue — auth works
+            # Normally a 400/404/422 means "auth passed, just a model/payload
+            # issue" → the KEY works, so it's reachable. BUT some providers
+            # report a self-serviceable, won't-run-until-fixed condition at these
+            # codes too — NetMind's "balance not enough" is a 400, model-not-found
+            # a 404, context-too-small a 400. Those are NOT "reachable/runnable":
+            # a job readiness check must NOT treat them as ready, or it re-arms a
+            # balance-dead job into the same wall. Detected via the shared
+            # classifier (single source of truth) so this can't drift from the
+            # Job/real-time layers. (Onboarding still proceeds — it only hard-
+            # rejects on auth phrases; the "test connection" button now shows the
+            # real cause instead of a misleading "OK".)
+            from xyz_agent_context.agent_framework.llm_failure import (
+                classify_self_serviceable,
+            )
+            ss = classify_self_serviceable(None, getattr(resp, "text", "") or "")
+            if ss is not None:
+                return False, f"Provider reports {ss.replace('_', ' ')} (not runnable)"
             return True, "Authentication verified (API reachable)"
         elif resp.status_code == 401:
             return False, "Authentication failed (invalid API key)"

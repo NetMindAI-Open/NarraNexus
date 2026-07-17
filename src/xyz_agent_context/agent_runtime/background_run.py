@@ -219,6 +219,12 @@ class BackgroundRun:
         # STATE_COMPLETED is set — but it produced no genuine reply, so the
         # message_round_trip_succeeded funnel event must NOT fire.
         self._had_fatal_error: bool = False
+        # Last error seen this turn (from a fatal ErrorMessage OR the
+        # except-branch exception). Fed to the Agent circuit-breaker in
+        # _finalize so a broken agent (dead key / quota) stops being
+        # re-triggered. Captured, not acted on mid-run (binding rule #14).
+        self._last_error_type: Optional[str] = None
+        self._last_error_message: Optional[str] = None
         # Signals run_id has been assigned + active_runs registration done.
         # Callers gate "subscribe + return run_id to client" on this.
         self.ready_event: asyncio.Event = asyncio.Event()
@@ -459,6 +465,12 @@ class BackgroundRun:
             # survives — none of those should void a successful round-trip.
             if (event.get("severity") or "fatal") == "fatal":
                 self._had_fatal_error = True
+                # Capture the cause for the circuit-breaker. A fatal error
+                # (dead key / quota / no provider) ends the generator
+                # NATURALLY → the run lands in STATE_COMPLETED, so _finalize
+                # can't rely on STATE_FAILED alone to know this turn failed.
+                self._last_error_type = event.get("error_type")
+                self._last_error_message = event.get("error_message")
             await self._write_stream_row("error", _event_to_wire(event))
         else:
             # Catch-all — preserve in the stream for full replay fidelity.
@@ -476,7 +488,7 @@ class BackgroundRun:
         user_id: str,
         input_content: str,
         working_source: Any,
-        pass_mcp_urls: Optional[dict] = None,
+        pass_mcp_servers: Optional[dict] = None,
         trigger_extra_data: Optional[dict] = None,
     ) -> None:
         """Own AgentRuntime lifecycle + consume run() to completion +
@@ -512,7 +524,7 @@ class BackgroundRun:
                         user_id=user_id,
                         input_content=input_content,
                         working_source=working_source,
-                        pass_mcp_urls=pass_mcp_urls or {},
+                        pass_mcp_servers=pass_mcp_servers or {},
                         cancellation=self.cancellation,
                         trigger_extra_data=trigger_extra_data or {},
                     ):
@@ -556,6 +568,8 @@ class BackgroundRun:
             })
         except Exception as e:  # noqa: BLE001
             self.state = STATE_FAILED
+            self._last_error_type = type(e).__name__
+            self._last_error_message = str(e)
             logger.exception(f"[BackgroundRun {self.run_id}] failed: {e}")
             await self._write_stream_row(
                 "error",
@@ -604,6 +618,23 @@ class BackgroundRun:
             }
             if self.state == STATE_CANCELLED:
                 updates["error_message"] = self.cancellation.reason or "User cancelled"
+            elif self.state == STATE_FAILED:
+                # Persist the (redacted) failure cause. Previously only
+                # CANCELLED wrote error_message, so a FAILED run left no
+                # error on the events row — the cause was lost. redact_secrets
+                # keeps a leaked key out of a place the owner can read.
+                #
+                # NOTE (deliberate asymmetry): a fatal-completed run
+                # (STATE_COMPLETED + _had_fatal_error, e.g. dead key/quota that
+                # ends the generator naturally) does NOT get error_message here.
+                # That row's state is `completed`, and reconnect consumers read
+                # error_message off the events row — stamping an error on a
+                # completed run would surface a spurious failure. The cause is
+                # not lost: it's already an `error` stream row AND recorded in
+                # the circuit-breaker's last_error.
+                from xyz_agent_context.agent_framework.llm_failure import redact_secrets
+                if self._last_error_message:
+                    updates["error_message"] = redact_secrets(self._last_error_message)
             # For completed runs, populate final_output if we captured deltas.
             # AgentRuntime's step_4_persist_results also writes final_output
             # from its own bookkeeping; we don't overwrite a non-empty value.
@@ -616,6 +647,15 @@ class BackgroundRun:
                 await self.db.update("events", {"event_id": self.run_id}, updates)
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"[BackgroundRun {self.run_id}] terminal events row update failed: {e}")
+
+        # 3b. Feed the Agent circuit-breaker. A FAILED turn OR a naturally-
+        # ended run that emitted a fatal error (dead key / quota / no
+        # provider — those return STATE_COMPLETED, so state alone is not
+        # enough) counts as a failure; a clean completion resets the streak.
+        # CANCELLED is neither. Best-effort — a breaker write must never
+        # break turn finalization, and it only ever gates FUTURE turns, never
+        # this (already-finished) one (binding rules #14/#15).
+        await self._record_circuit_breaker()
 
         # 4. Broadcast the terminal `complete` frame, then close the
         # broadcaster (releases all subscribers).
@@ -652,6 +692,44 @@ class BackgroundRun:
         # blocked on it don't hang.
         if not self.ready_event.is_set():
             self.ready_event.set()
+
+    async def _record_circuit_breaker(self) -> None:
+        """Advance the Agent circuit-breaker from this turn's outcome.
+
+        Outcome mapping:
+          * STATE_FAILED, or STATE_COMPLETED with a fatal error emitted
+            → record_failure (a fatal auth/quota error ends the generator
+              naturally, landing in STATE_COMPLETED, so state alone under-
+              counts failures — the _had_fatal_error flag closes that gap).
+          * STATE_COMPLETED without a fatal error → record_success (resets).
+          * STATE_CANCELLED → no change (user stopped it; not the agent's fault).
+
+        Wrapped whole in try/except: the breaker is an observer and must never
+        break turn finalization (incident lesson #3's corollary). Lazy import
+        avoids any import-time coupling.
+        """
+        if not self.agent_id:
+            return
+        is_failure = self.state == STATE_FAILED or (
+            self.state == STATE_COMPLETED and self._had_fatal_error
+        )
+        is_success = self.state == STATE_COMPLETED and not self._had_fatal_error
+        if not (is_failure or is_success):
+            return  # cancelled or otherwise — leave breaker state untouched
+        try:
+            from xyz_agent_context.agent_framework import agent_circuit_breaker as cb
+            if is_failure:
+                await cb.record_failure(
+                    self.agent_id,
+                    self._last_error_type,
+                    self._last_error_message,
+                )
+            else:
+                await cb.record_success(self.agent_id)
+        except Exception as e:  # noqa: BLE001 — observer never breaks observed
+            logger.warning(
+                f"[BackgroundRun {self.run_id}] circuit-breaker record failed: {e}"
+            )
 
 
 # ============================================================================

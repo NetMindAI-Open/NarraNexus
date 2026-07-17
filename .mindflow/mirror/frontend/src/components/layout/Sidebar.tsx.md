@@ -1,8 +1,35 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 (4) — footer "clear history" button removed
+
+The footer 🗑️ "clear history" button (active-agent scope) is gone, along with
+`handleClearHistory` and the now-unused `api` / `Trash2` / `agentId` refs.
+Clearing moved to the per-agent ⋮ menu as a scoped multi-select wipe
+([[AgentRowMenu.tsx]] → [[ClearAgentDataDialog.tsx]]); the old button was also
+ineffective (DB-only, never cleared the on-disk narratives/trajectories).
+
+## 2026-07-10 (3) — footer 反馈入口改为移动端专属
+
+桌面端入口已是右下角浮动 [[FeedbackButton.tsx]]；footer 这个入口用
+`isMobile` 门控保留,因为移动端右下角归 composer。每个视口恰好一个入口。
+
+
+## 2026-07-10 (2) — 反馈入口移出 footer
+
+Owner 反馈 footer 位置不好；入口移到右下角浮动按钮
+[[FeedbackButton.tsx]]（问号正上方），Sidebar 恢复到无反馈入口状态。
+
+
+## 2026-07-10 — footer 反馈入口
+
+footer 行（ThemeToggle/LanguageToggle 旁）新增 MessageSquarePlus 图标按钮，
+打开 [[FeedbackDialog.tsx]]。入口刻意放常驻 footer——显式反馈是 Agent 自动
+submit_feedback 的兜底通道，必须随时可达。
+
 
 ## 2026-07-03 — cloud/local mode switcher hidden
 

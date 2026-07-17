@@ -34,7 +34,7 @@ class RunContext:
         user_id: User unique identifier
         input_content: User input content
         working_source: Working source identifier
-        pass_mcp_urls: Passed-in MCP URLs
+        pass_mcp_servers: Passed-in MCP server specs
 
         # ===== Core Data Objects =====
         agent_data: Agent configuration info
@@ -48,7 +48,7 @@ class RunContext:
         module_service: Module service
 
         # ===== Execution Path Related =====
-        mcp_urls: MCP server URL mapping
+        mcp_servers: MCP server spec mapping ({name: {"url": str, "headers": {str: str}?}})
         load_result: Module load result
         execution_result: Execution path result
         created_job_ids: Job IDs created in Step 2.5.3 (passed to Context Runtime)
@@ -70,7 +70,7 @@ class RunContext:
     user_id: str
     input_content: str
     working_source: Any  # WorkingSource enum or string
-    pass_mcp_urls: Dict[str, str] = field(default_factory=dict)
+    pass_mcp_servers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     job_instance_id: Optional[str] = None  # Instance ID when executing a Job
     forced_narrative_id: Optional[str] = None  # Forced Narrative ID (used for Job triggers)
     trigger_extra_data: Dict[str, Any] = field(default_factory=dict)  # Trigger 层传入的附加数据（如 channel_tag）
@@ -91,7 +91,7 @@ class RunContext:
     module_service: Optional["ModuleService"] = None
 
     # ===== Execution Path Related =====
-    mcp_urls: Dict[str, str] = field(default_factory=dict)
+    mcp_servers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     load_result: Optional["ModuleLoadResult"] = None
     execution_result: Optional["PathExecutionResult"] = None
 
@@ -116,9 +116,9 @@ class RunContext:
     substeps_5: List[str] = field(default_factory=list)
 
     def __post_init__(self):
-        """Post-initialization processing: merge pass_mcp_urls into mcp_urls"""
-        if self.pass_mcp_urls:
-            self.mcp_urls.update(self.pass_mcp_urls)
+        """Post-initialization processing: merge pass_mcp_servers into mcp_servers"""
+        if self.pass_mcp_servers:
+            self.mcp_servers.update(self.pass_mcp_servers)
 
     @property
     def main_narrative(self) -> Optional["Narrative"]:

@@ -65,6 +65,22 @@ def register_wechat_mcp_tools(mcp: Any) -> None:
         return {"ok": ok} if ok else {"ok": False, "error": "send_failed"}
 
     @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str = "", message_id: str = "", emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji — NOT supported on WeChat.
+
+        Present so the ``react_to_user_message`` capability is uniform across IM
+        channels, but the WeChat iLink gateway has no reaction API. Always
+        returns the unsupported envelope; to acknowledge early, send a short
+        ``wechat_send`` message instead.
+        """
+        return {
+            "success": False,
+            "reason": "reactions are not supported on WeChat; send a short message instead",
+        }
+
+    @mcp.tool()
     async def wechat_status(agent_id: str) -> dict:
         """Return the agent's WeChat binding status (NO raw token)."""
         mgr = await _get_manager()

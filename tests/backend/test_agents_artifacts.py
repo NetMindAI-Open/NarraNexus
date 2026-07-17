@@ -26,6 +26,10 @@ from fastapi.testclient import TestClient
 
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema import Artifact
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
+# Layout-aware workspace relpath for the test agent (tracks flat vs nested).
+WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
 
 async def _async_return(value):
@@ -38,8 +42,8 @@ async def setup(db_client, monkeypatch, tmp_path):
     on-disk multi-file artifact in the workspace, and a seeded DB row."""
     base = tmp_path / "workspaces"
     base.mkdir()
-    workspace = base / "agent_x_user_y"
-    workspace.mkdir()
+    workspace = base / WS_REL
+    workspace.mkdir(parents=True)
     root = workspace / "report"
     root.mkdir()
     entry = root / "index.html"
@@ -82,7 +86,7 @@ async def setup(db_client, monkeypatch, tmp_path):
         session_id="sess_1",
         title="hello",
         kind="text/html",
-        file_path="agent_x_user_y/report/index.html",
+        file_path=f"{WS_REL}/report/index.html",
         size_bytes=entry.stat().st_size + asset.stat().st_size,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -95,7 +99,7 @@ async def setup(db_client, monkeypatch, tmp_path):
         session_id="sess_1",
         title="single file",
         kind="text/html",
-        file_path="agent_x_user_y/bisection_method.html",
+        file_path=f"{WS_REL}/bisection_method.html",
         size_bytes=root_entry.stat().st_size,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -273,7 +277,7 @@ def test_register_manual_writes_row(setup):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["artifact_id"].startswith("art_")
-    assert body["file_path"] == "agent_x_user_y/manual/index.html"
+    assert body["file_path"] == f"{WS_REL}/manual/index.html"
 
 
 def test_register_manual_accepts_workspace_root_entry(setup):
@@ -286,7 +290,7 @@ def test_register_manual_accepts_workspace_root_entry(setup):
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["file_path"] == "agent_x_user_y/loose.html"
+    assert body["file_path"] == f"{WS_REL}/loose.html"
     # Size accounts only for the entry — no recursive workspace sum.
     assert body["size_bytes"] == flat.stat().st_size
 
@@ -419,7 +423,7 @@ def test_unpin_agent_scoped_artifact_returns_400(setup):
         agent_id="agent_x", user_id="user_y",
         session_id=None, title="agent-emitted", kind="text/csv",
         pinned=True,
-        file_path="agent_x_user_y/some/data.csv", size_bytes=1,
+        file_path=f"{WS_REL}/some/data.csv", size_bytes=1,
         created_at=_dt.now(timezone.utc),
         updated_at=_dt.now(timezone.utc),
     )

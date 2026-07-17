@@ -19,6 +19,22 @@ esac
 mkdir -p "$DB_DIR"
 export DATABASE_URL="sqlite:///$DB_DIR/nexus.db"
 
+# --- NetMind ("Power") account login — local dual-mode dev -------------------
+# Enable the Power login option alongside pure-local username login, pointed at
+# the protago-DEV environment. Every var is overridable (retarget / disable):
+# run with NEXUS_DEV_POWER_LOGIN=0 for a pure-local (username-only) session.
+# Exported BEFORE tmux spawns so both the backend and the vite frontend windows
+# inherit them (vite exposes VITE_-prefixed process env at dev time).
+if [[ "${NEXUS_DEV_POWER_LOGIN:-1}" != "0" ]]; then
+  export NARRANEXUS_ENABLE_POWER_LOGIN="${NARRANEXUS_ENABLE_POWER_LOGIN:-true}"
+  export NETMIND_USE_SUBSCRIPTION_ENABLED="${NETMIND_USE_SUBSCRIPTION_ENABLED:-true}"
+  export NETMIND_AUTH_API_URL="${NETMIND_AUTH_API_URL:-https://userauth.protago-dev.com}"
+  export BILLING_API_BASE="${BILLING_API_BASE:-https://billing.api.protago-dev.com}"
+  export NETMIND_KEY_API_BASE="${NETMIND_KEY_API_BASE:-https://mind-web.protago-dev.com}"
+  export NETMIND_INFERENCE_BASE="${NETMIND_INFERENCE_BASE:-https://test.api.netmind.ai/inference-api}"
+  export VITE_ENABLE_POWER_LOGIN="${VITE_ENABLE_POWER_LOGIN:-true}"
+fi
+
 # --- Check tmux ---
 if ! command -v tmux &>/dev/null; then
   echo "tmux is required. Install: brew install tmux (macOS) or apt install tmux (Linux)"

@@ -194,6 +194,23 @@ class SlackSDKClient:
             return {"ok": False, "error": f"client_exception:{type(e).__name__}", "method": method}
 
     # ------------------------------------------------------------------
+    # Reactions (agent-facing react_to_user_message)
+    # ------------------------------------------------------------------
+
+    async def add_reaction(self, channel: str, timestamp: str, name: str) -> None:
+        """reactions.add — attach emoji ``name`` to a message (channel + ts).
+
+        Backs the ``react_to_user_message`` tool. Raises ``SlackSDKError`` on a
+        non-ok envelope so the tool can log + swallow (best-effort — a missing
+        ``reactions:write`` scope must never abort the run).
+        """
+        resp = await self.api_call(
+            "reactions.add", {"channel": channel, "timestamp": timestamp, "name": name}
+        )
+        if not resp.get("ok"):
+            raise SlackSDKError(resp.get("error") or "reactions_add_failed", "reactions.add failed")
+
+    # ------------------------------------------------------------------
     # File ingestion (Phase 1b — attachment download)
     # ------------------------------------------------------------------
 

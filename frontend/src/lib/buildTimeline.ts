@@ -65,6 +65,11 @@ export interface TimelineItem {
   // warnings = non-fatal errors that occurred alongside a real reply.
   isError?: boolean;
   warnings?: string[];
+  // Self-serviceable failure reason (config_actionable). Carried through the
+  // same session→timeline hop as isError so MessageBubble can render "what you
+  // can do" guidance. Dropping it here is what made the live actionable panel
+  // silently fall back to the generic "Run failed" popover.
+  actionReason?: string;
 }
 
 /** Match window for the event-id-less content fallback. Generous because
@@ -86,6 +91,7 @@ function toSessionItem(msg: ChatMessage): TimelineItem {
     timeline: msg.timeline,
     isError: msg.isError,
     warnings: msg.warnings,
+    actionReason: msg.actionReason,
   };
 }
 

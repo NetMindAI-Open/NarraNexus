@@ -112,9 +112,33 @@ IGNORE: dict[tuple[str, str], str] = {
     ("mcp_urls", "agent_id"): "mcp_urls bundled via mcp_hints.json flow — user reviews and adds manually",
     ("mcp_urls", "user_id"): "see mcp_urls.agent_id",
     ("user_slots", "provider_id"): "provider_id is a config string ('claude' / 'openai'), not a NarraNexus rewriteable ID",
-    # Lark — fully stripped
-    ("lark_credentials", "app_id"): "lark_credentials fully stripped on export",
-    ("lark_credentials", "owner_open_id"): "lark_credentials fully stripped on export",
+    # IM channel credentials (opt-in export). agent_id IS registered in
+    # STRUCTURED_ID_FIELDS (remapped on import); every other *_id here is an
+    # IM-side identity or surrogate PK, deliberately NOT rewritten — see
+    # bundle/channel_credential_tables.py + importer's rewrite_row exemption.
+    ("lark_credentials", "app_id"): "external Lark app id, preserved verbatim on opt-in credential import",
+    ("lark_credentials", "owner_open_id"): "external Lark open_id, preserved verbatim on opt-in credential import",
+    ("channel_slack_credentials", "id"): "surrogate PK",
+    ("channel_slack_credentials", "bot_user_id"): "external Slack bot user id, preserved verbatim",
+    ("channel_slack_credentials", "team_id"): "external Slack workspace id, preserved verbatim",
+    ("channel_slack_credentials", "owner_user_id"): "external Slack user id (owner-trust signal), NOT a NarraNexus user id",
+    ("channel_telegram_credentials", "id"): "surrogate PK",
+    ("channel_telegram_credentials", "bot_user_id"): "external Telegram bot id, preserved verbatim",
+    ("channel_telegram_credentials", "owner_user_id"): "external Telegram user id, NOT a NarraNexus user id",
+    ("channel_wechat_credentials", "id"): "surrogate PK",
+    ("channel_wechat_credentials", "bot_wx_id"): "external WeChat bot id, preserved verbatim",
+    ("channel_wechat_credentials", "owner_wx_id"): "external WeChat owner id, preserved verbatim",
+    ("channel_wechat_credentials", "owner_user_id"): "external WeChat user id, NOT a NarraNexus user id",
+    ("channel_discord_credentials", "id"): "surrogate PK",
+    ("channel_discord_credentials", "bot_user_id"): "external Discord bot id, preserved verbatim",
+    ("channel_discord_credentials", "owner_user_id"): "external Discord user id, NOT a NarraNexus user id",
+    ("channel_narramessenger_credentials", "id"): "surrogate PK",
+    ("channel_narramessenger_credentials", "matrix_user_id"): "external Matrix user id, preserved verbatim",
+    ("channel_narramessenger_credentials", "nexus_principal_id"): "Matrix-side principal id, preserved verbatim",
+    ("channel_narramessenger_credentials", "nexus_profile_id"): "Matrix-side profile id, preserved verbatim",
+    ("channel_narramessenger_credentials", "bind_room_id"): "external Matrix room id, preserved verbatim",
+    ("channel_narramessenger_credentials", "owner_matrix_user_id"): "external Matrix owner id, preserved verbatim",
+    ("channel_narramessenger_credentials", "matrix_device_id"): "external Matrix device id, preserved verbatim",
 }
 
 

@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-07-03
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — carry `actionReason` through the same hop
+
+`TimelineItem` gained `actionReason` and `toSessionItem` now copies it — the
+exact same session→timeline hop that historically dropped `isError`/`warnings`
+(see below) had also silently dropped the new `config_actionable` reason, so
+the live actionable panel fell back to the generic "Run failed" popover. This
+only matters on the SESSION path (a just-finished failed turn); on history
+reload the failed turn renders via the failed-turn filter, not an assistant
+error bubble. Pairs with the `actionReason` prop pass-through in
+[[ChatPanel.tsx]] and the actionable render in [[MessageBubble.tsx]].
 
 ## 2026-07-03 — carry error state (isError/warnings) through the timeline
 

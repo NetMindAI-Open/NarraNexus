@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/awareness/FileUpload.tsx
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -66,3 +66,7 @@ in the agent's workspace, and drag-drop new files into the root.
 
 Used inside `AwarenessPanel`. Owns its own local tree state (no
 `usePreloadStore`).
+
+## 2026-07-13 — office 文件走 register-as-artifact
+
+注册弹窗新增 kind 选项 `application/vnd.officecli-live`('Office document (live)'),`detectKindFromExt` 把 .pptx/.docx/.xlsx 映射到它。office 文件用**现有的 register 按钮**即可(不再有独立的'实时预览'按钮——早先短暂加过又移除,合并进 register)。`onRegistered` 现在会 `loadPinned` 刷新面板,注册后 tab 立刻出现(此前是 no-op,得手动刷新)。

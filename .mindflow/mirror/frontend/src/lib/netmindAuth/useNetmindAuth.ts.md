@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-06-12
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — desktop OAuth path (Tauri bridge + poll)
+
+`startOAuth` branches on `isTauri()`: browser keeps `window.open` + the `message`
+listener; desktop calls `openNetmindOAuth(url)` ([[tauri.ts]] →
+[[netmind_oauth.rs]]) then **polls** `takeNetmindOAuthResult` every 800ms
+(≤3 min) for the bridged `{code,state}`, decodes via `decodeOAuthPayload`
+(handles both URI-encoded and plain JSON), and resumes `handleAuthCallback`
+through `handleAuthCallbackRef` (kept current since startOAuth is defined before
+handleAuthCallback). Poll interval tracked in `oauthPollRef` (cleared on second
+click + on unmount). **Why poll, not a Tauri event**: the first DMG test showed
+the OAuth child window closing (Rust bridge fired) but the app staying on the
+login page — a live `listen` needs `window.__TAURI__` (withGlobalTauri is off
+here) and silently no-ops; `invoke`-based polling always works.
+`sessionStorage['nm-oauth-type']` is still set in the main window, so
+handleAuthCallback reads it unchanged. Only relevant once local dual-mode Power
+login is enabled (else no OAuth buttons show).
 
 ## 2026-06-12 — forgot-password methods (sendResetCode + resetPassword)
 

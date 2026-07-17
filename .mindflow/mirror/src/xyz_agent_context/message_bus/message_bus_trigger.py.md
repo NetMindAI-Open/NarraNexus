@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-07
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+`_process_agent` 顶部（信号量之前）加熔断器 `should_skip` 闸门：paused/cooling 的 agent 整体跳过，且**不消费**其 pending 消息（不 ack，留队待恢复）。这是让 bus 停止重触发坏 agent 的关键。
+
 
 ## 2026-07-03 — IM-channel skip prefixes now registry-driven (wechat double-dispatch)
 

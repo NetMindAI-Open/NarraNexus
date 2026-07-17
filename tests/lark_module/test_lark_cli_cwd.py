@@ -109,7 +109,8 @@ async def test_resolve_agent_workspace_cwd_happy_path(tmp_path: Path, monkeypatc
     ):
         ws = await _resolve_agent_workspace_cwd("agent_abc", db=MagicMock())
     assert ws is not None
-    assert ws == tmp_path / "agent_abc_user_alice"
+    from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+    assert ws == tmp_path / agent_workspace_relpath("agent_abc", "user_alice")
     assert ws.is_dir(), "workspace dir must be created (mkdir -p semantics)"
 
 

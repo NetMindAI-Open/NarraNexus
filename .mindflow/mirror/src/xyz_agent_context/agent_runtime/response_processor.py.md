@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-06-17
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — `response.error` 新增确定性自助类分支（不再被兜底掩盖 / "黑盒" P1）
+
+在 `response.error` 处理里，**auth 判断之后、recoverable 之前**插入一层
+`classify_self_serviceable(error_type, error_message)`（来自
+`agent_framework/llm_failure`）。命中（context-window / 余额 / 模型 ID）则产出
+`ErrorMessage(error_type=config_actionable, severity=fatal,
+action_reason=<reason>)` + 由 `self_serviceable_user_message` 组的可操作文案
+（引导 + 脱敏 provider 原文，保留 token 数字）。`step_3` 据此 skip 兜底。
+
+这是对 **2026-06-17 那条**的自然演进:那次把 context-length 从 auth 里摘出来
+（避免误判成 re-login），当时只能让它"走 recoverable / helper fallback"——但
+fallback 正是把失败伪装成正常回复的元凶（本条 P1）。现在给它专属分类 +
+正确引导（"换更大上下文的模型"），既不是 auth，也不再被掩盖。顺序:auth 优先
+（先判先返回），self-serviceable 次之，最后才是 recoverable 残余桶。
 
 ## 2026-06-17 — 收紧 auth 误判:`invalid_request_error` 退出类型集合
 

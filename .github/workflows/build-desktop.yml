@@ -150,6 +150,25 @@ jobs:
           # built app falls back to NullSink (no telemetry). Set this repo
           # secret to enable telemetry from official release builds only.
           NARRA_POSTHOG_KEY: ${{ secrets.NARRA_POSTHOG_KEY }}
+          # NetMind ("Power") account login in the shipped DMG. All wired to repo
+          # Variables (Settings → Variables): UNSET → empty → Power login stays
+          # OFF, so a default release is pure-local (username-only). Set them to
+          # ship a Power-enabled DMG — point at PROD NetMind for a public release
+          # (NOT protago-dev). The frontend VITE_* are baked by vite here; the
+          # backend vars are baked into the launcher via option_env! (both read
+          # from this step's env). VITE_NETMIND_* fall back to compiled dev
+          # defaults if left empty, so set them explicitly for a prod release.
+          VITE_ENABLE_POWER_LOGIN: ${{ vars.VITE_ENABLE_POWER_LOGIN }}
+          VITE_NETMIND_AUTH_API: ${{ vars.VITE_NETMIND_AUTH_API }}
+          VITE_NETMIND_ACCOUNTS_URL: ${{ vars.VITE_NETMIND_ACCOUNTS_URL }}
+          VITE_NETMIND_SYS_CODE: ${{ vars.VITE_NETMIND_SYS_CODE }}
+          VITE_NETMIND_REGISTER_URL: ${{ vars.VITE_NETMIND_REGISTER_URL }}
+          NARRANEXUS_ENABLE_POWER_LOGIN: ${{ vars.NARRANEXUS_ENABLE_POWER_LOGIN }}
+          NETMIND_USE_SUBSCRIPTION_ENABLED: ${{ vars.NETMIND_USE_SUBSCRIPTION_ENABLED }}
+          NETMIND_AUTH_API_URL: ${{ vars.NETMIND_AUTH_API_URL }}
+          BILLING_API_BASE: ${{ vars.BILLING_API_BASE }}
+          NETMIND_KEY_API_BASE: ${{ vars.NETMIND_KEY_API_BASE }}
+          NETMIND_INFERENCE_BASE: ${{ vars.NETMIND_INFERENCE_BASE }}
 
       - name: Normalize artifact filenames (stable name across versions)
         run: |

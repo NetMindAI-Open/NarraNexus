@@ -5,7 +5,7 @@
 @description: NarraNexus wrapper for OpenAI Codex CLI.
 
 Parallel to ``xyz_claude_agent_sdk.py``. Same async-generator contract
-(``agent_loop(messages, mcp_server_urls, extra_env, cancellation)``
+(``agent_loop(messages, mcp_servers, extra_env, cancellation)``
 yielding ``{"type": "raw_response_event" | "run_item_stream_event"}``
 dicts) so :mod:`agent_runtime._agent_runtime_steps.step_3_agent_loop`
 can swap one for the other based on the per-user
@@ -128,7 +128,7 @@ class CodexSDK:
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
-        mcp_server_urls: dict[str, str],
+        mcp_servers: dict[str, dict[str, Any]],
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
         cancellation: Any | None = None,
@@ -203,9 +203,19 @@ class CodexSDK:
             # The module_runner now mounts BOTH transports on the same
             # port (see ``_serve_one_mcp``) so this rewrite is the only
             # piece of glue needed.
+            # Headers are not expressible in the v1 file-based config —
+            # this driver is a kept-importable fallback only (see
+            # agent_framework/__init__.py); the registered CodexSDKv2 path
+            # handles Authorization bearer headers via bearer_token_env_var.
+            _with_headers = [n for n, sp in mcp_servers.items() if sp.get("headers")]
+            if _with_headers:
+                logger.warning(
+                    f"[CodexSDK v1] MCP headers on {_with_headers} are ignored "
+                    f"by the fallback driver; use the codex_cli (v2) driver"
+                )
             codex_mcp_urls = {
-                name: _sse_url_to_streamable_http(url)
-                for name, url in mcp_server_urls.items()
+                name: _sse_url_to_streamable_http(spec["url"])
+                for name, spec in mcp_servers.items()
             }
             config_toml = build_codex_config_toml(
                 instructions_path=instructions_path,

@@ -1,19 +1,23 @@
 ---
 code_file: backend/routes/slack.py
 stub: false
-last_verified: 2026-05-08
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — `/set-active` endpoint (activation)
+
+Added `POST /set-active` (flip `enabled` without a re-bind) → **5 endpoints now** (was 4). Used to activate a bundle-imported (inactive) Slack credential via `set_enabled`.
 
 ## Why it exists
 
 REST surface for the dashboard's Slack binding flow — what
 ``frontend/src/components/awareness/SlackConfig.tsx`` calls when the
-user pastes tokens and clicks Bind / Test / Unbind. Four endpoints,
+user pastes tokens and clicks Bind / Test / Unbind. Five endpoints,
 all mounted under ``/api/slack``.
 
 ## Design decisions
 
-- **Four endpoints, deliberately small surface.**
+- **Five endpoints, deliberately small surface.**
   - POST ``/bind`` — paste tokens, validate, persist.
   - GET ``/credential`` — sanitized view (NO tokens) for the UI.
   - POST ``/test`` — re-run ``auth.test`` to catch revocation.

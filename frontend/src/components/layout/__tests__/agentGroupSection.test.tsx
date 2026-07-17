@@ -42,6 +42,7 @@ describe('AgentGroupSection', () => {
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
     onStartEdit: vi.fn(),
+    onClearData: vi.fn(),
     onDelete: vi.fn(),
     onTogglePublic: vi.fn(),
     deletingAgentId: null,
@@ -151,6 +152,7 @@ describe('AgentRowMenu', () => {
     isOwner: true,
     isPublic: false,
     onStartEdit: vi.fn(),
+    onClearData: vi.fn(),
     onDelete: vi.fn(),
     onTogglePublic: vi.fn(),
     showPublicToggle: true,
@@ -185,6 +187,14 @@ describe('AgentRowMenu', () => {
     fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
     fireEvent.click(screen.getByText(/delete/i));
     expect(onDelete).toHaveBeenCalled();
+  });
+
+  it('calls onClearData when the clear-data entry is clicked', () => {
+    const onClearData = vi.fn();
+    render(wrapRouter(<AgentRowMenu {...defaultProps} onClearData={onClearData} />));
+    fireEvent.click(screen.getByRole('button', { name: /agent options/i }));
+    fireEvent.click(screen.getByText(/clear data/i));
+    expect(onClearData).toHaveBeenCalled();
   });
 
   it('shows public toggle entry when showPublicToggle=true and isOwner', () => {
@@ -273,6 +283,7 @@ describe('kebab menu stacking (2026-06-11 fix)', () => {
     getIsStreaming: () => false,
     completedAgentIds: [] as string[],
     onStartEdit: vi.fn(),
+    onClearData: vi.fn(),
     onDelete: vi.fn(),
     onTogglePublic: vi.fn(),
     deletingAgentId: null,

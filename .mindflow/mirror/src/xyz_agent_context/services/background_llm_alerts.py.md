@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/services/background_llm_alerts.py
-last_verified: 2026-07-07
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+新增熔断器告警面，按**谁能处理**分流：
+- `alert_agent_paused`（PAUSE 时——audit 恒写 + owner inbox，auth/quota 都发，按 (agent_id,reason) 30min 去重，文案区分 auth/quota）。
+- `alert_agent_transient_streak`（provider 侧持续失败——audit + **owner** 中性知会："还在重试、这是原始错误、你自己判断",绝不说"换模型"，按 (agent_id,"transient") 去重）。
+- `audit_agent_internal_streak`（BUSINESS 类：我们的 bug/永久错——**只**写内部审计 + loud `[agent-cb][PLATFORM]` error log，**绝不**发 owner，因为 owner 修不了我们的缺陷）。
+
+复用既有 redact_secrets / ServiceAuditor / InboxRepository / 冷却 map。分流的意义：该用户
+修的找用户，我们该修的找我们，谁都别被无关告警骚扰。
+
 # background_llm_alerts.py — 后台 LLM 失败告警
 
 ## 为什么存在

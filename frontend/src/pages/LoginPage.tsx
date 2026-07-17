@@ -1,9 +1,12 @@
 /**
  * Login Page · NM Design System (M3 Wave 2)
  *
- * Cloud mode: NetMind email/password + OAuth (Google, Microsoft, GitHub) + bind dialog.
- * Local mode: user_id only (unchanged).
- * Layout preserves the original document-style centered card.
+ * Forced cloud: NetMind email/password + OAuth (Google, Microsoft, GitHub) + bind dialog.
+ * Local (pure): user_id only (unchanged).
+ * Local dual-mode: when Power login is available (isPowerLoginAvailable), BOTH the
+ *   username form AND a "sign in with Power account" (NetMind) section are shown, so
+ *   an open-source local install keeps unrestricted username login while also
+ *   offering the NetMind account. Layout preserves the centered card.
  */
 
 import { useState } from 'react';
@@ -25,7 +28,7 @@ import { CreateUserDialog } from './CreateUserDialog';
 import { useNetmindAuth } from '@/lib/netmindAuth/useNetmindAuth';
 import { AuthBindDialog } from '@/components/auth/AuthBindDialog';
 import { ForgotPasswordCard } from '@/components/auth/ForgotPasswordCard';
-import { getNetmindConfig } from '@/lib/runtimeConfig';
+import { getNetmindConfig, isPowerLoginAvailable } from '@/lib/runtimeConfig';
 
 export function LoginPage() {
   const [userId, setUserId] = useState('');
@@ -35,6 +38,10 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+  // Which login method the local dual-mode page is showing. Only meaningful when
+  // both are available (see showTabs below); forced-cloud / pure-local ignore it.
+  // Defaults to 'power' — it's the recommended method (free credits, no setup).
+  const [authTab, setAuthTab] = useState<'local' | 'power'>('power');
 
   const navigate = useNavigate();
   const { t } = useTranslation();
@@ -43,7 +50,14 @@ export function LoginPage() {
   const { login, setNetmindToken, setAgents, setAgentId } = useConfigStore();
   const mode = useRuntimeStore((s) => s.mode);
 
+  // Forced-cloud: NetMind is the ONLY login. Otherwise (local / desktop / dev)
+  // pure-local username login is always available, and the NetMind ("Power")
+  // option appears alongside it when this install enables Power login.
   const isCloudMode = mode === 'cloud-web';
+  const powerAvailable = isPowerLoginAvailable();
+  // Local dual-mode: offer BOTH methods, one at a time behind a top tab switch,
+  // so the page never stacks two full forms at once.
+  const showTabs = !isCloudMode && powerAvailable;
 
   const netmind = useNetmindAuth({
     onSuccess: async (res, loginToken) => {
@@ -111,6 +125,277 @@ export function LoginPage() {
     if (e.key === 'Enter') void handleLocalLogin();
   };
 
+  // Reusable "OR" separator, matching the original inline styling.
+  const orDivider = (
+    <div className="relative py-4">
+      <div className="absolute inset-0 flex items-center">
+        <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
+      </div>
+      <div className="relative flex justify-center">
+        <span
+          className="px-3 text-[10px] uppercase tracking-wider"
+          style={{
+            background: 'var(--nm-card)',
+            color: 'var(--nm-ink50)',
+            fontFamily: 'var(--font-mono)',
+          }}
+        >
+          {t('pages.login.or')}
+        </span>
+      </div>
+    </div>
+  );
+
+  // Top tab switch for local dual-mode: pick a method, see only that form.
+  const segmented = (
+    <div
+      className="mt-6 grid grid-cols-2 gap-1 p-1"
+      style={{
+        background: 'var(--nm-raised)',
+        border: '1px solid var(--nm-hairline)',
+        borderRadius: 'var(--radius-sm)',
+      }}
+      role="tablist"
+    >
+      {([
+        ['local', t('pages.login.tabLocal', 'Local account')],
+        ['power', t('pages.login.tabPower', 'Power account')],
+      ] as const).map(([key, label]) => {
+        const active = authTab === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => {
+              setAuthTab(key);
+              setError('');
+            }}
+            className="h-9 rounded-[6px] text-sm font-medium transition-colors inline-flex items-center justify-center gap-1.5"
+            style={
+              active
+                ? { background: 'var(--nm-card)', color: 'var(--nm-ink)', boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }
+                : { background: 'transparent', color: 'var(--nm-ink50)' }
+            }
+          >
+            {label}
+            {key === 'power' && (
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide leading-none"
+                style={{ background: 'var(--accent-primary)', color: 'var(--nm-paper)' }}
+              >
+                {t('pages.login.recommended', 'Recommended')}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // Short caption explaining what each login method is (dual-mode clarity).
+  const methodDesc = (text: string) => (
+    <p
+      className="text-xs leading-relaxed rounded-lg p-3"
+      style={{
+        color: 'var(--nm-ink70)',
+        background: 'var(--nm-raised)',
+        border: '1px solid var(--nm-hairline)',
+      }}
+    >
+      {text}
+    </p>
+  );
+
+  // Pure-local username form. Always shown outside forced-cloud mode.
+  const localBlock = (
+    <div className="space-y-5 mt-6">
+      {methodDesc(t('pages.login.localDesc'))}
+      <FormField label={t('pages.login.userIdLabel')}>
+        <TextInput
+          type="text"
+          value={userId}
+          onChange={(e) => setUserId(e.target.value)}
+          onKeyDown={handleLocalKeyDown}
+          placeholder="your_username"
+          disabled={loading}
+          error={!!error}
+          autoFocus
+          className="h-12"
+        />
+      </FormField>
+
+      {error && (
+        <p
+          className="text-xs animate-slide-up flex items-center gap-1.5"
+          style={{ color: 'var(--color-error)' }}
+          role="alert"
+        >
+          <span
+            className="w-1 h-1 rounded-full inline-block"
+            style={{ background: 'var(--color-error)' }}
+          />
+          {error}
+        </p>
+      )}
+
+      <Button
+        variant="primary"
+        size="lg"
+        onClick={() => void handleLocalLogin()}
+        disabled={loading || !userId.trim()}
+        loading={loading}
+        className="w-full"
+        trailing={!loading ? <ArrowRight className="w-4 h-4" /> : undefined}
+      >
+        {loading ? t('pages.login.connecting') : t('pages.login.accessTerminal')}
+      </Button>
+
+      {orDivider}
+
+      <Button
+        variant="secondary"
+        onClick={() => setShowCreateDialog(true)}
+        className="w-full"
+        leading={<UserPlus className="w-4 h-4" />}
+      >
+        {t('pages.login.createNewUser')}
+      </Button>
+    </div>
+  );
+
+  // NetMind ("Power") account form: email/password + OAuth + sign-up.
+  // ``withNotice`` shows the account-migration banner (forced-cloud only — it's
+  // about migrating legacy cloud accounts, irrelevant to a local dual-mode user).
+  const netmindBlock = (withNotice: boolean) => (
+    <div className="space-y-5 mt-6">
+      {/* Power value-prop — shown in the local dual-mode tab (forced-cloud
+          already has its own heading + migration notice). */}
+      {!withNotice && methodDesc(t('pages.login.powerDesc'))}
+      {withNotice && (
+        <div
+          className="rounded-xl p-3 text-xs leading-relaxed"
+          style={{
+            background: 'var(--nm-card)',
+            border: '1px solid var(--nm-hairline)',
+            color: 'var(--nm-ink70)',
+          }}
+          role="status"
+        >
+          <strong>{t('pages.login.migrationNoticeHeading')}</strong>{' '}
+          {t('pages.login.migrationNoticeBody')}{' '}
+          <a href="mailto:bin.liang@netmind.ai" className="underline">
+            bin.liang@netmind.ai
+          </a>
+          .
+        </div>
+      )}
+
+      <FormField label={t('pages.login.emailLabel')}>
+        <TextInput
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          disabled={netmind.loading}
+          error={!!(netmind.error || error)}
+          autoFocus={withNotice}
+          className="h-12"
+        />
+      </FormField>
+
+      <FormField label={t('pages.login.passwordLabel')}>
+        <TextInput
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="••••••••"
+          disabled={netmind.loading}
+          error={!!(netmind.error || error)}
+          className="h-12"
+        />
+      </FormField>
+
+      <div className="flex justify-end -mt-1">
+        <button
+          type="button"
+          onClick={() => setShowForgot(true)}
+          className="text-xs opacity-60 hover:opacity-100 transition-opacity"
+        >
+          {t('pages.login.forgotPassword')}
+        </button>
+      </div>
+
+      {(netmind.error || error) && (
+        <p
+          className="text-xs animate-slide-up flex items-center gap-1.5"
+          style={{ color: 'var(--color-error)' }}
+          role="alert"
+        >
+          <span
+            className="w-1 h-1 rounded-full inline-block"
+            style={{ background: 'var(--color-error)' }}
+          />
+          {netmind.error || error}
+        </p>
+      )}
+
+      <Button
+        variant="primary"
+        size="lg"
+        onClick={() => void netmind.emailLogin(email, password)}
+        disabled={netmind.loading || !email.trim() || !password}
+        loading={netmind.loading}
+        className="w-full"
+        trailing={!netmind.loading ? <ArrowRight className="w-4 h-4" /> : undefined}
+      >
+        {netmind.loading ? t('pages.login.connecting') : t('pages.login.signIn')}
+      </Button>
+
+      {orDivider}
+
+      <Button
+        variant="secondary"
+        onClick={() => netmind.startOAuth('GOOGLE')}
+        disabled={netmind.loading}
+        className="w-full"
+      >
+        {t('pages.login.signInWithGoogle')}
+      </Button>
+
+      <Button
+        variant="secondary"
+        onClick={() => netmind.startOAuth('MICROSOFT')}
+        disabled={netmind.loading}
+        className="w-full"
+      >
+        {t('pages.login.signInWithMicrosoft')}
+      </Button>
+
+      <Button
+        variant="secondary"
+        onClick={() => netmind.startOAuth('GITHUB')}
+        disabled={netmind.loading}
+        className="w-full"
+      >
+        {t('pages.login.signInWithGithub')}
+      </Button>
+
+      {orDivider}
+
+      <a
+        href={getNetmindConfig().registerUrl || 'https://www.netmind.ai/sign/register'}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--nm-ink)] h-10 px-4 text-sm bg-[color:var(--nm-raised)] text-[color:var(--nm-ink)] border border-[color:var(--nm-ink)] hover:bg-[color:var(--nm-paper-warm)] w-full"
+      >
+        <UserPlus className="w-4 h-4" />
+        <span>{t('pages.login.createAccount')}</span>
+      </a>
+    </div>
+  );
+
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4"
@@ -153,229 +438,17 @@ export function LoginPage() {
 
         {/* Form */}
         {isCloudMode ? (
-          /* Cloud: NetMind email + password + OAuth */
-          <div className="space-y-5 mt-6">
-            <div
-              className="rounded-xl p-3 text-xs leading-relaxed"
-              style={{
-                background: 'var(--nm-card)',
-                border: '1px solid var(--nm-hairline)',
-                color: 'var(--nm-ink70)',
-              }}
-              role="status"
-            >
-              <strong>{t('pages.login.migrationNoticeHeading')}</strong>{' '}
-              {t('pages.login.migrationNoticeBody')}{' '}
-              <a href="mailto:bin.liang@netmind.ai" className="underline">
-                bin.liang@netmind.ai
-              </a>
-              .
-            </div>
-
-            <FormField label={t('pages.login.emailLabel')}>
-              <TextInput
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                disabled={netmind.loading}
-                error={!!(netmind.error || error)}
-                autoFocus
-                className="h-12"
-              />
-            </FormField>
-
-            <FormField label={t('pages.login.passwordLabel')}>
-              <TextInput
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                disabled={netmind.loading}
-                error={!!(netmind.error || error)}
-                className="h-12"
-              />
-            </FormField>
-
-            <div className="flex justify-end -mt-1">
-              <button
-                type="button"
-                onClick={() => setShowForgot(true)}
-                className="text-xs opacity-60 hover:opacity-100 transition-opacity"
-              >
-                {t('pages.login.forgotPassword')}
-              </button>
-            </div>
-
-            {(netmind.error || error) && (
-              <p
-                className="text-xs animate-slide-up flex items-center gap-1.5"
-                style={{ color: 'var(--color-error)' }}
-                role="alert"
-              >
-                <span
-                  className="w-1 h-1 rounded-full inline-block"
-                  style={{ background: 'var(--color-error)' }}
-                />
-                {netmind.error || error}
-              </p>
-            )}
-
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => void netmind.emailLogin(email, password)}
-              disabled={netmind.loading || !email.trim() || !password}
-              loading={netmind.loading}
-              className="w-full"
-              trailing={!netmind.loading ? <ArrowRight className="w-4 h-4" /> : undefined}
-            >
-              {netmind.loading ? t('pages.login.connecting') : t('pages.login.signIn')}
-            </Button>
-
-            <div className="relative py-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
-              </div>
-              <div className="relative flex justify-center">
-                <span
-                  className="px-3 text-[10px] uppercase tracking-wider"
-                  style={{
-                    background: 'var(--nm-card)',
-                    color: 'var(--nm-ink50)',
-                    fontFamily: 'var(--font-mono)',
-                  }}
-                >
-                  {t('pages.login.or')}
-                </span>
-              </div>
-            </div>
-
-            <Button
-              variant="secondary"
-              onClick={() => netmind.startOAuth('GOOGLE')}
-              disabled={netmind.loading}
-              className="w-full"
-            >
-              {t('pages.login.signInWithGoogle')}
-            </Button>
-
-            <Button
-              variant="secondary"
-              onClick={() => netmind.startOAuth('MICROSOFT')}
-              disabled={netmind.loading}
-              className="w-full"
-            >
-              {t('pages.login.signInWithMicrosoft')}
-            </Button>
-
-            <Button
-              variant="secondary"
-              onClick={() => netmind.startOAuth('GITHUB')}
-              disabled={netmind.loading}
-              className="w-full"
-            >
-              {t('pages.login.signInWithGithub')}
-            </Button>
-
-            <div className="relative py-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
-              </div>
-              <div className="relative flex justify-center">
-                <span
-                  className="px-3 text-[10px] uppercase tracking-wider"
-                  style={{
-                    background: 'var(--nm-card)',
-                    color: 'var(--nm-ink50)',
-                    fontFamily: 'var(--font-mono)',
-                  }}
-                >
-                  {t('pages.login.or')}
-                </span>
-              </div>
-            </div>
-
-            <a
-              href={getNetmindConfig().registerUrl || 'https://www.netmind.ai/sign/register'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--nm-ink)] h-10 px-4 text-sm bg-[color:var(--nm-raised)] text-[color:var(--nm-ink)] border border-[color:var(--nm-ink)] hover:bg-[color:var(--nm-paper-warm)] w-full"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>{t('pages.login.createAccount')}</span>
-            </a>
-          </div>
+          /* Forced cloud: NetMind only */
+          netmindBlock(true)
+        ) : showTabs ? (
+          /* Local dual-mode: tab switch, one form at a time */
+          <>
+            {segmented}
+            {authTab === 'local' ? localBlock : netmindBlock(false)}
+          </>
         ) : (
-          /* Local: user_id only — original flow preserved */
-          <div className="space-y-5 mt-6">
-            <FormField label={t('pages.login.userIdLabel')}>
-              <TextInput
-                type="text"
-                value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                onKeyDown={handleLocalKeyDown}
-                placeholder="your_username"
-                disabled={loading}
-                error={!!error}
-                autoFocus
-                className="h-12"
-              />
-            </FormField>
-
-            {error && (
-              <p
-                className="text-xs animate-slide-up flex items-center gap-1.5"
-                style={{ color: 'var(--color-error)' }}
-                role="alert"
-              >
-                <span
-                  className="w-1 h-1 rounded-full inline-block"
-                  style={{ background: 'var(--color-error)' }}
-                />
-                {error}
-              </p>
-            )}
-
-            <Button
-              variant="primary"
-              size="lg"
-              onClick={() => void handleLocalLogin()}
-              disabled={loading || !userId.trim()}
-              loading={loading}
-              className="w-full"
-              trailing={!loading ? <ArrowRight className="w-4 h-4" /> : undefined}
-            >
-              {loading ? t('pages.login.connecting') : t('pages.login.accessTerminal')}
-            </Button>
-
-            <div className="relative py-4">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t" style={{ borderColor: 'var(--nm-hairline)' }} />
-              </div>
-              <div className="relative flex justify-center">
-                <span
-                  className="px-3 text-[10px] uppercase tracking-wider"
-                  style={{
-                    background: 'var(--nm-card)',
-                    color: 'var(--nm-ink50)',
-                    fontFamily: 'var(--font-mono)',
-                  }}
-                >
-                  {t('pages.login.or')}
-                </span>
-              </div>
-            </div>
-
-            <Button
-              variant="secondary"
-              onClick={() => setShowCreateDialog(true)}
-              className="w-full"
-              leading={<UserPlus className="w-4 h-4" />}
-            >
-              {t('pages.login.createNewUser')}
-            </Button>
-          </div>
+          /* Pure-local install: username only */
+          localBlock
         )}
 
         {/* Footer */}

@@ -7,14 +7,34 @@
  * receives the backend response AND the raw loginToken (to stash for
  * Phase 2/3). reCAPTCHA is intentionally absent: ckType=2 skips it.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { NetmindLoginResponse } from '@/types/api';
 import { netmindPost } from './request';
 import { baseRequestParams } from './constants';
 import { getNetmindConfig } from '@/lib/runtimeConfig';
+import { isTauri, openNetmindOAuth, takeNetmindOAuthResult } from '@/lib/tauri';
 import { encryptPassword, generateRandomString } from './crypto';
 import type { AuthBindInfo, NetmindUser } from './types';
+
+/** Decode a bridged OAuth payload — the Rust side may hand back either the
+ * URI-encoded fragment (opener-shim path) or a plain JSON string (URL-match
+ * path). decodeURIComponent is a safe no-op on plain JSON (no % escapes). */
+function decodeOAuthPayload(
+  raw: string,
+): { type?: string; code?: string; state?: string } | null {
+  let s = raw;
+  try {
+    s = decodeURIComponent(raw);
+  } catch {
+    s = raw; // stray % in plain JSON — parse as-is
+  }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
 
 type OAuthType = 'GOOGLE' | 'MICROSOFT' | 'GITHUB';
 
@@ -29,6 +49,13 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [bindInfo, setBindInfo] = useState<AuthBindInfo | null>(null);
+  // Always-current handleAuthCallback for the desktop poll loop (which is set up
+  // in startOAuth, defined before handleAuthCallback below).
+  const handleAuthCallbackRef = useRef<
+    ((code: string, state: string) => Promise<void>) | null
+  >(null);
+  // Guards the desktop OAuth poll interval so a second click doesn't stack loops.
+  const oauthPollRef = useRef<number | null>(null);
 
   const exchange = useCallback(
     async (loginToken: string) => {
@@ -65,11 +92,37 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
   const startOAuth = useCallback((type: OAuthType) => {
     const { accountsUrl, authApi } = getNetmindConfig();
     sessionStorage.setItem('nm-oauth-type', type);
-    window.open(
-      `${accountsUrl}/auth.html?authApi=${authApi}/user/loginMsg/${type}`,
-      '',
-      'popup=1,width=600,height=650',
-    );
+    const url = `${accountsUrl}/auth.html?authApi=${authApi}/user/loginMsg/${type}`;
+    // Browser: WKWebView blocks window.open + cross-window postMessage, so this
+    // path is browser-only — keep the popup + `message` listener below.
+    if (!isTauri()) {
+      window.open(url, '', 'popup=1,width=600,height=650');
+      return;
+    }
+    // Desktop: the Rust bridge opens auth.html in a child webview and buffers
+    // the {code,state} result. Poll for it (delivery that doesn't depend on a
+    // live Tauri event listener). Stop on first result or after ~3 min.
+    void openNetmindOAuth(url);
+    if (oauthPollRef.current !== null) {
+      window.clearInterval(oauthPollRef.current);
+    }
+    let elapsed = 0;
+    const iv = window.setInterval(async () => {
+      elapsed += 800;
+      const raw = await takeNetmindOAuthResult();
+      if (raw) {
+        window.clearInterval(iv);
+        oauthPollRef.current = null;
+        const msg = decodeOAuthPayload(raw);
+        if (msg?.type === 'auth' && msg.code && msg.state) {
+          void handleAuthCallbackRef.current?.(msg.code, msg.state);
+        }
+      } else if (elapsed >= 180000) {
+        window.clearInterval(iv);
+        oauthPollRef.current = null;
+      }
+    }, 800);
+    oauthPollRef.current = iv;
   }, []);
 
   const handleAuthCallback = useCallback(
@@ -98,6 +151,8 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
     },
     [exchange],
   );
+  // Keep the ref current so the desktop poll loop always calls the latest.
+  handleAuthCallbackRef.current = handleAuthCallback;
 
   const submitBind = useCallback(
     async (extra: { email?: string; verifyCode?: string } = {}) => {
@@ -168,13 +223,21 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
   );
 
   useEffect(() => {
+    // Browser popup path: auth.html postMessages the result to window.opener.
+    // (Desktop uses the Rust bridge + poll set up in startOAuth instead.)
     const onMessage = (e: MessageEvent) => {
       if (e.data?.type === 'auth' && e.data.code && e.data.state) {
         void handleAuthCallback(e.data.code, e.data.state);
       }
     };
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
+    return () => {
+      window.removeEventListener('message', onMessage);
+      if (oauthPollRef.current !== null) {
+        window.clearInterval(oauthPollRef.current);
+        oauthPollRef.current = null;
+      }
+    };
   }, [handleAuthCallback]);
 
   return {

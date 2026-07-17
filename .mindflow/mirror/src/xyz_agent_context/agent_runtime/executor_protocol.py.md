@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-07
+last_verified: 2026-07-15
 ---
+
+## 2026-07-15 — 协议字段 `mcp_server_urls` → `mcp_servers`（spec 对象）
+
+`build_agent_loop_request` 的 body 字段改为 `mcp_servers:
+{name: {"url": str, "headers": {str:str}?}}`，用户 MCP 的鉴权头由此跨
+orchestrator→executor 边界。**部署注意**：旧 executor 容器不认新字段（该次
+run 的 MCP 集合为空），上线需 backend 与 executor 镜像同批重建并回收存量
+nx-exec-* 容器。
 
 ## Why it exists
 

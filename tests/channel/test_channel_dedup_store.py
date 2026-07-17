@@ -79,6 +79,38 @@ async def test_classify_layer_db_dedup_persists_across_stores(db_client):
 
 
 @pytest.mark.asyncio
+async def test_classify_db_layer_partitions_by_agent_id(db_client):
+    """Same message_id from two agents in the same room MUST both accept.
+
+    Matrix fanout: every room member's client sync-pulls the same event_id.
+    If the DB dedup is keyed on the bare message_id, the second agent's copy
+    is 'db_dedup'-dropped and its ``_process_message`` never fires — the
+    silent-loss bug fixed in this change.
+    """
+    repo = ChannelSeenMessageRepository("narramessenger", db_client)
+    store = ChannelDedupStore("narramessenger", repo=repo)
+    msg_id = "$roomEvent_shared_id"
+
+    a = await store.classify(msg_id, create_time_ms=0, agent_id="agent_alice")
+    b = await store.classify(msg_id, create_time_ms=0, agent_id="agent_bob")
+
+    assert a["accept"] is True and a["layer"] == "db_new"
+    assert b["accept"] is True and b["layer"] == "db_new"
+
+    # Same agent replaying the same id must STILL dedup at the DURABLE layer
+    # (the composite key must keep hitting the UNIQUE index). Use a fresh
+    # store so Layer 2's in-memory cache is cold and cannot short-circuit —
+    # otherwise this assertion would pass via memory_dedup even if the DB
+    # layer were keyed wrong (the hole the first draft of this test had).
+    store_restarted = ChannelDedupStore("narramessenger", repo=repo)
+    c = await store_restarted.classify(msg_id, create_time_ms=0, agent_id="agent_alice")
+    assert c == {"accept": False, "layer": "db_dedup"}
+    # And the OTHER agent's id is still distinct across the "restart".
+    d = await store_restarted.classify(msg_id, create_time_ms=0, agent_id="agent_bob")
+    assert d == {"accept": False, "layer": "db_dedup"}
+
+
+@pytest.mark.asyncio
 async def test_classify_layer_db_fail_open_on_io_error(monkeypatch):
     """If the DB layer raises a non-UNIQUE error, classify must fail OPEN."""
     class BrokenRepo:

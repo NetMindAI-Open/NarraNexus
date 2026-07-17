@@ -82,6 +82,37 @@ class AgentRunRequest(BaseModel):
     run_id: Optional[str] = None
 
 
+def _circuit_open_frame(cb_reason: Optional[str]) -> dict:
+    """Build the WS error frame shown when the Agent circuit-breaker skips a
+    fresh run. ``cb_reason`` is ``should_skip``'s reason
+    ("paused:auth" / "paused:quota" / "cooling"). Pure — unit-tested."""
+    reason = cb_reason or ""
+    if reason.startswith("paused:quota"):
+        msg = (
+            "This agent is paused after repeated quota/balance failures. "
+            "Top up or reassign the Agent slot's provider, then resume the "
+            "agent in Settings."
+        )
+    elif reason.startswith("paused"):
+        msg = (
+            "This agent is paused after repeated authentication failures. "
+            "Re-authenticate (codex/claude login) or assign a working API-key "
+            "provider to the Agent slot, then resume the agent in Settings."
+        )
+    else:  # cooling
+        msg = (
+            "This agent recently failed and is briefly cooling down before it "
+            "will accept new messages. Please try again shortly."
+        )
+    return {
+        "type": "error",
+        "error_message": msg,
+        "error_type": "agent_circuit_open",
+        "severity": "fatal",
+        "cb_reason": cb_reason,
+    }
+
+
 async def _handle_reconnect(
     websocket: WebSocket,
     *,
@@ -551,6 +582,18 @@ async def websocket_agent_run(websocket: WebSocket):
             await websocket.close()
             return
 
+        # Circuit-breaker skip-gate: if this agent's real-time turns are
+        # paused (dead key / quota) or still cooling from recent failures,
+        # do NOT start a run that would just fail again and burn resources.
+        # Tell the user why instead of silently 401ing. Fail-open — a breaker
+        # read error never blocks a turn.
+        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        cb_skip, cb_reason = await should_skip(request.agent_id)
+        if cb_skip:
+            await websocket.send_json(_circuit_open_frame(cb_reason))
+            await websocket.close()
+            return
+
         # Convert working_source string to enum
         working_source = WorkingSource(request.working_source)
 
@@ -579,8 +622,10 @@ async def websocket_agent_run(websocket: WebSocket):
             ),
         )
 
-        # Load MCP URLs from database for this agent+user
-        mcp_urls = {}
+        # Load user-configured MCP servers from database for this agent+user.
+        # Spec shape {name: {"url", "headers"?}} — headers carry secrets
+        # (Authorization tokens): log names/counts only, never values.
+        mcp_servers = {}
         try:
             db_client = await get_db_client()
             mcp_repo = MCPRepository(db_client)
@@ -590,11 +635,14 @@ async def websocket_agent_run(websocket: WebSocket):
                 is_enabled=True
             )
             for mcp in mcps:
-                mcp_urls[mcp.name] = mcp.url
-            if mcp_urls:
-                logger.info(f"Loaded {len(mcp_urls)} MCP servers: {list(mcp_urls.keys())}")
+                spec = {"url": mcp.url}
+                if mcp.headers:
+                    spec["headers"] = mcp.headers
+                mcp_servers[mcp.name] = spec
+            if mcp_servers:
+                logger.info(f"Loaded {len(mcp_servers)} MCP servers: {list(mcp_servers.keys())}")
         except Exception as e:
-            logger.warning(f"Failed to load MCP URLs: {e}")
+            logger.warning(f"Failed to load MCP servers: {e}")
 
         # ---- Shared cancellation token ----
         # Bound to the BackgroundRun, NOT to this WS task. WS disconnect
@@ -664,7 +712,7 @@ async def websocket_agent_run(websocket: WebSocket):
                 user_id=request.user_id,
                 input_content=request.input_content or "",
                 working_source=working_source,
-                pass_mcp_urls=mcp_urls,
+                pass_mcp_servers=mcp_servers,
                 trigger_extra_data={
                     "trigger_id": f"ws_{_session_id[:8]}",
                     # The logged-in sender's NarraNexus user_id. agent_runtime

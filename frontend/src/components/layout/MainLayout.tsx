@@ -44,6 +44,7 @@ import {
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
+import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
@@ -393,6 +394,7 @@ export function MainLayout() {
   const navigate = useNavigate();
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+  const isMobile = useIsMobile();
 
   // Close the mobile sidebar drawer whenever the view changes (picked an agent
   // or navigated to a sub-page) so the user lands on the content they tapped.
@@ -441,6 +443,13 @@ export function MainLayout() {
 
       {/* Background agent completion toasts */}
       <AgentCompletionToast />
+
+      {/* Feedback entry — every desktop route, not just the chat view (the
+          sidebar-footer entry it replaced was global too). It occupies the
+          corner slot when there's no "?" (sub-pages) and stacks above it on
+          the chat view. Mobile keeps its entry in the sidebar drawer footer:
+          the corner belongs to the composer there. */}
+      {!isMobile && <FeedbackButton aboveHelp={!isSubPage && !teamChatId} />}
 
       {/* Render: team group chat, a sub-page via Outlet, or the chat view */}
       {teamChatId ? (

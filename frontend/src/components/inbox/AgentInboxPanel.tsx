@@ -22,6 +22,34 @@ import { BusFailuresSection } from './BusFailuresSection';
 
 // Local KPI card was removed — this panel now uses the shared <StatStrip />.
 
+/** Stable color assignment from a sender id — same hashing approach as
+ *  dashboard/SessionSection's colorForSeed, extended with a matching
+ *  left-accent class so the whole card carries the sender identity. */
+function senderColor(seed: string): { dot: string; accent: string } {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) | 0;
+  }
+  const palette = [
+    { dot: 'bg-[var(--color-green-500)]', accent: 'border-l-[var(--color-green-500)]' },
+    { dot: 'bg-sky-500', accent: 'border-l-sky-500' },
+    { dot: 'bg-[var(--color-yellow-500)]', accent: 'border-l-[var(--color-yellow-500)]' },
+    { dot: 'bg-rose-500', accent: 'border-l-rose-500' },
+    { dot: 'bg-violet-500', accent: 'border-l-violet-500' },
+    { dot: 'bg-teal-500', accent: 'border-l-teal-500' },
+    { dot: 'bg-indigo-500', accent: 'border-l-indigo-500' },
+    { dot: 'bg-fuchsia-500', accent: 'border-l-fuchsia-500' },
+  ];
+  return palette[Math.abs(hash) % palette.length];
+}
+
+function senderInitials(display: string): string {
+  const parts = display.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 interface AgentInboxPanelProps {
   /** Skip the outer Card chrome + duplicate title when hosted inside the
    *  bookmark drawer's ActivityPanel. Functional actions are kept. */
@@ -231,23 +259,47 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                       ))}
                     </div>
 
-                    {/* Messages (chat-style list) */}
-                    <div className="space-y-1">
-                      {room.messages.map((msg) => (
-                        <div key={msg.message_id} className="px-1 py-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-medium text-[var(--accent-primary)] shrink-0">
-                              {msg.sender_name}
-                            </span>
-                            <span className="text-[9px] text-[var(--text-tertiary)] font-mono shrink-0">
-                              {msg.created_at && formatRelativeTime(msg.created_at)}
-                            </span>
+                    {/* Messages (one card per message, sender-colored accent) */}
+                    <div className="space-y-2">
+                      {room.messages.map((msg) => {
+                        const color = senderColor(msg.sender_id || msg.sender_name);
+                        return (
+                          <div
+                            key={msg.message_id}
+                            data-testid={`inbox-message-card-${msg.message_id}`}
+                            className={cn(
+                              'rounded-[var(--radius-sm)] border border-[color:var(--nm-hairline)] border-l-2',
+                              'bg-[color:var(--nm-paper-warm)] px-2.5 py-2',
+                              color.accent
+                            )}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={cn(
+                                  'inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-semibold text-white shrink-0',
+                                  color.dot
+                                )}
+                              >
+                                {senderInitials(msg.sender_name)}
+                              </span>
+                              <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                                {msg.sender_name}
+                              </span>
+                              {msg.created_at && (
+                                <span
+                                  data-testid="inbox-message-time"
+                                  className="ml-auto text-[10px] text-[var(--text-tertiary)] font-mono shrink-0"
+                                >
+                                  {formatRelativeTime(msg.created_at)}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                              <Markdown content={msg.content} />
+                            </div>
                           </div>
-                          <div className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                            <Markdown content={msg.content} />
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

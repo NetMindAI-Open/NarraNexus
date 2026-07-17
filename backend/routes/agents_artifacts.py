@@ -50,6 +50,7 @@ _KIND_EXTENSIONS: dict[str, tuple[str, ...]] = {
     "image/png": (".png",),
     "image/jpeg": (".jpg", ".jpeg"),
     "application/pdf": (".pdf",),
+    "application/vnd.officecli-live": (".pptx", ".docx", ".xlsx"),
 }
 
 # How many candidate files to surface when the auto-recover heuristic
@@ -114,14 +115,14 @@ class HealRequest(BaseModel):
 
 
 class HealCandidate(BaseModel):
-    workspace_path: str   # path relative to the agent workspace, e.g. "briefings/2026-05-19.html"
+    workspace_path: str  # path relative to the agent workspace, e.g. "briefings/2026-05-19.html"
     size_bytes: int
-    mtime: float          # unix epoch seconds
+    mtime: float  # unix epoch seconds
 
 
 class HealResponse(BaseModel):
     recovered: bool
-    artifact: Optional[Artifact] = None     # populated when recovered=True
+    artifact: Optional[Artifact] = None  # populated when recovered=True
     candidates: List[HealCandidate] = Field(default_factory=list)
     message: str
 
@@ -183,8 +184,8 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
             repo=repo,
             agent_id=agent_id,
             user_id=user_id,
-            session_id=None,                  # manual registrations are always agent-scoped
-            kind=body.kind,                   # type: ignore[arg-type]
+            session_id=None,  # manual registrations are always agent-scoped
+            kind=body.kind,  # type: ignore[arg-type]
             entry_path=body.file_path,
             title=body.title,
             description=body.description,
@@ -203,9 +204,7 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
 # ── heal: recover a broken pointer ───────────────────────────────────────────
 
 
-def _scan_workspace_for_kind(
-    workspace_root: str, kind: str
-) -> List[HealCandidate]:
+def _scan_workspace_for_kind(workspace_root: str, kind: str) -> List[HealCandidate]:
     """Return up to `_HEAL_MAX_CANDIDATES` files in the workspace whose
     extension matches the artifact kind, sorted newest-first by mtime.
 
@@ -290,20 +289,14 @@ async def heal_artifact(
         resolve_existing_workspace,
         resolve_workspace_relative_file,
     )
+
     base = os.path.realpath(settings.base_working_path)
-    workspace_root = os.path.realpath(
-        str(resolve_existing_workspace(agent_id, user_id, base))
-    )
+    workspace_root = os.path.realpath(str(resolve_existing_workspace(agent_id, user_id, base)))
 
     # 1. Pointer might already be valid (frontend saw a transient 410).
     if art.file_path:
-        existing_abs = os.path.realpath(
-            str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base))
-        )
-        if (
-            existing_abs.startswith(workspace_root + os.sep)
-            and os.path.isfile(existing_abs)
-        ):
+        existing_abs = os.path.realpath(str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base)))
+        if existing_abs.startswith(workspace_root + os.sep) and os.path.isfile(existing_abs):
             return HealResponse(
                 recovered=True,
                 artifact=art,
@@ -350,10 +343,7 @@ async def heal_artifact(
                 target_artifact_id=artifact_id,
             )
         except artifact_runner.ArtifactError as e:
-            logger.warning(
-                f"heal_artifact: single-candidate register failed for "
-                f"{artifact_id}: {e}"
-            )
+            logger.warning(f"heal_artifact: single-candidate register failed for {artifact_id}: {e}")
             return HealResponse(
                 recovered=False,
                 candidates=candidates,
@@ -379,10 +369,7 @@ async def heal_artifact(
     return HealResponse(
         recovered=False,
         candidates=candidates,
-        message=(
-            f"{len(candidates)} candidate files found — pick the right one "
-            f"to re-register this artifact"
-        ),
+        message=(f"{len(candidates)} candidate files found — pick the right one to re-register this artifact"),
     )
 
 
@@ -412,6 +399,7 @@ async def mint_view_token(request: Request, agent_id: str, artifact_id: str):
     # Decode exp without re-verifying — the payload is the b64url part before '.'.
     import base64
     import json as _json
+
     payload_b64 = token.split(".", 1)[0]
     pad = "=" * (-len(payload_b64) % 4)
     payload = _json.loads(base64.urlsafe_b64decode(payload_b64 + pad).decode("utf-8"))
@@ -454,8 +442,7 @@ async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body
             # This is the case for agent-created artifacts. Force DELETE.
             raise HTTPException(
                 400,
-                "this artifact is agent-scoped (no session to restore); "
-                "use DELETE to remove it instead of unpinning",
+                "this artifact is agent-scoped (no session to restore); use DELETE to remove it instead of unpinning",
             )
         await repo.set_pinned(artifact_id, pinned=body.pinned)
     if body.title is not None:

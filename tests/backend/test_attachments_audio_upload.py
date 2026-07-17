@@ -38,7 +38,13 @@ def upload_app(monkeypatch, tmp_path):
     storage layer redirected to ``tmp_path`` so we don't need workspace
     bootstrap. MIME sniffing is bypassed: we set the MIME via the
     test's `Content-Type` and patch `_sniff_mime_type` to honour it."""
+    # Mount the real auth middleware: upload_attachment resolves identity
+    # via resolve_current_user_id(request) (local mode: X-User-Id header);
+    # the ?user_id= query param is no longer an identity source.
+    from backend.auth import auth_middleware
+
     app = FastAPI()
+    app.middleware("http")(auth_middleware)
     app.include_router(attachments_mod.router, prefix="/api/agents")
 
     def _sniff(file, raw_bytes):
@@ -75,11 +81,12 @@ def _post_audio(
     *,
     source: str | None = None,
 ):
-    url = "/api/agents/agent_x/attachments?user_id=user_y"
+    url = "/api/agents/agent_x/attachments"
     if source is not None:
-        url += f"&source={source}"
+        url += f"?source={source}"
     return client.post(
         url,
+        headers={"X-User-Id": "user_y"},
         files={"file": (filename, b"\x00" * 1024, mime_type)},
     )
 
@@ -135,7 +142,8 @@ def test_upload_non_audio_no_transcribe_call(upload_app, mock_service):
     user lacks transcription capability, which is a separate signal)."""
     client = TestClient(upload_app)
     resp = client.post(
-        "/api/agents/agent_x/attachments?user_id=user_y",
+        "/api/agents/agent_x/attachments",
+        headers={"X-User-Id": "user_y"},
         files={"file": ("cat.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 100, "image/png")},
     )
 
@@ -205,7 +213,8 @@ def test_upload_non_audio_keeps_source_field_for_consistency(upload_app, mock_se
     stays meaningful even when the transcription pair is null."""
     client = TestClient(upload_app)
     resp = client.post(
-        "/api/agents/agent_x/attachments?user_id=user_y",
+        "/api/agents/agent_x/attachments",
+        headers={"X-User-Id": "user_y"},
         files={"file": ("cat.png", b"\x89PNG" + b"\x00" * 100, "image/png")},
     )
 

@@ -149,3 +149,5 @@ TODO-unified-memory-overhaul.md
 
 # Runtime per-agent workspaces (created by the running backend)
 agent_workspace/
+tauri/src-tauri/resources/nodejs/
+tauri/src-tauri/resources/lark-skills/

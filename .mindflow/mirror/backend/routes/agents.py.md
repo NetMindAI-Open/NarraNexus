@@ -1,8 +1,13 @@
 ---
 code_file: backend/routes/agents.py
-last_verified: 2026-07-09
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+聚合进 `agents_circuit_breaker` 子路由（GET 熔断状态 + POST 手动 reset）。
+
 
 ## 2026-07-09 — mounted agents_llm_config sub-router
 

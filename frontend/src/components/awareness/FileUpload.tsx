@@ -23,7 +23,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { Button, Badge, ScrollArea, useConfirm, Dialog } from '@/components/ui';
-import { useConfigStore } from '@/stores';
+import { useConfigStore, useArtifactStore } from '@/stores';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
 import { downloadFile } from '@/lib/download';
@@ -48,6 +48,7 @@ const ARTIFACT_KIND_OPTIONS: { value: string; labelKey: string }[] = [
   { value: 'image/png', labelKey: 'awareness.workspace.kindPng' },
   { value: 'image/jpeg', labelKey: 'awareness.workspace.kindJpeg' },
   { value: 'application/pdf', labelKey: 'awareness.workspace.kindPdf' },
+  { value: 'application/vnd.officecli-live', labelKey: 'awareness.workspace.kindOffice' },
 ];
 
 function detectKindFromExt(name: string): string | null {
@@ -59,6 +60,8 @@ function detectKindFromExt(name: string): string | null {
   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
   if (lower.endsWith('.pdf')) return 'application/pdf';
   if (lower.endsWith('.json')) return 'application/vnd.echarts+json';
+  if (lower.endsWith('.pptx') || lower.endsWith('.docx') || lower.endsWith('.xlsx'))
+    return 'application/vnd.officecli-live';
   return null;
 }
 
@@ -648,8 +651,11 @@ export function FileUpload() {
         node={registerNode}
         onClose={() => setRegisterNode(null)}
         onRegistered={() => {
-          // No-op for the tree (the workspace files didn't change), but the
-          // artifact panel will pick up the new artifact via its own refresh.
+          // Refresh the artifact panel so the just-registered file appears as
+          // a tab immediately. The panel is event-driven (no polling), so
+          // without this the new artifact only shows after a manual refresh /
+          // agent switch / reload.
+          if (agentId) void useArtifactStore.getState().loadPinned(agentId);
         }}
       />
     </section>

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-15
 ---
+
+## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
+
+值类型从 url 字符串升级为 spec 对象 `{"url": str, "headers": {str:str}?}`，
+支撑用户 MCP 自定义请求头（Authorization 等）贯穿全链路。本文件仅机械跟随
+改名/类型，职责不变。
 
 ## 2026-06-17 — 日志写到 user 目录
 
@@ -47,3 +53,10 @@ control-plane/data-plane split (binding rule #20).
 - Per-agent/per-user workspace isolation is a DEPLOYMENT concern layered
   on top (per-user container mounting only `workspaces/{user_id}`) — not
   this module's job. This module just runs the loop it is given.
+
+## 2026-07-13 — office live-preview watch endpoints
+
+新增两个端点支持 office artifact 的实时预览(watch 必须跑在 executor 容器内,因为工作区 + agent 的 officecli 编辑都在这里):
+- `POST /watch/ensure` {agent_id,user_id,file} → 在容器内 `ensure_watch`(detached spawn officecli watch),**返回容器为该文件分配到的端口** `{ok,port}`。容器自己拥有端口分配(每文件一个专属端口),后端不再猜端口(改自 2026-07-13:原来是后端 hash 出 port 传进来,多文档并发会串台)。由后端 `/office-watch/open` 云端分支调用,拿到 port 后铸 token。
+- `GET /watch/{port}/{path}` → 反代到容器内 `127.0.0.1:{port}` 的 watch 服务(SSE 流式,X-Accel-Buffering: no)。由后端公共代理转发到这里。两者都无鉴权(内网信任,同 /agent-loop),但仍做端口 allowlist 防御纵深。
+- `GET /watch/version?agent_id&user_id&file` → 容器内 stat office 文件返回 `{mtime,size}`,给前端 mtime 兜底轮询用(云端工作区在容器里,后端 stat 不到)。由后端 `/office-watch/version` 云端分支调用。

@@ -1,9 +1,26 @@
 ---
 code_file: backend/routes/billing.py
-last_verified: 2026-07-05
+last_verified: 2026-07-13
 stub: false
 ---
- 
+
+## 2026-07-13 — 门禁从"部署模式"改挂"power 轴"（本地双模式登录）
+
+计费不再按 cloud/local 部署模式开关，改按 **power 轴**（见
+[[deployment_mode]] 的两条正交轴）。`/plans` 公共目录挂
+`is_power_login_enabled()`（cloud OR 本地开启 Power 登录）；每个用户维度端点
+（subscription/fee-info/records/subscribe/cancel/reactivate/recharge/recharge_status）
+挂新守卫 `_require_power_account(request)` —— 先 `resolve_current_user_id`
+（未登录→401），再放行条件 **`is_cloud_mode()` OR `is_power_account(uid)`**：云端
+短路保留改前语义（任何已登录用户可达,非 NetMind 用户后续因缺 X-Netmind-Token
+仍 401,不新泄漏），本地则要求 Power 账号（[[power_account]]，非 individual→404）。
+**云端短路是 review 反馈后加的**:若云端纯按 `user_type=='individual'` 卡,会把
+staff/遗留非 individual 行新 404 掉（行为回归）。结果:本地 Power 用户拿到完整
+计费面板,纯本地用户名用户干净 404,云端零回归。**旧的
+`_require_cloud()`（`is_cloud_mode` 门禁）已删除** —— 那会把 JWT 安全 regime
+和"是否 Power 账号"两件事混为一谈。旧笔记里"加写操作前需明确绑定该边界"的
+待办至此落实:写操作现在都过 `is_power_account`。
+
 ## 2026-07-05 — recharge routes (Phase 4, module E)
 
 `POST /recharge` (RechargeRequest{amount>0, currency=USD} → hosted Stripe checkout, reuses

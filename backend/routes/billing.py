@@ -9,11 +9,15 @@ it is forwarded per-request via the ``X-Netmind-Token`` header and proxied to
 NetMind's billing API. We never store or log the token — this layer only adds
 the HTTP envelope, cloud gating, and error mapping (D-1: backend proxy).
 
-Cloud-only: the panel is a cloud-web feature. Gate uses the CANONICAL
-``utils.deployment_mode.is_cloud_mode()`` (respects NARRANEXUS_DEPLOYMENT_MODE),
-NOT providers.py::_is_cloud() which only checks DATABASE_URL — the latter can't
-be flipped for a local cloud-smoke run and is not the project's canonical
-resolver.
+Gated on the "power" axis, NOT the deployment/security axis. The public
+catalog (/plans) gates on ``is_power_login_enabled()`` (cloud OR a local
+deployment that opted into NetMind login). Every user-scoped endpoint gates on
+``is_power_account(user_id)`` — the resolved user must be a NetMind
+("individual") account. A pure-local username user therefore gets a clean 404,
+while a Power user on a local install gets the full billing panel. We
+deliberately do NOT gate on ``is_cloud_mode()``: that is the JWT security
+regime, orthogonal to whether Power billing applies (see
+``utils.deployment_mode`` "two orthogonal axes").
 
 Phase 1 scope: GET /plans (public), GET /subscription (loginToken). Balance,
 subscribe/cancel, and recharge land in later phases on the same proxy.
@@ -31,7 +35,11 @@ from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.settings import settings
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.deployment_mode import (
+    is_cloud_mode,
+    is_power_login_enabled,
+)
+from xyz_agent_context.services.power_account import is_power_account
 from xyz_agent_context.services.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
@@ -54,10 +62,36 @@ def _client() -> NetmindBillingClient:
     )
 
 
-def _require_cloud() -> None:
-    """404 outside cloud mode — the billing panel is a cloud-web feature."""
-    if not is_cloud_mode():
+def _require_power_login_enabled() -> None:
+    """404 where Power login is unavailable — used by the public /plans catalog,
+    which has no user identity to check ``is_power_account`` against."""
+    if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
+
+
+async def _require_power_account(request: Request) -> str:
+    """Resolve the caller and require billing be available to them.
+
+    Raises 401 if unauthenticated (no identity on the request). Otherwise
+    reachable when EITHER:
+      - this is the multi-tenant cloud server (``is_cloud_mode()``) — preserves
+        the pre-existing cloud behavior exactly (every authenticated user could
+        reach billing; a non-NetMind user still 401s later for lack of the
+        X-Netmind-Token, so nothing new leaks), OR
+      - the resolved user is a NetMind ("Power") account (``is_power_account``)
+        — the new local dual-mode path.
+    A pure-local username user on a local install gets a clean 404.
+
+    The cloud short-circuit is deliberate: gating cloud purely on
+    ``user_type == "individual"`` would newly 404 any non-individual cloud row
+    (staff / legacy), a behavior regression flagged in review. Keeping
+    ``is_cloud_mode()`` here restores the old cloud semantics while still adding
+    the per-user local path.
+    """
+    uid = await resolve_current_user_id(request)
+    if is_cloud_mode() or await is_power_account(uid):
+        return uid
+    raise HTTPException(status_code=404, detail="Not available for this account")
 
 
 def _require_netmind_token(request: Request) -> str:
@@ -79,8 +113,9 @@ def _require_netmind_token(request: Request) -> str:
 
 @router.get("/plans")
 async def get_plans(request: Request):
-    """Public plan catalog (Free / Pro). Cloud-only; no NetMind token needed."""
-    _require_cloud()
+    """Public plan catalog (Free / Pro). No NetMind token needed; available
+    wherever Power login is enabled."""
+    _require_power_login_enabled()
     try:
         data = await _client().get_plans()
     except (BillingUpstreamError, BillingBusinessError) as exc:
@@ -100,9 +135,8 @@ async def get_subscription(request: Request):
     Identity is established locally (auth_middleware -> resolve_current_user_id);
     the NetMind loginToken is forwarded to identify the user on NetMind's side.
     """
-    _require_cloud()
-    # Establish local identity first (rejects unauthenticated callers).
-    await resolve_current_user_id(request)
+    # Require a Power account (rejects unauthenticated -> 401, local user -> 404).
+    await _require_power_account(request)
     token = _require_netmind_token(request)
     try:
         data = await _client().get_subscription(token)
@@ -145,8 +179,7 @@ async def get_fee_info(request: Request):
     `free_credit` conflates subscription grant + recharge (gap G1) — the panel
     shows the degraded view. The endpoint auth itself is now live (was 403).
     """
-    _require_cloud()
-    await resolve_current_user_id(request)
+    await _require_power_account(request)
     token = _require_netmind_token(request)
     try:
         data = await _client().get_fee_info(token)
@@ -166,8 +199,7 @@ async def get_records(request: Request, direction: str | None = None):
 
     ``direction``: expense (consumption) / income (recharge/refund); default all.
     """
-    _require_cloud()
-    await resolve_current_user_id(request)
+    await _require_power_account(request)
     token = _require_netmind_token(request)
     try:
         body = await _client().get_records(token, direction=direction)
@@ -186,14 +218,13 @@ async def get_records(request: Request, direction: str | None = None):
 
 async def _write_action(request: Request, action: Literal["subscribe", "cancel", "reactivate"]):
     """Shared harness for the subscription write routes (subscribe / cancel /
-    reactivate): cloud gate + local identity + NetMind token, then dispatch to
-    the client method, mapping the three error kinds consistently.
+    reactivate): Power-account gate + NetMind token, then dispatch to the client
+    method, mapping the three error kinds consistently.
 
     BillingBusinessError -> 400 (surface the user-safe message, e.g. "Already
     subscribed"); BillingAuthError -> 401; BillingUpstreamError -> 502.
     """
-    _require_cloud()
-    await resolve_current_user_id(request)
+    await _require_power_account(request)
     token = _require_netmind_token(request)
     method = getattr(_client(), action)
     try:
@@ -259,8 +290,7 @@ async def recharge(req: RechargeRequest, request: Request):
     Returns Stripe ``{recharge_id, session_id, checkout_url, status}``; the
     frontend opens ``checkout_url`` then polls GET /recharge/{session_id}.
     """
-    _require_cloud()
-    await resolve_current_user_id(request)
+    await _require_power_account(request)
     token = _require_netmind_token(request)
     try:
         body = await _client().recharge(token, req.amount, req.currency)
@@ -283,8 +313,7 @@ async def recharge_status(session_id: str, request: Request):
     """Poll a recharge by Stripe session id. Returns ``{status}`` =
     pending/succeeded/failed. 403 (not the caller's session) and 404 (unknown
     session) are passed through, not collapsed to 401/400."""
-    _require_cloud()
-    await resolve_current_user_id(request)
+    await _require_power_account(request)
     token = _require_netmind_token(request)
     # Strict allowlist BEFORE the id is spliced into the outbound upstream path
     # — blocks `..`/`?`/`#`/`/` smuggling that would retarget the NetMind call.

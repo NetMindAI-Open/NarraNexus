@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-07
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+监听 `narranexus:agent-circuit-open`，渲染红色顶部横幅：paused 时带『Resume agent』按钮（调 `api.resetAgentCircuitBreaker` 清暂停），cooling 只提示稍后重试。mirror quota/auth 横幅模式。
+
 
 ## 2026-07-07 — free-tier auto-switch one-time banner (#48)
 

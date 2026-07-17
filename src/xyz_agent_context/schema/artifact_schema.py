@@ -31,11 +31,14 @@ ArtifactKind = Literal[
     "image/png",
     "image/jpeg",
     "application/pdf",
+    # Office document (.pptx/.docx/.xlsx) — renders as a LIVE officecli-watch
+    # preview (auto-refreshes as the agent edits), not a static file.
+    "application/vnd.officecli-live",
 ]
 
 
 class Artifact(BaseModel):
-    artifact_id: str         # "art_" + 8 random chars
+    artifact_id: str  # "art_" + 8 random chars
     agent_id: str
     user_id: str
     session_id: Optional[str] = None
@@ -44,8 +47,8 @@ class Artifact(BaseModel):
     kind: ArtifactKind
     description: Optional[str] = Field(default=None, max_length=2000)
     pinned: bool = False
-    file_path: str           # entry file, relative to settings.base_working_path
-    size_bytes: int = 0      # recursive size of the artifact root directory
+    file_path: str  # entry file, relative to settings.base_working_path
+    size_bytes: int = 0  # recursive size of the artifact root directory
     created_at: datetime
     updated_at: datetime
 

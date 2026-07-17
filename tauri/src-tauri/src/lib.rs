@@ -46,6 +46,17 @@ pub fn run() {
         // second-launch URL into the live process so this callback sees it
         // — see Cargo.toml.
         .plugin(tauri_plugin_deep_link::init())
+        // `officewatch://` custom scheme — serves the live Office-preview watch
+        // page + its sub-resources by proxying the local backend through Rust,
+        // dodging WKWebView's mixed-content block on http://localhost from the
+        // https webview origin. See commands/office_watch_scheme.rs for why a
+        // custom scheme (not the artifact blob path) is required here.
+        .register_asynchronous_uri_scheme_protocol("officewatch", |_ctx, request, responder| {
+            tauri::async_runtime::spawn(async move {
+                let response = commands::office_watch_scheme::handle(request).await;
+                responder.respond(response);
+            });
+        })
         .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             commands::service::get_service_status,
@@ -63,6 +74,12 @@ pub fn run() {
             commands::auth::cancel_claude_login,
             commands::auth::get_claude_login_status,
             commands::deep_link::consume_pending_deep_link,
+            // Desktop NetMind ("Power") OAuth: opens auth.html in a child
+            // webview and bridges its postMessage result back to the main
+            // window (browser popup + postMessage doesn't work in WKWebView).
+            // See commands/netmind_oauth.rs.
+            commands::netmind_oauth::open_netmind_oauth,
+            commands::netmind_oauth::take_netmind_oauth_result,
             // Unified auto-updater (Owner spec 2026-05-27). One state
             // machine, three UI entry points (startup hook below, tray
             // menu, Settings button) all kick the same pipeline; every

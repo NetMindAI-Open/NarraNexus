@@ -266,8 +266,28 @@ export const mockApi = {
       ],
     });
   },
-  async clearHistory(_agentId: string, _userId?: string): Promise<ClearHistoryResponse> {
-    return ok({ success: true, narrative_ids_deleted: [], narratives_count: 0, events_count: 0 });
+  async clearHistory(
+    _agentId: string,
+    _opts?: { conversations: boolean; memory: boolean },
+  ): Promise<ClearHistoryResponse> {
+    return ok({
+      success: true,
+      scopes: [],
+      narrative_ids_deleted: [],
+      narratives_count: 0,
+      events_count: 0,
+      event_stream_count: 0,
+      chat_memory_count: 0,
+      chat_instances_count: 0,
+      agent_messages_count: 0,
+      bus_messages_count: 0,
+      memory_rows_count: 0,
+      artifacts_count: 0,
+      disk_markdown_removed: false,
+      disk_trajectories_removed: false,
+      session_removed: false,
+      disk_errors: [],
+    });
   },
 
   /* ─ Auth ─ */

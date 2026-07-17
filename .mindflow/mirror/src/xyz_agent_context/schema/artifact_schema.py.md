@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-05-14
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -85,3 +85,7 @@ a multi-file HTML app's quota cost is the whole directory.
   `set_pinned(False)` can restore it. `None` on never-pinned / agent-created rows.
 - `size_bytes` is populated by the runner at register time (it stats the
   directory). The repository trusts the caller.
+
+## 2026-07-13 — office-live kind
+
+`ArtifactKind` 新增 `application/vnd.officecli-live`:office 文档(pptx/docx/xlsx)渲染成实时 officecli-watch 预览(随 agent 编辑自刷新),非静态文件。

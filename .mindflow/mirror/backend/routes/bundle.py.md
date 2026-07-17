@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/bundle.py
-last_verified: 2026-05-18
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — include_skill_secrets passthrough
+
+`ExportRequest.include_skill_secrets` (default False) is forwarded to `ExportSelection`. The frontend's single 'full mode' checkbox sets it together with include_channel_credentials.
+
+## 2026-07-13 — opt-in channel credentials in the export/import routes
+
+`POST /export` passes through `include_channel_credentials`. `/import/preflight` now returns `credential_clashes` and `/import/confirm` returns `channel_credentials_imported` / `channel_credentials_skipped_conflict`. Thin passthroughs — the logic lives in `bundle/builder.py` + `bundle/importer.py`.
 
 ## 2026-05-18 — 新增 `/import/from-url`(Template 一键 install 的入口)
 

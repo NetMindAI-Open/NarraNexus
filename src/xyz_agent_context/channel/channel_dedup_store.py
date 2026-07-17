@@ -131,12 +131,16 @@ class ChannelDedupStore:
         Plus optional diagnostic keys (``age_min`` for historic,
         ``error`` for db_fail_open).
 
-        ``agent_id`` partitions the in-memory hot cache: two agents in
-        different workspaces (e.g. two Slack binds in the same process)
-        could otherwise collide on a ``client_msg_id`` and silently drop
-        one agent's message because the other's already-seen entry is
-        cached. Defaults to "" for the no-multi-tenant case to keep
-        old callers working — the trigger base always passes it.
+        ``agent_id`` partitions BOTH the in-memory hot cache (Layer 2) and
+        the durable DB gate (Layer 3): two agents can receive the SAME
+        platform id (two Slack binds colliding on a ``client_msg_id``; a
+        Matrix room event fanned out to every member agent's client) and
+        must each be processed. Without partitioning, whichever agent's
+        call landed first would mark the id seen and silently drop every
+        other agent's copy. The composite key ``f"{agent_id}:{message_id}"``
+        is used for both layers (Layer 3 via ``repo.mark_seen``). Defaults
+        to "" for the no-multi-tenant case to keep old callers working —
+        the trigger base always passes it.
         """
         # Layer 1: historic-replay filter. Only applies when we know both
         # the event timestamp and the baseline.
@@ -189,10 +193,16 @@ class ChannelDedupStore:
             }
 
         # Layer 3: durable DB. Skipped only when no repo is wired (tests
-        # may run without one).
+        # may run without one). Use the same ``cache_key`` (agent-partitioned)
+        # as Layer 2 — the DB dedup MUST partition by agent_id too. Matrix
+        # fanout means N room members' clients all sync-pull the SAME
+        # ``event_id``; keying the durable dedup on bare ``message_id`` lets
+        # whichever client's sync happens to land first drop everyone else's
+        # copy as ``db_dedup`` and their ``_process_message`` never fires —
+        # the group-room silent-loss bug fixed 2026-07-16 (see mirror md).
         if self._repo is not None:
             try:
-                newly_inserted = await self._repo.mark_seen(message_id)
+                newly_inserted = await self._repo.mark_seen(cache_key)
                 return {
                     "accept": bool(newly_inserted),
                     "layer": "db_new" if newly_inserted else "db_dedup",

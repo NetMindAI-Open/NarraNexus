@@ -48,8 +48,13 @@ def _client_with(handler) -> WeChatSDKClient:
 async def test_get_updates_returns_payload_and_advances():
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.path == "/ilink/bot/getupdates"
-        # octet-stream content-type but JSON body is the documented quirk.
-        return httpx.Response(200, json={"ret": 0, "get_updates_buf": "c2", "msgs": []})
+        # Real healthy schema (captured live 2026-07-16 from 3 prod sessions):
+        # {msgs, sync_buf, get_updates_buf} — there is NO `ret` field (errors
+        # come as {errcode, errmsg}). The old fabricated `{"ret":0,...}` fixture
+        # is exactly what masked the silent-death bug — kept faithful now.
+        return httpx.Response(
+            200, json={"msgs": [], "sync_buf": "s2", "get_updates_buf": "c2"}
+        )
 
     c = _client_with(handler)
     data = await c.get_updates("c1")
@@ -66,14 +71,34 @@ async def test_get_updates_raises_on_app_level_ret():
     with pytest.raises(WeChatSDKError) as exc_info:
         await c.get_updates("c1")
     err = exc_info.value
-    assert err.ret == 1001
+    assert err.code == 1001
     # source="updates" is what the trigger keys on to treat a dead session as a
     # PERMANENT auth failure (disable the credential) rather than reconnecting
     # forever — a getupdates ret!=0 means session expired / bad token.
     assert err.source == "updates"
     # Still a RuntimeError subclass so existing message-based callers hold.
     assert isinstance(err, RuntimeError)
-    assert "ret=1001" in str(err)
+    assert "code=1001" in str(err)
+    await c.aclose()
+
+
+@pytest.mark.asyncio
+async def test_get_updates_raises_on_errcode_session_timeout():
+    """The real iLink error schema (captured live 2026-07-06): a dead session
+    comes back as HTTP 200 ``{"errcode":-14,"errmsg":"session timeout"}`` — via
+    ``errcode``, NOT ``ret``. The old code only checked ``ret`` (defaults to 0),
+    so a dead session slipped through as an idle empty poll → silent death.
+    get_updates must raise on a non-zero ``errcode`` too."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"errcode": -14, "errmsg": "session timeout"})
+
+    c = _client_with(handler)
+    with pytest.raises(WeChatSDKError) as exc_info:
+        await c.get_updates("c1")
+    err = exc_info.value
+    assert err.code == -14
+    assert err.source == "updates"        # → is_permanent_auth_failure → disable
+    assert "session timeout" in str(err)  # errmsg carried through
     await c.aclose()
 
 

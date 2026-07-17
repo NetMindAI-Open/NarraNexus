@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,
     EVENT_ATTACHMENT_PERSISTED,
@@ -270,7 +272,7 @@ async def test_fetch_attachments_downloads_and_persists_pdf(
     assert att.transcript is None
 
     # Bytes on disk under OWNER's workspace
-    workspace = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    workspace = isolated_workspace / agent_workspace_relpath("agent_a", "user_owner") / "user_upload_files"
     assert any(p.read_bytes() == _FAKE_PDF for p in workspace.rglob("att_*.pdf"))
 
     audits = await db_client.get(

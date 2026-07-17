@@ -13,6 +13,7 @@ vi.mock('@/stores', () => ({
 vi.mock('@/hooks', () => ({ useTheme: () => ({ isDark: false }) }));
 vi.mock('@/lib/runtimeConfig', () => ({
   getNetmindConfig: () => ({ authApi: 'https://nm.test', accountsUrl: 'https://acc.test', sysCode: 'f925fc2c', registerUrl: 'https://reg.test' }),
+  isPowerLoginAvailable: () => true,
 }));
 
 import { LoginPage } from '../LoginPage';

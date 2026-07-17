@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/services/module_poller.py
-last_verified: 2026-04-10
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+`_execute_callback`（Path A，触发 AgentRuntime 的唯一路径，**当前休眠**——活动的是 Path B / JobTrigger，后者自带熔断）顶部加**防御性** `should_skip` 闸门：若将来切到 Path A，坏 agent 也不会在此被重触发。fail-open。
+
 
 # module_poller.py — Instance 完成回调检测服务
 

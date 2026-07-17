@@ -18,6 +18,7 @@ export interface SkillInfo {
   description: string;
   path: string;
   disabled: boolean;
+  builtin?: boolean;       // Shipped with the app; can be disabled but not removed
   version?: string;
   author?: string;
   source_url?: string;     // Installation source URL (saved during GitHub installation)

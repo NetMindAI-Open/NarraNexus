@@ -37,6 +37,7 @@ from xyz_agent_context.schema.artifact_schema import (
     CreateArtifactToolResult,
 )
 from xyz_agent_context.settings import settings
+from xyz_agent_context.utils.office_watch import OFFICE_LIVE_KIND
 
 
 # Per-artifact ceiling: the recursive size of one artifact's root directory.
@@ -45,6 +46,14 @@ from xyz_agent_context.settings import settings
 # (50 local / 10 cloud + 100 MB total) was removed in v1.7.0; users may now
 # register any number of artifacts.
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024  # 25 MB
+
+# Office documents (.pptx/.docx/.xlsx) render as a LIVE preview (officecli
+# watch) rather than a static file — the renderer opens a watch on the entry
+# file and auto-refreshes as the agent edits. It's a first-class artifact kind
+# so office docs surface through the same register-as-artifact flow as
+# everything else (no separate "live preview" path). OFFICE_LIVE_KIND lives in
+# the office-watch util (single source shared with the proxy route).
+_OFFICE_EXTS = (".pptx", ".docx", ".xlsx")
 
 ALL_KINDS = frozenset(
     {
@@ -55,6 +64,7 @@ ALL_KINDS = frozenset(
         "image/png",
         "image/jpeg",
         "application/pdf",
+        OFFICE_LIVE_KIND,
     }
 )
 
@@ -93,6 +103,7 @@ def _new_artifact_id() -> str:
 
 def _workspace_root(agent_id: str, user_id: str) -> str:
     from xyz_agent_context.utils.workspace_paths import agent_workspace_path
+
     return str(agent_workspace_path(agent_id, user_id, base=settings.base_working_path))
 
 
@@ -150,8 +161,7 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
         )
     if not os.path.isfile(abs_entry):
         raise ArtifactPathEscape(
-            "entry_path does not point at an existing file. Write the file "
-            "into your workspace first, then register it."
+            "entry_path does not point at an existing file. Write the file into your workspace first, then register it."
         )
 
     artifact_root = os.path.dirname(abs_entry)
@@ -213,6 +223,12 @@ async def register_artifact(
         ArtifactNotFound: target_artifact_id does not exist.
         ArtifactKindMismatch: target_artifact_id kind differs from requested kind.
     """
+    # Office documents always render live, regardless of the kind the caller
+    # passed — enables office-as-artifact AND prevents mis-registering a .pptx
+    # as text/html (which would render as garbage in the iframe).
+    if entry_path.lower().endswith(_OFFICE_EXTS):
+        kind = OFFICE_LIVE_KIND
+
     if kind not in ALL_KINDS:
         raise ArtifactError(
             f"register_artifact does not accept kind={kind!r}. Valid kinds are: "
@@ -243,9 +259,7 @@ async def register_artifact(
     if target_artifact_id is not None:
         existing = await repo.get_by_id(target_artifact_id)
         if existing is None:
-            raise ArtifactNotFound(
-                "artifact not found — omit target_artifact_id to register a new one"
-            )
+            raise ArtifactNotFound("artifact not found — omit target_artifact_id to register a new one")
         if existing.kind != kind:
             raise ArtifactKindMismatch(
                 f"cannot re-register a {kind} entry onto target_artifact_id "

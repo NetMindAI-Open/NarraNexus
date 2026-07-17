@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/awareness/IMChannelsSection.tsx
 stub: false
-last_verified: 2026-06-24
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — tri-state channel status badge
+
+`fetchConnected` → `fetchStatus` returning `active | inactive | unbound` (was a bare bound=active boolean). Needed because a bundle-imported credential is bound-but-INACTIVE; the old boolean read it as "not bound". The row badge now shows connected (green) / "bound · inactive (enable to connect)" (yellow) / not bound; the "X/Y connected" count still means actively-connected. Config components fan bind/unbind/toggle/refresh back via `onBindStateChange` so the badge updates without remount.
 
 ## 2026-06-24 — WeChat added to `IM_CHANNELS`
 

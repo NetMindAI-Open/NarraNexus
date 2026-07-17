@@ -137,6 +137,13 @@ class UserRepository(BaseRepository[User]):
             updates["email"] = email
         if display_name and existing.display_name != display_name:
             updates["display_name"] = display_name
+        # Backfill the NetMind marker: a row that pre-existed as a pure-local
+        # ("local") user — e.g. a username user on a local dual-mode install who
+        # later logs in with their Power account — must become "individual" so
+        # is_power_account() (billing gate) recognises them. Only upgrade; never
+        # clobber an already-individual row.
+        if getattr(existing, "user_type", None) != "individual":
+            updates["user_type"] = "individual"
         await self.update_user(user_system_code, updates)
         refreshed = await self.get_user(user_system_code)
         return refreshed, False

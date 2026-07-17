@@ -308,16 +308,24 @@ async def close_db_client() -> None:
     try to schedule the close on its origin loop via
     `asyncio.run_coroutine_threadsafe` — closing a client from the wrong
     loop would trigger the same cross-loop errors we're trying to avoid.
-    If the origin loop is already closed, we drop the entry without
-    awaiting close (its OS resources will be reclaimed on process exit).
+    If the origin loop is already closed, we close on the CURRENT loop
+    instead: "resources are reclaimed on process exit" is false for the
+    SQLite backend, whose aiosqlite connection runs a NON-daemon worker
+    thread that blocks interpreter shutdown forever unless the connection
+    is actually closed (observed as pytest printing its summary and then
+    hanging indefinitely). aiosqlite only needs *a* running loop for
+    close(), not the origin loop, so the cross-loop concern doesn't apply
+    once the origin loop is gone.
     """
     for loop_id, client in list(_clients_by_loop.items()):
         loop = _loops_by_id.get(loop_id)
         try:
             if loop is None or loop.is_closed():
                 logger.info(
-                    f"Skipping close for loop id={loop_id}: origin loop already gone"
+                    f"Origin loop id={loop_id} already gone — closing client "
+                    f"on the current loop to stop its worker thread"
                 )
+                await client.close()
             else:
                 current = _safe_get_running_loop()
                 if current is loop:

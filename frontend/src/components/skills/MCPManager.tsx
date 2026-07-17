@@ -22,6 +22,8 @@ import {
   Circle,
   Power,
   AlertCircle,
+  KeyRound,
+  X,
 } from 'lucide-react';
 import { Button, Badge, ScrollArea, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
@@ -99,6 +101,15 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
         <div className="text-[9px] text-[var(--text-tertiary)] truncate font-mono" title={mcp.url}>
           {mcp.url}
         </div>
+        {mcp.headers && Object.keys(mcp.headers).length > 0 && (
+          <div
+            className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] truncate"
+            title={Object.entries(mcp.headers).map(([k, v]) => `${k}: ${v}`).join('\n')}
+          >
+            <KeyRound className="w-2.5 h-2.5 shrink-0" />
+            {Object.keys(mcp.headers).join(', ')}
+          </div>
+        )}
       </div>
 
       {/* Actions */}
@@ -127,21 +138,41 @@ function MCPItem({ mcp, onDelete, onToggle, onValidate, validating }: MCPItemPro
 }
 
 interface AddMCPFormProps {
-  onAdd: (name: string, url: string) => void;
+  onAdd: (name: string, url: string, headers?: Record<string, string>) => void;
   onCancel: () => void;
   loading: boolean;
+}
+
+interface HeaderRow {
+  key: string;
+  value: string;
 }
 
 function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [headerRows, setHeaderRows] = useState<HeaderRow[]>([]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (name.trim() && url.trim()) {
-      onAdd(name.trim(), url.trim());
+      const headers: Record<string, string> = {};
+      for (const row of headerRows) {
+        if (row.key.trim() && row.value.trim()) {
+          headers[row.key.trim()] = row.value.trim();
+        }
+      }
+      onAdd(name.trim(), url.trim(), Object.keys(headers).length > 0 ? headers : undefined);
     }
+  };
+
+  const updateHeaderRow = (index: number, field: keyof HeaderRow, value: string) => {
+    setHeaderRows(prev => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+
+  const removeHeaderRow = (index: number) => {
+    setHeaderRows(prev => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -161,6 +192,45 @@ function AddMCPForm({ onAdd, onCancel, loading }: AddMCPFormProps) {
         onChange={(e) => setUrl(e.target.value)}
         className="w-full px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)] font-mono"
       />
+      {/* Optional custom request headers (e.g. Authorization: Bearer <token>)
+          for MCPs that require auth — sent on every connection to this MCP. */}
+      {headerRows.map((row, index) => (
+        <div key={index} className="flex items-center gap-1">
+          <input
+            type="text"
+            placeholder={t('skills.mcp.headerKeyPlaceholder')}
+            value={row.key}
+            onChange={(e) => updateHeaderRow(index, 'key', e.target.value)}
+            className="w-2/5 px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)] font-mono"
+          />
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder={t('skills.mcp.headerValuePlaceholder')}
+            value={row.value}
+            onChange={(e) => updateHeaderRow(index, 'value', e.target.value)}
+            className="flex-1 px-2 py-1.5 text-xs bg-[var(--bg-primary)] border border-[var(--border-default)] rounded focus:outline-none focus:border-[var(--accent-primary)] font-mono"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => removeHeaderRow(index)}
+            className="w-6 h-6 shrink-0 text-[var(--text-tertiary)]"
+            title={t('skills.mcp.removeHeader')}
+          >
+            <X className="w-3 h-3" />
+          </Button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => setHeaderRows(prev => [...prev, { key: '', value: '' }])}
+        className="flex items-center gap-1 text-[10px] text-[var(--accent-primary)] hover:underline"
+      >
+        <KeyRound className="w-2.5 h-2.5" />
+        {t('skills.mcp.addHeader')}
+      </button>
       {/* Usability hints — the common "added it but the agent can't use it"
           confusion is almost always a non-SSE / unreachable / auth'd URL, not
           a platform bug (verified e2e 2026-05-22). Spell out the contract. */}
@@ -280,13 +350,13 @@ export function MCPManager() {
   }, [mcps.length, loading]);
 
   // Add MCP
-  const handleAdd = async (name: string, url: string) => {
+  const handleAdd = async (name: string, url: string, headers?: Record<string, string>) => {
     if (!agentId || !userId) return;
 
     setAdding(true);
     setError(null);
     try {
-      const res = await api.createMCP(agentId, { name, url });
+      const res = await api.createMCP(agentId, { name, url, headers });
       if (res.success && res.mcp) {
         setMcps(prev => [res.mcp!, ...prev]);
         setShowAddForm(false);

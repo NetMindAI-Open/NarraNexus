@@ -268,6 +268,24 @@ class LarkCredentialManager:
             {"auth_status": status},
         )
 
+    async def set_is_active(self, agent_id: str, is_active: bool) -> bool:
+        """Flip the ``is_active`` flag without deleting the row.
+
+        Mirrors the other channels' ``set_enabled``. Primary use: activating a
+        credential imported (inactive) from a bundle — flipping this to True is
+        what makes the trigger's credential watcher pick it up and claim the
+        single Lark WS slot for this app. Returns False if no row exists.
+        """
+        existing = await self.db.get_one(self.TABLE, {"agent_id": agent_id})
+        if not existing:
+            return False
+        await self.db.update(
+            self.TABLE,
+            {"agent_id": agent_id},
+            {"is_active": 1 if is_active else 0},
+        )
+        return True
+
     async def update_bot_name(self, agent_id: str, bot_name: str) -> None:
         """Update bot display name (after successful auth)."""
         await self.db.update(

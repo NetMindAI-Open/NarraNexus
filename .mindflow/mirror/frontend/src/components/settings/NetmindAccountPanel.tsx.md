@@ -1,9 +1,123 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-06
+last_verified: 2026-07-13
 stub: false
 ---
- 
+
+## 2026-07-13 — 门禁改挂 per-user Power 信号(本地双模式)
+
+面板可见性从 `mode === 'cloud-web'` 改成 `isPowerUser = !!configStore.netmindToken`
+—— 即"本会话是不是 Power 账号"(持有 NetMind loginToken),而非部署模式。于是本地
+双模式下 Power 用户能看到面板,纯本地用户名用户看不到(返回 null)。`useRuntimeStore`
+import 已移除。S0 测试相应从 `mode='local'` 改成 `netmindToken=''`。
+
+## 2026-07-12 (latest) — 连接行归入身份组(修版式拥挤)
+
+连接行原在"余额 hero 与 runway 之间",available 变小字后紧贴"免费额度"行,拥挤。
+改为三段分组:**身份组**(账号 + 套餐 + 连接状态)→ 分隔线 → **金额组**(余额 hero
++ runway 明细连成一片)→ 动作(管理)。连接状态是"我是谁/怎么接入"的一部分,归身份组;
+金额块不再被打断。注:本地 quota 关时 runway 整体隐藏,该相邻只在 dev(quota 开)出现。
+
+## 2026-07-11 — 连接态区分 driving / available(修误导)
+
+Owner 在 dev 发现:`connected` 只表示"存在 netmind 卡",但云端登录自动注册,人人
+都有卡——哪怕在用自己加的 provider。此时绿 ✓"已就绪,无需配置"会让人误以为正跑在
+NetMind 上。修:`refreshNetStatus` 读 `slots.agent.config.provider_id` 是否指向
+netmind-source provider,拆成:
+- **driving**(agent 槽=netmind)→ 绿 ✓"正在用你的 NetMind.AI Power 账户运行 ——
+  无需配置"(此时声称"运行中"才属实)。
+- **available**(有 netmind 卡但 agent 槽是别的 provider)→ 中性灰字"已接入但未启用
+  —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换"(不给绿 ✓、不声称运行)。
+- not_connected / error / checking 不变。
+i18n:+netDriving/netAvailable,删 connectedManage。判定用 **agent 槽**(驱动
+NarraNexus 的主 LLM);槽空/取不到 → 保守判 available(宁可不声称也不误导)。
+
+## 2026-07-11 — 顶部重排:Account 身份 + 套餐带解释 + 余额 hero + 三池诚实
+
+Owner 走查:标题叫 "Account & Subscription" 却无 Account、套餐是右上角无解释裸徽章、
+余额只是小行。重排卡片顶部:
+- **账号行**(补 Account):`displayName · email`(读 [[configStore]]),email 空则隐藏。
+  也是"$5 进哪个账号"困惑的解药。
+- **套餐行**:定义列表 `套餐: [徽章] + planExpl` —— Free"免费版·用量按余额扣费" /
+  Pro"会员·有效至X"(planExplProActive)/ 取消"到期后降级"(expiresDowngrade)。
+  徽章从 header 右上角移进此行;topStatus() 删除。
+- **余额 hero**:`free_credit` 放大成锚点(34px);label 按有无赠额切
+  balanceUsable/currentBalance。
+- **三池诚实呈现**:接口把套餐赠额+充值合并进 `free_credit`,只有平台免费额度独立。
+  故 hero=合并余额(池2+3),[[NetmindRunwayView]] 只显示免费额度条 + 赠额行
+  (标"已计入余额",非可加数字);**不摆三个独立可花数字**(避免用户以为能加起来花)。
+  余额行从 RunwayView 移到 hero;单池(仅余额)时 flow line 隐藏(#3)。
+- **连接行**:去掉"切换驱动服务商"指引(#1),只留"已就绪,无需配置";位置在余额
+  hero 之下、runway 之上。
+- **Pro 套餐真实文案**([[NetmindUpsellCard]]):卡名"NetMind Pro" + $19/月 +
+  "OpenAI、Anthropic 等模型最高5折" + "零平台服务费" + "每月19万Credits(≈$19)"。
+  删旧的"热门模型5折/100+模型库/Includes...credits"。文案非 API,plan 变动需手改。
+- i18n:+account/plan/balance/upsell 等键,删 readyPro/planValidUntil/upsellPerk
+  Member/Library/GrantLine/flowFreeNoTier;en/zh 65 齐平。
+- **待确认**(记入清单):`free_credit` 是否真含未用完的月度赠额(NetMind 侧行为),
+  与扣费顺序一起等 xiyue 核对。
+
+## 2026-07-10 — plan × runway 重设计:吸收 QuotaPanel、渐进披露、单一主 CTA
+
+动机:两个平级花钱按钮(Subscribe/Recharge)+ 三种"钱"分居两卡让新用户决策瘫痪
+($19 订阅与 $19 充值 credit 等值,差异只在会员价+模型库,旧 UI 没说)。重构为:
+
+- **两个正交维度**:plan(free/pro_active/pro_cancelled,沿用 `resolveState`)×
+  runway(healthy/low,新纯函数 [[netmindRunway.ts]] `deriveRunway`)。
+- **QuotaPanel 已删除**,免费额度视图 + `prefer_system` 开关吸收进本卡:
+  `load()` 的 allSettled 加 `getMyQuota()` + `getPlans()`(各自独立失败隔离);
+  runway 视图渲染在 [[NetmindRunwayView]](免费额度条+赠额+余额+扣费顺序一句话+
+  「Free tier first」开关)。开关锁定规则:exhausted 时只锁 ON 方向(后端
+  "OFF is always allowed" 409 守卫的镜像)。
+- **渐进披露**:healthy 态零花钱按钮(subscribe/top-up 收进 `showManage` 展开);
+  low 态才升起唯一主动作 —— free→[[NetmindUpsellCard]](会员价+模型库价值主张,
+  价格=`monthly_grant_usd` 动态取,决策 A;充值降级为文字链接),pro→充值直出,
+  pro_cancelled→恒 Resume。
+- **文案**:去贬义(`free`/"not subscribed" 删除);扣费顺序从页脚 footer 移进
+  runway(flowFree 两池 / flowPro 三池;权威顺序待与 xiyue 核对——若不同只改这
+  两个 i18n key);页脚只剩 scopeNote + sandboxNotice。外链 `PRICING_URL` 指
+  netmind.ai/pricing(深度内容不进面板)。
+- i18n:netmind 块 +26 新 key、-5 死 key(free/proActive/validUntil/deductTitle/
+  deductOrder);`settings.quota.*` 整块删除。en/zh 59 key 齐平。
+- 测试:40 用例(适配映射 + plan×runway 矩阵 + prefer 开关 + plans 降级 +
+  toggle 双击守卫 + 未知 quota 态中性文案);测试 i18n mock 升级为支持
+  `{{var}}` 插值以断言完整文案;afterEach restoreAllMocks(confirm spy 卫生)。
+- 模块 F 状态**按信息价值分层**(同日,Owner 走查):`not_connected`(唯一
+  可行动的连接态,agent 跑不了)提到顶部状态行下方、警示色;`connected/checking`
+  (管理性确认,无需行动)留在下方——"放心"职责归顶部 topStatus,避免双绿勾叠加。
+- 连接信息**彻底收敛成一条**(Owner 走查定案):删掉 `topStatus` 里的 `readyFree`
+  "正在用 NetMind 运行"(它按 runway 门控、且 C 场景会误称在用 NetMind);连接
+  信息只剩 `connectionStatus()` **一处**,由真实 `netStatus` 驱动,是全卡**唯一
+  的绿 ✓**。四态:connected=绿✓"已就绪,无需配置·去 LLM 服务商切换驱动服务商"
+  (不声称在用谁)/ checking=灰 / **error=灰"暂时读不到,请刷新"** / not_connected=
+  警示。`topStatus` 只剩套餐(Pro 用中性文字"Pro member · valid until X",无 ✓,
+  避免与连接 ✓ 撞第二个绿勾;Free 不显示,徽章足够)。连接行移到卡顶(runway 之上)。
+- **error 从 not_connected 拆出**(review):getProviders 请求失败 = 瞬态 → 提示
+  刷新,不再误导"重新登录"(重登修不了网络抖动);读到了但无 netmind 卡才是
+  not_connected → 才提示重登/手动添加。i18n:+netStatusError、-readyFree。topupOrLink 从只开不关改为 toggle(删 onRevealTopUp prop)。
+- UI 走查修复(同日,Owner 看真实 prod 数据后):`notEligible` 警告在低额引导
+  可见时(runway low 且非 pro_cancelled)**不再单独渲染**——eligible=false 必然
+  触发 low,引导语已用人话说了同一件事,叠加系统腔警告读起来像报错且字号不一
+  (12px vs 14px);仅 pro_cancelled(动作区谈续费不谈额度)保留。lowChoose 改
+  "余额不足";upsellGrantLine 去掉 {{period}}(与价格行重复出"每月…/月"病句)。
+- review 修复(同日):动作区抽为 [[NetmindActionZone]](面板 784→665 行);
+  togglePrefer 加 preferBusyRef 同步守卫(与 busyRef 同模式);free×low 文案
+  按 freePct===0 门控(exhaustedChoose vs 新 key lowChoose);
+  `SubscriptionPlan.features/quota_limits` 字段改可选(verbatim 代理现实)。
+
+## 2026-07-10 — 模块 F 改为「只读状态」，删掉 mint/connect 按钮
+
+云端登录已在后端自动 register NetMind provider（见 [[netmind_provisioner]] +
+[[auth]]），所以面板这里**不再 mint、不再有按钮**。原来的连接状态机
+（`connect`/`connectNetmind`/`resolveConnection`/`classifyConnectError`/
+`other_provider` 切换按钮/重试按钮）**全部删除**，换成读 `api.getProviders()` 的三态
+只读状态 `netStatus`：`connected`（存在 `source==='netmind'` 的 provider）/
+`checking` / `not_connected`。选择"由哪个 provider 驱动"归 LLM Providers 区。
+面板不再调 `api.useSubscription()`（`api.ts` 仍保留该方法，供兜底路由用）。i18n
+去掉 `useTitle/useDesc/useSubscribeBtn/useSubscribeOk/connectedStatus/connecting/
+useDescSwitch/connectRetry`，加 `connectedManage/checkingStatus/notConnected`。
+（本条取代下方 2026-07-02「Phase 5」与旧版 auto-connect 描述。）
+
 ## 2026-07-06 — recent activity collapsed by default
 
 The activity list is now behind a collapsed toggle (`showActivity`, default false):

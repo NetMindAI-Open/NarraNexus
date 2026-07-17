@@ -1,9 +1,21 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-06-17
+last_verified: 2026-07-15
 stub: false
 ---
 # schema/__init__.py — schema 包的集中导出门面
+
+## 2026-07-15 — 导出 `SELF_SERVICEABLE_ERROR_TYPE`
+
+门面新增 re-export `SELF_SERVICEABLE_ERROR_TYPE`（与 `AUTH_EXPIRED_ERROR_TYPE`
+并列，来自 [[runtime_message.py]]）。纯转发，供 `response_processor` /
+`step_3_agent_loop` 从 `schema` 顶层引用而不触碰 leaf 模块路径。
+
+## 2026-07-13 — 导出 Agent 熔断器 schema
+
+新增 re-export：`CbStatus` / `PausedReason` / `ErrorCategory` / `PAUSING_CATEGORIES` /
+`AgentCircuitBreaker`（来自 `agent_circuit_breaker_schema.py`），并补进 `__all__`。纯导出
+改动,无 schema 形状变化。见 [`agent_circuit_breaker_schema.py`](agent_circuit_breaker_schema.py.md)。
 
 ## 为什么存在
 

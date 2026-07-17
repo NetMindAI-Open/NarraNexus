@@ -1,7 +1,54 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-05-22
+last_verified: 2026-07-16
 ---
+
+## 2026-07-16 — 后台 job 在"自助类"失败上暂停 + paused_reason 分流恢复
+
+`_is_no_quota_failure` 复用 `agent_framework.llm_failure.classify_self_serviceable`
+(#110 检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
+(余额/配额不足、上下文窗口过小、模型不存在)→ True → `PAUSED_NO_QUOTA`。
+
+**pause 写 `paused_reason`**(用 classify 结果 / `auth` / `no_quota`),因为**恢复必须分流**:
+- 时间兜底 `_resume_eligible_no_quota_jobs` 靠 `_user_can_run`(=配置完整性,**看不到余额**)。
+  余额=0 的用户配置是完整的 → 会被判"可运行" → 若盲目 re-arm,就是每轮翻回→再失败→再暂停的
+  **重试风暴**(这正是我第一版的 bug:把 dev 的"8 次后 FAILED 终止"改成了"永久探")。
+- 所以兜底**跳过** `_EDGE_ONLY_RESUME_REASONS`(insufficient_balance / context_window /
+  model_not_found)——这些的修复 readiness 观察不到(充值不改配置、换模型才改),**只在真实
+  边缘恢复**:provider/slot 重配(`rearm_user_no_quota_jobs`,清 paused_reason)或手动。
+- auth / 遗留 quota **不在**该集合:重配 key 会改配置,readiness 能观察到,保持原有兜底恢复。
+
+恢复语义(PR #116 review 后完善):边缘路径 `rearm_user_no_quota_jobs`(每次登录 + provider
+保存都触发)走 `ProviderReadiness.validate` 的**实测**;`provider_registry._interpret_test_response`
+已修——余额/模型/上下文的 400/404 不再被当"auth 通过=可达",而是复用 `classify_self_serviceable`
+判为**not ready**。于是:仍没钱 → 实测 not-ready → job 保持暂停(**不白跑一次**);充值后 →
+实测 200 → 恢复。所以**充值后下次登录即自动恢复且准确**,是"真止损 + 准确恢复",不是"15 分钟盲探"。
+裸 429/限流仍是 transient。差异见 `.mindflow/project/references/netmind_billing.md`。
+
+## 2026-07-13 — auth failures are recoverable, not terminal + zombie self-heal
+
+Incident: a daily cron job hit "Claude API authentication failed", which
+`_is_no_quota_failure` did NOT match, so it took the transient path
+(COOLING → after `_MAX_CONSECUTIVE_FAILURES` → terminal **FAILED**). FAILED has
+no recovery scan, so the job stayed dead even after the owner fixed auth.
+
+Fix 1 — new `_is_auth_failure(result)` (error_type `auth_expired` /
+`AuthenticationError` / … or message markers like "authentication failed",
+"not logged in", "401"). `_finalize_job_execution` now routes
+`_is_no_quota_failure(result) OR _is_auth_failure(result)` to
+`PAUSED_NO_QUOTA` — the "provider/credentials unusable" pause — so the readiness
+backstop (`_resume_eligible_no_quota_jobs`, 15min) revives it once auth works.
+Auth failures therefore NEVER reach terminal FAILED. (Conceptually
+`PAUSED_NO_QUOTA` now means "provider config OR credentials unusable"; the
+`error_message` carries the specific reason. The enum value is unchanged — no
+DB semantics change.)
+
+Fix 3 — new `_heal_unscheduled_active_jobs()`, run in the same 15min backstop
+gate. It finds ACTIVE scheduled/ongoing jobs with a NULL `next_run_time` (which
+`get_due_jobs`, `WHERE next_run_time <= now`, can never select → "active but
+never runs") and recomputes `next_run`. Belt-and-suspenders behind the
+reactivation fix in `job_service.update_job`. Repo query:
+`get_active_scheduled_jobs_missing_next_run`.
 
 ## 2026-06-01 — edge recovery backstop + long-running diagnostic (batch ②b)
 

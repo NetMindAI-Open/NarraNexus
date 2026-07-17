@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-05-14
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -45,3 +45,7 @@ Consumed directly by:
 
 - `latest_version` is a denormalized counter. When `ArtifactWithVersions` is fetched, `versions` is the authoritative list; `latest_version` may lag by one frame if the store receives a WS `artifact.updated` event before re-fetching.
 - Do not add free-form `metadata: Record<string, unknown>` here; keep the shape closed to retain exhaustive-check guarantees in switch statements over `kind`.
+
+## 2026-07-13 — office-live kind
+
+`ArtifactKind` 联合新增 `application/vnd.officecli-live`(office 文档实时预览)。与后端 `schema/artifact_schema.py` 的 Literal 保持一致。

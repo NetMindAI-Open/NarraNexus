@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-06-17
+last_verified: 2026-07-13
 ---
 
 ## 2026-06-17 — `_serve_one_mcp` 同端口同时挂 SSE + streamable HTTP
@@ -18,6 +18,12 @@ lifespan 采用 streamable 的 `lifespan_context`（它持有
 `StreamableHTTPSessionManager`），sse_app 用的是 no-op 默认 lifespan 不需要链接。
 注意：旧的「不要用 `FastMCP.run("sse")`、要在当前 loop 上 await」单 loop 不变式仍然成立，
 只是现在 await 的是我们自己构造的 `uvicorn.Server`，而非 `run_sse_async()`。
+
+2026-07-13：`uvicorn.Config` 必须传 `log_config=None`。默认 dictConfig 会把
+`uvicorn.*` logger 设成 propagate=False + 自带 stderr handler，等于把它们从
+loguru InterceptHandler 桥（`utils/logging/_intercept.py` 的"一套日志"设计）里
+静默拽走；`log_level` 参数不受影响照常生效。该坑最先以测试顺序污染形态暴露
+（构造过 Config 后 `test_noisy_logger_clamped_to_warning` 必挂）。
 
 ## 2026-05-20 (Fix #2 P3) — BasicInfoModule joins CORE MCP modules (port 7808)
 

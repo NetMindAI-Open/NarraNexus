@@ -141,7 +141,7 @@ class AgentRuntime:
         user_id: str,
         input_content: str,
         working_source: Union[WorkingSource, str] = WorkingSource.CHAT,
-        pass_mcp_urls: dict = {},
+        pass_mcp_servers: dict = {},
         job_instance_id: Optional[str] = None,
         forced_narrative_id: Optional[str] = None,
         trigger_extra_data: Optional[Dict[str, Any]] = None,
@@ -190,7 +190,7 @@ class AgentRuntime:
             user_id: User unique identifier
             input_content: User input content
             working_source: Working source identifier (WorkingSource enum or string)
-            pass_mcp_urls: Externally provided MCP Server URLs
+            pass_mcp_servers: Externally provided MCP server specs ({name: {"url", "headers"?}})
             job_instance_id: Instance ID when executing a Job
             forced_narrative_id: Forced Narrative ID (used for Job triggers, skips Narrative selection)
             trigger_extra_data: Trigger 层传入的附加数据（如 channel_tag），会合并到 ctx_data.extra_data
@@ -283,7 +283,7 @@ class AgentRuntime:
                 user_id=user_id,
                 input_content=input_content,
                 working_source=working_source,
-                pass_mcp_urls=pass_mcp_urls,
+                pass_mcp_servers=pass_mcp_servers,
                 job_instance_id=job_instance_id,
                 forced_narrative_id=forced_narrative_id,
                 trigger_extra_data=trigger_extra_data or {},

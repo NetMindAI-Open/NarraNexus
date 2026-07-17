@@ -20,6 +20,7 @@ from loguru import logger
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.repository import SkillArchiveRepository
 from .security import bytes_sha256, file_sha256
+from .skill_secrets import dir_is_builtin as _dir_is_builtin
 
 
 SKILL_ARCHIVES_ROOT = Path.home() / ".nexusagent" / "skill_archives"
@@ -37,12 +38,14 @@ def _user_archive_dir(user_id: str) -> Path:
 def _agent_workspace_root(agent_id: str, user_id: str) -> Optional[Path]:
     """Resolve canonical workspace dir; fall back to legacy `_user_` infix."""
     from xyz_agent_context.settings import settings as core_settings
+
     base = Path(core_settings.base_working_path)
     from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
     candidates = [
-        base / agent_workspace_relpath(agent_id, user_id),   # canonical (current layout)
-        base / f"{agent_id}_{user_id}",            # legacy flat (pre-nested migration)
-        base / f"{agent_id}_user_{user_id}",       # legacy _user_ infix
+        base / agent_workspace_relpath(agent_id, user_id),  # canonical (current layout)
+        base / f"{agent_id}_{user_id}",  # legacy flat (pre-nested migration)
+        base / f"{agent_id}_user_{user_id}",  # legacy _user_ infix
     ]
     for c in candidates:
         if c.is_dir():
@@ -67,6 +70,7 @@ async def archive_github_tarball(
     Returns (archive_path, sha256).
     """
     import os
+
     p = urlparse(github_url)
     if p.scheme != "https" or p.hostname not in {"github.com", "www.github.com"}:
         raise ValueError("Only https://github.com/<owner>/<repo> is supported")
@@ -98,9 +102,7 @@ async def archive_github_tarball(
                 "If this is a private repo, set GITHUB_TOKEN or pass github_token."
             )
         if resp.status_code != 200:
-            raise ValueError(
-                f"Failed to download tarball: HTTP {resp.status_code} ({tarball_url})"
-            )
+            raise ValueError(f"Failed to download tarball: HTTP {resp.status_code} ({tarball_url})")
         out_path.write_bytes(resp.content)
     sha = file_sha256(out_path)
     logger.info(f"GitHub tarball archived for '{skill_name}': {out_path}")
@@ -207,7 +209,9 @@ async def list_unbackedup(user_id: str, agent_id: str) -> List[str]:
     skills_dir = ws / "skills"
     if not skills_dir.is_dir():
         return []
-    installed = [d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith(".")]
+    installed = [
+        d.name for d in skills_dir.iterdir() if d.is_dir() and not d.name.startswith(".") and not _dir_is_builtin(d)
+    ]
     return sorted([s for s in installed if s not in archived])
 
 
@@ -232,8 +236,12 @@ async def backup_after_api_install(
                 github_token=github_token,
             )
             await register_archive(
-                user_id=user_id, skill_name=skill_name, source_type="github",
-                source_url=source_url, archive_path=str(archive_path), sha256=sha,
+                user_id=user_id,
+                skill_name=skill_name,
+                source_type="github",
+                source_url=source_url,
+                archive_path=str(archive_path),
+                sha256=sha,
             )
             return str(archive_path)
         if source_type == "zip" and original_zip_path and original_zip_path.exists():
@@ -242,8 +250,12 @@ async def backup_after_api_install(
             shutil.copy2(original_zip_path, out)
             sha = file_sha256(out)
             await register_archive(
-                user_id=user_id, skill_name=skill_name, source_type="zip",
-                source_url=None, archive_path=str(out), sha256=sha,
+                user_id=user_id,
+                skill_name=skill_name,
+                source_type="zip",
+                source_url=None,
+                archive_path=str(out),
+                sha256=sha,
             )
             return str(out)
     except Exception as e:

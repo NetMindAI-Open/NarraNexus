@@ -348,6 +348,13 @@ class TestInterceptHandler:
     ) -> None:
         setup_logging("svc_clamp", log_dir=tmp_path)
         noisy = stdlib_logging.getLogger("uvicorn.access")
+        # Hermetic guard: another test may have constructed a uvicorn.Config
+        # with a dict log_config, which detaches uvicorn.access from root
+        # (propagate=False + own handlers). This test asserts OUR clamp
+        # contract, so restore the default routing first.
+        noisy.disabled = False
+        noisy.propagate = True
+        noisy.handlers.clear()
         noisy.info("uvicorn-info-line")  # below WARNING — must not appear
         noisy.warning("uvicorn-warn-line")
         logger.complete()

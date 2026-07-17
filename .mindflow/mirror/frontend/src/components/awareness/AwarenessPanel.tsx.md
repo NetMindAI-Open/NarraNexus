@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — awareness profile fills the embedded panel (drop the inner cap)
+
+The awareness thesis block's inner `max-h-[40vh]` `<ScrollArea>` (see the
+2026-05-15 entry) only makes sense in the **non-embedded** stacked view, where
+several sections share one outer scroll and the profile must not shove the
+others down. In the **embedded** rail panel (`BookmarkPanelHost` →
+`<AwarenessPanel embedded section="awareness">`) this section is the ONLY
+content, and the outer `CardContent > ScrollArea h-full` already scrolls it — so
+the 40vh cap stranded a long profile in the top ~40% of a full-height pane
+(reported as "awareness only scrolls in the top half"). Fix: when `embedded`,
+render `<Markdown>` in a plain div (no inner cap, no nested scroll) and let the
+outer full-height ScrollArea own the scroll; non-embedded keeps the capped
+inner `<ScrollArea type="auto">`. Short profiles still look short — this only
+changes how far a LONG profile can extend.
 
 ## 2026-06-11 — atomic `section` prop
 

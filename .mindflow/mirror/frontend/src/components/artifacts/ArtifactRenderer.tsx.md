@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactRenderer.tsx
-last_verified: 2026-05-14
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -59,3 +59,7 @@ The renderer expects an `artifact` object with a `latest_version` field
 the artifact shape changes, every renderer signature below needs updating
 in lockstep — but that's a renderer contract, not this dispatcher's
 concern.
+
+## 2026-07-13 — office-live 渲染器
+
+`RENDERER_BY_KIND` 新增 `application/vnd.officecli-live` → `OfficeWatchViewer`(懒加载)。office 文档因此走和其它 artifact 完全一样的通道(平级 tab / 最小化 / 放大 / 删除 / DB 持久化),只是渲染成实时预览而非静态文件。

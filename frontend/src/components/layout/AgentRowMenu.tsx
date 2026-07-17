@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, Trash2, Globe, Lock } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2, Globe, Lock, Eraser } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface AgentRowMenuProps {
@@ -20,6 +20,7 @@ export interface AgentRowMenuProps {
   isPublic: boolean;
   showPublicToggle: boolean;
   onStartEdit: (e: React.MouseEvent) => void;
+  onClearData: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   onTogglePublic: (e: React.MouseEvent) => void;
   /** Fired on open/close so the host row can lift its z-index above
@@ -43,6 +44,7 @@ export function AgentRowMenu({
   isPublic,
   showPublicToggle,
   onStartEdit,
+  onClearData,
   onDelete,
   onTogglePublic,
   onOpenChange,
@@ -113,6 +115,15 @@ export function AgentRowMenu({
                 }
                 label={isPublic ? t('layout.agentRowMenu.setPrivate') : t('layout.agentRowMenu.setPublic')}
                 onClick={handleItem(onTogglePublic)}
+              />
+            )}
+
+            {/* Owner-only: clear conversation & memory */}
+            {isOwner && (
+              <MenuItem
+                icon={<Eraser className="w-3 h-3" />}
+                label={t('layout.agentRowMenu.clearData')}
+                onClick={handleItem(onClearData)}
               />
             )}
 

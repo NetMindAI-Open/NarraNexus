@@ -74,16 +74,17 @@ def create_common_tools_mcp_server(port: int) -> FastMCP:
     brave_key = os.environ.get("BRAVE_API_KEY", "").strip()
     if brave_key:
         from ._common_tools_impl.web_search_brave_tool import register as register_brave
+
         register_brave(mcp, api_key=brave_key)
         logger.info("CommonTools MCP: web_search backend = Brave")
     else:
         from ._common_tools_impl.web_search_ddgs_tool import register as register_ddgs
+
         register_ddgs(mcp)
-        logger.info(
-            "CommonTools MCP: web_search backend = DDGS (no BRAVE_API_KEY)"
-        )
+        logger.info("CommonTools MCP: web_search backend = DDGS (no BRAVE_API_KEY)")
 
     from ._common_tools_impl import artifact_tool
+
     artifact_tool.register(mcp)
     logger.info("CommonTools MCP: artifact tools registered")
 

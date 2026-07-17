@@ -1,7 +1,13 @@
 ---
 code_file: tauri/src-tauri/src/lib.rs
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — register open_netmind_oauth command
+
+Added `commands::netmind_oauth::open_netmind_oauth` to the `invoke_handler` — the
+desktop NetMind ("Power") OAuth bridge ([[netmind_oauth.rs]]). No other wiring
+here (it creates its own child webview + uses the existing `Emitter`).
 
 ## 2026-05-22 — auto-update startup check
 
@@ -95,6 +101,16 @@ Current set (kept in lockstep with `commands/mod.rs`):
 Forgetting to add a freshly-defined command here is the #1 frontend symptom
 ("invoke returned 'command not found'") — the macro list is the source of
 truth. `commands/auth.rs` exists since 2026-04-30 (in-app Claude Code OAuth).
+
+## Custom URI scheme (2026-07-13 — desktop live Office preview)
+
+Besides IPC commands, the builder registers one **async custom URI scheme**
+via `.register_asynchronous_uri_scheme_protocol("officewatch", ...)` (after the
+deep-link plugin, before `.manage`). Each request is spawned onto the async
+runtime, handled by `commands::office_watch_scheme::handle`, then answered via
+`responder.respond`. This is what makes the desktop live Office preview load —
+the watch page + assets are proxied through Rust under `officewatch://`, dodging
+WKWebView's mixed-content block. See `office_watch_scheme.rs.md` for the design.
 
 ## Upstream / downstream
 

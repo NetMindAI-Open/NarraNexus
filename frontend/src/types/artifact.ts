@@ -22,7 +22,10 @@ export type ArtifactKind =
   | 'text/markdown'
   | 'image/png'
   | 'image/jpeg'
-  | 'application/pdf';
+  | 'application/pdf'
+  // Office document (.pptx/.docx/.xlsx) — rendered as a LIVE officecli-watch
+  // preview (auto-refreshes as the agent edits), not a static file.
+  | 'application/vnd.officecli-live';
 
 export interface Artifact {
   artifact_id: string;

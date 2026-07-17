@@ -4,6 +4,8 @@ pub mod config;
 pub mod deep_link;
 pub mod file_download;
 pub mod health;
+pub mod netmind_oauth;
+pub mod office_watch_scheme;
 pub mod service;
 pub mod tray;
 pub mod updater;

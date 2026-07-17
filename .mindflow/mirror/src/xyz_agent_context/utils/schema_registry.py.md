@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-09
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — user_providers 加 netmind_account_id / netmind_account_email
+
+两列 additive、nullable:铸 NetMind key 时(netmind_provisioner)捕获的账户身份
+(user_system_code + email),供 Settings 显示"该充哪个账户"。非 NetMind 行与旧行留 NULL。
+非密——绝不存登录 JWT。见 `netmind_provisioner.py.md` 与
+`.mindflow/project/references/netmind_billing.md`。
+
+## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
+
+值类型从 url 字符串升级为 spec 对象 `{"url": str, "headers": {str:str}?}`，
+支撑用户 MCP 自定义请求头（Authorization 等）贯穿全链路。本文件仅机械跟随
+改名/类型，职责不变。
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+注册新表 `instance_agent_circuit_breaker`（实时层 Agent 熔断状态，键 agent_id，双方言，additive auto_migrate 落为新表）。列：cb_status/consecutive_failure_count/failure_category/cooldown_until/paused_reason/paused_at/last_error/时间戳。
+
 
 ## 2026-07-09 — agent_slots (per-agent LLM slot overrides)
 

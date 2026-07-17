@@ -26,6 +26,7 @@ import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
+import { ClearAgentDataDialog } from './ClearAgentDataDialog';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
 import { TeamChatRow } from './TeamChatRow';
@@ -101,6 +102,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [editingName, setEditingName] = useState('');
   const [savingName, setSavingName] = useState(false);
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
+  const [clearTarget, setClearTarget] = useState<typeof rawAgents[0] | null>(null);
+  const [clearBusy, setClearBusy] = useState(false);
   const [openMgmt, setOpenMgmt] = useState(false);
   const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
@@ -121,7 +124,7 @@ export function AgentList({ collapsed }: AgentListProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { userId, agentId, agents: rawAgents, setAgentId, setAgents, refreshAgents } = useConfigStore();
-  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds } = useChatStore();
+  const { setActiveAgent, clearAgent, isAgentStreaming, completedAgentIds, requestHistoryRefresh } = useChatStore();
   const agentSessions = useChatStore((s) => s.agentSessions);
   const teams = useTeamsStore((s) => s.teams);
   const teamsLoaded = useTeamsStore((s) => s.loaded);
@@ -326,6 +329,51 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
+  const handleClearData = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    setClearTarget(agent);
+  };
+
+  const doClearData = async (scopes: { conversations: boolean; memory: boolean }) => {
+    if (!clearTarget) return;
+    setClearBusy(true);
+    try {
+      const res = await api.clearHistory(clearTarget.agent_id, scopes);
+      if (res.success) {
+        // Drop the in-memory session AND force any mounted ChatPanel to
+        // re-fetch server history (which is now empty) so the view doesn't
+        // keep showing stale messages without a manual refresh.
+        if (scopes.conversations) {
+          clearAgent(clearTarget.agent_id);
+          requestHistoryRefresh();
+        }
+        if (res.disk_errors?.length) {
+          await alert({
+            title: t('layout.clearAgentData.title', { name: clearTarget.name || clearTarget.agent_id }),
+            message: t('layout.clearAgentData.toastDiskWarn', { count: res.disk_errors.length }),
+            danger: true,
+          });
+        }
+      } else {
+        await alert({
+          title: t('layout.agentList.deleteFailedTitle'),
+          message: res.error || 'Failed to clear agent data',
+          danger: true,
+        });
+      }
+    } catch (err) {
+      console.error('Error clearing agent data:', err);
+      await alert({
+        title: t('layout.agentList.deleteFailedTitle'),
+        message: String(err),
+        danger: true,
+      });
+    } finally {
+      setClearBusy(false);
+      setClearTarget(null);
+    }
+  };
+
   const handleImport = () => navigate('/app/bundle/import');
   const handleExport = () => {
     // Pre-fill export wizard with agents if a team context is relevant.
@@ -492,6 +540,14 @@ export function AgentList({ collapsed }: AgentListProps) {
   return (
     <div>
       {confirmDialog}
+      {clearTarget && (
+        <ClearAgentDataDialog
+          agentName={clearTarget.name || clearTarget.agent_id}
+          busy={clearBusy}
+          onCancel={() => setClearTarget(null)}
+          onConfirm={doClearData}
+        />
+      )}
       <TeamManagementModal open={openMgmt} onClose={() => setOpenMgmt(false)} />
 
       {/* Header */}
@@ -632,6 +688,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                     onCancelEdit={handleCancelEdit}
                     savingName={savingName}
                     onStartEdit={handleStartEdit}
+                    onClearData={handleClearData}
                     onDelete={handleDeleteAgent}
                     onTogglePublic={handleTogglePublic}
                     deletingAgentId={deletingAgentId}

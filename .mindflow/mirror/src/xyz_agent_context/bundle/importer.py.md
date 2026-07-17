@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-06-11
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — skill install to the known skill_dir
+
+The full_copy + zip skill-install branches pass the manifest's `skill_dir` as `install_skill(..., target_dir_name=)`, so a full_copy overwrites `skills/<skill_dir>/` (restoring the credential the workspace snapshot stripped) instead of landing in a temp-derived name. Fixes the arena double-dir bug.
+
+## 2026-07-10 — opt-in IM channel credential import (force-inactive + clash skip)
+
+Imports `agents/<aid>/channel_credentials.json` (opt-in bundles). Two invariants:
+
+1. **Force-inactive**: every credential lands with its active flag = 0
+   (lark `is_active`, others `enabled`), regardless of the source value. This is
+   the anti-double-connect guard — the user must manually activate in the new env
+   (via the channel settings toggle → `POST /api/<ch>/set-active`), which is what
+   claims the single connection slot each IM issues per bot.
+2. **Clash skip**: a credential whose bot-identity (lark `profile_name`; slack
+   `team_id`+`bot_user_id`; telegram/discord `bot_user_id`) is already bound in
+   the target env is SKIPPED, not overwritten (stealing a live bot would be
+   destructive). `preflight` surfaces these as `credential_clashes`; `confirm`
+   enforces the skip and counts it.
+
+`rewrite_row` now EXEMPTS credential tables from the user-attribution
+force-overwrite loop: slack/telegram/wechat `owner_user_id` and discord
+`owner_user_id`/`user_id` are IM-side ids, NOT NarraNexus user ids — reattributing
+them would corrupt the owner-trust signal. `agent_id` is still remapped via
+STRUCTURED_ID_FIELDS. Rollback already sweeps every agent_id-bearing table so the
+credential rows are covered automatically. Table metadata is the shared
+`bundle/channel_credential_tables.py`. Tests: `tests/bundle/test_channel_credentials.py`.
 
 ## 2026-06-11 — legacy-bundle tolerance + rollback (v1.3.4 import bug)
 

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/context_schema.py
-last_verified: 2026-07-10
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
+
+值类型从 url 字符串升级为 spec 对象 `{"url": str, "headers": {str:str}?}`，
+支撑用户 MCP 自定义请求头（Authorization 等）贯穿全链路。本文件仅机械跟随
+改名/类型，职责不变。
 
 ## 2026-07-10 — ContextData 正式声明 LLM 身份字段
 

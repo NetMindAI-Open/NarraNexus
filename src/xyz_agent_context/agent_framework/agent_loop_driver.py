@@ -46,7 +46,7 @@ class AgentLoopDriver(Protocol):
     def agent_loop(
         self,
         messages: list[dict[str, Any]],
-        mcp_server_urls: dict[str, str],
+        mcp_servers: dict[str, dict[str, Any]],  # {name: {"url": str, "headers": {str: str}?}}
         *,
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,

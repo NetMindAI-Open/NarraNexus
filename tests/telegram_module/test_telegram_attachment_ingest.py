@@ -23,6 +23,8 @@ from typing import Any
 
 import pytest
 
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_ATTACHMENT_FETCH_FAILED,
     EVENT_ATTACHMENT_PERSISTED,
@@ -324,7 +326,7 @@ async def test_fetch_attachments_downloads_and_persists_pdf(
     assert download_calls == [("BAADdoc", len(_FAKE_PDF))]
 
     # Bytes landed on disk under the OWNER's workspace path.
-    pdf_path = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    pdf_path = isolated_workspace / agent_workspace_relpath("agent_a", "user_owner") / "user_upload_files"
     assert any(p.read_bytes() == _FAKE_PDF for p in pdf_path.rglob("att_*.pdf"))
 
     # EVENT_ATTACHMENT_PERSISTED audited.

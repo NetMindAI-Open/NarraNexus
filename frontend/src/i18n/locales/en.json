@@ -2,6 +2,12 @@
   "language": {
     "name": "Language"
   },
+  "channelActiveToggle": {
+    "active": "Active",
+    "inactive": "Inactive",
+    "enable": "Enable",
+    "disable": "Disable"
+  },
   "sidebar": {
     "chats": "Chats",
     "teams": "Teams",
@@ -130,7 +136,14 @@
       "titleFailed": "Run failed",
       "titleRecovered": "Finished with errors",
       "situationFailed": "This run hit an error and the agent could not reply normally. Details:",
-      "situationRecovered": "The agent replied, but errors occurred during the run. Details:"
+      "situationRecovered": "The agent replied, but errors occurred during the run. Details:",
+      "titleActionable": "Action needed",
+      "action": {
+        "context_window": "The selected model's context window is too small for this Agent. Switch to a model with a larger context window in Settings, then send again.",
+        "insufficient_balance": "The model provider reports insufficient balance or quota. Top up or switch the provider in Settings, then send again.",
+        "model_not_found": "The configured model id was rejected by the provider (not found or invalid). Pick a valid model in Settings, then send again.",
+        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again."
+      }
     }
   },
   "awareness": {
@@ -154,6 +167,7 @@
       "connectedCount": "{{connected}}/{{total}} connected",
       "manage": "Manage",
       "connectedBadge": "✓ connected",
+      "inactiveBadge": "bound · inactive (enable to connect)",
       "notBound": "not bound",
       "refreshStatus": "Refresh status"
     },
@@ -378,7 +392,8 @@
       "dropFiles": "Drop files here",
       "dragFiles": "Drag files here or",
       "browse": "browse",
-      "empty": "Workspace is empty"
+      "empty": "Workspace is empty",
+      "kindOffice": "Office document (live)"
     }
   },
   "dashboard": {
@@ -565,7 +580,20 @@
       "rename": "Rename",
       "setPrivate": "Set to Private",
       "setPublic": "Set to Public",
+      "clearData": "Clear data",
       "delete": "Delete"
+    },
+    "clearAgentData": {
+      "title": "Clear data · {{name}}",
+      "subtitle": "Choose what to clear. This cannot be undone.",
+      "optConversations": "Delete chat history",
+      "optConversationsDesc": "Conversations, narratives and turn-by-turn trajectories.",
+      "optMemory": "Delete memory",
+      "optMemoryDesc": "What the agent learned — people, facts, observations and relationships.",
+      "keepNote": "Kept: persona, channel bindings (Lark, etc.) and account.",
+      "cancel": "Cancel",
+      "confirm": "Clear",
+      "toastDiskWarn": "Data cleared, but {{count}} on-disk file(s) could not be removed. Check the logs."
     },
     "agentsHeaderMenu": {
       "menu": "Agents menu",
@@ -642,20 +670,6 @@
       "agentPrefix": "agent: {{id}}",
       "bulkDeleteFailed": "Bulk delete failed: {{error}}"
     },
-    "quota": {
-      "uninitialized": "System free-tier quota is not set up for your account yet. Please contact an administrator, or configure your own provider below to continue.",
-      "title": "System Free-Tier Quota",
-      "exhaustedTag": "(exhausted)",
-      "statusLabel": "status: {{status}}",
-      "inputTokens": "Input tokens",
-      "outputTokens": "Output tokens",
-      "preferToggle": "Use free-tier quota even when I have my own provider configured",
-      "preferOn": "Currently: routing through system provider — free-tier usage applies. Falls back to your own provider if the free tier runs out.",
-      "preferOff": "Currently: using your own provider when configured; free tier only applies when you have no provider set.",
-      "exhaustedPreferOn": "Free tier used up — turn this off to route through your own provider now, or top up to keep using the free tier.",
-      "exhaustedPreferOff": "Free tier used up — currently using your own provider. This re-enables automatically once your quota is replenished.",
-      "exhaustedNote": "Free tier consumed. Add your own provider below, or uncheck the toggle above to route through your existing provider."
-    },
     "netmind": {
       "planPro": "Pro",
       "badgeFree": "Free",
@@ -663,11 +677,7 @@
       "subtitle": "Power plan & credits · used for your LLM API usage",
       "loading": "Loading…",
       "error": "Could not load your NetMind.AI Power account. If your login expired, sign in again and refresh.",
-      "free": "Current plan: Free (not subscribed)",
-      "proActive": "Pro · active",
-      "validUntil": "valid until",
       "expiresDowngrade": "Valid until {{date}}, then downgrades to Free",
-      "subscribeBtn": "Subscribe to Pro",
       "cancelBtn": "Cancel subscription",
       "cancelConfirm": "Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?",
       "reactivateBtn": "Resume auto-renew",
@@ -680,23 +690,53 @@
       "notEligible": "Cannot incur paid usage right now (no balance / not eligible).",
       "hasArrears": "You have outstanding arrears.",
       "activityTitle": "Recent activity",
-      "useTitle": "Power NarraNexus with this account",
-      "useDesc": "Run agent conversations on your NetMind.AI Power credits — no API key to paste.",
-      "useSubscribeBtn": "Use this account",
-      "useSubscribeOk": "Connected — you can now pick a model in LLM Providers.",
-      "deductTitle": "How usage is charged",
-      "deductOrder": "subscription grant first → then account balance (recharge) → paid usage stops when both run out.",
       "scopeNote": "These NetMind.AI Power credits cover LLM API usage. Compute (GPU) and other pricing are billed separately.",
       "sandboxNotice": "The NarraNexus sandbox itself is free for now (no sandbox-service charge); billing will start later, with notice.",
       "rechargeTitle": "Add credits",
-      "rechargeDesc": "Top up your NetMind.AI Power balance. Credits are kept regardless of plan.",
+      "rechargeDesc": "One-time top-up, no subscription. Credits are kept regardless of plan.",
       "rechargeCustom": "Custom",
       "rechargeBtn": "Recharge",
       "rechargeProcessing": "Waiting for payment… complete it in the opened window; your balance updates automatically.",
       "rechargeSuccess": "Top-up complete — balance updated.",
       "rechargeFailed": "Payment failed or was cancelled.",
       "rechargeInvalidAmount": "Enter an amount greater than 0.",
-      "rechargeStopWaiting": "Stop waiting"
+      "rechargeStopWaiting": "Stop waiting",
+      "checkingStatus": "Checking your NetMind.AI Power connection…",
+      "netStatusError": "Couldn’t read your connection status. Refresh to retry.",
+      "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.",
+      "managePlan": "Manage plan & credits",
+      "manageSubscription": "Manage subscription & balance",
+      "manageBalance": "Manage balance",
+      "freeTierLabel": "Free tier",
+      "freeTierLeft": "{{pct}}% left",
+      "freeTierUsedUp": "Used up",
+      "grantPerPeriod": "{{amount}} / {{period}}",
+      "perMonth": "mo",
+      "flowFree": "Usage draws the free tier first, then your balance.",
+      "flowPro": "Usage draws the free tier first, then your monthly grant, then your balance.",
+      "flowProNoTier": "Usage draws your monthly grant first, then your balance.",
+      "preferTitle": "Free tier first",
+      "preferOnShort": "Uses the platform free tier first, then your own credits.",
+      "preferOffShort": "Skips the free tier — uses your own credits directly.",
+      "lowChoose": "You're low on credits. To keep going:",
+      "exhaustedChoose": "Free tier used up. To keep going:",
+      "upsellName": "Upgrade to Pro",
+      "topupOrLink": "Just need a one-time top-up? Add credits",
+      "proMemberActive": "Member pricing active — up to 50% off",
+      "needTopup": "Your grant and balance are running low. Add credits to keep going:",
+      "pricingLink": "See all models & pricing",
+      "accountLabel": "Account",
+      "planLabel": "Plan",
+      "planExplFree": "Free — usage billed from your balance.",
+      "planExplProActive": "Member · valid until {{date}}",
+      "balanceUsable": "Current usable balance",
+      "grantIncluded": "(included in balance)",
+      "upsellCardName": "NetMind Pro",
+      "upsellPerkDiscount": "Up to 50% off on models like OpenAI & Anthropic",
+      "upsellPerkNoFee": "No platform service fee",
+      "upsellPerkGrant": "Includes {{amount}} / month in usable balance",
+      "netDriving": "Running on your NetMind.AI Power account — no setup needed.",
+      "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults."
     },
     "modal": {
       "title": "Settings",
@@ -1079,6 +1119,11 @@
       "localAccess": "Local · Access",
       "cloudMode": "Cloud mode",
       "signInWithNetmind": "Sign in with your NetMind.AI account",
+      "tabLocal": "Local account",
+      "tabPower": "Power account",
+      "recommended": "Recommended",
+      "localDesc": "Log in with a username you pick. Everything stays on your machine, unrestricted. You bring your own LLM provider (API key) to run models.",
+      "powerDesc": "NetMind (Power) account: your data still stays entirely on your machine — private and safe. Sign in to run a wide range of models through Power right away — free credits on sign-up, zero API-key setup. Top up anytime for member discounts with no platform fee.",
       "migrationNoticeHeading": "We've reorganized our account system.",
       "migrationNoticeBody": "Your data has been migrated to the account under the email you used to receive your invite code. To sign in, please reset your password for that email first (use “Forgot password?” below). For any other questions, contact our team at",
       "emailLabel": "Email",
@@ -1277,6 +1322,8 @@
         "mcpHintsLine": "{{count}} suggested external MCP URLs (you'll be asked to confirm each)",
         "nameClashesTitle": "Name clashes (auto-renamed)",
         "nameClashLine": "\"{{name}}\" — {{count}} existing agent(s) with same name",
+        "credentialClashesTitle": "Channel credentials already bound here (will be skipped)",
+        "credentialClashLine": "{{channel}} — {{identity}} is already bound in this environment; the imported credential will be skipped, not overwritten",
         "warningsTitle": "Bundle warnings",
         "infoTitle": "Info (expected, no action needed)",
         "strippedTitle": "Stripped (not present in bundle)",
@@ -1294,6 +1341,12 @@
         "skillsImported": "{{count}} skills",
         "skillsCredsSuffix": "(some may need re-study or new credentials)",
         "mcpHints": "{{count}} external MCP URLs suggested — review below",
+        "channelCredentialsImported": "{{count}} IM channel credential(s) imported — inactive, awaiting activation",
+        "channelCredentialsSkipped": "{{count}} channel credential(s) skipped (bot already bound here)",
+        "configureLlmTitle": "Configure the LLM before use",
+        "configureLlmHint": "Imported agents do NOT carry their LLM provider/framework configuration (credentials never travel in a bundle). Until you set it, an imported agent falls back to a system default that may be incompatible with its tools — it will fail to reply, especially over IM channels (web chat only masks it with a stub fallback). Open each imported agent's Settings → LLM and bind a provider + framework before using it.",
+        "activateChannelsTitle": "Activate imported channels",
+        "activateChannelsHint": "Imported IM channel credentials are DISABLED so they don't fight the source environment for the single connection each bot allows. Open each channel under the agent's Settings and enable it — but only after confirming the source environment is no longer connected.",
         "warnings": "{{count}} warnings (see details)",
         "suggestedMcpTitle": "Suggested external MCP URLs",
         "mcpNotAutoInstalled": "These are not auto-installed. Add them under each agent's Settings → MCPs if you trust them.",
@@ -1311,6 +1364,8 @@
       "bundleNotesPlaceholderTeam": "My team",
       "bundleNotesPlaceholderDesc": "Describe what this team does…",
       "includeChatLabel": "Include chat history (events + messages). Disable for templates with privacy concerns.",
+      "includeChannelCredentialsLabel": "Full mode — include credentials (IM channels + skill secrets)",
+      "channelCredentialsWarning": "The bundle will contain near-plaintext (base64) secrets: IM bot credentials AND skill auth (env_config + skill credential files). Anyone with the file can take over these bots/skills — do not share it. Imported channel credentials arrive disabled and must be manually activated; skill secrets are restored in place.",
       "cancel": "Cancel",
       "reviewExport": "Review & Export",
       "tabs": {
@@ -1821,6 +1876,7 @@
       "env": "Env",
       "enable": "Enable",
       "disable": "Disable",
+      "builtin": "Built-in",
       "remove": "Remove"
     },
     "install": {
@@ -1871,6 +1927,10 @@
       "delete": "Delete",
       "namePlaceholder": "MCP Name",
       "urlPlaceholder": "SSE URL (e.g., https://your-host/sse)",
+      "headerKeyPlaceholder": "Header name (e.g. Authorization)",
+      "headerValuePlaceholder": "Header value (e.g. Bearer <token>)",
+      "addHeader": "Add request header",
+      "removeHeader": "Remove header",
       "add": "Add",
       "cancel": "Cancel",
       "deleteTitle": "Delete MCP",
@@ -1883,9 +1943,35 @@
         "endpoint": "Must be a remote SSE endpoint over http(s) — usually ending in /sse.",
         "reachable": "The server must be able to reach the URL (public host or one this machine can connect to).",
         "noStdio": "Local stdio / npx MCPs are not supported here — only URL-based SSE servers.",
-        "apiKey": "If it needs an API key, put it in the URL or headers your MCP expects; we connect anonymously.",
+        "apiKey": "If it needs an API key, add it as a request header (e.g. Authorization: Bearer <token>) — headers are sent on every connection.",
         "validation": "After adding, the status dot validates the connection — Failed means the URL was unreachable or not a valid SSE endpoint."
       }
     }
+  },
+  "feedback": {
+    "title": "Feedback",
+    "categoryLabel": "Category",
+    "textLabel": "What went wrong / what do you wish for?",
+    "placeholder": "Tell us what disappointed you or what's missing — this goes straight to the NarraNexus team.",
+    "submit": "Send feedback",
+    "sending": "Sending…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "thanks": "Thank you — your feedback reached the team.",
+    "categories": {
+      "user_dissatisfaction": "Something disappointed me",
+      "feature_gap": "Missing feature",
+      "error": "Something broke",
+      "other": "Other"
+    }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "Close preview",
+    "desktopUnsupported": "Live preview is not yet available in the desktop app.",
+    "desktopHint": "Open NarraNexus in a browser to see the live document preview.",
+    "loading": "Opening live preview…",
+    "loadError": "Could not open the live preview.",
+    "livePreview": "Live preview"
   }
 }

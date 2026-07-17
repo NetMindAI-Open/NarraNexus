@@ -42,7 +42,7 @@ import tempfile
 # unintended URL path. Hard-gate the format here.
 _LARK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -193,6 +193,25 @@ def _resolve_lark_cli() -> tuple[str, tuple[str, ...]]:
         _LARK_CLI_BIN, _LARK_EXTRA_PATH = resolved, extra
         return resolved, extra
     return "lark-cli", extra
+
+
+def _extract_reaction_id(data: Any) -> str:
+    """Dig the ``reaction_id`` out of a lark-cli ``reactions create`` payload.
+
+    lark-cli may hand back the reaction record directly or wrapped in a
+    ``data`` envelope depending on the endpoint shape — check both. Returns ""
+    when not found (informational only; the react tool tolerates it).
+    """
+    if isinstance(data, dict):
+        rid = data.get("reaction_id")
+        if isinstance(rid, str) and rid:
+            return rid
+        inner = data.get("data")
+        if isinstance(inner, dict):
+            rid = inner.get("reaction_id")
+            if isinstance(rid, str) and rid:
+                return rid
+    return ""
 
 
 class LarkCLIClient:
@@ -540,6 +559,40 @@ class LarkCLIClient:
         elif markdown:
             args.extend(["--markdown", markdown])
         return await self._run_with_agent_id(args, agent_id)
+
+    async def add_reaction(
+        self, agent_id: str, message_id: str, emoji_type: str
+    ) -> str:
+        """Add an emoji reaction to a message; return its ``reaction_id``.
+
+        Backs the agent-facing ``react_to_user_message`` tool. Reactions are
+        best-effort (needs the bot's ``im:message.reactions:write_only`` scope),
+        so this raises on failure and lets the caller log + swallow. Returns the
+        ``reaction_id`` (or "" when unparsable — informational only).
+
+        Runs ``--as bot`` on purpose: the reaction must be attributed to the
+        agent's bot, not the owner's user identity. The workspace holds BOTH a
+        bot token AND (after the three-click flow) the owner's user OAuth token;
+        the raw ``im reactions create`` command defaults to the user token when
+        present, so without ``--as bot`` the 👍 shows up under the human owner's
+        name instead of the bot. (``+messages-send`` forces bot on its own, which
+        is why replies were already attributed correctly.)
+        """
+        if not _LARK_ID_PATTERN.match(message_id):
+            raise RuntimeError(
+                f"invalid message_id format: {message_id!r} "
+                f"(expected ^[A-Za-z0-9_-]+$)"
+            )
+        params = json.dumps({"message_id": message_id})
+        data = json.dumps({"reaction_type": {"emoji_type": emoji_type}})
+        args = [
+            "im", "reactions", "create", "--as", "bot",
+            "--params", params, "--data", data,
+        ]
+        result = await self._run_with_agent_id(args, agent_id)
+        if not result.get("success"):
+            raise RuntimeError(result.get("error", "reaction create failed"))
+        return _extract_reaction_id(result.get("data"))
 
     async def list_chat_messages(
         self,

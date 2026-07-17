@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/lib/tauri.ts
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — openNetmindOAuth + takeNetmindOAuthResult wrappers
+
+Added two thin invoke wrappers (no-op outside Tauri) for desktop NetMind OAuth:
+`openNetmindOAuth(url)` starts the flow; `takeNetmindOAuthResult()` drains the
+buffered `{code,state}` result. [[useNetmindAuth.ts]] `startOAuth` opens then
+polls the latter (poll-based delivery — does NOT use `listenTauri`/events, which
+need `window.__TAURI__` and can no-op). Rust side: [[netmind_oauth.rs]].
 
 ## 2026-05-27 — unified auto-updater wrappers (replaces `checkForUpdates`)
 

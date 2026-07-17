@@ -112,6 +112,18 @@ STRUCTURED_ID_FIELDS: Dict[str, Dict[str, str]] = {
         "mcp_id": "mcp",
         "agent_id": "agent",
     },
+    # IM channel credentials (opt-in export). Only agent_id is an internal ID;
+    # it must map old → new so the imported credential attaches to the freshly
+    # minted agent instead of dangling at the source agent_id. Everything else
+    # on these tables (app_id, tokens, owner_user_id, bot_user_id, …) is
+    # IM-namespace and is preserved verbatim. Kept in sync with
+    # bundle/channel_credential_tables.py::CHANNEL_CREDENTIAL_TABLES.
+    "lark_credentials": {"agent_id": "agent"},
+    "channel_slack_credentials": {"agent_id": "agent"},
+    "channel_telegram_credentials": {"agent_id": "agent"},
+    "channel_discord_credentials": {"agent_id": "agent"},
+    "channel_wechat_credentials": {"agent_id": "agent"},
+    "channel_narramessenger_credentials": {"agent_id": "agent"},
 }
 
 

@@ -3,6 +3,14 @@ code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
 last_verified: 2026-07-10
 ---
 
+## 2026-07-10 — Product Feedback Duty 段
+
+narrative 工具指引之后新增 feedback 职责段：两个触发条件（用户表达不满 /
+同一指令连续失败 ≥2 次）、摘要一句话且禁止引用用户原文或含 PII、提交后继续
+干活不向用户宣布。与 [[_basic_info_mcp_tools.py]] 的 submit_feedback 工具
+描述保持同一措辞口径。
+
+
 ## 2026-07-10 — "LLM Model" 行改渲染真实 framework + model
 
 模板里的 `Your LLM model: **{agent_info_model_type}** ({model_name}).` 段保持不变，

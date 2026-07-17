@@ -465,6 +465,14 @@ pub struct AppState {
     /// needed alongside the live Tauri event (cold-start race: URLs
     /// arrive in Rust before React mounts a listener).
     pub pending_deep_link: Arc<StdMutex<Option<String>>>,
+    /// Buffered NetMind ("Power") OAuth result (URI-encoded JSON
+    /// `{type:'auth',code,state}`), stored by the `netmind-oauth` webview's
+    /// on_navigation handler and drained by `take_netmind_oauth_result`.
+    /// Mirrors `pending_deep_link`: the frontend polls this after starting
+    /// OAuth, so delivery never depends on a live Tauri event listener (which
+    /// requires `window.__TAURI__` and can silently no-op). See
+    /// `commands::netmind_oauth`.
+    pub pending_netmind_oauth: Arc<StdMutex<Option<String>>>,
     /// Single source of truth for the auto-updater state machine. All three
     /// entry points (startup auto-check, tray "Check for Updates…", Settings
     /// page button) mutate this same field; the UI surfaces (global banner,
@@ -494,6 +502,7 @@ impl Default for AppState {
             tray_handle: Arc::new(StdMutex::new(None)),
             claude_login_pid: Arc::new(StdMutex::new(None)),
             pending_deep_link: Arc::new(StdMutex::new(None)),
+            pending_netmind_oauth: Arc::new(StdMutex::new(None)),
             updater_state: Arc::new(StdMutex::new(
                 crate::commands::updater::UpdaterState::Idle,
             )),

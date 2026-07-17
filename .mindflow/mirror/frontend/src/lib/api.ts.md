@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-09
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+新增 `getAgentCircuitBreaker(agentId)` / `resetAgentCircuitBreaker(agentId)`，打 `/api/agents/{id}/circuit-breaker[/reset]`（mirror getBusFailures/retryBusFailure）。
+
+
+## 2026-07-13 — channel set-active methods
+
+Added `set{Lark,Slack,Telegram,WeChat,Discord}Active(agentId, active)` → `POST /api/<ch>/set-active`, flipping a bound credential's active flag without a re-bind (used to activate bundle-imported inactive channels).
+
+## 2026-07-10 — clearHistory gains scope flags
+
+`clearHistory(agentId, { conversations, memory })` now sends
+`?conversations=&memory=` (default both true) to
+`DELETE /api/agents/{id}/history`, driving the scoped wipe. Response type
+extended in [[api.ts]] (types) with per-target counts + `disk_errors`.
+
+## 2026-07-10 — submitFeedback()
+
+`submitFeedback(category, text)` → POST /api/feedback。返回 {ok, delivered}；
+delivered=false 只代表接收端不可达或杀开关开启，UI 不据此报错。
+
 
 ## 2026-07-09 — per-agent LLM config methods
 

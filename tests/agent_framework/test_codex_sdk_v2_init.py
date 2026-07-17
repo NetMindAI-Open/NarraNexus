@@ -117,7 +117,7 @@ def test_overrides_emits_required_baseline_keys():
     summary — those are the three baseline keys v1 also always emits."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/agent/instructions.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
     )
     joined = "\n".join(result)
@@ -130,9 +130,9 @@ def test_overrides_emits_one_mcp_entry_per_server():
     """One ``mcp_servers.<name>.url=...`` line per URL passed in."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={
-            "lark_module": "http://localhost:7831/mcp",
-            "slack_module": "http://localhost:7832/mcp",
+        mcp_servers={
+            "lark_module": {"url": "http://localhost:7831/mcp"},
+            "slack_module": {"url": "http://localhost:7832/mcp"},
         },
         permissions=None,
     )
@@ -145,7 +145,7 @@ def test_overrides_rewrites_sse_url_to_streamable_http():
     """MCP URL rewriter (imported from v1) must apply: ``/sse`` → ``/mcp``."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={"x": "http://localhost:7801/sse"},
+        mcp_servers={"x": {"url": "http://localhost:7801/sse"}},
         permissions=None,
     )
     joined = "\n".join(result)
@@ -158,7 +158,7 @@ def test_overrides_quotes_glob_keys_in_permissions():
     This is the bug class spike Section A surfaced — guard with a test."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions={
             "commands": {
                 "brew install *": "deny",
@@ -181,7 +181,7 @@ def test_overrides_emits_writable_roots_array():
     ``sandbox_workspace_write.writable_roots`` array entry."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
         writable_roots=[Path("/tmp/agent"), Path("/scratch")],
     )
@@ -193,7 +193,7 @@ def test_overrides_omits_model_when_none():
     """``model=None`` means "use codex's default" — don't emit the line."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
         model=None,
     )
@@ -203,7 +203,7 @@ def test_overrides_omits_model_when_none():
 def test_overrides_emits_model_when_provided():
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
         model="gpt-5.5",
     )
@@ -217,7 +217,7 @@ def test_overrides_returns_tuple_not_list():
     accept it but type checkers complain. Lock in tuple."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
     )
     assert isinstance(result, tuple)
@@ -235,7 +235,7 @@ def test_overrides_declares_model_provider_for_api_key():
     it."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
         api_key="sk-test-123",
         base_url="https://api.openai.com/v1",
@@ -255,7 +255,7 @@ def test_overrides_defaults_base_url_for_api_key_without_one():
     """Empty base_url on an API-key slot → official OpenAI endpoint."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
         api_key="sk-x",
         base_url="",
@@ -271,7 +271,7 @@ def test_overrides_no_model_provider_for_oauth():
     blank for OAuth)."""
     result = _build_codex_config_overrides(
         instructions_path=Path("/tmp/i.md"),
-        mcp_server_urls={},
+        mcp_servers={},
         permissions=None,
         api_key="",
         auth_type="oauth",

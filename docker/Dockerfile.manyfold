@@ -77,6 +77,26 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.110 \
 RUN npm install -g @larksuite/cli \
  && npm cache clean --force
 
+# OfficeCLI — Office-document (docx/xlsx/pptx) CLI exposed to agents via the
+# built-in `officecli` skill. Like lark-cli it MUST be baked into the image:
+# container mode doesn't install CLIs at startup and _tool_policy_guard forbids
+# the agent from installing at runtime. Self-contained single binary (embedded
+# .NET, no deps). Pinned for layer-cache stability + reproducibility — bump in
+# lockstep with run.sh (_try_install_officecli) and scripts/build-desktop.sh.
+# Own RUN layer so a version bump doesn't bust the npm-CLI layer caches.
+ARG OFFICECLI_VERSION=v1.0.135
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    case "$arch" in \
+      x86_64|amd64) asset=officecli-linux-x64 ;; \
+      aarch64|arm64) asset=officecli-linux-arm64 ;; \
+      *) echo "unsupported arch for officecli: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/officecli \
+      "https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}/${asset}"; \
+    chmod +x /usr/local/bin/officecli; \
+    officecli --version
+
 # uv (the project's Python package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 

@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
-last_verified: 2026-05-27
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — set_is_active (activation without re-bind)
+
+Added `set_is_active(agent_id, is_active)`, mirroring the other channels' `set_enabled`. Flipping `is_active` → True is what makes the trigger's credential watcher pick up a bundle-imported (inactive) Lark credential and claim the app's single WS slot. Called by `POST /api/lark/set-active`.
 
 # _lark_credential_manager.py — CRUD for lark_credentials table
 

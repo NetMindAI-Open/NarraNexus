@@ -5,9 +5,14 @@
 @description: Route tests for backend/routes/billing.py (NetMind billing proxy).
 
 Mirrors tests/backend/test_provider_oauth_gating.py: a FastAPI TestClient with a
-fake auth middleware, cloud mode forced via env, and the billing client stubbed
-so no real network happens. Verifies cloud gating, token requirement, and
-error mapping (auth -> 401, upstream -> 502).
+fake auth middleware, the deployment mode forced via env, and the billing client
+stubbed so no real network happens.
+
+Gating is on the "power" axis (post-dual-mode-login refactor), NOT deployment
+mode: /plans gates on is_power_login_enabled(); user-scoped endpoints gate on
+is_power_account(user_id) — stubbed here (default: caller IS a Power account).
+Verifies power gating, token requirement, and error mapping (auth -> 401,
+upstream -> 502).
 """
 from __future__ import annotations
 
@@ -105,21 +110,65 @@ def _stub_client(monkeypatch, *, plans=None, me=None, fee=None, records=None, ac
             }
 
     monkeypatch.setattr(billing_mod, "_client", lambda: _Stub())
+    # Default: the caller IS a Power account, so user-scoped endpoints are
+    # reachable. Individual tests override via _stub_power(..., is_power=False).
+    _stub_power(monkeypatch, is_power=True)
 
 
-# --- cloud gating -----------------------------------------------------------
+def _stub_power(monkeypatch, *, is_power=True):
+    async def _is_power(user_id):
+        return is_power
 
-def test_plans_404_in_local_mode(make_client, monkeypatch):
+    monkeypatch.setattr(billing_mod, "is_power_account", _is_power)
+
+
+# --- power-login gating (deployment axis: /plans) ---------------------------
+
+def test_plans_404_when_power_login_disabled(make_client, monkeypatch):
+    # local install with no NARRANEXUS_ENABLE_POWER_LOGIN opt-in
     _stub_client(monkeypatch)
     client = make_client(cloud=False)
     assert client.get("/api/billing/plans").status_code == 404
 
 
-def test_subscription_404_in_local_mode(make_client, monkeypatch):
+def test_plans_ok_in_local_when_power_login_enabled(make_client, monkeypatch):
+    _stub_client(monkeypatch, plans={"plans": [{"plan_id": "pro"}]})
+    monkeypatch.setenv("NARRANEXUS_ENABLE_POWER_LOGIN", "true")
+    client = make_client(cloud=False)  # local deployment, Power login opted in
+    assert client.get("/api/billing/plans").status_code == 200
+
+
+# --- power-account gating (per-user axis: user-scoped endpoints) ------------
+
+def test_subscription_404_for_local_username_user(make_client, monkeypatch):
+    # Local deployment + a pure-local username user (not a Power account) → 404.
+    # (In cloud mode billing stays reachable for every authed user — see the
+    # is_cloud_mode() short-circuit in _require_power_account.)
     _stub_client(monkeypatch)
+    _stub_power(monkeypatch, is_power=False)
     client = make_client(cloud=False)
     r = client.get("/api/billing/subscription", headers={**USER, "X-Netmind-Token": "jwt"})
     assert r.status_code == 404
+
+
+def test_subscription_ok_for_power_user_in_local_mode(make_client, monkeypatch):
+    # The core dual-mode win: a Power account works on a LOCAL deployment.
+    _stub_client(monkeypatch, me={"plan_id": "pro", "subscription": {"status": "ACTIVE"}})
+    monkeypatch.setenv("NARRANEXUS_ENABLE_POWER_LOGIN", "true")
+    client = make_client(cloud=False)
+    r = client.get("/api/billing/subscription", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 200
+    assert r.json()["data"]["subscription"]["status"] == "ACTIVE"
+
+
+def test_subscription_reachable_in_cloud_even_if_not_individual(make_client, monkeypatch):
+    # No cloud regression: in cloud mode billing stays reachable for any authed
+    # user (is_cloud_mode() short-circuit), even a row that isn't "individual".
+    _stub_client(monkeypatch)
+    _stub_power(monkeypatch, is_power=False)
+    client = make_client(cloud=True)
+    r = client.get("/api/billing/subscription", headers={**USER, "X-Netmind-Token": "jwt"})
+    assert r.status_code == 200
 
 
 # --- plans (public) ---------------------------------------------------------
@@ -201,8 +250,9 @@ def test_fee_info_missing_token_401(make_client, monkeypatch):
     assert client.get("/api/billing/fee-info", headers=USER).status_code == 401
 
 
-def test_fee_info_404_in_local_mode(make_client, monkeypatch):
+def test_fee_info_404_for_local_username_user(make_client, monkeypatch):
     _stub_client(monkeypatch)
+    _stub_power(monkeypatch, is_power=False)
     client = make_client(cloud=False)
     r = client.get("/api/billing/fee-info", headers={**USER, "X-Netmind-Token": "jwt"})
     assert r.status_code == 404
@@ -322,8 +372,9 @@ def test_subscribe_upstream_maps_to_502(make_client, monkeypatch):
     assert client.post("/api/billing/subscribe", headers=H).status_code == 502
 
 
-def test_subscribe_404_in_local_mode(make_client, monkeypatch):
+def test_subscribe_404_for_local_username_user(make_client, monkeypatch):
     _stub_client(monkeypatch)
+    _stub_power(monkeypatch, is_power=False)
     client = make_client(cloud=False)
     assert client.post("/api/billing/subscribe", headers=H).status_code == 404
 
@@ -378,8 +429,9 @@ def test_recharge_missing_token_401(make_client, monkeypatch):
     assert client.post("/api/billing/recharge", headers=USER, json={"amount": 10}).status_code == 401
 
 
-def test_recharge_404_in_local_mode(make_client, monkeypatch):
+def test_recharge_404_for_local_username_user(make_client, monkeypatch):
     _stub_client(monkeypatch)
+    _stub_power(monkeypatch, is_power=False)
     client = make_client(cloud=False)
     assert client.post("/api/billing/recharge", headers=H, json={"amount": 10}).status_code == 404
 

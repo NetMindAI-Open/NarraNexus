@@ -40,7 +40,7 @@ class MCPRepository(BaseRepository[MCPUrl]):
     table_name = "mcp_urls"
     id_field = "id"
 
-    _json_fields = {"metadata"}
+    _json_fields = {"metadata", "headers"}
 
     async def get_mcp(self, mcp_id: str) -> Optional[MCPUrl]:
         """Get a single MCP"""
@@ -74,6 +74,7 @@ class MCPRepository(BaseRepository[MCPUrl]):
         mcp_id: str,
         name: str,
         url: str,
+        headers: Optional[Dict[str, str]] = None,
         description: Optional[str] = None,
         is_enabled: bool = True,
         metadata: Optional[Dict[str, Any]] = None
@@ -87,6 +88,7 @@ class MCPRepository(BaseRepository[MCPUrl]):
             user_id=user_id,
             name=name,
             url=url,
+            headers=headers,
             description=description,
             is_enabled=is_enabled,
             connection_status="unknown",
@@ -99,9 +101,11 @@ class MCPRepository(BaseRepository[MCPUrl]):
         """Update MCP information"""
         logger.debug(f"    → MCPRepository.update_mcp({mcp_id})")
 
-        # Serialize JSON fields
-        if "metadata" in updates and not isinstance(updates["metadata"], str):
-            updates["metadata"] = json.dumps(updates["metadata"], ensure_ascii=False)
+        # Serialize JSON fields on a copy — never mutate the caller's dict.
+        updates = dict(updates)
+        for json_field in ("metadata", "headers"):
+            if json_field in updates and updates[json_field] is not None and not isinstance(updates[json_field], str):
+                updates[json_field] = json.dumps(updates[json_field], ensure_ascii=False)
 
         query = f"""
             UPDATE {self.table_name}
@@ -142,6 +146,7 @@ class MCPRepository(BaseRepository[MCPUrl]):
     def _row_to_entity(self, row: Dict[str, Any]) -> MCPUrl:
         """Convert a database row to an MCPUrl object"""
         metadata = self._parse_json_field(row.get("metadata"), None)
+        headers = self._parse_json_field(row.get("headers"), None)
 
         return MCPUrl(
             id=row.get("id"),
@@ -150,6 +155,7 @@ class MCPRepository(BaseRepository[MCPUrl]):
             user_id=row["user_id"],
             name=row["name"],
             url=row["url"],
+            headers=headers,
             description=row.get("description"),
             is_enabled=row.get("is_enabled", True),
             connection_status=row.get("connection_status"),
@@ -168,6 +174,7 @@ class MCPRepository(BaseRepository[MCPUrl]):
             "user_id": entity.user_id,
             "name": entity.name,
             "url": entity.url,
+            "headers": json.dumps(entity.headers, ensure_ascii=False) if entity.headers else None,
             "description": entity.description,
             "is_enabled": entity.is_enabled,
             "connection_status": entity.connection_status,
@@ -193,7 +200,11 @@ class MCPRepository(BaseRepository[MCPUrl]):
 # MCP SSE Connection Validation
 # =============================================================================
 
-async def validate_mcp_sse_connection(url: str, timeout: float = 10.0) -> Tuple[bool, Optional[str]]:
+async def validate_mcp_sse_connection(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    timeout: float = 10.0,
+) -> Tuple[bool, Optional[str]]:
     """
     Validate whether an MCP SSE URL can connect normally
 
@@ -202,6 +213,8 @@ async def validate_mcp_sse_connection(url: str, timeout: float = 10.0) -> Tuple[
 
     Args:
         url: MCP SSE URL
+        headers: Custom HTTP headers to send (e.g. Authorization); values are
+            secrets — never log them
         timeout: Timeout duration (seconds)
 
     Returns:
@@ -215,13 +228,18 @@ async def validate_mcp_sse_connection(url: str, timeout: float = 10.0) -> Tuple[
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(timeout, connect=5.0)
         ) as client:
+            # Custom headers first, SSE baseline last: the code below asserts
+            # the response is text/event-stream, so a user-supplied Accept
+            # override would make a perfectly healthy endpoint fail validation.
+            request_headers = dict(headers) if headers else {}
+            request_headers.update({
+                "Accept": "text/event-stream",
+                "Cache-Control": "no-cache",
+            })
             async with client.stream(
                 "GET",
                 url,
-                headers={
-                    "Accept": "text/event-stream",
-                    "Cache-Control": "no-cache",
-                }
+                headers=request_headers,
             ) as response:
                 # Check response status
                 if response.status_code == 200:

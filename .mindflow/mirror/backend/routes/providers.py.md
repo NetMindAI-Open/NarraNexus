@@ -1,8 +1,39 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-09
+last_verified: 2026-07-16
 stub: false
 ---
+
+## 2026-07-16 — GET /api/providers 附上 NetMind 账户邮箱
+
+新增 `_attach_netmind_accounts(uid, data)`:在 `_config_to_response` 之后,从
+`user_providers`(source='netmind')按 provider_id 读出 `netmind_account_email` 合并进每个
+provider dict,供 Settings 显示"该 key 属于哪个账户"。在 API 边界做的定向增强,避免把新列
+一路穿过 LLMConfig 模型。best-effort——查不到就省略该字段。
+
+## 2026-07-13 — use-subscription reachability moved to power axis
+
+The `use_subscription` route's "not available" gate changed from
+`is_cloud_mode()` to `is_power_login_enabled()` ([[deployment_mode]]), so a local
+deployment that opted into Power login can hit it too. The
+`settings.netmind_use_subscription_enabled` feature-flag gate is unchanged.
+**`_is_cloud()` (line ~128) and its OAuth-card/staff uses are untouched** — those
+are the multi-tenant authz boundary, not a Power capability.
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+在 4 个『用户重新可运行』边缘（add_provider/onboard/use_subscription/set_slot，紧挨既有 `schedule_user_no_quota_rearm(uid)`）新增 `await _resume_agent_circuit_breakers(uid)` → `agent_circuit_breaker.reset_for_owner`：换 key/充值/换 slot 后自动解除该 owner 的 auth/quota 暂停（transient 冷却不动）。best-effort，绝不弄挂重配。
+
+## 2026-07-10 — use-subscription is now a thin wrapper over the provisioner
+
+The mint + dedup + onboard + orphan-cleanup + per-user lock all moved into
+[[netmind_provisioner]]'s `ensure_netmind_provider` (shared with login
+auto-register). The route now only: gates (cloud / flag / token), calls
+`ensure_netmind_provider(uid, token, activate_if_fresh=True)`, maps its outcome
+to HTTP (True→200 with the refreshed config, False→409 already-connected,
+KeyAuthError→401, KeyUpstreamError→502, ValueError→409/502/400), and runs the
+hot-reload + rearm tail. It's now mainly a fallback — every login auto-registers,
+so the frontend no longer calls it. `_use_sub_locks` was removed from this file.
 
 ## 2026-07-09 — `_is_cloud` delegates to deployment_mode
 

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/skills/MCPManager.tsx
-last_verified: 2026-05-22
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — 添加表单支持自定义请求头
+
+AddMCPForm 增加可选 header 键值行（值输入框 type=password），提交时过滤空行；
+列表项在 URL 下方显示 header 键名（KeyRound 图标，值只有掩码，来自后端）。
+hint.apiKey 文案从"我们以匿名方式连接"改为引导填请求头。10 个 locale 同步。
 
 ## 2026-05-22 — add-form usability hints (#4)
 

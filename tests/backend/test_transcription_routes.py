@@ -30,7 +30,14 @@ from xyz_agent_context.agent_framework.transcription import (
 
 @pytest.fixture
 def availability_app(monkeypatch):
+    # Mount the real auth middleware: the route reads identity from
+    # request.state.user_id, which only the middleware populates (local
+    # mode: X-User-Id header). The old `?user_id=` query fallback was
+    # removed in the identity-hardening pass.
+    from backend.auth import auth_middleware
+
     app = FastAPI()
+    app.middleware("http")(auth_middleware)
     app.include_router(availability_route.router, prefix="/api/transcription")
     return app
 
@@ -48,7 +55,7 @@ def _patch_service(monkeypatch, *, available: bool, reason: str):
 def test_availability_reports_has_openai(availability_app, monkeypatch):
     _patch_service(monkeypatch, available=True, reason="has_openai")
     client = TestClient(availability_app)
-    resp = client.get("/api/transcription/availability?user_id=u1")
+    resp = client.get("/api/transcription/availability", headers={"X-User-Id": "u1"})
     assert resp.status_code == 200
     assert resp.json() == {"available": True, "reason": "has_openai"}
 
@@ -56,14 +63,14 @@ def test_availability_reports_has_openai(availability_app, monkeypatch):
 def test_availability_reports_none(availability_app, monkeypatch):
     _patch_service(monkeypatch, available=False, reason="none")
     client = TestClient(availability_app)
-    resp = client.get("/api/transcription/availability?user_id=u1")
+    resp = client.get("/api/transcription/availability", headers={"X-User-Id": "u1"})
     assert resp.json() == {"available": False, "reason": "none"}
 
 
 def test_availability_reports_system_free_tier(availability_app, monkeypatch):
     _patch_service(monkeypatch, available=True, reason="system_free_tier")
     client = TestClient(availability_app)
-    resp = client.get("/api/transcription/availability?user_id=u1")
+    resp = client.get("/api/transcription/availability", headers={"X-User-Id": "u1"})
     body = resp.json()
     assert body["available"] is True
     assert body["reason"] == "system_free_tier"
@@ -74,7 +81,7 @@ def test_availability_reports_none_openai_only(availability_app, monkeypatch):
     branch — frontend reads this reason and renders OpenAI-only copy."""
     _patch_service(monkeypatch, available=False, reason="none_openai_only")
     client = TestClient(availability_app)
-    resp = client.get("/api/transcription/availability?user_id=u1")
+    resp = client.get("/api/transcription/availability", headers={"X-User-Id": "u1"})
     body = resp.json()
     assert body["available"] is False
     assert body["reason"] == "none_openai_only"

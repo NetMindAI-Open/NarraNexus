@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-06-23
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — threads `onClearData`
+
+Additive: a new `onClearData(agent, e)` prop is threaded from [[AgentList.tsx]]
+through both the section and the private `AgentRow` down to
+[[AgentRowMenu.tsx]]'s new "Clear data…" item (same pattern as `onDelete`).
 
 ## 2026-06-24 — compact single-line agent rows (denser list)
 

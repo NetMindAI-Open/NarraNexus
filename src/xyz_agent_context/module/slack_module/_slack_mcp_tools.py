@@ -24,12 +24,30 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._slack_credential_manager import SlackCredentialManager
 from ._slack_service import do_bind, do_test_connection
 from ._slack_skill_loader import get_skill_loader
 from .slack_sdk_client import SlackSDKClient
+
+
+# Semantic reaction vocabulary → Slack emoji names (shared cross-channel set;
+# each IM module maps it to its own platform tokens).
+_SLACK_REACTIONS = {
+    "on_it": "eyes",
+    "searching": "mag",
+    "done": "white_check_mark",
+    "celebrate": "tada",
+    "thumbs_up": "thumbsup",
+    "heart": "heart",
+    "thanks": "pray",
+    "applause": "clap",
+    "hundred": "100",
+    "warning": "warning",
+    "problem": "x",
+}
 
 
 # Loose validation: dotted lowercase identifiers (Slack convention)
@@ -117,6 +135,35 @@ def register_slack_mcp_tools(mcp: Any) -> None:
 
         client = SlackSDKClient(cred.bot_token)
         return await client.api_call(method, args)
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without a full message. ``room_id`` is the Slack channel,
+        ``message_id`` the inbound message ts (both shown in your channel
+        instructions). ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
+
+        Best-effort: needs ``reactions:write``; a failure returns
+        ``{"success": false, "reason": ...}`` and never breaks your turn.
+        """
+        if not room_id or not message_id:
+            return {"success": False, "reason": "room_id and message_id are required"}
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "reason": "no_credential"}
+        client = SlackSDKClient(cred.bot_token)
+        return await best_effort_react(
+            _SLACK_REACTIONS,
+            emoji,
+            lambda token: client.add_reaction(room_id, message_id, token),
+            log_label=f"slack:{agent_id}",
+        )
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()

@@ -73,10 +73,10 @@ WORKSPACE_RULES_CLOUD = (
     "inside the skill directory.\n"
     "- **If a SKILL.md demands a global CLI / system package you can't "
     "install** (e.g. needs `brew install ...`), do NOT keep trying. Call "
-    "`send_message_to_user_directly` and tell the user: *\"This skill "
+    '`send_message_to_user_directly` and tell the user: *"This skill '
     "needs a global CLI install, which this cloud deployment does not "
     "yet support. Please either pick a different skill, or run this on "
-    "a local NarraNexus install.\"*\n"
+    'a local NarraNexus install."*\n'
     "- **Pre-installed CLIs** already in PATH: `claude`, `lark-cli`, "
     "`arena` / `npx arena`. Use them directly.\n"
     "- **Credentials and API keys** — do BOTH of the following:\n"
@@ -185,6 +185,14 @@ Do NOT silently skip human-required steps — the skill will not function withou
 """
 
 
+# Repo-vendored built-in skills shipped with the app. Each subdirectory is a
+# standard skill (SKILL.md + assets) that gets materialized into every agent
+# workspace on run. Requires no credentials; the referenced CLIs are
+# pre-provisioned onto PATH by the shell/build layer (see run.sh /
+# Dockerfile.manyfold / build-desktop.sh), never installed by the agent.
+BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
+
+
 class SkillModule(XYZBaseModule):
     """
     Skill Module - Manages Skills under the user's workspace
@@ -201,20 +209,19 @@ class SkillModule(XYZBaseModule):
         user_id: Optional[str] = None,
         database_client: Optional[DatabaseClient] = None,
         instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
+        instance_ids: Optional[List[str]] = None,
     ):
         super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
 
         # Base path
         from xyz_agent_context.settings import settings
+
         self.base_path = Path(settings.base_working_path)
 
         # Skills directory (same as Claude Agent's cwd)
         from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
-        self.skills_dir = (
-            self.base_path / agent_workspace_relpath(agent_id, user_id) / "skills"
-            if user_id else None
-        )
+
+        self.skills_dir = self.base_path / agent_workspace_relpath(agent_id, user_id) / "skills" if user_id else None
 
         # MCP Server port
         self.port = 7806
@@ -241,6 +248,10 @@ class SkillModule(XYZBaseModule):
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         """Scan skills directory and add Skills information to ctx_data"""
         logger.debug(f"SkillModule.hook_data_gathering() started for agent_id={self.agent_id}")
+
+        # Materialize repo-vendored built-in skills before scanning so they
+        # appear in the table on the very first run.
+        self._materialize_builtin_skills()
 
         skills = self._scan_skills()
 
@@ -314,9 +325,7 @@ class SkillModule(XYZBaseModule):
         - skill_save_study_summary: Save structured study summary
         """
         return MCPServerConfig(
-            server_name="skill_module",
-            server_url=f"http://{mcp_host()}:{self.port}/sse",
-            type="sse"
+            server_name="skill_module", server_url=f"http://{mcp_host()}:{self.port}/sse", type="sse"
         )
 
     def create_mcp_server(self):
@@ -327,7 +336,75 @@ class SkillModule(XYZBaseModule):
         and construct temporary SkillModule instances internally.
         """
         from xyz_agent_context.module.skill_module._skill_mcp_tools import create_skill_mcp_server
+
         return create_skill_mcp_server(self.port)
+
+    # =========================================================================
+    # Built-in Skills
+    # =========================================================================
+
+    def _materialize_builtin_skills(self) -> None:
+        """Materialize repo-vendored built-in skills into the workspace.
+
+        Built-in skills ship with the app under ``BUILTIN_SKILLS_DIR``. On every
+        run we copy any that are not yet present in the agent workspace into
+        ``skills/<name>/`` and tag them ``builtin: true`` in ``.skill_meta.json``.
+        This keeps their ``SKILL.md`` inside the workspace so ``cat
+        skills/<name>/SKILL.md`` stays within the cloud read-guard boundary.
+
+        Idempotent and disable-aware: a built-in is skipped when either
+        ``skills/<name>/`` or ``skills/.disabled/<name>/`` already exists, so a
+        user who disabled it is not overridden by a resurrection on the next run.
+        """
+        if not self.skills_dir or not BUILTIN_SKILLS_DIR.exists():
+            return
+
+        disabled_dir = self.skills_dir / ".disabled"
+        for src in BUILTIN_SKILLS_DIR.iterdir():
+            if not src.is_dir() or src.name.startswith("."):
+                continue
+            name = src.name
+            dest = self.skills_dir / name
+            if dest.exists() or (disabled_dir / name).exists():
+                # Already materialized, or intentionally disabled by the user.
+                continue
+            try:
+                self.skills_dir.mkdir(parents=True, exist_ok=True)
+                # Stage into a unique temp dir, then atomically rename into
+                # place. Two concurrent runs (threads sharing this workspace, or
+                # separate processes) could both pass the exists() check above;
+                # a direct copytree to `dest` would then race and the loser would
+                # raise FileExistsError — swallowed as a warning, masking the
+                # race. mkdtemp gives each racer a private staging dir, and
+                # os.rename onto an already-placed `dest` fails cleanly so the
+                # loser simply discards its copy. Result is materialize-once with
+                # no spurious warning.
+                staging = Path(tempfile.mkdtemp(prefix=f".materialize.{name}.", dir=self.skills_dir))
+                shutil.copytree(src, staging, dirs_exist_ok=True)
+                self._write_builtin_meta(staging)
+                try:
+                    os.rename(staging, dest)
+                except OSError:
+                    # Another run won the race and placed `dest` first.
+                    shutil.rmtree(staging, ignore_errors=True)
+                    continue
+                logger.info(f"Materialized built-in skill '{name}' into {dest}")
+            except Exception as e:
+                logger.warning(f"Failed to materialize built-in skill '{name}': {e}")
+
+    @staticmethod
+    def _write_builtin_meta(skill_dir: Path) -> None:
+        """Write .skill_meta.json for a freshly materialized built-in skill."""
+        meta_data = {
+            "source_type": "builtin",
+            "builtin": True,
+            "installed_at": datetime.now().isoformat(),
+        }
+        meta_file = skill_dir / ".skill_meta.json"
+        try:
+            meta_file.write_text(json.dumps(meta_data, indent=2), encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Failed to write built-in skill metadata: {e}")
 
     # =========================================================================
     # Scanning Logic
@@ -340,7 +417,7 @@ class SkillModule(XYZBaseModule):
 
         skills = []
         for skill_path in self.skills_dir.iterdir():
-            if skill_path.is_dir() and not skill_path.name.startswith('.'):
+            if skill_path.is_dir() and not skill_path.name.startswith("."):
                 skill_md = skill_path / "SKILL.md"
                 if skill_md.exists():
                     info = self._parse_skill_md(skill_md)
@@ -352,20 +429,21 @@ class SkillModule(XYZBaseModule):
                     meta_data = {}
                     if meta_file.exists():
                         try:
-                            meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                            meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
                         except Exception:
                             pass
 
                     info = SkillInfo(
                         name=skill_path.name,
-                        description=meta_data.get('description', '(No SKILL.md found)'),
+                        description=meta_data.get("description", "(No SKILL.md found)"),
                         path=str(skill_path),
-                        source_url=meta_data.get('source_url'),
-                        installed_at=meta_data.get('installed_at'),
-                        study_status=meta_data.get('study_status'),
-                        study_result=meta_data.get('study_result'),
-                        study_error=meta_data.get('study_error'),
-                        studied_at=meta_data.get('studied_at'),
+                        builtin=bool(meta_data.get("builtin", False)),
+                        source_url=meta_data.get("source_url"),
+                        installed_at=meta_data.get("installed_at"),
+                        study_status=meta_data.get("study_status"),
+                        study_result=meta_data.get("study_result"),
+                        study_error=meta_data.get("study_error"),
+                        studied_at=meta_data.get("studied_at"),
                     )
                     skills.append(info)
 
@@ -382,12 +460,33 @@ class SkillModule(XYZBaseModule):
         - `MY_VAR` in backticks
         """
         import re
-        env_pattern = re.compile(r'\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b')
+
+        env_pattern = re.compile(r"\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b")
         candidates = set(env_pattern.findall(text))
-        env_suffixes = ('_KEY', '_TOKEN', '_SECRET', '_ACCOUNT', '_URL',
-                        '_PASSWORD', '_PASS', '_API', '_AUTH', '_CREDENTIAL')
-        env_prefixes = ('API_', 'AWS_', 'GOOGLE_', 'OPENAI_', 'ANTHROPIC_',
-                        'TAVILY_', 'GOG_', 'GITHUB_', 'SLACK_', 'DISCORD_')
+        env_suffixes = (
+            "_KEY",
+            "_TOKEN",
+            "_SECRET",
+            "_ACCOUNT",
+            "_URL",
+            "_PASSWORD",
+            "_PASS",
+            "_API",
+            "_AUTH",
+            "_CREDENTIAL",
+        )
+        env_prefixes = (
+            "API_",
+            "AWS_",
+            "GOOGLE_",
+            "OPENAI_",
+            "ANTHROPIC_",
+            "TAVILY_",
+            "GOG_",
+            "GITHUB_",
+            "SLACK_",
+            "DISCORD_",
+        )
         result = []
         for c in candidates:
             if any(c.endswith(s) for s in env_suffixes):
@@ -407,32 +506,33 @@ class SkillModule(XYZBaseModule):
         meta_data = {}
         if meta_file.exists():
             try:
-                meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
             except Exception as e:
                 logger.warning(f"Failed to read .skill_meta.json: {e}")
 
         # Extract fields from meta_data
-        source_url = meta_data.get('source_url')
-        installed_at = meta_data.get('installed_at')
+        source_url = meta_data.get("source_url")
+        installed_at = meta_data.get("installed_at")
+        builtin = bool(meta_data.get("builtin", False))
         study_fields = {
-            "study_status": meta_data.get('study_status'),
-            "study_result": meta_data.get('study_result'),
-            "study_error": meta_data.get('study_error'),
-            "studied_at": meta_data.get('studied_at'),
+            "study_status": meta_data.get("study_status"),
+            "study_result": meta_data.get("study_result"),
+            "study_error": meta_data.get("study_error"),
+            "studied_at": meta_data.get("studied_at"),
         }
 
         # Extract requirements from .skill_meta.json (may have been set by study)
-        meta_requires = meta_data.get('requires', {})
-        meta_requires_env = meta_requires.get('env', []) if isinstance(meta_requires, dict) else []
-        meta_requires_bins = meta_requires.get('bins', []) if isinstance(meta_requires, dict) else []
+        meta_requires = meta_data.get("requires", {})
+        meta_requires_env = meta_requires.get("env", []) if isinstance(meta_requires, dict) else []
+        meta_requires_bins = meta_requires.get("bins", []) if isinstance(meta_requires, dict) else []
 
         # Read env_config to determine if all required vars are configured
-        env_config = meta_data.get('env_config', {})
+        env_config = meta_data.get("env_config", {})
 
         try:
-            content = skill_md.read_text(encoding='utf-8')
-            if content.startswith('---'):
-                parts = content.split('---', 2)
+            content = skill_md.read_text(encoding="utf-8")
+            if content.startswith("---"):
+                parts = content.split("---", 2)
                 if len(parts) >= 3:
                     fm = parts[1]
                     meta = yaml.safe_load(fm)
@@ -440,22 +540,22 @@ class SkillModule(XYZBaseModule):
                         # Parse structured metadata (e.g., clawdbot format)
                         fm_requires_env = []
                         fm_requires_bins = []
-                        metadata_field = meta.get('metadata', {})
+                        metadata_field = meta.get("metadata", {})
                         if isinstance(metadata_field, str):
                             try:
                                 metadata_field = json.loads(metadata_field)
                             except (json.JSONDecodeError, TypeError):
                                 metadata_field = {}
                         if isinstance(metadata_field, dict):
-                            clawdbot = metadata_field.get('clawdbot', {})
+                            clawdbot = metadata_field.get("clawdbot", {})
                             if isinstance(clawdbot, dict):
-                                requires = clawdbot.get('requires', {})
+                                requires = clawdbot.get("requires", {})
                                 if isinstance(requires, dict):
-                                    fm_requires_env = requires.get('env', [])
-                                    fm_requires_bins = requires.get('bins', [])
+                                    fm_requires_env = requires.get("env", [])
+                                    fm_requires_bins = requires.get("bins", [])
 
                         # Scan markdown body for env var patterns
-                        body_text = parts[2] if len(parts) >= 3 else ''
+                        body_text = parts[2] if len(parts) >= 3 else ""
                         body_env = self._extract_env_vars_from_text(body_text)
 
                         # Merge frontmatter + body scan + meta.json requirements (union)
@@ -468,11 +568,12 @@ class SkillModule(XYZBaseModule):
                             env_configured = all(env_config.get(v) for v in requires_env)
 
                         return SkillInfo(
-                            name=meta.get('name', skill_dir.name),
-                            description=meta.get('description', ''),
+                            name=meta.get("name", skill_dir.name),
+                            description=meta.get("description", ""),
                             path=str(skill_dir),
-                            version=meta.get('version'),
-                            author=meta.get('author'),
+                            builtin=builtin,
+                            version=meta.get("version"),
+                            author=meta.get("author"),
                             source_url=source_url,
                             installed_at=installed_at,
                             requires_env=requires_env,
@@ -492,8 +593,9 @@ class SkillModule(XYZBaseModule):
 
         return SkillInfo(
             name=skill_dir.name,
-            description='',
+            description="",
             path=str(skill_dir),
+            builtin=builtin,
             source_url=source_url,
             installed_at=installed_at,
             requires_env=requires_env,
@@ -502,21 +604,33 @@ class SkillModule(XYZBaseModule):
             **study_fields,
         )
 
-    def _save_skill_meta(
-        self,
-        skill_dir: Path,
-        source_url: Optional[str] = None,
-        source_type: str = "unknown"
-    ) -> None:
-        """Save Skill metadata to .skill_meta.json"""
-        meta_data = {
-            "source_url": source_url,
-            "source_type": source_type,
-            "installed_at": datetime.now().isoformat(),
-        }
+    def _save_skill_meta(self, skill_dir: Path, source_url: Optional[str] = None, source_type: str = "unknown") -> None:
+        """Save Skill metadata to .skill_meta.json.
+
+        Preserves any metadata that travelled with the skill (``env_config`` /
+        ``study_result`` / ``requires`` from a bundle full_copy archive) —
+        only the provenance fields are (re)written here. A fresh install (github
+        clone / plain zip with no meta) has nothing to preserve, so this is a
+        no-op merge for those paths.
+        """
         meta_file = skill_dir / ".skill_meta.json"
+        meta_data: dict = {}
+        if meta_file.exists():
+            try:
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
+                if not isinstance(meta_data, dict):
+                    meta_data = {}
+            except Exception:
+                meta_data = {}
+        meta_data.update(
+            {
+                "source_url": source_url,
+                "source_type": source_type,
+                "installed_at": datetime.now().isoformat(),
+            }
+        )
         try:
-            meta_file.write_text(json.dumps(meta_data, indent=2), encoding='utf-8')
+            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
             logger.debug(f"Saved skill metadata to {meta_file}")
         except Exception as e:
             logger.warning(f"Failed to save skill metadata: {e}")
@@ -536,7 +650,7 @@ class SkillModule(XYZBaseModule):
         meta_file = skill_dir / ".skill_meta.json"
         if meta_file.exists():
             try:
-                meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
                 return {
                     "study_status": meta_data.get("study_status", "idle"),
                     "study_result": meta_data.get("study_result"),
@@ -569,7 +683,7 @@ class SkillModule(XYZBaseModule):
         meta_data = {}
         if meta_file.exists():
             try:
-                meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                meta_data = json.loads(meta_file.read_text(encoding="utf-8"))
             except Exception:
                 pass
 
@@ -583,10 +697,7 @@ class SkillModule(XYZBaseModule):
             meta_data["studied_at"] = datetime.now().isoformat()
 
         try:
-            meta_file.write_text(
-                json.dumps(meta_data, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
+            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
             logger.debug(f"Updated study status for '{skill_name}': {status}")
         except Exception as e:
             logger.warning(f"Failed to update study status: {e}")
@@ -615,16 +726,16 @@ class SkillModule(XYZBaseModule):
             return direct
         # Scan and match by parsed name from SKILL.md
         for skill_path in self.skills_dir.iterdir():
-            if skill_path.is_dir() and not skill_path.name.startswith('.'):
+            if skill_path.is_dir() and not skill_path.name.startswith("."):
                 skill_md = skill_path / "SKILL.md"
                 if skill_md.exists():
                     try:
-                        content = skill_md.read_text(encoding='utf-8')
-                        if content.startswith('---'):
-                            parts = content.split('---', 2)
+                        content = skill_md.read_text(encoding="utf-8")
+                        if content.startswith("---"):
+                            parts = content.split("---", 2)
                             if len(parts) >= 3:
                                 meta = yaml.safe_load(parts[1])
-                                if meta and meta.get('name') == skill_name:
+                                if meta and meta.get("name") == skill_name:
                                     return skill_path
                     except Exception:
                         pass
@@ -638,7 +749,7 @@ class SkillModule(XYZBaseModule):
         meta_file = skill_dir / ".skill_meta.json"
         if meta_file.exists():
             try:
-                return json.loads(meta_file.read_text(encoding='utf-8'))
+                return json.loads(meta_file.read_text(encoding="utf-8"))
             except Exception as e:
                 logger.warning(f"Failed to read .skill_meta.json for '{skill_name}': {e}")
         return {}
@@ -651,37 +762,35 @@ class SkillModule(XYZBaseModule):
             return
         meta_file = skill_dir / ".skill_meta.json"
         try:
-            meta_file.write_text(
-                json.dumps(meta_data, indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
+            meta_file.write_text(json.dumps(meta_data, indent=2, ensure_ascii=False), encoding="utf-8")
         except Exception as e:
             logger.warning(f"Failed to write .skill_meta.json for '{skill_name}': {e}")
 
     def get_skill_requirements(self, skill_name: str) -> dict:
         """Get the requirements dict from .skill_meta.json"""
         meta_data = self._read_skill_meta(skill_name)
-        return meta_data.get('requires', {})
+        return meta_data.get("requires", {})
 
     def get_skill_env_config(self, skill_name: str) -> dict:
         """Get env_config from .skill_meta.json (var_name -> base64-encoded value)"""
         meta_data = self._read_skill_meta(skill_name)
-        return meta_data.get('env_config', {})
+        return meta_data.get("env_config", {})
 
     def set_skill_env_config(self, skill_name: str, env_config: dict) -> None:
         """Save env var values to .skill_meta.json (base64 encoded)"""
         import base64
+
         meta_data = self._read_skill_meta(skill_name)
 
         encoded_config = {}
         for key, value in env_config.items():
             if value:  # Only store non-empty values
-                encoded_config[key] = base64.b64encode(value.encode('utf-8')).decode('utf-8')
+                encoded_config[key] = base64.b64encode(value.encode("utf-8")).decode("utf-8")
 
         # Merge with existing (allow partial updates)
-        existing = meta_data.get('env_config', {})
+        existing = meta_data.get("env_config", {})
         existing.update(encoded_config)
-        meta_data['env_config'] = existing
+        meta_data["env_config"] = existing
 
         self._write_skill_meta(skill_name, meta_data)
         logger.info(f"Saved env config for skill '{skill_name}': {list(env_config.keys())}")
@@ -689,16 +798,16 @@ class SkillModule(XYZBaseModule):
     def update_requirements(self, skill_name: str, env_list: list, bins_list: list) -> None:
         """Merge new requirements into .skill_meta.json (union with existing)"""
         meta_data = self._read_skill_meta(skill_name)
-        existing = meta_data.get('requires', {})
-        existing_env = existing.get('env', []) if isinstance(existing, dict) else []
-        existing_bins = existing.get('bins', []) if isinstance(existing, dict) else []
+        existing = meta_data.get("requires", {})
+        existing_env = existing.get("env", []) if isinstance(existing, dict) else []
+        existing_bins = existing.get("bins", []) if isinstance(existing, dict) else []
 
         merged_env = sorted(set(existing_env + env_list))
         merged_bins = sorted(set(existing_bins + bins_list))
 
-        meta_data['requires'] = {
-            'env': merged_env,
-            'bins': merged_bins,
+        meta_data["requires"] = {
+            "env": merged_env,
+            "bins": merged_bins,
         }
         self._write_skill_meta(skill_name, meta_data)
         logger.info(f"Updated requirements for skill '{skill_name}': env={merged_env}, bins={merged_bins}")
@@ -709,18 +818,17 @@ class SkillModule(XYZBaseModule):
         Returns a merged dict of plaintext env var name -> value.
         """
         import base64
+
         all_env = {}
         skills = self._scan_skills()
         for skill in skills:
             meta_data = self._read_skill_meta(skill.name)
-            env_config = meta_data.get('env_config', {})
+            env_config = meta_data.get("env_config", {})
             for key, encoded_value in env_config.items():
                 try:
-                    value = base64.b64decode(encoded_value).decode('utf-8')
+                    value = base64.b64decode(encoded_value).decode("utf-8")
                     if key in all_env and all_env[key] != value:
-                        logger.warning(
-                            f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value"
-                        )
+                        logger.warning(f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value")
                     all_env[key] = value
                 except Exception:
                     logger.warning(f"Failed to decode env var '{key}' for skill '{skill.name}'")
@@ -731,7 +839,13 @@ class SkillModule(XYZBaseModule):
     # =========================================================================
 
     def list_skills(self, include_disabled: bool = False) -> List[SkillInfo]:
-        """List all Skills"""
+        """List all Skills.
+
+        Materializes built-in skills first so the API/UI surface them for a
+        freshly-created agent that has never run (materialize is otherwise only
+        triggered by hook_data_gathering on the first run).
+        """
+        self._materialize_builtin_skills()
         skills = self._scan_skills()
 
         if include_disabled and self.skills_dir:
@@ -747,8 +861,17 @@ class SkillModule(XYZBaseModule):
 
         return skills
 
-    def install_skill(self, zip_file_path: Path) -> SkillInfo:
-        """Install Skill from zip file"""
+    def install_skill(self, zip_file_path: Path, target_dir_name: Optional[str] = None) -> SkillInfo:
+        """Install Skill from zip file.
+
+        ``target_dir_name`` pins the destination folder name under ``skills/``.
+        Bundle import passes the manifest's known ``skill_dir`` here so a
+        full_copy skill lands in ``skills/<skill_dir>/`` and overwrites the
+        workspace-snapshot copy — instead of being re-derived from the SKILL.md
+        frontmatter ``name``, which falls back to the extraction temp-dir
+        basename when the SKILL.md has no frontmatter (which used to leave a
+        stray ``skills/tmpXXXX/`` disjoint from the real skill dir).
+        """
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
@@ -772,8 +895,9 @@ class SkillModule(XYZBaseModule):
             skill_md = skill_root / "SKILL.md"
             info = self._parse_skill_md(skill_md)
 
-            # Move to target directory
-            safe_skill_name = sanitize_filename(info.name, label="skill name")
+            # Move to target directory. An explicit target_dir_name (the bundle's
+            # known skill_dir) wins over the SKILL.md-derived name.
+            safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
             target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
             if target_dir.exists():
                 shutil.rmtree(target_dir)
@@ -815,8 +939,7 @@ class SkillModule(XYZBaseModule):
             members = zip_ref.infolist()
             if len(members) > max_entries:
                 raise ValueError(
-                    f"Invalid skill package: too many files "
-                    f"({len(members)} entries, limit is {max_entries})."
+                    f"Invalid skill package: too many files ({len(members)} entries, limit is {max_entries})."
                 )
 
             total_uncompressed = 0
@@ -826,15 +949,13 @@ class SkillModule(XYZBaseModule):
                 total_uncompressed += member.file_size
                 if total_uncompressed > max_uncompressed_bytes:
                     raise ValueError(
-                        f"Invalid skill package: uncompressed size exceeds the "
-                        f"{max_uncompressed_mb} MB limit."
+                        f"Invalid skill package: uncompressed size exceeds the {max_uncompressed_mb} MB limit."
                     )
 
                 destination = (target_dir / member_path).resolve(strict=False)
                 if target_root not in destination.parents and destination != target_root:
                     raise ValueError(
-                        f"Invalid skill package: path traversal not allowed "
-                        f"(offending entry: {member.filename!r})."
+                        f"Invalid skill package: path traversal not allowed (offending entry: {member.filename!r})."
                     )
 
                 if member.is_dir():
@@ -881,7 +1002,7 @@ class SkillModule(XYZBaseModule):
                 ["git", "clone", "--depth", "1", "-b", branch, url, str(temp_dir)],
                 check=True,
                 capture_output=True,
-                text=True
+                text=True,
             )
 
             # Verify SKILL.md exists
@@ -924,19 +1045,40 @@ class SkillModule(XYZBaseModule):
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
 
+    @staticmethod
+    def _dir_is_builtin(skill_dir: Path) -> bool:
+        """True if a skill directory is a built-in (per its .skill_meta.json).
+
+        Thin delegate to the single source of truth in ``bundle.skill_secrets``
+        so the built-in flag semantics stay identical across the module, the
+        backup path, and the export builder.
+        """
+        from xyz_agent_context.bundle.skill_secrets import dir_is_builtin
+
+        return dir_is_builtin(skill_dir)
+
     def remove_skill(self, skill_name: str) -> bool:
-        """Remove a Skill"""
+        """Remove a Skill.
+
+        Raises:
+            ValueError: If the skill is built-in — built-ins ship with the app
+                and cannot be deleted (they would re-materialize anyway). Disable
+                it instead.
+        """
         if not self.skills_dir:
             return False
 
         skill_path = self.skills_dir / skill_name
+        disabled_path = self.skills_dir / ".disabled" / skill_name
+        if self._dir_is_builtin(skill_path) or self._dir_is_builtin(disabled_path):
+            raise ValueError(f"Skill '{skill_name}' is built-in and can't be removed. Disable it instead.")
+
         if skill_path.exists():
             shutil.rmtree(skill_path)
             logger.info(f"Removed skill '{skill_name}' from {skill_path}")
             return True
 
         # Also check disabled directory
-        disabled_path = self.skills_dir / ".disabled" / skill_name
         if disabled_path.exists():
             shutil.rmtree(disabled_path)
             logger.info(f"Removed disabled skill '{skill_name}' from {disabled_path}")

@@ -53,7 +53,7 @@ def test_register_and_resolve_custom_driver():
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-        async def agent_loop(self, messages, mcp_server_urls, **kwargs):
+        async def agent_loop(self, messages, mcp_servers, **kwargs):
             yield {"type": "fake"}
 
     register_agent_loop_driver("fake-fw", _FakeDriver)
@@ -70,7 +70,7 @@ def test_registration_is_case_insensitive():
         def __init__(self, **kwargs):
             pass
 
-        async def agent_loop(self, messages, mcp_server_urls, **kwargs):
+        async def agent_loop(self, messages, mcp_servers, **kwargs):
             yield {}
 
     register_agent_loop_driver("UPPER", _D)

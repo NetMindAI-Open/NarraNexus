@@ -75,3 +75,21 @@ async def test_upsert_bumps_last_login_time(db_client):
 
     assert second.last_login_time is not None
     assert second.last_login_time >= first.last_login_time
+
+
+@pytest.mark.asyncio
+async def test_pre_existing_local_user_is_upgraded_to_individual(db_client):
+    """B4: a pure-local username user on a dual-mode install who later logs in
+    with their Power account must become user_type='individual', or the billing
+    gate (is_power_account) would keep denying them."""
+    repo = UserRepository(db_client)
+    # Pre-existing local row (as created by /api/auth/create-user).
+    await repo.add_user(user_id=_CODE, user_type="local", display_name="Local Bob")
+
+    user, is_new = await repo.upsert_netmind_user(
+        _CODE, email="bob@x.com", display_name="Bob"
+    )
+
+    assert is_new is False  # row already existed
+    assert user.user_type == "individual"  # upgraded
+    assert user.email == "bob@x.com"

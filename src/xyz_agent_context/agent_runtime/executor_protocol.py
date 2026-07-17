@@ -86,7 +86,7 @@ def build_agent_loop_request(
     framework: str,
     working_path: str,
     messages: list[dict[str, Any]],
-    mcp_server_urls: dict[str, str],
+    mcp_servers: dict[str, dict],
     extra_env: Optional[dict[str, str]],
     streaming: bool = True,
 ) -> dict[str, Any]:
@@ -101,7 +101,7 @@ def build_agent_loop_request(
         "framework": framework,
         "working_path": working_path,
         "messages": messages,
-        "mcp_server_urls": mcp_server_urls,
+        "mcp_servers": mcp_servers,
         "extra_env": extra_env,
         "streaming": streaming,
         "provider_configs": serialize_provider_configs(),

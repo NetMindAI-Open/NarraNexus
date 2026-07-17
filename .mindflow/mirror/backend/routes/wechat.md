@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/wechat.py
 stub: false
-last_verified: 2026-06-25
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — `/set-active` endpoint (activation)
+
+Added `POST /set-active` (flip `enabled` without a re-bind) → **5 endpoints now** (was 4). Used to activate a bundle-imported (inactive) WeChat credential via `set_enabled`.
 
 ## Why it exists
 
@@ -15,7 +19,7 @@ paste), bind is a two-step QR flow instead of a single ``POST /bind``.
 
 ## Design decisions
 
-- **Four endpoints, QR-shaped.**
+- **Five endpoints, QR-shaped.**
   - ``POST /qrcode/start`` — fetch a login QR from the gateway.
     Returns ``{qrcode, qr_url}``: ``qr_url`` is the scannable WeChat
     URL the frontend renders; ``qrcode`` is the opaque handle the

@@ -1,21 +1,25 @@
 ---
 code_file: backend/routes/lark.py
 stub: false
-last_verified: 2026-06-01
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — `/set-active` endpoint (activation)
+
+Added `POST /set-active` (flip `is_active` without a re-bind) → **8 endpoints now** (was 7). Primary use: activating a bundle-imported (inactive) Lark credential so the trigger's watcher claims the app's single WS slot. Delegates to `LarkCredentialManager.set_is_active`.
 
 ## Why it exists
 
 REST surface for the dashboard's Lark/Feishu binding flow — what
 ``frontend/src/components/awareness/LarkConfig.tsx`` calls when the
 user pastes ``app_id`` / ``app_secret`` and walks through Bind →
-Login → Complete → Test / Unbind. Seven endpoints, all mounted under
+Login → Complete → Test / Unbind. Eight endpoints, all mounted under
 ``/api/lark``. The Lark surface is larger than Slack's because Lark
 adds an OAuth device-code login step that Slack doesn't have.
 
 ## Design decisions
 
-- **Seven endpoints, shaped by Lark's two-phase auth.**
+- **Eight endpoints, shaped by Lark's two-phase auth.**
   - POST ``/bind`` — persist ``app_id`` / ``app_secret`` / ``brand``.
   - POST ``/auth/login`` — kick off OAuth with ``--no-wait``; returns
     an auth URL + device code for the user to authorize in a browser.

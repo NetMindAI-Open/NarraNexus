@@ -31,6 +31,7 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 from ._lark_credential_manager import (
     LarkCredentialManager,
@@ -43,6 +44,23 @@ from ._lark_workspace import build_profile_name, ensure_workspace, get_home_env
 
 # Shared CLI client instance (stateless)
 _cli = LarkCLIClient()
+
+# Semantic reaction vocabulary → Lark emoji_type keys. Shared across every IM
+# channel's react_to_user_message tool so the agent uses one cross-channel set;
+# each module maps it to its platform's own tokens.
+_LARK_REACTIONS = {
+    "on_it": "Typing",
+    "searching": "GLANCE",
+    "done": "DONE",
+    "celebrate": "FIRECRACKER",
+    "thumbs_up": "THUMBSUP",
+    "heart": "LOVE",
+    "thanks": "THANKS",
+    "applause": "APPLAUSE",
+    "hundred": "Hundred",
+    "warning": "ERROR",
+    "problem": "CrossMark",
+}
 
 # Max time we'll wait for the user to finish the browser-side setup flow
 # before we kill the subprocess and delete the pending DB row.
@@ -602,6 +620,31 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             logger.debug(f"lark_cli self-heal skipped: {e}")
 
         return result
+
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without sending a full message. ``message_id`` is the
+        inbound message id shown in your channel instructions. ``room_id`` is
+        accepted for a uniform cross-channel signature but Lark ignores it — a
+        Lark message id is globally unique. ``emoji`` is a semantic reaction name
+        — see the channel instruction for the full menu (unknown → ``on_it``).
+
+        Best-effort: needs the bot's reaction scope; a failure returns
+        ``{"success": false, "reason": ...}`` and never breaks your turn.
+        """
+        if not message_id:
+            return {"success": False, "reason": "message_id is required"}
+        return await best_effort_react(
+            _LARK_REACTIONS,
+            emoji,
+            lambda token: _cli.add_reaction(agent_id, message_id, token),
+            log_label=f"lark:{agent_id}",
+        )
 
     @mcp.tool()
     async def lark_setup(agent_id: str, brand: str, owner_email: str = "") -> dict:

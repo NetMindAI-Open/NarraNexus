@@ -21,6 +21,7 @@ const CsvRenderer = lazy(() => import('./renderers/CsvRenderer'));
 const ImageRenderer = lazy(() => import('./renderers/ImageRenderer'));
 const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
 const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
+const OfficeWatchViewer = lazy(() => import('./OfficeWatchViewer'));
 
 type RendererComponent = React.LazyExoticComponent<
   React.ComponentType<{ artifact: Artifact }>
@@ -36,6 +37,9 @@ const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
   // PDF: dedicated PdfRenderer uses <object> instead of the sandboxed iframe
   // to avoid breaking Firefox PDF.js (needs same-origin XHR) and WKWebView.
   'application/pdf': PdfRenderer,
+  // Office docs render LIVE (officecli watch) instead of a static file — the
+  // viewer opens a watch on the artifact's file and streams SSE refreshes.
+  'application/vnd.officecli-live': OfficeWatchViewer,
 };
 
 interface Props {

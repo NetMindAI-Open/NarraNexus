@@ -236,9 +236,9 @@ class _FakeCodexDriver:
         self._events = events
         self._captured = captured
 
-    async def agent_loop(self, messages, mcp_server_urls):
+    async def agent_loop(self, messages, mcp_servers):
         self._captured["messages"] = messages
-        self._captured["mcp_server_urls"] = mcp_server_urls
+        self._captured["mcp_servers"] = mcp_servers
         # Capture the ambient codex_config the driver would actually read — the
         # helper must install its OWN slot model + creds here, not the agent's.
         from xyz_agent_context.agent_framework.api_config import codex_config

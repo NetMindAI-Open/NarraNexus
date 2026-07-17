@@ -562,6 +562,12 @@ class ModuleRunner:
             port=port,
             log_level="warning",  # keep CLI quiet; FastMCP logs at debug
             access_log=False,
+            # None = skip uvicorn's dictConfig. The default config detaches
+            # uvicorn.* loggers from the root logger (propagate=False + own
+            # stderr handlers), silently pulling them out of our loguru
+            # InterceptHandler bridge — uvicorn noise would bypass the one
+            # log format/file the operators watch. log_level still applies.
+            log_config=None,
         )
         server = uvicorn.Server(config)
         try:

@@ -10,21 +10,14 @@ Spec: 2026-04-21-job-timezone-redesign
 from __future__ import annotations
 
 import json
-import os
 from typing import Any, Dict, TYPE_CHECKING
 
 from loguru import logger
 
+from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+
 if TYPE_CHECKING:
     from xyz_agent_context.utils.database import AsyncDatabaseClient
-
-
-def _is_cloud_mode_env() -> bool:
-    """Local copy of the cloud-mode check to avoid an import cycle with
-    backend.auth. Mirrors the semantics there: cloud mode iff
-    ``DATABASE_URL`` points at a non-sqlite backend."""
-    url = (os.environ.get("DATABASE_URL") or "").strip().lower()
-    return bool(url) and not url.startswith("sqlite")
 
 
 async def heal_legacy_singleton_ownership(
@@ -65,8 +58,12 @@ async def heal_legacy_singleton_ownership(
     """
     out: Dict[str, int] = {"teams": 0}
 
-    # Condition 1: local mode only.
-    if _is_cloud_mode_env():
+    # Condition 1: local mode only. Uses the canonical deployment_mode
+    # resolver (honours NARRANEXUS_DEPLOYMENT_MODE first, then the
+    # DATABASE_URL heuristic) — a prod cloud that declares itself purely via
+    # NARRANEXUS_DEPLOYMENT_MODE=cloud must short-circuit here, or this
+    # local-only heal runs every startup and spews the multi-user noise log.
+    if is_cloud_mode():
         return out
 
     # Condition 2: exactly one non-default user.

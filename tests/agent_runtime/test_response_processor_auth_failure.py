@@ -65,7 +65,10 @@ def test_invalid_request_error_is_not_auth_by_type_alone():
     """``invalid_request_error`` is OpenAI's catch-all client-error type;
     keying auth on it alone misfired non-auth 400s (context length, bad
     model, content policy) into a fatal 're-login'. These must stay
-    non-auth so the turn can still recover / use the helper fallback."""
+    non-auth. NB: context-length and bad-model are now caught by the
+    dedicated ``config_actionable`` path (see
+    test_response_processor_self_serviceable.py) — still not auth, and
+    routed to correct guidance ('switch model') instead of 're-login'."""
     assert not _is_auth_failure(
         "invalid_request_error",
         "This model's maximum context length is 200000 tokens.",

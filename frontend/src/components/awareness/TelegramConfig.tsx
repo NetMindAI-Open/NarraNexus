@@ -31,6 +31,7 @@ import {
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores';
 import { api } from '@/lib/api';
+import { ChannelActiveToggle } from './ChannelActiveToggle';
 import type { TelegramCredentialData } from '@/types';
 
 import type { ChannelConfigProps } from './IMChannelsSection';
@@ -173,6 +174,21 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
     }
   };
 
+  // Activate/deactivate without re-binding — turns a bundle-imported (inactive)
+  // credential live (or the reverse) so the trigger's watcher claims/releases
+  // the bot's single connection slot.
+  const handleToggleActive = async (next: boolean) => {
+    if (!agentId) return;
+    const res = await api.setTelegramActive(agentId, next);
+    if (!mountedRef.current) return;
+    if (res.success) {
+      await fetchCredential();
+      onBindStateChange?.();  // refresh the parent list's status badge
+    } else {
+      setError(res.error || '');
+    }
+  };
+
   return (
     <Card>
       {confirmDialog}
@@ -182,7 +198,7 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
           Telegram
         </CardTitle>
         <button
-          onClick={() => fetchCredential()}
+          onClick={() => { fetchCredential(); onBindStateChange?.(); }}
           disabled={loading}
           className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           title={t('awareness.common.refresh')}
@@ -375,6 +391,10 @@ export function TelegramConfig({ onBindStateChange }: ChannelConfigProps = {}) {
               </Button>
             </div>
           </div>
+        )}
+
+        {credential && (
+          <ChannelActiveToggle active={!!credential.enabled} onToggle={handleToggleActive} />
         )}
       </CardContent>
     </Card>

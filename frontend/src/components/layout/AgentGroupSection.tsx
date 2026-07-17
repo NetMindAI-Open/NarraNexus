@@ -69,6 +69,7 @@ export interface AgentGroupSectionProps {
   savingName: boolean;
 
   onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
+  onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
   onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
   onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
   deletingAgentId: string | null;
@@ -111,6 +112,7 @@ export function AgentGroupSection({
   onCancelEdit,
   savingName,
   onStartEdit,
+  onClearData,
   onDelete,
   onTogglePublic,
   deletingAgentId,
@@ -226,6 +228,7 @@ export function AgentGroupSection({
               savingName={savingName}
               onSelectAgent={onSelectAgent}
               onStartEdit={onStartEdit}
+              onClearData={onClearData}
               onDelete={onDelete}
               onTogglePublic={onTogglePublic}
               deletingAgentId={deletingAgentId}
@@ -258,6 +261,7 @@ interface AgentRowProps {
   savingName: boolean;
   onSelectAgent: (agentId: string) => void;
   onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
+  onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
   onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
   onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
   deletingAgentId: string | null;
@@ -281,6 +285,7 @@ function AgentRow({
   savingName,
   onSelectAgent,
   onStartEdit,
+  onClearData,
   onDelete,
   onTogglePublic,
   deletingAgentId,
@@ -412,6 +417,7 @@ function AgentRow({
                   isPublic={!!agent.is_public}
                   showPublicToggle={showPublicToggle}
                   onStartEdit={(e) => onStartEdit(agent, e)}
+                  onClearData={(e) => onClearData(agent, e)}
                   onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
                   onTogglePublic={(e) => onTogglePublic(agent, e)}
                 />

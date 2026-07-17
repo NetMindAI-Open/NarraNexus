@@ -15,9 +15,11 @@ import pytest
 
 from xyz_agent_context.utils.deployment_mode import (
     DEPLOYMENT_MODE_ENV_VAR,
+    POWER_LOGIN_ENV_VAR,
     get_deployment_mode,
     is_cloud_mode,
     is_local_mode,
+    is_power_login_enabled,
 )
 
 
@@ -26,6 +28,7 @@ def _clean_env(monkeypatch):
     """Each test starts with NO deployment env var set and the stock
     DATABASE_URL pointing at sqlite (local default)."""
     monkeypatch.delenv(DEPLOYMENT_MODE_ENV_VAR, raising=False)
+    monkeypatch.delenv(POWER_LOGIN_ENV_VAR, raising=False)
     monkeypatch.setenv("DATABASE_URL", "sqlite:///tmp/test.db")
     yield
 
@@ -77,3 +80,35 @@ def test_env_var_wins_over_db_url_heuristic(monkeypatch):
     monkeypatch.setenv(DEPLOYMENT_MODE_ENV_VAR, "local")
     monkeypatch.setenv("DATABASE_URL", "mysql+aiomysql://u:p@host/db")
     assert get_deployment_mode() == "local"
+
+
+# --- power login availability (deployment axis, orthogonal to security regime) ---
+
+def test_power_login_always_on_in_cloud(monkeypatch):
+    """Cloud → power login on regardless of the local opt-in flag."""
+    monkeypatch.setenv(DEPLOYMENT_MODE_ENV_VAR, "cloud")
+    assert is_power_login_enabled() is True
+
+
+def test_power_login_off_in_local_by_default():
+    """Local install with no opt-in → pure-local username login only."""
+    assert is_local_mode() is True
+    assert is_power_login_enabled() is False
+
+
+def test_power_login_local_opt_in_enables_it(monkeypatch):
+    monkeypatch.setenv(POWER_LOGIN_ENV_VAR, "true")
+    assert is_local_mode() is True  # opt-in does NOT flip the security regime
+    assert is_cloud_mode() is False
+    assert is_power_login_enabled() is True
+
+
+def test_power_login_opt_in_truthy_spellings(monkeypatch):
+    for val in ("1", "true", "TRUE", "  Yes  "):
+        monkeypatch.setenv(POWER_LOGIN_ENV_VAR, val)
+        assert is_power_login_enabled() is True
+
+
+def test_power_login_opt_in_garbage_stays_off(monkeypatch):
+    monkeypatch.setenv(POWER_LOGIN_ENV_VAR, "maybe")
+    assert is_power_login_enabled() is False

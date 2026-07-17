@@ -34,6 +34,7 @@ from loguru import logger
 
 from xyz_agent_context.utils.db_factory import get_db_client
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
+from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .id_schema import build_all_id_regex, ID_KINDS
 from .security import (
     extract_zip_safely,
@@ -273,12 +274,43 @@ async def preflight(zip_path: Path, user_id: str) -> Dict[str, Any]:
         )
         if existing_team:
             team_clash = {"name": team["name"], "existing_count": len(existing_team)}
+
+    # IM channel credential clashes: for opt-in bundles, a credential whose
+    # bot-identity is already bound in this environment will be SKIPPED on
+    # confirm (not overwritten). Surface it here so the wizard can warn the
+    # user that the migrated agent's channel won't get that binding.
+    credential_clashes: List[Dict[str, Any]] = []
+    for aid in manifest.get("agents", []):
+        cred_path = work_dir / "agents" / aid / "channel_credentials.json"
+        if not cred_path.exists():
+            continue
+        try:
+            cred_by_table = json.loads(cred_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        for cred_table, crows in cred_by_table.items():
+            spec = CHANNEL_CREDENTIAL_TABLES.get(cred_table)
+            if not spec or not spec["identity_cols"]:
+                continue
+            id_cols = spec["identity_cols"]
+            for crow in crows:
+                if not all(crow.get(c) is not None for c in id_cols):
+                    continue
+                identity = {c: crow.get(c) for c in id_cols}
+                if await db.get(cred_table, identity):
+                    credential_clashes.append({
+                        "agent_id_in_bundle": aid,
+                        "table": cred_table,
+                        "identity": identity,
+                    })
+
     token = uuid.uuid4().hex
     summary = {
         "preflight_token": token,
         "manifest": manifest,
         "name_clashes": name_clashes,
         "team_clash": team_clash,
+        "credential_clashes": credential_clashes,
         "warnings": manifest.get("warnings", []),
     }
     # Persist to DB so confirm() works across worker boundaries / restarts.
@@ -545,13 +577,21 @@ async def _confirm_inner(
         # mapped it from old → new agent_id via id_map. Forcing it to user_id
         # here would break the trigger's "channel owner always activated"
         # logic (msg_bus_trigger.py:154 compares created_by against agent_id).
-        for col in list(out.keys()):
-            if col in ("user_id", "created_by", "owner_user_id"):
-                if table == "bus_channels" and col == "created_by":
-                    continue
-                v = out[col]
-                if isinstance(v, str) and (v == OWNER_PLACEHOLDER or v != user_id):
-                    out[col] = user_id
+        #
+        # Exception: IM channel credential tables. Their user-ish columns
+        # (slack/telegram/wechat `owner_user_id`, discord `owner_user_id` +
+        # `user_id`) hold the IM-side owner identity (a Slack/Telegram/Discord
+        # user id), NOT a NarraNexus user id. Reattributing them to the
+        # recipient would corrupt the owner-trust signal the trigger uses. The
+        # agent_id column was already mapped via STRUCTURED_ID_FIELDS above.
+        if table not in CHANNEL_CREDENTIAL_TABLES:
+            for col in list(out.keys()):
+                if col in ("user_id", "created_by", "owner_user_id"):
+                    if table == "bus_channels" and col == "created_by":
+                        continue
+                    v = out[col]
+                    if isinstance(v, str) and (v == OWNER_PLACEHOLDER or v != user_id):
+                        out[col] = user_id
         return out
 
     # ---- Name suffix dedupe ----
@@ -592,6 +632,10 @@ async def _confirm_inner(
         "inbox_rows_created": 0,
         "skills_imported": 0,
         "mcp_hints": 0,
+        # Opt-in IM channel credentials: imported = landed inactive; skipped =
+        # a same-bot binding already existed in the target env (see clash check).
+        "channel_credentials_imported": 0,
+        "channel_credentials_skipped_conflict": 0,
         "warnings": [],
     }
 
@@ -980,6 +1024,57 @@ async def _confirm_inner(
                     f"agent {old_aid}: artifacts.json could not be read: {e}"
                 )
 
+        # IM channel credentials (opt-in bundles only). Two invariants:
+        #  1) Every credential lands INACTIVE (active_col forced to 0),
+        #     regardless of the source value. The user must manually activate
+        #     the channel here — that activation is what claims the single
+        #     WebSocket slot the IM issues per app, preventing the migrated
+        #     agent from double-connecting the same bot from two environments.
+        #  2) A credential whose bot-identity is ALREADY bound in this
+        #     environment is SKIPPED, not force-overwritten. Stealing a live
+        #     bot from an existing agent would be destructive; we keep the
+        #     existing binding and report the skip.
+        cred_path = adir / "channel_credentials.json"
+        if cred_path.exists():
+            try:
+                cred_by_table = json.loads(cred_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(
+                    f"bundle_import.channel_credentials.read_failed agent={old_aid} reason={e}"
+                )
+                cred_by_table = {}
+            for cred_table, crows in cred_by_table.items():
+                spec = CHANNEL_CREDENTIAL_TABLES.get(cred_table)
+                if not spec:
+                    continue  # unknown credential table — skip defensively
+                identity_cols = spec["identity_cols"]
+                for crow in crows:
+                    # Clash check: is this exact bot already bound here?
+                    if identity_cols and all(crow.get(c) is not None for c in identity_cols):
+                        clash_filter = {c: crow.get(c) for c in identity_cols}
+                        if await db.get(cred_table, clash_filter):
+                            written_summary["channel_credentials_skipped_conflict"] += 1
+                            written_summary["warnings"].append(
+                                f"agent {old_aid}: {cred_table} bot binding already exists "
+                                f"in this environment ({clash_filter}) — skipped, not overwritten"
+                            )
+                            continue
+                    new_crow = rewrite_row(cred_table, crow)
+                    new_crow[spec["active_col"]] = 0  # force inactive (invariant 1)
+                    new_crow.pop("created_at", None)
+                    new_crow.pop("updated_at", None)
+                    try:
+                        await _ins(cred_table, new_crow)
+                        written_summary["channel_credentials_imported"] += 1
+                    except Exception as ce:  # noqa: BLE001
+                        logger.warning(
+                            f"bundle_import.channel_credential.insert_failed agent={old_aid} "
+                            f"table={cred_table} reason={ce}"
+                        )
+                        written_summary["warnings"].append(
+                            f"agent {old_aid}: {cred_table} credential insert failed: {ce}"
+                        )
+
         # Per-agent delta log so the user can see counts attributable to THIS agent
         delta = {
             k: written_summary[k] - before.get(k, 0)
@@ -1197,7 +1292,11 @@ async def _confirm_inner(
                 first_aid = target_aids[0]
                 if cached_dir is None:
                     sm = SkillModule(agent_id=first_aid, user_id=user_id)
-                    info = await asyncio.to_thread(sm.install_skill, zip_path)
+                    # Pin the dest folder to the bundle's known skill_dir so it
+                    # isn't re-derived (wrongly) from SKILL.md frontmatter.
+                    info = await asyncio.to_thread(
+                        sm.install_skill, zip_path, target_dir_name=s.get("skill_dir")
+                    )
                     cached_dir = Path(info.path)
                     if key:
                         install_cache[key] = cached_dir
@@ -1234,7 +1333,13 @@ async def _confirm_inner(
                 await asyncio.to_thread(shutil.copy2, zip_path, tgt)
                 for new_aid in target_aids:
                     sm = SkillModule(agent_id=new_aid, user_id=user_id)
-                    await asyncio.to_thread(sm.install_skill, zip_path)
+                    # Pin the dest folder to the bundle's known skill_dir so the
+                    # full_copy overwrites skills/<skill_dir>/ (restoring the
+                    # credential the workspace snapshot had stripped) instead of
+                    # landing in a temp-derived name.
+                    await asyncio.to_thread(
+                        sm.install_skill, zip_path, target_dir_name=s.get("skill_dir")
+                    )
                 await register_archive(
                     user_id=user_id,
                     skill_name=skill_name,

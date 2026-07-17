@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_ATTACHMENT_PERSISTED,
 )
@@ -294,7 +296,7 @@ async def test_attachment_persisted_to_disk_and_forwarded_to_agent(
     assert file_id.startswith("att_")
 
     # Bytes land on disk at the owner's workspace.
-    expected_dir = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    expected_dir = isolated_workspace / agent_workspace_relpath("agent_a", "user_owner") / "user_upload_files"
     assert expected_dir.exists(), f"workspace path {expected_dir} not created"
     pdfs = list(expected_dir.rglob("att_*.pdf"))
     assert len(pdfs) == 1
@@ -548,6 +550,6 @@ async def test_caption_less_file_upload_still_processed(
     )
     assert attachments[0]["original_name"] == "report.pdf"
     # File is on disk.
-    workspace = isolated_workspace / "agent_a_user_owner" / "user_upload_files"
+    workspace = isolated_workspace / agent_workspace_relpath("agent_a", "user_owner") / "user_upload_files"
     pdfs = list(workspace.rglob("att_*.pdf"))
     assert len(pdfs) == 1

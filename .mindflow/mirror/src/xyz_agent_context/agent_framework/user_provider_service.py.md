@@ -4,6 +4,14 @@ last_verified: 2026-07-10
 stub: false
 ---
 
+## 2026-07-10 — `onboard_one_key` 新增 `activate` 参数（register/activate 分离）
+
+`onboard_one_key(..., activate: bool = True)`。`activate=True`（默认，保持旧行为）
+照旧：设 framework + 绑 agent/helper 槽。`activate=False` 时**只** `add_provider`
+建 provider 行，**不动** framework、**不绑槽**——用于登录时自动 register 一张
+NetMind 卡但不抢占用户已有配置（见 [[netmind_provisioner]] 的 register/activate
+拆分）。`add_provider` 无条件执行，返回 `(config, new_ids, meta)` 不变。
+
 ## 2026-07-10 — 移除 codex agent slot 的 source 白名单(恢复 pre-#81,铁律 #15)
 
 `validate_slot_binding` 的 **codex source 白名单已删除**。以前 codex_cli 的 agent

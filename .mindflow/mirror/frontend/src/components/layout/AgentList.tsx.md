@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — hosts the clear-data wipe dialog
+
+AgentList now owns the "clear conversations / memory" flow: `handleClearData`
+sets `clearTarget`; the dialog is mounted conditionally
+(`{clearTarget && <ClearAgentDataDialog/>}` — fresh state each open, no reset
+effect); `doClearData` calls `api.clearHistory(id, {conversations, memory})`,
+then `clearAgent(id)` to refresh the chat view if conversations were cleared,
+and surfaces `disk_errors` via `alert`. Wired to rows through
+[[AgentGroupSection.tsx]] → [[AgentRowMenu.tsx]] `onClearData`.
 
 > 2026-06-24 (#43): restored `handleCreateAgentInTeam(teamId)` —
 > `createAgent({ teamId })` then navigates to that team's group chat so the new

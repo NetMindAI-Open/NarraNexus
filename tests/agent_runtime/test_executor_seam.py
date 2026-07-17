@@ -63,12 +63,12 @@ def test_build_request_has_no_cancellation_and_carries_configs():
     req = build_agent_loop_request(
         framework="claude_code", working_path="/ws/agent_x",
         messages=[{"role": "user", "content": "hi"}],
-        mcp_server_urls={"chat": "http://localhost:7804/mcp"},
+        mcp_servers={"chat": {"url": "http://localhost:7804/mcp"}},
         extra_env={"FOO": "1"},
     )
     assert req["framework"] == "claude_code"
     assert req["working_path"] == "/ws/agent_x"
-    assert req["mcp_server_urls"]["chat"].endswith("/mcp")
+    assert req["mcp_servers"]["chat"]["url"].endswith("/mcp")
     assert req["extra_env"] == {"FOO": "1"}
     assert "cancellation" not in req
     assert req["provider_configs"]["claude"]["api_key"] == "k"

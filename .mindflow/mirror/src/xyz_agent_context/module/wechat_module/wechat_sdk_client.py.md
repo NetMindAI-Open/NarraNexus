@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_sdk_client.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-16
 ---
+
+## 2026-07-16 — `get_updates`/`send_message` now check `errcode`, not just `ret`
+
+Root cause of the "silent long-poll death" incident (2026-07-06, dev+prod:
+dev stuck 34h, a prod bot silent from 7/3). **Verified live (2026-07-16)**
+against real prod sessions — `getupdates` carries **no `ret` field at all**:
+- healthy: `{"msgs":[…], "sync_buf":…, "get_updates_buf":…}`
+- dead session: `HTTP 200 {"errcode":-14,"errmsg":"session timeout"}`
+
+The old check was `ret = data.get("ret", 0); if ret != 0` — since `ret` is
+NEVER present it always defaulted to 0, so the check **could never fire**. Any
+session death (an `errcode` packet with no `msgs`) read as an empty idle poll →
+the bot went silent, indistinguishable from "nobody messaged" (zero transport
+error). iLink also exposes NO liveness endpoint (probed — every
+`get_bot_info`/`status`/`heartbeat`/… candidate 404s, same as a bogus path).
+The tests had baked in a **fabricated** `{"ret":0}` / `{"ret":1001}` schema —
+precisely what masked the bug; both fixtures corrected to the live shape.
+
+Both call sites now compute `code = data.get("ret", 0) or data.get("errcode", 0)`
+and raise `WeChatSDKError(code, source, errmsg)` on non-zero — turning the
+silent death into an explicit, classifiable failure (`getupdates` → the trigger's
+`is_permanent_auth_failure` → disable the credential). Guard tests:
+`test_get_updates_raises_on_errcode_session_timeout`. The `errmsg` is carried
+into the exception message for post-mortem.
 
 ## 2026-07-03 (final) — root cause was the missing `client_id`; emoji strip reverted
 

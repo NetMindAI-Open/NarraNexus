@@ -1,10 +1,26 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-09
+last_verified: 2026-07-13
 stub: false
 ---
 
-## 2026-07-09 (latest) — new "Model Defaults" nav section
+## 2026-07-13 — Account nav gate: cloudOnly → powerOnly (per-user)
+
+The "Account & Subscription" nav item's `cloudOnly`/`mode==='cloud-web'` gate
+became `powerOnly`/`hasPower = !!configStore.netmindToken`, so it shows for a
+NetMind (Power) account on a local dual-mode install and hides for a pure-local
+username user. `useRuntimeStore` import replaced by `useConfigStore`. Mirrors the
+same per-user signal [[NetmindAccountPanel.tsx]] self-gates on.
+
+## 2026-07-10 (latest) — Account section is now a SINGLE card
+
+`QuotaPanel` was deleted; its free-tier view + prefer_system toggle were
+absorbed INTO [[NetmindAccountPanel]] (plan × runway redesign). The `account`
+section now mounts only `<NetmindAccountPanel/>` — one card owns every
+"what are my credits / how is usage paid" concern as one runway story. Removed
+the QuotaPanel import and its `mb-4` wrapper.
+
+## 2026-07-09 — new "Model Defaults" nav section
 
 Added a `NAV_ITEMS` entry `{ id: 'modeldefaults', label: 'Model Defaults' }`
 (after `providers`) rendering [[ModelDefaultsSettings]] — the global default

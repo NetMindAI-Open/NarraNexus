@@ -151,6 +151,37 @@ impl ProcessManager {
             if let Some(key) = option_env!("NARRA_POSTHOG_KEY") {
                 cmd.env("POSTHOG_API_KEY", key);
             }
+            // NetMind ("Power") account login (local dual-mode). A Finder-
+            // launched .app inherits no shell env, so — exactly like
+            // NARRA_POSTHOG_KEY above — these are baked at COMPILE time: a build
+            // that exported them (before `bash scripts/build-desktop.sh`) ships a
+            // Power-enabled desktop app; a normal community/source build leaves
+            // them None so the backend stays pure-local (username-only). A runtime
+            // env var still wins (e.g. `open`ing the .app from a shell that set
+            // it), keeping parity with how run.sh / dev-local.sh drive the same
+            // knobs. Note: build-desktop.sh is deliberately NOT edited — the
+            // frontend half is baked by exporting VITE_ENABLE_POWER_LOGIN before
+            // that script (vite reads exported VITE_* env), and cargo reads these
+            // via option_env! in the same build shell.
+            for (var, baked) in [
+                ("NARRANEXUS_ENABLE_POWER_LOGIN", option_env!("NARRANEXUS_ENABLE_POWER_LOGIN")),
+                ("NETMIND_USE_SUBSCRIPTION_ENABLED", option_env!("NETMIND_USE_SUBSCRIPTION_ENABLED")),
+                ("NETMIND_AUTH_API_URL", option_env!("NETMIND_AUTH_API_URL")),
+                ("BILLING_API_BASE", option_env!("BILLING_API_BASE")),
+                ("NETMIND_KEY_API_BASE", option_env!("NETMIND_KEY_API_BASE")),
+                ("NETMIND_INFERENCE_BASE", option_env!("NETMIND_INFERENCE_BASE")),
+            ] {
+                match std::env::var(var) {
+                    Ok(v) if !v.is_empty() => {
+                        cmd.env(var, v);
+                    }
+                    _ => {
+                        if let Some(v) = baked {
+                            cmd.env(var, v);
+                        }
+                    }
+                }
+            }
         }
         let mut child = cmd
             .stdout(Stdio::piped())

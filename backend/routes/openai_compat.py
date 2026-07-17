@@ -366,7 +366,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             user_id=creator,
             input_content=user_input,
             working_source=WorkingSource.MANYFOLD,
-            pass_mcp_urls={},
+            pass_mcp_servers={},
             trigger_extra_data={"trigger_id": session_id, "retrieval_anchor": user_input},
         )
     )

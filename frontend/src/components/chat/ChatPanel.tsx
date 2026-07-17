@@ -411,6 +411,8 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     }
   }, [agentId, userId, historyTotalCount, isLoadingMore]);
 
+  // Reload when the agent changes OR a data wipe bumps historyRefreshTick.
+  const historyRefreshTick = useChatStore((s) => s.historyRefreshTick);
   useEffect(() => {
     if (agentId && userId) {
       setHistoryMessages([]);
@@ -419,7 +421,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       shouldAutoScrollRef.current = true;
       loadChatHistory();
     }
-  }, [agentId, userId, loadChatHistory]);
+  }, [agentId, userId, loadChatHistory, historyRefreshTick]);
 
   // ── Poll for new background messages ────────────────
   const lastHistoryTimestampRef = useRef<string>('');
@@ -1020,6 +1022,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   timeline: item.timeline,
                   isError: item.isError,
                   warnings: item.warnings,
+                  actionReason: item.actionReason,
                 }}
                 eventId={item.eventId}
                 agentId={agentId}

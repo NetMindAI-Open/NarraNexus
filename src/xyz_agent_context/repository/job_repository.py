@@ -608,7 +608,11 @@ class JobRepository(BaseRepository[JobModel]):
             'title', 'description', 'payload',
             'next_run_time', 'next_run_at_local', 'next_run_tz',
             'status', 'related_entity_id',
-            'trigger_config', 'job_type'
+            'trigger_config', 'job_type',
+            # Recovery/backoff state — reactivation (job_service.update_job) must
+            # be able to clear these so a revived job starts fresh instead of
+            # inheriting a stale pause/failure count (incident 2026-07-13).
+            'paused_reason', 'consecutive_failure_count', 'cooldown_until',
         }
 
         # Filter out disallowed fields
@@ -833,6 +837,34 @@ class JobRepository(BaseRepository[JobModel]):
         results = await self._db.execute(
             query,
             params=(status.value if hasattr(status, "value") else status, limit),
+            fetch=True,
+        )
+        return [self._row_to_entity(row) for row in results]
+
+    async def get_active_scheduled_jobs_missing_next_run(
+        self, limit: int = 200
+    ) -> List[JobModel]:
+        """ACTIVE scheduled/ongoing jobs whose ``next_run_time`` is NULL —
+        'active but unschedulable' zombies that ``get_due_jobs`` can never
+        select (its WHERE is ``next_run_time <= now``). Used by the poller
+        self-heal (``JobTrigger._heal_unscheduled_active_jobs``). ONE_OFF jobs
+        are excluded: an active/completed one-off legitimately has no next run."""
+        query = f"""
+            SELECT * FROM {self.table_name}
+            WHERE status = %s
+            AND next_run_time IS NULL
+            AND job_type IN (%s, %s)
+            ORDER BY updated_at ASC
+            LIMIT %s
+        """
+        results = await self._db.execute(
+            query,
+            params=(
+                JobStatus.ACTIVE.value,
+                JobType.SCHEDULED.value,
+                JobType.ONGOING.value,
+                limit,
+            ),
             fetch=True,
         )
         return [self._row_to_entity(row) for row in results]

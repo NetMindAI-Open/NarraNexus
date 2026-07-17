@@ -82,7 +82,7 @@ class RemoteAgentLoopDriver:
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
-        mcp_server_urls: dict[str, str],
+        mcp_servers: dict[str, dict[str, Any]],  # {name: {"url": str, "headers": {str: str}?}}
         *,
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
@@ -95,7 +95,7 @@ class RemoteAgentLoopDriver:
             framework=self.framework,
             working_path=self.working_path,
             messages=messages,
-            mcp_server_urls=mcp_server_urls,
+            mcp_servers=mcp_servers,
             extra_env=extra_env,
             streaming=streaming,
         )

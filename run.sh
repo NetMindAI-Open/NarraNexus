@@ -298,6 +298,42 @@ check_deps() {
     fi
   fi
 
+  # Install OfficeCLI (optional — powers the built-in `officecli` skill for
+  # docx/xlsx/pptx). GitHub-Releases self-contained binary (embedded .NET, no
+  # deps), so we follow the uv pattern: curl the right per-OS/arch asset to
+  # ~/.local/bin (already on PATH via the uv export above). Graceful-degrade:
+  # if it fails the platform still works, only Office-document skills are off.
+  # Version pinned; bump in lockstep with docker/Dockerfile.manyfold and
+  # scripts/build-desktop.sh.
+  _OFFICECLI_VERSION="v1.0.135"
+
+  _try_install_officecli() {
+    local asset
+    case "$(uname -s)_$(uname -m)" in
+      Darwin_arm64)          asset=officecli-mac-arm64 ;;
+      Darwin_x86_64)         asset=officecli-mac-x64 ;;
+      Linux_x86_64|Linux_amd64) asset=officecli-linux-x64 ;;
+      Linux_aarch64|Linux_arm64) asset=officecli-linux-arm64 ;;
+      *) echo -e "${Y}⚠ officecli: unsupported platform $(uname -s)/$(uname -m) — skipping.${R}"; return 1 ;;
+    esac
+    local url="https://github.com/iOfficeAI/OfficeCLI/releases/download/${_OFFICECLI_VERSION}/${asset}"
+    echo -e "${Y}Installing officecli ${_OFFICECLI_VERSION} (${asset})...${R}"
+    mkdir -p "$HOME/.local/bin"
+    if curl -fsSL -o "$HOME/.local/bin/officecli" "$url"; then
+      chmod +x "$HOME/.local/bin/officecli"
+      return 0
+    fi
+    return 1
+  }
+
+  if ! command -v officecli &>/dev/null; then
+    if ! _try_install_officecli; then
+      echo -e "${Y}⚠ officecli not available — Office-document (docx/xlsx/pptx) skill disabled.${R}"
+      echo "  Retry later: see https://github.com/iOfficeAI/OfficeCLI/releases"
+      echo ""
+    fi
+  fi
+
   # Check Python version (>=3.13 required)
   local py_version
   py_version=$(uv python find 2>/dev/null | xargs -I{} {} -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "")

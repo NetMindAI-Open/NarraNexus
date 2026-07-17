@@ -9,6 +9,7 @@ import type {
   CancelJobResponse,
   AgentInboxListResponse,
   BusFailuresResponse,
+  AgentCircuitBreakerResponse,
   MarkReadResponse,
   NoticesResponse,
   AwarenessResponse,
@@ -291,6 +292,21 @@ class ApiClient {
     );
   }
 
+  // Real-time-layer circuit-breaker: read status + manual "Resume".
+  async getAgentCircuitBreaker(agentId: string): Promise<AgentCircuitBreakerResponse> {
+    return this.request<AgentCircuitBreakerResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/circuit-breaker`
+    );
+  }
+
+  /** Manually clear a paused agent back to active so its next turn runs. */
+  async resetAgentCircuitBreaker(agentId: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>(
+      `/api/agents/${encodeURIComponent(agentId)}/circuit-breaker/reset`,
+      { method: 'POST' }
+    );
+  }
+
   // User-scope system notices (inbox_table read side).
   async getNotices(unreadOnly = false, limit = 50): Promise<NoticesResponse> {
     return this.request<NoticesResponse>(
@@ -303,6 +319,14 @@ class ApiClient {
       `/api/notices/${encodeURIComponent(messageId)}/read`,
       { method: 'POST' }
     );
+  }
+
+  /** Send user-written product feedback to the team (relayed server-side). */
+  async submitFeedback(category: string, text: string): Promise<{ ok: boolean; delivered: boolean }> {
+    return this.request<{ ok: boolean; delivered: boolean }>('/api/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ category, text }),
+    });
   }
 
   // Agents API
@@ -405,9 +429,16 @@ class ApiClient {
     );
   }
 
-  async clearHistory(agentId: string): Promise<ClearHistoryResponse> {
+  async clearHistory(
+    agentId: string,
+    opts: { conversations: boolean; memory: boolean } = { conversations: true, memory: true },
+  ): Promise<ClearHistoryResponse> {
+    const params = new URLSearchParams({
+      conversations: String(opts.conversations),
+      memory: String(opts.memory),
+    });
     return this.request<ClearHistoryResponse>(
-      `/api/agents/${encodeURIComponent(agentId)}/history`,
+      `/api/agents/${encodeURIComponent(agentId)}/history?${params}`,
       { method: 'DELETE' },
     );
   }
@@ -1200,6 +1231,15 @@ class ApiClient {
     });
   }
 
+  // Activate/deactivate a bound channel credential (flip is_active/enabled)
+  // without re-binding. Used to turn a bundle-imported (inactive) channel live.
+  async setLarkActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/lark/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
+    });
+  }
+
   // Slack Integration API
   async getSlackCredential(agentId: string): Promise<SlackCredentialResponse> {
     return this.request<SlackCredentialResponse>(`/api/slack/credential?agent_id=${encodeURIComponent(agentId)}`);
@@ -1233,6 +1273,13 @@ class ApiClient {
     return this.request<ApiResponse>('/api/slack/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async setSlackActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/slack/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 
@@ -1270,6 +1317,13 @@ class ApiClient {
     });
   }
 
+  async setTelegramActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/telegram/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
+    });
+  }
+
   // WeChat (iLink) Integration API — QR-scan bind flow (no token paste).
   async getWeChatCredential(agentId: string): Promise<WeChatCredentialResponse> {
     return this.request<WeChatCredentialResponse>(`/api/wechat/credential?agent_id=${encodeURIComponent(agentId)}`);
@@ -1298,6 +1352,13 @@ class ApiClient {
     return this.request<ApiResponse>('/api/wechat/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async setWeChatActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/wechat/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 
@@ -1350,6 +1411,13 @@ class ApiClient {
     return this.request<ApiResponse>('/api/discord/unbind', {
       method: 'POST',
       body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
+  async setDiscordActive(agentId: string, active: boolean): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/discord/set-active', {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, active }),
     });
   }
 

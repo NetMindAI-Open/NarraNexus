@@ -16,8 +16,10 @@ one source of truth for the gateway's quirks (verified live 2026-06-23 against
 the gateway, mirrored from the reference implementation):
   - Auth headers: ``AuthorizationType: ilink_bot_token`` + a per-request
     ``X-WECHAT-UIN`` (base64 of a random uint32) + ``Authorization: Bearer``.
-  - App-level failures come back as ``ret != 0`` on an HTTP 200 — callers MUST
-    check ``ret`` (raise_for_status can't see them).
+  - App-level failures come back as a non-zero ``errcode`` on an HTTP 200 —
+    callers MUST check ``errcode`` (raise_for_status can't see them). Verified
+    live 2026-07-16: getupdates responses carry NO ``ret`` field at all
+    (healthy: ``{msgs, sync_buf, get_updates_buf}``; error: ``{errcode, errmsg}``).
   - The response Content-Type is ``application/octet-stream`` but the body is
     JSON — ``r.json()`` still parses it.
   - ``get_qrcode_status`` is itself a long-poll (holds until the scan state
@@ -39,20 +41,24 @@ from loguru import logger
 
 
 class WeChatSDKError(RuntimeError):
-    """An iLink app-level failure — HTTP 200 but ``ret != 0`` in the JSON body.
+    """An iLink app-level failure — HTTP 200 with a non-zero ``errcode`` in the
+    JSON body (the getupdates/sendmessage error field; responses carry no
+    ``ret``).
 
-    Carries the numeric ``ret`` and the call ``source`` (``"updates"`` |
-    ``"send"``) so the trigger can branch without parsing strings: a
-    ``getupdates`` ``ret != 0`` means the session is expired / the token is bad
-    (a PERMANENT auth failure that must disable the credential), whereas a
-    ``sendmessage`` ``ret != 0`` is a per-message failure (stale context_token)
-    that must NOT take the whole account down. Subclasses ``RuntimeError`` so
-    existing ``str(exc)`` / message-based callers keep working.
+    Carries the numeric error ``code`` and the call ``source`` so the trigger
+    can branch without parsing strings:
+      - ``"updates"`` — a getupdates error = session expired / bad token, a
+        PERMANENT auth failure that must disable the credential.
+      - ``"send"`` — a per-message send failure (stale context_token) that must
+        NOT take the whole account down.
+      - ``"stall"`` — a wedged long-poll; TRANSIENT, so the base reconnects
+        rather than disabling.
+    Subclasses ``RuntimeError`` so existing ``str(exc)`` callers keep working.
     """
 
-    def __init__(self, ret: int, source: str, message: str = ""):
-        super().__init__(message or f"iLink {source} ret={ret}")
-        self.ret = ret
+    def __init__(self, code: int, source: str, message: str = ""):
+        super().__init__(message or f"iLink {source} failed (code={code})")
+        self.code = code
         self.source = source
 
 # Default iLink host; a bind may return a per-account base_url that overrides it.
@@ -173,13 +179,14 @@ class WeChatSDKClient:
 
     async def get_updates(self, cursor: str) -> dict:
         """Long-poll one batch. Returns the raw payload
-        ``{ret, get_updates_buf (next cursor), msgs: [...]}``.
+        ``{msgs: [...], sync_buf, get_updates_buf (next cursor)}``.
 
-        Raises ``WeChatSDKError(source="updates")`` on an app-level failure
-        (``ret != 0`` — session expired / bad token). The trigger classifies
-        that as a permanent auth failure (``is_permanent_auth_failure``) and the
-        base class disables the credential instead of reconnecting against a
-        dead session forever.
+        Raises ``WeChatSDKError(source="updates")`` on an app-level failure — a
+        non-zero ``errcode`` (e.g. ``{"errcode":-14,"errmsg":"session
+        timeout"}``), the way iLink reports an expired session / bad token. The
+        trigger classifies that as a permanent auth failure
+        (``is_permanent_auth_failure``) and the base disables the credential
+        instead of reconnecting against a dead session forever.
         """
         client = self._ensure_client()
         resp = await client.post(
@@ -192,9 +199,17 @@ class WeChatSDKClient:
         )
         resp.raise_for_status()
         data = resp.json()
-        ret = data.get("ret", 0)
-        if ret != 0:
-            raise WeChatSDKError(ret, "updates")
+        # getupdates responses carry NO ``ret`` field — verified live
+        # (2026-07-16): healthy = {msgs, sync_buf, get_updates_buf}, error =
+        # {"errcode":-14,"errmsg":"session timeout"}. The old ``ret`` check
+        # therefore NEVER fired (``ret`` always absent → 0), so a dead session
+        # slipped through as an empty poll, indistinguishable from an idle
+        # account — the "silent death" incident (2026-07-06, dev+prod). Read
+        # ``errcode`` (keep ``ret`` as belt-and-suspenders); non-zero → raise so
+        # the trigger disables the credential instead of polling a corpse.
+        code = data.get("errcode", 0) or data.get("ret", 0)
+        if code != 0:
+            raise WeChatSDKError(code, "updates", data.get("errmsg", ""))
         return data
 
     async def send_message(self, to_user_id: str, context_token: str, text: str) -> bool:
@@ -202,7 +217,7 @@ class WeChatSDKClient:
 
         One retry per chunk: the inbound was already consumed (cursor advanced),
         so a transient send failure would otherwise read as "read, no reply".
-        ``ret != 0`` on HTTP 200 = app-level send failure (stale context_token /
+        A non-zero ``errcode`` on HTTP 200 = app-level send failure (stale context_token /
         session expiry) → treated as a failed send. A chunk that fails both
         attempts aborts the whole send: continuing would deliver a truncated /
         out-of-order reply while still returning ``ok=False``.
@@ -239,9 +254,10 @@ class WeChatSDKClient:
                         timeout=20,
                     )
                     resp.raise_for_status()
-                    ret = (resp.json() or {}).get("ret", 0)
-                    if ret != 0:
-                        raise WeChatSDKError(ret, "send")
+                    rj = resp.json() or {}
+                    code = rj.get("errcode", 0) or rj.get("ret", 0)
+                    if code != 0:
+                        raise WeChatSDKError(code, "send", rj.get("errmsg", ""))
                     break
                 except Exception as e:  # noqa: BLE001
                     # Audit trail, not noise-hiding: chunk sends used to fail

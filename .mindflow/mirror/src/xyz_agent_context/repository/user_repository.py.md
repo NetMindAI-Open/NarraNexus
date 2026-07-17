@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/repository/user_repository.py
-last_verified: 2026-06-12
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — upsert_netmind_user upgrades a pre-existing local row (B4)
+
+The UPDATE path now backfills `user_type="individual"` when the existing row is
+not already individual. On a local dual-mode install a user can first exist as a
+pure-local `"local"` username user and later log in with their Power account;
+without this upgrade `is_power_account()` ([[power_account]]) would keep denying
+them the billing panel. Only upgrades, never clobbers an already-individual row.
 
 ## 2026-06-12 — get_display_name: the single user_id→human-name resolver
 

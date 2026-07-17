@@ -24,7 +24,9 @@ This is the ONLY Discord-channel file that talks to the REST API.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
+from urllib.parse import quote
 
 import aiohttp
 from loguru import logger
@@ -33,6 +35,12 @@ from ._discord_text_sanitizer import split_discord_message
 
 # Discord REST base. v10 is the current stable API version.
 _API_BASE = "https://discord.com/api/v10"
+
+# Discord snowflake ids are decimal integers. ``add_reaction`` interpolates
+# channel_id / message_id into the REST URL path, and those arrive as agent
+# tool-call args (influenceable by an inbound-message prompt injection) — so
+# hard-gate the format, the same defense Lark uses via ``_LARK_ID_PATTERN``.
+_SNOWFLAKE_RE = re.compile(r"^\d+$")
 
 
 class DiscordSDKError(RuntimeError):
@@ -194,6 +202,29 @@ class DiscordSDKClient:
                 "POST", f"/channels/{channel_id}/messages", json_body=body
             )
         return last
+
+    async def add_reaction(
+        self, channel_id: str, message_id: str, emoji: str
+    ) -> None:
+        """PUT the bot's own reaction (unicode ``emoji``) on a message.
+
+        Backs the ``react_to_user_message`` tool. The emoji is URL-encoded
+        (Discord expects the raw unicode percent-encoded in the path). Raises
+        ``DiscordSDKError`` on failure so the tool can log + swallow
+        (best-effort — missing Add Reactions permission must not abort the run).
+        Discord returns 204 No Content on success.
+        """
+        if not _SNOWFLAKE_RE.match(channel_id) or not _SNOWFLAKE_RE.match(message_id):
+            raise DiscordSDKError(
+                "invalid_id",
+                f"channel_id/message_id must be numeric snowflakes: "
+                f"{channel_id!r}/{message_id!r}",
+            )
+        enc = quote(emoji, safe="")
+        await self._request(
+            "PUT",
+            f"/channels/{channel_id}/messages/{message_id}/reactions/{enc}/@me",
+        )
 
     async def get_channel_messages(
         self, channel_id: str, limit: int = 20

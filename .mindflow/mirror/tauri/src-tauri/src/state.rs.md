@@ -1,7 +1,14 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-07-09
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — pending_netmind_oauth buffer
+
+Added `pending_netmind_oauth: Arc<StdMutex<Option<String>>>` — the buffered
+desktop NetMind OAuth result, drained by `take_netmind_oauth_result`. Same
+pattern/rationale as `pending_deep_link`: poll-based delivery so it never depends
+on a live Tauri event listener. Written by [[netmind_oauth.rs]]'s on_navigation.
 
 ## 2026-07-08 — six channel triggers consolidated into one `channel_triggers` service
 

@@ -25,6 +25,11 @@ from xyz_agent_context.schema import (
     AgentToolCall,
     ErrorMessage,
     AUTH_EXPIRED_ERROR_TYPE,
+    SELF_SERVICEABLE_ERROR_TYPE,
+)
+from xyz_agent_context.agent_framework.llm_failure import (
+    classify_self_serviceable,
+    self_serviceable_user_message,
 )
 from ._thinking_batcher import _ThinkingBatcher
 from .execution_state import ExecutionState
@@ -121,6 +126,14 @@ _AUTH_EXPIRED_USER_MESSAGE = (
     "`claude login`) on the host, or assign an API-key provider to the "
     "Agent slot in Settings — then send the message again."
 )
+
+# ``SELF_SERVICEABLE_ERROR_TYPE`` marks a deterministic failure the USER can
+# fix (see runtime_message.py). Like auth, step_3 keys on this error_type to
+# skip the helper-LLM fallback — a fabricated reply over a turn that never
+# ran hides the real, fixable cause. The actionable copy lives in
+# ``llm_failure.self_serviceable_user_message`` (shared with step_3's raw-
+# exception path). Reason also rides on ``ErrorMessage.action_reason`` so the
+# frontend can pick its own copy.
 
 
 def _clean_reply_args_in_place(arguments: dict) -> dict:
@@ -367,6 +380,34 @@ class ResponseProcessor:
                         error_message=_AUTH_EXPIRED_USER_MESSAGE,
                         error_type=AUTH_EXPIRED_ERROR_TYPE,
                         severity="fatal",
+                    ),
+                    state_update={"method": "increment_response", "args": {}}
+                )
+
+            # Deterministic, user-self-serviceable failures (context window
+            # too small, no credits, bad model id) recur every turn with the
+            # same config. Left as "recoverable" they get papered over by the
+            # helper-LLM fallback — the "black box" incident where a 32k model
+            # failed every turn and DeepSeek fabricated a normal-looking reply
+            # while the agent never ran. Surface them as fatal + actionable
+            # and tag ``config_actionable`` so step_3 skips the fallback (same
+            # contract as auth above). Checked BEFORE recoverable; auth is
+            # already handled above and takes precedence.
+            self_serviceable = classify_self_serviceable(error_type, error_message)
+            if self_serviceable is not None:
+                logger.error(
+                    f"[AGENT-LOOP-SELF-SERVICEABLE] {self_serviceable} "
+                    f"({error_type}): {error_message}"
+                )
+                return ProcessedResponse(
+                    type=ResponseType.ERROR,
+                    message=ErrorMessage(
+                        error_message=self_serviceable_user_message(
+                            self_serviceable, error_message
+                        ),
+                        error_type=SELF_SERVICEABLE_ERROR_TYPE,
+                        severity="fatal",
+                        action_reason=self_serviceable,
                     ),
                     state_update={"method": "increment_response", "args": {}}
                 )

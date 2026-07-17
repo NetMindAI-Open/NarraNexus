@@ -279,6 +279,34 @@ function App() {
     return () => window.removeEventListener('narranexus:auth-expired', handler);
   }, []);
 
+  // Agent circuit-breaker open: wsManager dispatches this when the backend
+  // refuses to start a run because the agent is paused (repeated auth/quota
+  // failures) or cooling. Show a banner with a one-click "Resume" that clears
+  // the pause (agents_circuit_breaker.py). Mirrors the quota/auth banners.
+  const [circuitOpen, setCircuitOpen] = useState<{ agentId: string; reason: string } | null>(null);
+  const [resuming, setResuming] = useState(false);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ agentId: string; reason: string }>).detail;
+      if (detail?.agentId) setCircuitOpen(detail);
+    };
+    window.addEventListener('narranexus:agent-circuit-open', handler);
+    return () => window.removeEventListener('narranexus:agent-circuit-open', handler);
+  }, []);
+  const handleResumeAgent = async () => {
+    if (!circuitOpen || resuming) return;
+    setResuming(true);
+    try {
+      await api.resetAgentCircuitBreaker(circuitOpen.agentId);
+      setCircuitOpen(null);
+    } catch {
+      // Leave the banner up so the user can retry; the paused agent is
+      // unchanged. (Best-effort UI action — no destructive side effect.)
+    } finally {
+      setResuming(false);
+    }
+  };
+
   // #48: when the free tier runs out and we auto-switch to the user's own
   // provider, the backend writes a one-time SYSTEM notice tagged
   // source.type="free_tier_switch". Surface it as a dismissible banner and
@@ -382,6 +410,38 @@ function App() {
           role="alert"
         >
           Your session expired. Please sign in again. (click to dismiss)
+        </div>
+      )}
+      {circuitOpen && (
+        <div
+          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center font-[family-name:var(--font-sans)] flex items-center justify-center gap-3"
+          role="alert"
+        >
+          <span>
+            {circuitOpen.reason.startsWith('paused:quota')
+              ? 'This agent is paused after repeated quota/balance failures. Fix its provider, then resume.'
+              : circuitOpen.reason.startsWith('paused')
+                ? 'This agent is paused after repeated authentication failures. Re-authenticate or set a provider, then resume.'
+                : 'This agent recently failed and is briefly cooling down. Try again shortly.'}
+          </span>
+          {circuitOpen.reason.startsWith('paused') && (
+            <button
+              type="button"
+              className="underline font-semibold disabled:opacity-60"
+              onClick={handleResumeAgent}
+              disabled={resuming}
+            >
+              {resuming ? 'Resuming…' : 'Resume agent'}
+            </button>
+          )}
+          <button
+            type="button"
+            className="opacity-80 hover:opacity-100"
+            onClick={() => setCircuitOpen(null)}
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
         </div>
       )}
       {freeTierSwitched && (

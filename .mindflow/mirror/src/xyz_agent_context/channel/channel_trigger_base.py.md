@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — "ack early" moved into the per-turn input (salience)
+
+The early-feedback directive used to live in each module's `get_instructions`
+(system prompt) where models deprioritized it. It now rides in the **per-turn
+input** instead: `_build_and_run_agent` prepends `_early_feedback_prefix(message)`
+to `tagged_prompt` (right after the channel tag), so the "ACK FIRST" line sits
+inline with THIS message — higher salience. `_early_feedback_prefix` uses the
+new `react_tool_ref` class attr (bare name / Lark's `mcp__…` / None for WeChat →
+message-only ack) + the real room/message ids, via `render_early_feedback`.
+Still a SHOULD (prompt, not a hard guarantee). Lark's `_build_and_run_agent`
+override injects the same prefix.
+
+## 2026-07-10 — surface source_message_id (agent-driven feedback enabler)
+
+`_build_and_run_agent` adds `source_message_id` (the inbound platform message
+id) to `trigger_extra_data`. It merges into `ctx_data.extra_data`, so a channel
+module's get_instructions can tell the agent which message to react to /
+reply in-thread (the agent-facing `react_to_user_message` tool). Kept here, not
+in ChannelTag, so it stays ephemeral (not persisted into chat-history tags).
 
 ## 2026-07-08 — `pre_start(db)` hook added for the consolidated supervisor
 

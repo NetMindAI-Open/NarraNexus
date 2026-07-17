@@ -76,8 +76,11 @@ class ContextRuntimeOutput(BaseModel):
     """
     Output of ContextRuntime
 
-    Contains the constructed messages and mcp_urls, ready to be passed to the Agent Framework
+    Contains the constructed messages and mcp_servers, ready to be passed to the Agent Framework
     """
     messages: List[Dict[str, Any]]  # messages list (includes system prompt and history messages)
-    mcp_urls: Dict[str, str]  # MCP server URLs (module_name -> url)
+    # MCP server specs (server_name -> {"url": str, "headers": {str: str}?}).
+    # Module-internal servers carry only "url"; user-configured external
+    # servers may add "headers" (e.g. Authorization) applied on connect.
+    mcp_servers: Dict[str, Dict[str, Any]]
     ctx_data: ContextData  # ContextData (contains all collected data)

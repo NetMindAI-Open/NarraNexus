@@ -253,6 +253,11 @@ class ErrorMessage(BaseRuntimeMessage):
     severity: Literal[
         "fatal", "recoverable", "recovered", "recovered_after_reply"
     ] = "fatal"
+    # Only set when error_type == SELF_SERVICEABLE_ERROR_TYPE: the concrete
+    # self-serviceable reason ("context_window" / "insufficient_balance" /
+    # "model_not_found") so the frontend can pick actionable "what you can do"
+    # copy instead of a generic "turn failed". None for every other error.
+    action_reason: Optional[str] = None
 
 
 # error_type marker for credential/auth failures (codex OAuth token
@@ -264,3 +269,20 @@ class ErrorMessage(BaseRuntimeMessage):
 # response_processor, where the constant wasn't bound yet — incident
 # 2026-06-11.)
 AUTH_EXPIRED_ERROR_TYPE = "auth_expired"
+
+# error_type marker for DETERMINISTIC, user-self-serviceable failures — the
+# turn cannot run until the user changes their OWN config (model with a
+# bigger context window / add credits / fix the model id). Unlike a transient
+# blip (retry fixes it) or our-own bug, these WILL recur every turn with the
+# same config, so a helper-LLM fallback reply that papers over them is a lie
+# about what happened (the "black box" incident: a 32k model that can't hold
+# the ~75k platform context failed every turn, and DeepSeek fabricated a
+# normal-looking reply — the user never knew the agent didn't run). Keyed on
+# here (leaf schema module, same reason as AUTH_EXPIRED_ERROR_TYPE) so both
+# response_processor and step_3_agent_loop import it without a circular
+# import. The concrete reason (context_window / insufficient_balance /
+# model_not_found) rides in ErrorMessage.action_reason so the frontend can
+# pick actionable copy. NOTE (binding rule #15): this only surfaces the truth
+# + an actionable hint — it never force-stops a run, injects a prompt, judges
+# the model, or switches the user's model. Whether to act is the user's call.
+SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"

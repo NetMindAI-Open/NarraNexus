@@ -542,6 +542,7 @@ class UserProviderService:
         provider_type: Optional[str] = None,
         replace: bool = False,
         inference_base: Optional[str] = None,
+        activate: bool = True,
     ) -> tuple[LLMConfig, list[str], dict]:
         """Wire a complete runnable config from a single API key.
 
@@ -621,7 +622,12 @@ class UserProviderService:
             ptype, key, agent_model, inference_base=inference_base
         )
 
-        await self.set_user_agent_framework(user_id, framework)
+        # Register-only mode (activate=False): create the provider(s) but do NOT
+        # touch the user's framework or slots. Used when the user already has an
+        # active config — a NetMind card is made AVAILABLE (auto-registered on
+        # login), not force-activated over their own provider.
+        if activate:
+            await self.set_user_agent_framework(user_id, framework)
         # Expand-contract replace: create the NEW provider(s) and repoint slots
         # to them BEFORE deleting the old ones (replace=True skips the source
         # guard). If any step fails the old, working provider is still in place —
@@ -631,20 +637,21 @@ class UserProviderService:
             user_id=user_id, card_type=ptype, api_key=key, replace=bool(old_rows),
             inference_base=inference_base,
         )
-        # Official anthropic/openai cards create ONE provider that
-        # serves both slots. The netmind card creates TWO linked rows
-        # (anthropic + openai); route each slot to its protocol's row.
-        agent_pid = helper_pid = new_ids[0]
-        if len(new_ids) > 1:
-            by_protocol = {
-                config.providers[pid].protocol.value: pid
-                for pid in new_ids
-                if pid in config.providers
-            }
-            agent_pid = by_protocol.get("anthropic", new_ids[0])
-            helper_pid = by_protocol.get("openai", new_ids[0])
-        config = await self.set_slot(user_id, "agent", agent_pid, agent_model)
-        config = await self.set_slot(user_id, "helper_llm", helper_pid, helper_model)
+        if activate:
+            # Official anthropic/openai cards create ONE provider that
+            # serves both slots. The netmind card creates TWO linked rows
+            # (anthropic + openai); route each slot to its protocol's row.
+            agent_pid = helper_pid = new_ids[0]
+            if len(new_ids) > 1:
+                by_protocol = {
+                    config.providers[pid].protocol.value: pid
+                    for pid in new_ids
+                    if pid in config.providers
+                }
+                agent_pid = by_protocol.get("anthropic", new_ids[0])
+                helper_pid = by_protocol.get("openai", new_ids[0])
+            config = await self.set_slot(user_id, "agent", agent_pid, agent_model)
+            config = await self.set_slot(user_id, "helper_llm", helper_pid, helper_model)
 
         # Contract step: drop the old pair now that slots point at the new one.
         # Slots for the old provider_ids were already overwritten above, so their

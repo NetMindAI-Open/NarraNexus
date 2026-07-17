@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/pages/BundleImportPage.tsx
-last_verified: 2026-05-21
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — credential clashes + activation + LLM-config guidance
+
+Review step surfaces `credential_clashes` (bot already bound here → will be skipped). Done panel shows imported/skipped credential counts, a 'configure the LLM before use' callout (imported agents carry no provider config → incompatible default → silent channel failures), and a 'go activate imported channels' hint.
 
 ## 2026-05-21 — marks onboarding `template_applied`
 

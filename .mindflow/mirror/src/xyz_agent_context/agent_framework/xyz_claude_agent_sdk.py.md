@@ -1,8 +1,68 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-07-09
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — MCP spec 带自定义 headers（`_build_claude_mcp_config`）
+
+`agent_loop` 第二参数改为 `mcp_servers: {name: {"url", "headers"?}}`。新增模块级
+`_build_claude_mcp_config()`：spec → `McpSSEServerConfig`，有 headers 才带
+`headers` 键（SDK 0.1.43 起原生支持，连接时随请求发送）。模块内部 MCP 不带
+headers，行为不变。headers 值是密钥，函数内不打日志。
+
+## 2026-07-14 — inline `AssistantMessage.error` 把 CLI stderr 折进错误事件（病A / "黑盒" P1）
+
+`AssistantMessage.error` 是**只有 6 个值的枚举**（auth/billing/rate_limit/
+invalid_request/server_error/unknown）。真正的 provider 原因——例如 litellm
+`ContextWindowExceededError: inputs 75307 > 32769`——被 CLI 压成这个枚举，
+数字只活在 **CLI stderr** 里。原本 inline error 分支只 `logger.error` 打日志，
+让 `output_transfer` 输出干巴巴的 `Claude API error: unknown`，真相丢失。
+
+现在:inline error 分支里，当 `cli_stderr_lines` 非空，改为 yield
+`_inline_assistant_error_event(message.error, cli_stderr_lines)` 并 `continue`
+（跳过 output_transfer 的枚举事件）。该 helper 保留 `error_type`=枚举原值、把
+stderr 尾部折进 `error_message`——复用 `_zero_output_error_event` 的
+`_stderr_tail_detail` 共享写法。这样下游
+`llm_failure.classify_self_serviceable` 能从 message 文本认出 context-window /
+余额 / 模型错误。stderr 为空时不加东西，让 output_transfer 的枚举事件照常走
+（有些 inline error 的 stderr 本就是空的）。
+
+## 2026-07-12 — macOS 上**陈旧 host 文件遮蔽 Keychain**:凭据来源改为 Keychain 优先
+
+**症状**:本地版重新 `claude login` 后,Nexus 仍报 "coding-agent login has expired";
+Backend log 里 CLI 实为 `AssistantMessage(text='Not logged in · Please run /login')` +
+`error='authentication_failed'`。本地 `claude` CLI 正常,唯独 Nexus agent 槽失败。
+
+**真正根因**(比"stage-once"更底层):这台机器**同时存在两份凭据**——
+- 陈旧 host 文件 `~/.claude/.credentials.json`(6-25、`expiresAt` 已过期、只有 3 个 key 的旧格式);
+- 新鲜 Keychain(`Claude Code-credentials`、`expiresAt` 未过期、6 个 key 的现代格式,含
+  `scopes/subscriptionType/rateLimitTier`)。
+
+现代 macOS Claude Code 只写 **Keychain**;那个 `~/.claude/.credentials.json` 是老版本 CLI 的
+**遗留物**。但 `_stage_claude_oauth_credentials` 原逻辑是"host 文件存在就用它,否则才回退
+Keychain":`if source.is_file(): <copy2 file>`。于是 `source.is_file()==True`(陈旧遗留物)
+**永远遮蔽** Keychain,把 6-25 的过期 token `copy2`(保留 mtime,故隔离副本 mtime 也是 6-25)
+进隔离目录 → 隔离 CLI 读到过期文件 → "Not logged in"。用户自己的 `claude` 读 Keychain 所以正常。
+
+**修复**:macOS 上 **Keychain 是唯一权威**,host 文件仅当 Keychain 无 entry 时才作后备。
+- 新增 `_oauth_expires_at(blob)`:解析 `claudeAiOauth.expiresAt`(epoch-ms;**绝不 log blob**)。
+- 新增 `_read_keychain_blob()`:`security find-generic-password -s "Claude Code-credentials" -w`
+  的可 mock 封装,无 entry / 读失败 → None。
+- 新增 `_stage_blob_newest_wins(dir, blob, sourced_from=…)`:按 `expiresAt` 的 newest-wins 原子
+  写(0600)。仅当源严格更新才重导;隔离副本 expiresAt >= 源 → 保留(护住 CLI 就地刷新,不重新
+  注入已消费 refresh token,仍规避 #76 登出);源无 expiresAt → 绝不覆盖好副本。
+- `_stage_claude_oauth_credentials`:`if sys.platform=="darwin": kc=_read_keychain_blob();
+  if kc: _stage_blob_newest_wins(...); return`——Keychain 有就用,永不被陈旧 host 文件遮蔽;
+  否则落到原 host-file 路径(copy2 + mtime newest-wins),**Linux/云端逐字不变**(无 Keychain)。
+
+**代价**:macOS 每次 spawn 多跑一次 `security`(约 10ms)。为正确性接受。
+守卫测试(`tests/agent_framework/test_claude_config_isolation.py`):
+`test_darwin_keychain_wins_over_stale_host_file`(本次回归 · 核心)、
+`test_darwin_falls_back_to_host_file_when_keychain_empty`(老版 CLI 后备)、
+`test_stage_blob_newest_wins_restages_when_newer` /
+`test_stage_blob_preserves_inplace_refresh`(newest-wins 两个方向)、
+host-file 两测已 mock `_read_keychain_blob` → None 以在 dev Mac 上确定性走文件路径。
 
 ## 2026-07-09 — macOS: OAuth 凭据从 Keychain 导出进隔离目录(#76 的 macOS 补丁)
 
@@ -17,11 +77,12 @@ stub: false
 `.credentials.json`(0600,**绝不 log 内容**)。**darwin-only**:Linux/云端那个源文件存在,
 永远走不到此分支,行为与 #76 逐字一致(零云端影响)。
 
-**stage-once**(非 newest-wins):Keychain 无 mtime 可比,且每次 spawn 重导会覆盖 CLI
+**stage-once**(非 newest-wins):~~Keychain 无 mtime 可比,且每次 spawn 重导会覆盖 CLI
 在隔离文件里刷新过的 token(重新注入已消费的 refresh token → 登出,正是 #76 newest-wins
-要避免的)。故仅在隔离文件缺失时导出一次。**代价**:重新 `claude login`(更新 Keychain)
-后隔离副本不自动刷新——删隔离目录重新 stage。安全面:token 是本人本机、0600,与 codex
-的明文 `~/.codex/auth.json`、claude-on-Linux 的 `.credentials.json` 同级。
+要避免的)。故仅在隔离文件缺失时导出一次。~~ **⚠️ 2026-07-12 起已废弃 stage-once,改为按
+`expiresAt` 的 newest-wins,见文件顶部条目**——原设计的"代价"(重新 `claude login` 后需手删
+隔离目录)正是那次的修复目标。安全面:token 是本人本机、0600,与 codex 的明文
+`~/.codex/auth.json`、claude-on-Linux 的 `.credentials.json` 同级。
 
 `CliHelperSDK._run_claude_oneshot` 也会调 `_stage_claude_oauth_credentials`(见
 [[cli_helper_sdk]]),使 claude helper 自足——agent 槽是 codex 或后台单独调 helper 时

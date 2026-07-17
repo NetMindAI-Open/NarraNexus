@@ -149,6 +149,7 @@ class SlackTrigger(ChannelTriggerBase):
     channel_name = "slack"
     brand_display = "Slack"
     working_source = WorkingSource.SLACK
+    react_tool_ref = "react_to_user_message"
 
     # ── Worker pool ──────────────────────────────────────────────────────
     MIN_WORKERS = 3

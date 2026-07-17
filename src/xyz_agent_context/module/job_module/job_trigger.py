@@ -74,6 +74,7 @@ from xyz_agent_context.schema.job_schema import (
     TriggerConfig,
 )
 from xyz_agent_context.schema.hook_schema import WorkingSource
+from xyz_agent_context.schema.runtime_message import AUTH_EXPIRED_ERROR_TYPE
 from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
 
 # Utils
@@ -82,6 +83,16 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, utc_now, form
 # Repository
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.services.service_audit import ServiceAuditor
+# Leaf shared util (the real-time circuit-breaker imports the same) — NOT a
+# cross-module dependency (binding rule #3). Reused so the Job layer recognises
+# the SAME deterministic, won't-heal-by-waiting failures (#110) that the
+# real-time layer already treats as self-serviceable.
+from xyz_agent_context.agent_framework.llm_failure import (
+    classify_self_serviceable,
+    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
+)
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from zoneinfo import ZoneInfo
 from datetime import timedelta, timezone
@@ -116,16 +127,85 @@ _NO_QUOTA_ERROR_MARKERS = (
 )
 
 
+# paused_reason values whose fix the TIME-BASED backstop CANNOT observe. A
+# balance top-up leaves the config unchanged (and we can't pre-check balance —
+# no login JWT stored); a too-small context window or bad model id only clears
+# when the user changes the slot config. So `_resume_eligible_no_quota_jobs`
+# (which gates on static config-completeness, not a live test) must NOT
+# blind-probe these — re-arming them every cycle IS the retry storm. They resume
+# only on a real edge: `rearm_user_no_quota_jobs` (login / provider save), whose
+# LIVE provider test actually observes whether the condition cleared, or a manual
+# action. Auth / legacy-quota pauses are NOT here — reconfiguring a key changes
+# config, which the static readiness check DOES observe.
+_EDGE_ONLY_RESUME_REASONS: frozenset[str] = frozenset({
+    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
+})
+
+
 def _is_no_quota_failure(result: Dict[str, Any]) -> bool:
-    """True when a failed job result is a quota/provider-config exhaustion that
-    won't fix itself by waiting — pause instead of reschedule."""
+    """True when a failed job result won't fix itself by waiting — pause
+    (PAUSED_NO_QUOTA) instead of rescheduling.
+
+    Covers three groups:
+    1. quota/provider-config exhaustion by error TYPE (`_NO_QUOTA_ERROR_TYPES`);
+    2. any deterministic SELF-SERVICEABLE failure — insufficient balance/quota,
+       context window too small, model-not-found (#110's `classify_self_serviceable`,
+       reused so both layers agree). For a BACKGROUND job there is no interactive
+       user to read a per-turn message, so the only way to stop the retry storm
+       (9 users / 14 days / 390 retries, upstream incident) is to PAUSE — it
+       auto-resumes via the existing edge + 15-min backstop once the owner tops
+       up / reconfigures;
+    3. legacy message-substring quota markers (`_NO_QUOTA_ERROR_MARKERS`).
+    """
     if result.get("success", True):
         return False
     et = result.get("error_type")
     if et and et in _NO_QUOTA_ERROR_TYPES:
         return True
+    if classify_self_serviceable(et, result.get("error")) is not None:
+        return True
     msg = (result.get("error") or "").lower()
     return any(m in msg for m in _NO_QUOTA_ERROR_MARKERS)
+
+
+# Auth/credential failures are ALSO "the run cannot succeed until the OWNER acts"
+# (re-login / refresh OAuth / fix the API key) — recoverable, NOT transient.
+# Treating them as transient escalated them to terminal FAILED after
+# _MAX_CONSECUTIVE_FAILURES, and FAILED has no recovery path, so a job stayed
+# dead even after the owner fixed auth (incident 2026-07-13). Route them to the
+# same PAUSED_NO_QUOTA "provider/credentials unusable" pause, which the readiness
+# backstop revives — never to terminal FAILED.
+_AUTH_FAILURE_ERROR_TYPES: frozenset = frozenset({
+    AUTH_EXPIRED_ERROR_TYPE,       # "auth_expired" — the agent_loop's explicit tag
+    "AuthenticationError",
+    "authentication_error",
+    "invalid_api_key",
+    "PermissionDeniedError",
+})
+_AUTH_FAILURE_MARKERS = (
+    "authentication failed",
+    "check your api key",
+    "invalid api key",
+    "not logged in",
+    "expired token",
+    "unauthorized",
+    "401",
+)
+
+
+def _is_auth_failure(result: Dict[str, Any]) -> bool:
+    """True when a failed run is an auth/credential problem — recoverable once
+    the owner re-authenticates, so it must PAUSE (like no-quota), never escalate
+    to the terminal FAILED state (which has no recovery path)."""
+    if result.get("success", True):
+        return False
+    et = result.get("error_type")
+    if et and et in _AUTH_FAILURE_ERROR_TYPES:
+        return True
+    msg = (result.get("error") or "").lower()
+    return any(m in msg for m in _AUTH_FAILURE_MARKERS)
 
 
 # Transient-failure backoff (batch ②, 2026-06-01). A non-quota run failure
@@ -420,6 +500,13 @@ class JobTrigger:
             if last is None or (now_ts - last).total_seconds() >= _NO_QUOTA_BACKSTOP_INTERVAL_S:
                 self._last_no_quota_backstop = now_ts
                 await self._resume_eligible_no_quota_jobs()
+                # Same cadence: self-heal "active but unschedulable" zombies —
+                # an ACTIVE scheduled/ongoing job left with a NULL next_run_time
+                # is never picked by get_due_jobs (NULL is never <= now), so it
+                # silently never runs (incident 2026-07-13). Recompute its
+                # next_run. Belt-and-suspenders behind the reactivation fix in
+                # job_service.update_job.
+                await self._heal_unscheduled_active_jobs()
 
             # 1.6 Re-arm COOLING jobs whose backoff cooldown has elapsed.
             await self._rearm_cooled_jobs()
@@ -487,6 +574,13 @@ class JobTrigger:
                 return 0
             resumed = 0
             for job in paused:
+                # Do NOT blind-probe reasons whose fix readiness can't observe
+                # (balance top-up / model / context). Re-arming them every cycle
+                # is exactly the retry storm — a balance-0 user reads as
+                # config-complete → "can run" → re-arm → re-fail → forever. These
+                # resume only on a real edge (rearm_user_no_quota_jobs) or manual.
+                if job.paused_reason in _EDGE_ONLY_RESUME_REASONS:
+                    continue
                 exec_uid = job.related_entity_id or job.user_id
                 if not exec_uid or not await self._user_can_run(exec_uid):
                     continue
@@ -546,6 +640,42 @@ class JobTrigger:
             return rearmed
         except Exception as e:
             logger.exception(f"Error re-arming COOLING jobs: {e}")
+            return 0
+
+    async def _heal_unscheduled_active_jobs(self) -> int:
+        """Self-heal 'active but unschedulable' zombies.
+
+        An ACTIVE scheduled/ongoing job whose ``next_run_time`` is NULL will
+        never be selected by ``get_due_jobs`` (its WHERE is ``next_run_time <=
+        now``, and NULL is never <= now), so it looks active but silently never
+        runs. This happened when a job was reactivated (status→active) without a
+        fresh schedule after landing in a terminal/paused state (incident
+        2026-07-13). Recompute next_run from the job's own trigger so the poller
+        can pick it up. Returns the count healed."""
+        try:
+            repo = self._get_job_repo()
+            stuck = await repo.get_active_scheduled_jobs_missing_next_run()
+            if not stuck:
+                return 0
+            healed = 0
+            for job in stuck:
+                next_run = compute_next_run(
+                    job_type=job.job_type,
+                    trigger_config=job.trigger_config,
+                    last_run_utc=utc_now(),
+                )
+                if next_run:
+                    await repo.update_next_run(job.job_id, next_run)
+                    healed += 1
+                    logger.warning(
+                        f"Job {job.job_id} self-healed: ACTIVE with NULL next_run "
+                        f"→ rescheduled {next_run.local} ({next_run.tz})"
+                    )
+            if healed:
+                logger.warning(f"Self-healed {healed} unscheduled ACTIVE job(s)")
+            return healed
+        except Exception as e:
+            logger.exception(f"Error self-healing unscheduled ACTIVE jobs: {e}")
             return 0
 
     async def _diagnose_long_running_jobs(self) -> int:
@@ -875,16 +1005,32 @@ The task was executed but produced no text output.
             # recheck (_resume_eligible_no_quota_jobs) flips it back to ACTIVE
             # when quota is restored or a provider is configured. Transient
             # failures fall through to the normal reschedule path below.
-            if _is_no_quota_failure(result):
-                await repo.update_job_status(
-                    job_id=job.job_id,
-                    status=JobStatus.PAUSED_NO_QUOTA,
-                    error_message=result.get("error"),
+            if _is_no_quota_failure(result) or _is_auth_failure(result):
+                # Record WHY we paused so the resume path can tell apart a fix
+                # readiness can observe (auth/quota → config change) from one it
+                # cannot (balance top-up / model / context — see
+                # _EDGE_ONLY_RESUME_REASONS). Without this the backstop blind-
+                # probes and re-arms every cycle into the same wall.
+                ss_reason = classify_self_serviceable(
+                    result.get("error_type"), result.get("error")
                 )
+                if ss_reason is not None:
+                    pause_reason = ss_reason
+                elif _is_auth_failure(result):
+                    pause_reason = "auth"
+                else:
+                    pause_reason = "no_quota"
+                await repo.update_job(job.job_id, {
+                    "status": JobStatus.PAUSED_NO_QUOTA.value,
+                    "paused_reason": pause_reason,
+                    "paused_at": now,
+                    "last_error": result.get("error"),
+                })
                 if job.instance_id:
                     await self._update_instance_failed(job.instance_id)
                 logger.warning(
-                    f"Job {job.job_id} paused (no quota/provider): "
+                    f"Job {job.job_id} paused (provider/credentials unusable, "
+                    f"reason={pause_reason}): "
                     f"{result.get('error_type') or result.get('error')}"
                 )
                 return

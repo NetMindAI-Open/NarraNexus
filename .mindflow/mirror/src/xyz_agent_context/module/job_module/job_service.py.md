@@ -1,7 +1,21 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_service.py
-last_verified: 2026-04-21
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — `update_job` 复活 job 时自愈调度（防僵尸）
+
+Type C 把 `status` 改回 `active` 复活一个 job 时，原来**只改 status**：不重算
+`next_run_time`、不清 `paused_reason`/`consecutive_failure_count`/`cooldown_until`。
+于是从 FAILED/paused 复活的 job 变成「active 但 `next_run_time` 为空」的僵尸——
+poller 的 `get_due_jobs`（`next_run_time <= now`）永远选不到它，看似 active 却从不执行
+（事故 2026-07-13）。
+
+现在 `update_job` 里:当 `status` 目标是 ACTIVE 且调用方没显式给 `next_run_time` 时，
+用 job 自身的 `trigger_config` 重算 `next_run`（ONE_OFF 除外），并清空
+`paused_reason`/`consecutive_failure_count`/`cooldown_until`，让复活的 job 干净重排。
+配套:`JobRepository.update_job_fields` 的 `allowed_fields` 白名单已加入这三个恢复字段
+（否则会被静默过滤掉）。
 
 # job_service.py — Job 统一创建服务
 

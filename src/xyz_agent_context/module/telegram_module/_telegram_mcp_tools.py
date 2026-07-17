@@ -22,12 +22,31 @@ from typing import Any
 
 from loguru import logger
 
+from xyz_agent_context.channel.channel_reactions import best_effort_react
 from xyz_agent_context.module.base import XYZBaseModule
 
 from ._telegram_credential_manager import TelegramCredentialManager
 from ._telegram_service import do_bind, do_test_connection
 from ._telegram_skill_loader import get_skill_loader
 from .telegram_sdk_client import TelegramSDKClient
+
+
+# Semantic reaction vocabulary → Telegram allowed reaction emojis (shared
+# cross-channel set; each IM module maps it to its own platform tokens). Only
+# emojis in Telegram's default allowed set are used (✅ is NOT allowed → 🎉).
+_TELEGRAM_REACTIONS = {
+    "on_it": "👀",
+    "searching": "👀",
+    "done": "👌",
+    "celebrate": "🎉",
+    "thumbs_up": "👍",
+    "heart": "❤",
+    "thanks": "🙏",
+    "applause": "👏",
+    "hundred": "💯",
+    "warning": "😱",
+    "problem": "👎",
+}
 
 
 # Telegram Bot API methods are camelCase — no dots, unlike Slack.
@@ -112,6 +131,42 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
         client = TelegramSDKClient(cred.bot_token)
         try:
             return await client.api_call(method, args)
+        finally:
+            await client.close()
+
+    # ──────────────────────────────────────────────────────────────────
+    @mcp.tool()
+    async def react_to_user_message(
+        agent_id: str, room_id: str, message_id: str, emoji: str = "on_it"
+    ) -> dict:
+        """React to the user's message with an emoji (a lightweight ack).
+
+        Use this to acknowledge you've started — e.g. ``on_it`` when you begin a
+        longer task — without a full message. ``room_id`` is the chat id,
+        ``message_id`` the inbound message id (both shown in your channel
+        instructions). ``emoji`` is a semantic reaction name — see the channel
+        instruction for the full menu (unknown → ``on_it``).
+
+        Best-effort: a failure returns ``{"success": false, "reason": ...}`` and
+        never breaks your turn.
+        """
+        if not room_id or not message_id:
+            return {"success": False, "reason": "room_id and message_id are required"}
+        cred = await _get_credential(agent_id)
+        if not cred:
+            return {"success": False, "reason": "no_credential"}
+        client = TelegramSDKClient(cred.bot_token)
+
+        async def _react(token: str) -> None:
+            # set_message_reaction returns False (not raise) on a rejected
+            # emoji; turn that into a raise so best_effort_react reports it.
+            if not await client.set_message_reaction(room_id, message_id, token):
+                raise RuntimeError("telegram rejected the reaction")
+
+        try:
+            return await best_effort_react(
+                _TELEGRAM_REACTIONS, emoji, _react, log_label=f"telegram:{agent_id}",
+            )
         finally:
             await client.close()
 

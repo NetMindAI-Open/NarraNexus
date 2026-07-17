@@ -2,6 +2,12 @@
   "language": {
     "name": "语言"
   },
+  "channelActiveToggle": {
+    "active": "已启用",
+    "inactive": "已停用",
+    "enable": "启用",
+    "disable": "停用"
+  },
   "sidebar": {
     "chats": "对话",
     "teams": "团队",
@@ -130,7 +136,14 @@
       "titleFailed": "运行出错",
       "titleRecovered": "运行中出现错误",
       "situationFailed": "此次运行发生错误，Agent 未能正常回复。详情：",
-      "situationRecovered": "Agent 已回复，但运行过程中发生了错误。详情："
+      "situationRecovered": "Agent 已回复，但运行过程中发生了错误。详情：",
+      "titleActionable": "需要你处理",
+      "action": {
+        "context_window": "所选模型的上下文窗口太小，装不下本 Agent 的上下文。请在设置中更换上下文更大的模型后重新发送。",
+        "insufficient_balance": "模型提供方报告余额或额度不足。请在设置中充值或更换提供方后重新发送。",
+        "model_not_found": "配置的模型 ID 被提供方拒绝（不存在或无效）。请在设置中选择有效的模型后重新发送。",
+        "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。"
+      }
     }
   },
   "awareness": {
@@ -154,6 +167,7 @@
       "connectedCount": "已连接 {{connected}}/{{total}}",
       "manage": "管理",
       "connectedBadge": "✓ 已连接",
+      "inactiveBadge": "已绑定 · 未启用（启用后连接）",
       "notBound": "未绑定",
       "refreshStatus": "刷新状态"
     },
@@ -378,7 +392,8 @@
       "dropFiles": "将文件拖放到此处",
       "dragFiles": "将文件拖到此处，或",
       "browse": "浏览",
-      "empty": "工作区为空"
+      "empty": "工作区为空",
+      "kindOffice": "Office 文档(实时)"
     }
   },
   "dashboard": {
@@ -565,7 +580,20 @@
       "rename": "重命名",
       "setPrivate": "设为私有",
       "setPublic": "设为公开",
+      "clearData": "清理数据",
       "delete": "删除"
+    },
+    "clearAgentData": {
+      "title": "清理数据 · {{name}}",
+      "subtitle": "选择要清理的内容，操作不可恢复。",
+      "optConversations": "删除聊天记录",
+      "optConversationsDesc": "对话历史、Narrative 以及逐轮轨迹。",
+      "optMemory": "删除记忆",
+      "optMemoryDesc": "智能体学到的内容——人物、事实、观察与关系。",
+      "keepNote": "保留：人设、渠道绑定（飞书等）与账号。",
+      "cancel": "取消",
+      "confirm": "清理",
+      "toastDiskWarn": "数据已清理，但有 {{count}} 个磁盘文件未能删除，请查看日志。"
     },
     "agentsHeaderMenu": {
       "menu": "智能体菜单",
@@ -641,20 +669,6 @@
       "agentPrefix": "agent：{{id}}",
       "bulkDeleteFailed": "批量删除失败：{{error}}"
     },
-    "quota": {
-      "uninitialized": "尚未为你的账户设置系统免费额度。请联系管理员，或在下方配置你自己的服务商以继续。",
-      "title": "系统免费额度",
-      "exhaustedTag": "（已用尽）",
-      "statusLabel": "状态：{{status}}",
-      "inputTokens": "输入 token",
-      "outputTokens": "输出 token",
-      "preferToggle": "即使我已配置自己的服务商，也优先使用免费额度",
-      "preferOn": "当前：通过系统服务商路由——使用免费额度。免费额度用尽后回退到你自己的服务商。",
-      "preferOff": "当前：已配置时使用你自己的服务商；仅当未设置服务商时才使用免费额度。",
-      "exhaustedPreferOn": "免费额度已用尽——关闭此项即可立即改用你自己的服务商，或充值以继续使用免费额度。",
-      "exhaustedPreferOff": "免费额度已用尽——当前正在使用你自己的服务商。额度恢复后此项会自动重新可用。",
-      "exhaustedNote": "免费额度已用尽。请在下方添加你自己的服务商，或取消上方开关以通过现有服务商路由。"
-    },
     "netmind": {
       "planPro": "Pro",
       "badgeFree": "Free",
@@ -662,11 +676,7 @@
       "subtitle": "Power 套餐与额度 · 用于 LLM API 调用",
       "loading": "加载中…",
       "error": "无法加载你的 NetMind.AI Power 账户。若登录已失效，请重新登录后刷新。",
-      "free": "当前套餐：Free（未订阅）",
-      "proActive": "Pro · 生效中",
-      "validUntil": "有效至",
       "expiresDowngrade": "有效至 {{date}}，到期降级为 Free",
-      "subscribeBtn": "订阅 Pro",
       "cancelBtn": "取消订阅",
       "cancelConfirm": "取消 = 关闭自动续费。当前周期到期前仍是 Pro——不立即降级、不按比例退款。确定继续？",
       "reactivateBtn": "恢复自动续费",
@@ -679,23 +689,53 @@
       "notEligible": "当前无法产生付费消费（无余额 / 不可用）。",
       "hasArrears": "你有未结清的欠费。",
       "activityTitle": "最近流水",
-      "useTitle": "用此账户驱动 NarraNexus",
-      "useDesc": "用你的 NetMind.AI Power 额度跑 Agent 对话——无需粘贴 API key。",
-      "useSubscribeBtn": "使用此账户",
-      "useSubscribeOk": "已接入——现在可到「LLM Providers」选择模型。",
-      "deductTitle": "扣费顺序",
-      "deductOrder": "先扣订阅赠送额度 → 再扣账户余额（充值） → 两者用尽后停止付费消费。",
       "scopeNote": "这些 NetMind.AI Power 额度用于 LLM API 调用；算力（GPU）等定价另计。",
       "sandboxNotice": "NarraNexus 沙盒本身当前限时免费（不收沙盒服务费）；后续开始计费会另行告知。",
       "rechargeTitle": "充值加油包",
-      "rechargeDesc": "为你的 NetMind.AI Power 余额充值。充值的额度会保留，不受套餐状态影响。",
+      "rechargeDesc": "一次性充值，无需订阅。充值的额度会保留，不受套餐状态影响。",
       "rechargeCustom": "自定义",
       "rechargeBtn": "充值",
       "rechargeProcessing": "等待支付完成…请在打开的窗口里完成付款，余额会自动更新。",
       "rechargeSuccess": "充值完成 —— 余额已更新。",
       "rechargeFailed": "支付失败或已取消。",
       "rechargeInvalidAmount": "请输入大于 0 的金额。",
-      "rechargeStopWaiting": "停止等待"
+      "rechargeStopWaiting": "停止等待",
+      "checkingStatus": "正在检查你的 NetMind.AI Power 连接状态…",
+      "netStatusError": "暂时读不到连接状态，请刷新重试。",
+      "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。重新登录以自动接入，或在「LLM 服务商」中手动添加。",
+      "managePlan": "管理套餐与余额",
+      "manageSubscription": "管理订阅与余额",
+      "manageBalance": "管理余额",
+      "freeTierLabel": "免费额度",
+      "freeTierLeft": "剩余 {{pct}}%",
+      "freeTierUsedUp": "已用完",
+      "grantPerPeriod": "{{amount}} / {{period}}",
+      "perMonth": "月",
+      "flowFree": "用量先扣免费额度，再扣你的余额。",
+      "flowPro": "用量先扣免费额度，再扣每月赠额，最后扣充值余额。",
+      "flowProNoTier": "用量先扣每月赠额，再扣充值余额。",
+      "preferTitle": "免费额度优先",
+      "preferOnShort": "先用平台免费额度，用完再走你自己的额度。",
+      "preferOffShort": "不用平台免费额度，直接走你自己的额度。",
+      "lowChoose": "余额不足。继续运行，选一个：",
+      "exhaustedChoose": "免费额度已用完。继续运行，选一个：",
+      "upsellName": "升级 Pro",
+      "topupOrLink": "只是想临时充值一次？添加余额",
+      "proMemberActive": "会员价生效中 · 最高 5 折",
+      "needTopup": "本月赠额与余额将尽。充值以继续：",
+      "pricingLink": "查看全部模型与定价",
+      "accountLabel": "账号",
+      "planLabel": "套餐",
+      "planExplFree": "免费版 · 用量按余额扣费",
+      "planExplProActive": "会员 · 有效至 {{date}}",
+      "balanceUsable": "当前可用余额",
+      "grantIncluded": "(已计入余额)",
+      "upsellCardName": "NetMind Pro",
+      "upsellPerkDiscount": "OpenAI、Anthropic 等模型最高 5 折",
+      "upsellPerkNoFee": "零平台服务费",
+      "upsellPerkGrant": "每月含 {{amount}} 可用余额",
+      "netDriving": "正在用你的 NetMind.AI Power 账户运行 —— 无需配置。",
+      "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用 —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换。"
     },
     "modal": {
       "title": "设置",
@@ -1078,6 +1118,11 @@
       "localAccess": "本地 · 接入",
       "cloudMode": "云端模式",
       "signInWithNetmind": "使用 NetMind.AI 账号登录",
+      "tabLocal": "本地账号",
+      "tabPower": "Power 账号",
+      "recommended": "推荐",
+      "localDesc": "用你自己设定的用户名登录,数据全部保存在本地、不受限制。需自行配置 LLM Provider(API Key)才能使用模型。",
+      "powerDesc": "NetMind(Power)账号登录:数据同样全部保存在本地,私密无忧;登录后即可直接调用 Power 提供的各种大模型——注册送免费额度、免配置 API Key,开箱即用。用量更大随时充值,享会员折扣、免平台服务费,越用越省。",
       "migrationNoticeHeading": "我们重新整理了账号系统。",
       "migrationNoticeBody": "你的数据已迁移到你接收邀请码时所用邮箱对应的账号下。登录前，请先为该邮箱重置密码（点击下方“忘记密码？”）。如有其他疑问，请联系我们的团队：",
       "emailLabel": "邮箱",
@@ -1276,6 +1321,8 @@
         "mcpHintsLine": "{{count}} 个建议的外部 MCP URL（将逐个请你确认）",
         "nameClashesTitle": "名称冲突（已自动重命名）",
         "nameClashLine": "“{{name}}”——有 {{count}} 个同名的现有智能体",
+        "credentialClashesTitle": "此环境已绑定的频道凭据（将跳过）",
+        "credentialClashLine": "{{channel}} —— {{identity}} 已在此环境绑定；导入的凭据将被跳过，不会覆盖已有绑定",
         "warningsTitle": "捆绑包警告",
         "infoTitle": "信息（预期内，无需操作）",
         "strippedTitle": "已剥离（捆绑包中不包含）",
@@ -1293,6 +1340,12 @@
         "skillsImported": "{{count}} 项技能",
         "skillsCredsSuffix": "（部分可能需要重新学习或新的凭据）",
         "mcpHints": "已建议 {{count}} 个外部 MCP URL——请在下方查看",
+        "channelCredentialsImported": "已导入 {{count}} 个 IM 频道凭据——处于停用状态，等待激活",
+        "channelCredentialsSkipped": "已跳过 {{count}} 个频道凭据（该 bot 已在此环境绑定）",
+        "configureLlmTitle": "使用前请先配置 LLM",
+        "configureLlmHint": "导入的 Agent 不会携带其 LLM provider / framework 配置（凭据永远不随 bundle 传输）。在你配置之前，导入的 Agent 会退到系统默认组合，可能与其工具不兼容——届时它无法正常回复，尤其是走 IM channel 时（网页聊天只是用兜底垫场话掩盖了问题）。请到每个导入 Agent 的 设置 → LLM 里绑定 provider + framework 后再使用。",
+        "activateChannelsTitle": "激活导入的频道",
+        "activateChannelsHint": "导入的 IM 频道凭据默认停用，以免和源环境争抢每个 bot 仅有的一条连接。请到各智能体的 设置 中逐个开启——但务必先确认源环境已断开连接。",
         "warnings": "{{count}} 条警告（详见详情）",
         "suggestedMcpTitle": "建议的外部 MCP URL",
         "mcpNotAutoInstalled": "这些不会自动安装。如果你信任它们，可在各智能体的 设置 → MCP 中添加。",
@@ -1310,6 +1363,8 @@
       "bundleNotesPlaceholderTeam": "我的团队",
       "bundleNotesPlaceholderDesc": "描述这个团队的作用…",
       "includeChatLabel": "包含聊天记录（事件 + 消息）。对涉及隐私的模板请关闭。",
+      "includeChannelCredentialsLabel": "完整模式 — 包含凭据（IM 频道 + skill 密钥）",
+      "channelCredentialsWarning": "捆绑包中将包含近乎明文（base64）的密钥：IM bot 凭据 + skill 认证（env_config + skill 凭据文件）。任何拿到该文件的人都能接管这些 bot/skill——请勿外传。导入的频道凭据默认停用、需手动激活；skill 密钥则原地还原。",
       "cancel": "取消",
       "reviewExport": "审阅并导出",
       "tabs": {
@@ -1820,6 +1875,7 @@
       "env": "环境变量",
       "enable": "启用",
       "disable": "禁用",
+      "builtin": "内置",
       "remove": "移除"
     },
     "install": {
@@ -1870,6 +1926,10 @@
       "delete": "删除",
       "namePlaceholder": "MCP 名称",
       "urlPlaceholder": "SSE 链接（例如 https://your-host/sse）",
+      "headerKeyPlaceholder": "请求头名称（如 Authorization）",
+      "headerValuePlaceholder": "请求头的值（如 Bearer <token>）",
+      "addHeader": "添加请求头",
+      "removeHeader": "删除请求头",
       "add": "添加",
       "cancel": "取消",
       "deleteTitle": "删除 MCP",
@@ -1882,9 +1942,35 @@
         "endpoint": "必须是基于 http(s) 的远程 SSE 端点 — 通常以 /sse 结尾。",
         "reachable": "服务器必须能够访问该链接（公网主机或本机可连接的主机）。",
         "noStdio": "此处不支持本地 stdio / npx MCP — 仅支持基于 URL 的 SSE 服务器。",
-        "apiKey": "如果需要 API 密钥，请按 MCP 的要求放入链接或请求头中；我们以匿名方式连接。",
+        "apiKey": "如果需要 API 密钥，请在下方添加请求头（如 Authorization: Bearer <token>）——每次连接都会携带。",
         "validation": "添加后，状态指示点会校验连接 — “失败”表示该链接无法访问或不是有效的 SSE 端点。"
       }
     }
+  },
+  "feedback": {
+    "title": "反馈",
+    "categoryLabel": "类别",
+    "textLabel": "哪里不满意 / 希望有什么？",
+    "placeholder": "告诉我们哪里让你失望、缺什么功能——会直达 NarraNexus 团队。",
+    "submit": "提交反馈",
+    "sending": "发送中…",
+    "cancel": "取消",
+    "close": "关闭",
+    "thanks": "谢谢——你的反馈已送达团队。",
+    "categories": {
+      "user_dissatisfaction": "有不满意的地方",
+      "feature_gap": "缺少功能",
+      "error": "出错了",
+      "other": "其他"
+    }
+  },
+  "officeWatch": {
+    "liveBadge": "LIVE",
+    "close": "关闭预览",
+    "desktopUnsupported": "桌面应用暂不支持实时预览。",
+    "desktopHint": "在浏览器中打开 NarraNexus 查看文档实时预览。",
+    "loading": "正在打开实时预览…",
+    "loadError": "无法打开实时预览。",
+    "livePreview": "实时预览"
   }
 }

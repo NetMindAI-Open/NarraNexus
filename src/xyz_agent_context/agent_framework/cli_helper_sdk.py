@@ -243,7 +243,7 @@ class CliHelperSDK:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_input},
             ],
-            mcp_server_urls={},
+            mcp_servers={},
         ):
             # The codex driver's translator (output_transfer, codex_official)
             # emits internal events shaped {"type":"raw_response_event",

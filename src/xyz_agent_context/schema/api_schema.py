@@ -344,11 +344,27 @@ class ChatHistoryResponse(BaseModel):
 
 
 class ClearHistoryResponse(BaseModel):
-    """Response model for clear history endpoint"""
+    """Response model for the scoped clear conversation & memory endpoint.
+
+    Reports which scopes ran and per-target counts. `success` is True once the
+    DB transaction commits even if `disk_errors` is non-empty (the on-disk
+    markdown/trajectory/session deletes are best-effort and idempotent)."""
     success: bool
+    scopes: list = []                    # ["conversations", "memory"]
     narrative_ids_deleted: list = []
     narratives_count: int = 0
     events_count: int = 0
+    event_stream_count: int = 0
+    chat_memory_count: int = 0
+    chat_instances_count: int = 0
+    agent_messages_count: int = 0
+    bus_messages_count: int = 0
+    memory_rows_count: int = 0
+    artifacts_count: int = 0
+    disk_markdown_removed: bool = False
+    disk_trajectories_removed: bool = False
+    session_removed: bool = False
+    disk_errors: list = []
     error: Optional[str] = None
 
 
@@ -473,12 +489,18 @@ class FileDeleteResponse(BaseModel):
 # ===== MCP Schemas =====
 
 class MCPInfo(BaseModel):
-    """MCP URL information"""
+    """MCP URL information
+
+    ``headers`` carries MASKED values only (see routes/agents_mcps.py
+    ``_mask_header_value``) — plaintext header values never leave the
+    backend through read endpoints.
+    """
     mcp_id: str
     agent_id: str
     user_id: str
     name: str
     url: str
+    headers: Optional[Dict[str, str]] = None
     description: Optional[str] = None
     is_enabled: bool = True
     connection_status: Optional[str] = None
@@ -500,14 +522,22 @@ class MCPCreateRequest(BaseModel):
     """Request to create MCP"""
     name: str
     url: str
+    headers: Optional[Dict[str, str]] = None
     description: Optional[str] = None
     is_enabled: bool = True
 
 
 class MCPUpdateRequest(BaseModel):
-    """Request to update MCP"""
+    """Request to update MCP
+
+    ``headers`` update semantics: field absent → unchanged; field present
+    (including ``{}``) → replace the whole header set. The route checks
+    ``model_fields_set`` to tell the two apart, so partial merges of
+    individual headers are intentionally not supported.
+    """
     name: Optional[str] = None
     url: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
     description: Optional[str] = None
     is_enabled: Optional[bool] = None
 

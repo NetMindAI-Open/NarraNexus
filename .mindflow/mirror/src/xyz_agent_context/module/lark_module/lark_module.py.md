@@ -1,8 +1,36 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+
+The "ack early" block is no longer rendered in `get_instructions` — it moved to
+the per-turn input in the trigger (`_early_feedback_prefix`, see
+[[channel_trigger_base]]) for higher salience. `get_instructions` no longer
+imports `render_early_feedback`.
+
+## 2026-07-10 — PR #87 review: early-feedback via shared render
+
+The LARK CHANNEL early-feedback line is now produced by [[channel_reactions]]
+`render_early_feedback(tool_ref="mcp__lark_module__react_to_user_message", …,
+inline=True)` instead of an inline hardcoded string — the directive + the 11-name
+menu now have one source.
+
+## 2026-07-10 — get_instructions surfaces early-feedback directive
+
+The LARK CHANNEL mode block renders (when `source_message_id` is present) an
+"Early feedback" instruction: for any request needing more than a one-line
+answer, ACK FIRST (react `on_it` via `react_to_user_message`, with the real
+room_id/message_id embedded in the example, OR a quick "on it") THEN do the work;
+skip only for trivial replies. This is a **generic interaction rule**, so it
+lives in the system prompt (this get_instructions output) — NOT per-agent
+Awareness (rule #4: generic rules go in the generic prompt; only business
+*scenarios* go in Awareness). It's a product-level default applied to all agents
+equally, so it does not violate rule #15 (which forbids policing a *specific*
+model), but it's still a SHOULD — a contrarian model may ignore it; only the
+framework indicator (the `feat/im-native-ack` branch) guarantees a signal.
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

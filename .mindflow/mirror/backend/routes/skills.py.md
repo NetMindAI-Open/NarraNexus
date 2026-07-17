@@ -1,10 +1,16 @@
 ---
 code_file: backend/routes/skills.py
-last_verified: 2026-05-27
+last_verified: 2026-07-15
 stub: false
 ---
 
 # routes/skills.py — Skill 安装、学习与环境配置路由
+
+## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
+
+值类型从 url 字符串升级为 spec 对象 `{"url": str, "headers": {str:str}?}`，
+支撑用户 MCP 自定义请求头（Authorization 等）贯穿全链路。本文件仅机械跟随
+改名/类型，职责不变。
 
 ## 为什么存在
 
@@ -36,6 +42,10 @@ POST `/{skill_name}/study` 和 GET `/{skill_name}/study` 需要在 GET `/{skill_
 **zip 安装用临时目录**
 
 zip 文件上传时先保存到 `tempfile.mkdtemp()` 创建的临时目录，解压安装后用 `finally` 块清理临时目录。这防止了磁盘空间泄露。
+
+**内置技能拒删 → 400**
+
+`remove_skill` 现在多接一个 `except ValueError`:`SkillModule.remove_skill` 对内置技能(`.skill_meta.json` `builtin: true`)会 raise `ValueError`(内置随 app 出厂、删了下次运行还会重新物化,只能 disable 不能 remove)。路由把它转成带可执行文案的 400,而不是漏进兜底的 500。前端据此提示用户"改用禁用"。
 
 **所有 4xx 拒绝点统一过 `_reject()` helper**
 

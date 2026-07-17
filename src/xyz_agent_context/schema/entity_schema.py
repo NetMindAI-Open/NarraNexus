@@ -180,6 +180,10 @@ class MCPUrl(BaseModel):
     user_id: str = Field(..., max_length=64, description="Unique User identifier")
     name: str = Field(..., max_length=255, description="MCP name")
     url: str = Field(..., max_length=1024, description="MCP SSE URL")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None,
+        description="Custom HTTP headers sent on every request to this MCP (e.g. Authorization). Stored plaintext; must be masked in API responses.",
+    )
     description: Optional[str] = Field(None, max_length=512, description="MCP description")
     is_enabled: bool = Field(default=True, description="Whether enabled")
     connection_status: Optional[str] = Field(None, max_length=32, description="Connection status")

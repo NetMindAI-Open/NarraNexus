@@ -183,10 +183,65 @@ _DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 # =========================================================================
 
 
+def _mcp_bearer_env_var(server_name: str, headers: dict | None) -> str | None:
+    """Env-var name for a server's ``Authorization: Bearer`` header, if any.
+
+    Codex config cannot carry arbitrary HTTP headers; the only supported
+    auth shape is ``bearer_token_env_var`` (codex reads the token from the
+    subprocess env and sends ``Authorization: Bearer <token>``). Non-bearer
+    or non-Authorization headers are reported by ``codex_mcp_bearer_env``
+    with a warning (keys only — values are secrets).
+
+    The name carries a hash suffix of the EXACT server name because the
+    sanitizer collapses distinct names ("shop-api" / "shop_api" / "shop api")
+    onto the same alnum skeleton — without the suffix, two such servers would
+    share one env var and server A's bearer token would be sent to server B
+    (same trap executor_spec.safe_container_name guards in the deploy repo).
+    """
+    if not headers:
+        return None
+    auth = headers.get("Authorization") or headers.get("authorization")
+    if isinstance(auth, str) and auth.startswith("Bearer "):
+        import hashlib
+
+        sanitized = "".join(c if c.isalnum() else "_" for c in server_name).upper()
+        digest = hashlib.sha1(server_name.encode("utf-8")).hexdigest()[:8].upper()
+        return f"NARRANEXUS_MCP_BEARER_{sanitized}_{digest}"
+    return None
+
+
+def codex_mcp_bearer_env(mcp_servers: dict[str, dict]) -> dict[str, str]:
+    """Extract bearer tokens from MCP specs into env vars for codex.
+
+    Returns ``{env_var_name: token}`` for every server whose headers carry
+    ``Authorization: Bearer <token>``. Logs a warning (header keys only)
+    for headers codex cannot express.
+    """
+    env: dict[str, str] = {}
+    for name, spec in mcp_servers.items():
+        headers = spec.get("headers") or {}
+        if not headers:
+            continue
+        bearer_env = _mcp_bearer_env_var(name, headers)
+        unsupported = [
+            k for k in headers
+            if not (k.lower() == "authorization" and bearer_env)
+        ]
+        if bearer_env:
+            auth = headers.get("Authorization") or headers.get("authorization")
+            env[bearer_env] = auth[len("Bearer "):]
+        if unsupported:
+            logger.warning(
+                f"[CodexSDKv2] MCP server '{name}': headers {unsupported} are not "
+                f"supported by codex (only 'Authorization: Bearer <token>' is); skipping them"
+            )
+    return env
+
+
 def _build_codex_config_overrides(
     *,
     instructions_path: Path,
-    mcp_server_urls: dict[str, str],
+    mcp_servers: dict[str, dict],
     permissions: dict | None,
     writable_roots: list[Path] | None = None,
     sandbox_mode: str = _SANDBOX_DANGER_FULL_ACCESS,
@@ -210,10 +265,15 @@ def _build_codex_config_overrides(
     Args:
         instructions_path: Path the codex binary should read system
             prompt + history from. Becomes ``model_instructions_file``.
-        mcp_server_urls: ``{name: url}`` map. Each entry becomes one
-            ``mcp_servers.<name>.url=...`` override. URLs are SSE-shaped
-            (``http://host:port/sse``); we rewrite to the streamable-HTTP
-            shape codex CLI's MCP client requires.
+        mcp_servers: ``{name: {"url", "headers"?}}`` map. Each entry
+            becomes one ``mcp_servers.<name>.url=...`` override. URLs are
+            SSE-shaped (``http://host:port/sse``); we rewrite to the
+            streamable-HTTP shape codex CLI's MCP client requires.
+            A single ``Authorization: Bearer <token>`` header is supported
+            via ``bearer_token_env_var`` (token itself travels in the
+            subprocess env, see ``codex_mcp_bearer_env``); any other
+            header is not expressible in codex config and is skipped
+            with a warning.
         permissions: Output of
             ``translate_tool_policy_to_codex_permissions``. Flattened
             into dotted-path ``permissions.<category>."<rule>"=...``
@@ -285,10 +345,13 @@ def _build_codex_config_overrides(
         ])
 
     # MCP servers — one mcp_servers.<name>.url entry per server.
-    for name in sorted(mcp_server_urls.keys()):
-        url = mcp_server_urls[name]
-        stream_url = _sse_url_to_streamable_http(url)
+    for name in sorted(mcp_servers.keys()):
+        spec = mcp_servers[name]
+        stream_url = _sse_url_to_streamable_http(spec["url"])
         overrides.append(f'mcp_servers.{name}.url="{stream_url}"')
+        bearer_env = _mcp_bearer_env_var(name, spec.get("headers"))
+        if bearer_env:
+            overrides.append(f'mcp_servers.{name}.bearer_token_env_var="{bearer_env}"')
 
     # Permissions — flatten translator output. The translator returns
     # a dict like {"filesystem": {"/etc/**": "deny", ...},
@@ -456,7 +519,7 @@ class CodexSDKv2:
     async def agent_loop(
         self,
         messages: list[dict[str, Any]],
-        mcp_server_urls: dict[str, str],
+        mcp_servers: dict[str, dict[str, Any]],
         streaming: bool = True,
         extra_env: dict[str, str] | None = None,
         cancellation: Any | None = None,
@@ -554,7 +617,7 @@ class CodexSDKv2:
             sandbox_mode = _resolve_sandbox_mode()
             config_overrides = _build_codex_config_overrides(
                 instructions_path=instructions_path,
-                mcp_server_urls=mcp_server_urls,
+                mcp_servers=mcp_servers,
                 permissions=permissions,
                 writable_roots=[Path(self.working_path)],
                 sandbox_mode=sandbox_mode,
@@ -570,8 +633,8 @@ class CodexSDKv2:
             )
 
             _mcp_lines = [
-                f"  - {name}: {url}"
-                for name, url in mcp_server_urls.items()
+                f"  - {name}: {spec['url']}" + (" (+headers)" if spec.get("headers") else "")
+                for name, spec in mcp_servers.items()
             ] or ["  (no MCP servers configured)"]
             logger.info(
                 f"[CodexSDKv2] config_overrides → {len(config_overrides)} "
@@ -586,10 +649,11 @@ class CodexSDKv2:
             # passes only a minimal system allowlist + CODEX_HOME + NO_PROXY
             # + the scoped CODEX_API_KEY from CodexConfig.to_cli_env. A
             # filesystem sandbox can't fix this — `env` reads process memory.
+            mcp_bearer_env = codex_mcp_bearer_env(mcp_servers)
             env = build_codex_subprocess_env(
                 cli_env=codex_config.to_cli_env(),
                 codex_home=codex_home_path,
-                extra_env=extra_env,
+                extra_env={**mcp_bearer_env, **(extra_env or {})} or None,
             )
 
             # ---- Step 5: construct SDK client + start thread ----

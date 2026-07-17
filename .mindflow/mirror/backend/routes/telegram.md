@@ -1,20 +1,23 @@
 ---
 code_file: backend/routes/telegram.py
 stub: false
-last_verified: 2026-05-09
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — `/set-active` endpoint (activation)
+
+Added `POST /set-active` (flip `enabled` without a re-bind) → **5 endpoints now** (was 4). Used to activate a bundle-imported (inactive) Telegram credential via `set_enabled`.
 
 ## Why it exists
 
 REST surface for the dashboard's Telegram bind UX
 (``frontend/src/components/awareness/TelegramConfig.tsx``). Mirrors
-``backend/routes/slack.py`` and ``backend/routes/lark.py``: four
-endpoints, agent-ownership-checked, all delegating to the shared
+``backend/routes/slack.py`` and ``backend/routes/lark.py``: five endpoints, agent-ownership-checked, all delegating to the shared
 ``_telegram_service`` helpers so MCP and HTTP paths stay in lockstep.
 
 ## Design decisions
 
-- **Four endpoints, intentionally minimal.**
+- **Five endpoints, intentionally minimal.**
   - ``POST /bind`` — validate token + persist
   - ``GET /credential`` — sanitised view (NO token)
   - ``POST /test`` — re-run ``getMe`` against stored token

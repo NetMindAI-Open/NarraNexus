@@ -10,6 +10,11 @@ import { useConfigStore } from '@/stores/configStore';
 import { getWsBaseUrl } from '@/stores/runtimeStore';
 import { MOCK_ENABLED } from '@/lib/mock';
 import { dispatchAuthExpired, isAuthErrorMessage } from './wsAuthError';
+import {
+  circuitOpenReason,
+  dispatchAgentCircuitOpen,
+  isCircuitOpenMessage,
+} from './wsCircuitOpen';
 import type { Attachment, RuntimeMessage } from '@/types';
 
 interface ConnectionEntry {
@@ -129,6 +134,20 @@ class WebSocketManager {
         // with no path to re-login.
         if (isAuthErrorMessage(message)) {
           dispatchAuthExpired();
+          return;
+        }
+
+        // Circuit-breaker open: the backend refused to START this fresh run
+        // (agent paused after repeated auth/quota failures, or briefly
+        // cooling) and is closing the socket. Surface a banner with a
+        // "Resume" action (App.tsx) instead of a dead-end red bubble, and
+        // clear the spinner so the composer isn't stuck streaming.
+        if (isCircuitOpenMessage(message)) {
+          dispatchAgentCircuitOpen({ agentId, reason: circuitOpenReason(message) });
+          entry.completed = true;
+          this.onCompleteCallbacks.delete(agentId);
+          store().processMessage(agentId, message);
+          store().stopStreaming(agentId, agentName);
           return;
         }
 

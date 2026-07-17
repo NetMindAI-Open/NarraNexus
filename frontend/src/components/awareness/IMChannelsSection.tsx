@@ -34,13 +34,18 @@ export interface ChannelConfigProps {
   onBindStateChange?: () => void;
 }
 
+/** Tri-state: a credential can exist but be inactive (e.g. imported from a
+ * bundle, which lands disabled awaiting manual activation), which is NOT the
+ * same as having no credential at all. */
+type ChannelStatus = 'active' | 'inactive' | 'unbound';
+
 interface ChannelEntry {
   key: string;
   label: string;
   Icon: ComponentType<{ className?: string }>;
   Component: ComponentType<ChannelConfigProps>;
-  /** True iff this channel currently has a credential bound for the active agent. */
-  fetchConnected: (agentId: string) => Promise<boolean>;
+  /** Bound + active / bound-but-inactive / no credential, for the active agent. */
+  fetchStatus: (agentId: string) => Promise<ChannelStatus>;
 }
 
 const IM_CHANNELS: ChannelEntry[] = [
@@ -49,12 +54,13 @@ const IM_CHANNELS: ChannelEntry[] = [
     label: 'Lark / Feishu',
     Icon: MessageSquare,
     Component: LarkConfig,
-    fetchConnected: async (agentId) => {
+    fetchStatus: async (agentId) => {
       try {
         const res = await api.getLarkCredential(agentId);
-        return Boolean(res.success && res.data && (res.data.is_active ?? true));
+        if (!res.success || !res.data) return 'unbound';
+        return res.data.is_active ? 'active' : 'inactive';
       } catch {
-        return false;
+        return 'unbound';
       }
     },
   },
@@ -63,12 +69,13 @@ const IM_CHANNELS: ChannelEntry[] = [
     label: 'Slack',
     Icon: Hash,
     Component: SlackConfig,
-    fetchConnected: async (agentId) => {
+    fetchStatus: async (agentId) => {
       try {
         const res = await api.getSlackCredential(agentId);
-        return Boolean(res.success && res.data && res.data.enabled);
+        if (!res.success || !res.data) return 'unbound';
+        return res.data.enabled ? 'active' : 'inactive';
       } catch {
-        return false;
+        return 'unbound';
       }
     },
   },
@@ -77,12 +84,13 @@ const IM_CHANNELS: ChannelEntry[] = [
     label: 'Telegram',
     Icon: Send,
     Component: TelegramConfig,
-    fetchConnected: async (agentId) => {
+    fetchStatus: async (agentId) => {
       try {
         const res = await api.getTelegramCredential(agentId);
-        return Boolean(res.success && res.data && res.data.enabled);
+        if (!res.success || !res.data) return 'unbound';
+        return res.data.enabled ? 'active' : 'inactive';
       } catch {
-        return false;
+        return 'unbound';
       }
     },
   },
@@ -91,12 +99,13 @@ const IM_CHANNELS: ChannelEntry[] = [
     label: 'WeChat',
     Icon: QrCode,
     Component: WeChatConfig,
-    fetchConnected: async (agentId) => {
+    fetchStatus: async (agentId) => {
       try {
         const res = await api.getWeChatCredential(agentId);
-        return Boolean(res.success && res.data && res.data.enabled);
+        if (!res.success || !res.data) return 'unbound';
+        return res.data.enabled ? 'active' : 'inactive';
       } catch {
-        return false;
+        return 'unbound';
       }
     },
   },
@@ -105,12 +114,13 @@ const IM_CHANNELS: ChannelEntry[] = [
     label: 'NarraMessenger',
     Icon: MessageCircle,
     Component: NarramessengerConfig,
-    fetchConnected: async (agentId) => {
+    fetchStatus: async (agentId) => {
       try {
         const res = await api.getNarramessengerCredential(agentId);
-        return Boolean(res.success && res.data && res.data.enabled);
+        if (!res.success || !res.data) return 'unbound';
+        return res.data.enabled ? 'active' : 'inactive';
       } catch {
-        return false;
+        return 'unbound';
       }
     },
   },
@@ -119,12 +129,13 @@ const IM_CHANNELS: ChannelEntry[] = [
     label: 'Discord',
     Icon: Bot,
     Component: DiscordConfig,
-    fetchConnected: async (agentId) => {
+    fetchStatus: async (agentId) => {
       try {
         const res = await api.getDiscordCredential(agentId);
-        return Boolean(res.success && res.data && res.data.enabled);
+        if (!res.success || !res.data) return 'unbound';
+        return res.data.enabled ? 'active' : 'inactive';
       } catch {
-        return false;
+        return 'unbound';
       }
     },
   },
@@ -137,14 +148,14 @@ export function IMChannelsSection() {
   // collapsed one-liner the user has to click to reveal.
   const [sectionOpen, setSectionOpen] = useState(true);
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
-  const [connectedMap, setConnectedMap] = useState<Record<string, boolean>>({});
+  const [statusMap, setStatusMap] = useState<Record<string, ChannelStatus>>({});
 
   const refreshConnected = useCallback(async () => {
     if (!agentId) return;
     const entries = await Promise.all(
-      IM_CHANNELS.map(async (ch) => [ch.key, await ch.fetchConnected(agentId)] as const),
+      IM_CHANNELS.map(async (ch) => [ch.key, await ch.fetchStatus(agentId)] as const),
     );
-    setConnectedMap(Object.fromEntries(entries));
+    setStatusMap(Object.fromEntries(entries));
   }, [agentId]);
 
   // Pre-fetch on mount and whenever the active agent changes, so the
@@ -191,7 +202,7 @@ export function IMChannelsSection() {
     });
   }, [refreshConnected]);
 
-  const connectedCount = IM_CHANNELS.filter((c) => connectedMap[c.key]).length;
+  const connectedCount = IM_CHANNELS.filter((c) => statusMap[c.key] === 'active').length;
   const totalCount = IM_CHANNELS.length;
 
   const toggleChannel = (key: string) => {
@@ -229,7 +240,7 @@ export function IMChannelsSection() {
         <div className="mt-3 space-y-2">
           {IM_CHANNELS.map((ch) => {
             const isExpanded = expandedChannel === ch.key;
-            const isConnected = connectedMap[ch.key];
+            const status = statusMap[ch.key];
             const Icon = ch.Icon;
             const Component = ch.Component;
             return (
@@ -245,8 +256,12 @@ export function IMChannelsSection() {
                   <span className="flex items-center gap-2 text-sm text-[var(--text-primary)]">
                     <Icon className="w-4 h-4 text-[var(--text-secondary)]" />
                     {ch.label}
-                    {isConnected ? (
+                    {status === 'active' ? (
                       <span className="ml-2 text-xs text-[var(--color-green-500)]">{t('awareness.channels.connectedBadge')}</span>
+                    ) : status === 'inactive' ? (
+                      <span className="ml-2 text-xs text-[var(--color-yellow-500)] inline-flex items-center gap-1">
+                        <LinkIcon className="w-3 h-3" /> {t('awareness.channels.inactiveBadge')}
+                      </span>
                     ) : (
                       <span className="ml-2 text-xs text-[var(--text-secondary)] inline-flex items-center gap-1">
                         <LinkIcon className="w-3 h-3" /> {t('awareness.channels.notBound')}

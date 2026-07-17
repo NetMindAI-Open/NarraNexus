@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-06-17
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — `SELF_SERVICEABLE_ERROR_TYPE` 常量 + `ErrorMessage.action_reason` 字段
+
+同 `AUTH_EXPIRED_ERROR_TYPE` 的理由，新增叶子常量
+`SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"`，标记**确定性、用户可自助
+修复**的失败（context window 太小 / 余额不足 / 模型 ID 无效）——同配置每轮必
+复现，只能由用户改配置。`response_processor` 和 `step_3_agent_loop` 都要 import
+它来 skip 掉 helper-LLM 兜底（兜底掩盖可修复真相是"黑盒" P1 的根因）。同时给
+`ErrorMessage` 加了可选字段 `action_reason`（`context_window` /
+`insufficient_balance` / `model_not_found`），仅当 `error_type ==
+config_actionable` 时设置，供前端挑选"你可以做什么"文案。判定逻辑在
+`agent_framework/llm_failure.classify_self_serviceable`（双通道：type 精确 +
+message 子串）。铁律 #15：只做透传+告知，不 force-stop、不判定模型、不替用户换模型。
 
 ## 2026-06-17 — `AUTH_EXPIRED_ERROR_TYPE` 常量落户本 leaf schema 模块
 

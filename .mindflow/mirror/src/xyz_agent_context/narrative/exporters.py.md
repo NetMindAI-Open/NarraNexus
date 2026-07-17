@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/narrative/exporters.py
-last_verified: 2026-04-10
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — delete_all() on both managers
+
+`NarrativeMarkdownManager.delete_all()` and `TrajectoryRecorder.delete_all()`
+remove the whole `{base}/{agent}/{user}/narratives|trajectories` tree
+(idempotent, returns whether anything was there). These are the disk half of
+the "clear conversation & memory" wipe ([[wipe_service.py]]) — the markdown is
+the real long-memory surface (the DB is rebuilt from it on restart), so a
+DB-only clear left agents remembering. The classes own the path construction,
+so the delete lives here rather than in the wipe service.
 
 # exporters.py — 调试导出工具（Markdown 快照 + Trajectory 追踪）
 

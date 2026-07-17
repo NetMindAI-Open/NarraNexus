@@ -242,7 +242,7 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
             data-help-id={`bookmarks.${tab.id}`}
             onClick={() => onOpen(tab.id)}
             className={cn(
-              'group relative flex flex-col items-center justify-center gap-0.5 h-11 w-full shrink-0',
+              'group relative flex flex-col items-center justify-center gap-0.5 h-[50px] w-full shrink-0',
               'cursor-pointer transition-colors duration-150',
               // No background highlight — only the icon + caption (and the
               // active edge rule) light up carbon.
@@ -256,7 +256,7 @@ function AtomicTab({ tab, active, status, onOpen }: AtomicTabProps) {
           >
             <Icon
               className={cn(
-                'w-4 h-4 transition-colors',
+                'w-5 h-5 transition-colors',
                 status.status === 'attention'
                   ? 'text-[var(--color-carbon)] animate-pulse'
                   : active

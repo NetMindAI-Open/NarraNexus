@@ -113,6 +113,18 @@ export interface BusFailuresResponse extends ApiResponse {
   failures: BusFailureItem[];
 }
 
+// Real-time-layer Agent circuit-breaker status (agents_circuit_breaker.py).
+export type CircuitBreakerStatus = 'active' | 'cooling' | 'paused';
+
+export interface AgentCircuitBreakerResponse extends ApiResponse {
+  agent_id: string;
+  cb_status: CircuitBreakerStatus;
+  paused_reason: 'auth' | 'quota' | null;
+  consecutive_failure_count: number;
+  cooldown_until: string | null;
+  last_error: string | null;
+}
+
 export interface NoticeItem {
   message_id: string;
   message_type: string;
@@ -137,9 +149,21 @@ export interface AwarenessResponse extends ApiResponse {
 
 // Clear history types
 export interface ClearHistoryResponse extends ApiResponse {
+  scopes: string[];
   narrative_ids_deleted: string[];
   narratives_count: number;
   events_count: number;
+  event_stream_count: number;
+  chat_memory_count: number;
+  chat_instances_count: number;
+  agent_messages_count: number;
+  bus_messages_count: number;
+  memory_rows_count: number;
+  artifacts_count: number;
+  disk_markdown_removed: boolean;
+  disk_trajectories_removed: boolean;
+  session_removed: boolean;
+  disk_errors: string[];
 }
 
 // Social Network types
@@ -462,6 +486,8 @@ export interface MCPInfo {
   user_id: string;
   name: string;
   url: string;
+  /** Masked header values (e.g. "Bearer…7890") — plaintext never leaves the backend. */
+  headers?: Record<string, string> | null;
   description?: string;
   is_enabled: boolean;
   connection_status?: 'connected' | 'failed' | 'unknown' | null;
@@ -479,6 +505,8 @@ export interface MCPListResponse extends ApiResponse {
 export interface MCPCreateRequest {
   name: string;
   url: string;
+  /** Custom HTTP headers sent on every request to this MCP (e.g. Authorization). */
+  headers?: Record<string, string>;
   description?: string;
   is_enabled?: boolean;
 }
@@ -486,6 +514,8 @@ export interface MCPCreateRequest {
 export interface MCPUpdateRequest {
   name?: string;
   url?: string;
+  /** Present (even {}) replaces the whole header set; absent leaves it unchanged. */
+  headers?: Record<string, string>;
   description?: string;
   is_enabled?: boolean;
 }
@@ -1012,11 +1042,13 @@ export interface SubscriptionPlanPrice {
   stripe_price_id: string;
 }
 
+// Verbatim NetMind proxy (like FeeInfo): no backend schema validation, so treat
+// every nested field as possibly absent at runtime and read defensively.
 export interface SubscriptionPlan {
   plan_id: string; // "free" | "pro"
   name: string;
-  quota_limits: { rpm: number };
-  features: { support: boolean; member_price: boolean };
+  quota_limits: { rpm?: number };
+  features: { support?: boolean; member_price?: boolean };
   monthly_grant_usd: number;
   prices: SubscriptionPlanPrice[];
 }

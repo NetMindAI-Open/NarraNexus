@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-10
 ---
+
+## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
+
+The "ack early" block (and its `is_wechat_channel` gate) is gone from
+`get_instructions`; it's now injected per-turn by the trigger
+(`_early_feedback_prefix`, see [[channel_trigger_base]]). WeChat leaves
+`react_tool_ref` unset → the base default (None) → message-only ack, so the
+channel gate is no longer needed here.
+
+## 2026-07-10 — PR #87 review: is_wechat_channel gate + shared render
+
+Two review fixes: (1) the early-feedback block is now gated on
+`WorkingSource.WECHAT` (was gated only on `source_message_id`, which the base
+writes for ALL channels → a WeChat-bound agent handling a Lark turn wrongly saw
+WeChat's "reply via wechat_send" ack — a cross-channel leak). (2) It's rendered
+by the shared [[channel_reactions]] `render_early_feedback(tool_ref=None, …)`
+(message-only variant — WeChat has no reaction API).
+
+## 2026-07-10 — get_instructions surfaces early-feedback affordance
+
+Operational prompt now includes an "Early feedback" block (when a
+`source_message_id` is present): a generic SHOULD directive — for non-trivial
+requests, ACK FIRST with a short `wechat_send` "on it" THEN do the work. WeChat
+has no reaction API, so the ack is a message. Generic system-prompt rule, not
+per-agent Awareness (rule #4); not a hard guarantee (rule #15).
 
 ## 2026-07-03 — handler registers `dedicated_trigger=True`
 

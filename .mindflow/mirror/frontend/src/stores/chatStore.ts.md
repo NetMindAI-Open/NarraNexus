@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-06-10
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — `currentActionReason` 透传确定性自助类错误
+
+会话状态新增 `currentActionReason: string | null`（session-only，未进 flat
+derived 字段——MessageBubble 从持久化的 `ChatMessage.actionReason` 读，不需要
+flat）。`processMessage` 的 `error` 分支:当 `error_type === 'config_actionable'`
+时 latch `errorMsg.action_reason`。`stopStreaming` 在 `isError` 时把它盖到
+assistant 消息的 `actionReason` 上（有回复就不打标）。`startStreaming` 与
+默认态一并重置为 null。这样前端能对确定性可自助失败（上下文太小/余额/模型）
+渲染"你可以做什么"面板，而不是笼统的失败——对应后端
+`SELF_SERVICEABLE_ERROR_TYPE`。
+
+## 2026-07-10 — historyRefreshTick / requestHistoryRefresh
+
+Added a global `historyRefreshTick` counter + `requestHistoryRefresh()` action.
+`clearAgent` drops an agent's in-memory session, but [[ChatPanel.tsx]] holds
+its OWN server-fetched history and only reloads on agent switch — so after a
+data wipe ([[wipe_service.py]] / [[AgentList.tsx]]) it kept showing stale
+messages. Bumping the tick makes ChatPanel re-fetch (now-empty) history
+immediately. Deliberately a single global counter (not per-agent): a wipe is
+rare and only the mounted panel reacts, so the extra generality isn't worth it.
 
 ## 2026-06-10 — run_started 帧驱动 bookmarkStore.onRunStart
 

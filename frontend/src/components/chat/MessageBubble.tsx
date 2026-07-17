@@ -293,12 +293,31 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
                 </button>
               </PopoverTrigger>
               <PopoverContent side="top" align="end" className="w-[300px] p-3">
-                <div className="text-xs font-semibold mb-1" style={{ color: 'var(--color-error)' }}>
-                  {message.isError ? t('chat.error.titleFailed') : t('chat.error.titleRecovered')}
-                </div>
-                <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
-                  {message.isError ? t('chat.error.situationFailed') : t('chat.error.situationRecovered')}
-                </div>
+                {message.actionReason ? (
+                  <>
+                    {/* Deterministic, user-self-serviceable failure: show
+                        localized "what you can do" guidance instead of a
+                        generic "turn failed", with the raw provider detail
+                        (English, carries the concrete numbers) below. */}
+                    <div className="text-xs font-semibold mb-1" style={{ color: 'var(--color-error)' }}>
+                      {t('chat.error.titleActionable')}
+                    </div>
+                    <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                      {t(`chat.error.action.${message.actionReason}`, {
+                        defaultValue: t('chat.error.action.generic'),
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-xs font-semibold mb-1" style={{ color: 'var(--color-error)' }}>
+                      {message.isError ? t('chat.error.titleFailed') : t('chat.error.titleRecovered')}
+                    </div>
+                    <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                      {message.isError ? t('chat.error.situationFailed') : t('chat.error.situationRecovered')}
+                    </div>
+                  </>
+                )}
                 <div
                   className="whitespace-pre-wrap break-words font-[family-name:var(--font-mono)] text-[11px] max-h-40 overflow-y-auto"
                   style={{ color: 'var(--text-tertiary)' }}
@@ -416,11 +435,12 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
             </div>
           )}
 
-          {/* Message content */}
-          <div className={cn(
-            'text-sm break-words leading-relaxed',
-            message.isError && 'text-[var(--color-red-500)]'
-          )}>
+          {/* Message content. NB: an isError bubble already carries a solid
+              red background + white text on the container (see style above),
+              so we must NOT re-tint the text red here — red-on-red renders as
+              an empty red box (the message text vanishes). Let it inherit
+              the container's white. */}
+          <div className="text-sm break-words leading-relaxed">
             {isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper
               // (.markdown-content) renders at 0.95rem, but a plain user span
@@ -428,6 +448,15 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               // Pin it so both bubbles read at the same size — a notch smaller
               // on mobile, in step with the markdown mobile size.
               <span className="whitespace-pre-wrap text-[0.875rem] md:text-[0.95rem]">{message.content}</span>
+            ) : message.actionReason ? (
+              // Self-serviceable failure: show a clean, localized "what you
+              // can do" line in the body. The full (English) provider detail
+              // stays in the badge popover so the body isn't a raw error blob.
+              <span className="whitespace-pre-wrap">
+                {t(`chat.error.action.${message.actionReason}`, {
+                  defaultValue: t('chat.error.action.generic'),
+                })}
+              </span>
             ) : message.isError ? (
               <span className="whitespace-pre-wrap">{message.content}</span>
             ) : (

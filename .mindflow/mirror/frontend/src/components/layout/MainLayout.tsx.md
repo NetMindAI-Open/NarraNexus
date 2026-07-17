@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-06-23
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 (2) — FeedbackButton 提到顶层
+
+原先误挂在 `ChatView()` 内（只在聊天页+桌面端可见,子页面丢入口）。现挂在
+MainLayout 顶层 return,`aboveHelp={!isSubPage && !teamChatId}` 让它在有 "?"
+时上移、无 "?" 时占角位。移动端不挂（入口在 Sidebar drawer footer）。
+
+
+## 2026-07-10 — FeedbackButton 挂载
+
+与 HelpButton 同点位挂载 [[FeedbackButton.tsx]]（desktop only，同一
+!isMobile 条件——移动端右下角保留给内容的理由同样适用于反馈按钮）。
+
 
 ## 2026-06-23 — TeamChatView in the main slot
 

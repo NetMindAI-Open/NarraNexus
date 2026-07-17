@@ -223,6 +223,30 @@ class TelegramSDKClient:
         )
         return bool(resp.get("ok"))
 
+    async def set_message_reaction(
+        self, chat_id: str | int, message_id: str | int, emoji: str
+    ) -> bool:
+        """setMessageReaction — set the bot's reaction on a message.
+
+        Backs the agent-facing ``react_to_user_message`` tool. ``emoji`` must be
+        one of Telegram's allowed reaction emojis (👍 ❤️ 🔥 👀 🎉 💯 😱 …);
+        anything else gets a 400 which we suppress. Best-effort — returns False
+        rather than raising so a failed reaction never breaks the agent turn.
+        """
+        try:
+            mid = int(message_id)
+        except (TypeError, ValueError):
+            return False
+        resp = await self.api_call(
+            "setMessageReaction",
+            {
+                "chat_id": chat_id,
+                "message_id": mid,
+                "reaction": [{"type": "emoji", "emoji": emoji}],
+            },
+        )
+        return bool(resp.get("ok"))
+
     async def get_chat(self, chat_id_or_handle: str | int) -> dict[str, Any]:
         """getChat — also resolves @username → numeric user_id (for the
         owner-trust signal at bind time)."""

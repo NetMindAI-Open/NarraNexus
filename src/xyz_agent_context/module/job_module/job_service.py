@@ -638,6 +638,35 @@ class JobInstanceService:
                 new_payload = f"{original_payload}\n\n## Manager Supplementary Guidance\n{append_content}"
                 updates["payload"] = new_payload
 
+            # Reactivation self-heal: flipping a job back to ACTIVE must leave it
+            # actually schedulable. A bare status='active' (e.g. via the
+            # job_update MCP tool) previously left next_run_time NULL and the
+            # failure/pause counters stale — producing an "active but never
+            # scheduled" zombie the poller silently skips (incident 2026-07-13).
+            # When reactivating WITHOUT an explicit new schedule, recompute
+            # next_run from the job's own trigger and clear the backoff/pause
+            # state so the revived job starts fresh.
+            from xyz_agent_context.schema.job_schema import JobStatus, JobType
+
+            _status = updates.get("status")
+            _status_str = _status.value if hasattr(_status, "value") else _status
+            if _status_str == JobStatus.ACTIVE.value and "next_run_time" not in updates:
+                _job = await job_repo.get_job(job_id)
+                if _job and _job.job_type != JobType.ONE_OFF:
+                    from xyz_agent_context.module.job_module._job_scheduling import (
+                        compute_next_run,
+                    )
+                    _tc = updates.get("trigger_config", _job.trigger_config)
+                    _jt = updates.get("job_type", _job.job_type)
+                    _nxt = compute_next_run(_jt, _tc)
+                    if _nxt:
+                        updates["next_run_time"] = _nxt.utc
+                        updates["next_run_at_local"] = _nxt.local
+                        updates["next_run_tz"] = _nxt.tz
+                    updates["paused_reason"] = None
+                    updates["consecutive_failure_count"] = 0
+                    updates["cooldown_until"] = None
+
             # If related_entity_id was updated, need diff sync
             if "related_entity_id" in updates and agent_id:
                 # 1. Get old Job info

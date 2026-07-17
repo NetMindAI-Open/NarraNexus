@@ -29,7 +29,10 @@ from xyz_agent_context.schema.provider_schema import (
     SlotName,
     SLOT_REQUIRED_PROTOCOLS,
 )
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.utils.deployment_mode import (
+    is_cloud_mode,
+    is_power_login_enabled,
+)
 
 router = APIRouter()
 
@@ -114,6 +117,20 @@ def _get_user_id(request: Request) -> str:
     return uid
 
 
+async def _resume_agent_circuit_breakers(uid: str) -> None:
+    """Auto-resume the user's auth/quota-paused agents after they reconfigure
+    a provider (added/onboarded a key, connected a subscription, changed a
+    slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
+    fired on these paths. Best-effort — never fails the reconfigure."""
+    try:
+        from xyz_agent_context.agent_framework.agent_circuit_breaker import (
+            reset_for_owner,
+        )
+        await reset_for_owner(uid)
+    except Exception as e:  # noqa: BLE001 — recovery is best-effort
+        logger.warning(f"[providers] agent circuit-breaker resume failed for {uid}: {e}")
+
+
 # Card types that authenticate via a SHARED CLI credential file
 # (~/.claude/.credentials.json, ~/.codex/auth.json) staged from a single
 # staff `claude login` / `codex login`. The cloud image runs one `app`
@@ -170,6 +187,32 @@ def _config_to_response(config: LLMConfig) -> dict:
     return {"version": config.version, "providers": providers, "slots": slots}
 
 
+async def _attach_netmind_accounts(uid: str, data: dict) -> dict:
+    """Attach the captured NetMind account email to each provider dict so
+    Settings → Providers can show WHICH account each key belongs to (upstream
+    incident: several keys from one broke account, topped up the wrong one).
+    Best-effort — a lookup failure just omits the field. The account is stored
+    on ``user_providers`` at key-mint time (netmind_provisioner)."""
+    try:
+        from xyz_agent_context.utils.db_factory import get_db_client
+        db = await get_db_client()
+        rows = await db.get(
+            "user_providers", filters={"user_id": uid, "source": "netmind"}
+        )
+        by_pid = {
+            r["provider_id"]: r.get("netmind_account_email")
+            for r in (rows or [])
+            if r.get("provider_id")
+        }
+        for pid, prov in data.get("providers", {}).items():
+            email = by_pid.get(pid)
+            if email:
+                prov["netmind_account_email"] = email
+    except Exception as e:  # noqa: BLE001 — display enrichment is best-effort
+        logger.warning(f"[providers] netmind account attach failed for {uid}: {e}")
+    return data
+
+
 async def _run_json_subprocess(args: list[str], timeout: float) -> dict | None:
     """Run a short CLI probe without blocking the FastAPI event loop."""
     import asyncio
@@ -213,7 +256,8 @@ async def get_providers(request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
-    return {"success": True, "data": _config_to_response(config)}
+    data = await _attach_netmind_accounts(uid, _config_to_response(config))
+    return {"success": True, "data": data}
 
 
 @router.post("")
@@ -268,6 +312,7 @@ async def add_provider(req: AddProviderRequest, request: Request):
             schedule_user_no_quota_rearm,
         )
         schedule_user_no_quota_rearm(uid)
+        await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "provider_ids": new_ids, "data": _config_to_response(config)}
     except ValueError as e:
@@ -322,6 +367,7 @@ async def onboard(req: OnboardRequest, request: Request):
         schedule_user_no_quota_rearm,
     )
     schedule_user_no_quota_rearm(uid)
+    await _resume_agent_circuit_breakers(uid)
 
     return {
         "success": True,
@@ -331,51 +377,29 @@ async def onboard(req: OnboardRequest, request: Request):
     }
 
 
-# Per-user in-process lock for use-subscription: serialize dedup + mint +
-# onboard so a double-click / concurrent tabs on the SAME worker can't both pass
-# the dedup check and mint two live (money-spending) keys. In-process only.
-#
-# Pre-flip TODO — before `netmind_use_subscription_enabled` is set True in a
-# multi-worker deploy, replace this with a DB/distributed guard, because:
-#   1. A (user_id, source) unique index does NOT fit — a netmind provider is
-#      intentionally TWO rows (anthropic + openai), so the DB can't dedup it.
-#   2. This lock does NOT serialize against the OTHER netmind-creating routes
-#      (add_provider / onboard with card_type="netmind"): a user firing
-#      use-subscription in one tab and pasting a netmind key in another can
-#      still double-provision (self-inflicted extra billed key on their own
-#      account — cost/UX, not authz). A distributed guard should cover all
-#      netmind-source creators, not just this route.
-#   3. This dict is unbounded (one Lock per user_id, never evicted) — fine while
-#      the flag is off, but swap for a TTL/bounded structure when enabling.
-_use_sub_locks: dict[str, asyncio.Lock] = {}
-
-
-def _use_sub_lock(uid: str) -> asyncio.Lock:
-    lock = _use_sub_locks.get(uid)
-    if lock is None:
-        lock = asyncio.Lock()
-        _use_sub_locks[uid] = lock
-    return lock
-
-
 @router.post("/use-subscription")
 async def use_subscription(request: Request):
-    """Module F: one-click "use my NetMind subscription".
+    """Module F: explicitly connect "my NetMind subscription" now.
 
-    Generates a NetMind inference key on the user's account and wires it into
-    the agent/helper slots by REUSING ``onboard_one_key`` (dual-provider
-    creation + slot binding). The only new dependency vs /onboard is generating
-    the key. The user's NetMind loginToken arrives via ``X-Netmind-Token``.
-
-    Gated by ``settings.netmind_use_subscription_enabled`` until the C1 contract
-    is confirmed with NetMind (that the generated key's consumption bills
-    against the subscription grant / account balance). Cloud-only.
+    Thin wrapper over ``netmind_provisioner.ensure_netmind_provider`` (mint key +
+    register the dual netmind provider, activating slots only if the user has no
+    active config). Idempotent: a second call when already connected returns 409.
+    Note: this is now mainly a fallback — every NetMind login auto-registers via
+    the same service, so the frontend no longer needs to call this. Available
+    wherever Power login is enabled (cloud OR a local opt-in deployment); further
+    gated by ``settings.netmind_use_subscription_enabled``.
     """
     from xyz_agent_context.settings import settings
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.services.netmind_key_client import (
+        KeyAuthError,
+        KeyUpstreamError,
+    )
+    from xyz_agent_context.services.netmind_provisioner import (
+        ensure_netmind_provider,
+    )
 
     uid = _get_user_id(request)
-    if not is_cloud_mode():
+    if not is_power_login_enabled():
         raise HTTPException(status_code=404, detail="Not available in local mode")
     if not settings.netmind_use_subscription_enabled:
         raise HTTPException(
@@ -394,69 +418,33 @@ async def use_subscription(request: Request):
             status_code=401, detail="Missing NetMind token (X-Netmind-Token header)"
         )
 
-    from xyz_agent_context.services.netmind_key_client import (
-        KeyAuthError,
-        KeyUpstreamError,
-        NetmindKeyClient,
-    )
-
-    key_client = NetmindKeyClient(base_url=settings.netmind_key_api_base)
-
-    # Serialize the dedup + mint + onboard critical section per user so a
-    # double-click / concurrent tabs can't both mint a key (in-process guard).
-    async with _use_sub_lock(uid):
-        # Dedup BEFORE minting — avoid an orphan key when already connected.
-        db = await get_db_client()
-        existing = await db.get_one(
-            "user_providers", {"user_id": uid, "source": "netmind"}
+    try:
+        created = await ensure_netmind_provider(uid, token, activate_if_fresh=True)
+    except KeyAuthError:
+        raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
+    except KeyUpstreamError as e:
+        logger.error(f"[use-subscription] key generation failed: {e}")
+        raise HTTPException(
+            status_code=502, detail="Could not generate a NetMind API key"
         )
-        if existing:
+    except ValueError as e:
+        msg = str(e)
+        if "already exists" in msg:
+            raise HTTPException(status_code=409, detail=msg)
+        if "rejected" in msg.lower():
             raise HTTPException(
-                status_code=409, detail="A NetMind provider is already connected."
+                status_code=502, detail="Generated key was rejected by NetMind"
             )
+        raise HTTPException(status_code=400, detail=msg)
 
-        # 1) Mint an inference key on the user's NetMind account.
-        try:
-            minted = await key_client.create_key(token)
-        except KeyAuthError:
-            raise HTTPException(
-                status_code=401, detail="NetMind token invalid or expired"
-            )
-        except KeyUpstreamError as e:
-            logger.error(f"[use-subscription] key generation failed: {e}")
-            raise HTTPException(
-                status_code=502, detail="Could not generate a NetMind API key"
-            )
+    if not created:
+        # Flag is on + token present (checked above) → no-op means already wired.
+        raise HTTPException(
+            status_code=409, detail="A NetMind provider is already connected."
+        )
 
-        # 2) Reuse onboarding (dual provider + slot binding). On ANY failure
-        #    after minting, best-effort revoke the key so it doesn't linger as a
-        #    money-spending orphan on the user's NetMind account.
-        try:
-            service = await _get_service()
-            # Minted key belongs to the deployment's NetMind env, so it must be
-            # wired to the MATCHING inference base (dev key -> dev inference).
-            # Manual /onboard paste does NOT pass this — a user's own key is prod.
-            config, new_ids, meta = await service.onboard_one_key(
-                uid, minted.apitoken, provider_type="netmind",
-                inference_base=settings.netmind_inference_base,
-            )
-        except ValueError as e:
-            await key_client.delete_key(token, minted.token_id)
-            msg = str(e)
-            if "already exists" in msg:
-                raise HTTPException(status_code=409, detail=msg)
-            if "rejected" in msg.lower():
-                # A key WE just minted was rejected by NetMind's own endpoint —
-                # an upstream integration failure, not the user's bad input.
-                raise HTTPException(
-                    status_code=502, detail="Generated key was rejected by NetMind"
-                )
-            raise HTTPException(status_code=400, detail=msg)
-        except Exception:
-            await key_client.delete_key(token, minted.token_id)
-            raise
-
-    # Hot-reload + edge-triggered recovery (mirror /onboard).
+    # Hot-reload + edge-triggered recovery (mirror /onboard) so the new provider
+    # is live immediately for this session.
     try:
         from xyz_agent_context.agent_framework.api_config import (
             get_user_runtime_llm_configs,
@@ -470,13 +458,11 @@ async def use_subscription(request: Request):
         schedule_user_no_quota_rearm,
     )
     schedule_user_no_quota_rearm(uid)
+    await _resume_agent_circuit_breakers(uid)
 
-    return {
-        "success": True,
-        "provider_ids": new_ids,
-        **meta,
-        "data": _config_to_response(config),
-    }
+    service = await _get_service()
+    config = await service.get_user_config(uid)
+    return {"success": True, "data": _config_to_response(config)}
 
 
 @router.delete("/{provider_id}")
@@ -618,6 +604,7 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
             schedule_user_no_quota_rearm,
         )
         schedule_user_no_quota_rearm(uid)
+        await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "data": _config_to_response(config), "validation_errors": errors}
     except ValueError as e:

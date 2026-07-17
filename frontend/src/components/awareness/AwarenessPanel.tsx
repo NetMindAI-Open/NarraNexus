@@ -247,20 +247,31 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
                 style={{ borderLeft: '2px solid var(--text-primary)' }}
               >
                 {/*
-                 * `type="auto"` reveals the scrollbar whenever the markdown
-                 * overflows; default `hover` made the inner-scroll feature
-                 * invisible and the wheel chained to the outer panel.
-                 * overscroll-contain (default in ./ui/scroll-area.tsx) keeps
-                 * the wheel inside the inner viewport until its boundary.
-                 * max-h-[40vh] roughly doubles the previous 180 px cap so the
-                 * thesis quote stays readable without forcing immediate scroll.
+                 * Two layouts share this block:
+                 *   - Embedded (the docked rail panel) shows ONLY this section,
+                 *     so the outer ScrollArea (h-full) already scrolls it — an
+                 *     inner cap here would strand the profile in the top ~40vh
+                 *     and waste the rest of the tall panel. Render the markdown
+                 *     directly and let it fill/scroll with the panel.
+                 *   - Non-embedded (the full page) stacks every section, so the
+                 *     profile keeps an inner max-h-[40vh] cap + its own scroll
+                 *     to stay readable without pushing the other sections down.
+                 *     `type="auto"` reveals the scrollbar on overflow, and
+                 *     overscroll-contain (default in ./ui/scroll-area.tsx) keeps
+                 *     the wheel inside the inner viewport until its boundary.
                  */}
-                <ScrollArea
-                  type="auto"
-                  className="max-h-[40vh] text-[13px] text-[var(--text-secondary)] leading-relaxed"
-                >
-                  <Markdown content={awareness} />
-                </ScrollArea>
+                {embedded ? (
+                  <div className="text-[13px] text-[var(--text-secondary)] leading-relaxed">
+                    <Markdown content={awareness} />
+                  </div>
+                ) : (
+                  <ScrollArea
+                    type="auto"
+                    className="max-h-[40vh] text-[13px] text-[var(--text-secondary)] leading-relaxed"
+                  >
+                    <Markdown content={awareness} />
+                  </ScrollArea>
+                )}
                 {awarenessUpdateTime && (
                   <div className="mt-3 pt-3 border-t border-[var(--rule)] text-[10px] text-[var(--text-tertiary)] font-[family-name:var(--font-mono)] uppercase tracking-[0.1em] flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />

@@ -23,6 +23,12 @@ import pytest
 
 from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
+# Workspace path of the test agent, RELATIVE to base_working_path — routed
+# through the layout helper so these tests track the real layout (flat vs
+# nested) instead of hardcoding one.
+WS_REL = agent_workspace_relpath("agent_x", "user_y")
 
 
 @pytest.fixture
@@ -35,8 +41,8 @@ async def env(db_client, monkeypatch, tmp_path):
     # Create the per-agent workspace and a sample artifact subdirectory with
     # an entry file inside it. This mimics what the agent's Write tool would
     # have done before the register call.
-    workspace = base / "agent_x_user_y"
-    workspace.mkdir()
+    workspace = base / WS_REL
+    workspace.mkdir(parents=True)
     (workspace / "report").mkdir()
     entry = workspace / "report" / "index.html"
     entry.write_text("<p>hi</p>", encoding="utf-8")
@@ -73,7 +79,7 @@ async def test_register_happy_path_writes_row_no_copy(env):
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
     # file_path is the entry, relative to base_working_path.
-    assert row.file_path == "agent_x_user_y/report/index.html"
+    assert row.file_path == f"{WS_REL}/report/index.html"
     assert row.size_bytes == os.path.getsize(entry)
 
     # The runner never copies — the entry file is the same inode the agent wrote.
@@ -93,7 +99,7 @@ async def test_register_with_workspace_relative_path(env):
     )
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
-    assert row.file_path == "agent_x_user_y/report/index.html"
+    assert row.file_path == f"{WS_REL}/report/index.html"
 
 
 @pytest.mark.asyncio
@@ -115,7 +121,7 @@ async def test_register_accepts_entry_at_workspace_root_single_file(env):
     )
     row = await repo.get_by_id(result.artifact_id)
     assert row is not None
-    assert row.file_path == "agent_x_user_y/report.html"
+    assert row.file_path == f"{WS_REL}/report.html"
     # Critical: size accounts ONLY for the entry — never sums siblings at the
     # workspace root (else unrelated.txt would inflate the quota).
     assert row.size_bytes == flat.stat().st_size
@@ -196,7 +202,7 @@ async def test_target_artifact_id_updates_in_place(env):
     assert r2.artifact_id == r1.artifact_id
     row = await repo.get_by_id(r1.artifact_id)
     assert row is not None
-    assert row.file_path == "agent_x_user_y/report2/index.html"
+    assert row.file_path == f"{WS_REL}/report2/index.html"
     assert row.title == "v2"
 
 

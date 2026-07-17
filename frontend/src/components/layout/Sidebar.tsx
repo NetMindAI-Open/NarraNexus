@@ -8,7 +8,6 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useIsMobile } from '@/hooks/useMediaQuery';
 import {
   LogOut,
-  Trash2,
   ChevronLeft,
   ChevronRight,
   Sliders,
@@ -17,13 +16,14 @@ import {
   Cloud,
   RotateCcw,
   LayoutDashboard,
+  MessageSquarePlus,
 } from 'lucide-react';
 import { Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/hooks';
 import { useConfigStore, useChatStore, useRuntimeStore, usePreloadStore, useUIStore } from '@/stores';
-import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // v2.2 G1: prefetch the lazy DashboardPage chunk on hover/focus so click
@@ -45,6 +45,10 @@ import { AgentList } from './AgentList';
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [showModePopup, setShowModePopup] = useState(false);
+  // Mobile-only feedback entry. Desktop uses the floating FeedbackButton
+  // (bottom-right, by the help "?"); on mobile that corner is the composer's,
+  // so the drawer footer carries it instead. Exactly one entry per viewport.
+  const [showFeedback, setShowFeedback] = useState(false);
   // Mobile (< md): the sidebar is an off-canvas drawer toggled from the TopBar.
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const isMobile = useIsMobile();
@@ -57,7 +61,7 @@ export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { userId, displayName, agentId, logout } = useConfigStore();
+  const { userId, displayName, logout } = useConfigStore();
   // user_id is an opaque NetMind userSystemCode (32-hex) in cloud mode, not
   // human-readable. Show the NetMind nickname when we have it; fall back to
   // user_id (local mode, where it IS the chosen username).
@@ -148,29 +152,6 @@ export function Sidebar() {
     window.location.href = '/login';
   };
 
-  const handleClearHistory = async () => {
-    const ok = await confirm({
-      title: t('layout.sidebar.clearHistoryConfirmTitle'),
-      message: t('layout.sidebar.clearHistoryConfirmMessage'),
-      confirmText: t('layout.sidebar.clearHistoryConfirmAction'),
-      danger: true,
-    });
-    if (!ok) return;
-
-    if (agentId) {
-      try {
-        const result = await api.clearHistory(agentId);
-        if (!result.success) {
-          console.error('Failed to clear history:', result.error);
-        }
-      } catch (err) {
-        console.error('Error clearing history from database:', err);
-      }
-    }
-
-    clearChat();
-  };
-
   return (
     <aside
       className={cn(
@@ -191,6 +172,7 @@ export function Sidebar() {
       )}
     >
       {confirmDialog}
+      {isMobile && <FeedbackDialog isOpen={showFeedback} onClose={() => setShowFeedback(false)} />}
 
       {/* Header — original NarraNexus logo image preserved.
           Collapsed state hides the wordmark and keeps only the toggle button. */}
@@ -461,15 +443,6 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={handleClearHistory}
-              className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
-            >
-              <Trash2 className="w-4 h-4" />
-              {t('sidebar.clearHistory')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
               onClick={handleLogout}
               className={cn('w-full justify-start gap-2', NAV_ITEM_DANGER)}
             >
@@ -479,6 +452,17 @@ export function Sidebar() {
             <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--rule)]">
               <ThemeToggle />
               <LanguageToggle />
+              {isMobile && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowFeedback(true)}
+                  title={t('feedback.title')}
+                  className={NAV_ITEM}
+                >
+                  <MessageSquarePlus className="w-4 h-4" />
+                </Button>
+              )}
               <span className="flex-1 text-center text-[9px] text-[var(--text-tertiary)] font-mono tracking-wider truncate">
                 {t('sidebar.poweredBy')}
               </span>
@@ -487,15 +471,6 @@ export function Sidebar() {
           </>
         ) : (
           <div className="flex flex-col items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClearHistory}
-              title={t('sidebar.clearHistory')}
-              className={NAV_ITEM_DANGER}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
             <Button
               variant="ghost"
               size="icon"

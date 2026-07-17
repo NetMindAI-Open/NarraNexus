@@ -211,7 +211,7 @@ async def test_build_input_for_framework_augments_current_turn_only(
     # everything we don't touch in this narrow path.
     runtime = ContextRuntime.__new__(ContextRuntime)
 
-    final_messages, _mcp_urls = await runtime.build_input_for_framework(
+    final_messages, _mcp_servers = await runtime.build_input_for_framework(
         messages=[],
         system_prompt="you are an agent",
         active_instances=[],

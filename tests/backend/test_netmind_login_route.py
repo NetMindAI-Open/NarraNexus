@@ -14,7 +14,8 @@ Covers:
 - quota seeding failure does NOT fail the login
 - second login: is_new_user=False, no duplicate row
 - invalid NetMind token -> HTTP 401; NetMind upstream trouble -> HTTP 502
-- cloud-only guard: local mode -> 404
+- power-login guard: unavailable (local, no opt-in) -> 404; available (cloud OR
+  local opt-in) -> reachable
 - /api/auth/netmind-login is in AUTH_EXEMPT_PATHS (middleware lets it through)
 """
 from __future__ import annotations
@@ -64,14 +65,16 @@ class _FakeQuotaService:
         return _Row()
 
 
-def _make_app(db_client, monkeypatch, netmind_client, *, cloud=True, quota=None):
+def _make_app(db_client, monkeypatch, netmind_client, *, power_login=True, quota=None):
     import backend.routes.auth as auth_mod
 
     async def _async_return(value):
         return value
 
     monkeypatch.setattr(auth_mod, "get_db_client", lambda: _async_return(db_client))
-    monkeypatch.setattr(auth_mod, "_is_cloud_mode", lambda: cloud)
+    # netmind_login gates on is_power_login_enabled() (the power axis), not the
+    # deployment/security axis. Patch that symbol as imported into auth_mod.
+    monkeypatch.setattr(auth_mod, "is_power_login_enabled", lambda: power_login)
     monkeypatch.setattr(
         auth_mod, "_get_netmind_auth_client", lambda: netmind_client
     )
@@ -159,9 +162,10 @@ def test_netmind_login_upstream_trouble_is_502(db_client, monkeypatch):
     assert resp.status_code == 502
 
 
-def test_netmind_login_is_cloud_only(db_client, monkeypatch):
+def test_netmind_login_404_when_power_login_disabled(db_client, monkeypatch):
+    # Local install with no NARRANEXUS_ENABLE_POWER_LOGIN opt-in.
     client = _make_app(
-        db_client, monkeypatch, _FakeNetmindClient(_OK_USER), cloud=False
+        db_client, monkeypatch, _FakeNetmindClient(_OK_USER), power_login=False
     )
 
     resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
@@ -169,7 +173,50 @@ def test_netmind_login_is_cloud_only(db_client, monkeypatch):
     assert resp.status_code == 404
 
 
+def test_netmind_login_reachable_in_local_when_power_login_enabled(db_client, monkeypatch):
+    # Dual-mode: a local deployment that opted into Power login can NetMind-login
+    # (power_login=True models both cloud and local-opt-in).
+    client = _make_app(
+        db_client, monkeypatch, _FakeNetmindClient(_OK_USER),
+        power_login=True, quota=_FakeQuotaService(),
+    )
+
+    resp = client.post("/api/auth/netmind-login", json={"netmind_token": "t"})
+
+    assert resp.status_code == 200
+    assert resp.json()["user_id"] == _CODE
+
+
 def test_netmind_login_path_is_auth_exempt():
     from backend.auth import AUTH_EXEMPT_PATHS
 
     assert "/api/auth/netmind-login" in AUTH_EXEMPT_PATHS
+
+
+def test_netmind_login_schedules_provider_provisioning_in_local(db_client, monkeypatch):
+    """The auto-provisioning that mints the two Power providers is wired to fire
+    on a LOCAL (power-login-enabled) deployment, not just cloud. We capture the
+    fire-and-forget schedule call rather than the background task itself (the
+    mint→onboard chain is unit-tested in test_netmind_provisioner.py)."""
+    import xyz_agent_context.services.netmind_provisioner as prov_mod
+
+    captured = {}
+
+    def _capture(user_id, netmind_token):
+        captured["user_id"] = user_id
+        captured["token"] = netmind_token
+
+    # netmind_login imports this symbol inside the function body, so patch it on
+    # the source module (not the route module).
+    monkeypatch.setattr(prov_mod, "schedule_ensure_netmind_provider", _capture)
+
+    client = _make_app(
+        db_client, monkeypatch, _FakeNetmindClient(_OK_USER),
+        power_login=True, quota=_FakeQuotaService(),
+    )
+    resp = client.post(
+        "/api/auth/netmind-login", json={"netmind_token": "tok-123"}
+    )
+
+    assert resp.status_code == 200
+    assert captured == {"user_id": _CODE, "token": "tok-123"}

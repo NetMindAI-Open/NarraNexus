@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/components/awareness/LarkConfig.tsx
-last_verified: 2026-05-27
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — activation toggle + parent-list sync
+
+Renders the shared `ChannelActiveToggle` in the bound state (flip `is_active` via `POST /api/lark/set-active`) — primary use is activating a bundle-imported (inactive) credential. The toggle handler AND the header refresh button now call `onBindStateChange` so the parent `IMChannelsSection` status badge updates immediately (previously stale until remount).
 
 # LarkConfig.tsx — Per-agent Lark/Feishu bot binding UI
 

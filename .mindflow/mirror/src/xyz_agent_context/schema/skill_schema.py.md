@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/schema/skill_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-07-10
 stub: false
 ---
 
@@ -34,3 +34,7 @@ stub: false
 
 - `SkillInfo` has no `id` field. Skills are identified by `name` (the directory name, not a UUID). The name must be unique within a given agent-user workspace, but two different agents can have skills with the same name.
 - `AgentSkill` in `a2a_schema.py` and `SkillInfo` in this file are entirely different concepts despite the similar naming. `AgentSkill` is an A2A protocol capability declaration for external agents. `SkillInfo` is an installed tool bundle for the current agent's use.
+
+## 2026-07-10 — built-in 字段
+
+- `builtin: bool = False` 标记随 app 出厂的内置技能（如 `officecli`）。由 `SkillModule._scan_skills`/`_parse_skill_md` 从 `.skill_meta.json` 的 `builtin` 键回填。语义：可 disable、**不可 remove**、不进用户备份/导出。详见 `skill_module/_overview.md`。

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/skills/SkillCard.tsx
-last_verified: 2026-04-10
+last_verified: 2026-07-10
 ---
 
 # SkillCard.tsx — Display card for one installed skill with action buttons
@@ -32,3 +32,7 @@ component — skill docs may contain headers and lists.
 which skill name is being studied). The card also checks `skill.study_status
 === 'studying'` locally as a fallback for the initial render before the
 parent's state catches up.
+
+## 2026-07-10 — built-in 展示
+
+- `skill.builtin` 为真时：标题旁渲染 `t('skills.card.builtin')` badge；**删除按钮整段隐藏**（内置技能会重新物化，删了无意义），但 disable/enable 保留。后端 `remove_skill` 也会拒删（400），前端隐藏是 UX 层的防御。

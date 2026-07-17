@@ -365,6 +365,14 @@ function ReviewPanel({
         </Section>
       )}
 
+      {(preflight.credential_clashes && preflight.credential_clashes.length > 0) && (
+        <Section title={t('pages.bundleImport.review.credentialClashesTitle')} warning>
+          {preflight.credential_clashes.map((c, i) => (
+            <Bullet key={i}>{t('pages.bundleImport.review.credentialClashLine', { channel: c.table, identity: Object.values(c.identity).join(' / ') })}</Bullet>
+          ))}
+        </Section>
+      )}
+
       {m.warnings.length > 0 && (
         <Section title={t('pages.bundleImport.review.warningsTitle')} warning>
           {m.warnings.map((w, i) => <Bullet key={i}>{w}</Bullet>)}
@@ -418,9 +426,25 @@ function DonePanel({
           <li>{t('pages.bundleImport.done.instancesEntities', { instances: result.instances_created, entities: result.social_entities_created })}</li>
           <li>{t('pages.bundleImport.done.skillsImported', { count: result.skills_imported })}{result.skills_imported ? ` ${t('pages.bundleImport.done.skillsCredsSuffix')}` : ''}</li>
           {result.mcp_hints > 0 && <li>{t('pages.bundleImport.done.mcpHints', { count: result.mcp_hints })}</li>}
+          {(result.channel_credentials_imported || 0) > 0 && <li>{t('pages.bundleImport.done.channelCredentialsImported', { count: result.channel_credentials_imported })}</li>}
+          {(result.channel_credentials_skipped_conflict || 0) > 0 && <li className="text-[var(--color-yellow-500)]">{t('pages.bundleImport.done.channelCredentialsSkipped', { count: result.channel_credentials_skipped_conflict })}</li>}
           {result.warnings.length > 0 && <li className="text-[var(--color-yellow-500)]">{t('pages.bundleImport.done.warnings', { count: result.warnings.length })}</li>}
         </ul>
       </div>
+      {result.agents_created > 0 && (
+        <div className="border border-[var(--color-yellow-500)]/50 bg-[var(--color-yellow-500)]/5 p-4">
+          <div className="text-xs font-mono uppercase mb-2 text-[var(--color-yellow-500)] flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> {t('pages.bundleImport.done.configureLlmTitle')}
+          </div>
+          <div className="text-xs text-[var(--text-secondary)]">{t('pages.bundleImport.done.configureLlmHint')}</div>
+        </div>
+      )}
+      {(result.channel_credentials_imported || 0) > 0 && (
+        <div className="border border-[var(--color-yellow-500)]/40 bg-[var(--color-yellow-500)]/5 p-4">
+          <div className="text-xs font-mono uppercase mb-2 text-[var(--text-secondary)]">{t('pages.bundleImport.done.activateChannelsTitle')}</div>
+          <div className="text-xs text-[var(--text-secondary)]">{t('pages.bundleImport.done.activateChannelsHint')}</div>
+        </div>
+      )}
       {(result.mcp_hints_data || []).length > 0 && (
         <div className="border border-[var(--border-default)] p-4">
           <div className="text-xs font-mono uppercase mb-2 text-[var(--text-secondary)]">{t('pages.bundleImport.done.suggestedMcpTitle')}</div>

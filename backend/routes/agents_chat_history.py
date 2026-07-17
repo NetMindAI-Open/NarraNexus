@@ -14,13 +14,14 @@ import json
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.utils.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.repository import InstanceRepository
+from xyz_agent_context.narrative.wipe_service import wipe_agent_data
 from xyz_agent_context.schema import (
     EventInfo,
     NarrativeInfo,
@@ -290,134 +291,71 @@ async def get_chat_history(
 async def clear_conversation_history(
     agent_id: str,
     request: Request,
+    conversations: bool = Query(True, description="Delete conversation history / narratives / trajectories / sessions"),
+    memory: bool = Query(True, description="Delete the agent's learned long-term memory (memory_*, artifacts)"),
 ):
     """
-    Clear Agent's conversation history. Identity from auth_middleware —
-    only the caller's own narratives/events are deleted, never another
-    user's (the old "optional filter" version let any client wipe
-    anyone's history by changing ``?user_id=``).
+    Clear an agent's data for the calling owner, scoped by ``conversations``
+    and ``memory`` flags (the frontend's checkbox dialog maps to these).
 
-    Search logic:
-    1. Query all Narratives under the specified agent_id
-    2. Parse narrative_info JSON field, check if actors list contains user_id
-    3. Delete matching Narratives and all associated Events
+    This delegates to ``wipe_agent_data`` which — unlike the old handler —
+    also removes the on-disk narrative markdown and trajectory files. Those
+    files are the real long-memory surface (the DB is rebuilt from them on
+    restart), so clearing the DB alone left the agent still remembering.
+
+    Identity comes from the session only; ``?user_id=`` is rejected and the
+    caller must own the agent (memory_* is agent-scoped — a non-owner wipe
+    would destroy the owner's memory), otherwise 404.
     """
+    if "user_id" in request.query_params:
+        raise HTTPException(
+            status_code=400,
+            detail="user_id query param not accepted; identity comes from the session",
+        )
+    if not conversations and not memory:
+        raise HTTPException(
+            status_code=400,
+            detail="Select at least one scope: conversations and/or memory",
+        )
+
     user_id = await resolve_current_user_id(request)
-    logger.info(f"Clearing history for agent: {agent_id}, user: {user_id}")
+    db_client = await get_db_client()
+
+    # Ownership: 404 masks both "no such agent" and "not yours".
+    agent_row = await db_client.get_one("agents", {"agent_id": agent_id})
+    if not agent_row or agent_row.get("created_by") != user_id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    logger.info(
+        f"Clearing agent={agent_id} user={user_id} "
+        f"conversations={conversations} memory={memory}"
+    )
 
     try:
-        db_client = await get_db_client()
-
-        narratives = await db_client.get("narratives", filters={"agent_id": agent_id})
-
-        if not narratives:
-            logger.info("No narratives found to delete")
-            return ClearHistoryResponse(success=True)
-
-        logger.info(f"Found {len(narratives)} narratives")
-
-        # Filter by user_id
-        narrative_ids_to_delete = []
-
-        if user_id:
-            for narrative in narratives:
-                narrative_id = narrative.get("narrative_id")
-                if not narrative_id:
-                    continue
-
-                narrative_info = _parse_json_field(narrative.get("narrative_info"), None)
-                if narrative_info is None:
-                    continue
-
-                actors = narrative_info.get("actors", [])
-                if any(actor.get("id") == user_id for actor in actors):
-                    narrative_ids_to_delete.append(narrative_id)
-                    logger.debug(f"Narrative {narrative_id} contains user {user_id}")
-        else:
-            narrative_ids_to_delete = [
-                n.get("narrative_id") for n in narratives
-                if n.get("narrative_id")
-            ]
-
-        if not narrative_ids_to_delete:
-            logger.info(f"No matching records to delete (agent_id={agent_id}, user_id={user_id})")
-            return ClearHistoryResponse(success=True)
-
-        logger.info(f"Will delete {len(narrative_ids_to_delete)} narratives: {narrative_ids_to_delete}")
-
-        # Delete Events, Narratives, and ChatModule instance memory
-        events_deleted = 0
-        narratives_deleted = 0
-        chat_memory_deleted = 0
-
-        async with db_client.transaction():
-            for narrative_id in narrative_ids_to_delete:
-                count = await db_client.delete("events", filters={"narrative_id": narrative_id})
-                events_deleted += count
-                logger.debug(f"Deleted {count} events for narrative_id={narrative_id}")
-
-            for narrative_id in narrative_ids_to_delete:
-                count = await db_client.delete("narratives", filters={"narrative_id": narrative_id})
-                narratives_deleted += count
-
-        # Also clear ChatModule instance memory (source for simple-chat-history and agent context)
-        try:
-            instance_repo = InstanceRepository(db_client)
-            all_instances = await instance_repo.get_by_agent(
-                agent_id=agent_id,
-                module_class="ChatModule"
-            )
-            for inst in all_instances:
-                count = await db_client.delete(
-                    "instance_json_format_memory_chat",
-                    filters={"instance_id": inst.instance_id}
-                )
-                chat_memory_deleted += count
-            if chat_memory_deleted > 0:
-                logger.info(f"Cleared {chat_memory_deleted} ChatModule instance memory records")
-        except Exception as e:
-            logger.warning(f"Failed to clear ChatModule memory (non-critical): {e}")
-
-        # Also clear agent_messages table
-        try:
-            agent_messages_deleted = await db_client.delete(
-                "agent_messages", filters={"agent_id": agent_id}
-            )
-            if agent_messages_deleted > 0:
-                logger.info(f"Cleared {agent_messages_deleted} agent_messages records")
-        except Exception:
-            pass
-
-        # Also clear session markdown files
-        try:
-            import os
-            import glob
-            from xyz_agent_context.settings import settings
-            session_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                "sessions"
-            )
-            if os.path.isdir(session_dir):
-                for f in glob.glob(os.path.join(session_dir, f"{agent_id}_*.md")):
-                    os.remove(f)
-                    logger.debug(f"Removed session file: {f}")
-        except Exception as e:
-            logger.warning(f"Failed to clear session files (non-critical): {e}")
-
-        logger.info(
-            f"Deleted {narratives_deleted} narratives, {events_deleted} events, "
-            f"{chat_memory_deleted} chat memory records"
+        result = await wipe_agent_data(
+            db_client, agent_id, user_id,
+            clear_conversations=conversations, clear_memory=memory,
         )
-
         return ClearHistoryResponse(
             success=True,
-            narrative_ids_deleted=narrative_ids_to_delete,
-            narratives_count=narratives_deleted,
-            events_count=events_deleted,
+            scopes=result.scopes,
+            narrative_ids_deleted=result.narrative_ids,
+            narratives_count=result.narratives_count,
+            events_count=result.events_count,
+            event_stream_count=result.event_stream_count,
+            chat_memory_count=result.chat_memory_count,
+            chat_instances_count=result.chat_instances_count,
+            agent_messages_count=result.agent_messages_count,
+            bus_messages_count=result.bus_messages_count,
+            memory_rows_count=result.memory_rows_count,
+            artifacts_count=result.artifacts_count,
+            disk_markdown_removed=result.disk_markdown_removed,
+            disk_trajectories_removed=result.disk_trajectories_removed,
+            session_removed=result.session_removed,
+            disk_errors=result.disk_errors,
         )
-
     except Exception as e:
-        logger.exception(f"Error clearing history: {e}")
+        logger.exception(f"Error clearing agent data: {e}")
         return ClearHistoryResponse(success=False, error=str(e))
 
 

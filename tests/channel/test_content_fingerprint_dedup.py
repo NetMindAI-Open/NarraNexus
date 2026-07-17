@@ -4,13 +4,20 @@
 @date: 2026-07-03
 @description: Content-fingerprint dedup window — the X1 double-reply guard.
 
-NarraMessenger re-dispatches a message under a NEW invocation_id when its
-15-minute server deadline expires while our worker (30-min timeout) is still
-processing. All three dedup layers key on message_id, so the re-dispatch
-passes and the agent runs (and replies) twice. The fix: an opt-in fourth
-layer that fingerprints (chat, sender, content) within a short window —
-policy lives in the trigger (what identifies "the same message" and how
-long the platform may re-dispatch), mechanism in ChannelDedupStore.
+The retired NarraMessenger gateway re-dispatched a message under a NEW
+invocation_id when its 15-minute server deadline expired while our worker
+(30-min timeout) was still processing. All three dedup layers key on
+message_id, so the re-dispatch passed and the agent ran (and replied)
+twice. The fix: an opt-in fourth layer that fingerprints (chat, sender,
+content) within a short window — policy lives in the trigger (what
+identifies "the same message" and how long the platform may re-dispatch),
+mechanism in ChannelDedupStore.
+
+History: the gateway trigger that opted in (NarramessengerTrigger, window
+≥ 16 min) was retired when the channel moved to the Direct-Matrix adapter
+(see channel_trigger_map.py). Matrix event_ids are stable across /sync
+replays, so the id-keyed layers cover Matrix; the content window stays an
+opt-in mechanism for any future platform whose re-dispatch mints new ids.
 """
 
 import time
@@ -18,8 +25,8 @@ import time
 import pytest
 
 from xyz_agent_context.channel.channel_dedup_store import ChannelDedupStore
-from xyz_agent_context.module.narramessenger_module.narramessenger_trigger import (
-    NarramessengerTrigger,
+from xyz_agent_context.module.narramessenger_module.matrix_trigger import (
+    MatrixTrigger,
 )
 
 
@@ -99,7 +106,13 @@ async def test_fingerprint_partitioned_by_agent():
     assert a["accept"] is True and b["accept"] is True
 
 
-def test_narramessenger_window_covers_platform_deadline():
-    """The platform re-dispatches after its 15-min invocation deadline; the
-    window must cover that with margin or the guard is decorative."""
-    assert NarramessengerTrigger.CONTENT_DEDUP_WINDOW_SECONDS >= 16 * 60
+def test_matrix_trigger_content_window_intentionally_off():
+    """MatrixTrigger deliberately does NOT opt into content fingerprinting:
+    Matrix event_ids are stable across /sync replays, so the id-keyed dedup
+    layers already cover re-delivery, and a content window would eat a user
+    legitimately re-sending the same text. If a gateway-style trigger (ids
+    minted per dispatch, like the retired NarramessengerTrigger) is ever
+    resurrected, it must opt in with a window covering the platform's
+    re-dispatch horizon (the old gateway needed >= 16 min) — see the
+    CONTENT_DEDUP_WINDOW_SECONDS doc in channel_trigger_base.py."""
+    assert MatrixTrigger.CONTENT_DEDUP_WINDOW_SECONDS == 0

@@ -51,6 +51,7 @@ from .runtime_message import (
     ErrorMessage,
     # Constants
     AUTH_EXPIRED_ERROR_TYPE,
+    SELF_SERVICEABLE_ERROR_TYPE,
 )
 
 # ===== Job Schema =====
@@ -59,6 +60,15 @@ from .job_schema import (
     JobStatus,
     JobModel,
     TriggerConfig,
+)
+
+# ===== Agent Circuit-Breaker Schema (real-time dialogue layer) =====
+from .agent_circuit_breaker_schema import (
+    CbStatus,
+    PausedReason,
+    ErrorCategory,
+    PAUSING_CATEGORIES,
+    AgentCircuitBreaker,
 )
 
 # ===== Inbox Schema (belongs to ChatModule) =====
@@ -288,6 +298,13 @@ __all__ = [
     "JobStatus",
     "JobModel",
     "TriggerConfig",
+
+    # Agent Circuit-Breaker Schema
+    "CbStatus",
+    "PausedReason",
+    "ErrorCategory",
+    "PAUSING_CATEGORIES",
+    "AgentCircuitBreaker",
 
     # Inbox Schema (belongs to ChatModule)
     "InboxMessageType",

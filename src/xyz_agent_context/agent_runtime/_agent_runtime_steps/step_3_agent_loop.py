@@ -25,9 +25,14 @@ from xyz_agent_context.schema import (
     PathExecutionResult,
     ErrorMessage,
     AUTH_EXPIRED_ERROR_TYPE,
+    SELF_SERVICEABLE_ERROR_TYPE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
+from xyz_agent_context.agent_framework.llm_failure import (
+    classify_self_serviceable,
+    self_serviceable_user_message,
+)
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
 if TYPE_CHECKING:
@@ -270,6 +275,44 @@ def _should_run_helper_llm_fallback(
     if has_reply:
         return None, "already_replied_via_tool"
     return "no_reply", ""
+
+
+def _fallback_skip_decision(
+    agent_loop_response: list, captured_error: dict | None
+) -> tuple[str | None, str | None]:
+    """Decide whether the helper-LLM fallback must be SKIPPED because the turn
+    failed a way the USER must fix (dead credentials, or a deterministic
+    self-serviceable config error — context window too small, no credits, bad
+    model id). Fabricating a reply over such a turn hides a fixable cause and
+    misleads the user (the "black box" P1 + incident 2026-06-11).
+
+    Returns ``(kind, reason)``:
+      - ``("inline", None)`` — response_processor already surfaced the fatal,
+        actionable ErrorMessage (``auth_expired`` / ``config_actionable``);
+        it's in ``agent_loop_response``. Caller skips the fallback; no new
+        message needed.
+      - ``("raw_exception", reason)`` — the loop raised a Python exception, so
+        ``captured_error`` is set but NO ErrorMessage exists yet, and it is
+        self-serviceable. Caller skips the fallback AND emits a fatal,
+        actionable ErrorMessage for ``reason`` (else the error is invisible).
+      - ``(None, None)`` — no user-fixable failure; run the normal fallback.
+    """
+    inline_fatal_user_fixable = any(
+        isinstance(m, ErrorMessage)
+        and getattr(m, "error_type", "")
+        in (AUTH_EXPIRED_ERROR_TYPE, SELF_SERVICEABLE_ERROR_TYPE)
+        for m in agent_loop_response
+    )
+    if inline_fatal_user_fixable:
+        return "inline", None
+    if captured_error is not None:
+        reason = classify_self_serviceable(
+            captured_error.get("error_type"),
+            captured_error.get("error_message"),
+        )
+        if reason is not None:
+            return "raw_exception", reason
+    return None, None
 
 
 _FALLBACK_NO_REPLY_INSTRUCTIONS = (
@@ -686,7 +729,7 @@ async def step_3_agent_loop(
     )
     substeps.append(
         f"[3.2] ✓ Context build complete: {len(context.messages)} messages, "
-        f"{len(context.mcp_urls)} MCP servers"
+        f"{len(context.mcp_servers)} MCP servers"
     )
     logger.debug("ContextRuntime execution completed")
 
@@ -700,12 +743,12 @@ async def step_3_agent_loop(
 
     # ------------- 3.3: Extract messages and MCP URLs -------------
     messages = context.messages
-    ctx.mcp_urls.update(context.mcp_urls)
+    ctx.mcp_servers.update(context.mcp_servers)
     substeps.append(
-        f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_urls)} MCP servers"
+        f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_servers)} MCP servers"
     )
     logger.debug(f"context.messages count={len(messages)}")
-    logger.debug(f"context.mcp_urls={list(ctx.mcp_urls.keys())}")
+    logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
     yield ProgressMessage(
         step="3",
         title="Execute Agent Loop",
@@ -795,7 +838,7 @@ async def step_3_agent_loop(
     try:
         async for response in driver.agent_loop(
             messages=messages,
-            mcp_server_urls=ctx.mcp_urls,
+            mcp_servers=ctx.mcp_servers,
             extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
         ):
@@ -870,25 +913,51 @@ async def step_3_agent_loop(
     #     no helper_llm (we already spoke), but a warning badge
     #     surfaces the truncated execution.
     # Out-of-scope triggers (non-chat) and cancellation are skipped.
-    # A framework auth failure (e.g. codex OAuth token expired / "refresh
-    # token already used") is NOT recoverable by a helper reply — the turn
-    # never ran. Fabricating a reply masks the dead login and misleads the
-    # user (incident 2026-06-11). response_processor already surfaced a
-    # fatal, actionable ErrorMessage tagged ``auth_expired``; when present,
-    # skip the helper recovery so the user sees the re-login prompt, not a
-    # gpt-5-generated answer pretending codex replied. We still fall
-    # through to the PathExecutionResult below — Step 4 must persist this
-    # (failed) turn like any other.
-    auth_failed = any(
-        isinstance(m, ErrorMessage)
-        and getattr(m, "error_type", "") == AUTH_EXPIRED_ERROR_TYPE
-        for m in agent_loop_response
+    #
+    # A turn that failed a way the USER must fix — dead credentials (auth) or
+    # a DETERMINISTIC self-serviceable config error (context window too small,
+    # no credits, bad model id) — is NOT recoverable by a helper reply: the
+    # agent (tools / MCP / memory) never ran. Fabricating a reply masks the
+    # fixable cause and misleads the user (the "black box" P1 + incident
+    # 2026-06-11: a used codex token silently degraded to gpt-5 every turn).
+    # Two sub-cases both skip the fallback and fall through to the
+    # PathExecutionResult below (Step 4 persists the failed turn like any
+    # other):
+    #   (a) inline path — response_processor already surfaced the fatal,
+    #       actionable ErrorMessage (``auth_expired`` / ``config_actionable``);
+    #       it's already in agent_loop_response. Just skip the fallback.
+    #   (b) raw-exception path — the loop raised a Python exception, so
+    #       ``captured_error`` is set but NO ErrorMessage exists yet. If it's
+    #       self-serviceable (class name preserved, e.g.
+    #       ``ContextWindowExceededError``), emit the fatal actionable
+    #       ErrorMessage here (mirroring response_processor) and skip the
+    #       fallback — otherwise the error would be completely invisible.
+    skip_kind, skip_reason_detail = _fallback_skip_decision(
+        agent_loop_response, captured_error
     )
-    if auth_failed:
+
+    if skip_kind == "inline":
         logger.warning(
-            "[FALLBACK] skipped: agent auth expired — surfacing re-login "
-            "prompt instead of fabricating a reply"
+            "[FALLBACK] skipped: turn failed a user-fixable way (auth / "
+            "config_actionable) — surfacing the actionable error instead of "
+            "fabricating a reply"
         )
+    elif skip_kind == "raw_exception":
+        logger.warning(
+            f"[FALLBACK] skipped: deterministic self-serviceable error "
+            f"({skip_reason_detail}) — surfacing actionable error instead of "
+            f"masking it with a fabricated reply"
+        )
+        err = ErrorMessage(
+            error_message=self_serviceable_user_message(
+                skip_reason_detail, captured_error.get("error_message", "")
+            ),
+            error_type=SELF_SERVICEABLE_ERROR_TYPE,
+            severity="fatal",
+            action_reason=skip_reason_detail,
+        )
+        agent_loop_response.append(err)
+        yield err
     else:
         fallback_mode, skip_reason = _should_run_helper_llm_fallback(
             working_source=ctx.working_source or "",
@@ -957,7 +1026,7 @@ async def step_3_agent_loop(
         details={
             "response_count": state.response_count,
             "output_length": len(state.final_output),
-            "mcp_servers": list(ctx.mcp_urls.keys())
+            "mcp_servers": list(ctx.mcp_servers.keys())
         },
         substeps=substeps
     )

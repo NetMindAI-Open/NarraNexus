@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/agents_chat_history.py
-last_verified: 2026-04-10
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — clear-history rebuilt as a scoped wipe delegating to wipe_service
+
+`DELETE /{agent_id}/history` now takes `?conversations=&memory=` (default both
+true; 400 if neither) and delegates to [[wipe_service.py]]
+`wipe_agent_data(...)`. The old inline handler was incomplete — it deleted a
+few DB tables but **never the on-disk narrative markdown / trajectories** (the
+real memory; the DB is rebuilt from them on restart) and its session cleanup
+globbed the wrong path (`{agent}_*.md` under the repo dir — the real files are
+`~/.narranexus/sessions/{agent}_{user}.json`), so it deleted nothing. That glob
+block is gone. Ownership is now enforced (agents.created_by, 404 for
+non-owner) because `memory_*` is deleted by agent_id — a non-owner wipe would
+destroy the owner's memory. `?user_id=` is rejected (TDR-12). The
+"New-joiner traps" note below is superseded: the full table+disk set now lives
+in `wipe_service`, not this route.
 
 # agents_chat_history.py — 聊天历史与对话记录路由
 

@@ -90,6 +90,9 @@ interface ProviderSummary {
   models: string[]
   api_key_masked?: string
   base_url?: string
+  // NetMind account this key belongs to (captured at mint). Lets the user tell
+  // several keys from one broke account apart and top up the right one.
+  netmind_account_email?: string
 }
 
 
@@ -1009,6 +1012,12 @@ export function ProviderSettings() {
                   <span className="text-[var(--text-tertiary)]">API key: </span>
                   <span className="font-mono text-xs">{prov.api_key_masked || '—'}</span>
                 </div>
+                {prov.netmind_account_email && (
+                  <div>
+                    <span className="text-[var(--text-tertiary)]">NetMind account: </span>
+                    <span className="font-mono text-xs break-all">{prov.netmind_account_email}</span>
+                  </div>
+                )}
                 <div>
                   <div className="text-[var(--text-tertiary)] mb-1">{t('settings.provider.modelsCount', { count: prov.models.length })}</div>
                   <div className="flex flex-wrap gap-1.5">

@@ -61,7 +61,7 @@ async def _extract_requirements_via_llm(
         return
 
     try:
-        skill_content = skill_md_path.read_text(encoding='utf-8')
+        skill_content = skill_md_path.read_text(encoding="utf-8")
     except Exception:
         return
 
@@ -79,7 +79,7 @@ async def _extract_requirements_via_llm(
         "- Binary tool requirements (e.g., 'requires gog binary', 'needs node installed')\n\n"
         "Respond with ONLY a JSON object in this exact format, nothing else:\n"
         '{"env": ["VAR_NAME_1", "VAR_NAME_2"], "bins": ["binary1", "binary2"]}\n\n'
-        "If none found, use empty arrays: {\"env\": [], \"bins\": []}\n\n"
+        'If none found, use empty arrays: {"env": [], "bins": []}\n\n'
         f"--- SKILL.md ---\n{skill_content}\n--- END ---"
     )
 
@@ -97,15 +97,16 @@ async def _extract_requirements_via_llm(
         # Parse response
         result_text = response.choices[0].message.content.strip()
         # Extract JSON from response (handle markdown code blocks)
-        json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+        json_match = re.search(r"\{.*\}", result_text, re.DOTALL)
         if not json_match:
             logger.warning(f"LLM requirements extraction returned non-JSON: {result_text[:100]}")
             return
 
         import json
+
         parsed = json.loads(json_match.group())
-        extracted_env = parsed.get('env', [])
-        extracted_bins = parsed.get('bins', [])
+        extracted_env = parsed.get("env", [])
+        extracted_bins = parsed.get("bins", [])
 
         # Validate: must be lists of strings
         extracted_env = [v for v in extracted_env if isinstance(v, str) and v]
@@ -113,9 +114,7 @@ async def _extract_requirements_via_llm(
 
         if extracted_env or extracted_bins:
             skill_module.update_requirements(skill_name, extracted_env, extracted_bins)
-            logger.info(
-                f"LLM extracted requirements for '{skill_name}': env={extracted_env}, bins={extracted_bins}"
-            )
+            logger.info(f"LLM extracted requirements for '{skill_name}': env={extracted_env}, bins={extracted_bins}")
         else:
             logger.info(f"LLM found no requirements for '{skill_name}'")
 
@@ -131,6 +130,7 @@ def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
 # =========================================================================
 # Background study tasks
 # =========================================================================
+
 
 async def _run_skill_study(
     agent_id: str,
@@ -150,7 +150,6 @@ async def _run_skill_study(
 
     input_content = (
         f"Please study the skill '{skill_name}' located at skills/{skill_name}/.\n\n"
-
         f"## Important Rules\n"
         f"- All files you create MUST be stored in `skills/{skill_name}/` (your workspace), "
         f"NOT in `~/`, `~/.config/`, or any path outside your workspace\n"
@@ -158,11 +157,9 @@ async def _run_skill_study(
         f"- **Credentials** — do BOTH: (1) save to local file if SKILL.md requires it "
         f"(inside `skills/{skill_name}/`), AND (2) call `skill_save_config` so the system "
         f"can track and inject them at runtime\n\n"
-
         f"## Step 1: Read & Understand\n"
         f"Read skills/{skill_name}/SKILL.md thoroughly. Understand what this skill does, "
         f"what APIs it provides, and how it works.\n\n"
-
         f"## Step 2: Registration & Activation (if applicable)\n"
         f"If this skill involves a platform or external service requiring registration:\n"
         f"1. Complete the registration process\n"
@@ -173,7 +170,6 @@ async def _run_skill_study(
         f"email confirmation), you MUST use `send_message_to_user_directly` to tell the user exactly "
         f"what they need to do — include URLs, codes, and clear instructions. "
         f"Do NOT skip human-required steps silently.\n\n"
-
         f"## Step 3: Set Up Scheduled Jobs (if applicable)\n"
         f"Check if the skill directory contains a HEARTBEAT.md or similar periodic-task guide. "
         f"If it does, the skill requires recurring background work.\n\n"
@@ -183,7 +179,6 @@ async def _run_skill_study(
         f"- Polling for new events → `scheduled` job\n"
         f"- Any recurring workflow → `scheduled` or `ongoing` job\n\n"
         f"**Note:** Pure capability skills (coding helper, translation tool) do NOT need scheduled jobs.\n\n"
-
         f"## Step 4: Save Study Summary\n"
         f"**You MUST call `skill_save_study_summary('{skill_name}', summary)`** with a well-formatted "
         f"Markdown summary covering:\n"
@@ -198,19 +193,19 @@ async def _run_skill_study(
     skill_module = _get_skill_module(agent_id, user_id)
 
     try:
-        # Load MCP URLs (same logic as websocket.py)
-        mcp_urls = {}
+        # Load user-configured MCP servers (same logic as websocket.py)
+        mcp_servers = {}
         try:
             db_client = await get_db_client()
             mcp_repo = MCPRepository(db_client)
-            mcps = await mcp_repo.get_mcps_by_agent_user(
-                agent_id=agent_id,
-                user_id=user_id,
-                is_enabled=True
-            )
-            mcp_urls = {mcp.name: mcp.url for mcp in mcps}
+            mcps = await mcp_repo.get_mcps_by_agent_user(agent_id=agent_id, user_id=user_id, is_enabled=True)
+            for mcp in mcps:
+                spec = {"url": mcp.url}
+                if mcp.headers:
+                    spec["headers"] = mcp.headers
+                mcp_servers[mcp.name] = spec
         except Exception as e:
-            logger.warning(f"Failed to load MCP URLs for skill study: {e}")
+            logger.warning(f"Failed to load MCP servers for skill study: {e}")
 
         # Run AgentRuntime — agent is expected to call skill_save_study_summary MCP tool
         async with AgentRuntime() as runtime:
@@ -219,7 +214,7 @@ async def _run_skill_study(
                 user_id=user_id,
                 input_content=input_content,
                 working_source=WorkingSource.SKILL_STUDY,
-                pass_mcp_urls=mcp_urls,
+                pass_mcp_servers=mcp_servers,
             ):
                 pass  # Just consume the stream; agent writes summary via MCP tool
 
@@ -232,8 +227,7 @@ async def _run_skill_study(
             logger.info(f"Skill study completed for '{skill_name}' (summary saved via MCP tool)")
         else:
             skill_module.set_study_status(
-                skill_name, "completed",
-                result="Study completed, but the agent did not provide a structured summary."
+                skill_name, "completed", result="Study completed, but the agent did not provide a structured summary."
             )
             logger.warning(f"Skill study for '{skill_name}': agent did not call skill_save_study_summary")
 
@@ -246,6 +240,7 @@ async def _run_skill_study(
 # =========================================================================
 # API Endpoints
 # =========================================================================
+
 
 @router.get("", response_model=SkillListResponse)
 async def list_skills(
@@ -287,16 +282,13 @@ async def install_skill(
     2. Upload zip file: source=zip, file=zip file
     """
     user_id = await resolve_current_user_id(request)
-    logger.info(
-        f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}"
-    )
+    logger.info(f"POST /api/skills/install - agent_id={agent_id}, user_id={user_id}, source={source}")
 
     def _reject(reason: str) -> HTTPException:
         # Log every 4xx rejection with the human-readable reason so prod
         # debugging never again requires asking the user to open DevTools.
         logger.warning(
-            f"skill install rejected: agent_id={agent_id} user_id={user_id} "
-            f"source={source} reason={reason!r}"
+            f"skill install rejected: agent_id={agent_id} user_id={user_id} source={source} reason={reason!r}"
         )
         return HTTPException(status_code=400, detail=reason)
 
@@ -357,9 +349,7 @@ async def install_skill(
                     shutil.rmtree(temp_dir)
 
         return SkillOperationResponse(
-            success=True,
-            message=f"Skill '{skill_info.name}' installed successfully",
-            skill=skill_info
+            success=True, message=f"Skill '{skill_info.name}' installed successfully", skill=skill_info
         )
 
     except ValueError as e:
@@ -386,13 +376,13 @@ async def remove_skill(
         if not success:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
 
-        return SkillOperationResponse(
-            success=True,
-            message=f"Skill '{skill_name}' removed successfully"
-        )
+        return SkillOperationResponse(success=True, message=f"Skill '{skill_name}' removed successfully")
 
     except HTTPException:
         raise
+    except ValueError as e:
+        # Built-in skills reject removal — surface an actionable 400.
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception(f"Failed to remove skill: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -413,15 +403,9 @@ async def disable_skill(
         success = skill_module.disable_skill(skill_name=skill_name)
 
         if not success:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Skill '{skill_name}' not found or already disabled"
-            )
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found or already disabled")
 
-        return SkillOperationResponse(
-            success=True,
-            message=f"Skill '{skill_name}' disabled successfully"
-        )
+        return SkillOperationResponse(success=True, message=f"Skill '{skill_name}' disabled successfully")
 
     except HTTPException:
         raise
@@ -445,15 +429,9 @@ async def enable_skill(
         success = skill_module.enable_skill(skill_name=skill_name)
 
         if not success:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Skill '{skill_name}' not found in disabled list"
-            )
+            raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found in disabled list")
 
-        return SkillOperationResponse(
-            success=True,
-            message=f"Skill '{skill_name}' enabled successfully"
-        )
+        return SkillOperationResponse(success=True, message=f"Skill '{skill_name}' enabled successfully")
 
     except HTTPException:
         raise
@@ -467,6 +445,7 @@ async def enable_skill(
 # Note: FastAPI matches by registration order, but more specific paths are used here
 # /{skill_name}/study is more specific than /{skill_name}, so no conflict occurs
 # =========================================================================
+
 
 @router.post("/{skill_name}/study", response_model=SkillStudyResponse)
 async def study_skill(
@@ -495,28 +474,22 @@ async def study_skill(
         # Check if already studying
         study_info = skill_module.get_study_status(skill_name)
         if study_info["study_status"] == "studying":
-            return SkillStudyResponse(
-                success=False,
-                message="Already studying",
-                study_status="studying"
-            )
+            return SkillStudyResponse(success=False, message="Already studying", study_status="studying")
 
         # Set status to studying
         skill_module.set_study_status(skill_name, "studying")
 
         # Start background task
-        asyncio.create_task(_run_skill_study(
-            agent_id=agent_id,
-            user_id=user_id,
-            skill_name=skill_name,
-            skill_path=skill.path,
-        ))
-
-        return SkillStudyResponse(
-            success=True,
-            message="Study started",
-            study_status="studying"
+        asyncio.create_task(
+            _run_skill_study(
+                agent_id=agent_id,
+                user_id=user_id,
+                skill_name=skill_name,
+                skill_path=skill.path,
+            )
         )
+
+        return SkillStudyResponse(success=True, message="Study started", study_status="studying")
 
     except HTTPException:
         raise
@@ -551,6 +524,7 @@ async def get_study_status(
 # =========================================================================
 # Environment Configuration Endpoints
 # =========================================================================
+
 
 @router.get("/{skill_name}/env", response_model=SkillEnvConfigResponse)
 async def get_skill_env(
@@ -599,7 +573,7 @@ async def set_skill_env(
         if not skill:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
 
-        env_config = body.get('env_config', {}) if body else {}
+        env_config = body.get("env_config", {}) if body else {}
         if not env_config:
             raise HTTPException(status_code=400, detail="env_config is required")
 

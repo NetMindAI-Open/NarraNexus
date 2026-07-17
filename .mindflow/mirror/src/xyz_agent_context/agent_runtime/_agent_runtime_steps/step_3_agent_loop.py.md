@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-10
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
+
+值类型从 url 字符串升级为 spec 对象 `{"url": str, "headers": {str:str}?}`，
+支撑用户 MCP 自定义请求头（Authorization 等）贯穿全链路。本文件仅机械跟随
+改名/类型，职责不变。
+
+## 2026-07-14 — 兜底 skip 泛化:auth → auth + 确定性自助类（`_fallback_skip_decision`）
+
+原本只有"inline auth 失败就 skip helper 兜底"一条（2026-06-11）。现在抽出纯
+谓词 `_fallback_skip_decision(agent_loop_response, captured_error)`，把两条
+error 路径都盖住:
+
+- `("inline", None)`:`agent_loop_response` 里已有
+  `error_type ∈ {auth_expired, config_actionable}` 的 fatal ErrorMessage
+  （response_processor 在 loop 内已产出）→ 只 skip 兜底，不用再补消息。
+- `("raw_exception", reason)`:loop 抛了 Python 异常，`captured_error` 有值
+  但**还没有 ErrorMessage**，且 `classify_self_serviceable` 命中（类名保真，
+  如 `ContextWindowExceededError`）→ skip 兜底 **并在此就地 yield** 一条
+  fatal `config_actionable` ErrorMessage（否则该错误完全不可见）。
+- `(None, None)`:非用户可修复失败 → 照常走 helper 兜底。
+
+理由同 auth:context-window 这类确定性失败，agent 本体（工具/MCP/记忆）根本
+没跑，兜底生成一条正常样子的回复是对事实的谎报——这正是"黑盒" P1 的根因。
+分类器在 [[llm_failure.py]]，共享文案 `self_serviceable_user_message` 也在那，
+避免 step_3 → response_processor 的循环导入。
 
 ## 2026-07-10 — `_resolve_agent_framework_name` 收缩为委托（单一 overlay）
 

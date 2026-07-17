@@ -1,7 +1,23 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-06-08
+last_verified: 2026-07-13
 ---
+
+## 2026-07-13 — forward NetMind ("Power") env to the backend sidecar
+
+The backend `cmd` block now forwards the Power-login env vars
+(`NARRANEXUS_ENABLE_POWER_LOGIN`, `NETMIND_USE_SUBSCRIPTION_ENABLED`,
+`NETMIND_AUTH_API_URL`, `BILLING_API_BASE`, `NETMIND_KEY_API_BASE`,
+`NETMIND_INFERENCE_BASE`) to the sidecar. A Finder-launched .app inherits no
+shell env, so — mirroring the existing `NARRA_POSTHOG_KEY` `option_env!` line
+right above — each is baked at COMPILE time (build shell exported it) with a
+runtime env override taking precedence. Unset at build → None → not forwarded →
+the packaged app stays pure-local (username-only); this is the DMG twin of the
+backend `is_power_login_enabled()` gate. **`scripts/build-desktop.sh` is
+intentionally NOT modified** — the frontend half is baked by exporting
+`VITE_ENABLE_POWER_LOGIN` before that script (vite picks up exported `VITE_*`),
+and cargo reads these six via `option_env!` in the same build shell. See
+[[deployment_mode]] for the axis design.
 
 ## 2026-05-22 — post-spawn readiness gate + detailed failure
 

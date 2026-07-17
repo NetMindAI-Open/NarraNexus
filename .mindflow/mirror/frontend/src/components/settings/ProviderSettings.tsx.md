@@ -1,7 +1,13 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-16
 ---
+
+## 2026-07-16 — 每把 NetMind key 显示所属账户邮箱
+
+`ProviderInfo` 加 `netmind_account_email?`;provider 详情在 API key 下方多渲染一行
+"NetMind account: <email>"(仅当后端返回该字段时)。让用户分清几把 key 属于哪个账户、
+充对账户(上游事故)。数据来自 GET /api/providers 的 `_attach_netmind_accounts` 增强。
 
 > **Obsolete claim below (2026-07-10)**: the 2026-06-10 entry "accurate codex
 > no-provider message" describes a `CODEX_ALLOWED_PROVIDER_SOURCES` filter and a

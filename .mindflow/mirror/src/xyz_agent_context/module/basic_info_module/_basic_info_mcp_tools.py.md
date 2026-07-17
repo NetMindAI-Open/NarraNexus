@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/_basic_info_mcp_tools.py
-last_verified: 2026-05-20
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — submit_feedback 工具（Feedback 机制一期）
+
+新增 `_register_feedback_tool`：`submit_feedback(agent_id, user_id, category,
+summary, severity)`，Agent 觉察到用户不满、或同一指令连续失败 ≥2 次时调用。
+经 [[feedback_client.py]] fire-and-forget 发到团队反馈接收端（写死 URL，
+`NARRANEXUS_FEEDBACK_DISABLED=1` 可关）。隐私契约在 client 层强制：id 全部
+哈希、只送 Agent 自己写的一句话摘要。工具恒返 ok=True——投递失败不该让
+Agent 重试或向用户道歉。Spec:
+reference/self_notebook/specs/2026-07-10-feedback-mechanism-design.md
+
 
 # _basic_info_mcp_tools.py — narrative-awareness MCP tools (Fix #2 P3)
 

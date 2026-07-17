@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/bundle/id_field_map.py
-last_verified: 2026-06-08
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — IM channel credential tables registered
+
+Added `{"agent_id": "agent"}` for the six credential tables (lark_credentials +
+channel_{slack,telegram,wechat,discord,narramessenger}_credentials) so the opt-in
+credential import remaps each credential's `agent_id` old → new (otherwise the
+imported key dangles at the source agent_id). `agent_id` is the ONLY internal id
+on these tables; everything else (app_id, tokens, owner_user_id, bot_user_id) is
+IM-namespace and left untouched. Kept in sync with
+`bundle/channel_credential_tables.py`.
 
 ## 2026-06-08 — social_entities key rename
 

@@ -51,6 +51,11 @@ class AgentRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64, pattern=_SAFE_ID_PATTERN)
 
 
+class SetActiveRequest(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=64, pattern=_SAFE_ID_PATTERN)
+    active: bool
+
+
 # =========================================================================
 # Helpers
 # =========================================================================
@@ -161,3 +166,26 @@ async def unbind_telegram_bot(
         return {"success": False, "error": "no Telegram credential bound for this agent"}
     logger.info(f"Telegram bot unbound: agent={body.agent_id}")
     return {"success": True, "data": {"unbound": True}}
+
+
+@router.post("/set-active")
+async def set_telegram_active(request: Request, body: SetActiveRequest) -> dict[str, Any]:
+    """Activate/deactivate the Telegram credential (flip ``enabled``) without a
+    re-bind. Primary use: activating a credential imported (inactive) from a
+    bundle. The trigger's credential watcher picks up the change on its next
+    poll and claims the single connection slot for this bot — so only activate
+    here once the source environment is no longer connected to the same bot.
+    """
+    auth_err = await _verify_agent_ownership(request, body.agent_id)
+    if auth_err:
+        return {"success": False, "error": auth_err}
+    db = await _get_db()
+    mgr = TelegramCredentialManager(db)
+    ok = await mgr.set_enabled(body.agent_id, body.active)
+    if not ok:
+        return {"success": False, "error": "No Telegram bot bound to this agent."}
+    logger.info(
+        f"Telegram credential {'activated' if body.active else 'deactivated'}: "
+        f"agent={body.agent_id}"
+    )
+    return {"success": True, "enabled": body.active}

@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-05-20
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -148,3 +148,7 @@ this guards against a hand-crafted bad DB row.
   GET for clarity.
 - Authentication is handled by FastAPI middleware (`backend/auth.py`), not
   here. The handlers only consume `request.state.user_id` for ownership.
+
+## 2026-07-13 — office-live kind 的扩展名映射
+
+`_KIND_EXTENSIONS` 新增 `application/vnd.officecli-live` → (.pptx,.docx,.xlsx),让 heal(按扩展名找回断掉的指针)对 office artifact 也生效。

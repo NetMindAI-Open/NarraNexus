@@ -1,8 +1,45 @@
 ---
 code_file: src/xyz_agent_context/bundle/builder.py
-last_verified: 2026-06-09
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — mcp_hints 安全不变式：headers 绝不出境
+
+`mcp_urls` 新增 `headers` 列（Authorization token 等密钥）。mcp_hints.json 的
+字段选择保持显式白名单，**headers 永不加入**——bundle 会离开作者账号，收件人
+自己配置凭据。代码内已加 SECURITY INVARIANT 注释锁死。
+
+## 2026-07-13 — opt-in skill secrets (scrub by default)
+
+`ExportSelection.include_skill_secrets` (default False, the 'full mode' companion of include_channel_credentials). When OFF: the workspace packer blanks each `.skill_meta.json`'s `env_config` VALUES (via `bundle/skill_secrets.py`) and `_zip_dir` sensitive-filters the full_copy archive (drops credentials.json etc. + scrubs meta) — so no skill secret leaves silently. When ON: both ride along + `contains_secrets` is set. Manifest gains `contains_skill_secrets`; `stripped` lists `skill_secrets` when not opted in.
+
+## 2026-07-10 — opt-in IM channel credential export
+
+`ExportSelection.include_channel_credentials` (default False) makes the
+per-agent loop also emit `agents/<aid>/channel_credentials.json` — the closure's
+rows from the six credential tables (lark + channel_{slack,telegram,wechat,
+discord,narramessenger}), grouped by table. `manifest.contains_channel_credentials`
+flags it so the import wizard warns. The table list is the shared single source
+of truth `bundle/channel_credential_tables.py::CHANNEL_CREDENTIAL_TABLES`.
+
+**Important**: `STRIPPED_TABLES` / `AGENT_SCOPED_TABLES` / `INSTANCE_SCOPED_TABLES`
+are DEAD constants (documentation only — zero references; the real export is the
+explicit `db.get` calls). So credential "stripping" was always by-omission, not by
+that set — the opt-in export just adds the reads. The mirror's older "凭证一律剥离"
+decision is therefore now: **stripped by default, shipped on opt-in.** `agent_id`
+is kept verbatim in the exported rows (import remaps it via STRUCTURED_ID_FIELDS);
+everything else is IM-side and preserved. On import each row lands INACTIVE.
+Also removed a dead contradictory `lark_trigger_audit` entry that sat in BOTH
+`AGENT_SCOPED_TABLES` and `STRIPPED_TABLES`.
+
+The manifest `stripped` list (shown verbatim in the import preview's "not present
+in bundle" section) is now DYNAMIC: `im_channel_credentials` is listed only when
+the user did NOT opt in — otherwise the preview would contradict the shipped
+`channel_credentials.json`. `api_keys` / `user_password_hash` / `user_providers`
+stay always-stripped (the old hardcoded `lark_oauth` label was renamed to
+`im_channel_credentials`, since it now covers all six channels). Tests:
+`tests/bundle/test_channel_credentials.py`.
 
 ## 2026-06-09 — manifest stamps the live app version
 
@@ -153,3 +190,14 @@ mcp_hints.json                        ← 1.1+: opt-in by mcp_selection
 - 大 bundle（GB 级）会让 tmpdir 装不下。`MAX_BUNDLE_BYTES = 500MB` 强制上限，超出报错。
 - `_scrub_user_id` 是浅扫描列名，**不**深入 JSON 字段值；JSON 里嵌的 user_id 不会被替换。这是 v1 简化，敏感场景要重写。
 - `ExportSelection.skill_methods` dict 缺某个 skill 的条目时，那个 skill 不进 bundle —— frontend 必须保证传齐。
+
+## 2026-07-10 — workspace tar 排除内置技能
+
+- `_pack_workspace_sync` 通过 `_builtin_skill_relpaths(src)` 求出 `skills/<name>` 为 `builtin:true` 的目录集，在 fast-path 的 `filter_func` 和 user_id 改写的 manual-walk 两条路径都跳过它们——否则内置技能字节会混进 `workspace.tar.gz`（`skill_methods` 排除不了这条，因为 workspace tar 独立打包整个目录）。
+
+## 2026-07-14 — `skill_methods` 导出路径的服务端内置守卫
+
+- 上面 workspace-tar 那条只堵住了「整目录打包」；显式 `skill_methods`（由客户端 `install_method` 驱动的 zip / full_copy）是**另一条**导出路径，之前**没有**内置守卫。绕过前端或前端有 bug 时，内置技能会被打成 `archive_ref` 当用户数据外发。
+- 现在这条 loop 里 `zip` / `full_copy` 分支前先 `_find_skill_dir` 定位磁盘目录，`dir_is_builtin`（[[skill_secrets.py]] 单一真相源）命中即把 `method` 强制降级为 `builtin`（空载、无 `archive_ref`），并记一条 warning。至此「内置永不作为用户数据旅行」在**两条**导出路径都成立。
+- `_builtin_skill_relpaths` 也顺手改用 `dir_is_builtin`，不再自己读 `.skill_meta.json`，语义与其它三处一致。
+- 回归测试:`tests/bundle/test_skill_import.py::test_builtin_skill_forced_to_builtin_method_despite_full_copy_request`（客户端请求 full_copy 内置技能 → manifest 记 `builtin`、bundle 内无该技能归档）。

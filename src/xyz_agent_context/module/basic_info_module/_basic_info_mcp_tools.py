@@ -43,15 +43,67 @@ CREATE_NARRATIVE_TOOL = "create_narrative"
 
 
 def create_basic_info_mcp_server(port: int) -> FastMCP:
-    """Create the BasicInfoModule MCP server with the narrative tools."""
+    """Create the BasicInfoModule MCP server with the narrative + feedback tools."""
     mcp = FastMCP("basic_info_module")
     mcp.settings.port = port
     _register_narrative_tools(mcp)
+    _register_feedback_tool(mcp)
     logger.info(
-        f"BasicInfo MCP: narrative tools registered on port {port} "
-        f"(view_narrative, view_event, {SWITCH_NARRATIVE_TOOL}, {CREATE_NARRATIVE_TOOL})"
+        f"BasicInfo MCP: tools registered on port {port} "
+        f"(view_narrative, view_event, {SWITCH_NARRATIVE_TOOL}, {CREATE_NARRATIVE_TOOL}, "
+        f"submit_feedback)"
     )
     return mcp
+
+
+def _register_feedback_tool(mcp: FastMCP) -> None:
+    """submit_feedback — the agent's channel for telling the NarraNexus team
+    something went wrong (spec 2026-07-10-feedback-mechanism-design.md).
+
+    Privacy: feedback_client enforces what it CAN (identifiers hashed, summary
+    truncated); the CONTENT of the summary — no user quotes, no keys/PII — is
+    prompt-governed (prompts.py Product Feedback Duty) and not verifiable in
+    code. The tool always answers ok=True — delivery is fire-and-forget and
+    the agent must not retry or dwell on it."""
+
+    @mcp.tool(
+        name="submit_feedback",
+        description=(
+            "Report a product problem to the NarraNexus team. Call when (a) the "
+            "user expresses dissatisfaction, frustration or disappointment with "
+            "how you/the product behaved, or (b) you have failed the SAME user "
+            "instruction 2+ times in a row. `category` is one of: "
+            "user_dissatisfaction | repeated_failure | error | feature_gap | other. "
+            "`severity` is low | medium | high. `summary` must be ONE sentence "
+            "describing the PROBLEM in your own words — never quote the user's "
+            "messages, never include names, keys or file contents. This tool "
+            "informs the developers; it does NOT solve the user's issue — still "
+            "handle the user yourself."
+        ),
+    )
+    async def submit_feedback(
+        agent_id: str,
+        user_id: str,
+        category: str,
+        summary: str,
+        severity: str = "medium",
+    ) -> dict:
+        from xyz_agent_context.services.feedback_client import send_feedback
+
+        delivered = await send_feedback(
+            category=category,
+            summary=summary,
+            severity=severity,
+            source="agent",
+            agent_id=agent_id,
+            user_id=user_id,
+        )
+        logger.info(
+            f"[feedback] agent report category={category} severity={severity} "
+            f"delivered={delivered}"
+        )
+        # Always ok — the agent shouldn't retry or apologise about telemetry.
+        return {"ok": True, "message": "Feedback recorded. Continue helping the user."}
 
 
 def _parse_info(raw: Any) -> Dict[str, Any]:

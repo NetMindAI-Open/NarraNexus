@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-06-11
+last_verified: 2026-07-15
 stub: false
 ---
+
+## 2026-07-15 — 用户 MCP 装配为 spec 形状（headers 随行）
+
+DB 加载后组 `{name: {"url", "headers"?}}` 传 `pass_mcp_servers`（原
+`pass_mcp_urls` 扁平 url dict）。日志只打服务名/数量，不打 headers 值。
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+fresh-run 路径加熔断器 `should_skip` 闸门：paused/cooling 时发一帧清晰的 `agent_circuit_open` error（severity fatal + cb_reason，**不静默**）并关 socket，不启动 run。帧文案由纯函数 `_circuit_open_frame(cb_reason)` 生成（reason→message 映射，可单测）。fail-open。
+
 
 ## 2026-06-11 — pass sender_user_id into trigger_extra_data
 

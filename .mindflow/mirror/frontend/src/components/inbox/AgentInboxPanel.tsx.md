@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-07-03
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-13 — messages render as per-message cards with sender identity
+
+The expanded room's message list switched from a flat chat-style list
+(plain rows, `space-y-1`) to one bordered card per message (`space-y-2`
+gap). Each card carries the sender's identity visually: a deterministic
+per-sender color (hash of `sender_id`, falling back to `sender_name`)
+drives both an initials avatar dot and a 2px left-accent border —
+`senderColor` reuses the hashing approach of `colorForSeed` in
+[[SessionSection.tsx]]. Card header = avatar dot + sender name
+(semibold, text-primary) + relative time (right-aligned). Message
+Markdown body unchanged below the header. Covered by
+[[AgentInboxPanel.test.tsx]] (own card per message, header contents,
+accent stable per sender / distinct across senders, initials).
 
 ## 2026-07-03 — messages sorted via compareInboxMessages (microsecond, ascending)
 

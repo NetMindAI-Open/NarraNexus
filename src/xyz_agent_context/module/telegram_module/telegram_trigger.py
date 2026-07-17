@@ -77,6 +77,7 @@ class TelegramTrigger(ChannelTriggerBase):
     channel_name = "telegram"
     brand_display = "Telegram"
     working_source = WorkingSource.TELEGRAM
+    react_tool_ref = "react_to_user_message"
 
     # ── Worker pool ──────────────────────────────────────────────────────
     MIN_WORKERS = 3

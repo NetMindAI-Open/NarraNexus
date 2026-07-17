@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/db_factory.py
-last_verified: 2026-05-22
+last_verified: 2026-07-13
 stub: false
 ---
 
@@ -72,8 +72,13 @@ Closing a pool from a different loop than the one it was built on would
 reintroduce the exact cross-loop bug we're fixing. When
 `close_db_client()` runs from outside the origin loop, it uses
 `asyncio.run_coroutine_threadsafe(client.close(), loop).result(timeout=5)`.
-If the origin loop is already closed, the entry is dropped without
-awaiting — OS resources will be reclaimed on process exit.
+If the origin loop is already closed, the client is closed on the
+CURRENT loop instead (2026-07-13). The earlier "drop the entry, process
+exit reclaims it" assumption was wrong for the SQLite backend: aiosqlite
+runs a NON-daemon worker thread per connection, so an unclosed client
+blocks interpreter shutdown forever — this was the "pytest prints its
+summary then hangs" bug. Cross-loop close is safe precisely because the
+origin loop is gone: aiosqlite's close() only needs *a* running loop.
 
 **`SYNC_KEY = -1` pseudo-loop-id for the sync bootstrap path.**
 `get_db_client_sync()` is kept as an escape hatch for code paths that run

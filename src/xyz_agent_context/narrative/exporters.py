@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 from datetime import datetime
 from loguru import logger
@@ -182,6 +183,25 @@ _No changes recorded yet_
 
         logger.debug(f"Read Markdown file: {md_path} ({len(content)} chars)")
         return content
+
+    def delete_all(self) -> bool:
+        """
+        Delete this (agent, user)'s entire narratives directory tree.
+
+        Used by the "clear conversation & memory" wipe: the on-disk markdown
+        is the real long-memory surface (the DB is rebuilt from it on
+        restart), so a DB-only clear leaves the agent remembering. Removes
+        `{base_path}/{agent_id}/{user_id}/narratives/` and everything under it.
+
+        Returns:
+            True if the directory existed and was removed, False if it was
+            already absent. Idempotent — safe to call when nothing is there.
+        """
+        if not os.path.isdir(self.narratives_dir):
+            return False
+        shutil.rmtree(self.narratives_dir)
+        logger.info(f"Deleted narratives directory: {self.narratives_dir}")
+        return True
 
     async def update_instances(
         self,
@@ -490,6 +510,23 @@ class TrajectoryRecorder:
         if not os.path.exists(narrative_dir):
             os.makedirs(narrative_dir, exist_ok=True)
             logger.info(f"Created trajectory directory: {narrative_dir}")
+
+    def delete_all(self) -> bool:
+        """
+        Delete this (agent, user)'s entire trajectories directory tree.
+
+        Companion to `NarrativeMarkdownManager.delete_all()` for the wipe —
+        removes `{base_path}/{agent_id}/{user_id}/trajectories/` and every
+        per-narrative round file under it. Idempotent.
+
+        Returns:
+            True if removed, False if already absent.
+        """
+        if not os.path.isdir(self.trajectories_dir):
+            return False
+        shutil.rmtree(self.trajectories_dir)
+        logger.info(f"Deleted trajectories directory: {self.trajectories_dir}")
+        return True
 
     async def record_round(
         self,

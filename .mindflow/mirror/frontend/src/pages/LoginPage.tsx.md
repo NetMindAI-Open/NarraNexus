@@ -1,8 +1,44 @@
 ---
 code_file: frontend/src/pages/LoginPage.tsx
-last_verified: 2026-06-16
+last_verified: 2026-07-13
 stub: false
 ---
+
+## 2026-07-14 — recommend Power: default tab + "推荐" badge
+
+Power is nudged as the recommended method: `authTab` now defaults to `'power'`
+(so the local dual-mode page opens on the Power form), and the Power tab carries
+a small accent "推荐 / Recommended" badge (`pages.login.recommended`, en+zh).
+Dual-mode tests updated to reflect the Power-first default.
+
+## 2026-07-14 — per-method descriptions on the login tabs
+
+Each block now leads with a `methodDesc(...)` caption (boxed muted text) so the
+two tabs are distinguishable: `localBlock` shows `pages.login.localDesc` (local =
+data stays local, bring-your-own API key); `netmindBlock` shows
+`pages.login.powerDesc` (Power = free credits, run models with no key setup, can
+top up) — but only when `!withNotice`, i.e. the local dual-mode Power tab, since
+forced-cloud already has its own heading + migration notice. i18n keys added to
+en + zh (other locales fall back to en).
+
+## 2026-07-13 — local dual-mode: username + Power login via a top tab switch
+
+The old strict either/or (`isCloudMode ? NetMind form : username form`) now has
+three states via `powerAvailable = isPowerLoginAvailable()` ([[runtimeConfig.ts]]):
+forced-cloud → NetMind only (unchanged); local + powerAvailable
+(`showTabs`) → a top segmented **tab switch** ("Local account | Power account",
+`authTab` state) showing ONE form at a time; local + not available → username
+only (unchanged). The two forms are extracted into `localBlock` /
+`netmindBlock(withNotice)` consts; the tab switch picks between them so the page
+never stacks two full forms (the first cut did stack them — too cluttered per
+user feedback, changed to tabs same day). The account-migration banner shows only
+in forced-cloud (`withNotice`), not the local Power tab. So the design-decisions
+note below ("entirely separate JSX subtree per mode", "no mode-switch UI") is now:
+forms are reusable blocks, and local has an in-page tab switch. Tab labels are
+i18n `pages.login.tabLocal` / `tabPower` (added to en + zh; other locales fall
+back to en). `useNetmindAuth`'s `onSuccess` still stores the NetMind loginToken
+via `setNetmindToken` — that token is the per-user "Power account" signal the
+settings gates read.
 
 ## 2026-06-16 — "Change mode" button removed; `cloud-app` mode gone
 

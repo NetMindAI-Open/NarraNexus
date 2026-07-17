@@ -1,8 +1,34 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-07-03
+last_verified: 2026-07-14
 stub: false
 ---
+
+## 2026-07-14 — actionable popover for config_actionable failures
+
+The same red badge/popover now branches on `message.actionReason`. When set
+(a deterministic self-serviceable failure — context window too small / no
+credits / bad model id, mirrored from backend `config_actionable`), the popover
+shows the localized "Action needed" title + per-reason "what you can do"
+guidance (`chat.error.action.<reason>`, falling back to
+`chat.error.action.generic`) instead of the generic "Run failed" / "Finished
+with errors" copy. The raw provider detail (English, carries the concrete token
+numbers) still renders in the mono block below. This is the user-facing end of
+the "black box" P1 fix — the turn no longer silently masks a fixable cause.
+
+Two rendering fixes exposed by the first live test of this path:
+- **Red-on-red bug**: an `isError` bubble already sets a solid red background +
+  white text on the CONTAINER, but the content `div` was ALSO forcing
+  `text-[var(--color-red-500)]` → red text on red bg → an empty red box
+  ("大红框里什么都没有"). Removed the override so the body inherits white. This
+  was pre-existing but only surfaced now: before the P1 fix, context-window
+  errors were `recoverable` + masked, so a fatal `isError` bubble rarely
+  rendered at all.
+- **Body copy for actionReason**: the bubble BODY now shows the localized
+  guidance line (same key as the popover), NOT the raw English `error_message`
+  blob (guidance + "Provider detail: {json}"). Full detail stays in the
+  popover. Requires the `actionReason` prop to actually reach here — see the
+  wiring in [[buildTimeline.ts]] + [[ChatPanel.tsx]].
 
 ## 2026-07-03 — red error badge (any error surfaces on the bubble)
 

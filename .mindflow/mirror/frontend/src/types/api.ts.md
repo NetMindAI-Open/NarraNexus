@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-09
+last_verified: 2026-07-15
 stub: true
 ---
+
+## 2026-07-15 — MCP 类型加 headers
+
+`MCPInfo.headers` 为掩码后的值（后端 `_masked_headers`）；Create/Update 请求
+的 `headers` 为明文提交、Update 语义=出现即整组覆盖。
+
+## 2026-07-13 — Agent 实时层熔断器接入
+
+新增 `CircuitBreakerStatus` 与 `AgentCircuitBreakerResponse` 类型（熔断状态查询响应）。
+
+
+## 2026-07-10 — ClearHistoryResponse expanded
+
+`ClearHistoryResponse` now carries `scopes` + per-target counts
+(event_stream, chat memory, chat instances, agent_messages, memory_rows,
+artifacts), disk-removal booleans and `disk_errors[]`, mirroring the backend
+`WipeResult`.
 
 ## 2026-07-09 — AgentSlotView / AgentSlotEffective
 

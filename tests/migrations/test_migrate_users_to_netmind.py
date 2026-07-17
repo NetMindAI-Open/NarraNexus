@@ -27,6 +27,8 @@ from pathlib import Path
 
 import pytest
 
+from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
+
 _SCRIPT = (
     Path(__file__).resolve().parents[2] / "scripts" / "migrate_users_to_netmind.py"
 )
@@ -106,7 +108,7 @@ async def _seed_world(db_client, tmp_path):
         {"agent_id": "agent_abc123", "owner_user_id": OLD,
          "bot_token_encoded": "t", "app_token_encoded": "t"},
     )
-    ws = tmp_path / f"agent_abc123_{OLD}"
+    ws = tmp_path / agent_workspace_relpath("agent_abc123", OLD)
     ws.mkdir(parents=True)
     (ws / "Bootstrap.md").write_text("hi")
     return ws
@@ -137,8 +139,8 @@ async def test_execute_rewrites_renames_and_stamps(db_client, tmp_path):
     )
     assert slack["owner_user_id"] == OLD  # IM uid untouched
 
-    assert not (tmp_path / f"agent_abc123_{OLD}").exists()
-    assert (tmp_path / f"agent_abc123_{NEW}" / "Bootstrap.md").exists()
+    assert not (tmp_path / agent_workspace_relpath("agent_abc123", OLD)).exists()
+    assert (tmp_path / agent_workspace_relpath("agent_abc123", NEW) / "Bootstrap.md").exists()
 
     user = await db_client.get_one("users", {"user_id": NEW})
     assert OLD in (user.get("metadata") or "")  # migration stamp keeps old id
@@ -169,4 +171,4 @@ async def test_execute_is_idempotent(db_client, tmp_path):
     )
 
     assert stats2["users_migrated"] == 0  # nothing left to do
-    assert (tmp_path / f"agent_abc123_{NEW}").exists()
+    assert (tmp_path / agent_workspace_relpath("agent_abc123", NEW)).exists()

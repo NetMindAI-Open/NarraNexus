@@ -32,6 +32,10 @@ export interface AgentChatState {
   currentThinking: string;
   currentToolCalls: AgentToolCall[];
   currentErrors: string[];
+  /** Set when a config_actionable (deterministic self-serviceable) error
+   *  arrives this turn — carries the reason so stopStreaming can stamp it
+   *  onto the assistant message for actionable UI. Cleared on startStreaming. */
+  currentActionReason: string | null;
   currentAssistantMessage: string;
   isStreaming: boolean;
   history: ConversationRound[];
@@ -68,6 +72,7 @@ const DEFAULT_AGENT_STATE: AgentChatState = Object.freeze({
   currentThinking: '',
   currentToolCalls: Object.freeze([]) as unknown as AgentToolCall[],
   currentErrors: Object.freeze([]) as unknown as string[],
+  currentActionReason: null,
   currentAssistantMessage: '',
   isStreaming: false,
   history: Object.freeze([]) as unknown as ConversationRound[],
@@ -83,6 +88,7 @@ function createDefaultAgentState(): AgentChatState {
     currentThinking: '',
     currentToolCalls: [],
     currentErrors: [],
+    currentActionReason: null,
     currentAssistantMessage: '',
     isStreaming: false,
     history: [],
@@ -95,6 +101,11 @@ interface ChatState {
   // Multi-agent session map
   agentSessions: Record<string, AgentChatState>;
   activeAgentId: string;
+
+  // Bumped to force ChatPanel to re-fetch server-side history (e.g. after a
+  // data wipe clears conversations — the panel holds its own loaded history
+  // and would otherwise keep showing stale messages until an agent switch).
+  historyRefreshTick: number;
 
   // Notification state
   completedAgentIds: string[];
@@ -130,6 +141,8 @@ interface ChatState {
   processMessage: (agentId: string, message: RuntimeMessage) => void;
   clearAgent: (agentId: string) => void;
   clearAll: () => void;
+  /** Force any mounted ChatPanel to reload its server history. */
+  requestHistoryRefresh: () => void;
 
   // Notification actions
   dismissToast: (agentId: string) => void;
@@ -195,6 +208,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
     // Multi-agent state
     agentSessions: {},
     activeAgentId: '',
+    historyRefreshTick: 0,
     completedAgentIds: [],
     toastQueue: [],
 
@@ -261,6 +275,7 @@ export const useChatStore = create<ChatState>((_set, get) => {
           currentThinking: '',
           currentToolCalls: [],
           currentErrors: [],
+          currentActionReason: null,
           currentEvents: [],
           // Clean slate — the run id of this new turn arrives via the
           // `run_started` frame (fresh) or setCurrentRunId (reconnect).
@@ -330,6 +345,9 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // to whitespace/format drift between the two code paths.
           event_id: session.currentRunId ?? undefined,
           isError,
+          // Self-serviceable reason only matters when the turn actually failed
+          // (no reply). If a reply somehow came through, don't badge it.
+          actionReason: isError ? session.currentActionReason ?? undefined : undefined,
           warnings,
           thinking: session.currentThinking || undefined,
           toolCalls: session.currentToolCalls.length > 0 ? [...session.currentToolCalls] : undefined,
@@ -679,9 +697,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
           const errorMsg = message as ErrorMessage;
           const errorText = errorMsg.error_message || 'Unknown error occurred';
           console.error(`Runtime error [${agentId}]:`, errorText);
+          // A config_actionable (deterministic self-serviceable) error carries
+          // a reason so the UI can show "what you can do" guidance. Latch the
+          // most recent one for this turn; stopStreaming stamps it onto the
+          // assistant message.
+          const actionReason =
+            errorMsg.error_type === 'config_actionable'
+              ? errorMsg.action_reason ?? 'config_actionable'
+              : undefined;
           set((state) => ({
             agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
               currentErrors: [...s.currentErrors, errorText],
+              ...(actionReason ? { currentActionReason: actionReason } : {}),
             })),
           }));
           break;
@@ -717,6 +744,11 @@ export const useChatStore = create<ChatState>((_set, get) => {
         completedAgentIds: [],
         toastQueue: [],
       });
+    },
+
+    // Force mounted ChatPanel(s) to reload server history (post-wipe refresh).
+    requestHistoryRefresh: () => {
+      set((state) => ({ historyRefreshTick: state.historyRefreshTick + 1 }));
     },
 
     // Notification actions

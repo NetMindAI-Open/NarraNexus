@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/AgentRowMenu.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-10
 stub: false
 ---
+
+## 2026-07-10 — "Clear data…" entry (owner-only)
+
+New `onClearData` prop + an owner-only `Eraser` menu item above Delete. It
+opens [[ClearAgentDataDialog.tsx]] (hosted by [[AgentList.tsx]]) — the scoped
+"clear conversations / memory" wipe. Replaces the old, ineffective footer
+"clear history" button that used to live in [[Sidebar.tsx]] (DB-only, never
+touched on-disk narratives, so the agent kept remembering).
 
 # AgentRowMenu.tsx — Kebab (⋮) menu for per-agent row actions
 
