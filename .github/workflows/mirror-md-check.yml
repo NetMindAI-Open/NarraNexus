@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     if: "!contains(github.event.pull_request.body, 'Mirror-md: needs-maintainer')"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
