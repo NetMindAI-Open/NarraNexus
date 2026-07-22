@@ -35,11 +35,9 @@ from backend.auth import resolve_current_user_id
 from xyz_agent_context.agent_framework.agent_slot_service import AgentSlotService
 from xyz_agent_context.schema.provider_schema import SlotName
 from xyz_agent_context.utils.db_factory import get_db_client
-from xyz_agent_context.utils.deployment_mode import is_cloud_mode
+from xyz_agent_context.agent_framework.cloud_policy import CloudPolicyViolation
 
 router = APIRouter()
-
-_OAUTH_SOURCES = frozenset({"claude_oauth", "codex_oauth"})
 
 
 def _is_staff(request: Request) -> bool:
@@ -143,23 +141,12 @@ async def set_agent_llm_config(
     owner_id, _ = await _require_owner(agent_id, request)
     db = await get_db_client()
 
-    # Cloud staff-gate: a non-staff caller may not bind an OAuth-source
-    # provider to a per-agent slot — it would ride the shared CLI credentials
-    # (same rule the framework switch enforces in providers.py). Scope the
-    # lookup to the OWNER so we never inspect another user's provider row.
-    if is_cloud_mode() and not _is_staff(request):
-        prov = await db.get_one(
-            "user_providers", {"user_id": owner_id, "provider_id": req.provider_id}
-        )
-        if prov is not None and prov.get("source") in _OAUTH_SOURCES:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Binding a CLI sign-in (OAuth) provider is staff-only in "
-                    "cloud mode. Use one of your own API-key providers."
-                ),
-            )
-
+    # Cloud netmind-only policy (provider source + framework pin) is
+    # enforced INSIDE set_agent_slot via ``actor_is_staff`` — single source
+    # of truth in cloud_policy, shared with the user-level slot writer.
+    # This subsumes the older OAuth-only gate (OAuth sources are
+    # non-netmind, so they stay blocked — they'd ride the shared CLI
+    # credentials); bring-your-own API keys are a local-version feature.
     try:
         row = await AgentSlotService(db).set_agent_slot(
             agent_id,
@@ -169,7 +156,10 @@ async def set_agent_llm_config(
             thinking=req.thinking,
             reasoning_effort=req.reasoning_effort,
             agent_framework=req.agent_framework,
+            actor_is_staff=_is_staff(request),
         )
+    except CloudPolicyViolation as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

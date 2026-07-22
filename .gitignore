@@ -91,6 +91,8 @@ htmlcov/
 
 # ── Node / Frontend ───────────────────────────────────────────────────────
 node_modules/
+# Local narra-cli install prefix (run.sh: $SCRIPT_DIR/.narra-cli)
+.narra-cli/
 .next/
 *.tsbuildinfo
 .vite/

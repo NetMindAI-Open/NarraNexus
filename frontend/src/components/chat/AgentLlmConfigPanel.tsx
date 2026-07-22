@@ -15,14 +15,18 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Dialog, DialogContent, DialogFooter } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
+import { Dialog, DialogContent, DialogFooter, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
+import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
   getModelsForSlot,
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
+  cloudNetmindOnly,
+  DESKTOP_RELEASES_URL,
   type ProviderSummary,
 } from '@/lib/agentFramework';
 import type { AgentSlotView, AgentSlotEffective } from '@/types';
@@ -71,6 +75,11 @@ const sameDraft = (a: Draft, b: Draft) =>
 
 export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const netmindOnly = cloudNetmindOnly(useConfigStore((s) => s.role));
+  // Styled alert (same Dialog shell as the add-provider modal) — Tauri's
+  // wry webview doesn't render window.alert, so never use the native one.
+  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [slots, setSlots] = useState<Record<string, AgentSlotView>>({});
   const [agentDraft, setAgentDraft] = useState<Draft>(EMPTY_DRAFT);
@@ -116,11 +125,14 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   const providerList = Object.values(providers).filter((p) => p.is_active);
 
   // Agent slot: protocol must match the framework (codex_cli → openai,
-  // claude_code → anthropic). No source filter — any openai-protocol provider
-  // (codex_oauth / user / netmind / yunwu / openrouter) can back codex; runtime
-  // Responses-API compatibility is the provider's characteristic, not gated
-  // here (binding rule #15). Mirrors backend validate_slot_binding.
+  // claude_code → anthropic). On local, no source filter — any openai-protocol
+  // provider (codex_oauth / user / netmind / yunwu / openrouter) can back
+  // codex; runtime Responses-API compatibility is the provider's
+  // characteristic, not gated here (binding rule #15). Mirrors backend
+  // validate_slot_binding. Cloud non-staff additionally sees NetMind-source
+  // providers only (cloudNetmindOnly — the route gate would 403 anything else).
   const agentProviders = providerList.filter((p) => {
+    if (netmindOnly && p.source !== 'netmind') return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === agentDraft.agent_framework);
     if (fw && p.protocol !== fw.protocol) return false;
     return true;
@@ -131,7 +143,9 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
   // CliHelperConfig and runs its structured calls one-shot through the same CLI
   // as the agent, so one subscription covers both slots.
   const helperProviders = providerList.filter(
-    (p) => ['openai', 'anthropic'].includes(p.protocol),
+    (p) =>
+      (!netmindOnly || p.source === 'netmind') &&
+      ['openai', 'anthropic'].includes(p.protocol),
   );
 
   const agentChanged = !sameDraft(agentDraft, agentInitial);
@@ -217,6 +231,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
     ] || 'gpt-5.4-mini';
 
   return (
+    <>
     <Dialog isOpen={isOpen} onClose={onClose} title="Agent model & framework" size="2xl">
       <DialogContent>
         {loading ? (
@@ -239,10 +254,31 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className={labelCls}>Framework</label>
+                  {/* Cloud non-staff: framework choice is locked (mirrors the
+                      user-level staff-only switch; backend rejects a
+                      differing pin). Picking a different framework pops an
+                      explanation and snaps back — friendlier than a
+                      greyed-out control. */}
                   <select
                     className={selectCls}
                     value={agentDraft.agent_framework}
                     onChange={(e) => {
+                      if (netmindOnly && e.target.value !== agentDraft.agent_framework) {
+                        void showNotice({
+                          title: t(
+                            'pages.settings.modelDefaults.cloudFrameworkLockedTitle',
+                            'Desktop version only',
+                          ),
+                          message: t(
+                            'pages.settings.modelDefaults.cloudFrameworkLocked',
+                            'Switching the agent framework is available in the local desktop version only.',
+                          ),
+                        });
+                        // Controlled value didn't change → no re-render;
+                        // snap the DOM select back by hand.
+                        e.target.value = agentDraft.agent_framework;
+                        return;
+                      }
                       // Switching framework can invalidate the provider (protocol
                       // change) — clear it so the user re-picks a compatible one.
                       setAgentDraft((d) => ({
@@ -398,6 +434,26 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
               )}
             </div>
 
+            {netmindOnly && (
+              <p className="text-xs text-[var(--text-tertiary)]">
+                {t(
+                  'pages.settings.modelDefaults.cloudNetmindOnlyNote',
+                  'The cloud version runs on your NetMind account — models from your own API keys are not available here.',
+                )}{' '}
+                <a
+                  href={DESKTOP_RELEASES_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80"
+                >
+                  {t(
+                    'pages.settings.modelDefaults.cloudNetmindOnlyLink',
+                    'Download the local desktop version to use your own keys →',
+                  )}
+                </a>
+              </p>
+            )}
+
             {error && <p className="text-sm text-[var(--color-error)]">{error}</p>}
           </div>
         )}
@@ -416,5 +472,7 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
         </button>
       </DialogFooter>
     </Dialog>
+    {noticeDialog}
+    </>
   );
 }

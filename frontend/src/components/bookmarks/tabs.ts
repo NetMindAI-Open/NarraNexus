@@ -17,6 +17,7 @@ import {
   Sparkles,
   FolderOpen,
   Radio,
+  Home,
   Network,
   ListTodo,
   Inbox,
@@ -32,6 +33,7 @@ export type AtomicTabId =
   | 'awareness'
   | 'workspace'
   | 'channels'
+  | 'smarthome'
   | 'social'
   | 'jobs'
   | 'inbox'
@@ -77,6 +79,7 @@ export const STRIP_CATEGORIES: StripCategory[] = [
       { id: 'awareness', label: 'Awareness', labelKey: 'rail.awareness', icon: Sparkles },
       { id: 'workspace', label: 'Workspace', labelKey: 'rail.workspace', icon: FolderOpen },
       { id: 'channels', label: 'Channels', labelKey: 'rail.channels', icon: Radio },
+      { id: 'smarthome', label: 'Smart Home', labelKey: 'rail.smarthome', icon: Home },
     ],
   },
   {

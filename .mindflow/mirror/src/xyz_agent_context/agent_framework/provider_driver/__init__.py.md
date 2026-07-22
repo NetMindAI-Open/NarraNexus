@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/__init__.py
-last_verified: 2026-05-31
+last_verified: 2026-07-20
 stub: false
 ---
+## 2026-07-20 — 取消 CallContext 导出（死代码清理）
+
+`CallContext` 从 import 和 `__all__` 中移除。它只服务于 `on_call_completed`
+这个从未被调用的驱动层计费钩子，随该钩子一并删除，见 [[base]] / [[system]]。
+包的公开面其余不变。
 
 # __init__.py — package facade
 

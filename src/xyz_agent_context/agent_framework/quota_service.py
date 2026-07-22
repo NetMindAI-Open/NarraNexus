@@ -22,20 +22,6 @@ from xyz_agent_context.agent_framework.system_provider_service import (
 )
 
 
-class QuotaPreferenceLocked(Exception):
-    """Raised when a user tries to re-enable the free-tier preference while
-    their quota is exhausted. The free tier can only be turned back on once
-    the quota is replenished — otherwise re-enabling would immediately reopen
-    the 402 trap the auto-disable on exhaustion was meant to close (#48)."""
-
-    def __init__(self, user_id: str):
-        super().__init__(
-            "Free-tier quota is exhausted; it can be re-enabled once your "
-            "quota is replenished."
-        )
-        self.user_id = user_id
-
-
 class QuotaService:
     """Business layer above QuotaRepository.
 
@@ -138,38 +124,31 @@ class QuotaService:
         assert result is not None
         return result
 
-    async def set_preference(
-        self, user_id: str, prefer_system_override: bool
-    ) -> Quota:
-        """User toggles whether to force-route through the system-default
-        provider (free tier) instead of their own. Upserts: if no row
-        exists for this user, creates one with initial=0 so the toggle
-        value is persisted — subsequent budget lookups return the normal
-        has_budget() answer (false, since 0 + 0 = 0 remaining).
+    async def rearm_switch_notice(self, user_id: str) -> None:
+        """Re-arm the "switched to your own key" notice latch (0 → 1).
+
+        The old user-facing prefer_system toggle is gone (2026-07-18 —
+        free-tier-first is platform behavior); the column now only dedupes
+        the exhaustion notice. Called by the provider resolver when a run
+        finds budget again after an exhaustion cycle (replenishment), so
+        the NEXT exhaustion notifies once more.
+
+        Deliberately NOT a CAS (unlike ``disable_preference_if_enabled``):
+        the write is idempotent and carries no side effect, so concurrent
+        re-arms are harmless. If you ever attach a side effect here (e.g. a
+        "quota replenished" notice), add the CAS guard first.
         """
         repo = await self._get_repo()
-        existing = await repo.get_by_user_id(user_id)
-        if existing is None:
-            await repo.create(user_id, 0, 0)
-            existing = await repo.get_by_user_id(user_id)
-        # Lock (#48): the free tier may only be turned ON while there is budget.
-        # Once exhausted it auto-disables (provider_resolver) and stays off
-        # until the quota is replenished — re-enabling it would just reopen the
-        # 402 trap. Turning it OFF is always allowed.
-        if prefer_system_override and (existing is None or not existing.has_budget()):
-            raise QuotaPreferenceLocked(user_id)
-        await repo.set_preference(user_id, prefer_system_override)
-        result = await repo.get_by_user_id(user_id)
-        assert result is not None
-        return result
+        await repo.set_preference(user_id, True)
 
     async def disable_preference_if_enabled(self, user_id: str) -> bool:
-        """Compare-and-swap the free-tier preference from ON to OFF.
+        """Compare-and-swap the notice latch from armed (1) to fired (0).
 
         Returns True iff this call performed the transition (see
         ``QuotaRepository.disable_if_enabled``). Used by the provider resolver
-        to auto-switch an exhausted opted-in user to their own provider (#48)
-        while emitting the "switched to your own key" notice exactly once.
+        on the first exhausted run that falls through to the user's own
+        provider (#48) so the "switched to your own key" notice is emitted
+        exactly once per exhaustion cycle.
         """
         repo = await self._get_repo()
         return await repo.disable_if_enabled(user_id)

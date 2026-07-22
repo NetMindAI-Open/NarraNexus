@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/quota_service.py
 stub: false
-last_verified: 2026-07-07
+last_verified: 2026-07-18
 ---
+
+## 2026-07-18 — set_preference / QuotaPreferenceLocked 删除；新增 rearm_switch_notice
+
+用户偏好没了（免费额度优先=平台行为，见 [[provider_resolver]]）：
+`set_preference` 及其"耗尽时禁止重开"的 `QuotaPreferenceLocked` 409 守卫
+整体删除（唯一调用方 PATCH /me/preference 路由同日删）。新增
+`rearm_switch_notice(user_id)`（无条件 repo.set_preference(uid, True)，
+0→1 边沿由 resolver 守）。`disable_preference_if_enabled` 保留但语义改为
+**通知闩锁的 CAS**（armed→fired），docstring 已改写；方法名沿用列名避免
+无谓改名涟漪。
 
 ## 2026-07-07 — `disable_preference_if_enabled` (compare-and-swap, #48)
 

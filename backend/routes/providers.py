@@ -18,6 +18,11 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
+from xyz_agent_context.agent_framework.cloud_policy import (
+    FRAMEWORK_LOCKED_DETAIL,
+    CloudPolicyViolation,
+    netmind_slots_only,
+)
 from xyz_agent_context.agent_framework.model_catalog import (
     get_all_known_models,
     get_default_models,
@@ -154,6 +159,20 @@ def _is_staff(request: Request) -> bool:
     return getattr(request.state, "role", "") == "staff"
 
 
+# Cloud netmind-only slot policy: a non-staff cloud user runs on their
+# NetMind ("Power") account only. Bring-your-own providers can still be
+# REGISTERED (the credential wallet stays open — keys survive a bundle
+# export and a future unlock), but may not be BOUND to a slot: binding is
+# what makes a provider drive real runs. The rule itself lives in
+# cloud_policy (shared with both slot writers and the manyfold clone);
+# this route only decides HOW it applies: set_slot enforces via
+# ``actor_is_staff`` (CloudPolicyViolation → 403), onboard flips to
+# register-only, add skips ``default_slots``.
+def _netmind_slots_only(request: Request) -> bool:
+    """True when the caller may only bind NetMind-source providers to slots."""
+    return netmind_slots_only(_is_staff(request))
+
+
 async def _get_service():
     """Get UserProviderService with DB client."""
     from xyz_agent_context.utils.db_factory import get_db_client
@@ -284,7 +303,10 @@ async def add_provider(req: AddProviderRequest, request: Request):
             models=req.models if req.models else None,
         )
 
-        if req.default_slots:
+        # Cloud netmind-only: adding stays open (register-only wallet), but
+        # the optional slot assignment is skipped — same policy as the slots
+        # route below, without failing the add itself.
+        if req.default_slots and not _netmind_slots_only(request):
             for slot_name, slot_def in req.default_slots.items():
                 match_pid = None
                 for pid in new_ids:
@@ -293,7 +315,13 @@ async def add_provider(req: AddProviderRequest, request: Request):
                         match_pid = pid
                         break
                 if match_pid:
-                    config = await service.set_slot(uid, slot_name, match_pid, slot_def.model)
+                    # Real role, not a bypass: this loop only runs when the
+                    # policy is inactive (guard above), and if that guard ever
+                    # moves, the service still enforces — defense in depth.
+                    config = await service.set_slot(
+                        uid, slot_name, match_pid, slot_def.model,
+                        actor_is_staff=_is_staff(request),
+                    )
 
         # Hot-reload for current process (local mode)
         try:
@@ -332,10 +360,14 @@ async def onboard(req: OnboardRequest, request: Request):
     HTTP envelope, hot-reload, and job recovery.
     """
     uid = _get_user_id(request)
+    # Cloud netmind-only: register the key (wallet) but leave framework/slots
+    # on NetMind — the UI explains and points to the local version.
+    activate = not _netmind_slots_only(request)
     try:
         service = await _get_service()
         config, new_ids, meta = await service.onboard_one_key(
             uid, req.api_key, req.provider_type, replace=req.replace,
+            activate=activate,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -577,9 +609,13 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
     uid = _get_user_id(request)
     try:
         service = await _get_service()
+        # Cloud netmind-only enforcement lives INSIDE set_slot (it already
+        # loads the provider row) — this route just supplies the caller's
+        # role and maps CloudPolicyViolation to 403 below.
         config = await service.set_slot(
             uid, slot_name, req.provider_id, req.model,
             thinking=req.thinking, reasoning_effort=req.reasoning_effort,
+            actor_is_staff=_is_staff(request),
         )
 
         errors = []
@@ -607,6 +643,8 @@ async def set_slot(slot_name: str, req: SetSlotRequest, request: Request):
         await _resume_agent_circuit_breakers(uid)
 
         return {"success": True, "data": _config_to_response(config), "validation_errors": errors}
+    except CloudPolicyViolation as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -850,15 +888,10 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     """
     uid = _get_user_id(request)
     if _is_cloud() and not _is_staff(request):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "Switching the agent framework is staff-only in cloud mode "
-                "— a framework with no API-key provider falls back to the "
-                "shared CLI credentials. Use one-key onboarding with your "
-                "own API key instead."
-            ),
-        )
+        # Same copy as the per-agent framework pin gate (cloud_policy) —
+        # the old "use one-key onboarding with your own API key" advice
+        # contradicted the netmind-only policy.
+        raise HTTPException(status_code=403, detail=FRAMEWORK_LOCKED_DETAIL)
     if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
         raise HTTPException(
             status_code=400,

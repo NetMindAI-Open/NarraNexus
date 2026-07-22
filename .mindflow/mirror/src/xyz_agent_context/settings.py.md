@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-09
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — helper-LLM one-shot 界值(Lark bug #2)
+
+新增一组 4 个字段,专门约束 **helper_llm 一次性调用**(Instance Decision / job 分析 /
+memory / social entity 等短、单轮、无工具的结构化提取)——它不是 agent_loop,故设界
+不违反铁律 #14:
+
+- `helper_cli_timeout_ms` (60000)、`helper_cli_max_retries` (1):CLI helper 子进程的
+  每请求超时与重试。默认由 [[cli_helper_sdk]] 的 `_run_claude_oneshot` **覆盖**
+  `to_cli_env` 注入的 agent-loop 值(~10min×10),否则坏/被劫持端点可挂近 100min。
+- `helper_cli_total_timeout_seconds` (120):**单次 one-shot 的硬墙钟上界**
+  (`asyncio.wait_for`)。三者刻意自洽:`60s×(1+1)=120s=total`,让配置的重试真能跑满
+  而不是被墙钟提前砍掉(硬上界 vs 软预算的关系写在字段注释里)。
+- `helper_json_repair_attempts` (3):Claude helper 结构化输出抠取/校验失败时的有界
+  修复重试次数(见 [[anthropic_helper_sdk]] / [[cli_helper_sdk]])。
+
+全部带默认值、无新必填 env,部署无影响。
 
 ## 2026-07-09 — claude_oauth_config_path (OAuth config-dir isolation)
 

@@ -16,9 +16,10 @@ import { api } from '@/lib/api';
 import { EntityCard } from './EntityCard';
 import { FileUpload } from './FileUpload';
 import { IMChannelsSection } from './IMChannelsSection';
+import { HomeAssistantConfig } from './HomeAssistantConfig';
 import type { SocialNetworkEntity } from '@/types';
 
-export type AwarenessSectionId = 'awareness' | 'workspace' | 'channels' | 'social';
+export type AwarenessSectionId = 'awareness' | 'workspace' | 'channels' | 'smarthome' | 'social';
 
 interface AwarenessPanelProps {
   /** Skip the outer Card chrome + duplicate title when hosted inside the
@@ -300,6 +301,13 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
           {(!section || section === 'channels') && (
           <section className={cn('px-5 py-5', !section && 'border-t border-[var(--rule)]')}>
             <IMChannelsSection />
+          </section>
+          )}
+
+          {/* ── Section: Smart Home (Home Assistant) ── */}
+          {(!section || section === 'smarthome') && (
+          <section className={cn('px-5 py-5', !section && 'border-t border-[var(--rule)]')}>
+            <HomeAssistantConfig />
           </section>
           )}
 

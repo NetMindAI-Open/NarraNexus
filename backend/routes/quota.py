@@ -13,7 +13,6 @@ Three explicit response shapes so the frontend does not have to infer
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
 
 from backend.auth import _is_cloud_mode
 
@@ -63,47 +62,8 @@ async def get_my_quota(request: Request) -> dict:
     return _quota_to_dict(q)
 
 
-class PreferenceRequest(BaseModel):
-    prefer_system_override: bool
-
-
-@router.patch("/me/preference")
-async def update_my_preference(
-    request: Request, payload: PreferenceRequest
-) -> dict:
-    """Toggle whether to force-route through the system-default provider
-    even if the user has their own provider configured."""
-    if not _is_cloud_mode():
-        raise HTTPException(status_code=503, detail="cloud mode only")
-
-    sys_svc = getattr(request.app.state, "system_provider", None)
-    quota_svc = getattr(request.app.state, "quota_service", None)
-    if sys_svc is None or quota_svc is None:
-        raise HTTPException(status_code=503, detail="quota services not wired")
-    if not sys_svc.is_enabled():
-        raise HTTPException(
-            status_code=503,
-            detail="system-default quota feature is disabled",
-        )
-
-    user_id = getattr(request.state, "user_id", None)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Authentication required")
-
-    from xyz_agent_context.agent_framework.quota_service import QuotaPreferenceLocked
-
-    try:
-        q = await quota_svc.set_preference(user_id, payload.prefer_system_override)
-    except QuotaPreferenceLocked as exc:
-        # 409: re-enabling the free tier is blocked until the quota is
-        # replenished (#48). The frontend disables the toggle while exhausted,
-        # so this is a defensive backstop against a stale client.
-        raise HTTPException(status_code=409, detail=str(exc))
-    # Edge-triggered recovery: toggling the free-tier preference can make the
-    # user runnable again (e.g. switching to a configured own provider) — revive
-    # their PAUSED_NO_QUOTA jobs in the background (non-blocking).
-    from xyz_agent_context.module.job_module.job_recovery import (
-        schedule_user_no_quota_rearm,
-    )
-    schedule_user_no_quota_rearm(user_id)
-    return _quota_to_dict(q)
+# PATCH /me/preference was removed 2026-07-18: "free tier first" is platform
+# behavior now, not a user preference — the resolver always draws the free
+# tier while it has budget and falls through to the user's own provider when
+# exhausted (see provider_resolver). The prefer_system_override column
+# survives as the exhaustion-notice dedup latch only.

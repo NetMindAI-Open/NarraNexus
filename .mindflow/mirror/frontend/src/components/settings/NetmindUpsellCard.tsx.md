@@ -1,10 +1,17 @@
 ---
 code_file: frontend/src/components/settings/NetmindUpsellCard.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-18
 stub: false
 ---
 
-# NetmindUpsellCard.tsx — Pro 价值主张卡(只在决策时刻出现)
+## 2026-07-18 — 新增 subscribed 模式（已订阅态）
+
+新 prop `subscribed?: boolean`：pro_active 的"管理订阅与余额"弹窗里复用同
+一张卡展示套餐介绍——标题旁加"✓ 已订阅"胶囊（`subscribedBadge` i18n），
+**隐藏 Upgrade CTA**（取消按钮就在卡旁边，升级无意义）。Owner 诉求：Pro
+用户在取消入口处能看到自己套餐包含什么。默认 false = 原 upsell 行为不变。
+
+# NetmindUpsellCard.tsx — Pro 价值主张卡(upsell 默认只在决策时刻出现;subscribed 模式见上)
 
 ## 为什么存在
 

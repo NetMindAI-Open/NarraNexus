@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 删 setQuotaPreference
+
+免费额度偏好删除（后端 PATCH /api/quota/me/preference 端点同批移除）：
+`setQuotaPreference` 方法删除，mock（lib/mock/index.ts）里的 stub 一并删。
+quota 相关只剩 `getMyQuota`。
+
+## 2026-07-17 — onboard 返回类型加 `activated?: boolean`
+
+对应后端 onboard meta 的新字段（云端 netmind-only 下非 staff 的 onboard 是
+register-only，activated=false）。仅类型声明，运行时无变化；消费方
+[[OneKeyOnboard]]。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

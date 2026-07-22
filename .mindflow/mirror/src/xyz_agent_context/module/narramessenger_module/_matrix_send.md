@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_matrix_send.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — doc-only: dropped a stale `narra_room_members` cross-reference
+
+No behavior change. A header comment used to say the raw-HTTP pattern here was
+"the same pattern as `narra_room_members`"; that tool was removed in the
+[[_narramessenger_mcp_tools]] passthrough work (2026-07-20), so the reference was
+reworded to just describe the pattern. Outbound send/media is still Matrix-native
+via the agent's `matrix_access_token` (that intent is unchanged).
 
 ## 2026-07-03 (review fix) — size pre-check via `stat()` before read
 

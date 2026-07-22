@@ -31,7 +31,6 @@ from xyz_agent_context.agent_framework.api_config import (
     set_provider_source,
 )
 from xyz_agent_context.agent_framework.provider_resolver import (
-    FreeTierExhaustedError,
     NoProviderConfiguredError,
     ProviderResolver,
     ProviderResolverError,
@@ -128,10 +127,12 @@ def _mk_user_svc(user_cfg):
 
 def _mk_quota_svc(*, prefer_system: bool | None, has_budget: bool,
                   flip_wins: bool = True):
-    """`prefer_system=None` means no quota row exists. `flip_wins` controls
-    whether this caller wins the compare-and-swap that auto-disables the
-    free-tier preference on exhaustion (#48) — True for the single winner,
-    False for a concurrent loser."""
+    """`prefer_system=None` means no quota row exists; True/False is the
+    switch-notice LATCH state (the user-facing preference is gone —
+    free-tier-first is platform behavior). `flip_wins` controls whether this
+    caller wins the 1→0 CAS on exhaustion (#48) — True for the single
+    winner (fires the one-time auto-switch notice), False for a concurrent
+    loser."""
     m = MagicMock()
     if prefer_system is None:
         m.get = AsyncMock(return_value=None)
@@ -140,9 +141,8 @@ def _mk_quota_svc(*, prefer_system: bool | None, has_budget: bool,
         quota_row.prefer_system_override = prefer_system
         m.get = AsyncMock(return_value=quota_row)
     m.check = AsyncMock(return_value=has_budget)
-    # classify() compare-and-swaps the preference OFF on exhaustion (#48);
-    # only the winner (True) fires the one-time auto-switch notice.
     m.disable_preference_if_enabled = AsyncMock(return_value=flip_wins)
+    m.rearm_switch_notice = AsyncMock()
     return m
 
 
@@ -352,8 +352,10 @@ async def test_opted_in_exhausted_without_own_provider_raises_quota_exceeded():
 # ---------- Branch 2: opted-out (prefer_system_override=False) -----------
 
 @pytest.mark.asyncio
-async def test_opted_out_with_own_config_routes_user_without_checking_quota():
-    quota_svc = _mk_quota_svc(prefer_system=False, has_budget=True)
+async def test_no_quota_row_with_own_config_routes_user_without_checking_quota():
+    """No quota row = no free tier granted: strictly the user's own key,
+    quota never probed (implicit-grant liability guard)."""
+    quota_svc = _mk_quota_svc(prefer_system=None, has_budget=True)
     r = ProviderResolver(
         user_provider_svc=_mk_user_svc(_complete_user_cfg()),
         system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
@@ -361,23 +363,39 @@ async def test_opted_out_with_own_config_routes_user_without_checking_quota():
     )
     await r.resolve_and_set("usr_x")
     assert get_provider_source() == "user"
-    # Opt-out path must not probe quota — the user pays with their own key.
     quota_svc.check.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_opted_out_without_own_config_raises_no_provider_configured():
-    """Even if quota has budget, opted-out users must not silently fall
-    back to the free tier."""
+async def test_fired_latch_with_budget_routes_system_and_rearms():
+    """Free-tier-first is platform behavior (the opt-out preference is
+    gone, 2026-07-18): a replenished quota routes "system" even when the
+    notice latch is still fired (0), and the latch is re-armed so the next
+    exhaustion notifies again."""
+    quota_svc = _mk_quota_svc(prefer_system=False, has_budget=True)
     r = ProviderResolver(
         user_provider_svc=_mk_user_svc(None),
         system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
-        quota_svc=_mk_quota_svc(prefer_system=False, has_budget=True),
+        quota_svc=quota_svc,
     )
-    with pytest.raises(NoProviderConfiguredError) as exc_info:
-        await r.resolve_and_set("usr_x")
-    assert exc_info.value.user_id == "usr_x"
-    assert exc_info.value.error_code == "NO_PROVIDER_CONFIGURED"
+    await r.resolve_and_set("usr_x")
+    assert get_provider_source() == "system"
+    quota_svc.rearm_switch_notice.assert_awaited_once_with("usr_x")
+
+
+@pytest.mark.asyncio
+async def test_armed_latch_with_budget_does_not_rewrite():
+    """No redundant DB write on the hot path: the latch is only re-armed on
+    the 0→1 edge."""
+    quota_svc = _mk_quota_svc(prefer_system=True, has_budget=True)
+    r = ProviderResolver(
+        user_provider_svc=_mk_user_svc(None),
+        system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
+        quota_svc=quota_svc,
+    )
+    await r.resolve_and_set("usr_x")
+    assert get_provider_source() == "system"
+    quota_svc.rearm_switch_notice.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -397,26 +415,26 @@ async def test_no_quota_row_behaves_as_opted_out():
 # ---------- Completeness check on own config -----------------------------
 
 @pytest.mark.asyncio
-async def test_opted_out_with_partial_own_config_still_raises():
+async def test_no_quota_row_with_partial_own_config_still_raises():
     cfg = _complete_user_cfg()
     cfg.slots.pop("helper_llm")
     r = ProviderResolver(
         user_provider_svc=_mk_user_svc(cfg),
         system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
-        quota_svc=_mk_quota_svc(prefer_system=False, has_budget=True),
+        quota_svc=_mk_quota_svc(prefer_system=None, has_budget=True),
     )
     with pytest.raises(NoProviderConfiguredError):
         await r.resolve_and_set("usr_x")
 
 
 @pytest.mark.asyncio
-async def test_opted_out_with_inactive_provider_still_raises():
+async def test_no_quota_row_with_inactive_provider_still_raises():
     cfg = _complete_user_cfg()
     cfg.providers["p_a"].is_active = False
     r = ProviderResolver(
         user_provider_svc=_mk_user_svc(cfg),
         system_provider_svc=_mk_sys(enabled=True, cfg=_system_cfg()),
-        quota_svc=_mk_quota_svc(prefer_system=False, has_budget=True),
+        quota_svc=_mk_quota_svc(prefer_system=None, has_budget=True),
     )
     with pytest.raises(NoProviderConfiguredError):
         await r.resolve_and_set("usr_x")
@@ -426,12 +444,10 @@ async def test_opted_out_with_inactive_provider_still_raises():
 
 def test_exception_hierarchy_shares_base():
     assert issubclass(QuotaExceededError, ProviderResolverError)
-    assert issubclass(FreeTierExhaustedError, ProviderResolverError)
     assert issubclass(NoProviderConfiguredError, ProviderResolverError)
 
 
 def test_error_codes_are_stable_strings():
     """Frontend pattern-matches on these; they're part of the API contract."""
     assert QuotaExceededError("u").error_code == "QUOTA_EXCEEDED_NO_USER_PROVIDER"
-    assert FreeTierExhaustedError("u").error_code == "FREE_TIER_EXHAUSTED_DISABLE_TOGGLE"
     assert NoProviderConfiguredError("u").error_code == "NO_PROVIDER_CONFIGURED"

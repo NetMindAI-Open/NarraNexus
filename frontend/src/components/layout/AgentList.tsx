@@ -7,7 +7,7 @@
  * indicators and completion badges support multi-agent concurrent chat.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -26,6 +26,7 @@ import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
+import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
@@ -186,6 +187,46 @@ export function AgentList({ collapsed }: AgentListProps) {
   };
 
   const getIsStreaming = (aid: string) => isAgentStreaming(aid);
+
+  /**
+   * Cheap per-render projection of ONLY what can change sort order: each
+   * agent's id + committed-message count + last message time. Streaming
+   * deltas rebuild the `agentSessions` object every token but mutate
+   * `currentEvents` / `currentAssistantMessage`, NOT `messages` (see
+   * chatStore.updateSession) — so this string is byte-identical across the
+   * per-token churn. It's O(n) (reads length + tail element, no full scan)
+   * and gates the O(n·m) sort below to re-run only when a message is actually
+   * committed. Long sessions (铁律 #14) make the avoided work grow, and 铁律
+   * #16 says the platform must not become the interruption source: keeping
+   * the sidebar off the streaming hot path honors both.
+   */
+  const activitySignature = rawAgents
+    .map((a) => {
+      const msgs = agentSessions[a.agent_id]?.messages;
+      const last = msgs && msgs.length ? msgs[msgs.length - 1] : undefined;
+      return `${a.agent_id}:${msgs?.length ?? 0}:${last?.timestamp ?? 0}`;
+    })
+    .join('|');
+
+  /**
+   * Agents ordered so the most-recently-active conversation floats to the top
+   * ("recently chatted agent auto-pins"). The activity time blends the
+   * server's last assistant reply with the freshest LOCAL session message, so
+   * an agent jumps to the top the instant you talk to it — before the next
+   * /api/auth/agents refresh.
+   */
+  const sortedAgents = useMemo(
+    () =>
+      sortAgentsByActivity(rawAgents, (aid) =>
+        latestMessageMs(agentSessions[aid]?.messages ?? []),
+      ),
+    // agentSessions is intentionally NOT a dep: activitySignature is its
+    // sort-relevant projection. The closure still reads the current render's
+    // agentSessions, which is fresh on every render where the signature (and
+    // therefore the sort result) could have changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rawAgents, activitySignature],
+  );
 
   // Fetch agents on mount
   useEffect(() => {
@@ -490,11 +531,13 @@ export function AgentList({ collapsed }: AgentListProps) {
         })}
 
         {/* AGENTS — flat & deduped (every agent once), matching the expanded
-            list; the old per-team grouping duplicated agents in two teams. */}
-        {teams.length > 0 && rawAgents.length > 0 && (
+            list; the old per-team grouping duplicated agents in two teams.
+            Same recent-activity order as the expanded list so the rail doesn't
+            flip back to creation order when the sidebar is collapsed. */}
+        {teams.length > 0 && sortedAgents.length > 0 && (
           <div className="w-6 border-t border-[var(--nm-hairline)] my-0.5" aria-hidden />
         )}
-        {rawAgents.map((agent) => {
+        {sortedAgents.map((agent) => {
           const isSelected = activeTeamChatId ? false : agentId === agent.agent_id;
           const completed = completedAgentIds.includes(agent.agent_id);
           const label = (agent.name || agent.agent_id).slice(0, 2);
@@ -669,7 +712,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                     teamId={null}
                     teamName=""
                     teamColor={null}
-                    agents={rawAgents}
+                    agents={sortedAgents}
                     agentId={agentId}
                     activeTeamChatId={activeTeamChatId}
                     collapsed={false}

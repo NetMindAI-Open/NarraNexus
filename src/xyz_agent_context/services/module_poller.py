@@ -538,7 +538,11 @@ class ModulePoller:
                     updated_at = NOW()
                 WHERE instance_id = %s
             """
-            await self.db.execute(query, (current_status, instance_id))
+            # fetch=False routes this UPDATE through execute_write, which the
+            # SQLite proxy gates by transaction token and actually commits.
+            # With fetch=True it would ride the read path (/execute), which
+            # never commits and would fold into any open transaction.
+            await self.db.execute(query, (current_status, instance_id), fetch=False)
             logger.debug(f"Marked callback processed: {instance_id}")
         except Exception as e:
             logger.exception(f"Error marking callback processed for {instance_id}: {e}")

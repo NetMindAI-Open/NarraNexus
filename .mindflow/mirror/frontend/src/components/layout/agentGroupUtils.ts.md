@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/agentGroupUtils.ts
-last_verified: 2026-06-10
+last_verified: 2026-07-17
 stub: false
 ---
 
@@ -37,6 +37,24 @@ render-only and makes the grouping rules testable without rendering.
 - `aggregateSectionUnread` is injected with a `(agentId) => unread`
   getter rather than reading stores — keeps it pure and lets
   AgentList's `getRowMeta` stay the single source of unread truth.
+- `sortAgentsByActivity` (added 2026-07-17) orders the flat AGENTS
+  list so the most-recently-active conversation floats to the top
+  ("recently chatted agent auto-pins"). Activity = newest of three
+  signals: server `last_assistant_at`, a `localActivityMs(agent_id)`
+  callback (freshest local session message, possibly not yet
+  persisted — this is what makes an agent jump the instant you talk
+  to it), and `created_at` as a floor so never-chatted agents still
+  order by creation recency instead of collapsing to epoch 0. Same
+  injection philosophy as `aggregateSectionUnread`: the local-time
+  source is a callback, keeping the function pure. Stable by
+  `agent_id` tie-break so equal-timestamp order never churns between
+  renders. The backend `/api/auth/agents` applies the same rule
+  (minus local sessions) as a pre-hydration baseline.
+  Implemented with decorate-sort-undecorate: `score()` (which scans
+  an agent's whole message list via the injected callback) runs once
+  per agent, not the ~2·n·log₂n times an inline comparator would.
+  This sort sits on the streaming path and message lists are
+  unbounded in long sessions, so the single-pass cost matters.
 
 ## 新人易踩的坑
 

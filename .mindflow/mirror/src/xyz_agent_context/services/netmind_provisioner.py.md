@@ -40,9 +40,9 @@ NetMind 推理 key（走 [[netmind_key_client]]）并创建 netmind 双 provider
 
 ## 为什么优先级安全
 
-扣费顺序是"系统免费额度（`prefer_system_override` 默认开）→ NetMind 订阅赠额 →
-NetMind 余额"，所以**自动接入永远不会在免费额度耗尽前花钱**。这也是敢在登录时
-默默 register+activate 的前提。
+扣费顺序是"系统免费额度（免费额度优先=平台行为，2026-07-18 起无用户开关）→
+NetMind 订阅赠额 → NetMind 余额"，所以**自动接入永远不会在免费额度耗尽前
+花钱**。这也是敢在登录时默默 register+activate 的前提。
 
 ## 关键防线
 

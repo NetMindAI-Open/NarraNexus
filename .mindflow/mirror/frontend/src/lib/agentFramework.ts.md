@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-07-10
+last_verified: 2026-07-17
 stub: false
 ---
+
+## 2026-07-17 — 新增 cloudNetmindOnly 策略谓词 + DESKTOP_RELEASES_URL
+
+`cloudNetmindOnly(role)` = `isForcedCloud() && role !== 'staff'`——后端两个
+route 门禁（providers.py / agents_llm_config.py 的云端 netmind-only 槽位策略）
+的前端孪生。两个槽位编辑器（[[ModelDefaultsSettings]] +
+[[AgentLlmConfigPanel]]）都经它过滤 provider 下拉（`source !== 'netmind'`
+隐藏），保证 UI 不给出会被 403 的选项。role 由调用方从 configStore 读出传入
+（本 lib 保持纯函数，不 import store）。注意与铁律 #15 的区别：这不是"平台
+判断 provider 合不合适"，而是云端商业策略（自有 key = 本地版功能）。
+`DESKTOP_RELEASES_URL`（NetMindAI-Open releases 页）随之导出，供"下载本地版"
+提示链接复用。本文件首次 import runtimeConfig（isForcedCloud）。
 
 ## 2026-07-10 — 删 CODEX_ALLOWED_PROVIDER_SOURCES + curated 收窄到 codex_oauth
 

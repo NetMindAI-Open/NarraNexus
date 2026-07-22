@@ -543,14 +543,14 @@ class JobTrigger:
         the runtime again — that drift was the root cause of the 2026-05-31
         pause/resume oscillation. The OLD implementation checked
         "quota.check() OR own-provider-complete", which IGNORED
-        `prefer_system_override`: a user opted in to the (exhausted) free tier
-        who also had an own provider was judged runnable, resumed, then
-        rejected by the runtime (it will not silently spend their own key) —
-        forever.
+        the runtime's actual decision. (Historically that meant ignoring
+        `prefer_system_override`; the user-facing preference is gone since
+        2026-07-18 — free-tier-first is platform behavior — but the lesson
+        stands: this gate must delegate to the classifier, never re-derive.)
 
-        铁律 #15 is still honoured: opted-out own-provider users pass via
-        USER_OK; the platform never overrides the user's provider choice. It
-        only stops resuming a job into a run the runtime will refuse.
+        铁律 #15 is still honoured: the platform never overrides the user's
+        provider choice — it only stops resuming a job into a run the
+        runtime will refuse.
         """
         try:
             from xyz_agent_context.agent_framework.provider_resolver import (

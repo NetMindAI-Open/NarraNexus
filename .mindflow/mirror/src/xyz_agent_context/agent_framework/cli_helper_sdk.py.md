@@ -1,8 +1,34 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/cli_helper_sdk.py
-last_verified: 2026-07-15
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — claude helper 结构化输出加固 + 子进程设界(Lark bug #2)
+
+helper_llm 设为 Claude 时建 Job 会卡死或"假成功"。本文件 `claude_code` 路径三处改动:
+
+- **JSON 修复重试**:`llm_function` 结构化分支从"一次抠取/校验失败即抛"改为
+  **有界修复重试**(`settings.helper_json_repair_attempts`,默认 3)。因为 CLI
+  one-shot 每轮是**全新无状态子进程**(`max_turns=1`、`query()` 重 spawn),模型看
+  不到自己的"上一轮回复",所以修复 prompt 必须把坏回复**内联回填**
+  (`user_input + "Your previous response was:\n" + raw + json_repair_note`),
+  否则 `json_repair_note` 里的 "previous response" 指代悬空、只剩泛化提示。这条
+  正是 Lark 单里报的 **CLI helper + Haiku** 路径。
+- **子进程墙钟设界**:`_run_claude_oneshot` 在 `to_cli_env()` 后**覆盖**
+  `API_TIMEOUT_MS`/`CLAUDE_CODE_MAX_RETRIES` 为 helper 界值(而非继承 agent-loop 的
+  ~10min×10),并用 `asyncio.wait_for(settings.helper_cli_total_timeout_seconds)`
+  包住 `query()` 消费循环。不设界时坏/被劫持端点可挂近 100min → "卡在正在创建"。
+  helper one-shot 是单轮无工具调用、**不是 agent_loop**,故设界不违反铁律 #14。
+  三个界值保持自洽(见 [[settings]]:60s×(1+1)=120s=total)。取消时 teardown 靠
+  claude_agent_sdk `process_query` 的 try/finally(`await query.close()`),非
+  context manager。
+- **provider 可观测**:spawn 前打 INFO,记录**生效**的 `base_url`/auth 种类/
+  `CLAUDE_CONFIG_DIR`,使个人 `~/.claude/settings.json` env-block 劫持可 grep
+  (与 [[xyz_claude_agent_sdk]] 对称)。
+
+`settings` 导入随之提到模块顶部(settings 仅依赖 stdlib+pydantic,无循环)。回归测试
+见 `test_helper_json_repair.py`(修复恢复/耗尽、回填坏回复、env 界值、墙钟超时)。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

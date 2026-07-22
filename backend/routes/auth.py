@@ -438,6 +438,21 @@ async def get_agents(request: Request):
             )
             agents.append(agent_info)
 
+        # First-paint ordering — most-recently-active conversation on top, so
+        # the sidebar is already sorted before the frontend hydrates its local
+        # sessions. Activity = latest of (last assistant reply, agent creation).
+        # format_for_api emits fixed-width ISO-UTC ("...Z"), which sorts
+        # lexically, so plain string max/compare is correct here. The frontend
+        # re-sorts with the same rule PLUS fresh local session activity (see
+        # sortAgentsByActivity); this is only the pre-hydration baseline.
+        # Two stable passes: agent_id asc as the tie-breaker, then activity
+        # desc — matching the frontend's deterministic ordering.
+        agents.sort(key=lambda a: a.agent_id)
+        agents.sort(
+            key=lambda a: max(a.last_assistant_at or "", a.created_at or ""),
+            reverse=True,
+        )
+
         logger.debug(f"Found {len(agents)} agents for user {user_id}")
 
         return AgentListResponse(

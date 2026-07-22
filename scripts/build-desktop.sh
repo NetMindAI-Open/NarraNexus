@@ -264,7 +264,7 @@ done
 "$NODE_DIR/bin/npx" --version > /dev/null
 echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$NODE_DIR/bin/npx" --version)"
 
-# Step 3.6: Install bundled CLIs (claude-code + lark-cli) into $NODE_DIR
+# Step 3.6: Install bundled CLIs (claude-code + lark-cli + narra-cli) into $NODE_DIR
 #
 # We install as *local* packages (no `-g`) so everything lives inside
 # $NODE_DIR/node_modules/ and the shim binaries end up at
@@ -275,7 +275,7 @@ echo "  Node bin shims verified: npm $("$NODE_DIR/bin/npm" --version), npx $("$N
 # user's global prefix (e.g. ~/.npm-global) and picking up / clobbering their
 # installs during build.
 echo ""
-echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli) ---"
+echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli + narra-cli) ---"
 # Use the committed package.json + package-lock.json so the build is
 # reproducible. Anything under scripts/desktop-bundle/ is the SOURCE OF
 # TRUTH for the bundled CLI versions — to bump:
@@ -307,7 +307,7 @@ cp "$BUNDLE_MANIFEST_DIR/package-lock.json" "$NODE_DIR/package-lock.json"
 # Sanity-check: the shims must exist at the path process_manager.rs will
 # prepend to PATH at runtime. If either is missing the build is broken — fail
 # loudly here rather than ship a half-working dmg.
-for bin in claude lark-cli; do
+for bin in claude lark-cli narra-cli; do
     if [ ! -x "$NODE_DIR/node_modules/.bin/$bin" ]; then
         echo "ERROR: bundled CLI shim missing: $NODE_DIR/node_modules/.bin/$bin"
         echo "       npm install step above likely failed; re-run with verbose logging."
@@ -319,8 +319,18 @@ done
 # docx/xlsx/pptx). Unlike claude/lark-cli it's a GitHub-Releases self-contained
 # binary (embedded .NET), not an npm package, so we curl the target-arch asset
 # straight into $NODE_DIR/bin/ — already on the runtime PATH via
-# state.rs::resolve_bundled_node_bins(). Version pinned; bump in lockstep with
-# docker/Dockerfile.manyfold and run.sh (_try_install_officecli).
+# state.rs::resolve_bundled_node_bins(). Version pinned. officecli ships from
+# FOUR independent places and they must agree — bump all of them together:
+#   scripts/build-desktop.sh (here)    the macOS app bundle
+#   run.sh (_try_install_officecli)    local run
+#   deploy: docker/Dockerfile.python   cloud backend + workers
+#   deploy: docker/Dockerfile.executor cloud agent  <- the one that matters for
+#                                      the builtin skill; missed once and the
+#                                      cloud feature shipped dead (v1.9.0)
+# The last two live in the NarraNexus-deploy repo, which gates the four pins in
+# scripts/check_executor_clis.sh (a prerequisite of `make app-build`).
+# (This list previously named docker/Dockerfile.manyfold, which does not exist,
+# and omitted both cloud images entirely.)
 # Escape hatch: SKIP_OFFICECLI=1 skips this step (offline builds).
 OFFICECLI_VERSION="${OFFICECLI_VERSION:-v1.0.135}"
 if [ "${SKIP_OFFICECLI:-0}" = "1" ]; then

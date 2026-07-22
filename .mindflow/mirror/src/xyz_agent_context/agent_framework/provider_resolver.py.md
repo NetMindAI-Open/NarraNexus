@@ -1,8 +1,69 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_resolver.py
 stub: false
-last_verified: 2026-07-09
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 (续) — 文案"退出重登"改为"Settings → Account 里接入"
+
+use-subscription 有了第一个前端调用方（[[NetmindAccountPanel]] 的
+Link it now 按钮 + 订阅支付后自动接入），"then sign out and back in"引导
+随之改为指向面板按钮；load-bearing 注释第 2 条同步（"no frontend calls"
+已不成立）。**前缀 "Free quota exhausted." 原样保留**（job_trigger 第三层
+探测契约，test_no_quota_pause 钉住，改后实跑确认仍绿）。
+
+## 2026-07-20 — QuotaExceededError 文案补「订阅 NetMind.AI 套餐」
+
+`NETMIND_USE_SUBSCRIPTION_ENABLED` 于 2026-07-20 在 prod 打开后，登录会自动在
+用户自己的 NetMind 账户下生成 key 并绑定槽位。于是出现一类新用户：**被绑上了
+NetMind key，但从未订阅过套餐、账户没有余额**。他们免费额度耗尽后走 1b 自动
+迁移，切到那把空 key —— 原文案只说"配置你自己的 provider"，对这类人是死路，
+因为他们已经有 provider 了，缺的是余额/订阅。
+
+文案改为同时给出两条出路：加 provider **或** 订阅 NetMind.AI 套餐。
+
+⚠️ **订阅那半句必须带上「重新登录」**（review 指出的实质问题）。订阅本身**不产生
+provider** —— `ensure_netmind_provider` 只在登录路径（`auth.py`）和
+`POST /providers/use-subscription` 上跑，而后者**前端没有任何调用方**
+（`api.useSubscription()` 只有定义）。所以只说"去订阅"会让用户付完钱、重试、
+撞回同一个 402，比不给这个选项更糟。
+
+> 这背后是个**产品缺口**而不只是文案问题：flag 打开后，用户被自动接入的**唯一**
+> 途径仍然是重新登录。把 use-subscription 按钮在前端接上，才是这条路的正解。
+
+⚠️ **"Free quota exhausted." 这个前缀短语不能动**：`job_trigger` 的
+`_NO_QUOTA_ERROR_MARKERS`（[[job_trigger]]）把它作为第三层 legacy 子串检测，
+用来把后台 job 置为 PAUSED_NO_QUOTA 而不是无限重试（上游事故：9 用户 / 14 天 /
+390 次重试）。
+
+该契约**现在有测试守着**了：`tests/job_module/test_no_quota_pause.py` 新增
+`test_real_resolver_messages_still_pause_jobs`，构造**真实异常**再断言
+`_is_no_quota_failure` 命中。此前那条测试写的是硬编码字面串，与真实异常无关联
+——改文案它照样绿，等于没有保护。新测试经变异验证：破坏前缀即变红。
+
+## 2026-07-18 — 免费额度优先成为平台行为（用户偏好删除，决策树无状态化）
+
+Owner 决策：用户不再能选择"用不用免费额度"。classify 的决策树从"读偏好分流"
+简化为纯状态判断：**有 quota 行且有余量 → SYSTEM_OK；耗尽 + 有自有 key →
+USER_OK；耗尽 + 无 key → QUOTA_EXCEEDED；无 quota 行 → 只走自有 key**。
+连带变化：
+
+- `prefer_system_override` 列**重定义为耗尽通知闩锁**（armed=1/fired=0）：
+  耗尽首跑 CAS 1→0 发一次"已切到你自己的 key"通知（#48 去重保留）；下次
+  有余量的运行 0→1 重新武装（`quota_svc.rearm_switch_notice`，仅 0→1 边沿
+  写库）。**补充额度后自动回到免费额度**——旧闩锁语义下要手动重开，现在不用。
+  **rearm 是 best-effort**（review 修复 2026-07-18）：它落在 SYSTEM_OK 成功
+  路径上，装饰性写入抛异常绝不能挡有余量的运行——try/except + warning，与
+  classify"不抛异常"契约及本文件其他 DB 调用的兜底模式一致；回归测试
+  `test_rearm_failure_never_blocks_a_budgeted_run`。rearm 故意非 CAS（幂等
+  无副作用；若将来挂副作用需先加 CAS，见 quota_service docstring）。
+- `FREE_TIER_EXHAUSTED` 判定 + `FreeTierExhaustedError`
+  （错误码 FREE_TIER_EXHAUSTED_DISABLE_TOGGLE）删除——#48 后本就是死分支，
+  文案还在指引用户关一个已不存在的开关。`NoProviderConfiguredError` 的
+  用户文案与 docstring 同步去开关化（review 二轮抓出："enable 'Use free
+  quota'"指向死路），现为"Add a provider in Settings to continue."。
+- "opt-out 必须被尊重"的旧不变量作废；"无 quota 行绝不隐式授予免费额度"
+  （无界负债守卫）**保留**。
 
 ## 2026-07-09 — resolve_and_set 串 cli_helper(订阅覆盖 helper)
 

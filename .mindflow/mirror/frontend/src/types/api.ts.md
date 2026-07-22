@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-15
+last_verified: 2026-07-18
 stub: true
 ---
+
+## 2026-07-18 — FeeInfo.metrics 加 subscription_credit;两处注释改闩锁语义
+
+`FeeInfo.metrics` 新增 `subscription_credit?: string`（Pro 赠额余量，跨周期
+累积，dev 实测验证），并给 `monthly_free_credit` 加警示注释（dev 返回 0.50
+与真实 $19/期不符——**不得**当周期分母用，面板用 proPlan.monthly_grant_usd，
+疑点见 self_notebook todo）。`QuotaMeResponse.prefer_system_override` 注释从
+"User's choice"改为耗尽通知闩锁只读语义（review 抓出的漏网）。
 
 ## 2026-07-15 — MCP 类型加 headers
 

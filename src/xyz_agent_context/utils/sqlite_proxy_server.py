@@ -18,8 +18,11 @@ Environment:
 
 from __future__ import annotations
 
+import asyncio
 import os
+import secrets
 import sys
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +42,7 @@ from xyz_agent_context.utils.db_factory import detect_backend_type, parse_sqlite
 class ExecuteRequest(BaseModel):
     query: str
     params: Optional[List[Any]] = None
+    txn_id: Optional[str] = None
 
 
 class GetRequest(BaseModel):
@@ -64,23 +68,31 @@ class GetByIdsRequest(BaseModel):
 class InsertRequest(BaseModel):
     table: str
     data: Dict[str, Any]
+    txn_id: Optional[str] = None
 
 
 class UpdateRequest(BaseModel):
     table: str
     filters: Dict[str, Any]
     data: Dict[str, Any]
+    txn_id: Optional[str] = None
 
 
 class DeleteRequest(BaseModel):
     table: str
     filters: Dict[str, Any]
+    txn_id: Optional[str] = None
 
 
 class UpsertRequest(BaseModel):
     table: str
     data: Dict[str, Any]
     id_field: str
+    txn_id: Optional[str] = None
+
+
+class TransactionRequest(BaseModel):
+    txn_id: Optional[str] = None
 
 
 class ProxyResponse(BaseModel):
@@ -100,6 +112,107 @@ def _get_backend() -> SQLiteBackend:
     if _backend is None:
         raise RuntimeError("SQLite backend not initialized")
     return _backend
+
+
+# =============================================================================
+# Transaction State (cross-process safety)
+# =============================================================================
+#
+# The proxy holds ONE SQLite connection shared by every client process. A
+# naive per-client transaction over that shared connection is unsafe:
+#
+#   P1 — a NON-owner process's write executed while a transaction is open gets
+#        folded into that transaction and committed/rolled-back with it
+#        (silent data loss for the non-owner).
+#   P4 — a client that dies mid-transaction leaves the shared connection stuck
+#        in a transaction forever, disabling auto-commit process-wide.
+#
+# Fix: every transaction gets a server-issued `txn_id`. A write is allowed
+# through only if it carries the active token (it is the holder's own write);
+# every other write blocks on `_txn_done` until the transaction ends, so it can
+# never be folded in. A watchdog force-rolls-back a transaction whose deadline
+# has passed, so a dead client can no longer poison the connection.
+
+# Kept well BELOW the client httpx timeout (db_backend_sqlite_proxy.py, 30s):
+# an abandoned transaction must be reaped before a write blocked behind it
+# hits its own ReadTimeout, so the freed write can still complete. Overridable
+# via env for deployments with unusually long legitimate transactions.
+_TXN_TIMEOUT: float = float(os.environ.get("SQLITE_PROXY_TXN_TIMEOUT", "10.0"))
+_WATCH_INTERVAL: float = float(os.environ.get("SQLITE_PROXY_TXN_WATCH_INTERVAL", "2.0"))
+
+_active_txn: Optional[str] = None
+_txn_deadline: float = 0.0
+_txn_done: Optional[asyncio.Event] = None
+_state_lock: Optional[asyncio.Lock] = None
+_watchdog_task: Optional[asyncio.Task] = None
+
+
+def _reset_txn_state() -> None:
+    """(Re)create the transaction primitives on the current running loop.
+
+    asyncio.Event / asyncio.Lock bind to the running loop, so they are created
+    here (lifespan startup, and tests) rather than at import time. `_txn_done`
+    starts SET, meaning "no transaction in flight — writes may proceed".
+    """
+    global _active_txn, _txn_deadline, _txn_done, _state_lock
+    _active_txn = None
+    _txn_deadline = 0.0
+    _txn_done = asyncio.Event()
+    _txn_done.set()
+    _state_lock = asyncio.Lock()
+
+
+async def _await_txn_turn(txn_id: Optional[str]) -> None:
+    """Block a write until it is allowed to run against the shared connection.
+
+    The transaction holder (matching `txn_id`) passes immediately. Any other
+    write waits until the active transaction finishes — its write must not land
+    inside someone else's transaction. Reads are never gated (see module docs).
+    """
+    assert _state_lock is not None and _txn_done is not None
+    while True:
+        async with _state_lock:
+            if _active_txn is None or txn_id == _active_txn:
+                return
+            waiter = _txn_done
+        await waiter.wait()
+
+
+async def _reap_expired_txn() -> None:
+    """One watchdog pass: force-rollback an abandoned, past-deadline txn."""
+    global _active_txn
+    assert _state_lock is not None and _txn_done is not None
+    async with _state_lock:
+        if _active_txn is None or time.monotonic() <= _txn_deadline:
+            return
+        stuck = _active_txn
+        try:
+            await _get_backend().rollback()
+        except Exception as e:  # noqa: BLE001 — reaper must always release the flag
+            logger.warning(f"Reaper rollback of txn {stuck} failed: {e!r}")
+        finally:
+            _active_txn = None
+            _txn_done.set()
+        logger.warning(
+            f"Force-rolled-back abandoned proxy transaction {stuck} "
+            f"(no commit/rollback within {_TXN_TIMEOUT:.0f}s)"
+        )
+
+
+async def _transaction_watchdog() -> None:
+    """Background loop that periodically reaps abandoned transactions.
+
+    Never dies on a transient error (incident lesson #2): a fire-and-forget
+    task that swallowed its own exception would silently stop reaping.
+    """
+    while True:
+        try:
+            await asyncio.sleep(_WATCH_INTERVAL)
+            await _reap_expired_txn()
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001 — watchdog must outlive transient errors
+            logger.warning(f"Transaction watchdog pass failed: {e!r}")
 
 
 @asynccontextmanager
@@ -128,10 +241,22 @@ async def lifespan(app: FastAPI):
     await auto_migrate(_backend)
     logger.info("Schema auto-migration complete")
 
+    # Initialize transaction state on this loop and start the abandoned-txn reaper.
+    global _watchdog_task
+    _reset_txn_state()
+    _watchdog_task = asyncio.create_task(_transaction_watchdog())
+
     yield
 
     # Shutdown
     logger.info("SQLite Proxy shutting down...")
+    if _watchdog_task is not None:
+        _watchdog_task.cancel()
+        try:
+            await _watchdog_task
+        except asyncio.CancelledError:
+            pass
+        _watchdog_task = None
     await _backend.close()
     _backend = None
     logger.info("SQLite Proxy stopped")
@@ -167,6 +292,13 @@ async def health():
 async def execute(req: ExecuteRequest):
     backend = _get_backend()
     try:
+        # /execute carries raw SQL that MAY be a write (a caller passing an
+        # UPDATE/DELETE with fetch=True routes here — e.g. ModulePoller, a
+        # separate process). We cannot cheaply prove it read-only, so gate it
+        # like the write endpoints; otherwise a non-holder process's write
+        # would fold into an open transaction. Cost: raw SELECTs serialize
+        # during a (short) transaction — an accepted trade to close the hole.
+        await _await_txn_turn(req.txn_id)
         query = _mysql_to_sqlite_sql(req.query)
         params = tuple(req.params) if req.params else None
         rows = await backend.execute(query, params)
@@ -180,6 +312,7 @@ async def execute(req: ExecuteRequest):
 async def execute_write(req: ExecuteRequest):
     backend = _get_backend()
     try:
+        await _await_txn_turn(req.txn_id)
         query = _mysql_to_sqlite_sql(req.query)
         params = tuple(req.params) if req.params else None
         affected = await backend.execute_write(query, params)
@@ -240,6 +373,7 @@ async def get_by_ids(req: GetByIdsRequest):
 async def insert(req: InsertRequest):
     backend = _get_backend()
     try:
+        await _await_txn_turn(req.txn_id)
         lastrowid = await backend.insert(req.table, req.data)
         return ProxyResponse(success=True, data=lastrowid)
     except Exception as e:
@@ -251,6 +385,7 @@ async def insert(req: InsertRequest):
 async def update(req: UpdateRequest):
     backend = _get_backend()
     try:
+        await _await_txn_turn(req.txn_id)
         affected = await backend.update(req.table, req.filters, req.data)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
@@ -262,6 +397,7 @@ async def update(req: UpdateRequest):
 async def delete(req: DeleteRequest):
     backend = _get_backend()
     try:
+        await _await_txn_turn(req.txn_id)
         affected = await backend.delete(req.table, req.filters)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
@@ -273,6 +409,7 @@ async def delete(req: DeleteRequest):
 async def upsert(req: UpsertRequest):
     backend = _get_backend()
     try:
+        await _await_txn_turn(req.txn_id)
         affected = await backend.upsert(req.table, req.data, req.id_field)
         return ProxyResponse(success=True, data=affected)
     except Exception as e:
@@ -281,37 +418,74 @@ async def upsert(req: UpsertRequest):
 
 
 # =============================================================================
-# Transaction Support (limited — for schema migration only)
+# Transaction Support (token-gated, cross-process safe)
 # =============================================================================
+#
+# Only one transaction runs at a time. `begin` issues a `txn_id` the client
+# must present on every write and on commit/rollback; concurrent writes from
+# other clients block until the transaction ends (see _await_txn_turn). An
+# abandoned transaction is reaped by the watchdog. See the Transaction State
+# section above for the full rationale.
 
 @app.post("/transaction/begin")
 async def transaction_begin():
+    global _active_txn, _txn_deadline
+    assert _state_lock is not None and _txn_done is not None
     backend = _get_backend()
     try:
-        await backend.begin_transaction()
-        return ProxyResponse(success=True)
+        while True:
+            await _txn_done.wait()  # wait until no transaction is in flight
+            async with _state_lock:
+                if _active_txn is not None:
+                    continue  # lost the race — another begin won; wait again
+                txn_id = "ptxn_" + secrets.token_hex(4)
+                # Claim the slot BEFORE issuing BEGIN so a concurrent foreign
+                # write can never slip in between (it sees _active_txn set).
+                _active_txn = txn_id
+                _txn_done.clear()
+                _txn_deadline = time.monotonic() + _TXN_TIMEOUT
+                try:
+                    await backend.begin_transaction()
+                except Exception:
+                    _active_txn = None
+                    _txn_done.set()
+                    raise
+                return ProxyResponse(success=True, data={"txn_id": txn_id})
     except Exception as e:
         return ProxyResponse(success=False, error=str(e))
+
+
+async def _end_transaction(txn_id: Optional[str], *, commit: bool) -> ProxyResponse:
+    """Commit or rollback the active transaction, always releasing the slot."""
+    global _active_txn
+    assert _state_lock is not None and _txn_done is not None
+    async with _state_lock:
+        if txn_id is None or txn_id != _active_txn:
+            return ProxyResponse(success=False, error="unknown or expired transaction")
+        error: Optional[str] = None
+        try:
+            if commit:
+                await _get_backend().commit()
+            else:
+                await _get_backend().rollback()
+        except Exception as e:  # noqa: BLE001 — surface the error but still release
+            error = str(e)
+        finally:
+            _active_txn = None
+            _txn_done.set()
+    if error is not None:
+        return ProxyResponse(success=False, error=error)
+    return ProxyResponse(success=True)
 
 
 @app.post("/transaction/commit")
-async def transaction_commit():
-    backend = _get_backend()
-    try:
-        await backend.commit()
-        return ProxyResponse(success=True)
-    except Exception as e:
-        return ProxyResponse(success=False, error=str(e))
+async def transaction_commit(req: TransactionRequest):
+    return await _end_transaction(req.txn_id, commit=True)
 
 
 @app.post("/transaction/rollback")
-async def transaction_rollback():
-    backend = _get_backend()
-    try:
-        await backend.rollback()
-        return ProxyResponse(success=True)
-    except Exception as e:
-        return ProxyResponse(success=False, error=str(e))
+async def transaction_rollback(req: TransactionRequest):
+    return await _end_transaction(req.txn_id, commit=False)
 
 
 # =============================================================================

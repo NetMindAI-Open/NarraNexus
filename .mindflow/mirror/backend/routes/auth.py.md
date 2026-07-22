@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-13
+last_verified: 2026-07-17
 stub: false
 ---
+
+## 2026-07-17 — `/api/auth/agents` first-paint sort by recent conversation
+
+`get_agents` now sorts the returned `AgentInfo` list by activity
+before responding: two stable passes (agent_id asc, then activity
+desc) put the most-recently-active conversation on top. Activity =
+`max(last_assistant_at, created_at)`; both are `format_for_api`
+fixed-width ISO-UTC strings ("...Z"), so lexical string compare is
+correct — no datetime parsing needed. This is the pre-hydration
+BASELINE only: the frontend re-sorts with the same rule PLUS fresh
+local session activity (see [[agentGroupUtils]] `sortAgentsByActivity`),
+so an agent still jumps the instant the user talks to it. The SQL
+`ORDER BY agent_create_time DESC` is retained purely as deterministic
+input order for the enrichment queries; the Python sort decides the
+final order.
 
 ## 2026-07-13 — netmind-login 门禁改挂 power 轴（本地双模式登录）
 

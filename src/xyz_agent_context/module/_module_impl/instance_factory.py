@@ -89,6 +89,7 @@ class InstanceFactory:
         - BasicInfoModule instance (is_public=True)
         - MessageBusModule instance (is_public=True)
         - LarkModule instance (is_public=True)
+        - HomeAssistantModule instance (is_public=True)
 
         Args:
             agent_id: Agent ID
@@ -125,7 +126,12 @@ class InstanceFactory:
         if lark_instance:
             instances.append(lark_instance)
 
-        # 6. Auto-register agent in MessageBus registry
+        # 6. Create HomeAssistantModule instance (agent may later bind a Home Assistant)
+        ha_instance = await self._create_home_assistant_instance(agent_id)
+        if ha_instance:
+            instances.append(ha_instance)
+
+        # 7. Auto-register agent in MessageBus registry
         await self._register_agent_in_bus(agent_id)
 
         logger.info(f"Created {len(instances)} agent-level instances")
@@ -272,6 +278,34 @@ class InstanceFactory:
 
         await self._instance_repo.create_instance(instance)
         logger.info(f"Created LarkModule instance: {instance.instance_id}")
+        return instance
+
+    async def _create_home_assistant_instance(self, agent_id: str) -> Optional[ModuleInstanceRecord]:
+        """Create HomeAssistantModule Instance (agent may later bind a Home Assistant)."""
+        existing = await self._instance_repo.get_by_agent(
+            agent_id=agent_id,
+            module_class="HomeAssistantModule",
+            is_public=True
+        )
+        if existing:
+            logger.debug(f"HomeAssistantModule instance already exists for agent {agent_id}")
+            return existing[0]
+
+        instance = ModuleInstanceRecord(
+            instance_id=generate_instance_id("homeassistant"),
+            module_class="HomeAssistantModule",
+            agent_id=agent_id,
+            user_id=None,
+            is_public=True,
+            status=InstanceStatus.ACTIVE,
+            description="Smart-home query/control via the user's Home Assistant",
+            keywords=["home assistant", "smart home", "device", "light", "iot", "xiaomi"],
+            topic_hint="Query and control smart-home devices via Home Assistant",
+            created_at=utc_now(),
+        )
+
+        await self._instance_repo.create_instance(instance)
+        logger.info(f"Created HomeAssistantModule instance: {instance.instance_id}")
         return instance
 
     async def _register_agent_in_bus(self, agent_id: str) -> None:
@@ -504,6 +538,7 @@ class InstanceFactory:
             "BasicInfoModule": self._create_basic_info_instance,
             "MessageBusModule": self._create_message_bus_instance,
             "LarkModule": self._create_lark_instance,
+            "HomeAssistantModule": self._create_home_assistant_instance,
         }
         for module_class, creator_fn in creators.items():
             if module_class not in existing_classes:

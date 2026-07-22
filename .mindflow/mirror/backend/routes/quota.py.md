@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/quota.py
 stub: false
-last_verified: 2026-06-16
+last_verified: 2026-07-18
 ---
+
+## 2026-07-18 — PATCH /me/preference 删除
+
+免费额度优先成为平台行为（Owner 决策），用户偏好端点整体移除；
+`PreferenceRequest`、`QuotaPreferenceLocked` 映射、toggle 后的 job rearm
+一并删除。`prefer_system_override` 列保留为耗尽通知的去重闩锁（见
+[[provider_resolver]] / [[quota_service]]）。下文 "PATCH /me/preference
+(#48)" 一节自此为历史记录。本路由现在只剩 GET /me。
 
 # Intent
 

@@ -30,7 +30,6 @@ for the design rationale.
 from __future__ import annotations
 
 from xyz_agent_context.agent_framework.provider_driver.base import (
-    CallContext,
     Driver,
     DriverHealth,
     ProviderCard,
@@ -65,7 +64,6 @@ from xyz_agent_context.agent_framework.provider_driver import drivers  # noqa: F
 
 
 __all__ = [
-    "CallContext",
     "Driver",
     "DriverHealth",
     "ProviderCard",

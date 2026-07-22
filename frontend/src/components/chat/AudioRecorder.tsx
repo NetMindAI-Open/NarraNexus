@@ -62,9 +62,9 @@ interface AudioRecorderProps {
    * Click-time re-probe. ChatPanel passes a callback that re-fetches
    * `/api/transcription/availability`, updates its cached state, and
    * returns `false` when the freshly-resolved state says we should
-   * NOT record (e.g. user just toggled off "Use free quota" in
-   * Settings between mount and now). When it returns `false`, the
-   * parent has already handled the dialog — we just bail.
+   * NOT record (e.g. the free tier ran out or a provider was removed
+   * between mount and now). When it returns `false`, the parent has
+   * already handled the dialog — we just bail.
    *
    * Why this is needed: the `available` prop is set by a useEffect
    * that only re-runs when `userId` changes; toggling the quota
@@ -158,9 +158,9 @@ export function AudioRecorder({
     }
 
     // Click-time RE-probe via parent callback. Catches the staleness
-    // case where `available` was true at mount but the user toggled
-    // off "Use free quota" before clicking the mic. Parent decides
-    // (and renders the dialog) — we just respect the verdict.
+    // case where `available` was true at mount but the state changed
+    // before the mic click (quota ran out, provider removed). Parent
+    // decides (and renders the dialog) — we just respect the verdict.
     if (onPreflight) {
       try {
         const ok = await onPreflight();

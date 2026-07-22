@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/settings/NetmindActionZone.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 (续) — pro 管理弹窗顶部加已订阅套餐卡
+
+"管理订阅与余额"弹窗内容顺序变为：[[NetmindUpsellCard]]（`subscribed` 模式，
+套餐介绍 + ✓ 已订阅徽章，无 CTA）→ 取消订阅行 → 充值 → 定价链接。分支表中
+`pro_active × healthy` 的弹窗描述相应更新。
+
+## 2026-07-18 — 定价链接换官网 + 补齐两个 pro 弹窗
+
+`PRICING_URL` 从 `www.netmind.ai/pricing` 换成
+`https://website.narra.nexus/pricing`（用产品语言讲套餐的官网定价页，Owner
+指定）。原来只有 free 升级流程和 pro×low 带定价外链，**pro_active×healthy
+的"管理订阅与余额"弹窗和 pro_cancelled 的"管理余额"弹窗漏了**——已补
+`{pricingLink}`。Owner 问过要不要常驻主面板：定案**不放**，链接只出现在
+决策时刻（弹窗/low 态），维持"健康时安静"的面板哲学；补齐后所有花钱决策
+场景均有覆盖。
 
 # NetmindActionZone.tsx — plan × runway 动作区(至多一个主 CTA)
 

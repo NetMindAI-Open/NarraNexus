@@ -68,6 +68,7 @@ export function BookmarkPanelHost({ tab, agentId }: BookmarkPanelHostProps) {
         {tab === 'awareness' && <AwarenessPanel embedded section="awareness" />}
         {tab === 'workspace' && <AwarenessPanel embedded section="workspace" />}
         {tab === 'channels' && <AwarenessPanel embedded section="channels" />}
+        {tab === 'smarthome' && <AwarenessPanel embedded section="smarthome" />}
         {tab === 'social' && <AwarenessPanel embedded section="social" />}
         {tab === 'jobs' && <JobsPanel embedded onJobResolved={handleJobResolved} />}
         {tab === 'inbox' && <AgentInboxPanel embedded />}

@@ -645,21 +645,21 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         } catch (e) {
           console.error('Attachment upload error:', e);
           // 402 means auth_middleware's provider_resolver gated the
-          // request — user has no LLM provider AND opted out of the
-          // free tier. STT can't proceed because the whole agent path
-          // is gated. Surface the same dialog as a normal "no
-          // transcription provider" state — the call to action is
-          // identical (configure a provider OR re-enable free quota).
+          // request — user has no LLM provider and no (budgeted) free
+          // tier. STT can't proceed because the whole agent path is
+          // gated. Surface the same dialog as a normal "no transcription
+          // provider" state — the call to action is identical
+          // (configure a provider).
           //
           // This branch is the safety net; a healthy click should
           // already have been blocked by `onPreflight` re-probing
           // /api/transcription/availability before MediaRecorder starts.
           // Keeping this branch costs us nothing and protects against
-          // races (toggle flipped between preflight and upload).
+          // races (quota exhausted between preflight and upload).
           const msg = String((e as Error)?.message ?? e);
           if (msg.includes('402') && (opts?.source === 'recording')) {
             setTranscriptionAvailable(false);
-            setTranscriptionReason('free_tier_opted_out');
+            setTranscriptionReason('free_tier_not_granted');
             setVoiceUnavailableDialogOpen(true);
           }
         } finally {
@@ -1366,16 +1366,13 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               <Mic className="w-4 h-4 text-[var(--text-secondary)]" />
             </div>
             <div className="flex-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-              {transcriptionReason === 'free_tier_opted_out' ? (
-                <>
-                  <p>
-                    Voice input is unavailable. You've turned off "Use free quota" and haven't configured your own transcription provider. Either path will enable it:
-                  </p>
-                  <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
-                    <li>Add an OpenAI or NetMind API key in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span></li>
-                    <li>Re-enable "Use free quota" in <span className="font-mono text-[var(--text-primary)]">Settings → Quota</span></li>
-                  </ul>
-                </>
+              {transcriptionReason === 'free_tier_not_granted' ? (
+                <p>
+                  Voice input is unavailable. Your account has no platform free tier and no
+                  transcription provider of its own. Add an OpenAI or NetMind API key in{' '}
+                  <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span>{' '}
+                  to enable it.
+                </p>
               ) : transcriptionReason === 'none_openai_only' ? (
                 <>
                   <p>

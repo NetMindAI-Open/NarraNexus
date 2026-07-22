@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/settings/netmindFormat.ts
-last_verified: 2026-07-10
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — 新增 formatTokens + freeTierTokensLeft（行值从 % 改 token）
+
+Owner 走查："剩余 87%" 看不出一个百分点值多少，行值改为
+"剩余 3.9M / 4.5M tokens"。`freeTierTokensLeft` 返回**与百分比条同一
+（更耗的）维度**的 remaining/total——数字和条永不打架；`formatTokens`
+紧凑格式（4.5M / 900K / 850，一位小数去尾零）。百分比 `freeTierPctLeft`
+保留：仍驱动条宽，且是 token 串缺失时的行值兜底。
 
 # netmindFormat.ts — Account 面板共享的纯格式化 helper
 

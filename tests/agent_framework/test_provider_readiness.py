@@ -48,9 +48,9 @@ async def test_classify_error_is_not_ready(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_not_runnable_verdict_short_circuits(monkeypatch):
-    _patch_classify(monkeypatch, verdict=ProviderAvailability.FREE_TIER_EXHAUSTED)
+    _patch_classify(monkeypatch, verdict=ProviderAvailability.QUOTA_EXCEEDED)
     ok, reason = await ProviderReadiness.validate("u", db=None)
-    assert ok is False and reason == "free_tier_exhausted"
+    assert ok is False and reason == "quota_exceeded"
 
 
 @pytest.mark.asyncio

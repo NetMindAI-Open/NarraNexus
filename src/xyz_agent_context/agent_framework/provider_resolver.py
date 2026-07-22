@@ -18,22 +18,25 @@ cannot disagree):
         detached-helper injection clears the ContextVars first. See
         resolve_and_set / resolve_and_set_provider_for_user.
 
-  1. quota row exists AND prefer_system_override=True (the default for
-     newly registered users — they start on the free tier):
+  1. quota row exists (a free tier was granted). "Free tier first" is
+     PLATFORM BEHAVIOR, not a user preference (2026-07-18 — the old
+     prefer_system toggle was removed; everyone draws the free tier
+     first while it lasts):
      1a. quota has budget  -> route "system" (cost_tracker deducts post-call)
-     1b. no budget + has complete own config -> AUTO-MIGRATE: the free-tier
-         preference is turned off (persisted) and the request routes "user"
-         on their own key. Without this the configured key was ignored and
-         every request 402-looped (#48). The toggle stays off — and cannot
-         be turned back on — until the quota is replenished (QuotaService
-         gates re-enable on has_budget()).
+     1b. no budget + has complete own config -> route "user" on their own
+         key. The one-time "switched to your own key" notice is deduped via
+         the prefer_system_override column, repurposed as a NOTICE LATCH:
+         armed (1) while on the free tier, CAS 1→0 on the first exhausted
+         run (that caller emits the notice, #48), re-armed on the next run
+         with budget. NOTE: the free tier is a one-time registration grant
+         with no periodic refresh — budget only comes back via a manual
+         staff grant, at which point the user auto-returns to the free tier.
      1c. no budget + no own provider         -> QuotaExceededError
          (user must add a provider before the app becomes usable again)
 
-  2. prefer_system_override=False, OR no quota row at all (implicit opt-out):
+  2. no quota row at all (no free tier granted):
      2a. has complete own config -> route "user" (quota NOT consulted)
      2b. own config missing / incomplete -> NoProviderConfiguredError
-         (no silent fallback to the free tier: opt-out must be honoured)
 
 All three exceptions carry a stable `error_code` class attribute that
 auth_middleware returns verbatim to the client; the frontend
@@ -84,15 +87,14 @@ class ProviderAvailability(str, Enum):
     """
 
     SYSTEM_OK = "system_ok"                    # free tier has budget → route system
-    USER_OK = "user_ok"                        # opted out + complete own config → route user
-    FREE_TIER_EXHAUSTED = "free_tier_exhausted"  # opted in, no budget, but has own config
-    QUOTA_EXCEEDED = "quota_exceeded"          # opted in, no budget, no own provider
-    NO_PROVIDER = "no_provider"                # opted out, own config missing/incomplete
+    USER_OK = "user_ok"                        # complete own config → route user
+    QUOTA_EXCEEDED = "quota_exceeded"          # free tier exhausted, no own provider
+    NO_PROVIDER = "no_provider"                # no free tier, own config missing/incomplete
     SYSTEM_DISABLED = "system_disabled"        # feature off (local mode) → not gated, passthrough
 
 
 def is_runnable(verdict: ProviderAvailability) -> bool:
-    """True when a run for this verdict would resolve a provider. The three
+    """True when a run for this verdict would resolve a provider. The two
     exhaustion/missing verdicts are NOT runnable — the runtime would refuse,
     so the resume gate must refuse too."""
     return verdict in (
@@ -114,44 +116,44 @@ class ProviderResolverError(Exception):
 
 
 class QuotaExceededError(ProviderResolverError):
-    """Opted in to the free tier but the budget is gone AND the user has no
-    own provider configured — they must add one to continue."""
+    """The free tier is exhausted AND the user has no own provider
+    configured — to continue they must either add one, or subscribe to a
+    NetMind.AI plan AND re-login so the auto-link mints a key for them."""
 
     error_code = "QUOTA_EXCEEDED_NO_USER_PROVIDER"
 
     def __init__(self, user_id: str):
+        # Two things are load-bearing in this string.
+        #
+        # 1. The leading "Free quota exhausted." phrase: job_trigger's
+        #    _NO_QUOTA_ERROR_MARKERS substring-matches it as its legacy third
+        #    detection layer, so background jobs pause instead of
+        #    retry-storming. test_no_quota_pause pins this.
+        # 2. The "link it in Settings" step is not padding. Subscribing does
+        #    NOT by itself produce a provider — ensure_netmind_provider runs
+        #    on the login path and on POST /providers/use-subscription, which
+        #    the Account & Subscription panel's "Link it now" button calls
+        #    (first frontend caller, 2026-07-20). Without that step the user
+        #    pays and retries into the same 402.
         super().__init__(
             user_id,
-            "Free quota exhausted. Configure your own provider to continue.",
-        )
-
-
-class FreeTierExhaustedError(ProviderResolverError):
-    """Opted in to the free tier but the budget is gone; the user HAS a
-    complete own provider they could switch to by unchecking the 'Use
-    free quota' toggle in Settings."""
-
-    error_code = "FREE_TIER_EXHAUSTED_DISABLE_TOGGLE"
-
-    def __init__(self, user_id: str):
-        super().__init__(
-            user_id,
-            "Free quota exhausted. Disable 'Use free quota' in Settings "
-            "to switch to your own provider.",
+            "Free quota exhausted. Add your own provider in Settings → "
+            "Providers to continue — or subscribe to a NetMind.AI plan and "
+            "link it in Settings → Account & Subscription.",
         )
 
 
 class NoProviderConfiguredError(ProviderResolverError):
-    """Opted out of the free tier but own provider is missing or incomplete.
-    No silent fallback to the free tier — the user's opt-out must stand."""
+    """No free tier was ever granted (no quota row) and the own provider is
+    missing or incomplete. No silent fallback to the free tier — the row IS
+    the grant (implicit-grant liability guard)."""
 
     error_code = "NO_PROVIDER_CONFIGURED"
 
     def __init__(self, user_id: str):
         super().__init__(
             user_id,
-            "No provider configured. Add a provider in Settings, or enable "
-            "'Use free quota' to use the free tier.",
+            "No provider configured. Add a provider in Settings to continue.",
         )
 
 
@@ -222,28 +224,40 @@ class ProviderResolver:
             return ProviderAvailability.SYSTEM_DISABLED
 
         quota = await self.quota_svc.get(user_id)
-        prefer_system = quota is not None and quota.prefer_system_override
 
         has_own = _is_user_config_complete(
             await self.user_provider_svc.get_user_config(user_id)
         )
 
-        if prefer_system:
-            # Branch 1: user opted in to the free tier.
+        if quota is not None:
+            # Branch 1: a free tier was granted. Free-tier-first is platform
+            # behavior, not a user choice (the prefer_system toggle was
+            # removed 2026-07-18) — while there is budget, every run draws it.
             if await self.quota_svc.check(user_id):
+                # Re-arm the switch-notice latch: budget is back (the free
+                # tier is a one-time registration grant with no periodic
+                # refresh, so in practice this means a manual staff grant),
+                # and the NEXT exhaustion should notify again. Write only on
+                # the 0→1 edge — once per cycle. Best-effort: the latch is
+                # purely cosmetic notice-dedup, and this sits on the
+                # SYSTEM_OK success path — a transient DB error here must
+                # never fail a run the user has budget for (classify's
+                # contract is "without raising").
+                if not quota.prefer_system_override:
+                    try:
+                        await self.quota_svc.rearm_switch_notice(user_id)
+                    except Exception as e:  # noqa: BLE001 — cosmetic write
+                        logger.warning(
+                            f"rearm_switch_notice failed for {user_id} "
+                            f"(next exhaustion may not notify): {e}"
+                        )
                 return ProviderAvailability.SYSTEM_OK
-            # Free tier exhausted. If the user has their own complete provider,
-            # auto-disable the free-tier preference so their key takes over
-            # immediately instead of 402-looping (#48: the configured key was
-            # being ignored because prefer_system_override stayed on). The flip
-            # is persisted, so the next request takes branch 2 directly; the
-            # toggle stays off until the quota is replenished (re-enable is
-            # gated in QuotaService.set_preference). With no own provider there
-            # is nothing to fall back to → surface the gate unchanged.
+            # Free tier exhausted → the user's own provider takes over
+            # immediately (no 402 loop, #48). The prefer_system_override
+            # column is repurposed as a notice latch: exactly one concurrent
+            # caller wins the 1→0 CAS and surfaces the one-time "switched to
+            # your own key" notice — no double-notify under load.
             if has_own:
-                # Compare-and-swap: exactly one concurrent caller wins the 1→0
-                # flip and is the one that surfaces the one-time "switched to
-                # your own key" notice — no double-notify under load (#48).
                 if await self.quota_svc.disable_preference_if_enabled(user_id):
                     await _emit_free_tier_switch_notice(
                         self.user_provider_svc.db, user_id
@@ -251,7 +265,7 @@ class ProviderResolver:
                 return ProviderAvailability.USER_OK
             return ProviderAvailability.QUOTA_EXCEEDED
 
-        # Branch 2: opted out (or no quota row) — own provider only.
+        # Branch 2: no free tier granted — own provider only.
         return ProviderAvailability.USER_OK if has_own else ProviderAvailability.NO_PROVIDER
 
     async def resolve(
@@ -295,8 +309,6 @@ class ProviderResolver:
                 user_id, self.user_provider_svc.db, agent_id=agent_id
             )
             return cfgs, "user"
-        if verdict == ProviderAvailability.FREE_TIER_EXHAUSTED:
-            raise FreeTierExhaustedError(user_id)
         if verdict == ProviderAvailability.QUOTA_EXCEEDED:
             raise QuotaExceededError(user_id)
         raise NoProviderConfiguredError(user_id)  # NO_PROVIDER

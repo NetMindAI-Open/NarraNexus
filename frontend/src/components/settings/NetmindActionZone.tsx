@@ -30,9 +30,11 @@ import { NetmindUpsellCard } from './NetmindUpsellCard';
 import type { Runway } from './netmindRunway';
 import type { SubscriptionPlan } from '@/types';
 
-// Canonical NetMind pricing page — the "learn more" depth that doesn't belong
+// NarraNexus website pricing page (plans + model pricing in product terms;
+// replaced the raw NetMind pricing page 2026-07-18) — the "learn more" depth
+// that doesn't belong
 // in the panel.
-const PRICING_URL = 'https://www.netmind.ai/pricing';
+const PRICING_URL = 'https://website.narra.nexus/pricing';
 
 interface NetmindActionZoneProps {
   state: 'free' | 'pro_active' | 'pro_cancelled';
@@ -147,7 +149,10 @@ export function NetmindActionZone({
           title={t('settings.netmind.manageBalance', 'Manage balance')}
           size="lg"
         >
-          <DialogContent>{topUp}</DialogContent>
+          <DialogContent className="space-y-4">
+            {topUp}
+            {pricingLink}
+          </DialogContent>
         </Dialog>
       </>
     );
@@ -214,6 +219,9 @@ export function NetmindActionZone({
         size="lg"
       >
         <DialogContent className="space-y-4">
+          {/* The plan intro in its subscribed state — the user sees what
+              their Pro includes right where they'd cancel it. */}
+          <NetmindUpsellCard proPlan={proPlan} onUpgrade={onSubscribe} busy={busy} subscribed />
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm text-[var(--text-secondary)]">
               {t('settings.netmind.cancelBtn', 'Cancel subscription')}
@@ -225,6 +233,7 @@ export function NetmindActionZone({
             </Button>
           </div>
           {topUp}
+          {pricingLink}
         </DialogContent>
       </Dialog>
     </>

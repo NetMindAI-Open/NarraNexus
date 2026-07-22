@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/repository/quota_repository.py
 stub: false
-last_verified: 2026-07-07
+last_verified: 2026-07-18
 ---
+
+## 2026-07-18 — 列语义重定义：偏好 → 耗尽通知闩锁
+
+`prefer_system_override` 不再是用户偏好（免费额度优先=平台行为，见
+[[provider_resolver]]）：1=armed（下次耗尽要发通知）、0=fired（本轮已发）。
+`set_preference`/`disable_if_enabled` 的 SQL 与 CAS 机制原样保留（下条），
+只有语义换了；repo 方法名沿用列名不改。
 
 ## 2026-07-07 — `disable_if_enabled` compare-and-swap (#48)
 

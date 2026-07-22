@@ -215,7 +215,9 @@ async def test_llm_function_raises_when_no_json(monkeypatch):
     monkeypatch.setattr(sdk, "_run_oneshot", _fake_oneshot)
     set_user_config(ClaudeConfig(), OpenAIConfig(),
                     cli_helper=CliHelperConfig(framework="claude_code"))
-    with pytest.raises(ValueError, match="Could not extract JSON"):
+    # After the repair-retry change, an always-unparseable reply raises only
+    # once the bounded retries are exhausted (see test_helper_json_repair.py).
+    with pytest.raises(ValueError, match="did not return schema-valid JSON"):
         await sdk.llm_function("inst", "in", output_type=_Out)
 
 

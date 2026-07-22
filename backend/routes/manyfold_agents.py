@@ -28,6 +28,10 @@ from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from xyz_agent_context.agent_framework.cloud_policy import (
+    NETMIND_SOURCE,
+    netmind_slots_only,
+)
 from xyz_agent_context.utils.db_factory import get_db_client
 
 
@@ -408,6 +412,25 @@ async def _clone_provider_setup(db, *, src_user_id: str, dst_user_id: str) -> No
     import secrets
 
     src_providers = await db.get("user_providers", {"user_id": src_user_id}) or []
+
+    # Cloud netmind-only policy: mf_* users are ordinary non-staff cloud
+    # users, so this clone must not hand them a binding the gated slot
+    # writers would refuse — keep NetMind-source rows only (slots pointing
+    # at dropped providers are skipped below via the pid_remap check).
+    # Without this, a template user holding a bring-your-own key would leak
+    # an ACTIVE non-netmind binding past the entire policy.
+    policy_active = netmind_slots_only(actor_is_staff=False)
+    if policy_active:
+        dropped = sum(1 for p in src_providers if p.get("source") != NETMIND_SOURCE)
+        if dropped:
+            logger.info(
+                f"[manyfold-create] netmind-only policy dropped {dropped} "
+                f"non-netmind provider(s) from the {src_user_id!r} clone"
+            )
+        src_providers = [
+            p for p in src_providers if p.get("source") == NETMIND_SOURCE
+        ]
+
     if not src_providers:
         logger.info(
             f"[manyfold-create] no providers to clone from {src_user_id!r}"
@@ -421,7 +444,9 @@ async def _clone_provider_setup(db, *, src_user_id: str, dst_user_id: str) -> No
 
     pid_remap: dict[str, str] = {}
     for prov in src_providers:
-        old_pid = prov.get("provider_id")
+        # str-normalized on BOTH sides (write here, read in the slot loop
+        # below) so the remap lookup never misses on a type mismatch.
+        old_pid = str(prov.get("provider_id") or "")
         if prov.get("name") in existing_dst_provider_names:
             continue
         new_pid = f"prov_{secrets.token_hex(4)}"
@@ -443,7 +468,12 @@ async def _clone_provider_setup(db, *, src_user_id: str, dst_user_id: str) -> No
             continue
         clone = {k: v for k, v in slot.items() if k != "id"}
         clone["user_id"] = dst_user_id
-        old_pid = clone.get("provider_id")
+        old_pid = str(clone.get("provider_id") or "")
+        if policy_active and old_pid not in pid_remap:
+            # The provider this slot pointed at was dropped by the
+            # netmind-only filter — cloning the binding would leave a
+            # dangling (and policy-violating) reference.
+            continue
         clone["provider_id"] = pid_remap.get(old_pid, old_pid)
         await db.insert("user_slots", clone)
 

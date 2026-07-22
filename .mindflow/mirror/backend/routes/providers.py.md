@@ -1,8 +1,43 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-16
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — netmind-only 规则收拢进 cloud_policy；检查下沉 set_slot
+
+Code review 重构（供 2026-07-17 条目参照的更正）：
+
+- `_NETMIND_ONLY_DETAIL` 与内联谓词移入 [[cloud_policy]]；本文件的
+  `_netmind_slots_only(request)` 只是 `netmind_slots_only(_is_staff(request))`
+  的薄封装。
+- **PUT /slots 的路由级 prov 查询删除**（消除双读）：`set_slot` 接收
+  `actor_is_staff=_is_staff(request)` 在服务层强制，路由 catch
+  `CloudPolicyViolation` → 403。onboard 的 register-only 与 add 的
+  default_slots 跳过仍在路由层（那是"怎么应用"而非"规则本身"）。
+- **POST /agent-framework 的 403 文案换成 `FRAMEWORK_LOCKED_DETAIL`**——旧文案
+  劝用户"用自己的 API key onboard"，与 netmind-only 策略自相矛盾。
+
+## 2026-07-17 — 云端 netmind-only 槽位策略（非 staff 只能绑 NetMind）
+
+新增 `_netmind_slots_only(request)`（= `_is_cloud() && !_is_staff()`）+
+`_NETMIND_ONLY_DETAIL` 文案。产品决策：云端用户只能用 NetMind 账户运行，自有
+API key 是本地版功能。三处落点：
+
+- **PUT /slots/{slot}**：绑定前经 `service.db` 读 provider 行，
+  `source != "netmind"` → 403（行缺失则放行给 service 报 not-found）。
+- **POST /onboard**：`activate = not _netmind_slots_only(request)` —— 云端非
+  staff 变 **register-only**（key 入钱包，框架/槽位不动，响应带
+  `activated:false` 供 UI 分支）。
+- **POST /**（add_provider）：`default_slots` 在 netmind-only 时跳过（加卡
+  照常，不绑槽）。
+
+同一规则守 per-agent 路由（[[agents_llm_config]]）；前端双面板下拉经
+`cloudNetmindOnly`（frontend lib/agentFramework）同步过滤,UI 不会给出会被
+403 的选项。**故意不动** `validate_slot_binding`——那是"协议兼容"层规则,这是
+"部署×角色"策略,归 route 层（与 OAuth staff-gate 同层同型）。staff 豁免、
+本地不受影响。测试：tests/backend/test_cloud_netmind_only_slots.py（stub
+service,门禁边界）。
 
 ## 2026-07-16 — GET /api/providers 附上 NetMind 账户邮箱
 

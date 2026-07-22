@@ -1,8 +1,76 @@
 ---
 code_file: frontend/src/components/settings/NetmindAccountPanel.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-20 (续) — 免费额度行值 token 化 + Link 按钮排版右置
+
+`freeTokensText` 派生（freeTierTokensLeft × formatTokens × i18n
+`freeTierTokensLeft` 键）传入 RunwayView；not_connected 警示框改
+`flex justify-between`（文字左、按钮右，与取消订阅行同款排版）。
+行值格式二改定稿：**只显示剩余**（"剩余 3.9M tokens"）——Owner 觉得
+"剩余/总量"两个数太密，比例语境由进度条承担；helper 仍返回 total 备用。
+
+## 2026-07-20 — not_connected 接上 use-subscription（断头路终于通了）
+
+`POST /providers/use-subscription` 的**第一个前端调用方**（接口 + 自动接入
+开关早就现成，api.useSubscription 此前零调用——审计报告点名的产品缺口）。
+两个接入点：
+
+- **not_connected 分支**：警示框从"Sign out and back in to link it"改为
+  「Link it now / 立即接入」按钮 → `linkNetmind`（`linkBusyRef` 同步守卫；
+  **409 = 已接入按成功处理**，api 错误消息含状态码故 `msg.includes('409')`；
+  成功后 `refreshNetStatus` 刷新连接状态）。失败显示 `linkFailed` 行,按钮
+  保留可重试。
+- **订阅支付落地时自动接入**：`pollUntilActive` 的 ACTIVE 分支 fire
+  `linkNetmindRef.current?.()`（best-effort、幂等）——用户刚付完钱是最不该
+  被要求重登的时刻。**TDZ 注意**：pollUntilActive 声明在 refreshNetStatus/
+  linkNetmind 之前，直接引用会撞 const 暂时性死区，故经 ref 间接调用
+  （useEffect 同步最新引用）。
+
+同批：App.tsx 横幅与 QuotaExceededError 文案的"退出重登"引导改为指向本按钮
+（[[provider_resolver]]）；mock/index.ts 补 useSubscription 桩。测试 +5
+（按钮出现/成功流转 driving/409 视为成功/硬失败可重试/订阅后自动接入）。
+
+## 2026-07-18 (同日三改) — Pro 套餐额度"溢出水箱"拆分（Owner 设计）
+
+NetMind 的 `free_credit` 合并了充值 + **跨周期累积**的套餐赠额（dev 实测：
+subscription_credit 56.98 ≈ 3 期 × $19 − 用量；充值 $10 剩 9.93 也在
+free_credit 里，`balance.usd` 恒 0 另有他用）。Owner 的溢出模型让进度条在
+累积制下成立：
+
+- 本周期水箱 = `min(subscription_credit, grantPerCycle)` → 条（每期赠额到账
+  自动回 100%）；溢出 = 超出部分 → 并进余额 hero。
+- hero = `(free_credit − subscription_credit) + overflow`，i18n 标签
+  `ownBalance`（"你的余额（充值 + 往期套餐结余）"）。
+- **分母用 `proPlan.monthly_grant_usd`**（=19，upsell 卡同源）——**不能用**
+  `metrics.monthly_free_credit`（dev 返回 0.50 与真实 $19/期对不上，语义
+  存疑，见 types/api.ts 注释 + self_notebook todo）。
+- **Pro 顶替免费额度**：subSplit 激活时 freePct/freeTierExhausted 强制关闭，
+  套餐条占据免费额度条的位置（纯显示——后端仍先扣免费 token 池，用户看到
+  的只是"还没开始花钱"）。旧"本月赠送"行仅在无 subscription_credit 的旧
+  API 上保留（回退路径，hero 回退为合并值，绝不出负数）。
+- deriveRunway 健康度**继续用合并 free_credit**（= 总可花，upsell 时机最准）。
+
+测试 +5：满箱/半箱/0%（条保留 + "下周期刷新"注）/旧 API 回退/非 Pro 忽略。
+
+## 2026-07-18 (同日二改) — freePct 派生逻辑：耗尽 → null + freeTierExhausted
+
+免费额度是一次性发放无刷新（见 [[NetmindRunwayView]] 同日条目），耗尽后不再
+渲染 0% 条：`freePctRaw === 0` → `freeTierExhausted=true`、`freePct=null`；
+`showRunway` 增补 `|| freeTierExhausted`（否则无赠额的 Free 用户耗尽后整个
+runway 区消失，连说明行都没了）。ActionZone 的 `freeTierExhausted` prop 改用
+同一派生值（原来是 `freePct === 0`）。
+
+## 2026-07-18 — prefer 开关整体删除（免费额度优先=平台行为）
+
+`togglePrefer` handler、`preferBusy` state、`preferBusyRef` 同步守卫、
+`preferSystem/preferLocked` 派生值全部删除；`showRunway` 不再含
+`preferSystem !== null` 项；[[NetmindRunwayView]] 的四个开关 props 随之消失。
+api.setQuotaPreference（前端方法 + mock）同日删除（后端端点已移除）。旧条目
+里关于 prefer 开关/锁定规则/402 死循环的叙述自此为历史记录。测试删 4 个
+toggle 用例、加 1 个"runway 无 switch"用例。
 
 ## 2026-07-13 — 门禁改挂 per-user Power 信号(本地双模式)
 

@@ -18,12 +18,29 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from typing import Any, Dict, List, Optional
 
 import httpx
 from loguru import logger
 
 from xyz_agent_context.utils.db_backend import DatabaseBackend
+
+
+# Active transaction token, scoped to the coroutine that opened the transaction.
+#
+# It MUST NOT live on the backend instance: db_factory hands one
+# AsyncDatabaseClient (hence one SQLiteProxyBackend) to every coroutine on an
+# event loop, so an instance attribute would be shared by all concurrent
+# requests in that process — a transaction opened by one (e.g. wipe_service)
+# would stamp its token onto every OTHER coroutine's writes, and the proxy
+# would admit them as the holder's own writes and fold them into that
+# transaction. A ContextVar is copied per asyncio Task, so only the task that
+# called begin_transaction (and coroutines it awaits) carries the token;
+# independent request tasks see None and are correctly gated by the proxy.
+_current_txn: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "sqlite_proxy_current_txn", default=None
+)
 
 
 class SQLiteProxyBackend(DatabaseBackend):
@@ -138,6 +155,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/execute", {
             "query": query,
             "params": [_prepare_value(p) for p in params] if params else None,
+            "txn_id": _current_txn.get(),
         })
 
     async def execute_write(
@@ -149,6 +167,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/execute_write", {
             "query": query,
             "params": [_prepare_value(p) for p in params] if params else None,
+            "txn_id": _current_txn.get(),
         })
 
     # ===== CRUD Operations =====
@@ -205,6 +224,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/insert", {
             "table": table,
             "data": _prepare_data(data),
+            "txn_id": _current_txn.get(),
         })
 
     async def update(
@@ -218,6 +238,7 @@ class SQLiteProxyBackend(DatabaseBackend):
             "table": table,
             "filters": _prepare_filters(filters),
             "data": _prepare_data(data),
+            "txn_id": _current_txn.get(),
         })
 
     async def delete(
@@ -229,6 +250,7 @@ class SQLiteProxyBackend(DatabaseBackend):
         return await self._post("/delete", {
             "table": table,
             "filters": _prepare_filters(filters),
+            "txn_id": _current_txn.get(),
         })
 
     async def upsert(
@@ -242,21 +264,33 @@ class SQLiteProxyBackend(DatabaseBackend):
             "table": table,
             "data": _prepare_data(data),
             "id_field": id_field,
+            "txn_id": _current_txn.get(),
         })
 
     # ===== Transaction Support =====
 
     async def begin_transaction(self) -> None:
-        """Begin a transaction on the proxy."""
-        await self._post("/transaction/begin", {})
+        """Begin a transaction on the proxy and capture its token.
+
+        The proxy issues a `txn_id`; every subsequent write on this backend
+        carries it so the proxy admits it as the transaction owner's write.
+        """
+        data = await self._post("/transaction/begin", {})
+        _current_txn.set((data or {}).get("txn_id"))
 
     async def commit(self) -> None:
-        """Commit the transaction on the proxy."""
-        await self._post("/transaction/commit", {})
+        """Commit the transaction on the proxy, releasing the token."""
+        try:
+            await self._post("/transaction/commit", {"txn_id": _current_txn.get()})
+        finally:
+            _current_txn.set(None)
 
     async def rollback(self) -> None:
-        """Rollback the transaction on the proxy."""
-        await self._post("/transaction/rollback", {})
+        """Rollback the transaction on the proxy, releasing the token."""
+        try:
+            await self._post("/transaction/rollback", {"txn_id": _current_txn.get()})
+        finally:
+            _current_txn.set(None)
 
 
 # =============================================================================

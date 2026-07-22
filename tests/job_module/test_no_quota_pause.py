@@ -53,6 +53,31 @@ def test_is_no_quota_failure_by_message_fallback():
     assert _is_no_quota_failure({"success": False, "error": "Free quota exhausted. Configure your own provider."})
 
 
+def test_real_resolver_messages_still_pause_jobs():
+    """The message-substring layer must catch the resolver's ACTUAL strings.
+
+    The test above pins a hand-written literal, so rewording the real
+    exceptions cannot break it — which is exactly the hole this closes. A job
+    whose failure carries only the message (no error_type, e.g. serialized
+    across a subprocess boundary) relies on this layer to reach
+    PAUSED_NO_QUOTA; miss it and the job retry-storms instead (upstream
+    incident: 9 users / 14 days / 390 retries).
+
+    So: build the errors for real and assert the classifier still fires.
+    Anyone rewording them has to keep the markers intact or turn this red.
+    """
+    from xyz_agent_context.agent_framework.provider_resolver import (
+        NoProviderConfiguredError,
+        QuotaExceededError,
+    )
+
+    for exc in (QuotaExceededError("u1"), NoProviderConfiguredError("u1")):
+        assert _is_no_quota_failure({"success": False, "error": str(exc)}), (
+            f"{type(exc).__name__} message no longer matches any "
+            f"_NO_QUOTA_ERROR_MARKERS entry: {str(exc)!r}"
+        )
+
+
 def test_is_no_quota_failure_false_for_success_and_transient():
     assert not _is_no_quota_failure({"success": True})
     assert not _is_no_quota_failure({"success": False, "error_type": "TimeoutError", "error": "read timed out"})

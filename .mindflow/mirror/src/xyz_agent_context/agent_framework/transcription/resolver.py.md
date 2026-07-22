@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/transcription/resolver.py
-last_verified: 2026-05-07
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 (review 二轮加固) — 门禁叠加预算检查
+
+`_user_has_free_tier` 从"行存在即 True"改为"行存在 **且** `qs.check()` 有
+余量"。动因：STT 走 system-default NetMind 凭证时**不从 user_quotas 扣费**，
+旧实现下耗尽账号可无限烧运营方 STT key，而同一用户的 LLM 路径已被
+QUOTA_EXCEEDED 挡住——两条路必须共享同一预算裁决。测试
+`test_exhausted_quota_gets_no_system_default` 钉住。
+
+## 2026-07-18 — Tier 5 门禁从"偏好开关"改为"是否授予了免费额度"
+
+`_user_opted_in_to_free_tier` 改名 `_user_has_free_tier`，判断从
+`quota.prefer_system_override`（已重定义为耗尽通知闩锁，见
+[[provider_resolver]]）改为 **quota 行是否存在**（行即授予）。这是免费额度
+偏好删除时差点漏掉的消费者——留着旧判断会让闩锁 fired 的用户被错误地拒掉
+STT 免费层。下文 (c) 一段的旧描述自此为历史记录；"无 quota 行不隐式计费
+运营方"的守卫保留。
 
 # resolver.py — ordered candidate list for transcription
 

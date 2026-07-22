@@ -96,13 +96,16 @@ def _patch_free_tier(
     *,
     system_enabled: bool = True,
     quota_pref: bool | None = True,
+    has_budget: bool = True,
 ):
-    """Stub the free-tier opt-in gate.
+    """Stub the free-tier grant gate.
 
     ``system_enabled`` simulates whether SystemProviderService.is_enabled()
     answers True (cloud-mode + SYSTEM_DEFAULT_LLM_ENABLED). ``quota_pref``
-    is what ``QuotaService.default().get(user_id).prefer_system_override``
-    returns; ``None`` means "no quota row for this user".
+    sets the row's ``prefer_system_override`` (the exhaustion-notice latch —
+    must NOT affect routing since 2026-07-18); ``None`` means "no quota row
+    for this user". The gate denies the system tier on no-row OR no-budget
+    (``has_budget`` — STT shares the LLM path's budget verdict).
     """
     fake_sys = MagicMock()
     fake_sys.is_enabled.return_value = system_enabled
@@ -114,6 +117,7 @@ def _patch_free_tier(
     fake_quota_row = None if quota_pref is None else MagicMock(prefer_system_override=quota_pref)
     fake_qs = MagicMock()
     fake_qs.get = AsyncMock(return_value=fake_quota_row)
+    fake_qs.check = AsyncMock(return_value=has_budget)
     monkeypatch.setattr(
         "xyz_agent_context.agent_framework.quota_service.QuotaService.default",
         classmethod(lambda cls: fake_qs),
@@ -373,30 +377,33 @@ async def test_user_provider_takes_precedence_over_system_default(monkeypatch):
 
 
 # ─────────────────────────────────────────────────────────────────────
-# prefer_system_override gate (anti-freeloading guard)
+# free-tier grant gate (anti-freeloading guard). Since 2026-07-18 the
+# gate is "does a quota row exist" — prefer_system_override is only the
+# exhaustion-notice latch and must NOT deny routing.
 # ─────────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_user_opted_out_of_free_tier_skips_system_default(monkeypatch):
-    """User unchecked "Use free quota" in Settings → STT must NOT
-    silently route through the operator's NetMind key. Same toggle
-    that gates chat / embed / helper_llm via provider_resolver."""
+async def test_fired_notice_latch_still_gets_system_default(monkeypatch):
+    """The notice latch being fired (prefer_system_override=0, i.e. an
+    exhaustion cycle happened) must NOT deny the free tier — it is not a
+    user preference. Regression guard for the 2026-07-18 semantics."""
     _patch_user_providers(monkeypatch)  # no own providers
     _patch_local_mode(monkeypatch, is_cloud=True)
-    _patch_free_tier(monkeypatch, quota_pref=False)  # opted out
+    _patch_free_tier(monkeypatch, quota_pref=False)  # latch fired, row EXISTS
     _patch_settings(
         monkeypatch,
         system_default_netmind_api_key="sys-netmind-key",
         public_base_url="https://my-deploy.example.com",
     )
     creds = await R.resolve_candidates(user_id="u1")
-    assert creds == []
+    assert len(creds) == 1
+    assert creds[0].is_system_free_tier is True
 
 
 @pytest.mark.asyncio
-async def test_user_opted_out_still_uses_own_providers(monkeypatch):
-    """Opt-out only blocks the system tier — user's own keys keep working."""
+async def test_fired_latch_own_providers_rank_first(monkeypatch):
+    """Own keys keep working and outrank the system tier."""
     _patch_user_providers(
         monkeypatch,
         _provider("https://api.openai.com/v1", api_key="user-openai"),
@@ -409,17 +416,36 @@ async def test_user_opted_out_still_uses_own_providers(monkeypatch):
         public_base_url="https://my-deploy.example.com",
     )
     creds = await R.resolve_candidates(user_id="u1")
-    assert len(creds) == 1
+    assert len(creds) == 2
     assert creds[0].api_key == "user-openai"
     assert creds[0].is_system_free_tier is False
+    assert creds[1].is_system_free_tier is True
 
 
 @pytest.mark.asyncio
-async def test_no_quota_row_treated_as_opted_out(monkeypatch):
-    """Brand-new user with no quota row at all → fail safe to opt-out
-    rather than silently billing the operator. Onboarding flow grants
-    the quota row + sets the toggle to True for new users; until that
-    runs, STT shouldn't auto-bill."""
+async def test_exhausted_quota_gets_no_system_default(monkeypatch):
+    """Row exists but the budget is gone → NO operator-billed STT. STT usage
+    doesn't deduct from user_quotas, so without this gate an exhausted
+    account could burn the operator's NetMind STT key indefinitely while
+    its LLM path is already blocked (review 2026-07-18) — the two paths
+    must share one budget verdict."""
+    _patch_user_providers(monkeypatch)
+    _patch_local_mode(monkeypatch, is_cloud=True)
+    _patch_free_tier(monkeypatch, quota_pref=True, has_budget=False)
+    _patch_settings(
+        monkeypatch,
+        system_default_netmind_api_key="sys-netmind-key",
+        public_base_url="https://my-deploy.example.com",
+    )
+    creds = await R.resolve_candidates(user_id="u1")
+    assert creds == []
+
+
+@pytest.mark.asyncio
+async def test_no_quota_row_gets_no_system_default(monkeypatch):
+    """Brand-new user with no quota row at all → no free tier was granted,
+    so STT must not silently bill the operator (implicit-grant liability
+    guard — the row IS the grant)."""
     _patch_user_providers(monkeypatch)
     _patch_local_mode(monkeypatch, is_cloud=True)
     _patch_free_tier(monkeypatch, quota_pref=None)  # no row

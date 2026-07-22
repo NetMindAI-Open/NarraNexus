@@ -1,8 +1,16 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-06
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 注释同步（行为不变）
+
+`/api/transcription` bypass 前缀的解释注释随枚举改名更新
+（free_tier_opted_out → free_tier_not_granted，见 transcription/service）。
+review 二轮又扫掉 QUOTA_BYPASS_PREFIXES 头注释里"toggle the 'Use free
+quota' switch off"和 `/api/quota` 行注"flip prefer_system_override"两处
+死引用（开关/端点均已删）。纯注释，网关逻辑零变化。
 
 ## 2026-07-02 — QUOTA_BYPASS_PREFIXES 新增 /api/billing
 

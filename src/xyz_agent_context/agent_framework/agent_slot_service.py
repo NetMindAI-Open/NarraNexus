@@ -26,6 +26,12 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from xyz_agent_context.agent_framework.cloud_policy import (
+    FRAMEWORK_LOCKED_DETAIL,
+    CloudPolicyViolation,
+    ensure_slot_provider_allowed,
+    netmind_slots_only,
+)
 from xyz_agent_context.agent_framework.user_provider_service import (
     validate_slot_binding,
 )
@@ -66,6 +72,8 @@ class AgentSlotService:
         thinking: str = "",
         reasoning_effort: str = "",
         agent_framework: Optional[str] = None,
+        *,
+        actor_is_staff: Optional[bool],
     ) -> dict:
         """Upsert a per-agent override for ``slot_name``.
 
@@ -76,6 +84,14 @@ class AgentSlotService:
         user-scoped). For the agent slot, ``agent_framework`` is the per-agent
         framework being pinned; if omitted it defaults to the owner's current
         framework. Validation reuses ``validate_slot_binding``.
+
+        ``actor_is_staff`` (required keyword): the caller's role for the
+        cloud netmind-only policy (see cloud_policy) — a non-staff cloud
+        caller may only bind NetMind-source providers and may not pin a
+        framework that differs from the owner default. A trusted internal
+        caller must write ``actor_is_staff=None`` EXPLICITLY (deliberately
+        no default — a bypass has to be visible at the call site). Raises
+        ``CloudPolicyViolation`` (→ 403 at the route) on a violation.
         """
         if slot_name not in [s.value for s in SlotName]:
             raise ValueError(f"Invalid slot: {slot_name}")
@@ -104,20 +120,31 @@ class AgentSlotService:
                 f"Provider {provider_id!r} not found for the agent's owner."
             )
 
+        # Cloud netmind-only policy (single source of truth: cloud_policy).
+        ensure_slot_provider_allowed(prov, actor_is_staff)
+
         # Resolve the framework the binding is validated against. Only the
         # agent slot carries a framework; for the agent slot, a per-agent
         # framework (if given) wins, else fall back to the owner default.
         eff_framework: Optional[str] = None
         if slot_name == SlotName.AGENT.value:
-            if agent_framework:
-                eff_framework = agent_framework
-            else:
-                owner_agent_slot = await self.db.get_one(
-                    "user_slots", {"user_id": owner, "slot_name": "agent"}
-                )
-                eff_framework = (
-                    (owner_agent_slot or {}).get("agent_framework") or "claude_code"
-                )
+            owner_agent_slot = await self.db.get_one(
+                "user_slots", {"user_id": owner, "slot_name": "agent"}
+            )
+            owner_framework = (
+                (owner_agent_slot or {}).get("agent_framework") or "claude_code"
+            )
+            eff_framework = agent_framework or owner_framework
+            # Framework changes are staff-only on cloud (the user-level
+            # switch is gated in providers.py); a per-agent pin to a
+            # DIFFERENT framework would be the same change through the
+            # side door, so it follows the same policy.
+            if (
+                actor_is_staff is not None
+                and eff_framework != owner_framework
+                and netmind_slots_only(actor_is_staff)
+            ):
+                raise CloudPolicyViolation(FRAMEWORK_LOCKED_DETAIL)
         validate_slot_binding(prov, slot_name, eff_framework)
 
         now = datetime.now(timezone.utc).isoformat()
@@ -127,7 +154,7 @@ class AgentSlotService:
             "params_json": params_json,
             "updated_at": now,
         }
-        if slot_name == SlotName.AGENT.value:
+        if slot_name == SlotName.AGENT.value and eff_framework:
             payload["agent_framework"] = eff_framework
 
         # Check-then-write upsert — mirrors UserProviderService.set_slot. Not

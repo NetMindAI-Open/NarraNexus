@@ -125,7 +125,7 @@ async def test_codex_agent_framework_allows_openai_provider_for_agent_slot():
     _, new_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
     await svc.set_user_agent_framework("u1", "codex_cli")
 
-    config = await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex")
+    config = await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex", actor_is_staff=None)
 
     assert config.slots["agent"].provider_id == new_ids[0]
     assert db.slots[("u1", "agent")]["agent_framework"] == "codex_cli"
@@ -142,7 +142,7 @@ async def test_claude_agent_framework_rejects_openai_provider_for_agent_slot():
     await svc.set_user_agent_framework("u1", "claude_code")
 
     with pytest.raises(ValueError, match="requires protocol \\['anthropic'\\]"):
-        await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex")
+        await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4-codex", actor_is_staff=None)
 
 
 @pytest.mark.asyncio
@@ -153,7 +153,7 @@ async def test_runtime_resolver_builds_codex_config_for_codex_agent_slot():
     # Simulate a stale row created before codex_oauth wrote its own auth_ref.
     db.providers[codex_ids[0]]["auth_ref"] = "claude-cli:~/.claude/.credentials.json"
     await svc.set_user_agent_framework("u1", "codex_cli")
-    await svc.set_slot("u1", "agent", codex_ids[0], "gpt-5.4-codex")
+    await svc.set_slot("u1", "agent", codex_ids[0], "gpt-5.4-codex", actor_is_staff=None)
 
     await db.insert("user_providers", {
         "user_id": "u1",

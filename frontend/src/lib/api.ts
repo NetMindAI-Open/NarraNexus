@@ -231,6 +231,44 @@ class ApiClient {
     return this.request<JobDetailResponse>(`/api/jobs/${encodeURIComponent(jobId)}`);
   }
 
+  // ── Home Assistant (smart-home) binding — per-agent ──
+  async getHABinding(
+    agentId: string,
+  ): Promise<{ bound: boolean; base_url?: string; verify_tls?: boolean; token_masked?: string; corrupted?: boolean }> {
+    return this.request(`/api/home-assistant/binding?agent_id=${encodeURIComponent(agentId)}`);
+  }
+
+  async saveHABinding(
+    agentId: string,
+    baseUrl: string,
+    token: string,
+    verifyTls: boolean,
+  ): Promise<{ ok: boolean }> {
+    return this.request(`/api/home-assistant/binding`, {
+      method: 'PUT',
+      body: JSON.stringify({ agent_id: agentId, base_url: baseUrl, token, verify_tls: verifyTls }),
+    });
+  }
+
+  async testHAConnection(
+    baseUrl: string,
+    token: string,
+    verifyTls: boolean,
+  ): Promise<{ ok: boolean; entity_count?: number; error?: string }> {
+    return this.request(`/api/home-assistant/test`, {
+      method: 'POST',
+      body: JSON.stringify({ base_url: baseUrl, token, verify_tls: verifyTls }),
+    });
+  }
+
+  // Ping the SAVED binding via the same path the agent uses (proves the agent can reach HA).
+  async verifyHABinding(agentId: string): Promise<{ ok: boolean; entity_count?: number; error?: string }> {
+    return this.request(`/api/home-assistant/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId }),
+    });
+  }
+
   async cancelJob(jobId: string): Promise<CancelJobResponse> {
     return this.request<CancelJobResponse>(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
       method: 'PUT',
@@ -1011,6 +1049,10 @@ class ApiClient {
     /** "ok" | "unverified (<reason>)" — live key probe result. A
      * definitively bad key never reaches success (400 instead). */
     key_check?: string;
+    /** False = register-only: the key was saved but framework/slots were NOT
+     * rewired (cloud non-staff — slots stay on NetMind). The UI must not
+     * claim "you're now running on <model>" in that case. */
+    activated?: boolean;
     /** Set when the user already has a provider of this (aggregator) type.
      * The UI confirms and re-sends with replace=true to rotate the key. */
     needs_replace?: boolean;
@@ -1424,13 +1466,6 @@ class ApiClient {
   // System-default free-tier quota
   async getMyQuota(): Promise<QuotaMeResponse> {
     return this.request<QuotaMeResponse>('/api/quota/me');
-  }
-
-  async setQuotaPreference(preferSystemOverride: boolean): Promise<QuotaMeResponse> {
-    return this.request<QuotaMeResponse>('/api/quota/me/preference', {
-      method: 'PATCH',
-      body: JSON.stringify({ prefer_system_override: preferSystemOverride }),
-    });
   }
 
   // =========================================================================

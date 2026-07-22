@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/openai_agents_sdk.py
-last_verified: 2026-07-09
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — 新增对外共享的 `json_repair_note()`(Lark bug #2)
+
+在 JSON 抽取工具旁(`_extract_json_from_llm_output` / `_first_balanced_json`)新增
+`json_repair_note(reason)`,生成一条"你上一轮不是合法 JSON,请只输出纯 JSON 对象"的
+re-prompt。这是**对外契约**:两个 Claude helper SDK([[anthropic_helper_sdk]] /
+[[cli_helper_sdk]])在结构化输出抠取/校验失败时,用它做有界修复重试。放在本文件是
+因为本文件已 owns 抠取逻辑,helper 侧只需复用。提示保持泛化(无场景专有词,铁律 #4)。
 
 ## 2026-07-09 — 平衡扫描精确化(PR review Minor)
 

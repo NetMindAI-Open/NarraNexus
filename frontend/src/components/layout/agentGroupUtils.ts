@@ -17,6 +17,14 @@ export interface GroupableAgent {
   name?: string;
 }
 
+/** Agent shape required by activity-based sorting. */
+export interface SortableAgent extends GroupableAgent {
+  /** ISO time of the last persisted assistant reply (server-provided). */
+  last_assistant_at?: string | null;
+  /** ISO agent creation time — floor used when there's no conversation yet. */
+  created_at?: string;
+}
+
 /** Minimal team shape required by the grouping helpers. */
 export interface GroupableTeam {
   team: { team_id: string; name: string; color?: string | null };
@@ -82,6 +90,61 @@ export function buildAgentGroups<A extends GroupableAgent>(
   });
 
   return groups;
+}
+
+// ---------------------------------------------------------------------------
+// sortAgentsByActivity
+// ---------------------------------------------------------------------------
+
+/** Parse an ISO timestamp to epoch-ms; 0 for empty/invalid input. */
+function isoToMs(iso: string | null | undefined): number {
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/**
+ * Sort agents so the most-recently-active conversation floats to the top —
+ * "recently chatted agent auto-pins to the top".
+ *
+ * An agent's activity time is the NEWEST of three signals:
+ *  - `last_assistant_at`: the server's last persisted assistant reply
+ *  - `localActivityMs(agent_id)`: the freshest local session message
+ *    (user- or agent-sent, possibly not yet persisted). This is what makes
+ *    an agent jump to the top the instant you talk to it, before the next
+ *    /api/auth/agents refresh.
+ *  - `created_at`: a floor so a brand-new, never-chatted agent still orders
+ *    sensibly (by creation recency) instead of collapsing to epoch 0.
+ *
+ * Pure and stable: returns a NEW array and never mutates the input; ties are
+ * broken by agent_id so equal-timestamp order doesn't churn between renders.
+ */
+export function sortAgentsByActivity<A extends SortableAgent>(
+  agents: A[],
+  localActivityMs: (agentId: string) => number,
+): A[] {
+  const score = (a: A): number =>
+    Math.max(
+      isoToMs(a.last_assistant_at),
+      localActivityMs(a.agent_id) || 0,
+      isoToMs(a.created_at),
+    );
+  // Decorate-sort-undecorate: score() calls localActivityMs(), which scans an
+  // agent's whole message list, so it must run exactly ONCE per agent — not
+  // the ~2·n·log₂n times a comparator that calls score(a)/score(b) inline
+  // would. This sort sits on the streaming path (AgentList re-runs it as chat
+  // state changes), and message lists grow without bound in long sessions, so
+  // the O(n·m) → single-pass difference is what keeps it off the hot path.
+  const scored = agents.map((a) => ({ agent: a, s: score(a) }));
+  scored.sort((x, y) => {
+    if (x.s !== y.s) return y.s - x.s;
+    return x.agent.agent_id < y.agent.agent_id
+      ? -1
+      : x.agent.agent_id > y.agent.agent_id
+        ? 1
+        : 0;
+  });
+  return scored.map((x) => x.agent);
 }
 
 // ---------------------------------------------------------------------------

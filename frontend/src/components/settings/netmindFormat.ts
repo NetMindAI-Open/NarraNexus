@@ -31,6 +31,33 @@ export function freeTierPctLeft(quota: QuotaMeResponse | null): number | null {
   return Math.max(0, Math.min(100, Math.floor(Math.min(rIn, rOut) * 100)));
 }
 
+// Compact token count: 4_500_000 → "4.5M", 900_000 → "900K", 850 → "850".
+// One decimal max, trailing ".0" trimmed — panel row values, not analytics.
+export function formatTokens(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return '0';
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return String(Math.floor(n));
+}
+
+// Remaining/total tokens of the MORE DEPLETED dimension (same dimension the
+// pct bar reflects, so the number and the bar never disagree). Returns null
+// exactly when freeTierPctLeft would (feature off / uninitialized / disabled);
+// exhausted is the caller's business (the bar collapses to a note there).
+export function freeTierTokensLeft(
+  quota: QuotaMeResponse | null,
+): { remaining: number; total: number } | null {
+  if (!quota || quota.enabled !== true) return null;
+  if (quota.status !== 'active' && quota.status !== 'exhausted') return null;
+  const totIn = quota.initial_input_tokens + quota.granted_input_tokens;
+  const totOut = quota.initial_output_tokens + quota.granted_output_tokens;
+  const rIn = totIn > 0 ? quota.remaining_input_tokens / totIn : 1;
+  const rOut = totOut > 0 ? quota.remaining_output_tokens / totOut : 1;
+  return rIn <= rOut
+    ? { remaining: Math.max(0, quota.remaining_input_tokens), total: totIn }
+    : { remaining: Math.max(0, quota.remaining_output_tokens), total: totOut };
+}
+
 // Format a plan billing period. NetMind dev drifts period to "2day"; prod is
 // "month". Map the common case to a short localized label, pass anything else
 // through verbatim so an unexpected value is visible rather than hidden.

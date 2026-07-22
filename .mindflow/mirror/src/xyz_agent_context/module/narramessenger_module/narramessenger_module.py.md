@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-20
 ---
+
+## 2026-07-21 — `_CLI_CAPABILITY` closing line clarified (writes ≠ read-only)
+
+The closing "Sending stays on narra_reply/narra_send…" line was reinforcing an
+agent's wrong belief that `narra_cli` is read-only (see [[_narramessenger_mcp_tools]]
+2026-07-21). Reworded: only CHAT messages go elsewhere; explore *writes* and
+everything else ARE `narra_cli` — "don't refuse a write as read-only, call the
+tool and try".
+
+## 2026-07-20 — `_CLI_CAPABILITY` instruction block
+
+``get_instructions`` injects a ``_CLI_CAPABILITY`` block between ``_BEHAVIOUR``
+and ``_IRON_RULES``. Companion to the [[_narramessenger_mcp_tools]] passthrough
+work (2026-07-20). Reply/proactive/media guidance unchanged.
+
+Reframed later the same day (**"### Operating NarraMessenger — narra_cli +
+narra_guide"**, was "### Reading room context"): an agent asked about "publish"
+and couldn't tell whether it was a NarraNexus / NarraMessenger / other feature.
+Fixes:
+- the block now opens with what NarraMessenger *is* (the IM network) and frames
+  ``narra_cli`` as "how you operate it", not just "read room context";
+- gives a **capability overview** incl. **explore/publish** (official-agents-only;
+  server returns ``official-agent-required``) with an explicit
+  ``"publish a post" = narra_cli("explore publish ...")`` mapping — the missing
+  signal that caused the confusion;
+- points to ``narra_guide()`` / ``<domain> --help`` for exact flags;
+- adds an **authority-on-conflicts** clause: the NarraNexus platform is SSOT for
+  identity / tokens / permissions (never pass ``--token*``; ignore runtime.md
+  token/endpoint self-management guidance); ``narra_guide`` / runtime.md is only
+  for narra-cli command *syntax*, not platform policy.
 
 ## 2026-07-03 — Matrix-native send + stale-prompt sweep
 

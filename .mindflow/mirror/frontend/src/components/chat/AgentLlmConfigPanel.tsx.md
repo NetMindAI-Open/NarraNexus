@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 云端锁定 per-agent 框架（禁用 → alert → useConfirm，三改定稿）
+
+与 [[ModelDefaultsSettings]] 同款演进，定稿为 `useConfirm().alert` 样式弹窗
+（Tauri wry 不渲染 window.alert）：`netmindOnly` 下选到不同框架时弹
+`cloudFrameworkLockedTitle`/`cloudFrameworkLocked` 提示并手动
+`e.target.value` 弹回（受控 select state 未变不会重渲染）。组件返回值包成
+fragment：`<>{主 Dialog}{noticeDialog}</>`（两个 portal 同 z-1000，后挂载者
+在上）。后端侧该锁已同日补齐：`set_agent_slot` 的框架钉选门禁
+（[[agent_slot_service]] 2026-07-18）会 403 与 owner 默认不同的钉选——前端
+弹窗只是把这个 403 变成事前解释。
+
+## 2026-07-17 — 云端 netmind-only：下拉过滤 + "下载本地版"提示
+
+与 [[ModelDefaultsSettings]] 同日同款：`netmindOnly =
+cloudNetmindOnly(configStore.role)` 为真时两个 provider 下拉只留
+netmind-source 卡，error 行上方多一段同 i18n 键的提示 + DESKTOP_RELEASES_URL
+链接。两个面板必须一起限，否则 per-agent 覆盖就是 Model Defaults 限制的绕行
+通道（后端 agents_llm_config 门禁是最终防线，这里只是让 UI 不出 403）。
 
 ## 2026-07-10 — agent slot 去掉 codex source 过滤
 

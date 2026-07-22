@@ -246,3 +246,101 @@ async def test_reset_slot_clears_override(db_client, monkeypatch):
     assert r.status_code == 200
     rows = await db_client.get("agent_slots", {"agent_id": "ag1"})
     assert rows == []
+
+
+# =============================================================================
+# Cloud netmind-only policy (per-agent overrides)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_put_cloud_nonstaff_rejects_own_key_provider(db_client, monkeypatch):
+    """Cloud + non-staff may only bind NetMind-source providers — a
+    bring-your-own (source="user") provider is 403'd before any write.
+    Own API keys run in the local version only."""
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    await _seed_agent(db_client)
+    await _seed_provider(db_client, "p_own", source="user", protocol="openai")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1", role="user")
+
+    r = client.put(
+        "/api/agents/ag1/llm-config/agent",
+        json={"provider_id": "p_own", "model": "gpt-5.4", "agent_framework": "codex_cli"},
+    )
+    assert r.status_code == 403
+    assert "NetMind" in r.json()["detail"]
+    assert await db_client.get("agent_slots", {"agent_id": "ag1"}) == []
+
+
+@pytest.mark.asyncio
+async def test_put_cloud_nonstaff_accepts_netmind_provider(db_client, monkeypatch):
+    """The netmind-source card stays bindable for everyone on cloud (the
+    pinned framework matches the owner default, so only the provider-source
+    rule is in play)."""
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    await _seed_agent(db_client)
+    await _seed_user_agent_slot(db_client, framework="codex_cli")
+    await _seed_provider(db_client, "p_nm", source="netmind", protocol="openai")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1", role="user")
+
+    r = client.put(
+        "/api/agents/ag1/llm-config/agent",
+        json={"provider_id": "p_nm", "model": "gpt-5.4", "agent_framework": "codex_cli"},
+    )
+    assert r.status_code == 200
+    rows = await db_client.get("agent_slots", {"agent_id": "ag1"})
+    assert len(rows) == 1 and rows[0]["provider_id"] == "p_nm"
+
+
+@pytest.mark.asyncio
+async def test_put_cloud_nonstaff_rejects_framework_pin_change(db_client, monkeypatch):
+    """Framework changes are staff-only on cloud — pinning a per-agent
+    framework that differs from the owner default is the same change
+    through the side door, so it 403s even with a netmind provider."""
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    await _seed_agent(db_client)
+    # Owner default framework: claude_code (no user_slots row → default).
+    await _seed_provider(db_client, "p_nm", source="netmind", protocol="openai")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1", role="user")
+
+    r = client.put(
+        "/api/agents/ag1/llm-config/agent",
+        json={"provider_id": "p_nm", "model": "gpt-5.4", "agent_framework": "codex_cli"},
+    )
+    assert r.status_code == 403
+    assert "framework" in r.json()["detail"].lower()
+    assert await db_client.get("agent_slots", {"agent_id": "ag1"}) == []
+
+
+@pytest.mark.asyncio
+async def test_put_cloud_staff_may_pin_different_framework(db_client, monkeypatch):
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    await _seed_agent(db_client)
+    await _seed_provider(db_client, "p_own", source="user", protocol="openai")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1", role="staff")
+
+    r = client.put(
+        "/api/agents/ag1/llm-config/agent",
+        json={"provider_id": "p_own", "model": "gpt-5.4", "agent_framework": "codex_cli"},
+    )
+    assert r.status_code == 200
+    rows = await db_client.get("agent_slots", {"agent_id": "ag1"})
+    assert len(rows) == 1 and rows[0]["agent_framework"] == "codex_cli"
+
+
+@pytest.mark.asyncio
+async def test_put_cloud_staff_bypasses_netmind_only(db_client, monkeypatch):
+    """Staff keeps full provider choice on cloud (same exemption as the
+    framework-switch and OAuth gates)."""
+    monkeypatch.setenv("NARRANEXUS_DEPLOYMENT_MODE", "cloud")
+    await _seed_agent(db_client)
+    await _seed_provider(db_client, "p_own", source="user", protocol="openai")
+    client = _build_client(db_client, monkeypatch, viewer_id="u1", role="staff")
+
+    r = client.put(
+        "/api/agents/ag1/llm-config/agent",
+        json={"provider_id": "p_own", "model": "gpt-5.4", "agent_framework": "codex_cli"},
+    )
+    assert r.status_code == 200
+    rows = await db_client.get("agent_slots", {"agent_id": "ag1"})
+    assert len(rows) == 1 and rows[0]["provider_id"] == "p_own"

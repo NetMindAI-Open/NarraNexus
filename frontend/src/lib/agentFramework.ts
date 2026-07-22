@@ -10,6 +10,8 @@
  * choices the Settings default editor does.
  */
 
+import { isForcedCloud } from './runtimeConfig'
+
 // ---- shared types --------------------------------------------------------
 
 export interface ProviderSummary {
@@ -50,6 +52,24 @@ export const AGENT_FRAMEWORKS: AgentFramework[] = [
 // lands in one spot instead of scattered ``=== 'codex_cli'`` comparisons.
 export const isCodexFramework = (framework: string | null | undefined): boolean =>
   framework === 'codex_cli'
+
+// Where the "use your own keys in the local version" notes point. The DMG is
+// published by the release workflow to the public NetMindAI-Open repo.
+export const DESKTOP_RELEASES_URL = 'https://github.com/NetMindAI-Open/NarraNexus/releases'
+
+/**
+ * Cloud netmind-only slot policy — the frontend twin of the route gates in
+ * backend/routes/providers.py + agents_llm_config.py: a non-staff cloud user
+ * may only bind NetMind-source providers to slots. Bring-your-own API keys
+ * can still be REGISTERED (the wallet stays open) but run in the local
+ * (desktop) version only. Staff keeps full choice; local deployments are
+ * never gated. Both slot editors (ModelDefaultsSettings and
+ * AgentLlmConfigPanel) filter their provider dropdowns through this so the
+ * UI never offers a choice the backend would 403.
+ */
+export function cloudNetmindOnly(role: string | undefined): boolean {
+  return isForcedCloud() && role !== 'staff'
+}
 
 // What the helper_llm "Default (recommended)" resolves to per protocol.
 // Mirrors backend ``_ONBOARD_HELPER_MODELS`` in model_catalog.py.

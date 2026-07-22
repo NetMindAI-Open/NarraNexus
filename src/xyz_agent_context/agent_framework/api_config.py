@@ -734,13 +734,13 @@ class LLMResolverError(RuntimeError):
 
 
 class LLMConfigNotConfigured(LLMResolverError):
-    """Raised when a user has opted out of the system-default free tier
-    and their own provider/slot configuration is missing or broken.
+    """Raised when a user has no free-tier grant (no quota row) and their
+    own provider/slot configuration is missing or broken.
 
-    No silent fallback to the system free tier here — the user made an
-    explicit choice in Settings, and we honour it. The error message
-    tells them exactly what to fix (add provider, assign slot) or how
-    to switch back to the free tier.
+    No silent fallback to the system free tier here — the quota row IS
+    the grant (implicit-grant liability guard; the old opt-out preference
+    was removed 2026-07-18). The error message tells them exactly what to
+    fix (add provider, assign slot).
     """
 
 
@@ -827,23 +827,25 @@ async def get_user_llm_configs(
     Thin wrapper over :func:`get_user_runtime_llm_configs`, which routes the
     decision through the single ``ProviderResolver`` tree. Decision summary:
 
-      1. ``prefer_system_override = True`` + budget → system free tier
-         (tags ``provider_source="system"`` so cost_tracker deducts quota).
-      2. ``prefer_system_override = True`` + exhausted + complete own provider
-         → auto-switch to the user's own key (#48); the free-tier preference
-         is flipped off and a one-time notice is surfaced.
-      3. ``prefer_system_override = True`` + exhausted + no own provider →
+      1. free tier granted + budget → system free tier (tags
+         ``provider_source="system"`` so cost_tracker deducts quota).
+         Free-tier-first is platform behavior — the old prefer_system
+         toggle was removed 2026-07-18.
+      2. free tier exhausted + complete own provider → the user's own key
+         takes over immediately (#48); a one-time notice is surfaced
+         (deduped via the repurposed prefer_system_override latch).
+      3. free tier exhausted + no own provider →
          ``SystemDefaultUnavailable`` (add a provider / ask for more quota).
-      4. ``prefer_system_override = False`` (or no quota row) → strictly the
-         user's own providers; if misconfigured → ``LLMConfigNotConfigured``.
+      4. no quota row (no free tier granted) → strictly the user's own
+         providers; if misconfigured → ``LLMConfigNotConfigured``.
 
     QuotaService is lazily bootstrapped via ``_ensure_quota_service``, so every
     entry point (backend.main, job_trigger, bus_trigger, run_lark_trigger,
     standalone MCP runner) works without calling ``bootstrap_quota_subsystem``.
 
     Raises:
-        SystemDefaultUnavailable: opted in, free tier gone, no own provider.
-        LLMConfigNotConfigured: opted out but own config missing/incomplete.
+        SystemDefaultUnavailable: free tier gone, no own provider.
+        LLMConfigNotConfigured: no free tier, own config missing/incomplete.
     """
     cfg = await get_user_runtime_llm_configs(user_id, agent_id=agent_id)
     return cfg.claude, cfg.openai
@@ -901,11 +903,11 @@ async def get_user_runtime_llm_configs(
     try:
         resolved = await resolver.resolve(user_id, agent_id=agent_id)
     except NoProviderConfiguredError as e:
-        # Opted out but own config missing/broken — same UX the strict
-        # own-config path raised before.
+        # No free-tier grant + own config missing/broken — same UX the
+        # strict own-config path raised before.
         raise LLMConfigNotConfigured(str(e)) from e
     except ProviderResolverError as e:
-        # Opted in, free tier gone, no own provider (QuotaExceededError), plus
+        # Free tier gone, no own provider (QuotaExceededError), plus
         # any other gate. Keep the SystemDefaultUnavailable *type* so triggers
         # that string-match the class name (job_trigger, lark_trigger) are
         # unaffected by the convergence.

@@ -1,8 +1,22 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/base.py
-last_verified: 2026-07-07
+last_verified: 2026-07-20
 stub: false
 ---
+## 2026-07-20 — 删除 on_call_completed 与 CallContext（死代码，行为不变）
+
+Protocol 上的 `on_call_completed` 声明、`_DriverBase` 的空默认实现、以及只
+服务于它的 `CallContext` dataclass（连同 `__all__` 与包导出）一并删除。
+
+原因：全仓没有任何 dispatcher 调用过这个钩子，它是 Phase 1 的占位设计；真正
+的免费额度扣减一直在 `utils/cost_tracker.py` 的 `record_cost` 里，依据
+`provider_source` 上下文标签。唯一 override 它的 `SystemDriver` 在自己的
+docstring 里声称"扣费由此完成"，与运行时事实不符 —— **文档描述的架构 ≠ 实际
+运行的架构**是最容易误导后人的一类债。
+
+删而不是仅改注释：留着它等于埋一颗会花钱的雷 —— 一旦有人给所有 driver 统一接
+上这个钩子，`SystemDriver` 就会与 cost_tracker 的钩子双重扣费。模块 docstring
+里已写明这条约束。详见 [[system]] 与 2026-07-20 的配额审计。
 ## 2026-06-17 — Driver grows build_codex_config(codex 进多态,铁律 #9)
 
 第四个 build 方法 `build_codex_config(model, *, thinking, reasoning_effort)`
@@ -39,14 +53,15 @@ and tolerates legacy rows where the Phase-0 columns are still null
 1. Future third-party drivers can duck-type without inheriting from us.
 2. Tests can construct stub drivers without forwarding ``__init__``.
 3. ``_DriverBase`` carries shared defaults (``models``, ``probe``,
-   ``on_call_completed``, NotImplementedError stubs for the three
-   ``build_*_config`` methods) so concrete drivers stay tiny.
+   NotImplementedError stubs for the three ``build_*_config`` methods)
+   so concrete drivers stay tiny.
 
-## CallContext
+## 驱动不计费
 
-Drop-in info for the post-call hook. Only ``SystemDriver`` actually
-reads it; other drivers ignore the argument. Kept frozen so it can't
-be mutated mid-flight between cost_tracker layers.
+Driver 只构造凭证。免费额度扣减在 `utils/cost_tracker.py` 的 `record_cost`，
+不在驱动层 —— 不要在这里加 per-driver 的 post-call 计费钩子，除非同时摘掉
+cost_tracker 的 deduct（否则双重扣费）。历史上的 `on_call_completed` /
+`CallContext` 就是这样一个从未接线的钩子，已于 2026-07-20 删除。
 
 ## DriverHealth
 

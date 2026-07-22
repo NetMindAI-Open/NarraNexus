@@ -42,6 +42,7 @@ from .event_memory_repository import EventMemoryRepository
 from .instance_repository import InstanceRepository
 from .instance_link_repository import InstanceNarrativeLinkRepository
 from .instance_awareness_repository import InstanceAwarenessRepository, InstanceAwareness
+from .home_assistant_repository import HomeAssistantBindingRepository, HABindingRow
 
 
 # Subproject 1: Team Membership
@@ -94,6 +95,8 @@ __all__ = [
     "InstanceNarrativeLinkRepository",
     # Instance Awareness
     "InstanceAwarenessRepository",
+    "HomeAssistantBindingRepository",
+    "HABindingRow",
     "InstanceAwareness",
         # Team
     "TeamRepository",

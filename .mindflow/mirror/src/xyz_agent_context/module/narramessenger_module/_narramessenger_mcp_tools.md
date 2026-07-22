@@ -1,8 +1,70 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narramessenger_mcp_tools.py
 stub: false
-last_verified: 2026-07-09
+last_verified: 2026-07-20
 ---
+
+## 2026-07-21 — `narra_cli` docstring said "read-only"; agent refused to publish
+
+Dev incident: asked to `explore publish`, an agent refused with "narra_cli only
+supports query/context/status reads" — because the tool docstring **literally
+said that** ("Run a narra-cli command for query/context/status ops. Use this to
+READ … NOT to send", no `explore` in the command list). The MCP tool docstring
+IS the description the LLM sees, so it outweighed the `_CLI_CAPABILITY` system
+prompt that DID mention explore. Rewrote the docstring: narra-cli is a ready,
+installed tool (don't reason about installing it / npm / tokens); it covers
+explore **writes** (publish/list/delete) plus rooms/history/attachments/speech/
+status; only CHAT messages go via `narra_reply`/`narra_send`. Companion tweak in
+[[narramessenger_module]]'s `_CLI_CAPABILITY` ("don't refuse a write as
+read-only"). (Root cause A of the same incident — narra-cli binary missing from
+the MCP image — is a deploy rebuild, not code.)
+
+## 2026-07-21 — `narra_guide` serves a curated static reference (no live-fetch)
+
+`narra_guide` no longer live-fetches narra's `runtime.md` (which told agents to
+install/configure narra-cli themselves → sandbox chmod failure). It returns
+`get_guide()` — OUR curated, platform-adapted reference. No credential / network.
+See [[_narra_guide]] 2026-07-21.
+
+## 2026-07-20 (review) — orphan client deleted; single validate pass
+
+- Removing `narra_status` left `_narramessenger_client.py` (`NarramessengerClient`)
+  with **zero importers** (`do_bind` uses aiohttp directly) — the source file and
+  its mirror md were deleted (铁律 #2/#8); its markdown-fetch overlapped the new
+  [[_narra_guide]] anyway.
+- `narra_cli` no longer calls `validate_command` then `sanitize_command`
+  (double validation). It calls `sanitize_command` only — which validates AND
+  parses in one pass and raises `ValueError` on a blocked/unparseable command
+  (surfaced as `error: "invalid_command"`, reason in `message`).
+
+## 2026-07-20 — `narra_cli` passthrough + `narra_guide`; `narra_status` / `narra_room_members` removed
+
+Shifted the query/context surface from hand-wrapped Matrix-direct tools to a
+narra-cli passthrough (design + impl specs in the Obsidian `Narramessenger 接入`
+vault, 2026-07-20). Motivation: narra ships its own CLI that keeps growing;
+wrapping each new command as an MCP tool is not sustainable. Lark's model
+(one passthrough + whitelist + doc-on-demand) is the reference.
+
+- **Added `narra_cli(agent_id, command)`** — validates via
+  [[_narra_command_security]] (domain whitelist, `--token*` blocked, `im send`
+  blocked transitionally), then runs through [[narra_cli_client]] (ephemeral
+  token-file injection, CWD=agent workspace). Covers `room` / `im messages` /
+  `im attachments` / `speech` / `status`.
+- **Added `narra_guide(agent_id)`** — serves the live narra-cli reference from
+  `{backend_base_url}/api/agent-guide/narra-runtime.md` (see [[_narra_guide]]).
+- **Removed `narra_status`** → `narra_cli("status")`.
+- **Removed `narra_room_members`** (was raw Matrix `/joined_members` via
+  matrix_access_token) → `narra_cli("room info --room-id <id> --members")`
+  (bearer/proxy). Behaviour delta (source + field shape) flagged for the dev
+  e2e; nulls out the last direct use of `import aiohttp` +
+  `NarramessengerClient` in this file (both imports dropped).
+
+**Transport split (transitional, owner decision 2026-07-20):** SEND stays
+Matrix-native — `narra_reply` (marker) / `narra_send` / `narra_send_media`
+kept unchanged, because the proxy media path (moderation / `ai.netmind.compound`
+/ failure modes) is not yet validated. That is also why `im send` is blocked in
+`narra_cli`. Once proxy send/media is verified on dev, remove the dedicated send
+tools AND the `im send` block together.
 
 ## 2026-07-09 — `narra_progress` tool removed entirely
 

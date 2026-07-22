@@ -1868,51 +1868,77 @@ class MatrixTrigger(ChannelTriggerBase):
         pipeline.
 
         Handles: plain text, NarraMessenger *compound* messages (the way
-        multimodal actually arrives — see below), and standard inline media
-        (m.image / m.file / …). Anything unrecognised is dropped (returning
-        ``None`` skips the base's parse_event call).
+        document/image attachments actually arrive — see below), and
+        standard inline media (m.audio voice notes / m.image / m.file / …).
+        Anything unrecognised is dropped (returning ``None`` skips the
+        base's parse_event call).
 
-        **Compound messages** — NarraMessenger does NOT send standard inline
-        m.image events for multimodal. A picture/file arrives as a plain
-        ``m.text`` event whose custom ``content["ai.netmind.hint"]`` carries
-        ``kind="compound_trigger"`` + a ``compound_preview`` with the REAL
-        user text and the media ``mxc://`` URL. (A sibling
-        ``ai.netmind.compound`` event carries the raw bytes but nio parses it
-        as RoomMessageUnknown; we ignore it — the preview has everything, and
-        NarraMessenger blocks our direct Matrix /event + /messages reads with
-        403, so the preview on the pushed /sync event is our only handle.)
-        Verified on the wire 2026-07-03 (agent_62cf67080ad4).
+        **Compound messages** — a document/image attachment does NOT arrive
+        as a standard inline m.image/m.file event. It arrives as a SINGLE
+        event with the custom msgtype ``ai.netmind.compound``, whose
+        ``content["ai.netmind.compound"]`` block self-describes the media
+        (``media_url`` / ``mime_type`` / ``file_name`` / ``size``) plus the
+        REAL user text; the @-mention rides in ``content["m.mentions"]`` on
+        the same event. Because the msgtype is custom, nio has no factory
+        for it and parses the event as ``RoomMessageUnknown`` — so we key off
+        the raw ``source`` content, NOT the nio class. An isinstance() gate
+        would miss it and the attachment would be silently dropped (the
+        agent never sees it, and an @-mention riding on it never becomes
+        group_mention → no reply). The same shape covers every attachment
+        mime; only ``mime_type`` differs (pdf / image/jpeg / video/mp4 / …).
+        Verified on the wire 2026-07-20 (agent_743423ca551b: PDF + image).
+
+        (History: until 2026-07-03 the same payload arrived as a hidden
+        ``m.text`` + ``content["ai.netmind.hint"].compound_trigger`` preview
+        alongside an ignored ``ai.netmind.compound`` sibling. NarraMessenger
+        dropped that two-event hint shape for the single self-describing
+        event above; per 铁律 #2 the old hint path is removed, not kept.)
+
+        Voice notes are a DIFFERENT path: they arrive as a standard
+        ``m.audio`` event (RoomMessageMedia, payload under ``content.info``),
+        handled by the media branch below — not compound.
         """
+        # Pull the raw event content up front. The compound branch below
+        # matches a CUSTOM msgtype that nio parses as RoomMessageUnknown, so
+        # it cannot be gated on isinstance() — we read content["msgtype"].
+        source = getattr(event, "source", None)
+        content = source.get("content") if isinstance(source, dict) else None
+        content = content if isinstance(content, dict) else {}
+
+        # ── NarraMessenger compound message (document / image / …) ───────
+        # A single ``ai.netmind.compound`` event self-describes: the payload
+        # block holds the real user text + media mxc + mime + filename +
+        # size; the @-mention rides in content["m.mentions"] (read later by
+        # _is_mentioning_us off the raw _nio_event.source). One branch covers
+        # every attachment mime. See the method docstring for the wire
+        # format + why we key off content, not the nio class.
+        compound = content.get("ai.netmind.compound")
+        if content.get("msgtype") == "ai.netmind.compound" and isinstance(
+            compound, dict
+        ):
+            mxc = compound.get("media_url", "") or ""
+            logger.info(
+                f"[matrix:{credential.agent_id}] compound "
+                f"(media={bool(mxc)}, mime={compound.get('mime_type', '')}, "
+                f"room={room_id})"
+            )
+            return {
+                "kind": "m.room.message.compound",
+                "event_id": event.event_id,
+                "room_id": room_id,
+                "sender_id": event.sender,
+                "server_ts": event.server_timestamp,
+                "text": compound.get("text", "") or "",
+                "mxc_url": mxc,
+                "mimetype": compound.get("mime_type", "") or "",
+                "file_name": compound.get("file_name", "") or "",
+                "size": int(compound.get("size", 0) or 0),
+                "_nio_event": event,
+                "_agent_id": credential.agent_id,
+                "_our_user_id": credential.matrix_user_id,
+            }
+
         if isinstance(event, RoomMessageText):
-            source = getattr(event, "source", None) or {}
-            content = source.get("content") or {}
-            hint = content.get("ai.netmind.hint")
-            if isinstance(hint, dict) and hint.get("kind") == "compound_trigger":
-                preview = hint.get("compound_preview") or {}
-                mxc = preview.get("media_url", "") or ""
-                logger.info(
-                    f"[matrix:{credential.agent_id}] compound_trigger "
-                    f"(media={bool(mxc)}, mime={preview.get('mime_type', '')}, "
-                    f"room={room_id})"
-                )
-                return {
-                    "kind": "m.room.message.compound",
-                    "event_id": event.event_id,
-                    "room_id": room_id,
-                    "sender_id": event.sender,
-                    "server_ts": event.server_timestamp,
-                    # The REAL user text — NOT event.body, which is the
-                    # hidden "[internal hint] process compound …" string
-                    # (ai.netmind.visibility=hidden).
-                    "text": preview.get("text", "") or "",
-                    "mxc_url": mxc,
-                    "mimetype": preview.get("mime_type", "") or "",
-                    "file_name": preview.get("file_name", "") or "",
-                    "size": int(preview.get("size", 0) or 0),
-                    "_nio_event": event,
-                    "_agent_id": credential.agent_id,
-                    "_our_user_id": credential.matrix_user_id,
-                }
             return {
                 "kind": "m.room.message.text",
                 "event_id": event.event_id,

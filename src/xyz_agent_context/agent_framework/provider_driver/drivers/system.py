@@ -9,17 +9,22 @@ every cloud user a starter budget. It's gated by:
 
 1. ``is_cloud_mode()`` — local DMG / `bash run.sh` never registers
    this driver and never reads its row.
-2. ``user_quotas.prefer_system_override`` — the user has opted in to
-   the free tier. (During the migration window, the resolver still
-   checks this flag in addition to the slot binding so the legacy
-   semantic survives.)
+2. a ``user_quotas`` row exists — the row IS the free-tier grant.
+   (Free-tier-first is platform behavior since 2026-07-18; the old
+   ``prefer_system_override`` opt-in column survives only as the
+   exhaustion-notice latch, see provider_resolver.)
 
-When a SystemDriver-backed slot completes an LLM call,
-:meth:`on_call_completed` debits the user's ``user_quotas`` row via
-the existing ``quota_service.deduct`` API. That's the **only**
-billing-side difference between this driver and the user-pays
-drivers — everything else flows through the same cost_records audit
-log.
+This driver builds credentials only — it does NOT bill. The free-tier
+debit happens in ``utils.cost_tracker.record_cost``, which deducts from
+``user_quotas`` whenever the ``provider_source`` context tag reads
+``"system"``, in the same place it writes the ``cost_records`` row.
+
+An earlier design had each driver debit its own quota from a post-call
+hook; that hook was never wired to a dispatcher and cost_tracker became
+the real implementation. The dead hook was removed 2026-07-20 — it had
+been claiming, in this very docstring, to be the billing path. Do not
+reintroduce per-driver billing without first removing cost_tracker's
+deduct: two live paths would double-charge users.
 
 The card row for the system pool is created by the cloud migration
 script (see spec §4.6) with ``owner_user_id=NULL`` so it's visible
@@ -27,17 +32,12 @@ to every user.
 """
 from __future__ import annotations
 
-from loguru import logger
-
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
     OpenAIConfig,
 )
-from xyz_agent_context.agent_framework.provider_driver.base import (
-    CallContext,
-    _DriverBase,
-)
+from xyz_agent_context.agent_framework.provider_driver.base import _DriverBase
 from xyz_agent_context.agent_framework.provider_driver.registry import register
 from xyz_agent_context.utils.deployment_mode import is_cloud_mode
 
@@ -93,35 +93,6 @@ class SystemDriver(_DriverBase):
             model=model,
             auth_type=self.card.auth_type or "bearer_token",
         )
-
-    async def on_call_completed(
-        self,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        ctx: CallContext,
-    ) -> None:
-        """Deduct the call's token usage from the user's quota.
-
-        Failure to deduct is logged but never raised — the LLM call
-        already succeeded and we shouldn't fail the user-facing path
-        because of an accounting hiccup.
-        """
-        if not ctx.user_id:
-            logger.warning(
-                "[SystemDriver] on_call_completed with empty user_id — skipping deduct"
-            )
-            return
-
-        try:
-            from xyz_agent_context.agent_framework.quota_service import QuotaService
-
-            qs = QuotaService.default()
-            await qs.deduct(ctx.user_id, input_tokens, output_tokens)
-        except Exception as e:  # noqa: BLE001 — defensive, never block on this
-            logger.warning(
-                f"[SystemDriver] quota deduct failed for user_id={ctx.user_id!r}: {e}"
-            )
 
 
 # Cloud-only registration: local mode never has the env-backed system

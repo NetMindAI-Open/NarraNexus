@@ -48,8 +48,12 @@ so the path can be relocated via ``CLAUDE_CLI_HOME`` /
 
 ## SystemDriver — cloud only
 
-The only Driver that overrides ``on_call_completed``. Calls
-``QuotaService.deduct(user_id, in, out)`` after each LLM call so the
-free-tier counter ticks down. Failure to deduct logs a warning but
-does NOT raise — the LLM call already succeeded and a quota write
-hiccup must not fail the user-facing path.
+**在驱动层与 user-pays 驱动没有区别** —— 同样只按 card 构造凭证，不计费。
+
+免费额度扣减发生在驱动之外：``cost_tracker.record_cost`` 在
+``provider_source == "system"`` 时从 ``user_quotas`` 扣减，与 ``cost_records``
+写入同处；扣减失败只记日志不抛（LLM 调用已成功，不该因记账抖动而让用户请求
+失败）。
+
+本驱动此前有一个 ``on_call_completed`` override 声称承担扣减，但它从未被调用，
+已于 2026-07-20 删除，详见 [[system]]。

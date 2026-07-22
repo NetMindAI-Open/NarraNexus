@@ -5,7 +5,8 @@
  * pro_cancelled) drive the badge + top status + management action; runway
  * health (healthy / low) decides whether spend controls stay behind "Manage"
  * or ONE contextual action is promoted (free→upsell Pro, pro→top-up). Also
- * covers the runway view (free-tier bar / grant / balance / prefer toggle),
+ * covers the runway view (free-tier bar / grant / balance — the prefer
+ * toggle is gone since 2026-07-18: free-tier-first is platform behavior),
  * the read-only module-F status, recharge flows, and the activity ledger.
  * api + i18n + runtimeStore are mocked — no network.
  */
@@ -42,13 +43,13 @@ const mockGetFeeInfo = vi.fn();
 const mockGetRecords = vi.fn();
 const mockGetMyQuota = vi.fn();
 const mockGetPlans = vi.fn();
-const mockSetQuotaPreference = vi.fn();
 const mockSubscribe = vi.fn();
 const mockCancel = vi.fn();
 const mockReactivate = vi.fn();
 const mockRecharge = vi.fn();
 const mockRechargeStatus = vi.fn();
 const mockGetProviders = vi.fn();
+const mockUseSubscription = vi.fn();
 vi.mock('@/lib/api', () => ({
   api: {
     getSubscription: (...a: unknown[]) => mockGetSubscription(...a),
@@ -56,13 +57,13 @@ vi.mock('@/lib/api', () => ({
     getRecords: (...a: unknown[]) => mockGetRecords(...a),
     getMyQuota: (...a: unknown[]) => mockGetMyQuota(...a),
     getPlans: (...a: unknown[]) => mockGetPlans(...a),
-    setQuotaPreference: (...a: unknown[]) => mockSetQuotaPreference(...a),
     subscribe: (...a: unknown[]) => mockSubscribe(...a),
     cancelSubscription: (...a: unknown[]) => mockCancel(...a),
     reactivateSubscription: (...a: unknown[]) => mockReactivate(...a),
     recharge: (...a: unknown[]) => mockRecharge(...a),
     rechargeStatus: (...a: unknown[]) => mockRechargeStatus(...a),
     getProviders: (...a: unknown[]) => mockGetProviders(...a),
+    useSubscription: (...a: unknown[]) => mockUseSubscription(...a),
   },
 }));
 
@@ -168,13 +169,13 @@ beforeEach(() => {
   mockGetMyQuota.mockResolvedValue({ enabled: false }); // default: no free-tier bar
   mockGetPlans.mockReset();
   mockGetPlans.mockResolvedValue({ success: true, data: { plans: [PRO_PLAN] } });
-  mockSetQuotaPreference.mockReset();
   mockSubscribe.mockReset();
   mockCancel.mockReset();
   mockReactivate.mockReset();
   mockRecharge.mockReset();
   mockRechargeStatus.mockReset();
   mockGetProviders.mockReset();
+  mockUseSubscription.mockReset();
   mockGetProviders.mockResolvedValue(NETMIND_CONNECTED); // default: already connected
   mockOpenExternal.mockReset();
   mockOpenExternal.mockResolvedValue(undefined); // re-prime after restoreAllMocks
@@ -354,6 +355,21 @@ test('pro × healthy: member-pricing note, cancel hidden behind Manage', async (
   expect(screen.getByRole('button', { name: /Cancel subscription/ })).toBeTruthy();
 });
 
+test('pro manage dialog: plan intro shown as Subscribed — perks visible, no upgrade CTA', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
+  // Plan card in subscribed state: name + badge + perks…
+  expect(screen.getByText('NetMind Pro')).toBeTruthy();
+  expect(screen.getByText(/Subscribed/)).toBeTruthy();
+  expect(screen.getByText(/Up to 50% off on models like OpenAI/)).toBeTruthy();
+  // …but no upgrade CTA (cancel is the only plan action here).
+  expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
+  // Pricing link present too (added 2026-07-18).
+  expect(screen.getByRole('button', { name: /See all models & pricing/ })).toBeTruthy();
+});
+
 test('pro × low: top-up promoted directly (no upsell — already Pro)', async () => {
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_POOR); // $0.40 < buffer → low
@@ -395,13 +411,17 @@ test('S3: resume button → confirm true → api.reactivateSubscription', async 
 
 // ── runway view: free-tier bar / balance / grant / flow line / toggle ───────
 
-test('runway: free-tier bar shows the more depleted side (62% left) + tiered flow line', async () => {
+test('runway: free-tier row shows tokens of the more depleted side, bar keeps the pct', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
   expect(await screen.findByText('Free tier')).toBeTruthy();
-  expect(screen.getByText('62% left')).toBeTruthy();
+  // input is the more depleted dimension (62% vs 79%): 124k remaining.
+  // Remaining only — the bar carries the proportion (Owner: "/total" too dense).
+  expect(screen.getByText('124K tokens left')).toBeTruthy();
+  // The bar width still reflects the percentage of the same dimension.
+  expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('62');
   // free-tier bar visible → the flow line may mention it
   expect(screen.getByText(/free tier first, then your balance\./)).toBeTruthy();
 });
@@ -469,40 +489,123 @@ test('runway: quota fetch failure never crashes the panel', async () => {
   expect(screen.queryByText('Free tier')).toBeNull();
 });
 
-// ── prefer toggle (formerly QuotaPanel prefer_system) ──────────────────────
+// ── free tier is always drawn first (no toggle since 2026-07-18) ───────────
 
-test('prefer toggle: click → setQuotaPreference(false), UI reflects the response', async () => {
-  mockGetSubscription.mockResolvedValue(FREE_SUB);
-  mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE); // prefer ON
-  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
-  mockSetQuotaPreference.mockResolvedValue({ ...QUOTA_ACTIVE, prefer_system_override: false });
-  render(<NetmindAccountPanel />);
-  const sw = await screen.findByRole('switch');
-  expect(sw.getAttribute('aria-checked')).toBe('true');
-  fireEvent.click(sw);
-  await waitFor(() => expect(mockSetQuotaPreference).toHaveBeenCalledWith(false));
-  await waitFor(() => expect(sw.getAttribute('aria-checked')).toBe('false'));
-});
-
-test('prefer toggle: exhausted + OFF → locked (cannot turn ON without budget)', async () => {
-  mockGetSubscription.mockResolvedValue(FREE_SUB);
-  mockGetMyQuota.mockResolvedValue({ ...QUOTA_EXHAUSTED, prefer_system_override: false });
-  mockGetFeeInfo.mockResolvedValue(FEE_POOR);
-  render(<NetmindAccountPanel />);
-  const sw = await screen.findByRole('switch');
-  expect((sw as HTMLButtonElement).disabled).toBe(true);
-});
-
-test('prefer toggle: rapid double-click fires only ONE api call (sync guard)', async () => {
+test('runway renders no prefer switch — free-tier-first is not a choice', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
-  mockSetQuotaPreference.mockReturnValue(new Promise(() => {})); // in flight forever
   render(<NetmindAccountPanel />);
-  const sw = await screen.findByRole('switch');
-  fireEvent.click(sw);
-  fireEvent.click(sw); // second click lands before the first resolves
-  await waitFor(() => expect(mockSetQuotaPreference).toHaveBeenCalledTimes(1));
+  // free-tier bar is there…
+  expect(await screen.findByRole('progressbar')).toBeTruthy();
+  // …but there is no switch and no "Free tier first" copy.
+  expect(screen.queryByRole('switch')).toBeNull();
+  expect(screen.queryByText(/Free tier first/)).toBeNull();
+});
+
+// ── Pro subscription-credit split (the "overflow tank" model) ───────────────
+// Live dev numbers: free_credit 66.91, subscription_credit 56.98 (3 × $19
+// cycles accumulated), recharge history $10. Split: this cycle's tank =
+// min(56.98, 19) = 19 → 100% bar; overflow 37.98 + (66.91 − 56.98) = 47.91
+// hero. Denominator is proPlan.monthly_grant_usd (19), NOT the unreliable
+// metrics.monthly_free_credit.
+
+const FEE_SUB_SPLIT = {
+  success: true,
+  data: {
+    eligible: true,
+    checks: { has_arrears: false },
+    metrics: {
+      free_credit: '66.9100',
+      subscription_credit: '56.98000000',
+      monthly_free_credit: '0.5000',
+    },
+  },
+};
+
+test('pro split: full-cycle bar + overflow folded into the hero', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE); // free tier present but REPLACED
+  mockGetFeeInfo.mockResolvedValue(FEE_SUB_SPLIT);
+  render(<NetmindAccountPanel />);
+
+  // hero = (66.91 − 56.98) + (56.98 − 19) = 47.91, labelled as own money
+  expect(await screen.findByText('$47.91')).toBeTruthy();
+  expect(screen.getByText(/Your balance \(top-ups \+ carried-over plan credit\)/)).toBeTruthy();
+
+  // plan-credit bar at 100%; the free-tier bar is replaced (single bar)
+  const bars = screen.getAllByRole('progressbar');
+  expect(bars).toHaveLength(1);
+  expect(bars[0].getAttribute('aria-label')).toBe('Plan credit');
+  expect(bars[0].getAttribute('aria-valuenow')).toBe('100');
+  expect(screen.queryByText('Free tier')).toBeNull();
+
+  // flow copy: plan credit → balance (no free-tier claim, no legacy grant row)
+  expect(screen.getByText(/plan credit first, then your balance/)).toBeTruthy();
+  expect(screen.queryByText(/Monthly grant/)).toBeNull();
+});
+
+test('pro split: mid-cycle drain → proportional bar', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  mockGetFeeInfo.mockResolvedValue({
+    ...FEE_SUB_SPLIT,
+    data: {
+      ...FEE_SUB_SPLIT.data,
+      metrics: { free_credit: '14.43', subscription_credit: '9.50', monthly_free_credit: '0.5' },
+    },
+  });
+  render(<NetmindAccountPanel />);
+  // tank = min(9.50, 19) = 9.50 → floor(50%); hero = 14.43 − 9.50 = 4.93
+  expect(await screen.findByText('$4.93')).toBeTruthy();
+  expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('50');
+});
+
+test('pro split: cycle used up → 0% bar stays + "refreshes next cycle" note', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  mockGetFeeInfo.mockResolvedValue({
+    ...FEE_SUB_SPLIT,
+    data: {
+      ...FEE_SUB_SPLIT.data,
+      metrics: { free_credit: '4.93', subscription_credit: '0', monthly_free_credit: '0.5' },
+    },
+  });
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText('$4.93')).toBeTruthy();
+  const bar = screen.getByRole('progressbar');
+  expect(bar.getAttribute('aria-valuenow')).toBe('0');
+  expect(screen.getByText(/refreshes next cycle/)).toBeTruthy();
+});
+
+test('pro WITHOUT subscription_credit (older API) → split off, legacy grant line + merged hero', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH); // no subscription_credit field
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText('$12.50')).toBeTruthy(); // merged free_credit as-is
+  expect(screen.getByText(/Monthly grant/)).toBeTruthy();
+  expect(screen.queryByText('Plan credit')).toBeNull();
+});
+
+test('non-pro ignores subscription_credit even if present', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
+  mockGetFeeInfo.mockResolvedValue(FEE_SUB_SPLIT);
+  render(<NetmindAccountPanel />);
+  // merged hero, free-tier bar intact, no plan-credit bar
+  expect(await screen.findByText('$66.91')).toBeTruthy();
+  expect(screen.getByRole('progressbar').getAttribute('aria-label')).toBe('Free tier');
+  expect(screen.queryByText('Plan credit')).toBeNull();
+});
+
+test('runway: exhausted free tier → bar collapses to one quiet note (one-time grant, no refresh)', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetMyQuota.mockResolvedValue(QUOTA_EXHAUSTED);
+  mockGetFeeInfo.mockResolvedValue(FEE_RICH);
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/usage now draws from your balance/)).toBeTruthy();
+  // no permanent 0% warning bar…
+  expect(screen.queryByRole('progressbar')).toBeNull();
+  // …and the flow line must not claim "free tier first" for a pool that's gone
+  expect(screen.queryByText(/free tier first/)).toBeNull();
 });
 
 test('free × low with UNKNOWN quota state → neutral copy, not "Free tier used up"', async () => {
@@ -512,18 +615,6 @@ test('free × low with UNKNOWN quota state → neutral copy, not "Free tier used
   render(<NetmindAccountPanel />);
   expect(await screen.findByText(/You're low on credits. To keep going:/)).toBeTruthy();
   expect(screen.queryByText(/Free tier used up/)).toBeNull();
-});
-
-test('prefer toggle: exhausted + ON → still allowed to turn OFF', async () => {
-  mockGetSubscription.mockResolvedValue(FREE_SUB);
-  mockGetMyQuota.mockResolvedValue(QUOTA_EXHAUSTED); // prefer ON
-  mockGetFeeInfo.mockResolvedValue(FEE_POOR);
-  mockSetQuotaPreference.mockResolvedValue({ ...QUOTA_EXHAUSTED, prefer_system_override: false });
-  render(<NetmindAccountPanel />);
-  const sw = await screen.findByRole('switch');
-  expect((sw as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(sw);
-  await waitFor(() => expect(mockSetQuotaPreference).toHaveBeenCalledWith(false));
 });
 
 // ── module F: read-only connection status ──────────────────────────────────
@@ -551,7 +642,7 @@ test('status AVAILABLE: netmind registered but user is on their OWN provider →
   expect(screen.queryByText(/Running on your NetMind/)).toBeNull();
 });
 
-test('status: no netmind provider → not-connected copy', async () => {
+test('status: no netmind provider → not-connected copy + Link it now button', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetProviders.mockResolvedValue({
     success: true,
@@ -559,6 +650,68 @@ test('status: no netmind provider → not-connected copy', async () => {
   });
   render(<NetmindAccountPanel />);
   expect(await screen.findByText(/isn.t linked as a provider yet/)).toBeTruthy();
+  // Actionable in-session exit — no more "sign out and back in" copy.
+  expect(screen.getByRole('button', { name: /Link it now/ })).toBeTruthy();
+  expect(screen.queryByText(/[Ss]ign out and back in/)).toBeNull();
+});
+
+test('link now: click → POST use-subscription → status flips to driving', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: { providers: { x: { source: 'user' } }, slots: {} },
+  });
+  mockUseSubscription.mockResolvedValue({ success: true, provider_ids: ['p_nm'] });
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Link it now/ });
+  // After the link succeeds, the providers re-read shows the netmind card.
+  mockGetProviders.mockResolvedValue(NETMIND_CONNECTED);
+  fireEvent.click(btn);
+  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1));
+  expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Link it now/ })).toBeNull();
+});
+
+test('link now: 409 already-linked counts as success (status refreshes)', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: { providers: { x: { source: 'user' } }, slots: {} },
+  });
+  mockUseSubscription.mockRejectedValue(new Error('API error: 409 Conflict'));
+  render(<NetmindAccountPanel />);
+  const btn = await screen.findByRole('button', { name: /Link it now/ });
+  mockGetProviders.mockResolvedValue(NETMIND_CONNECTED);
+  fireEvent.click(btn);
+  expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
+});
+
+test('link now: hard failure → error line, still not connected', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: { providers: { x: { source: 'user' } }, slots: {} },
+  });
+  mockUseSubscription.mockRejectedValue(new Error('API error: 502 Bad Gateway'));
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Link it now/ }));
+  expect(await screen.findByText(/Linking failed:/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Link it now/ })).toBeTruthy();
+});
+
+test('subscribe payment lands → auto-link fires (no sign-out required)', async () => {
+  // free × low promotes the upsell; complete the checkout and the poll's
+  // ACTIVE result must trigger the best-effort use-subscription call.
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  mockGetMyQuota.mockResolvedValue(QUOTA_EXHAUSTED);
+  mockGetFeeInfo.mockResolvedValue(FEE_POOR);
+  mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://stripe/x' } });
+  mockUseSubscription.mockResolvedValue({ success: true });
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Pro/ }));
+  // First poll tick returns ACTIVE.
+  mockGetSubscription.mockResolvedValue(PRO_SUB(true));
+  await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1), { timeout: 5000 });
 });
 
 test('status: connection line sits ABOVE the runway breakdown, both states', async () => {

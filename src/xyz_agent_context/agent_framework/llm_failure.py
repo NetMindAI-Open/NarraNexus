@@ -218,6 +218,11 @@ SELF_SERVICEABLE_USER_MESSAGE: dict[str, str] = {
         "small for this Agent's context. Switch to a model with a larger "
         "context window in Settings, then send the message again."
     ),
+    # Deliberately provider-agnostic: this fires for DeepSeek 402s, OpenAI
+    # insufficient_quota and Anthropic credit-balance alike, so it must not
+    # name one vendor's remedy. NetMind-specific guidance (subscribe to a
+    # plan) lives in QuotaExceededError instead — that path is free-tier-only,
+    # i.e. cloud + NetMind by construction, so it is always relevant there.
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE: (
         "This turn could not run: the model provider reports insufficient "
         "balance / quota. Top up or switch the provider for this Agent slot in "

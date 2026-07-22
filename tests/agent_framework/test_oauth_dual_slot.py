@@ -96,5 +96,5 @@ async def test_set_slot_accepts_oauth_in_helper():
         "api_key": "", "base_url": "", "models": json.dumps(["opus", "haiku"]),
     }
     # Should NOT raise (previously raised "helper_llm slot cannot use OAuth").
-    await svc.set_slot("u1", "helper_llm", "p_oauth", "haiku")
+    await svc.set_slot("u1", "helper_llm", "p_oauth", "haiku", actor_is_staff=None)
     assert db.slots[("u1", "helper_llm")]["provider_id"] == "p_oauth"

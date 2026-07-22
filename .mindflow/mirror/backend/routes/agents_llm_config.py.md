@@ -1,8 +1,27 @@
 ---
 code_file: backend/routes/agents_llm_config.py
-last_verified: 2026-07-09
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 路由级门禁删除，策略随 set_agent_slot 下沉 cloud_policy
+
+昨天加的内联 netmind-only 检查块（含它的 prov 查询）整体删除：PUT 现在把
+`actor_is_staff=_is_staff(request)` 传给 `set_agent_slot`，策略（provider
+来源 + **per-agent 框架钉选门禁**，后者是新增的——云端非 staff 不得钉与 owner
+默认不同的框架，堵住框架切换 staff-gate 的侧门）在服务层由 [[cloud_policy]]
+统一强制；路由 catch `CloudPolicyViolation` → 403。`is_cloud_mode` import
+随之移除。
+
+## 2026-07-17 — 云端门禁从 OAuth-only 扩宽为 netmind-only
+
+PUT 的云端非 staff 门禁从 `source in _OAUTH_SOURCES`（拒 OAuth 卡）改为
+`source != "netmind"`（只许 NetMind 卡）——产品决策：云端只能用 NetMind 账户
+运行，自有 API key 是本地版功能。旧 OAuth 拦截被**包含**（OAuth 源都非
+netmind），`_OAUTH_SOURCES` 常量随之删除。与 providers.py 的
+`_netmind_slots_only` 同一规则（那边守用户级槽 + onboard/add）；staff 豁免、
+本地不受影响。前端 [[AgentLlmConfigPanel]] 同步过滤下拉。测试见
+test_agents_llm_config_routes.py 新增三例（403 / netmind 通过 / staff 绕过）。
 
 ## 2026-07-09 (review fixes) — raw owner rows + deployment_mode + owner-scoped gate
 

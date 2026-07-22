@@ -5,8 +5,8 @@
  * period, date). Pure functions — no rendering.
  */
 
-import { describe, it, expect } from 'vitest';
-import { money, freeTierPctLeft, formatPeriod, formatDate } from '../netmindFormat';
+import { describe, it, expect, test } from 'vitest';
+import { money, freeTierPctLeft, freeTierTokensLeft, formatTokens, formatPeriod, formatDate } from '../netmindFormat';
 import type { QuotaMeResponse } from '@/types';
 
 describe('money', () => {
@@ -82,3 +82,35 @@ describe('formatDate', () => {
     expect(formatDate(Number.NaN)).toBe('—');
   });
 });
+
+// ── formatTokens / freeTierTokensLeft (2026-07-20: row value went from % to tokens) ──
+
+test('formatTokens compacts with one trimmed decimal', () => {
+  expect(formatTokens(4_500_000)).toBe('4.5M')
+  expect(formatTokens(1_000_000)).toBe('1M')
+  expect(formatTokens(900_000)).toBe('900K')
+  expect(formatTokens(123_456)).toBe('123.5K')
+  expect(formatTokens(850)).toBe('850')
+  expect(formatTokens(0)).toBe('0')
+  expect(formatTokens(-5)).toBe('0')
+  expect(formatTokens(Number.NaN)).toBe('0')
+})
+
+test('freeTierTokensLeft picks the SAME dimension as the pct bar', () => {
+  const quota = {
+    enabled: true, status: 'active',
+    remaining_input_tokens: 124_000, remaining_output_tokens: 119_000,
+    initial_input_tokens: 200_000, initial_output_tokens: 150_000,
+    granted_input_tokens: 0, granted_output_tokens: 0,
+    used_input_tokens: 76_000, used_output_tokens: 31_000,
+    prefer_system_override: true,
+  } as never
+  // input ratio 0.62 < output 0.79 → input is the binding dimension
+  expect(freeTierTokensLeft(quota)).toEqual({ remaining: 124_000, total: 200_000 })
+})
+
+test('freeTierTokensLeft null exactly when there is no bar to annotate', () => {
+  expect(freeTierTokensLeft(null)).toBeNull()
+  expect(freeTierTokensLeft({ enabled: false } as never)).toBeNull()
+  expect(freeTierTokensLeft({ enabled: true, status: 'uninitialized' } as never)).toBeNull()
+})

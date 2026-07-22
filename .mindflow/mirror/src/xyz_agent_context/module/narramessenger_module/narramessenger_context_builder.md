@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_context_builder.py
 stub: false
-last_verified: 2026-07-09
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — roster-on-demand now via `narra_cli`
+
+Intent unchanged (``get_room_members`` still returns ``[]``; roster is not
+prompt-injected). Only the on-demand path was renamed in the docstrings: the
+removed ``narra_room_members`` MCP tool is replaced by
+``narra_cli("room info --room-id <id> --members")``. See
+[[_narramessenger_mcp_tools]] 2026-07-20.
 
 ## 2026-07-09 (later) — `get_conversation_history` + `get_room_members` → `return []`
 

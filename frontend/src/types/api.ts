@@ -402,8 +402,9 @@ export type QuotaMeResponse =
       granted_output_tokens: number;
       used_input_tokens: number;
       used_output_tokens: number;
-      // User's choice: when true, route LLM calls through the system-default
-      // provider even when they have their own provider configured.
+      // Exhaustion-notice dedup latch, NOT a user preference (the toggle was
+      // removed 2026-07-18; free-tier-first is platform behavior). Returned
+      // read-only; no frontend writes it or renders it anymore.
       prefer_system_override: boolean;
     };
 
@@ -1114,7 +1115,14 @@ export interface FeeInfo {
   metrics?: {
     balance?: { usd?: string; nmt?: string; cny?: string };
     free_credit?: string; // current balance (recharge + subscription grant + activity)
-    monthly_free_credit?: string; // monthly grant, listed separately
+    // Remaining Pro subscription grant, listed separately (2026-07-18). Grants
+    // ACCUMULATE across cycles (verified on dev: 3 × $19 cycles ≈ 56.98), so
+    // the panel splits it into "this cycle's tank" + overflow (into balance).
+    subscription_credit?: string;
+    // CAUTION: observed 0.50 on dev while the real per-cycle grant is $19 —
+    // semantics unverified; do NOT use as the cycle denominator (the panel
+    // uses proPlan.monthly_grant_usd instead).
+    monthly_free_credit?: string;
     arrears?: { pending_bills_count?: number; pending_payments_count?: number };
     card_month?: {
       spent_usd?: string;

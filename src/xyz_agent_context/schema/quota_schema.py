@@ -31,15 +31,16 @@ class Quota(BaseModel):
     granted_input_tokens: int = Field(default=0, ge=0)
     granted_output_tokens: int = Field(default=0, ge=0)
     status: QuotaStatus = QuotaStatus.ACTIVE
-    # When True, LLM calls route through the system-default free-tier
-    # provider even when the user has their own provider configured. Same
-    # quota gating as the no-config fallback path — running out still
-    # raises / returns 402.
-    #
-    # Default: True. Newly registered users get the free tier by default
-    # so they can start chatting immediately. If they later configure
-    # their own provider in Settings and uncheck the toggle, they will
-    # consume their own key from that point on.
+    # Exhaustion-notice dedup latch — NOT a routing preference. The old
+    # user-facing "prefer free tier" toggle was removed 2026-07-18
+    # (free-tier-first is platform behavior; see provider_resolver):
+    #   1 (armed) = the next exhausted run that falls through to the user's
+    #     own provider emits the one-time "switched to your own key" notice
+    #     (CAS 1→0, winner notifies).
+    #   0 (fired) = the notice went out this cycle; re-armed 0→1 on the
+    #     next run that finds budget again (staff grant).
+    # Default True: new rows start armed. Column name kept (rule #6 — no
+    # dangerous schema changes).
     prefer_system_override: bool = True
     created_at: datetime
     updated_at: datetime

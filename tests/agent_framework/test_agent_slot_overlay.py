@@ -75,8 +75,8 @@ async def _seed_owner_defaults(db) -> tuple[UserProviderService, str, str]:
         user_id="u1", card_type="anthropic", api_key="sk-ant-default",
         models=_ANTH_MODELS,
     )
-    await svc.set_slot("u1", "agent", default_ids[0], "claude-opus-4-8")
-    await svc.set_slot("u1", "helper_llm", default_ids[0], "claude-haiku-4-5")
+    await svc.set_slot("u1", "agent", default_ids[0], "claude-opus-4-8", actor_is_staff=None)
+    await svc.set_slot("u1", "helper_llm", default_ids[0], "claude-haiku-4-5", actor_is_staff=None)
     return svc, "u1", default_ids[0]
 
 
@@ -90,7 +90,7 @@ async def test_agent_override_wins_on_agent_slot_helper_still_inherits():
     )
     await AgentSlotService(db).set_agent_slot(
         "ag1", "agent", override_ids[0], "claude-sonnet-4-6"
-    )
+    , actor_is_staff=None)
 
     # No agent_id → owner default.
     base = await resolve_user_runtime_llm_configs("u1", db)
@@ -116,7 +116,7 @@ async def test_helper_override_wins_agent_still_inherits():
     )
     await AgentSlotService(db).set_agent_slot(
         "ag1", "helper_llm", helper_ids[0], "gpt-5.4-mini"
-    )
+    , actor_is_staff=None)
 
     over = await resolve_user_runtime_llm_configs("u1", db, agent_id="ag1")
     # helper overridden to the openai key → openai helper path, not anthropic.

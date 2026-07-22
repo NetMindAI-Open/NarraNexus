@@ -610,7 +610,6 @@ _register(
 )
 
 
-
 # 20. bus_channels (text primary key, no auto-increment)
 _register(
     TableDef(
@@ -1466,34 +1465,36 @@ _register(
     TableDef(
         name="instance_artifacts",
         columns=[
-            Column("artifact_id",    "TEXT",    "VARCHAR(32)",  nullable=False, primary_key=True),
-            Column("agent_id",       "TEXT",    "VARCHAR(128)", nullable=False),
-            Column("user_id",        "TEXT",    "VARCHAR(128)", nullable=False),
-            Column("session_id",     "TEXT",    "VARCHAR(64)"),
-            Column("original_session_id", "TEXT", "VARCHAR(64)"),    # remembers session_id at pin time so unpin can restore it
-            Column("title",          "TEXT",    "VARCHAR(200)", nullable=False),
-            Column("kind",           "TEXT",    "VARCHAR(64)",  nullable=False),
-            Column("description",    "TEXT",    "TEXT"),
-            Column("pinned",         "INTEGER", "TINYINT(1)",   nullable=False, default="0"),
+            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("session_id", "TEXT", "VARCHAR(64)"),
+            Column(
+                "original_session_id", "TEXT", "VARCHAR(64)"
+            ),  # remembers session_id at pin time so unpin can restore it
+            Column("title", "TEXT", "VARCHAR(200)", nullable=False),
+            Column("kind", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("pinned", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
             # Pointer-model columns. file_path = entry file relative to
             # base_working_path; size_bytes = recursive size of the artifact
             # root directory. Nullable so auto_migrate can add them to existing
             # DBs without a backfill — old (versioned) rows keep file_path NULL
             # and are hand-migrated per the cleanup TODO.
-            Column("file_path",      "TEXT",    "VARCHAR(512)"),
-            Column("size_bytes",     "INTEGER", "BIGINT",       nullable=False, default="0"),
+            Column("file_path", "TEXT", "VARCHAR(512)"),
+            Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
             # model. Column kept so auto_migrate keeps provisioning it and
             # colleagues can hand-migrate old rows. No code reads/writes it.
             # Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
-            Column("latest_version", "INTEGER", "INT",          nullable=False, default="1"),
-            Column("created_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
-            Column("updated_at",     "TEXT",    "DATETIME(6)",  nullable=False, default="(datetime('now'))"),
+            Column("latest_version", "INTEGER", "INT", nullable=False, default="1"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_artifact_agent_session", ["agent_id", "session_id"]),
-            Index("idx_artifact_agent_pinned",  ["agent_id", "pinned"]),
-            Index("idx_artifact_agent_id",      ["agent_id"]),  # agent-scoped scans
+            Index("idx_artifact_agent_pinned", ["agent_id", "pinned"]),
+            Index("idx_artifact_agent_id", ["agent_id"]),  # agent-scoped scans
         ],
     )
 )
@@ -1507,12 +1508,12 @@ _register(
     TableDef(
         name="instance_artifact_versions",
         columns=[
-            Column("id",          "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
-            Column("artifact_id", "TEXT",    "VARCHAR(32)",     nullable=False),
-            Column("version",     "INTEGER", "INT",             nullable=False),
-            Column("file_path",   "TEXT",    "VARCHAR(512)",    nullable=False),
-            Column("size_bytes",  "INTEGER", "BIGINT",          nullable=False),
-            Column("created_at",  "TEXT",    "DATETIME(6)",     nullable=False, default="(datetime('now'))"),
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("version", "INTEGER", "INT", nullable=False),
+            Column("file_path", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("size_bytes", "INTEGER", "BIGINT", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
     )
@@ -1549,7 +1550,6 @@ _register(
         ],
     )
 )
-
 
 
 # ----------------------------------------------------------------------------
@@ -1617,14 +1617,16 @@ def _memory_kind_table(kind: str) -> TableDef:
             Column("attributes", "TEXT", "MEDIUMTEXT"),  # JSON — kind-specific structured payload
             Column("tags", "TEXT", "JSON"),  # JSON array — strong filter keys (entity:xxx, topic:xxx)
             # --- bi-temporal (graphiti范式) ---
-            Column("valid_at", "TEXT", "DATETIME(6)"),     # reality: became true (NULL = always)
-            Column("invalid_at", "TEXT", "DATETIME(6)"),   # reality: stopped being true (NULL = still true)
-            Column("expired_at", "TEXT", "DATETIME(6)"),   # system: superseded tombstone (NULL = live)
+            Column("valid_at", "TEXT", "DATETIME(6)"),  # reality: became true (NULL = always)
+            Column("invalid_at", "TEXT", "DATETIME(6)"),  # reality: stopped being true (NULL = still true)
+            Column("expired_at", "TEXT", "DATETIME(6)"),  # system: superseded tombstone (NULL = live)
             # --- provenance + confidence (hindsight范式) ---
-            Column("source_ids", "TEXT", "JSON"),          # which events/records produced this
-            Column("source_ref", "TEXT", "JSON"),          # pointer {kind,id} back to the original (projection kinds); NULL = self-contained
+            Column("source_ids", "TEXT", "JSON"),  # which events/records produced this
+            Column(
+                "source_ref", "TEXT", "JSON"
+            ),  # pointer {kind,id} back to the original (projection kinds); NULL = self-contained
             Column("proof_count", "INTEGER", "INT", nullable=False, default="0"),
-            Column("history", "TEXT", "MEDIUMTEXT"),        # JSON — evolution snapshots
+            Column("history", "TEXT", "MEDIUMTEXT"),  # JSON — evolution snapshots
             # --- lifecycle ---
             Column("salience", "REAL", "FLOAT", nullable=False, default="0"),
             Column("last_used_at", "TEXT", "DATETIME(6)"),  # recency: last recalled
@@ -1727,6 +1729,23 @@ _register(
     )
 )
 
+# Home Assistant binding — one row per HomeAssistantModule instance. config_json
+# holds {base_url, token, verify_tls}; token is a sensitive credential (redacted
+# on bundle export, masked in the frontend).
+_register(
+    TableDef(
+        name="instance_homeassistant_bindings",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(128)", nullable=False, unique=True),
+            Column("config_json", "TEXT", "MEDIUMTEXT"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_ha_bindings_agent", ["agent_id"], unique=True)],
+    )
+)
+
 
 # ============================================================================
 # DDL Generation
@@ -1770,20 +1789,14 @@ def generate_sqlite_ddl(table: TableDef) -> List[str]:
     if table.primary_key:
         col_defs.append(f"PRIMARY KEY ({', '.join(table.primary_key)})")
 
-    create_sql = (
-        f"CREATE TABLE IF NOT EXISTS {table.name} (\n"
-        + ",\n".join(f"    {d}" for d in col_defs)
-        + "\n)"
-    )
+    create_sql = f"CREATE TABLE IF NOT EXISTS {table.name} (\n" + ",\n".join(f"    {d}" for d in col_defs) + "\n)"
     stmts.append(create_sql)
 
     # Indexes
     for idx in table.indexes:
         unique = "UNIQUE " if idx.unique else ""
         cols = ", ".join(idx.columns)
-        stmts.append(
-            f"CREATE {unique}INDEX IF NOT EXISTS {idx.name} ON {table.name}({cols})"
-        )
+        stmts.append(f"CREATE {unique}INDEX IF NOT EXISTS {idx.name} ON {table.name}({cols})")
 
     return stmts
 
@@ -1817,10 +1830,7 @@ def generate_mysql_ddl(table: TableDef) -> List[str]:
             # columns (error 1101). Skip the DEFAULT clause on those types;
             # the application layer must supply values at insert time.
             mysql_type_upper = (col.mysql_type or "").upper()
-            is_lob = any(
-                tok in mysql_type_upper
-                for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")
-            )
+            is_lob = any(tok in mysql_type_upper for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY"))
             if not is_lob:
                 # Translate SQLite default expressions to MySQL equivalents
                 default_val = col.default
@@ -1850,9 +1860,7 @@ def generate_mysql_ddl(table: TableDef) -> List[str]:
     for idx in table.indexes:
         unique = "UNIQUE " if idx.unique else ""
         cols = ", ".join(f"`{c}`" for c in idx.columns)
-        stmts.append(
-            f"CREATE {unique}INDEX `{idx.name}` ON `{table.name}`({cols})"
-        )
+        stmts.append(f"CREATE {unique}INDEX `{idx.name}` ON `{table.name}`({cols})")
 
     return stmts
 
@@ -1909,8 +1917,7 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
             )
         else:
             rows = await backend.execute(
-                "SELECT TABLE_NAME FROM information_schema.tables "
-                "WHERE table_schema=DATABASE() AND table_name=%s",
+                "SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=%s",
                 (table_name,),
             )
 
@@ -1923,9 +1930,7 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
         else:
             # Check for missing columns
             if dialect == "sqlite":
-                existing = await backend.execute(
-                    f"PRAGMA table_info({table_name})", None
-                )
+                existing = await backend.execute(f"PRAGMA table_info({table_name})", None)
                 existing_cols = {row["name"] for row in existing}
             else:
                 existing = await backend.execute(
@@ -1948,10 +1953,7 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
                         # allows it.
                         if dialect == "mysql":
                             mysql_type_upper = (col.mysql_type or "").upper()
-                            if any(
-                                tok in mysql_type_upper
-                                for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")
-                            ):
+                            if any(tok in mysql_type_upper for tok in ("TEXT", "BLOB", "JSON", "GEOMETRY")):
                                 default = ""
                             else:
                                 default = f" DEFAULT {default_val}"
@@ -1963,13 +1965,11 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
                         default = " DEFAULT ''"
                     if dialect == "mysql":
                         await backend.execute_write(
-                            f"ALTER TABLE `{table_name}` ADD COLUMN `{col.name}` "
-                            f"{col_type}{null_clause}{default}"
+                            f"ALTER TABLE `{table_name}` ADD COLUMN `{col.name}` {col_type}{null_clause}{default}"
                         )
                     else:
                         await backend.execute_write(
-                            f"ALTER TABLE {table_name} ADD COLUMN {col.name} "
-                            f"{col_type}{null_clause}{default}"
+                            f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}{null_clause}{default}"
                         )
                     columns_added += 1
 
@@ -1994,15 +1994,11 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
                     if dialect == "sqlite":
                         cols = ", ".join(idx.columns)
                         await backend.execute_write(
-                            f"CREATE {unique}INDEX IF NOT EXISTS "
-                            f"{idx.name} ON {table_name}({cols})"
+                            f"CREATE {unique}INDEX IF NOT EXISTS {idx.name} ON {table_name}({cols})"
                         )
                     else:
                         cols = ", ".join(f"`{c}`" for c in idx.columns)
-                        await backend.execute_write(
-                            f"CREATE {unique}INDEX `{idx.name}` "
-                            f"ON `{table_name}`({cols})"
-                        )
+                        await backend.execute_write(f"CREATE {unique}INDEX `{idx.name}` ON `{table_name}`({cols})")
                     indexes_created += 1
 
     logger.info(
@@ -2032,9 +2028,7 @@ async def auto_migrate(backend: "DatabaseBackend") -> None:
     await _self_heal_missing_tables(backend, dialect)
 
 
-async def _self_heal_missing_tables(
-    backend: "DatabaseBackend", dialect: str
-) -> None:
+async def _self_heal_missing_tables(backend: "DatabaseBackend", dialect: str) -> None:
     """Detect and re-create tables that the registry expects but the DB
     is missing. Idempotent; safe to call multiple times.
 
@@ -2045,14 +2039,11 @@ async def _self_heal_missing_tables(
     """
     missing = await _verify_all_tables_present(backend, dialect)
     if not missing:
-        logger.info(
-            f"Schema integrity verified: all {len(TABLES)} registered tables present"
-        )
+        logger.info(f"Schema integrity verified: all {len(TABLES)} registered tables present")
         return
 
     logger.warning(
-        f"Schema self-heal: {len(missing)} table(s) missing after migrate — "
-        f"re-attempting CREATE for: {missing}"
+        f"Schema self-heal: {len(missing)} table(s) missing after migrate — re-attempting CREATE for: {missing}"
     )
 
     for table_name in missing:
@@ -2086,14 +2077,10 @@ async def _self_heal_missing_tables(
             f"(local mode only — you'll lose data)."
         )
     else:
-        logger.info(
-            f"Schema self-heal complete: all {len(TABLES)} tables present"
-        )
+        logger.info(f"Schema self-heal complete: all {len(TABLES)} tables present")
 
 
-async def _verify_all_tables_present(
-    backend: "DatabaseBackend", dialect: str
-) -> list[str]:
+async def _verify_all_tables_present(backend: "DatabaseBackend", dialect: str) -> list[str]:
     """Return the list of TABLES entries that don't actually exist in the
     backend. Empty list means everything's fine.
 
@@ -2109,8 +2096,7 @@ async def _verify_all_tables_present(
             )
         else:
             rows = await backend.execute(
-                "SELECT TABLE_NAME FROM information_schema.tables "
-                "WHERE table_schema=DATABASE() AND table_name=%s",
+                "SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=%s",
                 (table_name,),
             )
         if not rows:

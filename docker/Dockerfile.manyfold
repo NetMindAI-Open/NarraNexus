@@ -97,6 +97,26 @@ RUN set -eux; \
     chmod +x /usr/local/bin/officecli; \
     officecli --version
 
+# narra-cli — the NarraMessenger MCP tools spawn `@narra-im/narra-cli` for
+# outbound send/query/media/speech/explore. Installed LOCALLY (never -g): the
+# upstream runtime guide rejects global installs. Baked into the image for the
+# same reason as lark-cli (container mode doesn't install CLIs at startup and
+# _tool_policy_guard forbids runtime installs). NARRA_CLI_BIN lets
+# narra_cli_client.py resolve it deterministically. VERSION PINNED (narra-cli is
+# a thin client to narra's evolving hosted backend — pin + deliberate bump, like
+# claude-code/officecli, not track-latest); keep NARRA_CLI_VERSION in lockstep
+# with run.sh + the DMG bundle + the cloud image. Own RUN layer so a bump
+# doesn't bust the officecli layer.
+# NOTE: `narra_cli` runs in the MCP container, so the cloud image that needs
+# narra-cli is the MCP/backend image (NarraNexus-deploy/docker/Dockerfile.python),
+# NOT the executor (which never shells it) — installed there in deploy 4007ca5
+# (dev) / 4b32444 (main). Missing it ships cloud NarraMessenger narra_cli dead.
+ARG NARRA_CLI_VERSION=1.1.0
+ENV NARRA_CLI_BIN=/opt/narra-cli/node_modules/.bin/narra-cli
+RUN npm install --prefix /opt/narra-cli "@narra-im/narra-cli@${NARRA_CLI_VERSION}" \
+ && npm cache clean --force \
+ && "$NARRA_CLI_BIN" --version
+
 # uv (the project's Python package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 

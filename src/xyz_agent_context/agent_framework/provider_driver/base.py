@@ -17,9 +17,14 @@ We deliberately use ``typing.Protocol`` instead of an ABC so that:
   from anything in this codebase.
 * Stub drivers in tests can stay simple — no boilerplate ``__init__``
   forwarding.
-* Optional methods (e.g. ``estimate_cost``, ``on_call_completed``) can
-  carry default implementations on the Protocol while keeping the
-  classes flat.
+* Optional methods (e.g. ``probe``) can carry default implementations
+  on the Protocol while keeping the classes flat.
+
+Drivers are credential/config builders only — they do NOT bill. Free-tier
+quota is debited in ``utils.cost_tracker.record_cost`` off the
+``provider_source`` context tag, alongside the ``cost_records`` write.
+Do not reintroduce a per-driver post-call billing hook without removing
+that one first: two live deduction paths would double-charge users.
 """
 from __future__ import annotations
 
@@ -128,25 +133,6 @@ class DriverHealth:
 
 
 # =============================================================================
-# CallContext — extra info passed to on_call_completed
-# =============================================================================
-
-@dataclass(frozen=True)
-class CallContext:
-    """Per-call metadata passed to :meth:`Driver.on_call_completed`.
-
-    Drivers consult this to decide what to do post-call. The system
-    driver uses ``user_id`` to credit the quota table; other drivers
-    typically ignore it.
-    """
-
-    user_id: str
-    agent_id: Optional[str] = None
-    event_id: Optional[str] = None
-    call_type: str = "llm_function"  # llm_function / llm_stream / agent_loop
-
-
-# =============================================================================
 # Driver Protocol
 # =============================================================================
 
@@ -238,18 +224,6 @@ class Driver(Protocol):
         """
         ...
 
-    async def on_call_completed(
-        self,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        ctx: CallContext,
-    ) -> None:
-        """Hook fired after a successful LLM call. SystemDriver uses
-        this to deduct from ``user_quotas``; other drivers no-op.
-        """
-        ...
-
     def models(self) -> list[str]:
         """Return the list of model IDs the user has marked usable on
         this card. Self-heal compares against this list.
@@ -278,17 +252,6 @@ class _DriverBase:
         if self.card.api_key or self.card.auth_ref:
             return DriverHealth(ok=True, detail="credential present")
         return DriverHealth(ok=False, detail="no api_key or auth_ref")
-
-    async def on_call_completed(
-        self,
-        model: str,
-        input_tokens: int,
-        output_tokens: int,
-        ctx: CallContext,
-    ) -> None:
-        # Default: do nothing. Cost is already logged in cost_records by
-        # the caller; only SystemDriver overrides this to deduct quota.
-        return None
 
     def build_claude_config(self, model: str) -> ClaudeConfig:
         raise NotImplementedError(
@@ -340,7 +303,6 @@ class _DriverBase:
 __all__ = [
     "ProviderCard",
     "DriverHealth",
-    "CallContext",
     "Driver",
     "_DriverBase",
 ]

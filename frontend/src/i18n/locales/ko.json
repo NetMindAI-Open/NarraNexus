@@ -387,6 +387,26 @@
       "browse": "찾아보기",
       "empty": "워크스페이스가 비어 있습니다",
       "kindOffice": "Office 문서(실시간)"
+    },
+    "homeAssistant": {
+      "title": "Smart Home (Home Assistant)",
+      "intro": "Connect this agent to your Home Assistant to let it query and control your smart-home devices. Enter your HA URL and a Long-Lived Access Token (Profile → Long-Lived Access Tokens in Home Assistant).",
+      "connected": "Connected",
+      "rebind": "Re-bind",
+      "baseUrl": "Home Assistant URL",
+      "baseUrlPlaceholder": "http://homeassistant.local:8123",
+      "token": "Long-Lived Access Token",
+      "tokenPlaceholder": "Long-Lived Access Token",
+      "verifyTls": "Verify TLS certificate",
+      "test": "Test connection",
+      "testOk": "Connected — {{count}} entities found",
+      "testFail": "Could not connect",
+      "errSave": "Failed to save the binding",
+      "setupGuideTitle": "Don't have Home Assistant yet?",
+      "setupGuideHint": "Copy this prompt and paste it to the agent — it'll deploy Home Assistant, install integrations, and connect your devices as automatically as it can, handing back to you only for account sign-in (e.g. Xiaomi), then give you a URL + token to paste above.",
+      "copyPrompt": "Copy setup prompt",
+      "setupPrompt": "First, check for the bundled helper: run `ha-setup doctor` (or look for `ha_setup.py` under the skills folder). If it exists, use it — it automates every step below; run its commands and just relay any `ACTION_REQUIRED:` prompt to me (a login URL as a clickable chat link). If it is NOT available, do the steps manually as follows.\n\nHelp me set up a local Home Assistant, connect my smart-home devices, and hand the result back so I can link it to this agent.\n\nGuiding principle: do as much as you can YOURSELF — via HA's REST API (`/api/…`), its WebSocket API (`/api/websocket`, which drives everything the HA UI can do, including `config_entries/flow` to add and configure integrations), and file operations inside the HA Docker container. Don't make me click through the HA UI step by step. Only hand control back to me for things that genuinely need my credentials or approval (signing into my Xiaomi account, approving an OAuth screen). When you do, give me the login/authorization URL as a clickable link in the chat (not buried in a wall of text) so I can open it, sign in on the official page, and then you take over and finish the flow.\n\nSteps:\n1. Detect my OS and whether Docker is installed; if not, guide me through installing it.\n2. Deploy Home Assistant (official image `ghcr.io/home-assistant/home-assistant:stable`, port 8123). Set internal_url/external_url to the address I'll use (e.g. http://localhost:8123). Give exact commands and run them.\n3. Open http://localhost:8123 and finish onboarding (create the admin user). If the browser shows ERR_FAILED on an auth_callback URL, ignore it and reopen http://localhost:8123.\n4. Create a Long-Lived Access Token now (profile → Security → Long-Lived Access Tokens) and use it to authenticate all the API calls below. (I'll paste this same token into NarraNexus at the end.)\n5. Ask which ecosystem my devices use, then set up the integration — driving it via the API yourself as far as possible:\n   - Xiaomi / Mi Home → install the OFFICIAL \"Xiaomi Home\" integration (`XiaoMi/ha_xiaomi_home`): download it into config/custom_components/ (from INSIDE the container if GitHub is blocked on my host) and restart HA (`docker restart homeassistant`). Then start its config flow via the WebSocket API. When it needs my Xiaomi login / OAuth approval, give me the authorization URL as a clickable link so I can open the official Xiaomi page and sign in, then continue and finish the flow yourself. Avoid \"Xiaomi Miot Auto\" (its phone-verification callback fails on localhost). If the OAuth redirect uses homeassistant.local, add `127.0.0.1 homeassistant.local` to hosts.\n   - A brand cloud (Hue / Nest / Tuya / SmartThings) → start its config flow via the API; hand me only the account sign-in / OAuth step (as a clickable link, same as above).\n   - Local Zigbee / Z-Wave / Matter → set up ZHA / Zigbee2MQTT / Matter; no cloud account needed.\n   - Not sure / a mix → ask me what devices I have.\n6. Verify it yourself: call `/api/states` and confirm my devices show up as entities; tell me how many.\n7. Give me back the base URL and the token so I can paste them into the Smart Home panel FOR THIS SAME AGENT.\n\nAsk before assuming anything (OS, ecosystem, account region, devices), confirm each step worked, check the HA logs when something fails, and prefer automating over instructing me.",
+      "verify": "Verify saved connection"
     }
   },
   "dashboard": {
@@ -1511,7 +1531,8 @@
     "brand": {
       "narra": "Narra",
       "nexus": "Nexus"
-    }
+    },
+    "smarthome": "Smart Home"
   },
   "jobs": {
     "title": "작업",

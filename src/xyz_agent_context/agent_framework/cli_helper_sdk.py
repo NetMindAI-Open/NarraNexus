@@ -31,6 +31,7 @@ consumers see identical shapes.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import tempfile
@@ -48,7 +49,9 @@ from xyz_agent_context.agent_framework.openai_agents_sdk import (
     _SimpleResult,
     _extract_json_from_llm_output,
     _last_llm_call_info,
+    json_repair_note,
 )
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
     record_cost,
@@ -121,7 +124,6 @@ class CliHelperSDK:
             TextBlock,
             query,
         )
-
         from xyz_agent_context.agent_framework.model_catalog import resolve_cli_alias
 
         cfg = ClaudeConfig(
@@ -131,6 +133,15 @@ class CliHelperSDK:
             auth_type=cli_helper_config.auth_type,
         )
         env = cfg.to_cli_env()
+        # Bound the helper subprocess. to_cli_env injects the AGENT-LOOP retry
+        # budget (API_TIMEOUT_MS=llm_api_timeout_ms ≈ 10 min/request ×
+        # CLAUDE_CODE_MAX_RETRIES=llm_max_retries), which for a one-shot helper
+        # extraction means a bad/hijacked endpoint could hang ~100 min — the
+        # "Job stuck at 正在创建" symptom when helper_llm was set to Claude.
+        # A helper one-shot is NOT the agent_loop (single turn, tool-free), so
+        # bounding it does not violate 铁律 #14.
+        env["API_TIMEOUT_MS"] = str(settings.helper_cli_timeout_ms)
+        env["CLAUDE_CODE_MAX_RETRIES"] = str(settings.helper_cli_max_retries)
         # OAuth helper runs against the isolated CLAUDE_CONFIG_DIR that to_cli_env
         # set (#76). Stage the credential into it ourselves so the helper is
         # self-sufficient — it must work even when the agent slot is NOT claude
@@ -144,6 +155,15 @@ class CliHelperSDK:
             _cfg_dir = env.get("CLAUDE_CONFIG_DIR")
             if _cfg_dir:
                 _stage_claude_oauth_credentials(_cfg_dir)
+        # Observability (#1): log the provider the subprocess will ACTUALLY use,
+        # so a personal ~/.claude/settings.json hijack (base_url redirected off
+        # the configured provider) is greppable instead of a silent black box.
+        logger.info(
+            f"[CliHelper] subprocess provider (effective): "
+            f"base_url={env.get('ANTHROPIC_BASE_URL') or '(official)'}, "
+            f"auth={'token' if env.get('ANTHROPIC_AUTH_TOKEN') else ('key' if env.get('ANTHROPIC_API_KEY') else 'none')}, "
+            f"config_dir={env.get('CLAUDE_CONFIG_DIR')}"
+        )
         os.makedirs(_HELPER_CWD, mode=0o700, exist_ok=True)
         options = ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -155,22 +175,39 @@ class CliHelperSDK:
             cwd=_HELPER_CWD,
         )
 
-        text_parts: list[str] = []
-        result_text = ""
-        in_tok = out_tok = 0
-        async for msg in query(prompt=user_input, options=options):
-            if isinstance(msg, AssistantMessage):
-                for block in msg.content:
-                    if isinstance(block, TextBlock):
-                        text_parts.append(block.text)
-            elif isinstance(msg, ResultMessage):
-                result_text = msg.result or ""
-                raw_usage = getattr(msg, "usage", None)
-                if isinstance(raw_usage, dict):
-                    in_tok = int(raw_usage.get("input_tokens", 0) or 0)
-                    out_tok = int(raw_usage.get("output_tokens", 0) or 0)
-        text = "".join(text_parts) or result_text
-        return text, in_tok, out_tok
+        async def _consume() -> tuple[str, int, int]:
+            text_parts: list[str] = []
+            result_text = ""
+            in_tok = out_tok = 0
+            async for msg in query(prompt=user_input, options=options):
+                if isinstance(msg, AssistantMessage):
+                    for block in msg.content:
+                        if isinstance(block, TextBlock):
+                            text_parts.append(block.text)
+                elif isinstance(msg, ResultMessage):
+                    result_text = msg.result or ""
+                    raw_usage = getattr(msg, "usage", None)
+                    if isinstance(raw_usage, dict):
+                        in_tok = int(raw_usage.get("input_tokens", 0) or 0)
+                        out_tok = int(raw_usage.get("output_tokens", 0) or 0)
+            return ("".join(text_parts) or result_text), in_tok, out_tok
+
+        # Wall-clock bound for the whole one-shot (all internal CLI retries). On
+        # timeout wait_for cancels the coroutine; claude_agent_sdk's
+        # process_query tears the subprocess down in its own try/finally
+        # (await query.close()) as the cancellation propagates. Raises a
+        # classifiable error so the caller surfaces it (never an infinite
+        # "创建中").
+        try:
+            return await asyncio.wait_for(
+                _consume(), timeout=settings.helper_cli_total_timeout_seconds
+            )
+        except asyncio.TimeoutError as e:
+            raise TimeoutError(
+                f"CLI helper one-shot exceeded "
+                f"{settings.helper_cli_total_timeout_seconds}s "
+                f"(model={model_name}, base_url={env.get('ANTHROPIC_BASE_URL') or '(official)'})"
+            ) from e
 
     async def _run_codex_oneshot(
         self, system_prompt: str, user_input: str, model_name: str
@@ -319,53 +356,84 @@ class CliHelperSDK:
             f"output_type={output_type.__name__ if output_type else 'None'}"
         )
 
-        raw_content, input_tokens, output_tokens = await self._run_oneshot(
-            system_prompt, user_input, model_name
-        )
-
-        # Cost accounting — same hooks as the other helpers. OAuth subscription
-        # calls may report zero tokens (the CLI bills the subscription, not us);
-        # record when present, warn (not error) when absent.
         _agent_id, _db = self._resolve_cost_context(agent_id, db)
-        if _agent_id and _db:
-            if input_tokens > 0 or output_tokens > 0:
-                try:
-                    await record_cost(
-                        db=_db, agent_id=_agent_id, event_id=None,
-                        call_type="llm_function", model=model_name,
-                        input_tokens=input_tokens, output_tokens=output_tokens,
-                    )
-                except Exception as e:
-                    logger.warning(f"[CliHelper] failed to record cost: {e}")
-            else:
-                warn_missing_usage("CliHelper", model_name, "llm_function")
+
+        async def _call_and_record(prompt_text: str) -> str:
+            """One CLI one-shot + per-attempt cost accounting.
+
+            OAuth subscription calls may report zero tokens (the CLI bills the
+            subscription, not us); record when present, warn (not error) when
+            absent. Each repair attempt is a distinct call, so cost is recorded
+            per attempt.
+            """
+            raw, in_tok, out_tok = await self._run_oneshot(
+                system_prompt, prompt_text, model_name
+            )
+            if _agent_id and _db:
+                if in_tok > 0 or out_tok > 0:
+                    try:
+                        await record_cost(
+                            db=_db, agent_id=_agent_id, event_id=None,
+                            call_type="llm_function", model=model_name,
+                            input_tokens=in_tok, output_tokens=out_tok,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[CliHelper] failed to record cost: {e}")
+                else:
+                    warn_missing_usage("CliHelper", model_name, "llm_function")
+            return raw
 
         if not output_type:
+            raw_content = await _call_and_record(user_input)
             _last_llm_call_info.set({"model": model_name, "structured": "cli_no_schema"})
             return _SimpleResult(raw_content, None)
 
-        json_str = _extract_json_from_llm_output(raw_content)
-        if json_str is None:
-            logger.warning(
-                f"[CliHelper] could not extract JSON from {framework}/"
-                f"{model_name}: head={raw_content[:200]!r}"
-            )
-            raise ValueError(
-                f"Could not extract JSON from CLI helper response "
-                f"(framework={framework}, model={model_name}): {raw_content[:200]}"
-            )
-
+        # Prompt-engineered structured output: extract + validate, and on
+        # failure re-prompt for valid JSON up to helper_json_repair_attempts
+        # times (see json_repair_note). Complex nested schemas on the CLI
+        # one-shot path (esp. Haiku) sometimes return prose / schema-divergent
+        # JSON on the first try; a single throw there silently dropped the
+        # caller's intent (e.g. an Instance-Decision job never got created).
         adapter = TypeAdapter(output_type)
-        try:
-            parsed = adapter.validate_json(json_str)
-        except Exception as e:
+        attempts = max(1, settings.helper_json_repair_attempts)
+        prompt_text = user_input
+        last_reason = ""
+        raw_content = ""
+        for attempt in range(1, attempts + 1):
+            raw_content = await _call_and_record(prompt_text)
+            json_str = _extract_json_from_llm_output(raw_content)
+            if json_str is not None:
+                try:
+                    parsed = adapter.validate_json(json_str)
+                    _last_llm_call_info.set(
+                        {"model": model_name, "structured": "cli_prompt"}
+                    )
+                    return _ParsedResult(parsed, raw_content, None)
+                except Exception as e:
+                    last_reason = f"schema validation failed: {e}"
+            else:
+                last_reason = "no JSON object found in the response"
             logger.warning(
-                f"[CliHelper] schema validation failed on {framework}/"
-                f"{model_name}: {e!r} json={json_str[:200]!r}"
+                f"[CliHelper] {framework}/{model_name} attempt {attempt}/{attempts}: "
+                f"{last_reason}; head={raw_content[:200]!r}"
             )
-            raise
-        _last_llm_call_info.set({"model": model_name, "structured": "cli_prompt"})
-        return _ParsedResult(parsed, raw_content, None)
+            if attempt < attempts:
+                # Each CLI one-shot is a fresh, stateless subprocess (max_turns=1,
+                # query() re-spawns), so the model never sees its "previous
+                # response" — feed the bad reply back inline, otherwise
+                # json_repair_note's reference dangles and only the generic
+                # "output only JSON" hint survives. This is exactly the
+                # CLI-helper + Haiku path the Lark bug reported.
+                prompt_text = (
+                    f"{user_input}\n\nYour previous response was:\n"
+                    f"{raw_content[:4000]}" + json_repair_note(last_reason)
+                )
+
+        raise ValueError(
+            f"CLI helper did not return schema-valid JSON after {attempts} "
+            f"attempts (framework={framework}, model={model_name}): "
+            f"{last_reason}; last head={raw_content[:200]}"
+        )
 
     @timed("llm.cli_helper.llm_stream", slow_threshold_ms=15000)
     async def llm_stream(

@@ -16,9 +16,10 @@ Consequences for the abstract methods:
     (persisted turns + attachment markers all end up in the system
     prompt).
   - ``get_room_members`` → ``[]``. If a future turn actually needs a
-    live roster, the ``narra_room_members`` MCP tool queries Matrix on
-    demand. Baking the roster into every prompt is expensive and would
-    duplicate what the tool already returns per-agent-decision.
+    live roster, the agent calls ``narra_cli`` with
+    ``room info --room-id <id> --members`` on demand. Baking the roster
+    into every prompt is expensive and would duplicate what that command
+    already returns per-agent-decision.
 
 Only ``get_message_info`` still reads a bit of ``raw`` — the
 ``room_name`` from ``group_context.room.name`` (graceful ``""``
@@ -122,9 +123,9 @@ class NarramessengerContextBuilder(ChannelContextBuilderBase):
         ``group_context`` at all — this method returned ``[]`` on
         every call anyway.
 
-        If a specific turn needs the live roster, the
-        ``narra_room_members`` MCP tool queries the homeserver on
+        If a specific turn needs the live roster, the agent calls
+        ``narra_cli`` with ``room info --room-id <id> --members`` on
         demand. Baking the roster into every prompt would duplicate
-        what that tool already exposes per-agent-decision.
+        what that command already exposes per-agent-decision.
         """
         return []

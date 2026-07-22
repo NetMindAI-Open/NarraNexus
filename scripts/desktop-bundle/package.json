@@ -5,6 +5,7 @@
   "description": "Bundled CLI runtime shipped inside resources/nodejs/ of the NarraNexus macOS app. Not published. Versions are pinned exactly — bump deliberately and regenerate package-lock.json with `npm install --package-lock-only` in this directory.",
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.119",
-    "@larksuite/cli": "1.0.18"
+    "@larksuite/cli": "1.0.18",
+    "@narra-im/narra-cli": "1.1.0"
   }
 }

@@ -31,7 +31,9 @@ from xyz_agent_context.agent_framework.openai_agents_sdk import (
     _ParsedResult,
     _extract_json_from_llm_output,
     _last_llm_call_info,
+    json_repair_note,
 )
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
     record_cost,
@@ -150,72 +152,101 @@ class AnthropicHelperSDK:
             f"output_type={output_type.__name__ if output_type else 'None'}"
         )
 
-        # Stream internally and collect the final Message. The Anthropic
-        # SDK REFUSES a non-streaming ``create`` when max_tokens is large
-        # enough to risk a >10-minute operation ("Streaming is required for
-        # operations that may take longer than 10 minutes"). Helper inputs
-        # routinely run tens of thousands of tokens (narrative continuity,
-        # consolidation), so the plain create path raised on every large
-        # call. ``stream().get_final_message()`` returns the same Message
-        # shape (content + usage) the rest of this method expects.
-        async with client.messages.stream(
-            model=model_name,
-            max_tokens=max_tokens,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_input}],
-        ) as stream:
-            resp = await stream.get_final_message()
-
-        raw_content = "".join(
-            block.text for block in resp.content if getattr(block, "type", "") == "text"
-        )
-
-        # Cost accounting — same hooks as the OpenAI helper.
-        usage = getattr(resp, "usage", None)
-        input_tokens = getattr(usage, "input_tokens", 0) or 0
-        output_tokens = getattr(usage, "output_tokens", 0) or 0
         _agent_id, _db = self._resolve_cost_context(agent_id, db)
-        if _agent_id and _db:
-            if input_tokens > 0 or output_tokens > 0:
-                try:
-                    await record_cost(
-                        db=_db, agent_id=_agent_id, event_id=None,
-                        call_type="llm_function", model=model_name,
-                        input_tokens=input_tokens, output_tokens=output_tokens,
-                    )
-                except Exception as e:
-                    logger.warning(f"[AnthropicHelper] failed to record cost: {e}")
-            else:
-                warn_missing_usage("AnthropicHelper", model_name, "llm_function")
+
+        async def _call_and_record(messages: list[dict]):
+            """One Messages-API turn + per-attempt cost accounting.
+
+            Streams internally and collects the final Message — the Anthropic
+            SDK REFUSES a non-streaming ``create`` when max_tokens is large
+            enough to risk a >10-minute operation, and helper inputs routinely
+            run tens of thousands of tokens (narrative continuity,
+            consolidation). ``stream().get_final_message()`` returns the same
+            Message shape (content + usage) this method expects. Each repair
+            attempt is a distinct call, so cost is recorded per attempt.
+            """
+            async with client.messages.stream(
+                model=model_name,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=messages,
+            ) as stream:
+                msg = await stream.get_final_message()
+            raw = "".join(
+                b.text for b in msg.content if getattr(b, "type", "") == "text"
+            )
+            usage = getattr(msg, "usage", None)
+            in_tok = getattr(usage, "input_tokens", 0) or 0
+            out_tok = getattr(usage, "output_tokens", 0) or 0
+            if _agent_id and _db:
+                if in_tok > 0 or out_tok > 0:
+                    try:
+                        await record_cost(
+                            db=_db, agent_id=_agent_id, event_id=None,
+                            call_type="llm_function", model=model_name,
+                            input_tokens=in_tok, output_tokens=out_tok,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[AnthropicHelper] failed to record cost: {e}")
+                else:
+                    warn_missing_usage("AnthropicHelper", model_name, "llm_function")
+            return raw, msg
 
         if not output_type:
+            raw_content, resp = await _call_and_record(
+                [{"role": "user", "content": user_input}]
+            )
             _last_llm_call_info.set({"model": model_name, "structured": "no_schema"})
             return _SimpleResult(raw_content, resp)
 
-        json_str = _extract_json_from_llm_output(raw_content)
-        if json_str is None:
-            logger.warning(
-                f"[AnthropicHelper] could not extract JSON from "
-                f"{model_name}: head={raw_content[:200]!r}"
-            )
-            raise ValueError(
-                f"Could not extract JSON from LLM response "
-                f"(model={model_name}): {raw_content[:200]}"
-            )
-
+        # Prompt-engineered structured output: extract + validate, and on
+        # failure re-prompt for valid JSON up to helper_json_repair_attempts
+        # times (see json_repair_note). A single throw here silently dropped
+        # the caller's intent (e.g. an Instance-Decision job never got created)
+        # whenever a complex nested schema came back wrapped in prose.
         adapter = TypeAdapter(output_type)
-        try:
-            parsed = adapter.validate_json(json_str)
-        except Exception as e:
+        attempts = max(1, settings.helper_json_repair_attempts)
+        messages: list[dict] = [{"role": "user", "content": user_input}]
+        last_reason = ""
+        raw_content = ""
+        resp = None
+        for attempt in range(1, attempts + 1):
+            raw_content, resp = await _call_and_record(messages)
+            json_str = _extract_json_from_llm_output(raw_content)
+            if json_str is not None:
+                try:
+                    parsed = adapter.validate_json(json_str)
+                    _last_llm_call_info.set(
+                        {"model": model_name, "structured": "anthropic_prompt"}
+                    )
+                    return _ParsedResult(parsed, raw_content, resp)
+                except Exception as e:
+                    last_reason = f"schema validation failed: {e}"
+            else:
+                last_reason = "no JSON object found in the response"
             logger.warning(
-                f"[AnthropicHelper] schema validation failed on "
-                f"{model_name}: {e!r} json={json_str[:200]!r}"
+                f"[AnthropicHelper] {model_name} attempt {attempt}/{attempts}: "
+                f"{last_reason}; head={raw_content[:200]!r}"
             )
-            raise
-        _last_llm_call_info.set(
-            {"model": model_name, "structured": "anthropic_prompt"}
+            if attempt < attempts:
+                # raw_content is the joined text blocks; when the model emitted
+                # NO text this turn (pure thinking / empty / truncated) it is ""
+                # — and an empty assistant content block makes the Messages API
+                # 400. "No text at all" is itself a common extraction-failure
+                # shape, so guard it or the repair turn dies with an API error
+                # unrelated to JSON instead of retrying cleanly.
+                prev = raw_content[:4000].strip() or "(empty response)"
+                messages = [
+                    {"role": "user", "content": user_input},
+                    {"role": "assistant", "content": prev},
+                    {"role": "user", "content": json_repair_note(last_reason)},
+                ]
+
+        raise ValueError(
+            f"Anthropic helper did not return schema-valid JSON after "
+            f"{attempts} attempts (model={model_name}): {last_reason}; "
+            f"last head={raw_content[:200]}"
         )
-        return _ParsedResult(parsed, raw_content, resp)
 
     @timed("llm.anthropic_helper.llm_stream", slow_threshold_ms=10000)
     async def llm_stream(

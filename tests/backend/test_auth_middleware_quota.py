@@ -22,7 +22,6 @@ from fastapi.testclient import TestClient
 from backend import auth as auth_mod
 from backend.auth import auth_middleware, create_token
 from xyz_agent_context.agent_framework.provider_resolver import (
-    FreeTierExhaustedError,
     NoProviderConfiguredError,
     QuotaExceededError,
 )
@@ -42,10 +41,6 @@ def _build_app(resolver) -> FastAPI:
     @app.get("/api/quota/me")
     async def get_quota():
         return {"ok": True, "route": "get_quota"}
-
-    @app.patch("/api/quota/me/preference")
-    async def set_pref():
-        return {"ok": True, "route": "set_pref"}
 
     @app.post("/api/chat")
     async def chat():
@@ -106,27 +101,10 @@ def test_add_provider_reachable_when_resolver_would_raise_quota_exceeded(
 
 def test_quota_me_reachable_when_resolver_would_raise(force_cloud_mode, jwt_headers):
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=FreeTierExhaustedError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.get("/api/quota/me", headers=jwt_headers)
-
-    assert r.status_code == 200
-    resolver.resolve_and_set.assert_not_called()
-
-
-def test_quota_preference_patch_reachable(force_cloud_mode, jwt_headers):
-    """The endpoint that flips 'Use free quota' — must never be blocked by
-    the quota gate, or the user can't opt out of the dead free tier."""
-    resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=FreeTierExhaustedError("alice"))
-
-    client = TestClient(_build_app(resolver))
-    r = client.patch(
-        "/api/quota/me/preference",
-        json={"prefer_system_override": False},
-        headers=jwt_headers,
-    )
 
     assert r.status_code == 200
     resolver.resolve_and_set.assert_not_called()
@@ -172,21 +150,6 @@ def test_chat_quota_exceeded_returns_402_with_quota_exceeded_code(
     body = r.json()
     assert body["error_code"] == "QUOTA_EXCEEDED_NO_USER_PROVIDER"
     assert body["success"] is False
-
-
-def test_chat_free_tier_exhausted_returns_402_with_disable_toggle_code(
-    force_cloud_mode, jwt_headers,
-):
-    resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=FreeTierExhaustedError("alice"))
-
-    client = TestClient(_build_app(resolver))
-    r = client.post("/api/chat", json={}, headers=jwt_headers)
-
-    assert r.status_code == 402
-    body = r.json()
-    assert body["error_code"] == "FREE_TIER_EXHAUSTED_DISABLE_TOGGLE"
-    assert "Settings" in body["message"]
 
 
 def test_chat_no_provider_configured_returns_402_with_no_provider_code(

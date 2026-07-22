@@ -7,7 +7,7 @@ Used by the NarraMessenger MCP tools (``narra_send`` text, ``narra_send_media``
 media). These run in the MCP server process, which has NO live matrix-nio
 client (that lives in the trigger process), so everything here is raw
 authenticated HTTP against the homeserver using the agent's
-``matrix_access_token`` — the same pattern as ``narra_room_members``.
+``matrix_access_token`` (raw homeserver HTTP; the send/media path).
 
 Why outbound is Matrix-native (not the Gateway ``/chat/send``): the whole
 transport is Matrix now (Commit 7 deleted the Gateway trigger). Sending

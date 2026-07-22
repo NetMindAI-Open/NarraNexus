@@ -144,6 +144,26 @@ def _first_balanced_json(text: str) -> Optional[str]:
     return None
 
 
+def json_repair_note(reason: str) -> str:
+    """Build a re-prompt telling a prompt-engineered structured-output model to
+    fix its last reply.
+
+    Shared by the Claude helper SDKs (AnthropicHelperSDK / CliHelperSDK), whose
+    structured output is prompt-engineered (schema in the prompt + client-side
+    ``_extract_json_from_llm_output`` + ``validate_json``) rather than enforced
+    by the API. Complex nested schemas on cheaper models (Haiku, CLI one-shot)
+    sometimes come back wrapped in prose / markdown or schema-divergent; a
+    bounded re-prompt recovers most. Kept generic (no scenario specifics) per
+    铁律 #4.
+    """
+    return (
+        "\n\nYour previous response was NOT valid JSON matching the required "
+        f"schema ({reason}). Respond AGAIN with ONLY the raw JSON object — no "
+        "prose, no explanation, no markdown, no code fences, no <think> tags. "
+        "Output must start with '{' and end with '}' and satisfy the schema."
+    )
+
+
 # Provider x model combos whose Agents SDK structured-output path returned
 # a CLEAR "unsupported" error. Keyed by (base_url, model) — see
 # `_capability_key` — so the same model name on a different provider is

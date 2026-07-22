@@ -399,8 +399,9 @@ function App() {
           onClick={() => setQuotaExceeded(false)}
           role="alert"
         >
-          Free-tier quota exhausted. Open Settings → Providers to add
-          your own API key. (click to dismiss)
+          Free-tier quota exhausted. Open Settings → Providers to add your own
+          API key — or subscribe to a NetMind.AI plan and link it in Settings →
+          Account &amp; Subscription. (click to dismiss)
         </div>
       )}
       {sessionExpired && (

@@ -394,6 +394,26 @@
       "browse": "浏览",
       "empty": "工作区为空",
       "kindOffice": "Office 文档(实时)"
+    },
+    "homeAssistant": {
+      "title": "智能家居(Home Assistant)",
+      "intro": "把该 agent 连到你的 Home Assistant,即可查询/控制家里的智能设备。填入 HA 地址和一个长期访问令牌(在 Home Assistant 的「个人资料 → 长期访问令牌」创建)。",
+      "connected": "已连接",
+      "rebind": "重新绑定",
+      "baseUrl": "Home Assistant 地址",
+      "baseUrlPlaceholder": "http://homeassistant.local:8123",
+      "token": "长期访问令牌",
+      "tokenPlaceholder": "长期访问令牌",
+      "verifyTls": "校验 TLS 证书",
+      "test": "测试连接",
+      "testOk": "已连接 —— 发现 {{count}} 个设备",
+      "testFail": "无法连接",
+      "errSave": "保存绑定失败",
+      "setupGuideTitle": "还没有 Home Assistant 服务？",
+      "setupGuideHint": "复制这段 prompt 发给 agent —— 它会尽量自动帮你部署 HA、装集成、接入设备，只有登录你的账号（如小米）需要你点一下，最后把 URL 和令牌给你填到上面。",
+      "copyPrompt": "复制配置 Prompt",
+      "setupPrompt": "先检查有没有内置助手:跑 `ha-setup doctor`(或在 skills 目录里找 `ha_setup.py`)。有的话就用它——它会自动完成下面每一步;你跑它的命令,只把 `ACTION_REQUIRED:` 提示转告我(登录 URL 作为聊天可点链接)。没有的话,再按下面手动做。\n\n帮我在本地搭建一个 Home Assistant，接入我的智能家居设备，最后把结果给我，让我接到当前这个 agent。\n\n总原则：尽量你自己动手——用 HA 的 REST API（`/api/…`）、WebSocket API（`/api/websocket`，HA 界面能做的它都能做，包括用 `config_entries/flow` 添加和配置集成）、以及在 HA Docker 容器内的文件操作。别让我在 HA 界面里一步步点。只有真正需要我的凭据或授权的操作（登录我的小米账号、点 OAuth 授权页）才交给我。这种时候，把登录/授权 URL 作为聊天里的一个可点链接给我（别埋在一大段文字里），我点开、在官方页面登录后，你再接管把流程走完。\n\n步骤：\n1. 检测我的系统和是否装了 Docker；没有就指导我装。\n2. 部署 HA（官方镜像 `ghcr.io/home-assistant/home-assistant:stable`，端口 8123），把 internal_url/external_url 设为我实际访问的地址（如 http://localhost:8123）。给确切命令并执行。\n3. 打开 http://localhost:8123 完成初始化（创建管理员账号）。如果浏览器在 auth_callback 地址报 ERR_FAILED，忽略它，重开 http://localhost:8123。\n4. 现在就创建一个长期访问令牌（头像 → 安全 → 长期访问令牌），用它给下面所有 API 调用鉴权。（这同一个令牌最后我会填进 NarraNexus。）\n5. 问我设备属于哪个生态，然后配置集成——尽量你自己用 API 驱动：\n   - 小米 / 米家 → 装**官方** “Xiaomi Home” 集成（`XiaoMi/ha_xiaomi_home`）：下载到 config/custom_components/（我本机 GitHub 被墙就**在容器内**下载），然后重启 HA（`docker restart homeassistant`）。再用 WebSocket API 启动它的 config flow。轮到需要我登录小米 / 点 OAuth 授权时，把授权 URL 作为一个可点链接给我，我点开小米官方页面登录后，你继续把流程走完。别用 “Xiaomi Miot Auto”（localhost 收不到手机验证回调）。如果 OAuth 回调用的是 homeassistant.local，往 hosts 加一条 `127.0.0.1 homeassistant.local`。\n   - 品牌云（Hue / Nest / Tuya / SmartThings）→ 用 API 启动它的 config flow，只把账号登录 / OAuth 那步交给我（同样作为可点链接）。\n   - 本地 Zigbee / Z-Wave / Matter → 配 ZHA / Zigbee2MQTT / Matter，不需要云账号。\n   - 不确定 / 混用 → 先问我有哪些设备。\n6. 你自己验证：调 `/api/states` 确认我的设备作为实体出现了，告诉我有多少个。\n7. 把 base URL 和令牌给我，我填进 Smart Home 面板、**绑到当前这个 agent**。\n\n任何假设前先问我（系统、生态、账号区域、设备），每步确认成功再继续，出错就看 HA 日志。能自动化就别让我手动。",
+      "verify": "验证已保存的连接"
     }
   },
   "dashboard": {
@@ -702,21 +722,23 @@
       "rechargeStopWaiting": "停止等待",
       "checkingStatus": "正在检查你的 NetMind.AI Power 连接状态…",
       "netStatusError": "暂时读不到连接状态，请刷新重试。",
-      "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。重新登录以自动接入，或在「LLM 服务商」中手动添加。",
+      "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。",
       "managePlan": "管理套餐与余额",
       "manageSubscription": "管理订阅与余额",
       "manageBalance": "管理余额",
       "freeTierLabel": "免费额度",
       "freeTierLeft": "剩余 {{pct}}%",
-      "freeTierUsedUp": "已用完",
+      "freeTierExhaustedNote": "免费额度已用完，用量现从你的余额扣除。",
+      "subCreditLabel": "套餐额度",
+      "subCycleExhaustedNote": "本周期套餐额度已用完，将于下周期刷新。",
+      "flowProSub": "用量先扣套餐额度，再扣你的余额。",
+      "subscribedBadge": "已订阅",
+      "ownBalance": "你的余额（充值 + 往期套餐结余）",
       "grantPerPeriod": "{{amount}} / {{period}}",
       "perMonth": "月",
       "flowFree": "用量先扣免费额度，再扣你的余额。",
       "flowPro": "用量先扣免费额度，再扣每月赠额，最后扣充值余额。",
       "flowProNoTier": "用量先扣每月赠额，再扣充值余额。",
-      "preferTitle": "免费额度优先",
-      "preferOnShort": "先用平台免费额度，用完再走你自己的额度。",
-      "preferOffShort": "不用平台免费额度，直接走你自己的额度。",
       "lowChoose": "余额不足。继续运行，选一个：",
       "exhaustedChoose": "免费额度已用完。继续运行，选一个：",
       "upsellName": "升级 Pro",
@@ -735,7 +757,10 @@
       "upsellPerkNoFee": "零平台服务费",
       "upsellPerkGrant": "每月含 {{amount}} 可用余额",
       "netDriving": "正在用你的 NetMind.AI Power 账户运行 —— 无需配置。",
-      "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用 —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换。"
+      "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用 —— 当前由你自己的 provider 驱动。可在 Model Defaults 切换。",
+      "linkNow": "立即接入",
+      "linkFailed": "接入失败：",
+      "freeTierTokensLeft": "剩余 {{remaining}} tokens"
     },
     "modal": {
       "title": "设置",
@@ -756,6 +781,8 @@
       "analyticsDesc": "允许 NarraNexus 收集匿名使用数据以改进产品。绝不收集任何对话内容。"
     },
     "provider": {
+      "oneKeySaved": "Key 已保存",
+      "oneKeyRegisterOnly": "云端版本将继续使用你的 NetMind 账户运行——这把 key 未在此激活。想用自己的 key 运行模型，请使用本地桌面版。",
       "presetNetmindDesc": "一个密钥同时覆盖 Anthropic 和 OpenAI 端点",
       "presetProxyDesc": "代理官方 Claude 和 OpenAI API",
       "slotAgentDesc": "主对话（Anthropic）",
@@ -1199,6 +1226,12 @@
         "hint": "批量选择智能体进行删除，或批量从团队中添加/移除。导入了不想保留的捆绑包后很有用——按“来自捆绑包”筛选即可找到它们。",
         "openButton": "打开批量管理器…"
       },
+      "modelDefaults": {
+        "cloudNetmindOnlyNote": "当前云端版本使用你的 NetMind 账户运行——这里不能使用你自己 API key 的模型。",
+        "cloudNetmindOnlyLink": "想体验请下载本地桌面版 →",
+        "cloudFrameworkLocked": "切换 agent 框架仅本地桌面版可用。",
+        "cloudFrameworkLockedTitle": "仅本地桌面版可用"
+      },
       "updates": {
         "label": "应用更新",
         "hint": "检查并安装最新的 NarraNexus 桌面版本。更新经过签名、在后台下载，并在重启时应用。",
@@ -1624,7 +1657,8 @@
     "brand": {
       "narra": "Narra",
       "nexus": "Nexus"
-    }
+    },
+    "smarthome": "智能家居"
   },
   "jobs": {
     "title": "任务",

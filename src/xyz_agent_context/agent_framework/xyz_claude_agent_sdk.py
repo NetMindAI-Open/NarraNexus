@@ -672,6 +672,20 @@ class ClaudeAgentSDK:
         if extra_env:
             cli_env.update(extra_env)
 
+        # Observability (#1): log the provider the subprocess will ACTUALLY use
+        # — the EFFECTIVE env after every override, not just the configured
+        # intent (logged above). A personal ~/.claude/settings.json env block
+        # can silently redirect ANTHROPIC_BASE_URL off the configured provider;
+        # this line makes such a hijack greppable (compare effective base_url
+        # vs the configured provider) instead of a black box requiring manual
+        # probing (2026-07-08 incident: 30+ blind probes to locate it).
+        logger.info(
+            f"[ClaudeAgentSDK] subprocess provider (effective): "
+            f"base_url={cli_env.get('ANTHROPIC_BASE_URL') or '(official)'}, "
+            f"auth={'token' if cli_env.get('ANTHROPIC_AUTH_TOKEN') else ('key' if cli_env.get('ANTHROPIC_API_KEY') else 'none')}, "
+            f"config_dir={cli_env.get('CLAUDE_CONFIG_DIR')}"
+        )
+
         # Install the tool-policy guard:
         #  • Cloud mode: Read/Glob/Grep must stay inside the per-agent
         #    workspace, and global-install Bash commands (brew, npm -g,

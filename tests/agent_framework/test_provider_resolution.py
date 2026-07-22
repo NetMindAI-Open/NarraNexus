@@ -7,14 +7,15 @@
 Since the #48 convergence, `get_user_llm_configs` delegates to the single
 `ProviderResolver` tree (no divergent copy in api_config.py). Behavior:
 
-  1. `prefer_system_override=True` + budget → system free tier.
-     + exhausted + own provider → auto-switch to own key (#48).
+  1. quota row + budget → system free tier (free-tier-first is platform
+     behavior; the opt-out preference was removed 2026-07-18).
+     + exhausted + own provider → own key takes over (#48).
      + exhausted + no own provider → `SystemDefaultUnavailable`.
      + free tier disabled (SYSTEM_DISABLED) → passthrough to own config;
        `LLMConfigNotConfigured` only if no own provider exists.
-  2. `prefer_system_override=False` (or no quota row) → strictly use the
-     user's own providers; `LLMConfigNotConfigured` if misconfigured. No
-     silent fallback to the system free tier.
+  2. no quota row → strictly the user's own providers;
+     `LLMConfigNotConfigured` if misconfigured. No silent fallback to the
+     system free tier (implicit-grant liability guard).
 
 Plus `_ensure_quota_service()` lazy-bootstraps `QuotaService.default()` so
 every trigger process (Lark, Job, Bus, standalone MCP runner) works
@@ -280,11 +281,14 @@ async def test_opted_in_but_system_disabled_falls_through_to_own_config(
 # -------- Branch 2: opted-out, strict own path ----------------------------
 
 @pytest.mark.asyncio
-async def test_opted_out_with_own_config_returns_own(
+async def test_exhausted_free_tier_with_own_config_returns_own(
     db_client, stub_system_provider_enabled, reset_quota_default
 ):
+    """user_pays path in the new world: the free tier is always drawn first
+    (no opt-out preference since 2026-07-18), so a user runs on their own
+    key exactly when the free tier is exhausted."""
     await _install_quota_service(db_client)
-    await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
+    await _seed_quota(db_client, "alice", opted_in=True, input_budget=0, output_budget=0)
     await _seed_full_own_providers(db_client, "alice")
 
     claude, openai_cfg = await get_user_llm_configs("alice")
@@ -314,13 +318,14 @@ def _reset_billing_ctx():
 
 
 @pytest.mark.asyncio
-async def test_opted_out_resolution_retags_source_over_stale_system(
+async def test_user_pays_resolution_retags_source_over_stale_system(
     db_client, stub_system_provider_enabled, reset_quota_default
 ):
     """The regression that WOULD have caught the leak: a user_pays resolution
-    must overwrite a stale "system" left in the ContextVar with "user"."""
+    (exhausted free tier + own key) must overwrite a stale "system" left in
+    the ContextVar with "user"."""
     await _install_quota_service(db_client)
-    await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
+    await _seed_quota(db_client, "alice", opted_in=True, input_budget=0, output_budget=0)
     await _seed_full_own_providers(db_client, "alice")
 
     set_provider_source("system")  # simulate a leak from a prior system run
@@ -332,14 +337,14 @@ async def test_opted_out_resolution_retags_source_over_stale_system(
 async def test_user_pays_consumption_never_deducts_free_tier(
     db_client, stub_system_provider_enabled, reset_quota_default
 ):
-    """End-to-end: resolve an opted-out user_pays user (even with a stale
-    "system" leak in place), then record a costly call — the free-tier quota
-    must not move by a single token."""
+    """End-to-end: resolve a user_pays user (exhausted free tier + own key,
+    even with a stale "system" leak in place), then record a costly call —
+    the free-tier quota must not move by a single token."""
     from xyz_agent_context.repository.quota_repository import QuotaRepository
     from xyz_agent_context.utils.cost_tracker import record_cost
 
     await _install_quota_service(db_client)
-    await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
+    await _seed_quota(db_client, "alice", opted_in=True, input_budget=0, output_budget=0)
     await _seed_full_own_providers(db_client, "alice")
 
     set_provider_source("system")  # stale leak
@@ -381,14 +386,14 @@ async def test_system_consumption_does_deduct_free_tier(
 
 
 @pytest.mark.asyncio
-async def test_opted_out_without_own_config_raises_not_configured(
+async def test_no_quota_row_without_own_config_raises_not_configured(
     db_client, stub_system_provider_enabled, reset_quota_default
 ):
-    """Crucial: opted out ⇒ no silent fallback to free tier even if available.
-    Via the converged tree this surfaces as NoProviderConfiguredError, mapped
-    to LLMConfigNotConfigured ("No provider configured…")."""
+    """Crucial: no quota row ⇒ no silent fallback to the free tier (the
+    implicit-grant liability guard). Via the converged tree this surfaces as
+    NoProviderConfiguredError, mapped to LLMConfigNotConfigured."""
     await _install_quota_service(db_client)
-    await _seed_quota(db_client, "alice", opted_in=False, input_budget=1000, output_budget=1000)
+    # deliberately NO quota row seeded
 
     with pytest.raises(LLMConfigNotConfigured, match="[Pp]rovider"):
         await get_user_llm_configs("alice")

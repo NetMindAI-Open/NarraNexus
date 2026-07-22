@@ -111,6 +111,7 @@ async def test_set_slot_persists_reasoning_params(svc):
     await svc.set_slot(
         "user_1", "agent", pid, "claude-sonnet-4-6",
         thinking="on", reasoning_effort="high",
+        actor_is_staff=None,
     )
     cfg = await svc.get_user_config("user_1")
     slot = cfg.slots["agent"]
@@ -120,7 +121,7 @@ async def test_set_slot_persists_reasoning_params(svc):
 
 async def test_set_slot_defaults_to_auto(svc):
     svc, pid = svc
-    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6")
+    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6", actor_is_staff=None)
     cfg = await svc.get_user_config("user_1")
     assert cfg.slots["agent"].thinking == ""
     assert cfg.slots["agent"].reasoning_effort == ""
@@ -134,8 +135,9 @@ async def test_set_slot_overwrite_resets_params(svc):
     await svc.set_slot(
         "user_1", "agent", pid, "claude-sonnet-4-6",
         thinking="off", reasoning_effort="low",
+        actor_is_staff=None,
     )
-    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6")
+    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6", actor_is_staff=None)
     cfg = await svc.get_user_config("user_1")
     assert cfg.slots["agent"].thinking == ""
     assert cfg.slots["agent"].reasoning_effort == ""
@@ -144,7 +146,7 @@ async def test_set_slot_overwrite_resets_params(svc):
 async def test_legacy_row_without_params_json(svc, db_client):
     """Rows written before the params_json column existed must load as auto."""
     svc, pid = svc
-    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6")
+    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6", actor_is_staff=None)
     # Simulate a pre-migration row: NULL params_json.
     await db_client.update(
         "user_slots",
@@ -159,7 +161,7 @@ async def test_legacy_row_without_params_json(svc, db_client):
 async def test_corrupt_params_json_degrades_to_auto(svc, db_client):
     """A hand-edited / corrupt params_json must not break config loading."""
     svc, pid = svc
-    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6")
+    await svc.set_slot("user_1", "agent", pid, "claude-sonnet-4-6", actor_is_staff=None)
     await db_client.update(
         "user_slots",
         {"user_id": "user_1", "slot_name": "agent"},

@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/provider_driver/resolver.py
-last_verified: 2026-07-09
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 清掉陈年"migration window"注释（review 抓出）
+
+模块 docstring 声称"仍需为 prefer_system_override 分支加载 quota 行"——
+grep 证实本模块从不读 quota 行或该列（迁移窗口早已结束，注释一直没删）。
+已改写为如实描述：quota 门禁在 [[provider_resolver]]，该列自 2026-07-18
+起仅是通知闩锁。
 
 ## 2026-07-09 — per-agent slot overlay (agent_id)
 

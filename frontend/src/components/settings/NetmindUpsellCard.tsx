@@ -2,12 +2,15 @@
  * @file NetmindUpsellCard.tsx
  * @author NetMind.AI
  * @date 2026-07-10
- * @description The Pro upsell card, shown only at the decision moment (Free user
- * whose free tier is used up). Leads with the ONLY thing that differentiates Pro
- * from a one-time top-up — member pricing on popular models + the full model
- * library — because credit-for-credit a $19 subscription and a $19 top-up are
- * identical. Price/grant/period come from GET /api/billing/plans (no hardcoding;
- * price is shown from monthly_grant_usd per product decision A). Presentational.
+ * @description The Pro plan card. Two modes:
+ *   - upsell (default): shown at the decision moment (Free user whose free
+ *     tier is used up), leading with the perks that differentiate Pro from a
+ *     same-priced top-up, with an "Upgrade to Pro" CTA.
+ *   - subscribed: the SAME plan intro inside a Pro user's manage dialog —
+ *     the CTA is replaced by a "Subscribed" state chip, so the user can see
+ *     what their plan includes right where they'd cancel it.
+ * Price/grant/period come from GET /api/billing/plans (no hardcoding; price
+ * is shown from monthly_grant_usd per product decision A). Presentational.
  */
 
 import { useTranslation } from 'react-i18next';
@@ -19,9 +22,11 @@ interface NetmindUpsellCardProps {
   proPlan: SubscriptionPlan | null;
   onUpgrade: () => void;
   busy: boolean;
+  /** Render as the current plan (state chip instead of the upgrade CTA). */
+  subscribed?: boolean;
 }
 
-export function NetmindUpsellCard({ proPlan, onUpgrade, busy }: NetmindUpsellCardProps) {
+export function NetmindUpsellCard({ proPlan, onUpgrade, busy, subscribed = false }: NetmindUpsellCardProps) {
   const { t } = useTranslation();
   const period = formatPeriod(proPlan?.prices?.[0]?.period, t('settings.netmind.perMonth', 'mo'));
   const priceText =
@@ -38,8 +43,13 @@ export function NetmindUpsellCard({ proPlan, onUpgrade, busy }: NetmindUpsellCar
   return (
     <div className="rounded-md border border-[var(--border-default)] p-3.5 space-y-3 bg-[var(--bg-sunken)]">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-semibold text-[var(--text-primary)]">
+        <span className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
           {t('settings.netmind.upsellCardName', 'NetMind Pro')}
+          {subscribed && (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/12 text-[var(--accent-primary)]">
+              ✓ {t('settings.netmind.subscribedBadge', 'Subscribed')}
+            </span>
+          )}
         </span>
         {priceText && (
           <span className="text-xs text-[var(--text-secondary)] tabular-nums">{priceText}</span>
@@ -81,11 +91,15 @@ export function NetmindUpsellCard({ proPlan, onUpgrade, busy }: NetmindUpsellCar
         )}
       </ul>
 
-      <Button variant="accent" size="sm" onClick={onUpgrade} disabled={busy} className="w-full">
-        {busy
-          ? t('settings.netmind.working', 'Working…')
-          : t('settings.netmind.upsellName', 'Upgrade to Pro')}
-      </Button>
+      {/* Subscribed mode: the plan intro is informational — no CTA (cancel
+          lives next to the card in the manage dialog, upgrading is moot). */}
+      {!subscribed && (
+        <Button variant="accent" size="sm" onClick={onUpgrade} disabled={busy} className="w-full">
+          {busy
+            ? t('settings.netmind.working', 'Working…')
+            : t('settings.netmind.upsellName', 'Upgrade to Pro')}
+        </Button>
+      )}
     </div>
   );
 }

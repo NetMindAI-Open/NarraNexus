@@ -83,9 +83,10 @@ def _mk_quota_svc(*, prefer_system, has_budget):
         row.prefer_system_override = prefer_system
         m.get = AsyncMock(return_value=row)
     m.check = AsyncMock(return_value=has_budget)
-    # classify() compare-and-swaps the free-tier preference OFF on exhaustion
-    # (#48); the winner returns True and fires the one-time auto-switch notice.
+    # classify() compare-and-swaps the notice latch OFF on exhaustion (#48);
+    # the winner returns True and fires the one-time auto-switch notice.
     m.disable_preference_if_enabled = AsyncMock(return_value=True)
+    m.rearm_switch_notice = AsyncMock()
     return m
 
 
@@ -140,22 +141,38 @@ async def test_opted_in_exhausted_without_own_provider_is_quota_exceeded():
 
 
 @pytest.mark.asyncio
-async def test_opted_out_with_own_config_is_user_ok_without_checking_quota():
+async def test_fired_latch_with_budget_is_system_ok_and_rearms():
+    """Free-tier-first is platform behavior (the opt-out preference is gone,
+    2026-07-18): budget → SYSTEM_OK even with the notice latch fired (0),
+    and the latch is re-armed for the next exhaustion cycle."""
     r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=True)
-    assert await r.classify("u") == ProviderAvailability.USER_OK
-    r.quota_svc.check.assert_not_called()
+    assert await r.classify("u") == ProviderAvailability.SYSTEM_OK
+    r.quota_svc.rearm_switch_notice.assert_awaited_once_with("u")
 
 
 @pytest.mark.asyncio
-async def test_opted_out_without_own_config_is_no_provider():
-    r = _resolver(None, enabled=True, prefer_system=False, has_budget=True)
+async def test_rearm_failure_never_blocks_a_budgeted_run():
+    """The latch re-arm is a cosmetic notice-dedup write on the SYSTEM_OK
+    success path — a transient DB error there must NOT fail the run
+    (classify's contract is "without raising"). Review fix 2026-07-18."""
+    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=True)
+    r.quota_svc.rearm_switch_notice = AsyncMock(side_effect=RuntimeError("db blip"))
+    assert await r.classify("u") == ProviderAvailability.SYSTEM_OK
+
+
+@pytest.mark.asyncio
+async def test_no_quota_row_without_own_config_is_no_provider():
+    r = _resolver(None, enabled=True, prefer_system=None, has_budget=True)
     assert await r.classify("u") == ProviderAvailability.NO_PROVIDER
 
 
 @pytest.mark.asyncio
-async def test_no_quota_row_behaves_as_opted_out():
+async def test_no_quota_row_with_own_config_is_user_ok_without_checking_quota():
+    """No quota row = no free tier granted — own provider only, quota never
+    probed (implicit-grant liability guard)."""
     r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=None, has_budget=True)
     assert await r.classify("u") == ProviderAvailability.USER_OK
+    r.quota_svc.check.assert_not_called()
 
 
 # ── is_runnable helper ──────────────────────────────────────────────────────
@@ -164,6 +181,5 @@ def test_is_runnable_truth_table():
     assert is_runnable(ProviderAvailability.SYSTEM_OK) is True
     assert is_runnable(ProviderAvailability.USER_OK) is True
     assert is_runnable(ProviderAvailability.SYSTEM_DISABLED) is True
-    assert is_runnable(ProviderAvailability.FREE_TIER_EXHAUSTED) is False
     assert is_runnable(ProviderAvailability.QUOTA_EXCEEDED) is False
     assert is_runnable(ProviderAvailability.NO_PROVIDER) is False

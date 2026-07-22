@@ -1,8 +1,48 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-17
 stub: false
 ---
+
+## 2026-07-17 — flat AGENTS list sorted by recent conversation
+
+The AGENTS section no longer renders `rawAgents` in server/creation
+order. A `useMemo`d `sortedAgents` runs [[agentGroupUtils]]
+`sortAgentsByActivity(rawAgents, aid => latestMessageMs(session))`,
+so the most-recently-active conversation floats to the top and a
+chatted agent auto-pins. The local-time source is
+`latestMessageMs(agentSessions[aid]?.messages)` from [[unread]] —
+counting BOTH user and agent messages, so the agent jumps to the top
+the instant the user sends, before the next `/api/auth/agents`
+refresh. The currently-open agent participates in the reorder (no
+pinning). The backend `/api/auth/agents` now applies the same rule
+(minus local sessions) as the pre-hydration baseline, so first paint
+is already ordered. BOTH the expanded AGENTS section and the
+collapsed avatar rail render `sortedAgents`, so the order doesn't
+flip back to creation order when the sidebar is collapsed; TEAMS
+rows keep teamsStore order.
+
+Streaming-hot-path guard: the memo does NOT depend on `agentSessions`
+directly (a streaming delta rebuilds that object every token). It
+depends on `activitySignature` — a cheap O(n) string of each agent's
+`id:messageCount:lastMessageTs`. Streaming deltas mutate
+`currentEvents`/`currentAssistantMessage`, never `messages` (see
+chatStore.updateSession), so the signature is byte-identical across
+the per-token churn and the O(n·m) sort re-runs only when a message
+is actually committed. `agentSessions` is deliberately omitted from
+the dep array (eslint-disable): the closure reads the current
+render's value, which is fresh whenever the signature changed. This
+honors 铁律 #14 (long sessions are first-class) and #16 (the platform
+must not become the interruption source).
+
+Guarded by `__tests__/agentListSorting.test.tsx` — an integration
+test that renders the real AgentList against live Zustand stores and
+asserts (a) first-paint order follows `last_assistant_at` and (b) a
+fresh local `agentSessions` message re-pins its agent to the top.
+Deliberately separate from the pure-function unit tests: it fails the
+day someone passes `rawAgents` back to `AgentGroupSection` instead of
+`sortedAgents`, or drops `agentSessions` from the memo deps — the
+exact 2026-07-17 regression where the list stayed in creation order.
 
 ## 2026-07-10 — hosts the clear-data wipe dialog
 

@@ -189,14 +189,13 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
         ))
 
     # --- Tier 5: system-default NetMind (cloud free tier) -----------------
-    # Gate on the user's "Use free quota" toggle (prefer_system_override).
-    # This is the SAME switch chat / helper_llm respect via
-    # provider_resolver.py — keeping STT aligned means a single Settings
-    # toggle controls all four capabilities. Without this gate a user
-    # who explicitly opted out of the free tier (e.g. to keep their own
-    # NetMind quota for chat) would still see STT silently route through
-    # the operator's NetMind key.
-    if user_id and await _user_opted_in_to_free_tier(user_id):
+    # Gate on "was this user granted a free tier" (a quota row exists) —
+    # the SAME rule chat / helper_llm follow via provider_resolver.py.
+    # Free-tier-first is platform behavior (the old prefer_system toggle
+    # was removed 2026-07-18); the no-row guard stays so a user the
+    # operator never granted quota can't route STT through the operator's
+    # NetMind key implicitly.
+    if user_id and await _user_has_free_tier(user_id):
         sys_netmind = _system_default_netmind_credential()
         if sys_netmind is not None:
             candidates.append(sys_netmind)
@@ -204,18 +203,22 @@ async def resolve_candidates(user_id: Optional[str]) -> List[TranscriptionCreden
     return candidates
 
 
-async def _user_opted_in_to_free_tier(user_id: str) -> bool:
-    """True iff the user has the "Use free quota" Settings toggle on
-    AND the cloud free tier is enabled at the deployment level.
+async def _user_has_free_tier(user_id: str) -> bool:
+    """True iff this user was granted a cloud free tier (a quota row
+    exists), the grant still has budget, AND the feature is enabled at
+    the deployment level.
 
-    Defaults to ``False`` on any error path — opt-in by exception is
-    the safer default for a feature that costs the operator money.
+    Defaults to ``False`` on any error path — grant by exception is the
+    unsafe direction for a feature that costs the operator money.
 
-    The toggle's source of truth is the ``user_quotas.prefer_system_override``
-    column, set via ``QuotaService.set_preference``. New cloud users land
-    on True (see backend's quota grant flow); they have to actively
-    uncheck it in Settings to opt out, at which point STT MUST stop
-    routing through system_default just like chat does.
+    NOTE: deliberately does NOT read ``prefer_system_override`` — since
+    2026-07-18 that column is only the exhaustion-notice dedup latch
+    (see provider_resolver), not a user preference. The two REAL
+    boundaries are the row (no grant → no operator-billed routing) and
+    the budget (review 2026-07-18: STT usage doesn't deduct from
+    user_quotas, so without the ``check`` an exhausted account could
+    burn the operator's NetMind STT key indefinitely while its LLM path
+    is already blocked — the two paths must share one budget verdict).
     """
     try:
         from xyz_agent_context.agent_framework.quota_service import QuotaService
@@ -230,14 +233,16 @@ async def _user_opted_in_to_free_tier(user_id: str) -> bool:
             qs = QuotaService.default()
         except RuntimeError:
             # Process didn't bootstrap quota (rare — every cloud entry
-            # point should). Treat as opt-out so we don't accidentally
+            # point should). Treat as no-grant so we don't accidentally
             # bill the operator on a misconfigured worker.
             return False
 
         quota = await qs.get(user_id)
-        return quota is not None and bool(quota.prefer_system_override)
+        if quota is None:
+            return False
+        return await qs.check(user_id)
     except Exception as e:
-        logger.debug(f"transcription resolver: free-tier opt-in check failed: {e}")
+        logger.debug(f"transcription resolver: free-tier grant check failed: {e}")
         return False
 
 

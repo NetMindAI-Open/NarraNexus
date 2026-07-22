@@ -120,6 +120,32 @@ class Settings(BaseSettings):
     llm_stall_probe_after_seconds: int = 600
     llm_stall_probe_timeout_seconds: int = 10
 
+    # ===== Helper-LLM one-shot bounds =====
+    # The helper_llm slot runs SHORT, tool-free, single-turn structured-output
+    # calls (Instance Decision, job analysis, memory consolidation, ...). It is
+    # NOT the agent_loop, so bounding it does not violate 铁律 #14 — a helper
+    # extraction that never returns is a defect, not a "user waiting" cost.
+    #
+    # These matter most for the CLI-backed helper (subscription/OAuth), which
+    # spawns a `claude` subprocess per call. Without an override it would
+    # inherit the agent-loop env from ClaudeConfig.to_cli_env
+    # (API_TIMEOUT_MS=llm_api_timeout_ms, retries=llm_max_retries) — i.e. up to
+    # 10 min/request × 10 retries ≈ 100 min hang on a bad/hijacked endpoint,
+    # which surfaced as "Job stuck at 正在创建" when helper_llm was set to Claude.
+    # Kept self-consistent: the wall-clock total is the HARD cap on one
+    # one-shot; the per-request timeout × (1 + retries) is the SOFT budget the
+    # CLI's own retries spend inside it. 60_000ms × (1 + 1) = 120s = the total,
+    # so a configured retry can actually run instead of being cut off early.
+    helper_cli_timeout_ms: int = 60000            # per-request cap for the helper CLI subprocess (1 min)
+    helper_cli_max_retries: int = 1               # helper CLI transient-retry count (not agent-loop's 10)
+    helper_cli_total_timeout_seconds: int = 120   # HARD wall-clock bound for ONE helper one-shot
+    # How many times a Claude helper structured-output call re-prompts for
+    # valid JSON before giving up. Prompt-engineered structured output (schema
+    # in the prompt + client-side JSON extraction) sometimes returns prose /
+    # schema-divergent JSON on the first try, especially for complex nested
+    # schemas on Haiku; a bounded repair retry recovers most of these.
+    helper_json_repair_attempts: int = 3
+
     # ===== Database =====
     database_url: Optional[str] = None
     db_host: str = "localhost"

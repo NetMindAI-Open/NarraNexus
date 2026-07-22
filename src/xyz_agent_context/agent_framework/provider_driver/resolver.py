@@ -18,8 +18,9 @@ compatibility while the call-site cleanup catches up.
 
 Pipeline per call:
 
-1. Load the user's quota row (still needed for the existing
-   prefer_system_override branching during the migration window).
+1. Load the user's slot rows. (This module never reads the quota row or
+   prefer_system_override — quota gating lives in provider_resolver; the
+   column itself is only a notice latch since 2026-07-18.)
 2. For each slot (agent / helper_llm):
    a. Look up the user_slots row.
    b. Look up the corresponding user_providers card by provider_id.

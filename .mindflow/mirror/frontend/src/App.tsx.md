@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 (续) — 横幅"退出重登"改为"Settings → Account 里接入"
+
+use-subscription 按钮接上后（[[NetmindAccountPanel]] 同日条目），横幅里
+"then sign out and back in to link it"的笨拙引导改为指向面板的 Link it now
+按钮所在位置。#124 自己就说文案是止血不是终态——终态到了。
+
+## 2026-07-20 — quota-exceeded 横幅文案补「订阅 NetMind.AI 套餐」
+
+与 [[provider_resolver]] / [[llm_failure]] 同批：额度耗尽的用户现在可能已经
+被自动绑上了一把没余额的 NetMind key，只提示"添加自己的 API key"对他们无解。
+
+遗留问题（本次未处理，超出改动范围）：**这条横幅是全应用少数没走 i18n 的
+用户可见文案** —— App.tsx 至今没有引入 `useTranslation`，为一条字符串把 hook
+引进应用外壳风险大于收益。若将来 App.tsx 因别的原因接入 i18n，顺手把它一起收了。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 

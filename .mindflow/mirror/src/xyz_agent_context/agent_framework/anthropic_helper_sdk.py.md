@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/anthropic_helper_sdk.py
-last_verified: 2026-07-03
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — 结构化输出加 JSON 修复重试(Lark bug #2)
+
+`llm_function` 的结构化分支从"一次抠取/校验失败即抛"改为**有界修复重试**
+(`settings.helper_json_repair_attempts`,默认 3):失败时把上一轮回复回填成
+assistant turn + 一条 `json_repair_note` 再重发 Messages API,全部尝试失败才抛。
+起因:提示词工程式结构化输出(schema 塞 system prompt + 客户端抠 JSON,本 SDK 无
+原生 response_format)对深嵌套 schema(如 `InstanceDecisionOutput`,Haiku)常首轮
+裹 prose,单次即抛会让上游 Instance Decision 静默丢掉用户请求的 Job。
+
+**空回复边界**:回填的 assistant content 用 `raw_content[:4000].strip() or
+"(empty response)"` —— 因为 `raw_content` 是拼接的 text block,当某轮**没有任何
+text block**(纯 thinking/空/被截断)时它是 `""`,而"完全没文本"恰是抠取失败最常见
+的形态;空 content block 会被 Messages API 直接 400,占位符避免修复轮死在与 JSON
+无关的 API 错误上。每轮 `record_cost` 独立记账(失败路径 token 成本按尝试数放大,
+属该修法应付的代价)。`settings` 导入提到模块顶部。回归测试见
+`test_helper_json_repair.py`(恢复/耗尽/空回复占位)。
 
 ## 2026-07-03 — de-silence missing usage (Phase 0 / module H)
 

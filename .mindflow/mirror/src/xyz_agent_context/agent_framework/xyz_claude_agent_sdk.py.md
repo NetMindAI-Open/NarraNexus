@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/xyz_claude_agent_sdk.py
-last_verified: 2026-07-15
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — 子进程 provider 可观测日志(Lark bug #1)
+
+`agent_loop` 组装完 `cli_env`(所有覆盖之后、build options 之前)加一条 INFO,打印
+**生效**的 `base_url`/auth 种类/`CLAUDE_CONFIG_DIR`。与之前那条"配置意图"日志区分:
+这条是**实际注入子进程的 env**。用途:个人 `~/.claude/settings.json` 的 env-block
+可把 `ANTHROPIC_BASE_URL` 悄悄改道到私有 relay,以前无迹可查(2026-07-08 事故靠 30+
+次黑盒探测才定位);现在配置 vs 实际一 grep 即比对。纯可观测,无行为变更;只打
+base_url 与 auth 种类(token/key/none),不打凭据本身。CLI helper 侧有对称日志
+(见 [[cli_helper_sdk]])。
 
 ## 2026-07-15 — MCP spec 带自定义 headers（`_build_claude_mcp_config`）
 

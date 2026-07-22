@@ -73,6 +73,7 @@ async def test_set_get_clear_roundtrip():
     row = await aslot.set_agent_slot(
         "ag1", "agent", ids[0], "claude-sonnet-4-6",
         reasoning_effort="high", agent_framework="claude_code",
+        actor_is_staff=None,
     )
     assert row["provider_id"] == ids[0]
     assert row["model"] == "claude-sonnet-4-6"
@@ -98,8 +99,8 @@ async def test_clear_all_removes_both_slots():
         models=["gpt-5.4-mini"],
     )
     aslot = AgentSlotService(db)
-    await aslot.set_agent_slot("ag1", "agent", anth[0], "claude-opus-4-8")
-    await aslot.set_agent_slot("ag1", "helper_llm", oai[0], "gpt-5.4-mini")
+    await aslot.set_agent_slot("ag1", "agent", anth[0], "claude-opus-4-8", actor_is_staff=None)
+    await aslot.set_agent_slot("ag1", "helper_llm", oai[0], "gpt-5.4-mini", actor_is_staff=None)
     assert set((await aslot.get_agent_slots("ag1")).keys()) == {"agent", "helper_llm"}
 
     await aslot.clear_agent_slot("ag1", None)  # all
@@ -122,6 +123,7 @@ async def test_codex_framework_accepts_aggregator_source():
     })
     row = await AgentSlotService(db).set_agent_slot(
         "ag1", "agent", "p_nm", "gpt-5.4", agent_framework="codex_cli",
+        actor_is_staff=None,
     )
     assert row["provider_id"] == "p_nm"
     assert "agent" in (await AgentSlotService(db).get_agent_slots("ag1"))
@@ -142,7 +144,7 @@ async def test_codex_framework_rejects_protocol_mismatch():
     with pytest.raises(ValueError, match="protocol"):
         await AgentSlotService(db).set_agent_slot(
             "ag1", "agent", "p_anth", "claude-opus-4-8", agent_framework="codex_cli",
-        )
+         actor_is_staff=None)
 
 
 @pytest.mark.asyncio
@@ -156,6 +158,7 @@ async def test_helper_slot_accepts_oauth_provider():
     _, claude_oauth = await svc.add_provider(user_id="u1", card_type="claude_oauth")
     row = await AgentSlotService(db).set_agent_slot(
         "ag1", "helper_llm", claude_oauth[0], "haiku",
+        actor_is_staff=None,
     )
     assert row["provider_id"] == claude_oauth[0]
     assert "helper_llm" in (await AgentSlotService(db).get_agent_slots("ag1"))
@@ -172,4 +175,4 @@ async def test_unknown_agent_has_no_owner():
     with pytest.raises(ValueError, match="owner"):
         await AgentSlotService(db).set_agent_slot(
             "ghost", "agent", ids[0], "claude-opus-4-8",
-        )
+         actor_is_staff=None)

@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-18
 stub: false
 ---
+
+## 2026-07-18 — 云端框架锁：禁用 → alert → useConfirm 样式弹窗（三改定稿）
+
+Owner 走查三轮：① `disabled` + 常驻提示（不友好）→ ② `window.alert`（生硬，
+且 **Tauri wry 根本不渲染 window.alert** —— ConfirmDialog.tsx 存在的原因，
+绝不能用原生弹窗）→ ③ 定稿：`useConfirm().alert`（与加服务商同一 Dialog
+外壳），标题 `cloudFrameworkLockedTitle` + 正文 `cloudFrameworkLocked` +
+DESKTOP_RELEASES_URL 下载链接，`{noticeDialog}` 挂在组件根部。**坑**：受控
+select 的 state 未变 → React 不重渲染 → 必须手动 `e.target.value = framework`
+弹回。API 不会被调用（guard 先 return）。背景：后端 `POST /agent-framework`
+的云端 staff-gate 会 403 普通用户；Owner 定案保持 staff-only。
+[[AgentLlmConfigPanel]] 同款（其弹窗不带下载链接，正文更短）。
+
+## 2026-07-17 — 云端 netmind-only：下拉过滤 + 底部"下载本地版"提示
+
+`netmindOnly = cloudNetmindOnly(configStore.role)`（[[agentFramework]] 新谓词，
+云端非 staff 为真）。为真时 agent/helper 两个 provider 下拉都隐藏
+`source !== 'netmind'` 的卡（后端 route 门禁会 403 它们，UI 不给出这个选项），
+且 Save 行下方多一段 note：`pages.settings.modelDefaults.cloudNetmindOnlyNote`
+（"云端版本使用你的 NetMind 账户运行——这里不能使用你自己 API key 的模型"）+
+指向 `DESKTOP_RELEASES_URL` 的下载链接。本文件因此首次引入 useTranslation
+（en/zh 键 + 内联默认，其余文案仍是硬编码英文）。本地/staff 完全不受影响。
+测试：__tests__/ModelDefaultsSettings.test.tsx（cloud user / cloud staff /
+local 三态）。
 
 ## 2026-07-10 — agent slot 去掉 codex source 过滤
 

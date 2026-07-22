@@ -66,9 +66,11 @@ class TranscriptionAvailability:
       - ``NONE`` — no provider configured AND no free tier wired up at
         the deployment level (or running in local mode without a key).
         Dialog: "configure OpenAI/NetMind to enable voice input."
-      - ``FREE_TIER_OPTED_OUT`` — no provider configured, but the cloud
-        free tier IS available and the user opted out via Settings.
-        Dialog: "configure your own OR re-enable free quota in Settings."
+      - ``FREE_TIER_NOT_GRANTED`` — no provider configured, and the cloud
+        free tier is wired at the deployment level but this user has no
+        quota row (no grant — the row IS the grant; the old opt-out
+        preference was removed 2026-07-18).
+        Dialog: "configure your own transcription provider."
     """
 
     HAS_OPENAI = "has_openai"
@@ -76,7 +78,7 @@ class TranscriptionAvailability:
     HAS_OTHER = "has_other"           # Yunwu / self-hosted / settings.openai
     SYSTEM_FREE_TIER = "system_free_tier"
     NONE = "none"
-    FREE_TIER_OPTED_OUT = "free_tier_opted_out"
+    FREE_TIER_NOT_GRANTED = "free_tier_not_granted"
     # No transcription provider AND this deployment can't host NetMind
     # (no PUBLIC_BASE_URL — typical for Tauri / `bash run.sh` desktop).
     # Frontend dialog drops the "or NetMind" branch so we don't tell
@@ -152,8 +154,8 @@ class TranscriptionService:
         """Return ``(available, reason)`` for the frontend dialog.
 
         When ``creds`` is empty we run a second diagnosis to distinguish
-        ``FREE_TIER_OPTED_OUT`` from ``NONE`` so the dialog can offer
-        two paths instead of one when applicable.
+        ``FREE_TIER_NOT_GRANTED`` from ``NONE`` so the dialog can explain
+        the deployment-vs-account difference when applicable.
         """
         creds = await resolve_candidates(user_id)
         if creds:
@@ -164,16 +166,15 @@ class TranscriptionService:
         if user_id:
             from xyz_agent_context.agent_framework.transcription.resolver import (
                 _system_default_netmind_credential,
-                _user_opted_in_to_free_tier,
+                _user_has_free_tier,
             )
             sys_cred = _system_default_netmind_credential()
             if sys_cred is not None:
-                # Free tier is wired at the deploy level; the only
-                # reason we got 0 candidates is the user opted out.
-                # (If they were opted in, sys_cred would be in the list.)
-                opted_in = await _user_opted_in_to_free_tier(user_id)
-                if not opted_in:
-                    return False, TranscriptionAvailability.FREE_TIER_OPTED_OUT
+                # Free tier is wired at the deploy level; the only reason we
+                # got 0 candidates is that this user was never granted one
+                # (no quota row — free-tier-first is otherwise automatic).
+                if not await _user_has_free_tier(user_id):
+                    return False, TranscriptionAvailability.FREE_TIER_NOT_GRANTED
 
         # No public ingress → NetMind isn't viable on this machine.
         # Tell the frontend so the dialog drops the NetMind branch

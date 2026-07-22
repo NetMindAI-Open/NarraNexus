@@ -14,8 +14,11 @@
  * choices match the per-agent panel + the provider dropdowns.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/components/ui';
+import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
   isCodexFramework,
@@ -23,6 +26,8 @@ import {
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
+  cloudNetmindOnly,
+  DESKTOP_RELEASES_URL,
   type ProviderSummary,
 } from '@/lib/agentFramework';
 
@@ -50,6 +55,11 @@ interface Props {
 }
 
 export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
+  const { t } = useTranslation();
+  const netmindOnly = cloudNetmindOnly(useConfigStore((s) => s.role));
+  // Styled alert (same Dialog shell as the add-provider modal) — Tauri's
+  // wry webview doesn't render window.alert, so never use the native one.
+  const { alert: showNotice, dialog: noticeDialog } = useConfirm();
   const [providers, setProviders] = useState<Record<string, ProviderSummary>>({});
   const [framework, setFramework] = useState('claude_code');
   const [probe, setProbe] = useState<{ ok: boolean; detail: string } | null>(null);
@@ -105,11 +115,14 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const hasProviders = providerList.length > 0;
 
   // Agent slot: only the framework's protocol gates the list (codex_cli →
-  // openai, claude_code → anthropic). No source filter — any openai-protocol
-  // provider (codex_oauth / user / netmind / yunwu / openrouter) can back
-  // codex; Responses-API compatibility is the provider's concern, not policed
-  // here (binding rule #15). Mirrors backend validate_slot_binding.
+  // openai, claude_code → anthropic). On local, no source filter — any
+  // openai-protocol provider (codex_oauth / user / netmind / yunwu /
+  // openrouter) can back codex; Responses-API compatibility is the provider's
+  // concern, not policed here (binding rule #15). Mirrors backend
+  // validate_slot_binding. Cloud non-staff additionally sees NetMind-source
+  // providers only (cloudNetmindOnly — the route gates would 403 anything else).
   const agentProviders = providerList.filter((p) => {
+    if (netmindOnly && p.source !== 'netmind') return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
     if (fw && p.protocol !== fw.protocol) return false;
     return true;
@@ -118,7 +131,9 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   // OAuth helper to a CliHelperConfig and runs its structured calls one-shot
   // through the same CLI as the agent, so one subscription covers both slots.
   const helperProviders = providerList.filter(
-    (p) => ['openai', 'anthropic'].includes(p.protocol),
+    (p) =>
+      (!netmindOnly || p.source === 'netmind') &&
+      ['openai', 'anthropic'].includes(p.protocol),
   );
 
   const sameAgent = (a: AgentDraft, b: AgentDraft) =>
@@ -256,11 +271,48 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 </span>
               )}
             </label>
+            {/* Cloud non-staff: framework switching is staff-only (backend
+                403s it). The select stays interactive — picking a different
+                framework pops an explanation and snaps back, which reads
+                friendlier than a greyed-out control with permanent copy. */}
             <select
               className={selectCls}
               value={framework}
               disabled={frameworkSaving}
-              onChange={(e) => onFrameworkChange(e.target.value)}
+              onChange={(e) => {
+                if (netmindOnly && e.target.value !== framework) {
+                  void showNotice({
+                    title: t(
+                      'pages.settings.modelDefaults.cloudFrameworkLockedTitle',
+                      'Desktop version only',
+                    ),
+                    message: (
+                      <>
+                        {t(
+                          'pages.settings.modelDefaults.cloudFrameworkLocked',
+                          'Switching the agent framework is available in the local desktop version only.',
+                        )}{' '}
+                        <a
+                          href={DESKTOP_RELEASES_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80"
+                        >
+                          {t(
+                            'pages.settings.modelDefaults.cloudNetmindOnlyLink',
+                            'Download the local desktop version to use your own keys →',
+                          )}
+                        </a>
+                      </>
+                    ),
+                  });
+                  // Controlled value didn't change, so React won't re-render —
+                  // snap the DOM select back to the current framework itself.
+                  e.target.value = framework;
+                  return;
+                }
+                void onFrameworkChange(e.target.value);
+              }}
             >
               {AGENT_FRAMEWORKS.map((f) => (
                 <option key={f.id} value={f.id}>{f.label} — {f.desc}</option>
@@ -388,6 +440,28 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
           <span className="text-sm text-[var(--color-success)]">✓ Saved</span>
         )}
       </div>
+
+      {netmindOnly && (
+        <p className="text-xs text-[var(--text-tertiary)]">
+          {t(
+            'pages.settings.modelDefaults.cloudNetmindOnlyNote',
+            'The cloud version runs on your NetMind account — models from your own API keys are not available here.',
+          )}{' '}
+          <a
+            href={DESKTOP_RELEASES_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80"
+          >
+            {t(
+              'pages.settings.modelDefaults.cloudNetmindOnlyLink',
+              'Download the local desktop version to use your own keys →',
+            )}
+          </a>
+        </p>
+      )}
+
+      {noticeDialog}
     </div>
   );
 }

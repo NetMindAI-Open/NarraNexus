@@ -1,8 +1,56 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/matrix_trigger.py
 stub: false
-last_verified: 2026-07-09
+last_verified: 2026-07-20
 ---
+
+## 2026-07-20 — compound wire format changed: single `ai.netmind.compound` event
+
+Real dev bug (agent_743423ca551b): a group @-mention carrying a
+document/image attachment got NO reply — the whole message was silently
+dropped at ingest. Root cause: **NarraMessenger changed how a
+document/image attachment is delivered on the wire.**
+
+- **Old (verified 2026-07-03, agent_62cf)**: two events — a hidden
+  ``m.text`` whose ``content["ai.netmind.hint"].kind=="compound_trigger"``
+  carried a ``compound_preview`` (real text + media mxc), plus an ignored
+  ``ai.netmind.compound`` sibling. ``_wrap_event`` matched the ``m.text``
+  (``RoomMessageText`` → isinstance hit) and lifted the preview.
+- **New (verified 2026-07-20)**: a SINGLE event with the custom msgtype
+  ``ai.netmind.compound``; the payload self-describes under
+  ``content["ai.netmind.compound"]`` (``media_url`` / ``mime_type`` /
+  ``file_name`` / ``size`` / ``text``) and the @-mention rides in
+  ``content["m.mentions"]`` on the same event. The hidden hint ``m.text``
+  is gone.
+
+Why it broke: a custom msgtype has no nio factory, so nio parses the event
+as ``RoomMessageUnknown``. The old branch gated compound detection inside
+``isinstance(event, RoomMessageText)`` → the new event matched neither the
+Text nor the Media branch → fell through to the ``skipping event`` no-op →
+``None`` → dropped (0 ingress, no group_mention, no reply). Verified with
+nio on the box: ``RoomMessage.parse_event`` on the real content →
+``RoomMessageUnknown`` (has ``.source`` with the payload + ``m.mentions``).
+
+Fix: ``_wrap_event`` pulls ``source.content`` up front and matches
+``content["msgtype"] == "ai.netmind.compound"`` BEFORE the isinstance
+branches, emitting the same ``m.room.message.compound`` dict downstream
+already understands. One branch covers every attachment mime (pdf / image
+/ video / …) — only ``mime_type`` differs; ``parse_event`` →
+``_media_content_type(mime)`` classifies IMAGE/FILE/VIDEO/AUDIO. Because
+the wrapped dict carries ``_nio_event`` (the RoomMessageUnknown, whose
+``.source`` holds ``m.mentions``), ``_is_mentioning_us`` sees the @ and the
+message classifies as **group_mention** — the whole point.
+
+Scope check (evidence, not assumption — sampled the room on the wire):
+PDF ``application/pdf`` and image ``image/jpeg`` BOTH arrive as
+``ai.netmind.compound`` (same shape, different mime). A **voice note**
+arrives DIFFERENTLY — as a standard ``m.audio`` (``RoomMessageMedia``,
+payload under ``content.info``, NO ``m.mentions``) — handled unchanged by
+the media branch; a group voice note without an @ is correctly
+``group_silent`` (memory-only, no reply), not a bug.
+
+Per 铁律 #2 the old two-event hint path is **removed**, not kept as a
+compat shim (the server no longer emits it).
 
 ## 2026-07-09 (review fixes) — full progress removal + inline
 

@@ -97,6 +97,28 @@ describe('OneKeyOnboard', () => {
     expect(screen.getByRole('status').textContent).toContain('Claude Code');
   });
 
+  test('register-only response (activated=false) shows "Key saved", not model claims', async () => {
+    // Cloud non-staff: the backend stores the key but keeps slots on NetMind.
+    onboardMock.mockResolvedValue({
+      success: true,
+      activated: false,
+      agent_model: 'claude-opus-4-8',
+      helper_model: 'claude-haiku-4-5',
+      agent_framework: 'claude_code',
+    });
+    render(<OneKeyOnboard onComplete={() => {}} />);
+    typeKey('sk-ant-abc');
+
+    fireEvent.click(screen.getByText('Start using NarraNexus'));
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toContain('Key saved'),
+    );
+    const status = screen.getByRole('status').textContent ?? '';
+    expect(status).toContain('NetMind');
+    expect(status).toContain('local desktop version');
+    expect(status).not.toContain('claude-opus-4-8');
+  });
+
   test('surfaces backend error detail and does not complete', async () => {
     onboardMock.mockRejectedValue(
       new Error('API error 400: A anthropic provider already exists'),

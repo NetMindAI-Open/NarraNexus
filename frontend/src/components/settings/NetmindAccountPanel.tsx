@@ -32,6 +32,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui';
 import { api } from '@/lib/api';
 import { platform } from '@/lib/platform';
 import type {
@@ -43,7 +44,14 @@ import type {
 } from '@/types';
 import { useConfigStore } from '@/stores/configStore';
 import { deriveRunway } from './netmindRunway';
-import { money, freeTierPctLeft, formatPeriod, formatDate } from './netmindFormat';
+import {
+  money,
+  freeTierPctLeft,
+  freeTierTokensLeft,
+  formatTokens,
+  formatPeriod,
+  formatDate,
+} from './netmindFormat';
 import { NetmindRunwayView } from './NetmindRunwayView';
 import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
@@ -108,7 +116,8 @@ export function NetmindAccountPanel() {
   const [rechargeState, setRechargeState] = useState<RechargeState>('idle');
   const [rechargeError, setRechargeError] = useState<string | null>(null);
   const [showActivity, setShowActivity] = useState(false); // recent activity collapsed by default
-  const [preferBusy, setPreferBusy] = useState(false); // prefer toggle in flight
+  const [linkBusy, setLinkBusy] = useState(false); // use-subscription link in flight
+  const [linkError, setLinkError] = useState<string | null>(null);
   // Module F: read-only connection status (backend auto-registers on login).
   const [netStatus, setNetStatus] = useState<NetmindStatus>('checking');
   const mounted = useRef(true);
@@ -119,7 +128,9 @@ export function NetmindAccountPanel() {
   const busyRef = useRef(false);
   const pollingRef = useRef(false);
   const rechargeRef = useRef(false); // synchronous double-submit guard
-  const preferBusyRef = useRef(false); // sync guard for the prefer toggle
+  const linkBusyRef = useRef(false); // sync guard for the use-subscription link
+  // Latest linkNetmind, readable from callbacks declared before it (TDZ).
+  const linkNetmindRef = useRef<(() => Promise<void>) | null>(null);
   // Identifies the active top-up attempt. Bumping it invalidates any in-flight
   // poll loop (used to stop waiting / supersede) so a stale loop can never
   // overwrite the UI or block a fresh attempt.
@@ -182,6 +193,10 @@ export function NetmindAccountPanel() {
             setMe(data);
             setState(resolveState(data));
             becameActive = true;
+            // Best-effort auto-link right after the payment lands: the user
+            // just paid — this is the worst moment to ask them to sign out
+            // and back in. Idempotent (409 = already linked).
+            void linkNetmindRef.current?.();
             return;
           }
         } catch {
@@ -292,6 +307,40 @@ export function NetmindAccountPanel() {
     }
   }, []);
 
+  // Link the NetMind account as a provider via POST /providers/use-subscription.
+  // First frontend caller of this endpoint (2026-07-20) — previously the ONLY
+  // link path was a re-login, which stranded always-signed-in users whose
+  // login predated the auto-provision flag (or whose login-time mint failed).
+  // 409 = already linked, which is success for our purposes. linkNetmindRef
+  // lets pollUntilActive (declared earlier) fire this after a subscription
+  // payment lands without a TDZ/ordering hazard.
+  const linkNetmind = useCallback(async () => {
+    if (linkBusyRef.current) return;
+    linkBusyRef.current = true;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await api.useSubscription();
+    } catch (e) {
+      const msg = errMessage(e);
+      if (!msg.includes('409')) {
+        if (mounted.current) {
+          setLinkError(msg);
+          setLinkBusy(false);
+        }
+        linkBusyRef.current = false;
+        return;
+      }
+    }
+    await refreshNetStatus();
+    linkBusyRef.current = false;
+    if (mounted.current) setLinkBusy(false);
+  }, [refreshNetStatus]);
+
+  useEffect(() => {
+    linkNetmindRef.current = linkNetmind;
+  }, [linkNetmind]);
+
   useEffect(() => {
     mounted.current = true;
     if (isPowerUser) {
@@ -302,32 +351,6 @@ export function NetmindAccountPanel() {
       mounted.current = false;
     };
   }, [isPowerUser, load, refreshNetStatus]);
-
-  // Toggle "free tier first" (formerly QuotaPanel prefer_system). The backend
-  // guards "OFF is always allowed" — turning free tier ON needs budget, OFF
-  // never does — so the RunwayView only disables the ON direction when exhausted.
-  // preferBusyRef is the synchronous double-click guard (same pattern as
-  // busyRef): two concurrent toggles could otherwise settle on whichever
-  // response lands last, opposite to the user's final intent.
-  const togglePrefer = useCallback(async () => {
-    if (preferBusyRef.current) return;
-    const cur =
-      quota && quota.enabled === true && quota.status !== 'uninitialized'
-        ? quota.prefer_system_override
-        : null;
-    if (cur === null) return;
-    preferBusyRef.current = true;
-    setPreferBusy(true);
-    try {
-      const next = await api.setQuotaPreference(!cur);
-      if (mounted.current) setQuota(next);
-    } catch {
-      // keep the previous state — the switch simply doesn't move
-    } finally {
-      preferBusyRef.current = false;
-      if (mounted.current) setPreferBusy(false);
-    }
-  }, [quota]);
 
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance + activity reflect the new credit. `gen`
@@ -432,24 +455,76 @@ export function NetmindAccountPanel() {
   const runway = deriveRunway(quota, fee);
   const proPlan = plans?.find((p) => p.plan_id === 'pro') ?? null;
   const period = formatPeriod(proPlan?.prices?.[0]?.period, t('settings.netmind.perMonth', 'mo'));
-  const freePct = freeTierPctLeft(quota);
-  const preferSystem =
-    quota && quota.enabled === true && quota.status !== 'uninitialized'
-      ? quota.prefer_system_override
-      : null;
-  const preferLocked = quota?.enabled === true && quota.status === 'exhausted';
+  // ── Pro subscription-credit split (the "overflow tank" model) ────────────
+  // NetMind's free_credit merges recharge + accumulated subscription grants;
+  // subscription_credit lists the grant part separately (grants ACCUMULATE
+  // across cycles — dev-verified). The panel splits the display:
+  //   this cycle's tank = min(subscription_credit, grantPerCycle) → % bar
+  //   overflow (older cycles' leftover) + recharge → the balance hero
+  // Denominator is proPlan.monthly_grant_usd — NOT metrics.monthly_free_credit,
+  // which returned 0.50 on dev against a real $19/cycle grant (semantics
+  // unverified, see types/api.ts). Split only engages when every input is a
+  // finite number; otherwise the pre-split display below stays (never a
+  // negative or blank hero on an older API).
+  const subCreditNum = Number(fee?.metrics?.subscription_credit);
+  const freeCreditNum = Number(fee?.metrics?.free_credit);
+  const grantPerCycle = Number(proPlan?.monthly_grant_usd);
+  // isPro deliberately includes pro_cancelled: a cancelled-but-active sub
+  // still holds its subscription_credit until the period ends, so the split
+  // must keep rendering. Don't narrow this to pro_active for UI reasons.
+  const subSplit =
+    isPro &&
+    fee?.metrics?.subscription_credit != null &&
+    Number.isFinite(subCreditNum) &&
+    Number.isFinite(freeCreditNum) &&
+    Number.isFinite(grantPerCycle) &&
+    grantPerCycle > 0;
+  const subCycleRemaining = subSplit ? Math.min(subCreditNum, grantPerCycle) : 0;
+  const subOverflow = subSplit ? Math.max(0, subCreditNum - grantPerCycle) : 0;
+  const subPct = subSplit
+    ? Math.max(0, Math.min(100, Math.floor((subCycleRemaining / grantPerCycle) * 100)))
+    : null;
+  // Own spendable money: recharge + overflow from earlier cycles.
+  const heroValue = subSplit
+    ? Math.max(0, freeCreditNum - subCreditNum) + subOverflow
+    : fee?.metrics?.free_credit;
+
+  // The free tier is a ONE-TIME registration grant — no periodic refresh
+  // (staff can top it up manually, nothing else). Once used up, a permanent
+  // 0% warning bar is dead weight, so the bar collapses to a single
+  // explanatory line (freeTierExhausted → RunwayView note) and the flow
+  // copy switches via freePct=null. For a Pro user with the split active,
+  // the plan-credit bar REPLACES the free-tier display entirely (Owner call
+  // 2026-07-18) — display only, the backend still drains the free tier
+  // first, which just reads as "nothing is being spent yet".
+  const freePctRaw = freeTierPctLeft(quota);
+  const freeTierExhausted = !subSplit && freePctRaw === 0;
+  const freePct = subSplit || freePctRaw === 0 ? null : freePctRaw;
+  // Row value in tokens ("3.9M tokens left"), same more-depleted dimension
+  // as the bar width — a percentage told users nothing about how much a
+  // "percent" actually buys. Remaining only (Owner call: remaining/total
+  // reads too dense); the bar carries the proportion context.
+  const freeTokens = freePct !== null ? freeTierTokensLeft(quota) : null;
+  const freeTokensText = freeTokens
+    ? t('settings.netmind.freeTierTokensLeft', '{{remaining}} tokens left', {
+        remaining: formatTokens(freeTokens.remaining),
+      })
+    : null;
   const grantUsd = fee?.metrics?.monthly_free_credit;
+  // Legacy grant line — only for Pro accounts on an API without
+  // subscription_credit (the bar replaces it once the split engages).
   const grantText =
-    isPro && grantUsd != null && grantUsd !== ''
+    isPro && !subSplit && grantUsd != null && grantUsd !== ''
       ? t('settings.netmind.grantPerPeriod', '{{amount}} / {{period}}', {
           amount: `$${money(grantUsd)}`,
           period,
         })
       : null;
-  // Balance is the hero (spendable free_credit = grant + recharge, per the API).
-  // Runway below shows only the pools breakdown (free tier / grant) + toggle.
+  // Balance is the hero (with the split: recharge + overflow; without:
+  // NetMind's merged free_credit). Runway below shows the pools breakdown.
   const showBalanceHero = feeLoaded && !!fee;
-  const showRunway = freePct !== null || !!grantText || preferSystem !== null;
+  const showRunway =
+    freePct !== null || !!grantText || freeTierExhausted || subPct !== null;
 
   // Plan badge (top-right): reflects the NetMind.AI Power plan state.
   const planBadge = (() => {
@@ -546,12 +621,14 @@ export function NetmindAccountPanel() {
   const balanceHero = showBalanceHero ? (
     <div>
       <div className="text-3xl font-semibold font-mono tabular-nums text-[var(--text-primary)] leading-none tracking-tight">
-        ${money(fee!.metrics?.free_credit)}
+        ${money(heroValue)}
       </div>
       <div className="mt-1.5 text-xs text-[var(--text-tertiary)]">
-        {grantText
-          ? t('settings.netmind.balanceUsable', 'Current usable balance')
-          : t('settings.netmind.currentBalance', 'Current balance')}
+        {subSplit
+          ? t('settings.netmind.ownBalance', 'Your balance (top-ups + carried-over plan credit)')
+          : grantText
+            ? t('settings.netmind.balanceUsable', 'Current usable balance')
+            : t('settings.netmind.currentBalance', 'Current balance')}
       </div>
     </div>
   ) : null;
@@ -582,10 +659,33 @@ export function NetmindAccountPanel() {
       );
     }
     if (netStatus === 'not_connected') {
+      // Actionable: the link button calls POST /providers/use-subscription —
+      // no more "sign out and back in" busywork (that path still works and
+      // stays as the login-time auto-heal, this is just the in-session exit).
       return (
-        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)]">
-          {t('settings.netmind.notConnected',
-            'Your NetMind.AI Power account isn’t linked as a provider yet. Sign out and back in to link it, or add it in LLM Providers.')}
+        <div className="rounded-md bg-[var(--color-warning)]/10 p-3 text-sm text-[var(--color-warning)] space-y-2">
+          <div className="flex items-center justify-between gap-3">
+            <p className="m-0">
+              {t('settings.netmind.notConnected',
+                'Your NetMind.AI Power account isn’t linked as a provider yet.')}
+            </p>
+            <Button
+              size="sm"
+              variant="accent"
+              onClick={linkNetmind}
+              disabled={linkBusy}
+              className="shrink-0"
+            >
+              {linkBusy
+                ? t('settings.netmind.working', 'Working…')
+                : t('settings.netmind.linkNow', 'Link it now')}
+            </Button>
+          </div>
+          {linkError && (
+            <p className="m-0 text-xs">
+              {t('settings.netmind.linkFailed', 'Linking failed:')} {linkError}
+            </p>
+          )}
         </div>
       );
     }
@@ -642,16 +742,16 @@ export function NetmindAccountPanel() {
           {/* 2 · money block: balance hero + runway breakdown, uninterrupted. */}
           {balanceHero}
 
-          {/* 3 · runway — pools breakdown (free tier / grant) + charging order +
-              toggle. Balance itself is the hero above, not here. */}
+          {/* 3 · runway — pools breakdown (free tier / grant) + charging
+              order. Balance itself is the hero above, not here. The free
+              tier is always drawn first (platform behavior, no toggle). */}
           {showRunway && (
             <NetmindRunwayView
               freePct={freePct}
+              freeTokensText={freeTokensText}
               grantText={grantText}
-              preferSystem={preferSystem}
-              preferLocked={preferLocked}
-              preferBusy={preferBusy}
-              onTogglePrefer={togglePrefer}
+              freeTierExhausted={freeTierExhausted}
+              subPct={subPct}
               flowIsPro={isPro}
             />
           )}
@@ -677,7 +777,7 @@ export function NetmindAccountPanel() {
           <NetmindActionZone
             state={state}
             runway={runway}
-            freeTierExhausted={freePct === 0}
+            freeTierExhausted={freeTierExhausted}
             busy={busy}
             polling={polling}
             proPlan={proPlan}
