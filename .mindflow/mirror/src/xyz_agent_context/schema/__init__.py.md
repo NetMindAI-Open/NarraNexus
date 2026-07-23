@@ -1,9 +1,24 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-07-15
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — export URL-tab models
+
+Re-export `URL_ARTIFACT_KIND`, `EmbedMode`, `EmbedVerdict`, `UrlArtifactDoc`
+from [[artifact_schema.py]]. Pure forwarding.
 # schema/__init__.py — schema 包的集中导出门面
+
+## 2026-07-21 — 导出 `HealCandidate` / `HealResult`
+
+artifact heal 的结果模型从路由本地类提升进 [[artifact_schema.py]]，门面同步
+re-export。纯转发。
+
+## 2026-07-22 — 导出 `EXECUTOR_INFRA_ERROR_TYPE`
+
+门面新增 re-export `EXECUTOR_INFRA_ERROR_TYPE`（[[runtime_message.py]]），供
+`step_3_agent_loop` / `agent_circuit_breaker` 从 `schema` 顶层引用。纯转发。
 
 ## 2026-07-15 — 导出 `SELF_SERVICEABLE_ERROR_TYPE`
 

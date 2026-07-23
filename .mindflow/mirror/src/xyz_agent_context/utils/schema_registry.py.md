@@ -1,8 +1,63 @@
 ---
 code_file: src/xyz_agent_context/utils/schema_registry.py
-last_verified: 2026-07-16
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — bus_agent_activity
+
+Added `bus_agent_activity` (composite PK agent_id+channel_id) — a lightweight live-status
+mirror for team-room agent runs (state/phase/tool_count/heartbeat). Written by the trigger,
+read by the team-chat status view. See [[_bus_activity]].
+
+## 2026-07-21 — teams.lead_agent_id
+
+Added nullable `lead_agent_id VARCHAR(64)` to `teams` — the agent that answers a team-chat
+message with no @mention (NULL = earliest-joined member fallback). auto_migrate adds it
+idempotently. See [[teams]].
+
+## 2026-07-20 — bus_messages.attachments
+
+Added nullable `attachments TEXT` to `bus_messages` (JSON list of bus-attachment
+dicts). `auto_migrate()` back-fills the column idempotently; no destructive change.
+See [[_bus_attachment_impl]] for the multimodal-A2A feature it backs.
+
+## 2026-07-22 — 计费可审计化：cost_records +user_id/provider_source，新增 quota_deductions
+
+`cost_records` 加两列（additive、nullable）：`user_id`（VARCHAR(128)，对齐
+`user_quotas.user_id` 避免 join 截断）+ `provider_source`（VARCHAR(32)），并加
+`idx_cost_records_user_id`。此前只能靠 `agent_id → agents.created_by` 追用户，
+agent 硬删即断链。新表 `quota_deductions`（逐笔扣减流水，自审计冗余
+provider_source/model/agent_id）：`user_quotas` 只有累计标量，无法定位/退还单笔
+错扣。写入见 [[cost_tracker]] / [[quota_repository]]；历史回填见
+`scripts/backfill_cost_records_user_id.py`。
+## 2026-07-21 — team_catalog 表(Team Marketplace)
+
+additive:catalog INDEX,一行一个 team/agent bundle 模板;store_key 指向
+artifact store 里的 .nxbundle(独立 prefix),bundle_sha256 防篡改。unique
+template_id + (enabled, sort_order) 索引。cloud registry 写,desktop 空表。
+
+
+## 2026-07-21 — skill_catalog.is_default 列(stage 9)
+
+additive TINYINT(1) 默认 0:标记「建 agent 时自动安装」的默认技能。
+manifest 的 `"default": true` 在 publish 时写入。
+
+
+## 2026-07-20 — Skill Marketplace: 4 new tables
+
+Registered `skill_catalog` (cloud-authoritative marketplace directory, one
+row per skill_id × version, UNIQUE(skill_id, version)), `skill_installations`
+(per-workspace audit follower of the filesystem skill state,
+UNIQUE(agent_id, user_id, skill_id) — note the triple: workspaces are
+`{agent_id}_{user_id}`), `skill_scan_results` (append-only scan runs,
+non-unique (skill_id, version) index on purpose — latest row by id wins),
+and `team_skill_policies` (placeholder; Team Recommended phase adds logic).
+
+All four exist (empty) on desktop deployments because auto_migrate is
+unconditional; only the cloud instance writes catalog/scan rows. Purely
+additive. Spec:
+`reference/self_notebook/specs/2026-07-20-skill-marketplace-tech-design-v1.1.md` §3.
 
 ## 2026-07-16 — user_providers 加 netmind_account_id / netmind_account_email
 
@@ -187,6 +242,16 @@ boundary by `_row_to_entity` defensively coercing None to
 `datetime.now()`.
 
 ## 2026-05-14 — artifact pointer model
+
+## 2026-07-21 — instance_artifact_versions no longer registered
+
+The dead `instance_artifact_versions` TableDef was removed from the registry.
+Safe unilaterally: auto_migrate never drops, so existing databases keep the
+table and rows untouched (hand-migration of old saved HTML still possible);
+fresh databases simply stop provisioning a table no code has read or written
+since 2026-05-14. `instance_artifacts.latest_version` stays registered — a
+column removal only matters together with the destructive DROP migration,
+which remains one Owner-gated batch (铁律 #6); see the cleanup TODO.
 
 Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 

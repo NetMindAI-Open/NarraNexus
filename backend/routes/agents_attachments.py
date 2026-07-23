@@ -34,6 +34,7 @@ from xyz_agent_context.utils.attachment_storage import (
     resolve_attachment_path,
     store_uploaded_attachment,
 )
+from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 
 
 router = APIRouter()
@@ -65,72 +66,6 @@ class AttachmentUploadResponse(BaseModel):
     transcript: str | None = None
     transcription_available: bool | None = None
     error: str | None = None
-
-
-def _audio_video_container_override(sniffed: str, content_type: str | None) -> str:
-    """Disambiguate audio-only files in containers that also hold video.
-
-    WebM, Ogg and MP4 are multimedia containers — the file header is
-    identical for audio-only and audio+video streams. libmagic looks
-    at the container header only and reports ``video/<container>`` for
-    everything. If the browser explicitly tagged the upload as
-    ``audio/<container>`` for the **same** container, trust the
-    browser as the tiebreaker.
-
-    This is contained: misclassification doesn't escalate privileges
-    (the file goes to disk, then to Whisper which silently no-ops on
-    non-audio bytes). The narrow override unblocks the in-browser
-    voice recorder, which records audio-only WebM/Opus through
-    MediaRecorder; without this fix, every recorded clip is sniffed
-    as ``video/webm`` and skips transcription.
-    """
-    if not sniffed.startswith("video/") or not content_type:
-        return sniffed
-    client_main = content_type.split(";", 1)[0].strip().lower()
-    if not client_main.startswith("audio/"):
-        return sniffed
-    sniffed_container = sniffed.split("/", 1)[1]
-    client_container = client_main.split("/", 1)[1]
-    if sniffed_container == client_container:
-        return f"audio/{sniffed_container}"
-    return sniffed
-
-
-def _sniff_mime_type(file: UploadFile, raw_bytes: bytes) -> str:
-    """Return a best-effort MIME type, preferring server-side detection.
-
-    We do NOT trust `file.content_type` from the browser as the primary
-    signal — it is user-controlled and easy to spoof. Tier order:
-
-    1. python-magic if available (real content sniffing).
-    2. mimetypes.guess_type by extension.
-    3. The browser-supplied Content-Type as a last resort.
-
-    Whichever tier produces a value, run it through
-    ``_audio_video_container_override`` before returning so the
-    audio/video container ambiguity (webm / ogg / mp4) is resolved
-    consistently across all three. Without this, an environment
-    without python-magic falls through to ``mimetypes`` which hardcodes
-    ``video/webm`` for `.webm` — masking the override entirely.
-    """
-    try:
-        import magic  # type: ignore[import-not-found]
-        sniffed = magic.from_buffer(raw_bytes, mime=True)
-        if sniffed:
-            return _audio_video_container_override(sniffed, file.content_type)
-    except ImportError:
-        # python-magic not installed; fall through to extension-based guess
-        pass
-    except Exception as e:
-        logger.debug(f"libmagic sniff failed: {e}; falling back to extension")
-
-    guessed, _ = mimetypes.guess_type(file.filename or "")
-    if guessed:
-        return _audio_video_container_override(guessed, file.content_type)
-    if file.content_type:
-        # Last resort — accept the client's claim, but at least it's a string.
-        return file.content_type
-    return "application/octet-stream"
 
 
 @router.post("/{agent_id}/attachments", response_model=AttachmentUploadResponse)
@@ -175,7 +110,9 @@ async def upload_attachment(
                 ),
             )
 
-        mime_type = _sniff_mime_type(file, raw_bytes)
+        mime_type = sniff_mime_type(
+            raw_bytes, filename=file.filename or "", client_type=file.content_type
+        )
         category = derive_category_from_mime(mime_type)
 
         file_id, on_disk = store_uploaded_attachment(

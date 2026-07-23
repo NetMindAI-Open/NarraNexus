@@ -35,6 +35,7 @@ from typing import Any, Dict, Optional
 
 from loguru import logger
 
+from xyz_agent_context.schema.artifact_schema import ArtifactKind
 from xyz_agent_context.bootstrap.template import (
     BOOTSTRAP_GREETING,
     BOOTSTRAP_MD_TEMPLATE,
@@ -68,7 +69,7 @@ class WelcomeArtifact:
     html: str
     subdir: str = "welcome"
     filename: str = "index.html"
-    kind: str = "text/html"
+    kind: ArtifactKind = "text/html"
 
 
 class BootstrapProfile:
@@ -221,14 +222,12 @@ async def _create_welcome_artifact(
 ) -> None:
     """
     Write the welcome HTML into the workspace and register it as a pinned,
-    agent-scoped artifact — reusing artifact_runner.register_artifact (the same
-    path the LLM tool uses, so file_path/size_bytes are correct). Idempotent:
+    agent-scoped artifact — reusing ArtifactService.register (the same path
+    the LLM tool uses, so file_path/size_bytes are correct). Idempotent:
     skips if a pinned artifact with the same title already exists.
     """
+    from xyz_agent_context.artifact import ArtifactService
     from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-    from xyz_agent_context.module.common_tools_module._common_tools_impl import (
-        artifact_runner,
-    )
 
     repo = ArtifactRepository(db)
     for existing in await repo.list_pinned(agent_id):
@@ -240,8 +239,7 @@ async def _create_welcome_artifact(
     entry = art_dir / welcome.filename
     entry.write_text(welcome.html, encoding="utf-8")
 
-    await artifact_runner.register_artifact(
-        repo=repo,
+    await ArtifactService(db).register(
         agent_id=agent_id,
         user_id=user_id,
         session_id=None,  # agent-scoped → auto-pinned

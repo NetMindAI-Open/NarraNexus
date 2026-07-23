@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/TeamChatRow.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -37,3 +37,7 @@ made an agent in two teams appear twice).
 - Gotcha: `onOpen` is suppressed while renaming so clicking the input doesn't
   navigate; `menuOpen` lifts the row's z-index so the ⋮ panel paints above
   sibling rows (each row is its own stacking context).
+
+## 2026-07-22 — onClearData passthrough
+
+New `onClearData(teamId)` prop, forwarded to [[TeamRowMenu]]'s Clear-data item.

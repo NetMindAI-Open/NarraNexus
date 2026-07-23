@@ -245,63 +245,25 @@ impl ServiceDef {
                 order: 2,
                 startup_delay_ms: None,
             },
+            // Consolidated worker supervisor — one process runs every
+            // long-running background worker (module poller, job trigger,
+            // message-bus trigger, and every IM channel trigger) in a single
+            // event loop, each as a supervised task with backoff-restart,
+            // sharing one package import + one DB pool. Replaces the old
+            // four-ServiceDef layout (poller / job_trigger / message_bus_trigger
+            // / channel_triggers). MCP stays its own service (port-bound SSE).
             ServiceDef {
-                id: "poller".to_string(),
-                label: "Module Poller".to_string(),
+                id: "workers".to_string(),
+                label: "Workers".to_string(),
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.services.module_poller".to_string(),
+                    "xyz_agent_context.module.run_worker_supervisor".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: None,
                 health_url: None,
                 order: 3,
-                startup_delay_ms: None,
-            },
-            ServiceDef {
-                id: "job_trigger".to_string(),
-                label: "Job Trigger".to_string(),
-                command: python_path.to_string(),
-                args: vec![
-                    "src/xyz_agent_context/module/job_module/job_trigger.py".to_string(),
-                ],
-                cwd: Some(project_root.to_string()),
-                port: None,
-                health_url: None,
-                order: 4,
-                startup_delay_ms: None,
-            },
-            ServiceDef {
-                id: "message_bus_trigger".to_string(),
-                label: "Bus Trigger".to_string(),
-                command: python_path.to_string(),
-                args: vec![
-                    "-m".to_string(),
-                    "xyz_agent_context.message_bus.message_bus_trigger".to_string(),
-                ],
-                cwd: Some(project_root.to_string()),
-                port: None,
-                health_url: None,
-                order: 5,
-                startup_delay_ms: None,
-            },
-            // Consolidated IM channel triggers — one supervisor process runs
-            // every channel (Lark / Slack / Telegram / Discord / WeChat /
-            // NarraMessenger) in a single event loop, replacing the old
-            // one-ServiceDef-per-channel layout.
-            ServiceDef {
-                id: "channel_triggers".to_string(),
-                label: "Channel Triggers".to_string(),
-                command: python_path.to_string(),
-                args: vec![
-                    "-m".to_string(),
-                    "xyz_agent_context.module.run_channel_triggers".to_string(),
-                ],
-                cwd: Some(project_root.to_string()),
-                port: None,
-                health_url: None,
-                order: 6,
                 startup_delay_ms: None,
             },
         ]
@@ -369,71 +331,23 @@ impl ServiceDef {
                 order: 2,
                 startup_delay_ms: None,
             },
+            // Consolidated worker supervisor — see bundled_services for the
+            // full rationale. One process runs poller + job + message-bus +
+            // every IM channel trigger, each a supervised backoff-restart task.
             ServiceDef {
-                id: "poller".to_string(),
-                label: "Module Poller".to_string(),
+                id: "workers".to_string(),
+                label: "Workers".to_string(),
                 command: "uv".to_string(),
                 args: vec![
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.services.module_poller".to_string(),
+                    "xyz_agent_context.module.run_worker_supervisor".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: None,
                 health_url: None,
                 order: 3,
-                startup_delay_ms: None,
-            },
-            ServiceDef {
-                id: "job_trigger".to_string(),
-                label: "Job Trigger".to_string(),
-                command: "uv".to_string(),
-                args: vec![
-                    "run".to_string(),
-                    "python".to_string(),
-                    "src/xyz_agent_context/module/job_module/job_trigger.py".to_string(),
-                ],
-                cwd: Some(project_root.to_string()),
-                port: None,
-                health_url: None,
-                order: 4,
-                startup_delay_ms: None,
-            },
-            ServiceDef {
-                id: "message_bus_trigger".to_string(),
-                label: "Bus Trigger".to_string(),
-                command: "uv".to_string(),
-                args: vec![
-                    "run".to_string(),
-                    "python".to_string(),
-                    "-m".to_string(),
-                    "xyz_agent_context.message_bus.message_bus_trigger".to_string(),
-                ],
-                cwd: Some(project_root.to_string()),
-                port: None,
-                health_url: None,
-                order: 5,
-                startup_delay_ms: None,
-            },
-            // Consolidated IM channel triggers — one supervisor process runs
-            // every channel (Lark / Slack / Telegram / Discord / WeChat /
-            // NarraMessenger) in a single event loop, replacing the old
-            // one-ServiceDef-per-channel layout.
-            ServiceDef {
-                id: "channel_triggers".to_string(),
-                label: "Channel Triggers".to_string(),
-                command: "uv".to_string(),
-                args: vec![
-                    "run".to_string(),
-                    "python".to_string(),
-                    "-m".to_string(),
-                    "xyz_agent_context.module.run_channel_triggers".to_string(),
-                ],
-                cwd: Some(project_root.to_string()),
-                port: None,
-                health_url: None,
-                order: 6,
                 startup_delay_ms: None,
             },
         ]

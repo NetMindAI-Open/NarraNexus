@@ -80,14 +80,22 @@ export interface ErrorMessage extends BaseMessage {
    */
   severity?: 'fatal' | 'recoverable' | 'recovered' | 'recovered_after_reply';
   /**
-   * Only set when error_type === 'config_actionable': the concrete, user-
-   * self-serviceable reason so the UI can show "what you can do" guidance
-   * (switch model / top up / fix model id) instead of a generic "turn
-   * failed". These deterministic failures recur every turn with the same
-   * config and are NOT masked by the helper-LLM fallback. Optional /
-   * open-ended for forward-compat with new reasons.
+   * The concrete actionable reason so the UI can show "what you can do"
+   * guidance instead of a generic "turn failed". Set for two error classes,
+   * both of which skip the helper-LLM fallback (never masked):
+   * - error_type === 'config_actionable' (user-fixable config): switch model /
+   *   top up / fix model id.
+   * - error_type === 'infra_transient' (platform-side executor infra):
+   *   'executor_oom' / 'executor_unreachable' — retry / split the task.
+   * Optional / open-ended for forward-compat with new reasons.
    */
-  action_reason?: 'context_window' | 'insufficient_balance' | 'model_not_found' | string;
+  action_reason?:
+    | 'context_window'
+    | 'insufficient_balance'
+    | 'model_not_found'
+    | 'executor_oom'
+    | 'executor_unreachable'
+    | string;
   traceback?: string;
 }
 
@@ -159,6 +167,27 @@ export interface Attachment {
   transcript?: string;
 }
 
+// A file attached to a message-bus message (agent-to-agent / team chat).
+// Mirrors the bus-attachment dict from
+// xyz_agent_context.message_bus._bus_attachment_impl. Unlike a chat
+// `Attachment` (resolved per-agent via file_id), a bus attachment lives in
+// the per-user shared area and is fetched by `rel_path` through
+// `GET /api/agent-inbox/attachments/raw?path=<rel_path>`.
+export interface BusAttachment {
+  file_id: string;
+  mime_type: string;
+  original_name: string;
+  size_bytes: number;
+  category: AttachmentCategory;
+  rel_path: string;
+  // 'recording' = in-browser voice memo (rendered as a transcript); 'upload'
+  // (or undefined) = regular file. Set by the team-chat upload endpoint.
+  source?: 'recording' | 'upload' | null;
+  // Whisper transcript for audio memos, so the message renders the words and
+  // @mentioned agents read them via the attachment marker.
+  transcript?: string | null;
+}
+
 // Chat message for display
 export interface ChatMessage {
   id: string;
@@ -177,11 +206,19 @@ export interface ChatMessage {
   thinking?: string;
   toolCalls?: AgentToolCall[];
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
-  // Set when the turn failed a DETERMINISTIC, user-self-serviceable way
-  // (config_actionable): carries the reason so MessageBubble renders "what
-  // you can do" guidance (switch model / top up / fix model id) instead of a
-  // generic failure. Pairs with isError=true (these turns produce no reply).
-  actionReason?: 'context_window' | 'insufficient_balance' | 'model_not_found' | string;
+  // Set when the turn failed an actionable way that skips the fallback:
+  // - config_actionable (user-fixable): switch model / top up / fix model id.
+  // - infra_transient (platform-side executor infra): 'executor_oom' /
+  //   'executor_unreachable' — retry / split the task.
+  // Carries the reason so MessageBubble renders "what you can do" guidance and
+  // picks the right badge title. Pairs with isError=true (no reply produced).
+  actionReason?:
+    | 'context_window'
+    | 'insufficient_balance'
+    | 'model_not_found'
+    | 'executor_oom'
+    | 'executor_unreachable'
+    | string;
   warnings?: string[];  // Non-fatal errors that occurred during execution (e.g., module decision LLM failed)
   attachments?: Attachment[];  // User-uploaded files referenced by this message
   // Inline timeline carried over from the live stream. Set on assistant

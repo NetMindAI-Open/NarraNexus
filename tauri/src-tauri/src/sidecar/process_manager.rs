@@ -275,10 +275,11 @@ impl ProcessManager {
             }
         }
 
-        // Final liveness sweep: required PORTLESS workers (mcp, poller,
-        // job_trigger, message_bus_trigger) have no port to probe, so confirm
-        // they didn't crash on startup. The time spent above starting later
-        // services + the port polls is their grace window.
+        // Final liveness sweep: required PORTLESS workers (mcp, workers) have
+        // no port to probe, so confirm they didn't crash on startup. The time
+        // spent above starting later services + the port polls is their grace
+        // window. ("workers" is the consolidated supervisor running the poller,
+        // job / message-bus triggers, and every IM channel trigger.)
         for def in sorted_defs
             .iter()
             .filter(|d| d.port.is_none() && is_required_service(&d.id))
@@ -294,6 +295,12 @@ impl ProcessManager {
                     &format!("worker process exited on startup ({})", status),
                 ));
             }
+            // Alive past the grace window → promote Starting → Running. Portless
+            // services have no port for verify_port_ready() to gate promotion
+            // on, so without this they'd sit at "Starting" forever and the
+            // System page would show a permanent yellow "启动中" for mcp/workers
+            // even though every worker is running.
+            self.promote_to_running(&def.id);
         }
         Ok(())
     }
@@ -469,13 +476,15 @@ impl ProcessManager {
 }
 
 /// Services the app cannot function without. A readiness failure on any of
-/// these aborts startup and surfaces a blocking error dialog; the optional
-/// channel triggers (lark/slack/telegram) are frequently unconfigured, so a
-/// failure there only warns. Keep in sync with scripts/run.sh's REQUIRED list.
+/// these aborts startup and surfaces a blocking error dialog. The consolidated
+/// `workers` supervisor is required, but an UNCONFIGURED channel never fails it:
+/// per-channel startup is isolated inside `start_channel_triggers`, so the
+/// supervisor process only fails on a real bug (import / DB unreachable). Keep
+/// in sync with scripts/run.sh's REQUIRED list.
 fn is_required_service(id: &str) -> bool {
     matches!(
         id,
-        "sqlite_proxy" | "backend" | "mcp" | "poller" | "job_trigger" | "message_bus_trigger"
+        "sqlite_proxy" | "backend" | "mcp" | "workers"
     )
 }
 

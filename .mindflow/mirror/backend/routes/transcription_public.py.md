@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/transcription_public.py
-last_verified: 2026-05-07
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — shared-area fallback for team voice memos
+
+`_resolve_path_for_variant` now falls back to
+`message_bus.attachments.resolve_shared_file_by_id(user_id, file_id)` when the agent-scoped
+`resolve_attachment_path` misses. Team voice memos are stored in the per-user shared bus
+area (not an agent's user_upload_files), so the NetMind STT worker's signed-URL fetch would
+404 without this. Still gated by the HMAC token + user_id scoping; `agent_id` may be empty
+for team memos. See [[teams]] / [[_bus_attachment_impl]].
 
 # transcription_public.py — JWT-bypassed audio fetch for NetMind
 

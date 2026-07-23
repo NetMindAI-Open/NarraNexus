@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-07-14
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — executor-infra 徽章标题区分
+
+`actionReason` 徽章标题按类别选：reason 为 `infra_transient` 或以 `executor_`
+开头 → `chat.error.titleInfra`（"执行环境异常"）；否则沿用
+`chat.error.titleActionable`（"Action needed"）。正文复用现有
+`chat.error.action.${actionReason}` 路径（executor_oom/executor_unreachable 的
+i18n key 天然区分，10 个 locale 均已补）。因为平台侧失败的补救是"重试/拆小任务"，
+不是"去 Settings 改配置"。
 
 ## 2026-07-14 — actionable popover for config_actionable failures
 

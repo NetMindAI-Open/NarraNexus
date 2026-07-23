@@ -632,9 +632,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               // Sync the cached availability state and surface the
               // dialog the next time they tap mic.
               setTranscriptionAvailable(false);
-              setTranscriptionNotice(
-                'Voice input is no longer available — the provider may have been removed. Open Settings to reconfigure.',
-              );
+              setTranscriptionNotice(t('chat.audio.noLongerAvailable'));
             } else if (isRecording && resp.transcript) {
               // New successful recording → clear any stale notice
               setTranscriptionNotice(null);
@@ -667,7 +665,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }
       }
     },
-    [agentId, userId],
+    [agentId, userId, t],
   );
 
   const handleFilePick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1357,7 +1355,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
       <Dialog
         isOpen={voiceUnavailableDialogOpen}
         onClose={() => setVoiceUnavailableDialogOpen(false)}
-        title="Voice input unavailable"
+        title={t('chat.audio.unavailableTitle')}
         size="md"
       >
         <DialogContent>
@@ -1367,43 +1365,30 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             </div>
             <div className="flex-1 text-sm leading-relaxed text-[var(--text-secondary)]">
               {transcriptionReason === 'free_tier_not_granted' ? (
-                <p>
-                  Voice input is unavailable. Your account has no platform free tier and no
-                  transcription provider of its own. Add an OpenAI or NetMind API key in{' '}
-                  <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span>{' '}
-                  to enable it.
-                </p>
+                <p>{t('chat.audio.unavailableFreeTier')}</p>
               ) : transcriptionReason === 'none_openai_only' ? (
                 <>
-                  <p>
-                    Voice input requires an OpenAI-compatible transcription provider. The desktop / local build can't reach NetMind's worker (it pulls audio from a public URL we don't have here), so OpenAI is the supported path:
-                  </p>
+                  <p>{t('chat.audio.unavailableOpenaiOnlyIntro')}</p>
                   <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
-                    <li>OpenAI official API (recommended)</li>
-                    <li>Yunwu, or any other OpenAI-protocol Whisper provider</li>
-                    <li>Self-hosted whisper.cpp behind an OpenAI-shaped endpoint</li>
+                    <li>{t('chat.audio.unavailableOpenaiOnlyItem1')}</li>
+                    <li>{t('chat.audio.unavailableOpenaiOnlyItem2')}</li>
+                    <li>{t('chat.audio.unavailableOpenaiOnlyItem3')}</li>
                   </ul>
-                  <p className="mt-3">
-                    Add one in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> to enable voice input.
-                  </p>
+                  <p className="mt-3">{t('chat.audio.unavailableOpenaiOnlyOutro')}</p>
                 </>
               ) : (
                 <>
-                  <p>
-                    Voice input requires a supported transcription provider. None is configured for this account:
-                  </p>
+                  <p>{t('chat.audio.unavailableDefaultIntro')}</p>
                   <ul className="mt-2 ml-4 list-disc space-y-1 text-[var(--text-tertiary)]">
-                    <li>OpenAI official API (recommended, best quality)</li>
-                    <li>NetMind API (pay-as-you-go, lower cost)</li>
+                    <li>{t('chat.audio.unavailableDefaultItem1')}</li>
+                    <li>{t('chat.audio.unavailableDefaultItem2')}</li>
                   </ul>
-                  <p className="mt-3">
-                    Add either one in <span className="font-mono text-[var(--text-primary)]">Settings → Providers</span> to enable voice input — it takes effect as soon as you save.
-                  </p>
+                  <p className="mt-3">{t('chat.audio.unavailableDefaultOutro')}</p>
                 </>
               )}
               {transcriptionReason === 'unknown' && (
                 <p className="mt-2 text-xs text-[var(--text-tertiary)] italic">
-                  Note: availability check failed to reach the server — the configuration may already be ready.
+                  {t('chat.audio.unavailableProbeFailed')}
                 </p>
               )}
             </div>
@@ -1414,7 +1399,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             variant="ghost"
             onClick={() => setVoiceUnavailableDialogOpen(false)}
           >
-            Cancel
+            {t('chat.audio.cancel')}
           </Button>
           <Button
             variant="accent"
@@ -1423,7 +1408,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               navigate('/app/settings');
             }}
           >
-            Open Settings
+            {t('chat.audio.openSettings')}
           </Button>
         </DialogFooter>
       </Dialog>

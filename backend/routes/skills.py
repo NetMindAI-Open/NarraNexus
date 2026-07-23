@@ -127,6 +127,39 @@ def _get_skill_module(agent_id: str, user_id: str) -> SkillModule:
     return SkillModule(agent_id=agent_id, user_id=user_id, database_client=None)
 
 
+async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id: str) -> None:
+    """Truthful config status for platform-resolved env vars.
+
+    _parse_skill_md is filesystem-only and optimistically counts
+    PLATFORM_RESOLVED_ENV vars as configured. Here (async, DB in reach) we
+    check whether the user actually has the backing provider (e.g. a NetMind
+    row for NETMIND_API_KEY) and downgrade env_configured when not."""
+    from xyz_agent_context.module.skill_module.skill_module import (
+        PLATFORM_RESOLVED_ENV,
+        platform_env_available,
+    )
+
+    affected = [
+        s for s in skills
+        if s.requires_env and any(v in PLATFORM_RESOLVED_ENV for v in s.requires_env)
+    ]
+    if not affected:
+        return
+    try:
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        available = await platform_env_available(await get_db_client(), user_id)
+    except Exception as e:
+        logger.warning(f"platform env status enrich skipped: {e}")
+        return
+    for skill in affected:
+        env_config = skill_module.get_skill_env_config(skill.name)
+        skill.env_configured = all(
+            bool(env_config.get(v)) or (v in PLATFORM_RESOLVED_ENV and v in available)
+            for v in (skill.requires_env or [])
+        )
+
+
 # =========================================================================
 # Background study tasks
 # =========================================================================
@@ -255,6 +288,7 @@ async def list_skills(
     try:
         skill_module = _get_skill_module(agent_id, user_id)
         skills = skill_module.list_skills(include_disabled=include_disabled)
+        await _enrich_platform_env_status(skill_module, skills, user_id)
 
         return SkillListResponse(skills=skills, total=len(skills))
 
@@ -302,20 +336,16 @@ async def install_skill(
         raise _reject("file is required when source=zip")
 
     try:
-        skill_module = _get_skill_module(agent_id, user_id)
-        skill_info: SkillInfo
+        # All install entrances converge on the InstallPipeline (scan gate,
+        # conflict/config migration, .skill_meta hash fields, audit trail,
+        # auto-archive). Response shape is unchanged.
+        from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
 
-        from xyz_agent_context.bundle.skill_backup import backup_after_api_install
+        skill_module = _get_skill_module(agent_id, user_id)
+        pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
 
         if source == "github":
-            skill_info = skill_module.install_from_github(url=url, branch=branch)
-            await backup_after_api_install(
-                user_id=user_id,
-                skill_name=skill_info.name,
-                source_type="github",
-                source_url=url,
-                branch=branch,
-            )
+            result = await pipeline.install_from_github(url=url, branch=branch)
         else:
             # Save uploaded file to temporary directory
             temp_dir = Path(tempfile.mkdtemp())
@@ -335,22 +365,21 @@ async def install_skill(
                 with open(zip_path, "wb") as f:
                     f.write(content)
 
-                skill_info = skill_module.install_skill(zip_file_path=zip_path)
-                # Auto-archive immediately so future bundle export can offer Zip method.
-                await backup_after_api_install(
-                    user_id=user_id,
-                    skill_name=skill_info.name,
-                    source_type="zip",
-                    source_url=None,
-                    original_zip_path=zip_path,
-                )
+                result = await pipeline.install_from_zip(zip_path)
             finally:
                 if temp_dir.exists():
                     shutil.rmtree(temp_dir)
 
-        return SkillOperationResponse(
-            success=True, message=f"Skill '{skill_info.name}' installed successfully", skill=skill_info
-        )
+        skill_info = result.skill
+        name = skill_info.name if skill_info else "unknown"
+        if result.status == "already_installed":
+            message = f"Skill '{name}' is already installed at this version"
+        else:
+            message = f"Skill '{name}' installed successfully"
+        if result.warnings:
+            message += f" ({len(result.warnings)} security warning(s) — see scan report)"
+
+        return SkillOperationResponse(success=True, message=message, skill=skill_info)
 
     except ValueError as e:
         raise _reject(str(e))
@@ -370,8 +399,11 @@ async def remove_skill(
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
+        from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
+
         skill_module = _get_skill_module(agent_id, user_id)
-        success = skill_module.remove_skill(skill_name=skill_name)
+        pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
+        success = await pipeline.uninstall(skill_name)
 
         if not success:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
@@ -543,7 +575,21 @@ async def get_skill_env(
         # Use requires_env from SkillInfo (merged from frontmatter + .skill_meta.json)
         requires_env = skill.requires_env or []
         env_config = skill_module.get_skill_env_config(skill_name)
-        env_configured = {v: bool(env_config.get(v)) for v in requires_env}
+
+        # Platform-resolved vars (e.g. NETMIND_API_KEY) count as configured
+        # when the user's provider config can back them at run time.
+        from xyz_agent_context.module.skill_module.skill_module import (
+            PLATFORM_RESOLVED_ENV,
+            platform_env_available,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        available = set()
+        if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
+            available = await platform_env_available(await get_db_client(), user_id)
+        env_configured = {
+            v: bool(env_config.get(v)) or v in available for v in requires_env
+        }
 
         return SkillEnvConfigResponse(
             success=True,
@@ -583,7 +629,19 @@ async def set_skill_env(
         skill = skill_module.get_skill(skill_name)
         updated_config = skill_module.get_skill_env_config(skill_name)
         requires_env = skill.requires_env or [] if skill else []
-        env_configured = {v: bool(updated_config.get(v)) for v in requires_env}
+
+        from xyz_agent_context.module.skill_module.skill_module import (
+            PLATFORM_RESOLVED_ENV,
+            platform_env_available,
+        )
+        from xyz_agent_context.utils.db_factory import get_db_client
+
+        available = set()
+        if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
+            available = await platform_env_available(await get_db_client(), user_id)
+        env_configured = {
+            v: bool(updated_config.get(v)) or v in available for v in requires_env
+        }
 
         return SkillEnvConfigResponse(
             success=True,

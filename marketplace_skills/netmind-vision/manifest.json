@@ -1,0 +1,14 @@
+{
+  "id": "netmind-vision",
+  "name": "NetMind Vision",
+  "version": "1.0.0",
+  "description": "Understand images (photos, screenshots, charts) via NetMind's vision model. Auto-configured for NetMind-powered users.",
+  "author": {"name": "NarraNexus Team"},
+  "license": "Apache-2.0",
+  "entry": "SKILL.md",
+  "capabilities": ["vision:image"],
+  "tags": ["vision", "image", "multimodal", "fallback", "netmind"],
+  "category": "fallback",
+  "dependencies": {},
+  "default": true
+}

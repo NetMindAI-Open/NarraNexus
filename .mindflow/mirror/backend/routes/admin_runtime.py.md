@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/admin_runtime.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — added GET /api/admin/runtime/workers (Workers card liveness)
+
+Second read-only L2 endpoint in this module. Reads the latest
+`worker_supervisor` heartbeat row from `service_audit` (via
+`ServiceAuditRepository.last_heartbeat`, falling back to the `started` row on a
+cold boot) and returns a per-worker snapshot `{available, heartbeat_age_seconds,
+workers:[{name,state,restart_count,last_error}]}`. Feeds the desktop System
+page's single "Workers" card ([[ServiceCard.tsx]] / [[run_worker_supervisor.py]]):
+the four merged workers share one process, so the process dot can read "running"
+while a sub-worker crash-loops — this exposes each sub-worker's state +
+cumulative restart_count. Same discipline as `/status`: every sub-step guarded,
+never 500s (DB blip or absent supervisor → `available:false`). Auth:
+`/api/admin/*` needs a JWT in cloud but is bypassed in desktop local mode, which
+is exactly (and only) where the Workers card renders.
 
 ## Why it exists
 

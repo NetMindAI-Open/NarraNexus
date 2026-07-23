@@ -22,6 +22,7 @@ const ImageRenderer = lazy(() => import('./renderers/ImageRenderer'));
 const MarkdownRenderer = lazy(() => import('./renderers/MarkdownRenderer'));
 const PdfRenderer = lazy(() => import('./renderers/PdfRenderer'));
 const OfficeWatchViewer = lazy(() => import('./OfficeWatchViewer'));
+const UrlRenderer = lazy(() => import('./renderers/UrlRenderer'));
 
 type RendererComponent = React.LazyExoticComponent<
   React.ComponentType<{ artifact: Artifact }>
@@ -40,6 +41,9 @@ const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
   // Office docs render LIVE (officecli watch) instead of a static file — the
   // viewer opens a watch on the artifact's file and streams SSE refreshes.
   'application/vnd.officecli-live': OfficeWatchViewer,
+  // URL tabs: the entry doc holds a URL + embed verdict; the renderer iframes
+  // the page or shows a fallback card.
+  'application/x-url': UrlRenderer,
 };
 
 interface Props {

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/schema/runtime_message.py
-last_verified: 2026-07-14
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — 新增 `EXECUTOR_INFRA_ERROR_TYPE` 常量
+
+新增 `EXECUTOR_INFRA_ERROR_TYPE = "infra_transient"`（挨着 auth/self-serviceable
+两个 error_type 常量），标记**平台侧** executor 基础设施失败（OOM / 不可达）。与
+`config_actionable` 的区别：用户改设置修不了，前端渲染"执行环境异常/重试"徽章而非
+"Action needed → Settings"。同样复用 `ErrorMessage.action_reason` 承载具体 reason
+（`executor_oom` / `executor_unreachable`）。放 leaf schema 层，供分类器消费方无循环
+导入。行为上只 surface 真相 + 重试提示，不 force-stop（铁律 #14/#15）。也从
+`schema/__init__` 导出。
 
 ## 2026-07-14 — `SELF_SERVICEABLE_ERROR_TYPE` 常量 + `ErrorMessage.action_reason` 字段
 

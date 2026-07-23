@@ -1,8 +1,42 @@
 ---
 code_file: backend/routes/agents_artifacts.py
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — URL-tab endpoints
+
+The `POST .../artifacts/url` handler computes the browser origin via
+`artifacts_public._app_origin(request)` and passes it to
+`ArtifactService.open_url` as `app_origin`, so the self-origin guard is robust
+even if `public_base_url` is misconfigured (defense in depth for the
+allow-same-origin URL iframe).
+
+Added `POST /{aid}/artifacts/url` (open a web page as a URL tab; SSRF-gated,
+probes embeddability) and `POST /{aid}/artifacts/{id}/embed-mode` (set/clear
+the user's manual embed override). Both are thin shells over
+`ArtifactService.open_url` / `.set_embed_mode` — same auth + error-mapping
+pattern as the rest of this router.
+## 2026-07-21 — thinned to an HTTP shell; heal moved to ArtifactService
+
+Artifact business logic left this file for the new
+`xyz_agent_context/artifact/` package ([[artifact_service.py]]):
+
+- The whole heal recovery strategy (`_KIND_EXTENSIONS`, workspace scan,
+  three-step sequence) moved to the service ([[heal.py]]); the endpoint now
+  just maps auth + `ArtifactError.code` → HTTPException. `HealResponse` /
+  `HealCandidate` became the shared schema models `HealResult` /
+  `HealCandidate` (same field names — the wire shape is unchanged).
+- Register delegates to `ArtifactService.register` (the same single
+  implementation the MCP tool and bootstrap use) instead of importing the
+  module-private `_common_tools_impl.artifact_runner`.
+- PATCH title now goes through `ArtifactRepository.update_title` instead of a
+  raw `db.update("instance_artifacts", ...)` inline in the handler.
+- The repeated get+ownership-check pattern collapsed into
+  `_get_owned_artifact` (still 404 on mismatch — no existence leak).
+
+References to `artifact_runner` in older entries below are historical; the
+code lives in `xyz_agent_context/artifact/_artifact_impl/registration.py` now.
 
 ## 2026-05-20 — stale "quota" wording removed
 
@@ -101,11 +135,9 @@ Upstream:
   `DELETE` / `POST .../register`.
 
 Downstream:
-- `ArtifactRepository` for all DB reads/writes.
-- `artifact_runner.register_artifact` for manual-register validation.
+- `ArtifactService` (xyz_agent_context/artifact) for register + heal.
+- `ArtifactRepository` for plain CRUD (list / get / pin / title / delete).
 - `_artifact_token.mint` for view-token minting.
-- `settings.base_working_path` for workspace path resolution on
-  `delete_source=true` cleanup.
 
 Mounted under `/api/agents` (see `backend/main.py`).
 
@@ -115,21 +147,16 @@ Mounted under `/api/agents` (see `backend/main.py`).
 Reasoning above — iframe `src=` for multi-file HTML cannot carry an
 Authorization header. The HMAC token in the URL path is the auth.
 
-**Manual register and the MCP tool share `artifact_runner.register_artifact`.**
-Same path-confinement, same "must be in a subdirectory" rule.
+**Manual register and the MCP tool share `ArtifactService.register`.**
+Same path-confinement, same kind whitelist, same size cap. (The old "must be
+in a subdirectory" hard rule is gone — workspace-root entries are legal
+single-file artifacts since 2026-05-14-r3.)
 
-**`delete_source=false` is the default** so accidental dismissal cannot wipe
-the agent's working files. The frontend confirm popup makes this an explicit
-two-way choice; this default keeps the API safe even without the popup.
+**Deletion is registry-only** (2026-05-14-r3): no `delete_source` parameter
+exists anymore; workspace files are never touched by DELETE.
 
-**`agent_id` ownership check on every endpoint**, comparing
-`art.agent_id != agent_id` after lookup. Returns 404 (not 403) for
-mismatches to avoid leaking existence information.
-
-**`delete_source=true` path-confinement is defence-in-depth**: artifact root
-must start with `workspace + os.sep` AND not equal the workspace itself. The
-runner already rejects "entry directly in workspace root" at register time;
-this guards against a hand-crafted bad DB row.
+**`agent_id` ownership check on every endpoint**, via `_get_owned_artifact`.
+Returns 404 (not 403) for mismatches to avoid leaking existence information.
 
 ## Gotchas
 

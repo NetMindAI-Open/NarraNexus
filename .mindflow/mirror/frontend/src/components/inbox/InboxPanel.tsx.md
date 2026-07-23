@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/inbox/InboxPanel.tsx
-last_verified: 2026-05-28
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — bus attachments in the simple inbox
+
+Renders `<BusAttachmentList attachments={msg.attachments} />` after each message's
+content (`RoomMessage.attachments`). Same shared component as [[AgentInboxPanel]].
+See [[BusAttachmentList]].
 
 ## 2026-05-28 — clicking the channel row clears that channel's unread
 

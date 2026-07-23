@@ -26,16 +26,12 @@ relative sub-resource requests preserve the token prefix automatically.
 """
 from __future__ import annotations
 
-import mimetypes
-import os
-from typing import Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from loguru import logger
 
-from xyz_agent_context.repository.artifact_repository import ArtifactRepository
+from xyz_agent_context.artifact import ArtifactError, ArtifactService
 from xyz_agent_context.settings import settings
 from xyz_agent_context.utils.db_factory import get_db_client
 
@@ -188,6 +184,10 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
 
     `file_path` is the sub-path under the artifact root directory. Empty
     `file_path` (URL ending in `/raw/{token}/`) serves the entry file.
+
+    Path resolution (pointer lookup, escape confinement, workspace-root
+    single-file rule, media type) lives in `ArtifactService.resolve_raw_file`;
+    this handler owns token verification and response headers (CSP).
     """
     try:
         claims = verify(token)
@@ -198,71 +198,20 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         )
 
     db = await get_db_client()
-    repo = ArtifactRepository(db)
-    art = await repo.get_by_id(claims.artifact_id)
-    if art is None or art.agent_id != claims.agent_id:
-        raise HTTPException(404, "artifact not found")
-    if not art.file_path:
-        # Legacy (pre-pointer-model) row that was never re-registered.
-        raise HTTPException(410, "artifact has no content pointer on disk")
-
-    from xyz_agent_context.utils.workspace_paths import (
-        resolve_existing_workspace,
-        resolve_workspace_relative_file,
-    )
-    base = os.path.realpath(settings.base_working_path)
-    # Resolve with a flat→nested fallback so artifacts whose file_path was
-    # stored under the old flat layout still serve after the nested flip.
-    entry_abs = os.path.realpath(
-        str(resolve_workspace_relative_file(art.file_path, art.agent_id, art.user_id, base))
-    )
-    artifact_root = os.path.dirname(entry_abs)
-    if not (artifact_root == base or artifact_root.startswith(base + os.sep)):
-        logger.warning(
-            f"path-escape blocked: artifact={claims.artifact_id} entry={art.file_path!r}"
+    service = ArtifactService(db)
+    try:
+        resolved = await service.resolve_raw_file(
+            agent_id=claims.agent_id,
+            artifact_id=claims.artifact_id,
+            file_path=file_path,
         )
-        raise HTTPException(404, "artifact not found")
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
 
-    # Single-file mode: when the entry sits directly at the agent workspace
-    # root (artifact_root == workspace), the dirname tree would be the whole
-    # workspace — serving siblings would expose every other file the agent
-    # owns. Refuse sub-path requests in that case; only the entry serves.
-    # This is the soft replacement for the old "entry must be in a
-    # subdirectory" hard rule.
-    workspace_root = os.path.realpath(
-        str(resolve_existing_workspace(art.agent_id, art.user_id, base))
-    )
-    if artifact_root == workspace_root and file_path:
-        if os.path.normpath(file_path) == os.path.basename(entry_abs):
-            file_path = ""
-        else:
-            raise HTTPException(404, "sibling assets not served for workspace-root entries")
-
-    if file_path:
-        requested = os.path.realpath(os.path.join(artifact_root, file_path))
-        if not requested.startswith(artifact_root + os.sep):
-            logger.warning(
-                f"path-escape blocked: artifact={claims.artifact_id} file_path={file_path!r}"
-            )
-            raise HTTPException(404, "not found")
-        target = requested
-    else:
-        target = entry_abs
-
-    if not os.path.isfile(target):
-        logger.warning(f"artifact file missing on disk: {target}")
-        raise HTTPException(410, "artifact file missing on disk")
-
-    is_entry = target == entry_abs
-    if is_entry:
-        media_type: Optional[str] = art.kind
-    else:
-        media_type = mimetypes.guess_type(target)[0] or "application/octet-stream"
-
-    if is_entry and art.kind == "text/html":
+    if resolved.is_entry and resolved.kind == "text/html":
         csp = _csp_for_html(_app_origin(request))
-    elif is_entry:
-        csp = _non_html_csp(art.kind, _app_origin(request))
+    elif resolved.is_entry:
+        csp = _non_html_csp(resolved.kind, _app_origin(request))
     else:
         # Asset under an HTML artifact's root. CSP on a sub-resource response
         # doesn't govern further loading (only the document's CSP does), so a
@@ -270,4 +219,4 @@ async def get_raw(request: Request, token: str, file_path: str = ""):
         csp = "default-src 'none'"
 
     headers = {**SAFE_HEADERS, "Content-Security-Policy": csp}
-    return FileResponse(path=target, media_type=media_type, headers=headers)
+    return FileResponse(path=resolved.path, media_type=resolved.media_type, headers=headers)

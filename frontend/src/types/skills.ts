@@ -21,6 +21,7 @@ export interface SkillInfo {
   builtin?: boolean;       // Shipped with the app; can be disabled but not removed
   version?: string;
   author?: string;
+  source_type?: string;    // marketplace | url | github | zip | builtin | manual
   source_url?: string;     // Installation source URL (saved during GitHub installation)
   installed_at?: string;   // Installation time (ISO format)
   // Environment requirements
@@ -68,6 +69,65 @@ export interface SkillEnvConfigResponse {
   success: boolean;
   requires_env: string[];
   env_configured: Record<string, boolean>;  // var_name -> is_set
+}
+
+// ── Skill Marketplace ───────────────────────────────────────────────────────
+
+/** One skill card in marketplace search results (latest published version). */
+export interface MarketplaceSkillItem {
+  skill_id: string;
+  version: string;
+  name: string;
+  description?: string;
+  author?: { name?: string; email?: string } | null;
+  category?: string;
+  capabilities: string[];
+  tags: string[];
+  downloads: number;
+  avg_rating?: number | null;
+  scan_status: 'passed' | 'warning' | 'rejected';
+  status: string;
+  published_at?: string | null;
+  config_schema?: Record<string, unknown> | null;
+  dependencies?: Record<string, string>;
+  // Injected when the search request carries agent_id
+  installed?: boolean;
+  update_available?: boolean;
+}
+
+export interface MarketplaceSearchResponse {
+  items: MarketplaceSkillItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface MarketplaceSkillDetail {
+  entry: MarketplaceSkillItem;
+  versions: { version: string; status: string; published_at?: string | null }[];
+  scan: {
+    status: string;
+    high_issues: number;
+    low_issues: number;
+    issues: { rule: string; severity: string; file: string; line: number; detail: string }[];
+  } | null;
+}
+
+export interface MarketplaceInstallResponse {
+  status: 'installed';
+  skill_id: string;
+  version?: string;
+  needs_restart: boolean;
+  config_required: boolean;
+  warnings: { rule: string; severity: string }[];
+  replaced_version?: string | null;
+}
+
+export interface SkillUpdateInfo {
+  skill_id: string;
+  installed_version: string;
+  latest_version: string;
+  description?: string;
 }
 
 /**

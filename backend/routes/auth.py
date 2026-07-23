@@ -578,6 +578,39 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
             except Exception as team_err:
                 logger.warning(f"Failed to assign {agent_id} to team: {team_err}")
 
+        # Default skills — fire-and-forget install of every marketplace skill
+        # flagged is_default into the new agent's workspace. Never blocks or
+        # fails creation: an unreachable registry (desktop offline, cloud
+        # marketplace not yet live) degrades to a no-op inside the service.
+        try:
+            import asyncio as _asyncio
+
+            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+
+            async def _install_default_skills(aid: str, uid: str) -> None:
+                try:
+                    summary = await SkillMarketplaceService().install_defaults(aid, uid)
+                    if summary.get("failed"):
+                        logger.warning(
+                            f"Default skills for {aid}: failed={summary['failed']}"
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"Default skills install for {aid} skipped: {exc}")
+
+            _task = _asyncio.create_task(_install_default_skills(agent_id, created_by))
+            # Fire-and-forget needs a done callback (incident lesson #2);
+            # the inner try/except already swallows, this catches cancellation-
+            # adjacent surprises.
+            _task.add_done_callback(
+                lambda t: (
+                    logger.warning(f"default-skills task died: {t.exception()}")
+                    if not t.cancelled() and t.exception() is not None
+                    else None
+                )
+            )
+        except Exception as defaults_err:  # noqa: BLE001
+            logger.warning(f"Failed to schedule default skills: {defaults_err}")
+
         # Return the created agent info
         # Re-fetch from DB to get server-generated fields (created_at)
         agent_row = await db_client.get_one("agents", {"agent_id": agent_id})

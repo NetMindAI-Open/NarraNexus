@@ -1,7 +1,14 @@
 ---
 code_file: frontend/src/components/skills/SkillsPanel.tsx
-last_verified: 2026-07-02
+last_verified: 2026-07-21
 ---
+
+## 2026-07-21 — Marketplace 入口(stage 7)
+
+Action bar 新增「Marketplace」按钮(Store icon)→ 打开
+`marketplace/MarketplaceBrowser.tsx` 对话框;onInstalled 回调 refetch 技能
+列表。GitHub/Zip 安装入口保持不变,三条路后端都汇入 InstallPipeline。
+
 
 # SkillsPanel.tsx — Orchestrator for skill management, install dialogs, and MCP servers
 

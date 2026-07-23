@@ -1,9 +1,14 @@
 ---
 code_file: frontend/src/stores/artifactStore.ts
-last_verified: 2026-05-19
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — openUrl action
+
+Added `openUrl(agentId, url, title?)` → `artifactsApi.openUrl` → `upsert`
+(which auto-focuses the new tab). URL tabs are ordinary artifacts in the
+store; no special state.
 ## 2026-05-19 — quotaError state removed + ECharts LRU added
 
 Two related changes around the artifact pipeline cleanup (see

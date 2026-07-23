@@ -228,10 +228,20 @@ async def _build_client_for_current_loop() -> "AsyncDatabaseClient":
     from xyz_agent_context.utils.database import load_db_config
 
     db_config = load_db_config()
+    # Pool size is env-tunable (MYSQL_POOL_SIZE, default 10). The worker
+    # supervisor drives poller + jobs + bus + every channel trigger from ONE
+    # process = ONE pool, where the pre-consolidation layout had 4 processes ×
+    # their own pools. A supervisor deployment should raise this (>=25) so the
+    # combined worker/subscriber concurrency does not starve on pool.acquire().
+    try:
+        pool_size = max(1, int(os.environ.get("MYSQL_POOL_SIZE", "10")))
+    except ValueError:
+        pool_size = 10
     logger.info(
-        f"Creating AsyncDatabaseClient with MySQL backend (host={db_config.get('host')})"
+        f"Creating AsyncDatabaseClient with MySQL backend "
+        f"(host={db_config.get('host')}, pool_size={pool_size})"
     )
-    backend = MySQLBackend(db_config)
+    backend = MySQLBackend(db_config, pool_size=pool_size)
     await backend.initialize()
     return await AsyncDatabaseClient.create_with_backend(backend)
 

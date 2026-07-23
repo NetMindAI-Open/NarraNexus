@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, Trash2, UserPlus } from 'lucide-react';
+import { MoreVertical, Pencil, Trash2, UserPlus, Eraser } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface TeamRowMenuProps {
@@ -21,13 +21,15 @@ export interface TeamRowMenuProps {
   /** True while an agent create is in flight — disables the Add-agent item. */
   addingAgent?: boolean;
   onRename: (e: React.MouseEvent) => void;
+  /** Clear the team's group-chat / shared files (keeps the team + members). */
+  onClearData: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   /** Fired on open/close so the host row can lift its z-index above the rows
    *  below (each row is its own stacking context). */
   onOpenChange?: (open: boolean) => void;
 }
 
-export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpenChange }: TeamRowMenuProps) {
+export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onClearData, onDelete, onOpenChange }: TeamRowMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   // Notify the parent from the event handler (NOT inside a setState updater —
@@ -81,6 +83,11 @@ export function TeamRowMenu({ onAddAgent, addingAgent, onRename, onDelete, onOpe
               icon={<Pencil className="w-3 h-3" />}
               label={t('layout.teamRowMenu.rename')}
               onClick={handleItem(onRename)}
+            />
+            <MenuItem
+              icon={<Eraser className="w-3 h-3" />}
+              label={t('layout.teamRowMenu.clearData')}
+              onClick={handleItem(onClearData)}
             />
             <MenuItem
               icon={<Trash2 className="w-3 h-3" />}

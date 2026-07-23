@@ -77,6 +77,14 @@ def _resolve_path_for_variant(claims: SignedClaims) -> Path | None:
         claims.agent_id, claims.user_id, claims.file_id,
     )
     if original is None:
+        # Fallback: team voice memos live in the per-user shared bus area, not
+        # in an agent's user_upload_files. Still gated by the HMAC token +
+        # user_id scoping in resolve_shared_file_by_id.
+        from xyz_agent_context.message_bus.attachments import (
+            resolve_shared_file_by_id,
+        )
+        original = resolve_shared_file_by_id(claims.user_id, claims.file_id)
+    if original is None:
         return None
 
     if claims.variant == "original":

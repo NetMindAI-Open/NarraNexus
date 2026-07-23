@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/_message_bus_mcp_tools.py
-last_verified: 2026-04-10
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — file attachments + team share
+
+`bus_send_message` / `bus_send_to_agent` gained `attachment_refs` (comma-separated
+`att_` file_ids and/or workspace-relative paths); `_stage_send_attachments` resolves
+the sender's owner (`agents.created_by`, dialect-safe via `get_db_client`) and stages
+the files through [[_bus_attachment_impl]] before send. New `bus_share_to_team`
+validates ownership + membership (`teams` / `team_members`) then publishes a file into
+the team's shared scratch dir (a server-side write — agents can't write `_shared`
+themselves under the cloud sandbox). owner_user_id is always looked up, never taken
+from the LLM.
 
 # _message_bus_mcp_tools.py — MessageBus MCP 工具函数集合
 

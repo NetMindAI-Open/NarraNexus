@@ -36,6 +36,7 @@ class MessageBusService(ABC):
         content: str,
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -46,6 +47,8 @@ class MessageBusService(ABC):
             content: The message content.
             msg_type: The message type (default: "text").
             mentions: List of agent_ids to mention, or ["@everyone"].
+            attachments: Optional list of bus-attachment dicts (see
+                _bus_attachment_impl); files travel by reference, not bytes.
 
         Returns:
             The generated message_id.
@@ -69,6 +72,29 @@ class MessageBusService(ABC):
 
         Returns:
             List of BusMessage, ordered by created_at ASC.
+        """
+        ...
+
+    @abstractmethod
+    async def get_recent_messages(
+        self,
+        channel_id: str,
+        limit: int = 20,
+    ) -> List[BusMessage]:
+        """
+        Get the MOST RECENT ``limit`` messages of a channel, oldest→newest.
+
+        The recent-scrollback complement to ``get_messages`` (which returns
+        the OLDEST ``limit``). Used to give a triggered team-room agent the
+        recent conversation as context, not just the message that
+        @mentioned it.
+
+        Args:
+            channel_id: The channel to fetch messages from.
+            limit: Maximum number of messages to return.
+
+        Returns:
+            List of BusMessage — the newest ``limit``, reordered ASC.
         """
         ...
 
@@ -103,6 +129,7 @@ class MessageBusService(ABC):
         to_agent: str,
         content: str,
         msg_type: str = "text",
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.
@@ -115,6 +142,8 @@ class MessageBusService(ABC):
             to_agent: The agent ID of the recipient.
             content: The message content.
             msg_type: The message type (default: "text").
+            attachments: Optional list of bus-attachment dicts (see
+                _bus_attachment_impl); files travel by reference, not bytes.
 
         Returns:
             The generated message_id.

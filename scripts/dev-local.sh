@@ -50,10 +50,7 @@ fi
 pkill -f "sqlite_proxy_server" 2>/dev/null || true
 pkill -f "uvicorn backend.main:app" 2>/dev/null || true
 pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
-pkill -f "module_poller" 2>/dev/null || true
-pkill -f "job_trigger" 2>/dev/null || true
-pkill -f "message_bus_trigger" 2>/dev/null || true
-pkill -f "run_channel_triggers" 2>/dev/null || true
+pkill -f "run_worker_supervisor" 2>/dev/null || true
 for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
   lsof -ti:"$port" 2>/dev/null | xargs kill -9 2>/dev/null || true
 done
@@ -217,10 +214,7 @@ draw_panel() {
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
   status_line "MCP Server"          "pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null"
-  status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
-  status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
-  status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
-  status_line "Channel Triggers"    "pgrep -f 'run_channel_triggers' >/dev/null"
+  status_line "Workers"             "pgrep -f 'run_worker_supervisor' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -242,10 +236,7 @@ while true; do
       pkill -f "sqlite_proxy_server" 2>/dev/null || true
       pkill -f "uvicorn backend.main:app" 2>/dev/null || true
       pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
-      pkill -f "module_poller" 2>/dev/null || true
-      pkill -f "job_trigger" 2>/dev/null || true
-      pkill -f "message_bus_trigger" 2>/dev/null || true
-      pkill -f "run_channel_triggers" 2>/dev/null || true
+      pkill -f "run_worker_supervisor" 2>/dev/null || true
       # Kill processes on known ports
       for port in 8100 8000 5173 5174 7801 7802 7803 7804 7806 7807 7808 7820 7830 7831 7832 7834; do
         lsof -ti:"$port" 2>/dev/null | xargs kill 2>/dev/null || true
@@ -309,24 +300,13 @@ tmux new-window -t "$SESSION" -n "Backend" \
 tmux new-window -t "$SESSION" -n "MCP" \
   "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m xyz_agent_context.module.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
-# --- Module Poller ---
-tmux new-window -t "$SESSION" -n "Poller" \
-  "$ENV_CMD; echo '=== Module Poller ==='; '$VENV_PY' -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
-
-# --- Job Trigger ---
-tmux new-window -t "$SESSION" -n "Jobs" \
-  "$ENV_CMD; echo '=== Job Trigger ==='; '$VENV_PY' src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
-
-# --- Bus Trigger ---
-tmux new-window -t "$SESSION" -n "BusTrigger" \
-  "$ENV_CMD; echo '=== Bus Trigger ==='; '$VENV_PY' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
-
-# --- Channel Triggers (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) ---
-# One supervisor process runs every IM channel in a single event loop,
-# replacing the old six-window layout. Same ``uv run`` ban as DB Proxy —
-# use $VENV_PY directly.
-tmux new-window -t "$SESSION" -n "ChannelTriggers" \
-  "$ENV_CMD; echo '=== Channel Triggers ==='; '$VENV_PY' -m xyz_agent_context.module.run_channel_triggers; echo 'Channel Triggers stopped. Press Enter to close.'; read"
+# --- Worker Supervisor (poller / jobs / message-bus / all IM channel triggers) ---
+# One supervisor process runs every long-running background worker in a single
+# event loop, each as a supervised task with backoff-restart, replacing the old
+# four-window layout (Poller / Jobs / BusTrigger / ChannelTriggers). Same
+# ``uv run`` ban as DB Proxy — use $VENV_PY directly.
+tmux new-window -t "$SESSION" -n "Workers" \
+  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor; echo 'Workers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \
@@ -366,9 +346,7 @@ add_fail() { failed="${failed}$1"$'\n'; }
 { lsof -iTCP:8100 -sTCP:LISTEN -P -n >/dev/null 2>&1 || ss -tlnp 2>/dev/null | grep -q ':8100 '; } \
   || add_fail "SQLite Proxy|sqlite_proxy|:8100 never came up"
 pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null 2>&1 || add_fail "MCP Server|mcp|process not running (crashed on startup?)"
-pgrep -f 'module_poller' >/dev/null 2>&1 || add_fail "Module Poller|poller|process not running (crashed on startup?)"
-pgrep -f 'job_trigger' >/dev/null 2>&1 || add_fail "Job Trigger|job_trigger|process not running (crashed on startup?)"
-pgrep -f 'message_bus_trigger' >/dev/null 2>&1 || add_fail "Bus Trigger|message_bus_trigger|process not running (crashed on startup?)"
+pgrep -f 'run_worker_supervisor' >/dev/null 2>&1 || add_fail "Workers|worker_supervisor|process not running (crashed on startup?)"
 
 if [ -n "$failed" ]; then
   echo ""

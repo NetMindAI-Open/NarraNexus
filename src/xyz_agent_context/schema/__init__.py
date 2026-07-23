@@ -52,6 +52,7 @@ from .runtime_message import (
     # Constants
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
+    EXECUTOR_INFRA_ERROR_TYPE,
 )
 
 # ===== Job Schema =====
@@ -239,6 +240,13 @@ from .artifact_schema import (
     Artifact,
     ArtifactKind,
     CreateArtifactToolResult,
+    EmbedMode,
+    EmbedVerdict,
+    HealCandidate,
+    HealResult,
+    URL_ARTIFACT_KIND,
+    URL_TAB_CONTENT_FILENAME,
+    UrlArtifactDoc,
 )
 
 # ===== Export All =====
@@ -413,4 +421,11 @@ __all__ = [
     "Artifact",
     "ArtifactKind",
     "CreateArtifactToolResult",
+    "EmbedMode",
+    "EmbedVerdict",
+    "HealCandidate",
+    "HealResult",
+    "URL_ARTIFACT_KIND",
+    "URL_TAB_CONTENT_FILENAME",
+    "UrlArtifactDoc",
 ]

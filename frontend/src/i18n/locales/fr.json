@@ -132,11 +132,15 @@
       "situationFailed": "Cette exécution a rencontré une erreur et l'agent n'a pas pu répondre normalement. Détails :",
       "situationRecovered": "L'agent a répondu, mais des erreurs se sont produites pendant l'exécution. Détails :",
       "titleActionable": "Action requise",
+      "titleInfra": "Problème d'environnement d'exécution",
       "action": {
         "context_window": "La fenêtre de contexte du modèle sélectionné est trop petite pour cet agent. Choisissez un modèle avec une fenêtre de contexte plus grande dans les paramètres, puis renvoyez.",
         "insufficient_balance": "Le fournisseur du modèle signale un solde ou un quota insuffisant. Rechargez ou changez de fournisseur dans les paramètres, puis renvoyez.",
         "model_not_found": "L'identifiant de modèle configuré a été rejeté par le fournisseur (introuvable ou invalide). Choisissez un modèle valide dans les paramètres, puis renvoyez.",
-        "generic": "Ce tour n'a pas pu s'exécuter en raison d'un problème de configuration réparable dans les paramètres. Corrigez, puis renvoyez."
+        "generic": "Ce tour n'a pas pu s'exécuter en raison d'un problème de configuration réparable dans les paramètres. Corrigez, puis renvoyez.",
+        "executor_oom": "L'environnement d'exécution a manqué de mémoire et a été arrêté par le système. Divisez la tâche en étapes plus petites ou réduisez les modules actifs, puis renvoyez.",
+        "executor_unreachable": "Votre conteneur d'exécution est temporairement injoignable. Il récupère généralement en quelques secondes — veuillez renvoyer ce message sous peu.",
+        "infra_transient": "Ce tour n'a pas pu s'exécuter en raison d'un problème d'exécution temporaire côté plateforme. Veuillez renvoyer le message dans un instant."
       }
     }
   },
@@ -633,7 +637,9 @@
       "runtimeUnknown": "Inconnu",
       "openMenu": "Ouvrir le menu",
       "commandPaletteTitle": "Palette de commandes (⌘K)",
-      "search": "rechercher"
+      "search": "rechercher",
+      "findUs": "Suivez-nous",
+      "findUsTitle": "Rejoignez la communauté NarraNexus"
     },
     "commandPalette": {
       "hintAgent": "Agent",

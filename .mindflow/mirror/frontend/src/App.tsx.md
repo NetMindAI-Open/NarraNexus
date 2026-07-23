@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-20
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -9,6 +9,10 @@ stub: false
 use-subscription 按钮接上后（[[NetmindAccountPanel]] 同日条目），横幅里
 "then sign out and back in to link it"的笨拙引导改为指向面板的 Link it now
 按钮所在位置。#124 自己就说文案是止血不是终态——终态到了。
+## 2026-07-21 — /app/marketplace 路由
+
+新增 lazy MarketplacePage 路由,与其他页面同模式。
+
 
 ## 2026-07-20 — quota-exceeded 横幅文案补「订阅 NetMind.AI 套餐」
 

@@ -25,6 +25,7 @@ Timestamp = Union[str, datetime]
 
 class BusMessage(BaseModel):
     """A message sent within a MessageBus channel."""
+
     model_config = {"arbitrary_types_allowed": True}
 
     message_id: str
@@ -33,11 +34,16 @@ class BusMessage(BaseModel):
     content: str
     msg_type: str = "text"
     mentions: Optional[List[str]] = None  # list of agent_ids or ["@everyone"]
+    # Bus-attachment dicts (file_id/original_name/mime_type/size_bytes/category/
+    # rel_path). Populated when the sender attaches files; None for text-only.
+    # The trigger renders these into Read-tool markers at delivery time.
+    attachments: Optional[List[dict]] = None
     created_at: Any = None
 
 
 class BusChannel(BaseModel):
     """A communication channel in the MessageBus."""
+
     model_config = {"arbitrary_types_allowed": True}
 
     channel_id: str
@@ -49,6 +55,7 @@ class BusChannel(BaseModel):
 
 class BusChannelMember(BaseModel):
     """Channel membership record with read and processed cursors."""
+
     model_config = {"arbitrary_types_allowed": True}
 
     channel_id: str
@@ -60,6 +67,7 @@ class BusChannelMember(BaseModel):
 
 class BusAgentInfo(BaseModel):
     """Agent registration and discovery metadata."""
+
     model_config = {"arbitrary_types_allowed": True}
 
     agent_id: str

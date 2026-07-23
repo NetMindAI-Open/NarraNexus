@@ -102,8 +102,10 @@ async def run_pending_migrations(db: "AsyncDatabaseClient") -> Dict[str, Dict]:
 # ── Ordered registry — APPEND ONLY ────────────────────────────────────────────
 from .m0001_unified_memory_backfill import MIGRATION as _m0001  # noqa: E402
 from .m0002_workspace_nested_layout import MIGRATION as _m0002  # noqa: E402
+from .m0003_cloud_codex_to_claude import MIGRATION as _m0003  # noqa: E402
 
 REGISTRY: List[Migration] = [
     _m0001,
     _m0002,
+    _m0003,
 ]

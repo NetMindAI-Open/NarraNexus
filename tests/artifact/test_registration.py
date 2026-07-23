@@ -1,8 +1,8 @@
 """
-@file_name: test_artifact_runner.py
+@file_name: test_registration.py
 @author: Bin Liang
 @date: 2026-05-08
-@description: TDD tests for the pointer-model artifact_runner.register_artifact.
+@description: TDD tests for pointer-model artifact registration (ArtifactService.register).
 
 Tests cover:
 - register_artifact happy path: validates the entry inside the workspace,
@@ -21,7 +21,13 @@ import os
 
 import pytest
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
+from xyz_agent_context.artifact import (
+    ArtifactError,
+    ArtifactKindMismatch,
+    ArtifactNotFound,
+    ArtifactPathEscape,
+    ArtifactService,
+)
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
@@ -62,8 +68,7 @@ async def test_register_happy_path_writes_row_no_copy(env):
     repo: ArtifactRepository = env["repo"]
     entry = env["entry"]
 
-    result = await artifact_runner.register_artifact(
-        repo=repo,
+    result = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id="sess_1",
         kind="text/html",
         entry_path=str(entry),
@@ -90,8 +95,7 @@ async def test_register_happy_path_writes_row_no_copy(env):
 async def test_register_with_workspace_relative_path(env):
     """entry_path may be absolute OR workspace-relative."""
     repo: ArtifactRepository = env["repo"]
-    result = await artifact_runner.register_artifact(
-        repo=repo,
+    result = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html",
         entry_path="report/index.html",  # relative to agent workspace
@@ -113,8 +117,7 @@ async def test_register_accepts_entry_at_workspace_root_single_file(env):
     other = env["workspace"] / "unrelated.txt"
     other.write_text("not part of any artifact" * 100, encoding="utf-8")
 
-    result = await artifact_runner.register_artifact(
-        repo=repo,
+    result = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(flat),
         title="flat report", description=None, target_artifact_id=None,
@@ -131,9 +134,8 @@ async def test_register_accepts_entry_at_workspace_root_single_file(env):
 @pytest.mark.asyncio
 async def test_register_rejects_path_outside_workspace(env):
     repo: ArtifactRepository = env["repo"]
-    with pytest.raises(artifact_runner.ArtifactPathEscape):
-        await artifact_runner.register_artifact(
-            repo=repo,
+    with pytest.raises(ArtifactPathEscape):
+        await ArtifactService(env["db"]).register(
             agent_id="agent_x", user_id="user_y", session_id="s",
             kind="text/html", entry_path="/etc/passwd",
             title="t", description=None, target_artifact_id=None,
@@ -143,9 +145,8 @@ async def test_register_rejects_path_outside_workspace(env):
 @pytest.mark.asyncio
 async def test_register_rejects_invalid_kind(env):
     repo: ArtifactRepository = env["repo"]
-    with pytest.raises(artifact_runner.ArtifactError):
-        await artifact_runner.register_artifact(
-            repo=repo,
+    with pytest.raises(ArtifactError):
+        await ArtifactService(env["db"]).register(
             agent_id="agent_x", user_id="user_y", session_id="s",
             kind="application/octet-stream",
             entry_path=str(env["entry"]),
@@ -162,8 +163,7 @@ async def test_size_is_recursive_dir_size(env):
     (root / "style.css").write_text("body{font:1em sans-serif}", encoding="utf-8")
     (root / "data.json").write_text('{"x":1}', encoding="utf-8")
 
-    result = await artifact_runner.register_artifact(
-        repo=repo,
+    result = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
         title="t", description=None, target_artifact_id=None,
@@ -181,8 +181,7 @@ async def test_size_is_recursive_dir_size(env):
 @pytest.mark.asyncio
 async def test_target_artifact_id_updates_in_place(env):
     repo: ArtifactRepository = env["repo"]
-    r1 = await artifact_runner.register_artifact(
-        repo=repo,
+    r1 = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
         title="v1", description=None, target_artifact_id=None,
@@ -193,8 +192,7 @@ async def test_target_artifact_id_updates_in_place(env):
     entry2 = env["workspace"] / "report2" / "index.html"
     entry2.write_text("<p>v2</p>", encoding="utf-8")
 
-    r2 = await artifact_runner.register_artifact(
-        repo=repo,
+    r2 = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(entry2),
         title="v2", description=None, target_artifact_id=r1.artifact_id,
@@ -209,8 +207,7 @@ async def test_target_artifact_id_updates_in_place(env):
 @pytest.mark.asyncio
 async def test_target_artifact_id_kind_mismatch_raises(env):
     repo: ArtifactRepository = env["repo"]
-    r1 = await artifact_runner.register_artifact(
-        repo=repo,
+    r1 = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
         title="t", description=None, target_artifact_id=None,
@@ -218,9 +215,8 @@ async def test_target_artifact_id_kind_mismatch_raises(env):
     (env["workspace"] / "csvdir").mkdir()
     csv = env["workspace"] / "csvdir" / "data.csv"
     csv.write_text("a,b\n1,2\n", encoding="utf-8")
-    with pytest.raises(artifact_runner.ArtifactKindMismatch):
-        await artifact_runner.register_artifact(
-            repo=repo,
+    with pytest.raises(ArtifactKindMismatch):
+        await ArtifactService(env["db"]).register(
             agent_id="agent_x", user_id="user_y", session_id=None,
             kind="text/csv", entry_path=str(csv),
             title="t", description=None, target_artifact_id=r1.artifact_id,
@@ -230,9 +226,8 @@ async def test_target_artifact_id_kind_mismatch_raises(env):
 @pytest.mark.asyncio
 async def test_target_artifact_id_not_found_raises(env):
     repo: ArtifactRepository = env["repo"]
-    with pytest.raises(artifact_runner.ArtifactNotFound):
-        await artifact_runner.register_artifact(
-            repo=repo,
+    with pytest.raises(ArtifactNotFound):
+        await ArtifactService(env["db"]).register(
             agent_id="agent_x", user_id="user_y", session_id=None,
             kind="text/html", entry_path=str(env["entry"]),
             title="t", description=None, target_artifact_id="art_doesnotexist",
@@ -244,8 +239,7 @@ async def test_register_without_session_auto_pins(env):
     """session_id=None → pinned=True so the artifact appears in list_pinned
     rather than being invisible (session list filter rejects pinned=0)."""
     repo: ArtifactRepository = env["repo"]
-    result = await artifact_runner.register_artifact(
-        repo=repo,
+    result = await ArtifactService(env["db"]).register(
         agent_id="agent_x", user_id="user_y", session_id=None,
         kind="text/html", entry_path=str(env["entry"]),
         title="t", description=None, target_artifact_id=None,

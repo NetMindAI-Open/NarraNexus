@@ -93,7 +93,14 @@ class QuotaService:
         return q is not None and q.has_budget()
 
     async def deduct(
-        self, user_id: str, input_tokens: int, output_tokens: int
+        self,
+        user_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cost_record_id: Optional[int] = None,
+        provider_source: Optional[str] = None,
+        model: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
         if not self.system_provider.is_enabled():
             return
@@ -101,7 +108,18 @@ class QuotaService:
             return
         repo = await self._get_repo()
         try:
-            await repo.atomic_deduct(user_id, input_tokens, output_tokens)
+            # The extra fields are ledger metadata: atomic_deduct writes a
+            # quota_deductions row alongside the running-total UPDATE so the
+            # charge is auditable and refundable per-transaction.
+            await repo.atomic_deduct(
+                user_id,
+                input_tokens,
+                output_tokens,
+                cost_record_id=cost_record_id,
+                provider_source=provider_source,
+                model=model,
+                agent_id=agent_id,
+            )
         except Exception as e:
             logger.exception(f"quota deduct failed for {user_id}: {e}")
 

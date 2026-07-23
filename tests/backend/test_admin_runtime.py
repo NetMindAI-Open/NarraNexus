@@ -249,3 +249,98 @@ async def test_status_resilient_when_broker_raises(db_client, monkeypatch):
         assert "executors" in body
     finally:
         reset_admission_controller_for_test(None)
+
+
+# ---------------------------------------------------------------------------
+# Part C: GET /api/admin/runtime/workers (Workers card liveness)
+# ---------------------------------------------------------------------------
+
+
+def _make_workers_app(db_client, monkeypatch):
+    """Minimal app wiring only the admin_runtime router + a fake get_db_client."""
+    import backend.routes.admin_runtime as mod
+
+    async def _fake_db():
+        return db_client
+
+    monkeypatch.setattr(mod, "get_db_client", _fake_db)
+    app = FastAPI()
+    app.include_router(mod.router)
+    return app
+
+
+async def _get_workers(app) -> httpx.Response:
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
+        return await ac.get("/api/admin/runtime/workers")
+
+
+@pytest.mark.asyncio
+async def test_workers_parses_latest_heartbeat(db_client, monkeypatch):
+    from xyz_agent_context.repository.service_audit_repository import (
+        ServiceAuditRepository,
+    )
+
+    repo = ServiceAuditRepository(db_client)
+    await repo.record(
+        "worker_supervisor",
+        "heartbeat",
+        {
+            "poller": {"state": "running", "restart_count": 0},
+            "jobs": {"state": "restarting", "restart_count": 3, "last_error": "boom"},
+        },
+    )
+
+    app = _make_workers_app(db_client, monkeypatch)
+    resp = await _get_workers(app)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["available"] is True
+    assert isinstance(body["heartbeat_age_seconds"], (int, float))
+    by_name = {w["name"]: w for w in body["workers"]}
+    assert by_name["poller"]["state"] == "running"
+    assert by_name["poller"]["restart_count"] == 0
+    assert by_name["jobs"]["state"] == "restarting"
+    assert by_name["jobs"]["restart_count"] == 3
+    assert by_name["jobs"]["last_error"] == "boom"
+
+
+@pytest.mark.asyncio
+async def test_workers_started_fallback_when_no_heartbeat(db_client, monkeypatch):
+    """Just booted (only a `started` row) → list workers as 'starting'."""
+    from xyz_agent_context.repository.service_audit_repository import (
+        ServiceAuditRepository,
+    )
+
+    repo = ServiceAuditRepository(db_client)
+    await repo.record("worker_supervisor", "started", {"workers": ["poller", "bus"]})
+
+    app = _make_workers_app(db_client, monkeypatch)
+    body = (await _get_workers(app)).json()
+    assert body["available"] is True
+    assert {w["name"] for w in body["workers"]} == {"poller", "bus"}
+    assert all(w["state"] == "starting" for w in body["workers"])
+
+
+@pytest.mark.asyncio
+async def test_workers_available_false_when_no_rows(db_client, monkeypatch):
+    app = _make_workers_app(db_client, monkeypatch)
+    body = (await _get_workers(app)).json()
+    assert body["available"] is False
+    assert body["workers"] == []
+
+
+@pytest.mark.asyncio
+async def test_workers_resilient_when_db_raises(db_client, monkeypatch):
+    """A DB blip yields available:false, never a 500."""
+    import backend.routes.admin_runtime as mod
+
+    async def _bad_db():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(mod, "get_db_client", _bad_db)
+    app = FastAPI()
+    app.include_router(mod.router)
+    resp = await _get_workers(app)
+    assert resp.status_code == 200
+    assert resp.json()["available"] is False

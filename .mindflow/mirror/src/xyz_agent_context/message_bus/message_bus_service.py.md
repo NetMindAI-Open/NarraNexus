@@ -1,8 +1,25 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-04-10
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — get_recent_messages joins the ABC
+
+`get_recent_messages(channel_id, limit)` (newest N, reordered ASC — the
+recent-scrollback complement to `get_messages`' oldest-N) was added to
+[[local_bus]] in PR #141 but only on the implementation class; it's now an
+abstractmethod here with a `NotImplementedError` stub in [[cloud_bus]], same
+as the `attachments` params were added across all three in one batch. The
+trigger currently type-hints `LocalMessageBus` so nothing breaks at runtime
+either way — this keeps the interface surface honest.
+
+## 2026-07-20 — attachments in the send contract
+
+`send_message` / `send_to_agent` abstract methods gained `attachments: list[dict] |
+None`. Implementers persist it; `CloudMessageBus` stub carries the param but still
+raises NotImplementedError. Files are references, not bytes — see
+[[_bus_attachment_impl]].
 
 # message_bus_service.py — MessageBus 统一抽象接口
 

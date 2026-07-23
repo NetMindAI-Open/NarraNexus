@@ -19,10 +19,14 @@ sitting unread.
 
 from __future__ import annotations
 
+import json
+import mimetypes
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from loguru import logger
 
 router = APIRouter()
@@ -194,11 +198,13 @@ async def get_agent_inbox(
                     sender == agent_id
                     or msg_time <= cursor
                 )
+                attachments_raw = m.get("attachments")
                 messages.append({
                     "message_id": m.get("message_id", ""),
                     "sender_id": sender,
                     "sender_name": name_map.get(sender, sender),
                     "content": m.get("content", ""),
+                    "attachments": json.loads(attachments_raw) if attachments_raw else None,
                     "is_read": is_msg_read,
                     "created_at": msg_time,
                 })
@@ -327,3 +333,32 @@ async def mark_room_read(room_id: str, agent_id: str = Query(...)):
     except Exception as e:
         logger.exception(f"[mark_room_read] Error: {e}", exc_info=True)
         return {"success": False, "error": str(e), "marked_count": 0}
+
+
+@router.get("/attachments/raw")
+async def get_bus_attachment_raw(request: Request, path: str = Query(...)):
+    """Stream a bus-message attachment from the per-user shared area.
+
+    ``path`` is the ``rel_path`` from a message's ``attachments`` entry
+    (as returned by the inbox / team-chat APIs). Access is gated to the
+    authenticated user's own root — see ``resolve_shared_file_for_user`` —
+    so a tampered path can only ever reach files the caller already owns.
+    """
+    from backend.auth import resolve_current_user_id
+    from xyz_agent_context.message_bus.attachments import (
+        resolve_shared_file_for_user,
+    )
+
+    user_id = await resolve_current_user_id(request)
+    resolved = resolve_shared_file_for_user(user_id, path)
+    if resolved is None:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "error": "Attachment not found"},
+        )
+    mime, _ = mimetypes.guess_type(str(resolved))
+    return FileResponse(
+        path=str(resolved),
+        media_type=mime or "application/octet-stream",
+        filename=Path(resolved).name,
+    )

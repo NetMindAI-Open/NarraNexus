@@ -1,8 +1,21 @@
 ---
 code_file: backend/routes/artifacts_public.py
-last_verified: 2026-05-27
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — path resolution moved to ArtifactService.resolve_raw_file
+
+The fat part of `get_raw` (pointer lookup, flat→nested workspace fallback,
+path-escape confinement, workspace-root single-file rule, media-type choice)
+moved to `xyz_agent_context/artifact/_artifact_impl/raw_access.py` — see
+[[raw_access.py]]. The handler keeps exactly the HTTP concerns: token
+verification (`_artifact_token.verify`) and response headers (CSP via
+`_csp_for_html` / `_non_html_csp` / `_app_origin`, which all stay in this
+file). Status mapping is unchanged: `ArtifactError.code` carries the same
+401/404/410 contract the frontend self-heal depends on, and the route is
+still registered with `methods=["GET", "HEAD"]` (do NOT revert to
+`@router.get` — see the 2026-05-22 entry).
 
 ## 2026-05-27 — fix dmg artifact white-screen (embed-blocking headers)
 
@@ -92,8 +105,9 @@ Upstream:
 
 Downstream:
 - `_artifact_token.verify` for token verification (HMAC-SHA256, 2h TTL).
-- `ArtifactRepository.get_by_id` to look up the artifact by `claims.artifact_id`.
-- `settings.base_working_path` to resolve `art.file_path` to an absolute path.
+- `ArtifactService.resolve_raw_file` for pointer lookup + path resolution
+  (which reads `settings.base_working_path` internally).
+- `settings.public_base_url` (via `_app_origin`) for the CSP host-source.
 
 Mounted under `/api/public/artifacts` (see `backend/main.py`).
 Lives on the JWT-bypassed prefix (`backend/auth.py::AUTH_EXEMPT_PREFIXES`).

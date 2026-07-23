@@ -1,5 +1,16 @@
 # cost_tracker.py
 
+## 2026-07-22 — record_cost 落库归属 + 串联扣减流水
+
+`record_cost` 现在在函数开头（INSERT 之前）防御式读取 `current_user_id` /
+`provider_source` 两个 ContextVar（[[api_config]]），把它们写进 `cost_records`
+的新列，并捕获 `db.insert` 返回的自增 id 作为 `cost_record_id`。deduct hook 复用
+这两个已读的值（不再在 hook 内重复读），并把 `cost_record_id / provider_source /
+model / agent_id` 透传给 `svc.deduct(...)`，好让 [[quota_repository]] 写一条能
+回指 cost_records 的自审计流水。归属两列对**所有**调用记录（不止 system 分支）；
+「仅 system 且有 user_id 才扣减」的不变量不变。读 ContextVar 失败一律降级 None，
+绝不阻断计费（observability, not flow control）。
+
 ## 2026-07-06 — warn_missing_usage is exception-safe
 
 warn_missing_usage wraps its logger.warning in try/except: observability must

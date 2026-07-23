@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/agent_circuit_breaker.py
-last_verified: 2026-07-14
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — executor-infra 失败也**不进熔断器**（与自助类豁免同理）
+
+`record_failure` 在 `classify_self_serviceable` 豁免之后新增一条：
+`if error_type == EXECUTOR_INFRA_ERROR_TYPE: return`（[[runtime_message.py]]）。
+
+原因：新的 executor-infra 收尾（[[step_3_agent_loop.py]]）对 OOM/不可达 yield 的
+`ErrorMessage.error_type="infra_transient"`，若不豁免会经 background_run 的
+`_last_error_type` 走到这里 → category=BUSINESS → COOLING 60s → 下一条消息被
+`websocket.should_skip` 判 "cooling" 拒掉。而 surface 文案恰恰叫用户"稍后重发"——
+平台侧一次抖动变成对用户的二次惩罚（铁律 #15：别成为打断源）。这是平台故障，不该
+记在 agent 头上。与自助类一样：不 cool、不 pause、不动计数。
 
 ## 2026-07-14 — 确定性自助类失败**不进熔断器**（"黑盒" P1 的连带修复）
 

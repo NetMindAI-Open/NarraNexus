@@ -259,6 +259,10 @@ AUTH_EXEMPT_PATHS = {
     # inside the handler (admin_secret_key), not a user JWT — the offline batch
     # migrator has no JWT. Same self-credentialed pattern as netmind-login.
     "/api/admin/migrate-identity",
+    # Marketplace publish: self-credentialed via the X-Publish-Token header
+    # (MARKETPLACE_PUBLISH_TOKEN env) — CI/ops publishers have no user JWT.
+    # Same pattern as migrate-identity above.
+    "/api/marketplace/skills/publish",
     "/api/providers/claude-status",
     "/docs",
     "/openapi.json",
@@ -267,6 +271,25 @@ AUTH_EXEMPT_PATHS = {
 }
 
 # Prefixes that don't require auth
+# Marketplace READ surface (GET only): public like a package registry, so
+# desktop deployments — whose users are NOT logged into the cloud — can
+# search/inspect/download skills. Auth is OPTIONAL here: when a credential
+# is present (JWT in cloud, X-User-Id in local) the middleware still
+# resolves the user so agent-scoped features (installed flags, per-agent
+# update checks) work; when absent the request proceeds anonymously and
+# routes degrade gracefully. POSTs under these prefixes (install) are NOT
+# covered and keep strict auth; publish has its own exemption above.
+# Covers both marketplace objects: skills/* and teams/* (a desktop client
+# browsing/downloading team templates has no cloud JWT).
+MARKETPLACE_PUBLIC_READ_PREFIXES = ("/api/marketplace/skills", "/api/marketplace/teams")
+
+
+def _is_marketplace_public_read(request: "Request") -> bool:
+    return request.method == "GET" and any(
+        request.url.path.startswith(p) for p in MARKETPLACE_PUBLIC_READ_PREFIXES
+    )
+
+
 AUTH_EXEMPT_PREFIXES = (
     "/ws/",  # WebSocket handles its own auth via message payload
     # Public transcription audio: NetMind's STT worker fetches via
@@ -439,6 +462,10 @@ async def auth_middleware(request: Request, call_next):
             and not any(local_path.startswith(p) for p in AUTH_EXEMPT_PREFIXES)
         ):
             header_uid = request.headers.get("x-user-id")
+            if not header_uid and _is_marketplace_public_read(request):
+                # Anonymous marketplace read — proceed without identity;
+                # routes skip agent-scoped annotations.
+                return await call_next(request)
             if not header_uid:
                 return _json_response(401, {
                     "success": False,
@@ -471,6 +498,9 @@ async def auth_middleware(request: Request, call_next):
     # Require JWT
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
+        if _is_marketplace_public_read(request):
+            # Anonymous marketplace read (desktop clients have no cloud JWT).
+            return await call_next(request)
         return _json_response(401, {"detail": "Authentication required"})
 
     token = auth_header[7:]
@@ -533,6 +563,37 @@ def _json_response(status_code: int, body: dict):
 # Local-mode identity (dashboard v2 TDR-12)
 # ---------------------------------------------------------------------------
 
+def reject_cross_origin(request) -> None:
+    """CSRF guard for unauthenticated local-mode writes (e.g. tokenless
+    marketplace publish). Shared so no route depends on another route's
+    private helper.
+
+    A cross-site browser POST carries an Origin header pointing at the
+    attacker page; same-origin UI and CLI tools do not (or point at
+    loopback). CRITICAL: ``Origin: null`` (sandboxed iframe / data: form) is
+    treated as CROSS-origin, not same-origin — a sandboxed iframe form POST
+    is exactly the CSRF vector, and multipart POST is a CORS simple request
+    (no preflight). As defense-in-depth we also honor ``Sec-Fetch-Site``
+    (modern browsers always send it; CLIs don't): anything other than
+    same-origin/none is rejected.
+    """
+    from fastapi import HTTPException
+    from urllib.parse import urlparse
+
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site and fetch_site not in ("same-origin", "none"):
+        raise HTTPException(status_code=403, detail="cross-origin request not allowed")
+
+    origin = request.headers.get("origin")
+    if not origin:
+        return  # no Origin (CLI, same-origin GET-turned-POST) — allow
+    if origin.lower() == "null":
+        raise HTTPException(status_code=403, detail="cross-origin request not allowed")
+    host = (urlparse(origin).hostname or "").lower()
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        raise HTTPException(status_code=403, detail="cross-origin request not allowed")
+
+
 async def resolve_current_user_id(request) -> str:
     """Single source of truth for "who is the current user" on this request.
 
@@ -559,6 +620,12 @@ async def resolve_current_user_id(request) -> str:
     if not uid:
         raise HTTPException(status_code=401, detail="Authentication required")
     return uid
+
+
+async def resolve_optional_user_id(request) -> Optional[str]:
+    """Like resolve_current_user_id, but returns None for anonymous requests
+    on optional-auth surfaces (marketplace public reads) instead of raising."""
+    return getattr(request.state, "user_id", None)
 
 
 async def ensure_local_default_user() -> str:

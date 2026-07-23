@@ -42,6 +42,9 @@ from loguru import logger
 from xyz_agent_context.agent_runtime.executor_protocol import (
     build_agent_loop_request,
 )
+from xyz_agent_context.agent_framework.executor_errors import (
+    ExecutorUnreachableError,
+)
 
 
 # Ceiling for a single NDJSON event line pulled from the executor. Chosen
@@ -107,52 +110,77 @@ class RemoteAgentLoopDriver:
         logger.info(
             f"[RemoteAgentLoop] → {self._url} framework={self.framework!r}"
         )
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(self._url, json=body) as resp:
-                resp.raise_for_status()
-                # Manual line accumulation on ``iter_any()``: aiohttp's line
-                # iterator (``async for raw_line in resp.content``) hits
-                # ``LineTooLong`` at 131 KiB, which is BELOW a single
-                # base64-image event line (150-400 KiB). ``iter_any`` yields
-                # whatever bytes have arrived without any parsing, so we own
-                # the line boundary and can raise up to ``_MAX_STREAM_BYTES``.
-                buf = bytearray()
-                async for chunk in resp.content.iter_any():
-                    # Cooperative cancellation: if the orchestrator's token
-                    # fired, stop pulling — exiting the `async with` aborts
-                    # the request, which the executor observes as disconnect.
-                    # ``CancellationToken.is_cancelled`` is a bool @property,
-                    # not a method — read it, do not call it.
-                    if cancellation is not None and getattr(
-                        cancellation, "is_cancelled", False
-                    ):
-                        logger.info("[RemoteAgentLoop] cancelled — aborting stream")
-                        return
-                    if not chunk:
-                        continue
-                    buf.extend(chunk)
-                    while True:
-                        nl = buf.find(b"\n")
-                        if nl < 0:
-                            break
-                        line = bytes(buf[:nl]).strip()
-                        del buf[: nl + 1]
-                        if not line:
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.post(self._url, json=body) as resp:
+                    resp.raise_for_status()
+                    # Manual line accumulation on ``iter_any()``: aiohttp's line
+                    # iterator (``async for raw_line in resp.content``) hits
+                    # ``LineTooLong`` at 131 KiB, which is BELOW a single
+                    # base64-image event line (150-400 KiB). ``iter_any`` yields
+                    # whatever bytes have arrived without any parsing, so we own
+                    # the line boundary and can raise up to ``_MAX_STREAM_BYTES``.
+                    buf = bytearray()
+                    async for chunk in resp.content.iter_any():
+                        # Cooperative cancellation: if the orchestrator's token
+                        # fired, stop pulling — exiting the `async with` aborts
+                        # the request, which the executor observes as disconnect.
+                        # ``CancellationToken.is_cancelled`` is a bool @property,
+                        # not a method — read it, do not call it.
+                        if cancellation is not None and getattr(
+                            cancellation, "is_cancelled", False
+                        ):
+                            logger.info("[RemoteAgentLoop] cancelled — aborting stream")
+                            return
+                        if not chunk:
                             continue
-                        yield _decode_event(line)
-                    if len(buf) > _MAX_STREAM_BYTES:
-                        # Preserve the aiohttp-style failure mode (raise
-                        # rather than silently truncate) but at a ceiling
-                        # aligned with the SDK, so a genuinely malformed
-                        # stream still fails fast.
-                        raise RuntimeError(
-                            f"[RemoteAgentLoop] event line exceeded "
-                            f"{_MAX_STREAM_BYTES} bytes without a newline "
-                            f"(buf={len(buf)})"
-                        )
-                # Trailing bytes without a final newline: the executor
-                # should terminate its NDJSON stream cleanly, but tolerate
-                # a missing trailing "\n" rather than losing the last event.
-                tail = bytes(buf).strip()
-                if tail:
-                    yield _decode_event(tail)
+                        buf.extend(chunk)
+                        while True:
+                            nl = buf.find(b"\n")
+                            if nl < 0:
+                                break
+                            line = bytes(buf[:nl]).strip()
+                            del buf[: nl + 1]
+                            if not line:
+                                continue
+                            yield _decode_event(line)
+                        if len(buf) > _MAX_STREAM_BYTES:
+                            # Preserve the aiohttp-style failure mode (raise
+                            # rather than silently truncate) but at a ceiling
+                            # aligned with the SDK, so a genuinely malformed
+                            # stream still fails fast.
+                            raise RuntimeError(
+                                f"[RemoteAgentLoop] event line exceeded "
+                                f"{_MAX_STREAM_BYTES} bytes without a newline "
+                                f"(buf={len(buf)})"
+                            )
+                    # Trailing bytes without a final newline: the executor
+                    # should terminate its NDJSON stream cleanly, but tolerate
+                    # a missing trailing "\n" rather than losing the last event.
+                    tail = bytes(buf).strip()
+                    if tail:
+                        yield _decode_event(tail)
+        except (aiohttp.ClientConnectionError, aiohttp.ClientPayloadError) as e:
+            # The executor connection failed — either it could not be
+            # established (container down / not yet up → ClientConnectorError,
+            # ClientOSError) OR it dropped mid-run (container killed / network
+            # reset → ServerDisconnectedError, ClientPayloadError). Both mean
+            # the executor is unreachable; convert to the typed exception so
+            # step_3 surfaces an actionable ``infra_transient`` error and skips
+            # the fabricating fallback (issue ②) — even mid-run, which would
+            # otherwise be masked by a helper-LLM reply — and so it is never
+            # mistaken for a retry-forever transient (its class name is not in
+            # the circuit breaker's set).
+            #
+            # Deliberately NOT caught here (so they flow as before): the
+            # RuntimeError from ``_decode_event`` on an ``{"error":...}`` frame
+            # (a USER LLM error the executor relayed) and the ``_MAX_STREAM_BYTES``
+            # RuntimeError — both are RuntimeError, not aiohttp ClientError, so
+            # this except never touches them. ``ClientResponseError`` from
+            # ``raise_for_status`` (executor reachable but returned 5xx) is also
+            # not a ClientConnectionError, so it too flows through unchanged.
+            raise ExecutorUnreachableError(
+                f"executor unreachable at {self._url}: "
+                f"{type(e).__name__}: {e}",
+                target=self._url,
+            ) from e

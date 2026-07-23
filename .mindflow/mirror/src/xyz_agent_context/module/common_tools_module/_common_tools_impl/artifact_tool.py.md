@@ -1,9 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/_common_tools_impl/artifact_tool.py
-last_verified: 2026-05-20
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — new `open_url` MCP tool
+
+Second tool registered alongside `register_artifact`: `open_url(url, title?)`
+lets the agent open a web page as a URL tab, delegating to
+`ArtifactService.open_url`. Same `{error, code}` failure contract. The tool
+name is NOT matched by the frontend live-discovery constant (that is
+`register_artifact` only) — URL tabs surface via the normal artifact refresh,
+so no ChatPanel coupling to keep in sync here.
 ## 2026-05-20 — quota wording purged (v1.7.0 removal cleanup)
 
 The per-user artifact quota was removed in v1.7.0 (see [[artifact_runner.py]]),
@@ -76,12 +84,21 @@ registers a pointer; put each artifact in its own dedicated subdirectory so an
 entry HTML can reference sibling assets. Catch-all `except Exception` → `{error,
 code: 500}` is preserved.
 
+## 2026-07-21 — delegates to ArtifactService
+
+The registration logic moved out of this module's `_common_tools_impl` into
+the dedicated `xyz_agent_context/artifact/` package. The tool now delegates to
+`ArtifactService.register` and imports the `ArtifactError` hierarchy from
+`xyz_agent_context.artifact` — same validation, same error contract; only the
+seam changed. Older entries below reference `artifact_runner`, its previous
+home.
+
 ## Why it exists
 
-Bridges `artifact_runner`'s validation + DB logic into an LLM-callable MCP tool.
-Each call: resolve the per-loop DB client → build a Repository → delegate to
-`artifact_runner.register_artifact` → catch structured exceptions → return an
-LLM-readable dict.
+Bridges the artifact subsystem's validation + DB logic into an LLM-callable
+MCP tool. Each call: resolve the per-loop DB client → construct
+`ArtifactService` → delegate to `service.register` → catch structured
+exceptions → return an LLM-readable dict.
 
 ## Why it lives in common_tools_module, not a dedicated ArtifactModule
 
@@ -94,8 +111,8 @@ full MCP server infrastructure (factory, timeout decorator, backend dispatch).
 
 - **Called by**: `_common_tools_mcp_tools.py` → `create_common_tools_mcp_server`
   calls `artifact_tool.register(mcp)`.
-- **Depends on**: `artifact_runner` (validation + DB orchestration),
-  `ArtifactRepository` (DB access), `get_db_client` (per-loop DB singleton).
+- **Depends on**: `xyz_agent_context.artifact.ArtifactService` (validation +
+  DB orchestration), `get_db_client` (per-loop DB singleton).
 - Does **not** use `with_mcp_timeout` — registration is local I/O (path stat +
   one DB write), no external network call to guard.
 
@@ -103,9 +120,10 @@ full MCP server infrastructure (factory, timeout decorator, backend dispatch).
 
 - Purpose: surface a workspace file (or multi-file folder via an entry HTML) as
   a visual tab.
-- Params: `entry_path` (absolute or workspace-relative, must be in a
-  subdirectory of the workspace), `kind` (one of the 7), `title`,
-  `target_artifact_id` (optional, update-in-place).
+- Params: `entry_path` (absolute or workspace-relative, anywhere inside the
+  workspace — a dedicated subdirectory enables sibling assets, the workspace
+  root gives single-file mode), `kind`, `title`, `target_artifact_id`
+  (optional, update-in-place).
 - Returns `CreateArtifactToolResult.model_dump(mode="json")` → `{artifact_id,
   url, created_at}`. The description tells the LLM not to repeat the URL in its
   reply (the tab is already visible).
@@ -114,16 +132,15 @@ full MCP server infrastructure (factory, timeout decorator, backend dispatch).
 
 Two layers:
 1. `ArtifactError` (+ subclasses `ArtifactTooLarge`, `ArtifactNotFound`,
-   `ArtifactKindMismatch`, `ArtifactPathEscape`, `ArtifactQuotaExceeded`) →
+   `ArtifactKindMismatch`, `ArtifactPathEscape`) →
    `{"error": str(e), "code": e.code}`. Expected, structured, actionable.
 2. Catch-all `except Exception` → `{"error": "... likely transient — you can
    call the tool again", "code": 500}`. FastMCP swallows unhandled exceptions
    into opaque MCP errors that can stall the agent loop; the catch-all
    guarantees every failure is a structured, retryable dict.
 
-The `{error, code}` shape is also consumed by the frontend —
-`ChatPanel` / `QuotaExceededModal` keys the quota modal on `code === 507`.
-Don't change the shape.
+The `{error, code}` shape is a stable contract — the agent reads it to
+self-correct and retry. Don't change the shape.
 
 ## Gotchas
 
@@ -135,6 +152,6 @@ Don't change the shape.
 - The handler `register_artifact` is a closure inside `register(mcp)` captured
   by the FastMCP decorator — don't lift it to module scope (breaks the
   `register(mcp)` encapsulation pattern shared with the web_search tools).
-- `kind` is typed `str` in the MCP schema but `artifact_runner` expects the
+- `kind` is typed `str` in the MCP schema but the service expects the
   `ArtifactKind` Literal — `# type: ignore[arg-type]`; runtime validation is in
-  the runner.
+  the registration impl.

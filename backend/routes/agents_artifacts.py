@@ -13,6 +13,11 @@ Endpoints:
 - PATCH  /{agent_id}/artifacts/{aid}                 { pinned?, title? }
 - DELETE /{agent_id}/artifacts/{aid}                 remove DB row (workspace files are NOT touched)
 
+This router is a thin HTTP shell: business logic (registration validation,
+heal recovery strategy) lives in `xyz_agent_context.artifact.ArtifactService`;
+plain CRUD goes through `ArtifactRepository`. Handlers only do auth, HTTP
+mapping, and response shaping.
+
 The raw-content route lives in `artifacts_public.py` under `/api/public/artifacts/raw/{token}/`
 (JWT-bypassed; the HMAC token IS the auth). That keeps multi-file HTML
 artifacts loadable via iframe `src=` in cloud mode.
@@ -24,39 +29,18 @@ via the workspace section in the config panel.
 
 from __future__ import annotations
 
-import os
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.module.common_tools_module._common_tools_impl import artifact_runner
+from xyz_agent_context.artifact import ArtifactError, ArtifactService
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
-from xyz_agent_context.schema import Artifact
-from xyz_agent_context.settings import settings
+from xyz_agent_context.schema import Artifact, EmbedMode, HealResult
 from xyz_agent_context.utils.db_factory import get_db_client
 
 from backend.routes import _artifact_token
-
-
-# Kind → file extension(s) used by the workspace scan in the heal endpoint.
-# Multi-extension tuples cover the casual variants an agent might pick.
-_KIND_EXTENSIONS: dict[str, tuple[str, ...]] = {
-    "text/html": (".html", ".htm"),
-    "application/vnd.echarts+json": (".json",),
-    "text/csv": (".csv",),
-    "text/markdown": (".md", ".markdown"),
-    "image/png": (".png",),
-    "image/jpeg": (".jpg", ".jpeg"),
-    "application/pdf": (".pdf",),
-    "application/vnd.officecli-live": (".pptx", ".docx", ".xlsx"),
-}
-
-# How many candidate files to surface when the auto-recover heuristic
-# can't pick a unique winner. Top-N by mtime desc, scoped to the kind's
-# extension(s).
-_HEAL_MAX_CANDIDATES = 10
 
 
 router = APIRouter()
@@ -82,15 +66,24 @@ async def _verify_agent_ownership(request: Request, agent_id: str) -> None:
 async def _resolve_agent_user_id(agent_id: str) -> str:
     """Look up an agent's owner user_id (the workspace owner).
 
-    Used by the manual-register endpoint to resolve the workspace path
-    `{base}/{agent_id}_{user_id}/` exactly the way the agent loop and MCP tool
-    do (the agent_runtime overrides ctx.user_id with agent.created_by).
+    Used by the manual-register and heal endpoints to resolve the workspace
+    path `{base}/{agent_id}_{user_id}/` exactly the way the agent loop and MCP
+    tool do (the agent_runtime overrides ctx.user_id with agent.created_by).
     """
     db = await get_db_client()
     agent = await db.get_one("agents", {"agent_id": agent_id})
     if not agent or not agent.get("created_by"):
         raise HTTPException(404, "agent not found")
     return str(agent["created_by"])
+
+
+async def _get_owned_artifact(repo: ArtifactRepository, agent_id: str, artifact_id: str) -> Artifact:
+    """Fetch an artifact and enforce it belongs to `agent_id`; 404 otherwise
+    (404, not 403, so probing cannot map which artifact_ids exist)."""
+    art = await repo.get_by_id(artifact_id)
+    if art is None or art.agent_id != agent_id:
+        raise HTTPException(404, "artifact not found")
+    return art
 
 
 class PatchArtifact(BaseModel):
@@ -114,23 +107,22 @@ class HealRequest(BaseModel):
     entry_path: Optional[str] = None
 
 
-class HealCandidate(BaseModel):
-    workspace_path: str  # path relative to the agent workspace, e.g. "briefings/2026-05-19.html"
-    size_bytes: int
-    mtime: float  # unix epoch seconds
-
-
-class HealResponse(BaseModel):
-    recovered: bool
-    artifact: Optional[Artifact] = None  # populated when recovered=True
-    candidates: List[HealCandidate] = Field(default_factory=list)
-    message: str
-
-
 class ViewTokenResponse(BaseModel):
     token: str
     raw_url: str
     expires_at: int
+
+
+class OpenUrlRequest(BaseModel):
+    url: str
+    title: Optional[str] = None
+
+
+class EmbedModeRequest(BaseModel):
+    # None clears the user's override, reverting to the probe recommendation.
+    # Typed as EmbedMode so pydantic rejects unknown values (422) — single
+    # source of truth with the schema, and adding a third mode later just works.
+    mode: Optional[EmbedMode] = None
 
 
 # ── list / register ──────────────────────────────────────────────────────────
@@ -167,21 +159,20 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
     Manually register a workspace file as an artifact.
 
     Powers the "register as artifact" action in the workspace tree viewer.
-    Delegates to the same `artifact_runner.register_artifact` the MCP tool
-    uses, so validation and path-confinement rules are identical.
+    Delegates to the same `ArtifactService.register` the MCP tool uses, so
+    validation and path-confinement rules are identical.
 
     `file_path` may be absolute or workspace-relative; it must be inside the
-    agent's workspace AND in a subdirectory (not directly in the workspace
-    root). The entry file's directory becomes the artifact root.
+    agent's workspace. Its directory becomes the artifact root (workspace-root
+    entries serve as single-file artifacts).
     """
     await _verify_agent_ownership(request, agent_id)
     user_id = await _resolve_agent_user_id(agent_id)
 
     db = await get_db_client()
-    repo = ArtifactRepository(db)
+    service = ArtifactService(db)
     try:
-        result = await artifact_runner.register_artifact(
-            repo=repo,
+        result = await service.register(
             agent_id=agent_id,
             user_id=user_id,
             session_id=None,  # manual registrations are always agent-scoped
@@ -191,58 +182,84 @@ async def register_artifact(request: Request, agent_id: str, body: RegisterReque
             description=body.description,
             target_artifact_id=body.target_artifact_id,
         )
-    except artifact_runner.ArtifactError as e:
+    except ArtifactError as e:
         raise HTTPException(status_code=e.code, detail=str(e))
 
+    repo = ArtifactRepository(db)
     art = await repo.get_by_id(result.artifact_id)
     if art is None:
-        # Should be impossible — the runner just wrote the row.
+        # Should be impossible — the service just wrote the row.
         raise HTTPException(500, "artifact disappeared after registration")
     return art
+
+
+# ── URL tabs ─────────────────────────────────────────────────────────────────
+
+
+@router.post("/{agent_id}/artifacts/url", response_model=Artifact)
+async def open_url_artifact(request: Request, agent_id: str, body: OpenUrlRequest):
+    """Open a web page as a URL-tab artifact.
+
+    Server-side probes the URL's embeddability and stores the verdict; the
+    frontend renders it as an iframe or a fallback card accordingly. The
+    initial URL is SSRF-gated — a non-public target is rejected 400.
+    """
+    await _verify_agent_ownership(request, agent_id)
+    user_id = await _resolve_agent_user_id(agent_id)
+
+    # The browser-visible origin of the app, derived from the request headers
+    # (same helper the raw route uses for its CSP). Passed to the self-origin
+    # guard so it holds even if settings.public_base_url is unset/misconfigured.
+    from backend.routes.artifacts_public import _app_origin
+    app_origin = _app_origin(request)
+
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        result = await service.open_url(
+            agent_id=agent_id,
+            user_id=user_id,
+            session_id=None,  # URL tabs are agent-scoped like manual registers
+            url=body.url,
+            title=body.title,
+            app_origin=app_origin,
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
+
+    repo = ArtifactRepository(db)
+    art = await repo.get_by_id(result.artifact_id)
+    if art is None:
+        raise HTTPException(500, "artifact disappeared after registration")
+    return art
+
+
+@router.post("/{agent_id}/artifacts/{artifact_id}/embed-mode", response_model=Artifact)
+async def set_embed_mode(request: Request, agent_id: str, artifact_id: str, body: EmbedModeRequest):
+    """Set (or clear, mode=null) the user's manual embed override on a URL tab.
+
+    The override wins over the probe recommendation for that tab. Rewrites the
+    tab's on-disk doc; 404 if the artifact is missing / not owned / not a URL
+    tab; 422 (pydantic) for an invalid mode value.
+    """
+    await _verify_agent_ownership(request, agent_id)
+
+    db = await get_db_client()
+    service = ArtifactService(db)
+    try:
+        return await service.set_embed_mode(
+            agent_id=agent_id,
+            artifact_id=artifact_id,
+            mode=body.mode,
+        )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
 
 
 # ── heal: recover a broken pointer ───────────────────────────────────────────
 
 
-def _scan_workspace_for_kind(workspace_root: str, kind: str) -> List[HealCandidate]:
-    """Return up to `_HEAL_MAX_CANDIDATES` files in the workspace whose
-    extension matches the artifact kind, sorted newest-first by mtime.
-
-    Symlinks are not followed (the artifact runner uses realpath at register
-    time, so a symlink to /etc/passwd that survives the scan is still rejected
-    when we try to register it).
-    """
-    extensions = _KIND_EXTENSIONS.get(kind)
-    if not extensions:
-        return []
-
-    found: List[HealCandidate] = []
-    base = os.path.realpath(workspace_root)
-    if not os.path.isdir(base):
-        return []
-
-    for root, _dirs, files in os.walk(base, followlinks=False):
-        for name in files:
-            if not name.lower().endswith(extensions):
-                continue
-            abs_path = os.path.join(root, name)
-            try:
-                st = os.stat(abs_path)
-            except OSError:
-                continue
-            rel = os.path.relpath(abs_path, base)
-            found.append(
-                HealCandidate(
-                    workspace_path=rel,
-                    size_bytes=st.st_size,
-                    mtime=st.st_mtime,
-                )
-            )
-    found.sort(key=lambda c: c.mtime, reverse=True)
-    return found[:_HEAL_MAX_CANDIDATES]
-
-
-@router.post("/{agent_id}/artifacts/{artifact_id}/heal", response_model=HealResponse)
+@router.post("/{agent_id}/artifacts/{artifact_id}/heal", response_model=HealResult)
 async def heal_artifact(
     request: Request,
     agent_id: str,
@@ -256,121 +273,24 @@ async def heal_artifact(
     route returns 410 in either case, surfacing as a broken tab on the
     frontend.
 
-    Recovery sequence (each step short-circuits on success):
-
-    1. If the existing `file_path` is set AND the file is on disk: the
-       pointer is actually fine — return recovered=True. Useful when the
-       frontend's 410 race was a transient miss.
-    2. If `body.entry_path` is given: caller already picked a candidate —
-       re-register onto this artifact_id with that path. This is the
-       "user picked from the modal" path.
-    3. Scan the agent workspace for files whose extension matches the
-       artifact kind. Sort by mtime desc, cap at `_HEAL_MAX_CANDIDATES`.
-       - 1 candidate → auto-register and return recovered=True.
-       - 0 candidates → recovered=False, empty list, "no matching file
-         found — please regenerate the artifact".
-       - >1 candidates → recovered=False, list returned, "multiple
-         matches — pick one to register" (frontend renders modal).
-
-    All registrations go through `artifact_runner.register_artifact` with
-    `target_artifact_id=artifact_id` so kind/path/sanity-cap rules stay
-    identical to the MCP tool and manual-register flows.
+    The recovery strategy (pointer re-check → user-picked path → workspace
+    scan) lives in `ArtifactService.heal`; this handler only maps auth and
+    errors.
     """
     await _verify_agent_ownership(request, agent_id)
     user_id = await _resolve_agent_user_id(agent_id)
 
     db = await get_db_client()
-    repo = ArtifactRepository(db)
-    art = await repo.get_by_id(artifact_id)
-    if art is None or art.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
-
-    from xyz_agent_context.utils.workspace_paths import (
-        resolve_existing_workspace,
-        resolve_workspace_relative_file,
-    )
-
-    base = os.path.realpath(settings.base_working_path)
-    workspace_root = os.path.realpath(str(resolve_existing_workspace(agent_id, user_id, base)))
-
-    # 1. Pointer might already be valid (frontend saw a transient 410).
-    if art.file_path:
-        existing_abs = os.path.realpath(str(resolve_workspace_relative_file(art.file_path, agent_id, user_id, base)))
-        if existing_abs.startswith(workspace_root + os.sep) and os.path.isfile(existing_abs):
-            return HealResponse(
-                recovered=True,
-                artifact=art,
-                message="pointer is already valid — no action needed",
-            )
-
-    # 2. User explicitly picked a candidate from the modal.
-    if body.entry_path:
-        try:
-            result = await artifact_runner.register_artifact(
-                repo=repo,
-                agent_id=agent_id,
-                user_id=user_id,
-                session_id=None,
-                kind=art.kind,
-                entry_path=body.entry_path,
-                title=art.title,
-                description=art.description,
-                target_artifact_id=artifact_id,
-            )
-        except artifact_runner.ArtifactError as e:
-            raise HTTPException(status_code=e.code, detail=str(e))
-        healed = await repo.get_by_id(result.artifact_id)
-        return HealResponse(
-            recovered=True,
-            artifact=healed,
-            message=f"re-registered onto {body.entry_path}",
+    service = ArtifactService(db)
+    try:
+        return await service.heal(
+            agent_id=agent_id,
+            user_id=user_id,
+            artifact_id=artifact_id,
+            entry_path=body.entry_path,
         )
-
-    # 3. Scan workspace by kind.
-    candidates = _scan_workspace_for_kind(workspace_root, art.kind)
-    if len(candidates) == 1:
-        only = candidates[0]
-        try:
-            result = await artifact_runner.register_artifact(
-                repo=repo,
-                agent_id=agent_id,
-                user_id=user_id,
-                session_id=None,
-                kind=art.kind,
-                entry_path=only.workspace_path,
-                title=art.title,
-                description=art.description,
-                target_artifact_id=artifact_id,
-            )
-        except artifact_runner.ArtifactError as e:
-            logger.warning(f"heal_artifact: single-candidate register failed for {artifact_id}: {e}")
-            return HealResponse(
-                recovered=False,
-                candidates=candidates,
-                message=f"found one match but it could not be registered: {e}",
-            )
-        healed = await repo.get_by_id(result.artifact_id)
-        return HealResponse(
-            recovered=True,
-            artifact=healed,
-            message=f"auto-recovered from {only.workspace_path}",
-        )
-
-    if not candidates:
-        return HealResponse(
-            recovered=False,
-            candidates=[],
-            message=(
-                "no matching file found in the agent workspace — "
-                "regenerate the artifact (re-run the agent) and it will register again"
-            ),
-        )
-
-    return HealResponse(
-        recovered=False,
-        candidates=candidates,
-        message=(f"{len(candidates)} candidate files found — pick the right one to re-register this artifact"),
-    )
+    except ArtifactError as e:
+        raise HTTPException(status_code=e.code, detail=str(e))
 
 
 # ── detail / view-token / patch / delete ─────────────────────────────────────
@@ -391,9 +311,7 @@ async def mint_view_token(request: Request, agent_id: str, artifact_id: str):
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
-    art = await repo.get_by_id(artifact_id)
-    if art is None or art.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
+    await _get_owned_artifact(repo, agent_id, artifact_id)
 
     token = _artifact_token.mint(agent_id=agent_id, artifact_id=artifact_id)
     # Decode exp without re-verifying — the payload is the b64url part before '.'.
@@ -413,10 +331,7 @@ async def get_artifact(request: Request, agent_id: str, artifact_id: str):
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
-    art = await repo.get_by_id(artifact_id)
-    if art is None or art.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
-    return art
+    return await _get_owned_artifact(repo, agent_id, artifact_id)
 
 
 @router.patch("/{agent_id}/artifacts/{artifact_id}", response_model=Artifact)
@@ -431,9 +346,7 @@ async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
-    existing = await repo.get_by_id(artifact_id)
-    if existing is None or existing.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
+    existing = await _get_owned_artifact(repo, agent_id, artifact_id)
 
     if body.pinned is not None:
         if body.pinned is False and existing.original_session_id is None and existing.pinned:
@@ -446,7 +359,7 @@ async def patch_artifact(request: Request, agent_id: str, artifact_id: str, body
             )
         await repo.set_pinned(artifact_id, pinned=body.pinned)
     if body.title is not None:
-        await db.update("instance_artifacts", {"artifact_id": artifact_id}, {"title": body.title[:200]})
+        await repo.update_title(artifact_id, body.title)
 
     return await repo.get_by_id(artifact_id)
 
@@ -464,9 +377,7 @@ async def delete_artifact(request: Request, agent_id: str, artifact_id: str):
     await _verify_agent_ownership(request, agent_id)
     db = await get_db_client()
     repo = ArtifactRepository(db)
-    existing = await repo.get_by_id(artifact_id)
-    if existing is None or existing.agent_id != agent_id:
-        raise HTTPException(404, "artifact not found")
+    await _get_owned_artifact(repo, agent_id, artifact_id)
 
     await repo.delete(artifact_id)
     logger.info(f"Artifact registry row deleted: {artifact_id}")

@@ -1,9 +1,14 @@
 ---
 code_file: frontend/src/types/artifact.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — URL-tab types
+
+Added `application/x-url` to `ArtifactKind`; `EmbedMode`, `EmbedVerdict`,
+`UrlArtifactDoc`, and `effectiveEmbedMode()` (collapses recommend +
+user_override — renderers must use it, not `recommended` directly).
 ## 2026-05-14 — pointer model (versioning dropped, rawUrl helper removed)
 
 Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`

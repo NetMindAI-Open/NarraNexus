@@ -11,7 +11,7 @@
               in one click."). The generic NarraNexus welcome lives here; the
               Arena welcome builds its own bodies and calls `bilingual_html()`.
 
-It is a `text/html` pointer-model artifact (artifact_runner): written into the
+It is a `text/html` pointer-model artifact (ArtifactService): written into the
 agent workspace and pinned (agent-scoped) at provisioning time.
 """
 

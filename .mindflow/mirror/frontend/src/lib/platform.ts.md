@@ -1,8 +1,32 @@
 ---
 code_file: frontend/src/lib/platform.ts
-last_verified: 2026-05-28
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — the desktop bridge never actually worked in a DMG (two bugs)
+
+The System page showed "Not available in web mode" inside the packaged DMG.
+Root cause was TWO bugs stacked; the first hid the second:
+
+1. **Detection**: `detectPlatform()` keyed on `window.__TAURI__`, which Tauri
+   **v2** injects only under `app.withGlobalTauri`. It was off, so detection
+   always fell through to `WebBridge` — meaning `TauriBridge` had literally
+   never run in a DMG. Fixed by routing detection through the shared `isTauri()`
+   (also checks `__TAURI_INTERNALS__`, always present in v2), matching
+   `runtimeStore` and every other Tauri check. `detectPlatform` is exported for
+   the regression test (`__tests__/platform.detect.test.ts`).
+2. **Invoke**: `tauriInvoke` did `import('@tauri-apps/api/core')`, but that
+   package isn't installed, so the bundler emitted a bare specifier the webview
+   can't resolve → it would throw the moment TauriBridge finally ran. Rewired to
+   the shared `invokeTauri` from [[tauri.ts]] (`__TAURI_INTERNALS__.invoke`, no
+   npm dep) — the same path dashboard/updater/tray already use successfully.
+
+Both were needed: fixing only #1 would have swapped the "web mode" message for a
+module-resolution throw. Events (`tauri.ts::listenTauri` / `listenUpdaterState`)
+were the same class; fixed by enabling `app.withGlobalTauri: true` (see
+[[tauri.ts]]). Also dropped an unused `_id` param on `WebBridge.restartService`
+(adjacent lint rot).
 
 ## 2026-05-28 — TauriBridge fully wired (was Phase-4 stub)
 

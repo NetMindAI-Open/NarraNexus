@@ -1,8 +1,50 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-18
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — getWorkerStatus()
+
+New `ApiClient.getWorkerStatus()` GETs `/api/admin/runtime/workers`. It validates
+each worker `state` against the known `WorkerState` set (unknown → `'unknown'`;
+a bare `as` cast would let an unrecognised backend value render a raw i18n key —
+PR #136 review). It maps the
+snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
+the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
+consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
+## 2026-07-21 — Team Marketplace 三调用
+
+`getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
+(POST install-preflight → BundlePreflightResponse,承接现有导入向导)。
+
+
+## 2026-07-21 — Skill Marketplace 四调用(stage 7)
+
+`searchMarketplaceSkills` / `getMarketplaceSkillDetail` /
+`installMarketplaceSkill`(POST JSON,409=已安装,直接抛带 detail 的
+Error 由 Browser 展示)/ `checkSkillUpdates`。挂 `/api/marketplace/skills/*`
+前缀;读端点公开、agent 相关调用带身份头,复用 this.request。
+
+
+## 2026-07-21 — team voice upload
+
+`uploadTeamChatAttachment` gained an `options.source` ('recording'|'upload') → query param,
+and its return type carries `transcription_available` so the composer can show a voice-
+unavailable notice.
+
+## 2026-07-21 — team-chat upload + attachments on send
+
+Added `uploadTeamChatAttachment(teamId, file)` (multipart, bypasses `request<T>` like the
+other upload helpers) → returns a bus-attachment dict. `sendTeamChat` gained an
+`attachments: BusAttachment[]` param, forwarded in the POST body.
+
+## 2026-07-20 — fetchBusAttachmentBlob
+
+Added `fetchBusAttachmentBlob(relPath)` — authed GET of a bus-message attachment
+from `/api/agent-inbox/attachments/raw?path=<relPath>`, returning a Blob (bypasses
+`request<T>` for the binary body, like `fetchAttachmentBlob`). Backs
+[[useBusAttachmentBlobUrl]] and the [[BusAttachmentList]] download path.
 
 ## 2026-07-18 — 删 setQuotaPreference
 
@@ -263,3 +305,8 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 `onboard(apiKey, providerType, replace?)` 新增可选 `replace`，请求体带 `replace`；返回
 类型加 `needs_replace` / `existing_masked`，供 OneKeyOnboard 的换 key 确认流程使用。
+
+## 2026-07-22 — clearTeamData
+
+Added `clearTeamData(teamId, {chat, files})` → `DELETE /api/teams/{id}/data?chat=&files=`.
+Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].

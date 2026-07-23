@@ -254,16 +254,19 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
                   <label className={labelCls}>Framework</label>
-                  {/* Cloud non-staff: framework choice is locked (mirrors the
-                      user-level staff-only switch; backend rejects a
-                      differing pin). Picking a different framework pops an
-                      explanation and snaps back — friendlier than a
-                      greyed-out control. */}
+                  {/* Cloud non-staff: switching back TO claude_code is always
+                      allowed (recovers old codex_cli users); only picking a
+                      NON-claude_code framework is blocked — it pops an
+                      explanation and snaps back, friendlier than a greyed-out
+                      control. Direction-aware, mirroring the backend 403. */}
                   <select
                     className={selectCls}
                     value={agentDraft.agent_framework}
                     onChange={(e) => {
-                      if (netmindOnly && e.target.value !== agentDraft.agent_framework) {
+                      // Direction-aware: switching back TO claude_code is always
+                      // allowed for cloud netmind-only users (recovers old
+                      // codex_cli users); only → non-claude_code shows the notice.
+                      if (netmindOnly && e.target.value !== 'claude_code') {
                         void showNotice({
                           title: t(
                             'pages.settings.modelDefaults.cloudFrameworkLockedTitle',

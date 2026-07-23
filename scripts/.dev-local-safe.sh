@@ -144,10 +144,7 @@ draw_panel() {
   status_line "Backend API   :8000" "lsof -iTCP:8000 -sTCP:LISTEN -P -n >/dev/null"
   status_line "Frontend      :5173" "lsof -iTCP:5173 -sTCP:LISTEN -P -n >/dev/null || lsof -iTCP:5174 -sTCP:LISTEN -P -n >/dev/null"
   status_line "MCP Server"          "pgrep -f 'xyz_agent_context.module.module_runner mcp' >/dev/null"
-  status_line "Module Poller"       "pgrep -f 'module_poller' >/dev/null"
-  status_line "Job Trigger"         "pgrep -f 'job_trigger' >/dev/null"
-  status_line "Bus Trigger"         "pgrep -f 'message_bus_trigger' >/dev/null"
-  status_line "Channel Triggers"    "pgrep -f 'run_channel_triggers' >/dev/null"
+  status_line "Workers"             "pgrep -f 'run_worker_supervisor' >/dev/null"
   echo ""
   echo -e "  ${Y}Navigation${R}"
   echo ""
@@ -222,22 +219,12 @@ tmux new-window -t "$SESSION" -n "Backend" \
 tmux new-window -t "$SESSION" -n "MCP" \
   "$ENV_CMD; echo '=== MCP Server ==='; '$VENV_PY' -m xyz_agent_context.module.module_runner mcp; echo 'MCP stopped. Press Enter to close.'; read"
 
-# --- Module Poller ---
-tmux new-window -t "$SESSION" -n "Poller" \
-  "$ENV_CMD; echo '=== Module Poller ==='; '$VENV_PY' -m xyz_agent_context.services.module_poller; echo 'Poller stopped. Press Enter to close.'; read"
-
-# --- Job Trigger ---
-tmux new-window -t "$SESSION" -n "Jobs" \
-  "$ENV_CMD; echo '=== Job Trigger ==='; '$VENV_PY' src/xyz_agent_context/module/job_module/job_trigger.py; echo 'Jobs stopped. Press Enter to close.'; read"
-
-# --- Bus Trigger ---
-tmux new-window -t "$SESSION" -n "BusTrigger" \
-  "$ENV_CMD; echo '=== Bus Trigger ==='; '$VENV_PY' -m xyz_agent_context.message_bus.message_bus_trigger; echo 'Bus Trigger stopped. Press Enter to close.'; read"
-
-# --- Channel Triggers (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) ---
-# One supervisor process runs every IM channel in a single event loop.
-tmux new-window -t "$SESSION" -n "ChannelTriggers" \
-  "$ENV_CMD; echo '=== Channel Triggers ==='; '$VENV_PY' -m xyz_agent_context.module.run_channel_triggers; echo 'Channel Triggers stopped. Press Enter to close.'; read"
+# --- Worker Supervisor (poller / jobs / message-bus / all IM channel triggers) ---
+# One supervisor process runs every long-running background worker in a single
+# event loop, each as a supervised task with backoff-restart, replacing the old
+# four-window layout (Poller / Jobs / BusTrigger / ChannelTriggers).
+tmux new-window -t "$SESSION" -n "Workers" \
+  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor; echo 'Workers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/run_channel_triggers.py
 stub: false
-last_verified: 2026-07-09
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — now launched BY the worker supervisor, not the startup paths
+
+`start_channel_triggers` is unchanged and remains the testable channel core, but
+this file's `main()` / `__main__` is no longer the entry the startup paths wire.
+The channels group is now one worker inside [[run_worker_supervisor.py]] (the
+process that also runs the module poller + job + message-bus triggers), which
+calls `start_channel_triggers` directly and owns the shared signal/DB/loguru
+shutdown. `main()` survives as a standalone / cloud `--only channels` entrypoint.
+Consequently the last gotcha bullet below ("JobTrigger and MessageBusTrigger …
+keep their own processes") is HISTORY — those two, and this one, are now
+co-resident in the worker supervisor.
 
 ## Why it exists
 

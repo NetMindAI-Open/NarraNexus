@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/TeamRowMenu.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -27,3 +27,9 @@ inside a `setState` updater — calling the parent's setter during render
 triggers React's "cannot update a component while rendering a different
 component" warning. (AgentRowMenu had this latent bug; both are now fixed the
 same way.)
+
+## 2026-07-22 — Clear data item
+
+Added an `onClearData` prop + "Clear data" MenuItem (Eraser icon, between Rename and Delete),
+mirroring the agent row's clear-data affordance. Opens [[ClearTeamDataDialog]] via
+[[TeamChatRow]] → [[AgentList]]. i18n `layout.teamRowMenu.clearData`.

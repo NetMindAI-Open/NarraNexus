@@ -26,6 +26,7 @@ import type {
   OverallHealth,
   LogEntry,
 } from '@/types/platform';
+import { isTauri, invokeTauri } from '@/lib/tauri';
 
 export interface PlatformBridge {
   // Service management (local mode only)
@@ -46,25 +47,22 @@ export interface PlatformBridge {
 }
 
 /**
- * Lazy-imported invoke helper. Tauri's `@tauri-apps/api` is a desktop-only
- * runtime dep, deliberately NOT declared in `package.json` so the cloud
- * `vite build` stays free of desktop-only code. The dynamic import is
- * guarded by `window.__TAURI__` so it only runs inside the Tauri webview.
+ * Invoke a Tauri command. Delegates to `lib/tauri.ts`'s `invokeTauri`, which
+ * goes through `window.__TAURI_INTERNALS__.invoke` — NO `@tauri-apps/api` npm
+ * dependency.
  *
- * `@ts-ignore` + `@vite-ignore` together keep:
- *   - `tsc -b` happy (it can't see the optional types)
- *   - Vite's static analyzer happy (it can't follow the path)
+ * The previous implementation did `await import('@tauri-apps/api/core')`, but
+ * that package is not installed, so the bundler emitted a bare
+ * `import("@tauri-apps/api/core")` specifier the webview cannot resolve → every
+ * TauriBridge call threw at runtime. It was never caught because detection
+ * always fell through to WebBridge (the withGlobalTauri detection bug), so this
+ * path only started running once that was fixed.
  */
 async function tauriInvoke<T>(
   cmd: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
-  type TauriCore = {
-    invoke: <U>(c: string, a?: Record<string, unknown>) => Promise<U>;
-  };
-  const tauriCorePath = '@tauri-apps/api/core';
-  const mod = (await import(/* @vite-ignore */ tauriCorePath)) as TauriCore;
-  return mod.invoke<T>(cmd, args);
+  return invokeTauri<T>(cmd, args);
 }
 
 /**
@@ -148,7 +146,7 @@ class WebBridge implements PlatformBridge {
     throw new Error('Not available in web mode');
   }
 
-  async restartService(_id: string): Promise<void> {
+  async restartService(): Promise<void> {
     throw new Error('Not available in web mode');
   }
 
@@ -231,13 +229,18 @@ class WebBridge implements PlatformBridge {
 
 /**
  * Detect the current platform and return the appropriate bridge.
- * Checks for the Tauri global to decide between desktop and web modes.
+ *
+ * Uses the shared `isTauri()` (lib/tauri.ts), which checks BOTH
+ * `window.__TAURI_INTERNALS__` and `window.__TAURI__`. This matters on Tauri
+ * v2: `__TAURI__` is only injected when `app.withGlobalTauri` is true (it is
+ * NOT set here), so the old `if (window.__TAURI__)` check always fell through
+ * to WebBridge *inside the packaged desktop app* — the System page then showed
+ * "Not available in web mode" on the DMG. `__TAURI_INTERNALS__` is always
+ * present in v2 (it is what `@tauri-apps/api`'s `invoke` uses), so `isTauri()`
+ * detects the desktop webview correctly regardless of `withGlobalTauri`.
  */
-function detectPlatform(): PlatformBridge {
-  if ((window as { __TAURI__?: unknown }).__TAURI__) {
-    return new TauriBridge();
-  }
-  return new WebBridge();
+export function detectPlatform(): PlatformBridge {
+  return isTauri() ? new TauriBridge() : new WebBridge();
 }
 
 export const platform = detectPlatform();

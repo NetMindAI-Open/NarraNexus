@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/agents_attachments.py
-last_verified: 2026-05-06
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — MIME sniffing moved to the shared utils helper
+
+The local ``_sniff_mime_type`` + ``_audio_video_container_override`` pair
+moved to [[mime_sniff]] so all three upload/ingest paths (this route, IM
+channels, team-chat uploads) classify identically. One behavior delta: a
+libmagic ``application/octet-stream`` verdict now falls through to the
+extension guess instead of winning outright, so extension-typed text formats
+(``.md``, ``.csv``) get their real MIME. The container override semantics are
+unchanged.
 
 # agents_attachments.py
 

@@ -1,7 +1,26 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/process_manager.rs
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — required-service list follows the worker consolidation
+
+`is_required_service` now matches `sqlite_proxy | backend | mcp | workers` (was
+`… | poller | job_trigger | message_bus_trigger`). The four worker processes
+collapsed into the single `workers` supervisor ([[run_worker_supervisor.py]] /
+[[state.rs]]), so the portless-worker liveness sweep on startup now checks `mcp`
++ `workers`. An unconfigured IM channel never fails `workers` (per-channel
+startup is isolated inside `start_channel_triggers`); the supervisor only fails
+on a real bug (import / DB unreachable), which the startup grace window catches.
+No runtime restart logic was added here — the supervisor does its OWN per-task
+backoff-restart; this file's contract is still startup-gating only.
+
+The portless liveness sweep also now **promotes** each alive portless service
+`Starting → Running` (via `promote_to_running`). Port-bound services get promoted
+by `verify_port_ready`, but portless ones (`mcp`, `workers`) had no port to gate
+on, so they sat at `Starting` forever — the System page showed a permanent
+yellow "启动中" for MCP/Workers even while every worker ran. (Pre-existing;
+surfaced by the consolidated card.)
 
 ## 2026-07-13 — forward NetMind ("Power") env to the backend sidecar
 

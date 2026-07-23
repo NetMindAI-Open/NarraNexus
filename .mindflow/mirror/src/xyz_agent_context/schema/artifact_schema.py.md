@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/schema/artifact_schema.py
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — URL_TAB_CONTENT_FILENAME added
+
+Added `URL_TAB_CONTENT_FILENAME = "content.md"` next to `URL_ARTIFACT_KIND`.
+It is the naming contract for a URL tab's agent-readable text snapshot, shared
+by the writer (url_artifact) and the reader (the common_tools state block).
+It lives in schema so the state block imports it from here instead of reaching
+across the artifact package's private `_artifact_impl` seam (PR #137 review).
+
+## 2026-07-22 — URL-tab models
+
+Added `URL_ARTIFACT_KIND` ("application/x-url") to `ArtifactKind`, plus
+`EmbedMode`, `EmbedVerdict` (with `effective_mode` collapsing recommend +
+user_override), and `UrlArtifactDoc` (the on-disk `page.url.json` entry file).
+The URL lives in the doc, not a DB column — pointer model preserved.
+## 2026-07-21 — HealCandidate / HealResult moved into the central schema
+
+The heal endpoint's response models (`HealResponse` / `HealCandidate`) used to
+be route-local pydantic classes in `agents_artifacts.py`. With the heal
+strategy promoted into `ArtifactService.heal`, its result type belongs to the
+central schema layer: `HealResult` (same fields as the old `HealResponse` —
+recovered / artifact / candidates / message — so the wire shape is unchanged)
+and `HealCandidate`. Exported via `schema/__init__.py` like the other artifact
+models.
 
 ## 2026-05-14 — pointer model: versioning dropped
 

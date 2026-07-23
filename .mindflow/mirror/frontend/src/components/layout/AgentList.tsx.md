@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-17
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -196,3 +196,10 @@ Inline rename: clicking the pencil enters editing mode on that agent row. Enter/
 `handleSelectAgent` always navigates back to `/app/chat` if the user is on a sub-page (Settings, System). This is intentional — clicking an agent always means "go talk to this agent".
 
 Delete hits `api.deleteAgent` which cascades all related DB data server-side. There is no undo.
+
+## 2026-07-22 — team clear-data (mirrors agent clear-data)
+
+Owns `clearTeamTarget` / `clearTeamBusy` + `doClearTeamData` (calls `api.clearTeamData` →
+`DELETE /api/teams/{id}/data`, then requestHistoryRefresh on chat scope) and renders
+[[ClearTeamDataDialog]] — the exact pattern as the agent [[ClearAgentDataDialog]] path.
+TeamChatRow's `onClearData` opens it. Backend: [[teams]] `_wipe_team_data`.

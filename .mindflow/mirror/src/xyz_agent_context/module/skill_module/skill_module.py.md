@@ -1,7 +1,58 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-07-14
+last_verified: 2026-07-21
 ---
+
+## 2026-07-21(晚)— frontmatter requires 抑制 body 扫描 + platform_env_available
+
+两个修正:1)frontmatter 显式声明 `requires.env` 时,正文大写变量扫描不再
+追加(正文常提到 NETMIND_BASE_URL 这类**可选**覆盖项,被误提为必填导致
+Needs Config 误报);未声明的技能保留 body 扫描 fallback。2)新公开
+`platform_env_available(db, user_id) -> set`:查该 user 真的能被平台解析的
+变量(NetMind 行存在才算),供 routes 层做「真实」配置状态显示——
+`_parse_skill_md` 保持 fs-only 乐观判定,真伪校正在 API 层。
+
+
+## 2026-07-21 — 平台可解析 env(NETMIND_API_KEY 运行时注入,stage 9)
+
+新常量 `PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)` + 私有
+`_resolve_platform_env(env, skills)`:hook_data_gathering 收集 skill env 后,
+对「技能声明了但用户未显式配置」的平台变量,从该 user 的
+`user_providers`(source=netmind, protocol=openai)行取 api_key **仅注入本次
+运行的子进程环境,永不落盘**——key 轮换即时生效、cloud workspace 零额外密钥
+副本。显式 skill env_config 永远优先。两处 `env_configured` 计算把平台变量视
+为已配置(不再显示 Needs Config)。依赖 loader 传入的 self.db;db 缺失/无
+user_id 时静默跳过。
+
+
+## 2026-07-21 — SKILL_MANAGEMENT_RULES 追加进双模式 prompt(stage 5)
+
+新常量 `SKILL_MANAGEMENT_RULES` 同文追加到 CLOUD/LOCAL 两个 workspace-rules
+块(铁律 #7):禁止 Agent 手工 mkdir/rm/cp/mv 操作 `skills/` 下的技能目录,
+必须走 `skill_search_marketplace` / `skill_install` / `skill_uninstall` 三个
+MCP 工具(工具背后是 InstallPipeline)。这是「磁盘↔审计 DB 一致性」三道防线
+中的 prompt 防线;兜底是 services/skill_sync_service.py 对账器。
+
+## 2026-07-20 — install 原语拆分 + env_config 换 Fernet(Skill Marketplace stage 3)
+
+安装流程拆成三个公开原语,老 API 行为不变、全量测试零回归:
+`extract_skill_package(zip, dest)`(安全解包+找根)、`fetch_github_repo(url,
+branch, dest) -> (root, canonical_url)`(校验+浅克隆+剥 .git)、
+`install_from_dir(root, source_type, source_url, target_dir_name)`(共享尾部:
+解析/替换/落盘/写 meta)。拆分动机:InstallPipeline 要在「staging 之后、落盘
+之前」插入安全扫描 Gate——一体式 install_skill 做不到。`install_skill` /
+`install_from_github` 现在是原语组合的薄壳。另加三个小公开件:
+`merge_skill_meta` / `read_skill_meta` / `parse_skill_package`,让 pipeline
+零私有访问。
+
+`set_skill_env_config` / `get_all_skill_env_vars` 从裸 base64 改为 SecretBox
+(Fernet)加解密;后者对旧 base64 值惰性迁移(读到即重写为密文)。对
+routes/MCP 完全透明——env 值从不出后端,接口只返回 presence bool。
+
+**注意**:routes/skills.py 的 install/remove 端点现在走 InstallPipeline
+(`_skill_marketplace_impl/install_pipeline.py`),不再直接调 install_skill /
+install_from_github / remove_skill;bundle 导入路径仍直接用 `install_skill(zip,
+target_dir_name)`,不经 pipeline(信任来源,不需要扫描 Gate)。
 
 ## 2026-07-13 — install_skill target_dir_name + meta preservation
 

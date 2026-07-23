@@ -2,6 +2,8 @@
  * API response type definitions
  */
 
+import type { BusAttachment } from './messages';
+
 /** Base interface for all API responses */
 export interface ApiResponse {
   success: boolean;
@@ -77,6 +79,7 @@ export interface RoomMessage {
   sender_id: string;
   sender_name: string;
   content: string;
+  attachments?: BusAttachment[] | null;
   is_read: boolean;
   created_at?: string;
 }

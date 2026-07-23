@@ -1,8 +1,72 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
+
+`MessageBusTrigger.start()` / `_get_bus()` are unchanged, but the trigger is no
+longer launched as a standalone `-m ...message_bus_trigger` process. It is now
+one supervised task inside [[run_worker_supervisor.py]] (shared event loop + DB
+pool). Two consequences worth noting: (1) its flag-based sync `stop()` means the
+`while self._running` loop exits at the next poll boundary (≤ `POLL_MAX_INTERVAL`
+12 s) — the supervisor's cancel is the backstop; (2) it has no `ServiceAuditor`
+of its own, so the supervisor's per-worker liveness snapshot (state `bus:
+running/restarting`) is its FIRST L2 signal. The "独立进程" framing below is
+HISTORY; `__main__` is retained as a debug entrypoint.
+
+## 2026-07-22 — team prompt: "room files are already shared" note
+
+Added an intro line stating every member already sees every message/file posted in THIS room
+(it's in the scrollback), so there's nothing to "forward" and no claiming you did. Kills the
+cosmetic "I forwarded it ✅" white lie an agent emitted when relaying — @mention is enough,
+the teammate sees the same room.
+
+## 2026-07-22 — team rule: reply-delivery forbidden, action tools allowed
+
+Refined the group-chat tool rule again. It now distinguishes REPLY-DELIVERY functions
+(forbidden — the text reply auto-posts, so `send_message_to_user_directly` /
+`bus_send_message` / `bus_send_to_agent` would double-deliver) from ACTION tools (allowed):
+`Read` opens a file, and **`bus_share_to_team`** publishes a file the agent produced to the
+team folder (it stages bytes, does NOT post a message — the agent then mentions the returned
+path in its reply). The prior blanket "no send/bus" ban blocked "share this file with the
+team" and led an agent to fake a "forwarded ✅" it couldn't perform.
+
+## 2026-07-22 — team prompt feeds recent room history (not just the @mention)
+
+`_build_team_prompt` now takes `history` (recent scrollback via
+`LocalMessageBus.get_recent_messages`, `TEAM_HISTORY_LIMIT=20`, oldest→newest) plus
+`trigger_messages` (the @mentions for this agent). Before, a triggered agent only saw the
+messages that @mentioned IT — so when the user posted an image @agent_1 and asked it to
+relay to @agent_2, agent_2 never saw the image and the relay dissolved into a
+"forward it again" back-and-forth (agent_1 even hallucinated a successful forward). Now any
+triggered agent sees files/images posted by anyone in the room and Reads them directly; the
+prompt points it at the latest @mention to answer. No manual relay / bus_share_to_team needed
+for "discuss a shared file". `_handle_channel_batch` fetches the history in the team branch;
+the retrieval anchor still uses the @mention batch only.
+
+## 2026-07-21 — team group-chat rule: allow Read, forbid only send/bus
+
+`_build_team_prompt`'s reply-only rule used to say "Do NOT use any tools", which made an
+agent REFUSE to open a shared image/doc it was asked about (either from a `[Shared file …]`
+marker or a path a teammate pasted into text). "Reply-only" is meant to prevent re-sending /
+triggering teammates, NOT to block reading a file. Rule generalized: forbid
+send/bus/@-trigger-to-deliver, but explicitly ALLOW read-only tools (esp. the built-in Read)
+to open a file path, then reply in plain text. Applies whether or not the message carries a
+structured attachment — the path often arrives as plain text.
+
+## 2026-07-20 — prompt builders inject attachment markers + team shared-folder hint
+
+Both `_build_prompt` (DM/owner-relay) and `_build_team_prompt` now append
+`build_bus_markers(msg.attachments, …)` after each message body, so a file sent
+over the bus surfaces to the recipient as the same `… use Read tool …` marker a
+user upload would (see [[_bus_attachment_impl]]). `_build_team_prompt` gained
+`owner_user_id` / `team_id` params (derived at the call site: owner via
+`_get_agent_owner`, team_id from `channel_owner[len("team_"):]`) and, when known,
+prints the team's shared-folder path (`team_shared_dir`) so teammates know where
+`bus_share_to_team` drops land. Markers need no per-recipient resolution — the
+stored rel_path is rebuilt against `base_working_path` into an absolute path.
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
@@ -217,3 +281,11 @@ Rate limiter 的计数器用的是 `time.monotonic()`（进程内单调时钟）
 `agent_framework.llm_failure`（`is_credential_error` / `redact_secrets`）。行为不变
 （`MAX_NOTIFIED_ERROR_LEN` 仍 500），只是让 bus / narrative / Step-5 hooks 三条后台
 路径用同一套判断（去重，铁律 #8）。原本散落此处的 markers / _SECRET_* 正则已移除。
+
+## 2026-07-22 — team runs mirror live activity
+
+The team branch of `_handle_channel_batch` wraps the run: `mark_running` before, an opt-in
+`on_progress` (via `_make_activity_progress`, throttled — writes on phase change or ~2s
+heartbeat) passed through `_invoke_runtime`→`run_and_collect`→`collect_run`, and `mark_idle`
+in a `finally`. Populates [[_bus_activity]] so the team UI shows running/phase/elapsed. Only
+team channels; DM/IM/Job paths pass `on_progress=None` (unchanged).

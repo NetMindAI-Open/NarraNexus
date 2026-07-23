@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-04-10
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — stub surface re-synced with the ABC
+
+Added `NotImplementedError` stubs for `get_recent_messages` (new in the ABC,
+see [[message_bus_service]]) plus three older ABC methods that had never been
+stubbed here (`get_channel_members` / `kick_member` / `get_agent_profile`) —
+without them the class had silently become un-instantiable (abstract-method
+TypeError), defeating its placeholder purpose.
 
 # cloud_bus.py — 云端 MessageBus 实现占位
 

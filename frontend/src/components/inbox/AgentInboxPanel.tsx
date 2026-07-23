@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, StatStrip, ScrollArea } from '@/components/ui';
 import { BracketEmptyState } from '@/components/nm';
+import { BusAttachmentList } from '@/components/chat/BusAttachmentList';
 import { useConfigStore, usePreloadStore } from '@/stores';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -297,6 +298,7 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                             <div className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                               <Markdown content={msg.content} />
                             </div>
+                            <BusAttachmentList attachments={msg.attachments} />
                           </div>
                         );
                       })}

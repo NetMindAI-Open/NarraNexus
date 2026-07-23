@@ -1,5 +1,5 @@
 """
-@file_name: artifact_runner.py
+@file_name: registration.py
 @author: Bin Liang
 @date: 2026-05-08
 @description: DB orchestration for register_artifact (pointer model).
@@ -13,12 +13,12 @@ An artifact = an entry file + the directory it lives in (the "artifact root").
 The whole root directory is served by the backend, so a multi-file HTML app can
 reference sibling assets (css/js/json/images).
 
-Public function:
-- register_artifact(repo, agent_id, user_id, session_id, kind, entry_path,
-                    title, description, target_artifact_id) -> CreateArtifactToolResult
+Moved here from `module/common_tools_module/_common_tools_impl/artifact_runner.py`
+(2026-07-21) when artifact logic was promoted out of the module's private impl
+into this dedicated service package.
 
-Raises structured exceptions for the MCP wrapper / route layer to convert into
-caller-readable errors.
+Raises structured exceptions (see errors.py) for the MCP wrapper / route layer
+to convert into caller-readable errors.
 """
 
 from __future__ import annotations
@@ -30,8 +30,16 @@ from typing import Optional
 
 from loguru import logger
 
+from xyz_agent_context.artifact._artifact_impl.errors import (
+    ArtifactError,
+    ArtifactKindMismatch,
+    ArtifactNotFound,
+    ArtifactPathEscape,
+    ArtifactTooLarge,
+)
 from xyz_agent_context.repository.artifact_repository import ArtifactRepository
 from xyz_agent_context.schema.artifact_schema import (
+    URL_ARTIFACT_KIND,
     Artifact,
     ArtifactKind,
     CreateArtifactToolResult,
@@ -65,33 +73,12 @@ ALL_KINDS = frozenset(
         "image/jpeg",
         "application/pdf",
         OFFICE_LIVE_KIND,
+        # URL-tab artifacts: the entry is a small JSON doc (UrlArtifactDoc)
+        # written by ArtifactService.open_url, so they register through the
+        # same pointer path as everything else.
+        URL_ARTIFACT_KIND,
     }
 )
-
-
-# ── structured exception hierarchy ────────────────────────────────────────────
-
-
-class ArtifactError(Exception):
-    """Base class for artifact_runner errors. The .code attribute maps to HTTP status."""
-
-    code: int = 400
-
-
-class ArtifactTooLarge(ArtifactError):
-    code = 413
-
-
-class ArtifactNotFound(ArtifactError):
-    code = 404
-
-
-class ArtifactKindMismatch(ArtifactError):
-    code = 400
-
-
-class ArtifactPathEscape(ArtifactError):
-    code = 400
 
 
 # ── path helpers ───────────────────────────────────────────────────────────────
@@ -101,7 +88,7 @@ def _new_artifact_id() -> str:
     return "art_" + secrets.token_hex(4)
 
 
-def _workspace_root(agent_id: str, user_id: str) -> str:
+def workspace_root(agent_id: str, user_id: str) -> str:
     from xyz_agent_context.utils.workspace_paths import agent_workspace_path
 
     return str(agent_workspace_path(agent_id, user_id, base=settings.base_working_path))
@@ -150,7 +137,7 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
     Raises:
         ArtifactPathEscape: file missing / not a file / outside the workspace.
     """
-    workspace = os.path.realpath(_workspace_root(agent_id, user_id))
+    workspace = os.path.realpath(workspace_root(agent_id, user_id))
     raw = entry_path if os.path.isabs(entry_path) else os.path.join(workspace, entry_path)
     abs_entry = os.path.realpath(raw)
 
@@ -168,7 +155,7 @@ def _resolve_entry(agent_id: str, user_id: str, entry_path: str) -> tuple[str, s
     return abs_entry, artifact_root
 
 
-# ── public API ─────────────────────────────────────────────────────────────────
+# ── registration ───────────────────────────────────────────────────────────────
 
 
 async def register_artifact(
@@ -187,7 +174,7 @@ async def register_artifact(
     Register a pointer to an entry file the agent wrote in its workspace.
 
     Workflow:
-    1. Validate kind is one of the 7 allowed kinds.
+    1. Validate kind is one of the allowed kinds.
     2. Resolve + validate the entry path (inside workspace, is a file).
     3. Compute size: entry-file size if entry sits at the workspace root
        (single-file artifact), else recursive size of `dirname(entry)`
@@ -207,7 +194,7 @@ async def register_artifact(
         agent_id: Agent that owns the artifact.
         user_id: User that triggered the registration.
         session_id: Session context; None means agent-scoped (auto-pinned).
-        kind: One of the 7 ArtifactKind literals.
+        kind: One of the ArtifactKind literals.
         entry_path: Absolute or workspace-relative path to the entry file.
         title: Human-readable title (truncated to 200 chars).
         description: Optional freeform description.
@@ -237,9 +224,9 @@ async def register_artifact(
         )
 
     abs_entry, artifact_root = _resolve_entry(agent_id, user_id, entry_path)
-    workspace = os.path.realpath(_workspace_root(agent_id, user_id))
+    workspace = os.path.realpath(workspace_root(agent_id, user_id))
     # Single-file mode when entry sits at the workspace root: account only for
-    # the entry file (and serve only the entry — see artifacts_public.py).
+    # the entry file (and serve only the entry — see raw_access.py).
     # Otherwise account for the whole dir so the multi-file artifact's
     # sibling assets are reflected in size_bytes (UI / debugging only).
     if artifact_root == workspace:

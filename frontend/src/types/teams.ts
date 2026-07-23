@@ -2,6 +2,8 @@
  * Team & Bundle types — Subproject 1 + Subproject 2
  */
 
+import type { BusAttachment } from './messages';
+
 export interface Team {
   id?: number | null;
   team_id: string;
@@ -11,6 +13,8 @@ export interface Team {
   color?: string | null;
   source: string;
   intro_md?: string | null;
+  // Agent that answers a team-chat message with no @mention (null = earliest member).
+  lead_agent_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -32,7 +36,19 @@ export interface TeamChatMessage {
   author_name: string;
   is_user: boolean;
   content: string;
+  attachments?: BusAttachment[] | null;
   created_at: string;
+}
+
+/** One team member's live activity in the room. */
+export interface TeamMemberActivity {
+  agent_id: string;
+  status: 'running' | 'queued' | 'idle';
+  /** running only: 'starting'|'thinking'|'replying'|'tool:<name>'. */
+  phase?: string | null;
+  tool_count?: number;
+  /** running only: ISO start time, for elapsed display. */
+  started_at?: string | null;
 }
 
 export interface TeamChatHistoryResponse {
@@ -41,6 +57,8 @@ export interface TeamChatHistoryResponse {
   messages: TeamChatMessage[];
   /** Member agent_ids the trigger is currently processing → "…" indicator. */
   thinking?: string[];
+  /** Per-member activity (running/queued/idle) for the status view. */
+  activity?: TeamMemberActivity[];
 }
 
 export interface TeamChatSendResponse {

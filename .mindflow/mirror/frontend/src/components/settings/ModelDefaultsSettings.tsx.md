@@ -4,6 +4,13 @@ last_verified: 2026-07-18
 stub: false
 ---
 
+## 2026-07-18 — 框架选择器弹窗方向化(修云端老 codex 死锁)
+
+弹窗条件原为 `netmindOnly && e.target.value !== framework`——对**任何**切换都弹窗+回退,
+包括切回 claude_code,前端也把老 codex 用户锁死。改为 `e.target.value !== 'claude_code'`:
+切回 claude_code 放行,只在切到非 claude_code 时提示。与后端 providers.py 403 方向化一致
+([[AgentLlmConfigPanel]] 同款)。
+
 ## 2026-07-18 — 云端框架锁：禁用 → alert → useConfirm 样式弹窗（三改定稿）
 
 Owner 走查三轮：① `disabled` + 常驻提示（不友好）→ ② `window.alert`（生硬，

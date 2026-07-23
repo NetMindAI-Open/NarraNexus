@@ -23,7 +23,8 @@
     "you": "You",
     "cloud": "Cloud",
     "localMode": "Local Mode",
-    "cloudMode": "Cloud Mode"
+    "cloudMode": "Cloud Mode",
+    "marketplace": "Marketplace"
   },
   "chat": {
     "conversation": "Conversation",
@@ -43,7 +44,22 @@
       "micDenied": "Microphone access denied. Enable mic permission in your browser settings, then try again.",
       "micDeniedRetry": "Microphone access denied — click to retry after enabling permission",
       "noMic": "No microphone detected.",
-      "recordingFailed": "Recording failed: {{error}}"
+      "recordingFailed": "Recording failed: {{error}}",
+      "noLongerAvailable": "Voice input is no longer available — the provider may have been removed. Open Settings to reconfigure.",
+      "unavailableTitle": "Voice input unavailable",
+      "unavailableFreeTier": "Voice input is unavailable. Your account has no platform free tier and no transcription provider of its own. Add an OpenAI or NetMind API key in Settings → Providers to enable it.",
+      "unavailableOpenaiOnlyIntro": "Voice input requires an OpenAI-compatible transcription provider. The desktop / local build can't reach NetMind's worker (it pulls audio from a public URL we don't have here), so OpenAI is the supported path:",
+      "unavailableOpenaiOnlyItem1": "OpenAI official API (recommended)",
+      "unavailableOpenaiOnlyItem2": "Yunwu, or any other OpenAI-protocol Whisper provider",
+      "unavailableOpenaiOnlyItem3": "Self-hosted whisper.cpp behind an OpenAI-shaped endpoint",
+      "unavailableOpenaiOnlyOutro": "Add one in Settings → Providers to enable voice input.",
+      "unavailableDefaultIntro": "Voice input requires a supported transcription provider. None is configured for this account:",
+      "unavailableDefaultItem1": "OpenAI official API (recommended, best quality)",
+      "unavailableDefaultItem2": "NetMind API (pay-as-you-go, lower cost)",
+      "unavailableDefaultOutro": "Add either one in Settings → Providers to enable voice input — it takes effect as soon as you save.",
+      "unavailableProbeFailed": "Note: availability check failed to reach the server — the configuration may already be ready.",
+      "openSettings": "Open Settings",
+      "cancel": "Cancel"
     },
     "model": {
       "configureInSettings": "Configure the model in Settings › Providers",
@@ -101,10 +117,26 @@
       "noAgents": "No agents in this team yet.",
       "placeholder": "Message the team — @mention to address someone…",
       "send": "Send (Enter)",
+      "attach": "Attach a file",
+      "uploading": "Uploading…",
+      "removeAttachment": "Remove",
+      "transcriptionUnavailable": "Voice recorded, but transcription is unavailable — add an OpenAI or NetMind key in Settings → Providers.",
+      "voiceUnavailableTitle": "Voice input unavailable",
+      "voiceUnavailableBody": "Voice input requires a supported transcription provider (OpenAI or NetMind). None is configured for this account — add one in Settings → Providers to enable it.",
+      "voiceUnavailableProbeFailed": "Note: the availability check couldn't reach the server — the configuration may already be ready.",
+      "openSettings": "Open Settings",
+      "cancel": "Cancel",
       "all": "@all",
       "notifyEveryone": "Notify everyone",
       "typing": "{{name}} is typing",
-      "youTitle": "You · {{name}}"
+      "youTitle": "You · {{name}}",
+      "activity": {
+        "running": "working",
+        "thinking": "thinking",
+        "replying": "replying",
+        "tool": "using {{name}}",
+        "queued": "queued"
+      }
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -138,12 +170,19 @@
       "situationFailed": "This run hit an error and the agent could not reply normally. Details:",
       "situationRecovered": "The agent replied, but errors occurred during the run. Details:",
       "titleActionable": "Action needed",
+      "titleInfra": "Execution environment issue",
       "action": {
         "context_window": "The selected model's context window is too small for this Agent. Switch to a model with a larger context window in Settings, then send again.",
         "insufficient_balance": "The model provider reports insufficient balance or quota. Top up or switch the provider in Settings, then send again.",
         "model_not_found": "The configured model id was rejected by the provider (not found or invalid). Pick a valid model in Settings, then send again.",
-        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again."
+        "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again.",
+        "executor_oom": "The execution environment ran out of memory and was stopped by the system. Try splitting the task into smaller steps or reducing active modules, then send again.",
+        "executor_unreachable": "Your execution container is temporarily unreachable. It usually recovers within a few seconds — please resend this message shortly.",
+        "infra_transient": "This turn could not run due to a temporary platform-side execution issue. Please send the message again in a moment."
       }
+    },
+    "attachments": {
+      "downloadTitle": "Download {{name}}"
     }
   },
   "awareness": {
@@ -635,6 +674,7 @@
     "teamRowMenu": {
       "options": "Group chat options",
       "rename": "Rename",
+      "clearData": "Clear data",
       "delete": "Delete"
     },
     "topBar": {
@@ -653,7 +693,9 @@
       "runtimeUnknown": "Unknown",
       "openMenu": "Open menu",
       "commandPaletteTitle": "Command palette (⌘K)",
-      "search": "search"
+      "search": "search",
+      "findUs": "Find Us",
+      "findUsTitle": "Join the NarraNexus community"
     },
     "commandPalette": {
       "hintAgent": "Agent",
@@ -948,7 +990,19 @@
       "unknown": "Unknown"
     },
     "serviceCard": {
-      "restart": "Restart service"
+      "restart": "Restart service",
+      "workerCount": "{{count}} workers",
+      "restarts": "{{count}} restarts",
+      "workersFlapping": "A worker is currently restarting — expand for detail",
+      "workersStale": "stale · {{age}} ago",
+      "workersStaleHint": "Worker liveness snapshot hasn't refreshed — the supervisor may be down"
+    },
+    "workerState": {
+      "starting": "starting",
+      "running": "running",
+      "restarting": "restarting",
+      "stopped": "stopped",
+      "unknown": "unknown"
     }
   },
   "teams": {
@@ -968,6 +1022,9 @@
     "saveChanges": "Save changes",
     "deleteTeam": "Delete team",
     "membersLabel": "Members ({{selected}} / {{total}})",
+    "defaultResponderLabel": "Default responder",
+    "defaultResponderAuto": "Auto (earliest-joined member)",
+    "defaultResponderHint": "Who answers a team message that doesn't @mention anyone. They can @mention a teammate to hand off.",
     "noAgents": "No agents in your account.",
     "remove": "Remove",
     "add": "Add",
@@ -975,6 +1032,17 @@
       "title": "Delete team \"{{name}}\"?",
       "message": "Members are unlinked. Agents themselves are NOT deleted.",
       "confirm": "Delete"
+    },
+    "clearData": {
+      "title": "Clear data for \"{{name}}\"",
+      "subtitle": "Choose what to clear. The team, its members and agents are kept.",
+      "optChat": "Group chat history",
+      "optChatDesc": "Delete all messages in this team's chat room.",
+      "optFiles": "Shared files",
+      "optFilesDesc": "Delete files shared into this team (via bus_share_to_team).",
+      "keepNote": "The team, members, and each agent's own data are preserved.",
+      "cancel": "Cancel",
+      "confirm": "Clear"
     },
     "alert": {
       "createFailed": "Create team failed: {{error}}",
@@ -1884,7 +1952,8 @@
     "actionBar": {
       "github": "GitHub",
       "zip": "Zip",
-      "showDisabled": "Show disabled"
+      "showDisabled": "Show disabled",
+      "marketplace": "Marketplace"
     },
     "error": {
       "title": "Error",
@@ -1980,6 +2049,30 @@
         "apiKey": "If it needs an API key, add it as a request header (e.g. Authorization: Bearer <token>) — headers are sent on every connection.",
         "validation": "After adding, the status dot validates the connection — Failed means the URL was unreachable or not a valid SSE endpoint."
       }
+    },
+    "marketplace": {
+      "title": "Skill Marketplace",
+      "searchPlaceholder": "Search skills…",
+      "empty": "No skills found",
+      "unavailable": "Marketplace is unavailable right now. Check your connection and try again.",
+      "install": "Install",
+      "installed": "Installed",
+      "updateAvailable": "Update",
+      "downloads": "{{count}} downloads",
+      "scanLabel": "Security scan",
+      "lowIssues": "{{count}} low-risk finding(s)",
+      "capabilities": "Capabilities",
+      "configKeys": "Config keys",
+      "versions": "Versions",
+      "close": "Close",
+      "pageSubtitle": "Discover and install skills to extend your agents.",
+      "category": {
+        "all": "All",
+        "fallback": "Fallback",
+        "utility": "Utility",
+        "integration": "Integration",
+        "enhancement": "Enhancement"
+      }
     }
   },
   "feedback": {
@@ -2007,5 +2100,20 @@
     "loading": "Opening live preview…",
     "loadError": "Could not open the live preview.",
     "livePreview": "Live preview"
+  },
+  "marketplace": {
+    "tabs": {
+      "skills": "Skills",
+      "teams": "Teams"
+    }
+  },
+  "teamMarketplace": {
+    "searchPlaceholder": "Search team templates…",
+    "categoryAll": "All",
+    "unavailable": "Team Marketplace is unavailable right now. Check your connection and try again.",
+    "empty": "No team templates found",
+    "install": "Install",
+    "agentCount": "{{count}} agents",
+    "agentCount_one": "{{count}} agent"
   }
 }

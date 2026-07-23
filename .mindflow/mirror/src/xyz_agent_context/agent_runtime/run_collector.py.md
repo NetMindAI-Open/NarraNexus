@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/run_collector.py
-last_verified: 2026-07-15
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -84,3 +84,10 @@ trigger 可以忽略。
 - 和 `format_lark_error_reply` 的关系：那是 Lark-specific 的"怎么把
   RunError 渲染给 IM 用户看"函数，住在 lark_trigger.py。本模块只提供
   RunError 数据结构本身。
+
+## 2026-07-22 — opt-in on_progress callback
+
+`collect_run` gained an optional `on_progress(kind, tool_name)` awaited once per observed
+message (kind ∈ thinking|tool|response|error). Opt-in (default None → zero overhead for every
+existing trigger); the team bus path uses it to mirror a live activity status
+([[_bus_activity]]). Never raises — exceptions are swallowed so status can't break the run.

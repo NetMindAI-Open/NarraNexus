@@ -114,6 +114,21 @@ WORKSPACE_RULES_LOCAL = (
 )
 
 
+# Appended to BOTH deployment variants (rule #7: the two run modes must
+# behave identically). Keeps skill state changes on the managed path so the
+# audit DB and the filesystem cannot drift by agent action.
+SKILL_MANAGEMENT_RULES = (
+    "- **Never create, delete, or modify skill directories under `skills/` "
+    "by hand** (no `mkdir`/`rm`/`cp`/`mv` on skill folders). To install, "
+    "uninstall, or update a skill, always use the dedicated tools: "
+    "`skill_search_marketplace`, `skill_install`, `skill_uninstall`. "
+    "Hand-edited skill state is flagged as unmanaged and may be ignored."
+)
+
+WORKSPACE_RULES_CLOUD = WORKSPACE_RULES_CLOUD + "\n" + SKILL_MANAGEMENT_RULES
+WORKSPACE_RULES_LOCAL = WORKSPACE_RULES_LOCAL + "\n" + SKILL_MANAGEMENT_RULES
+
+
 def _resolve_workspace_rules(ctx_data: "ContextData") -> str:
     """Pick the cloud or local workspace-rules block for the current run.
 
@@ -191,6 +206,34 @@ Do NOT silently skip human-required steps — the skill will not function withou
 # pre-provisioned onto PATH by the shell/build layer (see run.sh /
 # Dockerfile.manyfold / build-desktop.sh), never installed by the agent.
 BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin_skills"
+
+# Env vars the PLATFORM can satisfy from the user's provider configuration
+# at run time (see _resolve_platform_env). Declared-but-unconfigured vars in
+# this set do NOT flag a skill as "Needs Config" — they are auto-injected.
+PLATFORM_RESOLVED_ENV = ("NETMIND_API_KEY",)
+
+
+async def platform_env_available(db, user_id: Optional[str]) -> set:
+    """Which PLATFORM_RESOLVED_ENV vars are actually satisfiable for this user.
+
+    Used by the API layer to show TRUTHFUL config status: a skill declaring
+    NETMIND_API_KEY shows "configured" only when the user really has a
+    NetMind provider row (or an explicit skill-level value)."""
+    available: set = set()
+    if db is None or not user_id:
+        return available
+    for var in PLATFORM_RESOLVED_ENV:
+        if var == "NETMIND_API_KEY":
+            try:
+                row = await db.get_one(
+                    "user_providers",
+                    {"user_id": user_id, "source": "netmind", "protocol": "openai"},
+                )
+                if row and row.get("api_key"):
+                    available.add(var)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"platform_env_available({var}) lookup failed: {e}")
+    return available
 
 
 class SkillModule(XYZBaseModule):
@@ -280,6 +323,7 @@ class SkillModule(XYZBaseModule):
 
         # Collect all configured env vars from enabled skills for runtime injection
         skill_env_vars = self.get_all_skill_env_vars()
+        skill_env_vars = await self._resolve_platform_env(skill_env_vars, skills)
         if skill_env_vars:
             ctx_data.extra_data["skill_env_vars"] = skill_env_vars
             logger.debug(f"Collected {len(skill_env_vars)} skill env vars for injection")
@@ -512,6 +556,7 @@ class SkillModule(XYZBaseModule):
 
         # Extract fields from meta_data
         source_url = meta_data.get("source_url")
+        source_type = meta_data.get("source_type")
         installed_at = meta_data.get("installed_at")
         builtin = bool(meta_data.get("builtin", False))
         study_fields = {
@@ -554,9 +599,16 @@ class SkillModule(XYZBaseModule):
                                     fm_requires_env = requires.get("env", [])
                                     fm_requires_bins = requires.get("bins", [])
 
-                        # Scan markdown body for env var patterns
-                        body_text = parts[2] if len(parts) >= 3 else ""
-                        body_env = self._extract_env_vars_from_text(body_text)
+                        # Body scan is a FALLBACK for skills that declare
+                        # nothing. When the frontmatter explicitly declares
+                        # requires.env, trust it — the body often mentions
+                        # OPTIONAL override vars (e.g. NETMIND_BASE_URL) that
+                        # must not be promoted to "required".
+                        if fm_requires_env:
+                            body_env = []
+                        else:
+                            body_text = parts[2] if len(parts) >= 3 else ""
+                            body_env = self._extract_env_vars_from_text(body_text)
 
                         # Merge frontmatter + body scan + meta.json requirements (union)
                         requires_env = sorted(set(fm_requires_env + body_env + meta_requires_env)) or None
@@ -565,7 +617,10 @@ class SkillModule(XYZBaseModule):
                         # Check if all required env vars are configured
                         env_configured = None
                         if requires_env:
-                            env_configured = all(env_config.get(v) for v in requires_env)
+                            env_configured = all(
+                                env_config.get(v) or v in PLATFORM_RESOLVED_ENV
+                                for v in requires_env
+                            )
 
                         return SkillInfo(
                             name=meta.get("name", skill_dir.name),
@@ -575,6 +630,7 @@ class SkillModule(XYZBaseModule):
                             version=meta.get("version"),
                             author=meta.get("author"),
                             source_url=source_url,
+                            source_type=source_type,
                             installed_at=installed_at,
                             requires_env=requires_env,
                             requires_bins=requires_bins,
@@ -589,7 +645,9 @@ class SkillModule(XYZBaseModule):
         requires_bins = sorted(set(meta_requires_bins)) or None
         env_configured = None
         if requires_env:
-            env_configured = all(env_config.get(v) for v in requires_env)
+            env_configured = all(
+                env_config.get(v) or v in PLATFORM_RESOLVED_ENV for v in requires_env
+            )
 
         return SkillInfo(
             name=skill_dir.name,
@@ -597,6 +655,7 @@ class SkillModule(XYZBaseModule):
             path=str(skill_dir),
             builtin=builtin,
             source_url=source_url,
+            source_type=source_type,
             installed_at=installed_at,
             requires_env=requires_env,
             requires_bins=requires_bins,
@@ -777,15 +836,13 @@ class SkillModule(XYZBaseModule):
         return meta_data.get("env_config", {})
 
     def set_skill_env_config(self, skill_name: str, env_config: dict) -> None:
-        """Save env var values to .skill_meta.json (base64 encoded)"""
-        import base64
+        """Save env var values to .skill_meta.json (Fernet encrypted)."""
+        from xyz_agent_context._skill_marketplace_impl.secret_box import get_secret_box
 
         meta_data = self._read_skill_meta(skill_name)
 
-        encoded_config = {}
-        for key, value in env_config.items():
-            if value:  # Only store non-empty values
-                encoded_config[key] = base64.b64encode(value.encode("utf-8")).decode("utf-8")
+        box = get_secret_box()
+        encoded_config = {key: box.encrypt(value) for key, value in env_config.items() if value}
 
         # Merge with existing (allow partial updates)
         existing = meta_data.get("env_config", {})
@@ -812,26 +869,78 @@ class SkillModule(XYZBaseModule):
         self._write_skill_meta(skill_name, meta_data)
         logger.info(f"Updated requirements for skill '{skill_name}': env={merged_env}, bins={merged_bins}")
 
+    async def _resolve_platform_env(self, env: dict, skills: list) -> dict:
+        """Runtime-only injection of platform-resolvable env vars.
+
+        Skills may declare requirements (e.g. NETMIND_API_KEY) that the
+        platform can satisfy from the user's provider configuration instead
+        of asking the user to re-enter a credential. Resolution happens per
+        run, per user, and the value is NEVER persisted to the workspace —
+        so key rotation applies immediately and cloud workspaces hold no
+        extra key copies. An explicit skill env_config value always wins.
+        """
+        needed = [
+            v for v in PLATFORM_RESOLVED_ENV
+            if not env.get(v) and any(v in (s.requires_env or []) for s in skills)
+        ]
+        if not needed or self.db is None or not self.user_id:
+            return env
+        for var in needed:
+            if var == "NETMIND_API_KEY":
+                try:
+                    row = await self.db.get_one(
+                        "user_providers",
+                        {"user_id": self.user_id, "source": "netmind", "protocol": "openai"},
+                    )
+                    if row and row.get("api_key"):
+                        env[var] = row["api_key"]
+                        logger.debug("Injected NETMIND_API_KEY from user's provider config")
+                except Exception as e:
+                    logger.warning(f"Platform env resolve failed for {var}: {e}")
+        return env
+
+    def merge_skill_meta(self, skill_name: str, fields: dict) -> None:
+        """Merge fields into a skill's .skill_meta.json (public, for the
+        InstallPipeline's lock/audit step and config migration)."""
+        meta_data = self._read_skill_meta(skill_name)
+        meta_data.update(fields)
+        self._write_skill_meta(skill_name, meta_data)
+
+    def read_skill_meta(self, skill_name: str) -> dict:
+        """Public read of a skill's .skill_meta.json (empty dict if absent)."""
+        return self._read_skill_meta(skill_name)
+
+    def parse_skill_package(self, skill_root: Path) -> SkillInfo:
+        """Parse a staged (not yet installed) skill directory's SKILL.md."""
+        return self._parse_skill_md(skill_root / "SKILL.md")
+
     def get_all_skill_env_vars(self) -> dict:
         """
         Collect all configured env vars from all enabled skills.
         Returns a merged dict of plaintext env var name -> value.
-        """
-        import base64
 
+        Legacy plain-base64 values (pre-Fernet format) are decrypted
+        transparently and re-persisted encrypted on first read.
+        """
+        from xyz_agent_context._skill_marketplace_impl.secret_box import get_secret_box
+
+        box = get_secret_box()
         all_env = {}
         skills = self._scan_skills()
         for skill in skills:
             meta_data = self._read_skill_meta(skill.name)
             env_config = meta_data.get("env_config", {})
-            for key, encoded_value in env_config.items():
-                try:
-                    value = base64.b64decode(encoded_value).decode("utf-8")
-                    if key in all_env and all_env[key] != value:
-                        logger.warning(f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value")
-                    all_env[key] = value
-                except Exception:
-                    logger.warning(f"Failed to decode env var '{key}' for skill '{skill.name}'")
+            if not env_config:
+                continue
+            plain, needs_rewrite = box.decrypt_env_config(env_config)
+            if needs_rewrite:
+                meta_data["env_config"] = box.encrypt_env_config(plain)
+                self._write_skill_meta(skill.name, meta_data)
+                logger.info(f"Migrated legacy env config to encrypted form for skill '{skill.name}'")
+            for key, value in plain.items():
+                if key in all_env and all_env[key] != value:
+                    logger.warning(f"Env var '{key}' conflict: skill '{skill.name}' overrides previous value")
+                all_env[key] = value
         return all_env
 
     # =========================================================================
@@ -875,48 +984,74 @@ class SkillModule(XYZBaseModule):
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
-        self.skills_dir.mkdir(parents=True, exist_ok=True)
-
         # Extract to temp directory for validation first
         temp_dir = Path(tempfile.mkdtemp())
         try:
-            self._extract_zip_safely(zip_file_path, temp_dir)
-
-            # Find the directory containing SKILL.md
-            skill_root = self._find_skill_root(temp_dir)
-            if not skill_root:
-                raise ValueError(
-                    "Invalid skill package: SKILL.md not found. "
-                    "Place SKILL.md at the zip root, or inside a single "
-                    "top-level subfolder (e.g. my-skill/SKILL.md)."
-                )
-
-            # Parse skill info
-            skill_md = skill_root / "SKILL.md"
-            info = self._parse_skill_md(skill_md)
-
-            # Move to target directory. An explicit target_dir_name (the bundle's
-            # known skill_dir) wins over the SKILL.md-derived name.
-            safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
-            target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-
-            shutil.move(str(skill_root), str(target_dir))
-
-            # Save installation metadata
-            self._save_skill_meta(target_dir, source_url=None, source_type="zip")
-
-            # Update path and metadata
-            info.name = safe_skill_name
-            info.path = str(target_dir)
-            info.installed_at = datetime.now().isoformat()
-            logger.info(f"Installed skill '{info.name}' to {target_dir}")
-            return info
-
+            skill_root = self.extract_skill_package(zip_file_path, temp_dir)
+            return self.install_from_dir(
+                skill_root, source_type="zip", target_dir_name=target_dir_name
+            )
         finally:
             if temp_dir.exists():
                 shutil.rmtree(temp_dir)
+
+    def extract_skill_package(self, zip_file_path: Path, dest_dir: Path) -> Path:
+        """Safely extract a skill zip into dest_dir and locate the skill root.
+
+        Public so the InstallPipeline can stage a package, security-scan it,
+        and only then commit it via install_from_dir. Same validation and
+        error messages as the classic one-shot install_skill path.
+        """
+        self._extract_zip_safely(zip_file_path, dest_dir)
+        skill_root = self._find_skill_root(dest_dir)
+        if not skill_root:
+            raise ValueError(
+                "Invalid skill package: SKILL.md not found. "
+                "Place SKILL.md at the zip root, or inside a single "
+                "top-level subfolder (e.g. my-skill/SKILL.md)."
+            )
+        return skill_root
+
+    def install_from_dir(
+        self,
+        skill_root: Path,
+        source_type: str,
+        source_url: Optional[str] = None,
+        target_dir_name: Optional[str] = None,
+    ) -> SkillInfo:
+        """Commit a staged skill directory into skills/<name>/.
+
+        The shared tail of every install path (zip / github / marketplace):
+        parse SKILL.md, derive the destination name, replace any existing
+        directory, move into place, write provenance metadata.
+        """
+        if not self.skills_dir:
+            raise ValueError("skills_dir is not configured (user_id is required)")
+
+        self.skills_dir.mkdir(parents=True, exist_ok=True)
+
+        skill_md = skill_root / "SKILL.md"
+        if not skill_md.exists():
+            raise ValueError("Invalid skill package: SKILL.md not found.")
+        info = self._parse_skill_md(skill_md)
+
+        # An explicit target_dir_name (e.g. the bundle's known skill_dir)
+        # wins over the SKILL.md-derived name.
+        safe_skill_name = sanitize_filename(target_dir_name or info.name, label="skill name")
+        target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+
+        shutil.move(str(skill_root), str(target_dir))
+
+        self._save_skill_meta(target_dir, source_url=source_url, source_type=source_type)
+
+        info.name = safe_skill_name
+        info.path = str(target_dir)
+        info.source_url = source_url
+        info.installed_at = datetime.now().isoformat()
+        logger.info(f"Installed skill '{info.name}' to {target_dir} (source={source_type})")
+        return info
 
     def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:
         """Find the directory containing SKILL.md in the extracted directory"""
@@ -982,6 +1117,21 @@ class SkillModule(XYZBaseModule):
         if not self.skills_dir:
             raise ValueError("skills_dir is not configured (user_id is required)")
 
+        # Clone to temp directory, then commit via the shared tail
+        temp_dir = Path(tempfile.mkdtemp())
+        try:
+            skill_root, canonical_url = self.fetch_github_repo(url, branch, temp_dir)
+            return self.install_from_dir(skill_root, source_type="github", source_url=canonical_url)
+        finally:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+
+    def fetch_github_repo(self, url: str, branch: str, dest_dir: Path) -> tuple[Path, str]:
+        """Validate a GitHub URL and shallow-clone it into dest_dir.
+
+        Public so the InstallPipeline can stage a repo, security-scan it, and
+        only then commit it. Returns (skill_root, canonical_url).
+        """
         # Parse URL (supports shorthand format)
         if url.startswith("github:"):
             url = f"https://github.com/{url[7:]}"
@@ -994,56 +1144,27 @@ class SkillModule(XYZBaseModule):
         if not parsed.path or parsed.path == "/":
             raise ValueError("Invalid GitHub repository URL")
 
-        # Clone to temp directory
-        temp_dir = Path(tempfile.mkdtemp())
+        logger.info(f"Cloning {url} (branch: {branch}) to {dest_dir}")
         try:
-            logger.info(f"Cloning {url} (branch: {branch}) to {temp_dir}")
             subprocess.run(
-                ["git", "clone", "--depth", "1", "-b", branch, url, str(temp_dir)],
+                ["git", "clone", "--depth", "1", "-b", branch, url, str(dest_dir)],
                 check=True,
                 capture_output=True,
                 text=True,
             )
-
-            # Verify SKILL.md exists
-            skill_md = temp_dir / "SKILL.md"
-            if not skill_md.exists():
-                raise ValueError(f"Invalid skill: SKILL.md not found in {url}")
-
-            # Parse skill info
-            info = self._parse_skill_md(skill_md)
-
-            # Move to target directory
-            self.skills_dir.mkdir(parents=True, exist_ok=True)
-            safe_skill_name = sanitize_filename(info.name, label="skill name")
-            target_dir = ensure_within_directory(self.skills_dir, safe_skill_name, label="skill name")
-
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-
-            # Remove .git directory (version control not needed)
-            git_dir = temp_dir / ".git"
-            if git_dir.exists():
-                shutil.rmtree(git_dir)
-
-            shutil.move(str(temp_dir), str(target_dir))
-
-            # Save installation metadata (including source URL)
-            self._save_skill_meta(target_dir, source_url=url, source_type="github")
-
-            # Update path info and metadata
-            info.name = safe_skill_name
-            info.path = str(target_dir)
-            info.source_url = url
-            info.installed_at = datetime.now().isoformat()
-            logger.info(f"Installed skill '{info.name}' from GitHub to {target_dir}")
-            return info
-
         except subprocess.CalledProcessError as e:
             raise ValueError(f"Failed to clone {url}: {e.stderr}")
-        finally:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir)
+
+        skill_md = dest_dir / "SKILL.md"
+        if not skill_md.exists():
+            raise ValueError(f"Invalid skill: SKILL.md not found in {url}")
+
+        # Remove .git directory (version control not needed)
+        git_dir = dest_dir / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
+
+        return dest_dir, url
 
     @staticmethod
     def _dir_is_builtin(skill_dir: Path) -> bool:

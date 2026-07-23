@@ -697,14 +697,18 @@ export const useChatStore = create<ChatState>((_set, get) => {
           const errorMsg = message as ErrorMessage;
           const errorText = errorMsg.error_message || 'Unknown error occurred';
           console.error(`Runtime error [${agentId}]:`, errorText);
-          // A config_actionable (deterministic self-serviceable) error carries
-          // a reason so the UI can show "what you can do" guidance. Latch the
-          // most recent one for this turn; stopStreaming stamps it onto the
-          // assistant message.
+          // A config_actionable (deterministic self-serviceable) OR an
+          // infra_transient (platform-side executor OOM / unreachable) error
+          // carries a reason so the UI can show "what you can do" guidance.
+          // Latch the most recent one for this turn; stopStreaming stamps it
+          // onto the assistant message. The reason value (context_window /
+          // executor_oom / …) is what MessageBubble keys its copy + badge on.
           const actionReason =
             errorMsg.error_type === 'config_actionable'
               ? errorMsg.action_reason ?? 'config_actionable'
-              : undefined;
+              : errorMsg.error_type === 'infra_transient'
+                ? errorMsg.action_reason ?? 'infra_transient'
+                : undefined;
           set((state) => ({
             agentSessions: updateSession(state.agentSessions, agentId, (s) => ({
               currentErrors: [...s.currentErrors, errorText],

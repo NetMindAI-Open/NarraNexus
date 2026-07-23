@@ -22,8 +22,8 @@ ID_KINDS: dict[str, str] = {
     "team":      r"team_[0-9a-f]{8,16}",
     "channel":   r"ch_[0-9a-f]{8,16}",
     "mcp":       r"mcp_[0-9a-f]{8,16}",
-    # artifact_runner mints art_<8-hex> via secrets.token_hex(4); the bundle's
-    # gen_new_id mints <12-hex>. Range 8..16 covers both.
+    # Artifact registration mints art_<8-hex> via secrets.token_hex(4); the
+    # bundle's gen_new_id mints <12-hex>. Range 8..16 covers both.
     "artifact":  r"art_[0-9a-f]{8,16}",
 }
 

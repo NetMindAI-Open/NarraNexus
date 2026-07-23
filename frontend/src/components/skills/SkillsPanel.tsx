@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Github,
   FileArchive,
+  Store,
   Loader2,
   AlertCircle,
   CheckCircle,
@@ -43,6 +44,7 @@ import { SkillCard } from './SkillCard';
 import { InstallDialog } from './InstallDialog';
 import type { InstallMode } from './InstallDialog';
 import { MCPManager } from './MCPManager';
+import { MarketplaceBrowser } from './marketplace/MarketplaceBrowser';
 
 // Environment configuration dialog
 function EnvConfigDialog({
@@ -211,6 +213,7 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
   const { t } = useTranslation();
   const { agentId, userId } = useConfigStore();
   const [installMode, setInstallMode] = useState<InstallMode>(null);
+  const [showMarketplace, setShowMarketplace] = useState(false);
   const [configuringSkill, setConfiguringSkill] = useState<SkillInfo | null>(null);
   const [showDisabled, setShowDisabled] = useState(false);
   const [studyingSkillName, setStudyingSkillName] = useState<string | null>(null);
@@ -313,6 +316,10 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
       {/* Action bar */}
       <div className="px-5 py-2.5 flex items-center justify-between gap-2 border-b border-[var(--rule)]">
         <div className="flex gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setShowMarketplace(true)}>
+            <Store className="w-3 h-3 mr-1.5" />
+            {t('skills.actionBar.marketplace')}
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => setInstallMode('github')}>
             <Github className="w-3 h-3 mr-1.5" />
             {t('skills.actionBar.github')}
@@ -397,6 +404,14 @@ export function SkillsPanel({ embedded = false, section }: SkillsPanelProps = {}
           )}
         </ScrollArea>
       </CardContent>
+
+      {/* Marketplace browser */}
+      {showMarketplace && (
+        <MarketplaceBrowser
+          onClose={() => setShowMarketplace(false)}
+          onInstalled={() => refetch()}
+        />
+      )}
 
       {/* Install dialog */}
       <InstallDialog

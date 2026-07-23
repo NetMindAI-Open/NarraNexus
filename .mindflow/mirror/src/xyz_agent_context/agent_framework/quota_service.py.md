@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/quota_service.py
 stub: false
-last_verified: 2026-07-18
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — deduct 增加流水元数据参数（透传给 repo）
+
+`deduct` 新增可选参 `cost_record_id / provider_source / model / agent_id`，原样透传给
+[[quota_repository]].atomic_deduct 用于写自审计扣减流水。`is_enabled()` 门控、
+「input/output 均 <=0 直接 return」、以及吞异常绝不阻断用户响应的契约全部不变。
+唯一调用方仍是 [[cost_tracker]].record_cost 的 deduct hook。
 
 ## 2026-07-18 — set_preference / QuotaPreferenceLocked 删除；新增 rearm_switch_notice
 

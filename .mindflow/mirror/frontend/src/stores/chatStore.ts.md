@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-14
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — `currentActionReason` 也认 `infra_transient`
+
+error case 里锁存 `action_reason` 的条件从只认 `config_actionable` 扩到**也认**
+`infra_transient`（缺省回退到 `'infra_transient'`）。这样 executor-infra 失败
+（`executor_oom` / `executor_unreachable`）的 reason 也会 stamp 到 assistant 消息，
+[[MessageBubble.tsx]] 据此渲染"执行环境异常"徽章与对应引导文案。
 
 ## 2026-07-14 — `currentActionReason` 透传确定性自助类错误
 

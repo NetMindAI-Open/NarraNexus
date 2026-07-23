@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from xyz_agent_context.message_bus.message_bus_service import MessageBusService
-from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusMessage
+from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
 
 
 class CloudMessageBus(MessageBusService):
@@ -33,12 +33,23 @@ class CloudMessageBus(MessageBusService):
         self._auth_token = auth_token
 
     async def send_message(
-        self, from_agent: str, to_channel: str, content: str, msg_type: str = "text"
+        self,
+        from_agent: str,
+        to_channel: str,
+        content: str,
+        msg_type: str = "text",
+        mentions: Optional[List[str]] = None,
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def get_messages(
         self, channel_id: str, since: Optional[str] = None, limit: int = 50
+    ) -> List[BusMessage]:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def get_recent_messages(
+        self, channel_id: str, limit: int = 20
     ) -> List[BusMessage]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -49,7 +60,12 @@ class CloudMessageBus(MessageBusService):
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def send_to_agent(
-        self, from_agent: str, to_agent: str, content: str, msg_type: str = "text"
+        self,
+        from_agent: str,
+        to_agent: str,
+        content: str,
+        msg_type: str = "text",
+        attachments: Optional[List[dict]] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
@@ -89,4 +105,13 @@ class CloudMessageBus(MessageBusService):
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 
     async def get_failure_count(self, message_id: str, agent_id: str) -> int:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def get_channel_members(self, channel_id: str) -> List[BusChannelMember]:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def kick_member(self, channel_id: str, agent_id: str) -> None:
+        raise NotImplementedError("Cloud MessageBus not yet implemented")
+
+    async def get_agent_profile(self, agent_id: str) -> Optional[BusAgentInfo]:
         raise NotImplementedError("Cloud MessageBus not yet implemented")

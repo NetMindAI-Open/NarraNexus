@@ -8,4 +8,5 @@ export * from './jobComplex';
 export * from './skills';
 export * from './platform';
 export * from './teams';
+export * from './teamMarketplace';
 export * from './you';

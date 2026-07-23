@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-15
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — executor-infra 失败统一 surface + 审计 + try 边界上移
+
+三处相关改动，收尾 OOM(-9/-6) 与 executor 不可达的"可读化 + 不被兜底掩盖 + 审计"：
+
+1. `_record_oom_if_killed` → **泛化**为 `_record_executor_infra_event(db_client,
+   user_id, error_type, error_str, output_already_emitted)`：用
+   [[llm_failure.py]] `classify_executor_infra_failure` 判类，写
+   `oom_killed`（-9/-6）或 `executor_unreachable`（[[executor_audit.py]]）。
+   best-effort 永不抛，沿用原模式。
+2. `_fallback_skip_decision` 返回**三元组** `(kind, reason, target_error_type)`：
+   infra 命中先于 self-serviceable（typed/returncode 信号更确定）→
+   `target=EXECUTOR_INFRA_ERROR_TYPE`；emit 分支按 target 选文案函数
+   （`executor_infra_user_message` vs `self_serviceable_user_message`）。
+   **OOM 从"故意 fall-through 到兜底"改为"surface + skip"**——不再被编造回复掩盖。
+3. **try 边界上移**：`ensure_executor`/`wait_until_ready`/`get_agent_loop_driver`
+   纳入同一 `try`。这样冷启动抛的 `ExecutorUnreachableError`（[[executor_errors.py]]）
+   落到同一 except 走 infra 收尾，而不是逃出 step_3 变裸异常（issue ② 根因）。
+   `PathExecutionResult` 结尾产出不受影响。
+4. **severity 随"是否已回复"分级**（PR #133 review 连带修）：抽出
+   `_has_organic_reply(agent_loop_response)`（复用到 `_should_run_helper_llm_fallback`）。
+   infra/self-serviceable 的 raw_exception 分支：**若本轮已通过
+   `send_message_to_user_directly` 回复过**（executor OOM/掉线可能发生在回复之后）→
+   `severity="recovered_after_reply"`（warning 徽章、保留回复），否则 `fatal`。避免对
+   已经拿到答案的用户显示"请重试"、也避免把"已回复但收尾失败"整轮记失败。配合
+   [[agent_circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
+   →拒掉用户按提示的重发"。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

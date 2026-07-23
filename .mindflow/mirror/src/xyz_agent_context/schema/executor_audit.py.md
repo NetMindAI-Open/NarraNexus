@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/schema/executor_audit.py
-last_verified: 2026-06-18
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — 新增 event_type `executor_unreachable`
+
+加常量 `EVENT_EXECUTOR_UNREACHABLE = "executor_unreachable"`（并入 Literal union），
+与 `oom_killed` 并列为编排层记录+surface 的两个 executor-infra fatal。**无需迁移**
+（event_type 是 VARCHAR(32) 字符串约定），`counts_since()` 自动纳入、
+/admin/runtime/status 自动出现。写入点见 [[step_3_agent_loop.py]]
+`_record_executor_infra_event`。
 
 # executor_audit.py — Pydantic model for instance_executor_audit rows
 

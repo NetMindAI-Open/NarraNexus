@@ -2,12 +2,13 @@
   "$schema": "https://raw.githubusercontent.com/nicedoc/tauri-schema/v2/schema.json",
   "productName": "NarraNexus",
   "identifier": "com.narranexus.app",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "build": {
     "frontendDist": "../../frontend/dist",
     "devUrl": "http://localhost:5173"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "NarraNexus",

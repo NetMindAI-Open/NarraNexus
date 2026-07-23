@@ -54,4 +54,17 @@ jobs:
             cd "$REPO"
             make app-build
             make app-up
+            # Post-deploy docker cleanup. Every deploy rebuilds the full image
+            # set, orphaning the previous versions as dangling images and
+            # dead build-cache layers; with no cleanup they filled the dev
+            # host's 128G disk on 2026-07-22 (1174 images / ~150GB cache) and
+            # broke three consecutive deploys with ENOSPC. Runs AFTER app-up
+            # so the fresh images are tagged and in use — prune only touches
+            # the orphaned leftovers. NEVER use `image prune -a` here: idle
+            # executor images are "unused" between runs but required at
+            # runtime. --keep-storage retains recent cache for fast rebuilds.
+            echo "==> post-deploy docker cleanup"
+            docker image prune -f
+            docker builder prune -f --keep-storage 10GB
+            df -h / | tail -1
             echo "==> deploy complete"

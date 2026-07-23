@@ -12,7 +12,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from loguru import logger
+
 from .base import BaseRepository
+from .service_audit_repository import EVENT_ERROR, ServiceAuditRepository
 from xyz_agent_context.schema.quota_schema import Quota, QuotaStatus
 
 
@@ -44,10 +47,49 @@ class QuotaRepository(BaseRepository[Quota]):
         return fetched
 
     async def atomic_deduct(
-        self, user_id: str, input_delta: int, output_delta: int
+        self,
+        user_id: str,
+        input_delta: int,
+        output_delta: int,
+        cost_record_id: Optional[int] = None,
+        provider_source: Optional[str] = None,
+        model: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> None:
-        """Atomic UPDATE. Flips status to 'exhausted' when either dimension's
-        post-update remaining is <= 0.
+        """Atomically bump the running total, then write one audit ledger row.
+        Flips status to 'exhausted' when either dimension's post-update
+        remaining is <= 0.
+
+        The ledger is what makes a wrong charge auditable and an exact refund
+        computable — without it, `used_*` is an opaque scalar with no provenance.
+
+        Why NOT one DB transaction: this method is a concurrent hot path (many
+        LLM calls deduct against the shared db client at once). The client's
+        transaction() primitive holds a SINGLE shared connection on the client
+        instance, so concurrent transactions collide — and on SQLite there is
+        only ever one connection, making concurrent multi-statement transactions
+        structurally impossible. Wrapping the two writes in transaction() would
+        reintroduce the exact lost-update race the single-UPDATE design exists to
+        prevent. So the two writes are ordered, not atomic — and the ORDER is
+        deliberate:
+
+          1. The single, concurrency-safe UPDATE bumps the total FIRST. This is a
+             spend-control gate: the counter moving is the primary invariant.
+          2. The ledger row is AUDIT, written best-effort AFTER. A ledger-write
+             failure must never SKIP the deduction — doing the ledger first and
+             letting it raise would drop the whole charge on any persistent ledger
+             fault (unmigrated process, disk/lock error), i.e. silent free-tier
+             consumption with a frozen `used_*` — the exact shape of the
+             2026-04-22 prod incident. So a ledger failure is logged AND recorded
+             to `service_audit` (durable across container restarts, per
+             incident-lesson #5), never raised.
+
+        The ledger write is gated on the UPDATE actually matching a row
+        (`affected`): if the user has no `user_quotas` row nothing was charged, so
+        no ledger row is written (avoids ledger > total). The only divergence is a
+        hard crash between the two writes (charged, ledger missing): conservative
+        and reconcilable — `used_* >= SUM(quota_deductions)`, and cost_records
+        (which already carries user_id) is the secondary attribution backstop.
 
         Comparisons are written additively (`used + delta >= cap`) rather
         than subtractively (`cap - used - delta <= 0`). All six operands
@@ -56,6 +98,16 @@ class QuotaRepository(BaseRepository[Quota]):
         form only adds UNSIGNED to UNSIGNED on each side of the
         comparison, which can never underflow.
         """
+        # Nothing to deduct. Guard here (not only in QuotaService.deduct) so the
+        # "affected" gate below never depends on cross-dialect rowcount semantics
+        # for a zero-delta call: MySQL reports changed-rows, SQLite matched-rows,
+        # so a stray atomic_deduct(u, 0, 0) would otherwise write a zero-value
+        # ledger row on SQLite but not MySQL. This is a public method — keep its
+        # invariant self-contained.
+        if input_delta <= 0 and output_delta <= 0:
+            return
+
+        # 1) Running-total UPDATE FIRST — single atomic, concurrency-safe statement.
         sql = f"""
         UPDATE {self.table_name}
         SET used_input_tokens  = used_input_tokens  + %s,
@@ -70,11 +122,53 @@ class QuotaRepository(BaseRepository[Quota]):
             END
         WHERE user_id = %s
         """
-        await self._db.execute(
+        affected = await self._db.execute(
             sql,
             params=(input_delta, output_delta, input_delta, output_delta, user_id),
             fetch=False,
         )
+        # 2) Audit ledger, best-effort (see docstring). Skip if the UPDATE matched
+        #    no row — nothing was charged, so nothing to record.
+        #    None-valued optional columns are filtered by db.insert and fall back
+        #    to their NULL / default, which is exactly what we want.
+        if affected:
+            try:
+                await self._db.insert(
+                    "quota_deductions",
+                    {
+                        "user_id": user_id,
+                        "input_tokens": input_delta,
+                        "output_tokens": output_delta,
+                        "cost_record_id": cost_record_id,
+                        "provider_source": provider_source,
+                        "model": model,
+                        "agent_id": agent_id,
+                    },
+                )
+            except Exception as e:
+                # Charge already applied; never undo/skip it for an audit fault.
+                # Leave a durable trail (survives container restart) plus a log.
+                # Use ServiceAuditRepository.record (never raises, JSON-serializes
+                # detail via _to_detail) so the row is actually readable by the
+                # System page's _parse_detail — a hand-written f-string detail
+                # would be dropped as non-JSON. Event vocab is
+                # started/stopped/heartbeat/error, so the subtype lives in
+                # detail.reason under EVENT_ERROR.
+                logger.exception(
+                    f"quota_deductions ledger write failed for {user_id}: {e}"
+                )
+                await ServiceAuditRepository(self._db).record(
+                    "quota",
+                    EVENT_ERROR,
+                    {
+                        "reason": "ledger_write_failed",
+                        "user_id": user_id,
+                        "input": input_delta,
+                        "output": output_delta,
+                        "cost_record_id": cost_record_id,
+                        "error": repr(e),
+                    },
+                )
 
     async def atomic_grant(
         self, user_id: str, input_delta: int, output_delta: int

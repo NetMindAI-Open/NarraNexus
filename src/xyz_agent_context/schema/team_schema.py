@@ -27,6 +27,8 @@ class Team(BaseModel):
     color: Optional[str] = None
     source: str = "user"
     intro_md: Optional[str] = None
+    # Agent that answers a team-chat message with no @mention (None = earliest member).
+    lead_agent_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -52,6 +54,7 @@ class UpdateTeamRequest(BaseModel):
     description: Optional[str] = None
     color: Optional[str] = None
     intro_md: Optional[str] = None
+    lead_agent_id: Optional[str] = None
 
 
 class AddMemberRequest(BaseModel):

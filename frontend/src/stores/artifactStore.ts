@@ -78,6 +78,8 @@ interface ArtifactState {
 
   pin: (agentId: string, artifactId: string, pinned: boolean) => Promise<void>;
   delete: (agentId: string, artifactId: string) => Promise<void>;
+  /** Open a web page as a URL-tab artifact and focus it. */
+  openUrl: (agentId: string, url: string, title?: string) => Promise<Artifact>;
 }
 
 const initialCollapsed = (() => {
@@ -304,5 +306,11 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   async delete(agentId, artifactId) {
     await artifactsApi.remove(agentId, artifactId);
     get().remove(artifactId);
+  },
+
+  async openUrl(agentId, url, title) {
+    const artifact = await artifactsApi.openUrl(agentId, url, title);
+    get().upsert(artifact); // upsert auto-focuses a new tab
+    return artifact;
   },
 }));

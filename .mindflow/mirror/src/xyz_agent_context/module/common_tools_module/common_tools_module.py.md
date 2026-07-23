@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-05-21
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — artifact state block points the agent at URL-tab content
+
+`_render_artifact_state_block` special-cases `application/x-url` artifacts:
+when the sibling `content.md` (the page's text snapshot from [[url_artifact.py]]
+/ [[page_text.py]]) EXISTS on disk, it tells the agent to `Read` it so it can
+SEE the page content; legacy tabs opened before this feature (no content.md)
+fall back to the plain path — a blind hint would point the agent at a missing
+file (PR #137 review). The content filename comes from the schema constant
+`URL_TAB_CONTENT_FILENAME`, not a private-impl import.
 
 ## 2026-05-21 — artifact 段强化：复杂信息默认 HTML + 可见性边界
 

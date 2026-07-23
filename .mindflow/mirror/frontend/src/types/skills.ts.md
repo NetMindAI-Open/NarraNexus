@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/types/skills.ts
-last_verified: 2026-07-14
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — Marketplace 类型(stage 7)
+
+`SkillInfo` +`source_type`;新增 `MarketplaceSkillItem` /
+`MarketplaceSearchResponse` / `MarketplaceSkillDetail` /
+`MarketplaceInstallResponse` / `SkillUpdateInfo`,镜像后端
+`SkillCatalogEntry.model_dump()` 与 marketplace 路由的响应形状。
+
 
 # types/skills.ts — Skill domain types
 

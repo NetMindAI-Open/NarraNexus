@@ -21,10 +21,11 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Minus, Trash2, Maximize2 } from 'lucide-react';
+import { Minus, Trash2, Maximize2, Plus } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
 import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui';
+import NewTabOmnibox from './NewTabOmnibox';
 
 interface Props {
   agentId: string;
@@ -43,11 +44,32 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
 
   const [deleteTarget, setDeleteTarget] = useState<Artifact | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [omniboxOpen, setOmniboxOpen] = useState(false);
 
   const visible = artifacts.filter((a) => !minimizedTabIds.has(a.artifact_id));
 
+  // "+" new-tab entry is always available, even with no artifacts yet.
+  const newTabButton = (
+    <button
+      onClick={() => setOmniboxOpen(true)}
+      title={t('artifacts.tabStrip.newTab', 'New tab (open a URL or pick an artifact)')}
+      aria-label={t('artifacts.tabStrip.newTab', 'New tab')}
+      className="flex items-center px-2 py-2 opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors shrink-0"
+    >
+      <Plus className="w-4 h-4" />
+    </button>
+  );
+
   if (visible.length === 0 && !deleteTarget) {
-    return <div className="text-xs opacity-50 px-3 py-2">{t('artifacts.tabStrip.noArtifacts')}</div>;
+    return (
+      <>
+        <div className="flex flex-row items-center border-b border-[var(--border-default)]">
+          <span className="text-xs opacity-50 px-3 py-2 flex-1">{t('artifacts.tabStrip.noArtifacts')}</span>
+          {newTabButton}
+        </div>
+        <NewTabOmnibox agentId={agentId} isOpen={omniboxOpen} onClose={() => setOmniboxOpen(false)} />
+      </>
+    );
   }
 
   const handleDeleteConfirm = async () => {
@@ -77,7 +99,10 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
             onDelete={() => setDeleteTarget(a)}
           />
         ))}
+        {newTabButton}
       </div>
+
+      <NewTabOmnibox agentId={agentId} isOpen={omniboxOpen} onClose={() => setOmniboxOpen(false)} />
 
       <Dialog
         isOpen={!!deleteTarget}

@@ -158,8 +158,27 @@ async def record_cost(
         final_cost = cost["total_cost"]
     else:
         final_cost = 0.0
+
+    # Resolve the owner attribution ONCE, up front, so it can be persisted onto
+    # cost_records (making the row user-attributable without a fragile join to
+    # agents.created_by) and reused by the deduct hook below. Reading the
+    # ContextVars must never break cost tracking, so default to None on any
+    # failure — non-user / background calls legitimately have neither.
+    user_id: Optional[str] = None
+    provider_source: Optional[str] = None
     try:
-        await db.insert("cost_records", {
+        from xyz_agent_context.agent_framework.api_config import (
+            get_current_user_id,
+            get_provider_source,
+        )
+        user_id = get_current_user_id()
+        provider_source = get_provider_source()
+    except Exception:
+        pass
+
+    cost_record_id: Optional[int] = None
+    try:
+        cost_record_id = await db.insert("cost_records", {
             "agent_id": agent_id,
             "event_id": event_id,
             "call_type": call_type,
@@ -167,6 +186,8 @@ async def record_cost(
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "total_cost_usd": final_cost,
+            "user_id": user_id,
+            "provider_source": provider_source,
         })
         logger.debug(
             f"Cost recorded: agent={agent_id} model={model} "
@@ -182,26 +203,30 @@ async def record_cost(
     # branch (ProviderResolver tagged provider_source="system") AND
     # auth_middleware tagged current_user_id. Any failure here is logged
     # and swallowed — cost_tracker is observability, not flow control.
+    # cost_record_id / model / agent_id are threaded through so atomic_deduct
+    # can write a self-auditing ledger row linked back to this cost record.
     try:
-        from xyz_agent_context.agent_framework.api_config import (
-            get_current_user_id,
-            get_provider_source,
-        )
-        if get_provider_source() == "system":
-            uid = get_current_user_id()
-            if uid:
-                from xyz_agent_context.agent_framework.quota_service import (
-                    QuotaService,
-                )
+        if provider_source == "system" and user_id:
+            from xyz_agent_context.agent_framework.quota_service import (
+                QuotaService,
+            )
+            try:
+                svc = QuotaService.default()
+            except RuntimeError:
+                svc = None
+            if svc is not None:
                 try:
-                    svc = QuotaService.default()
-                except RuntimeError:
-                    svc = None
-                if svc is not None:
-                    try:
-                        await svc.deduct(uid, input_tokens, output_tokens)
-                    except Exception as e:
-                        logger.exception(f"quota deduct hook failed for {uid}: {e}")
+                    await svc.deduct(
+                        user_id,
+                        input_tokens,
+                        output_tokens,
+                        cost_record_id=cost_record_id,
+                        provider_source=provider_source,
+                        model=model,
+                        agent_id=agent_id,
+                    )
+                except Exception as e:
+                    logger.exception(f"quota deduct hook failed for {user_id}: {e}")
     except Exception:
         # Defensive: imports/ContextVar reads must never break cost_tracker.
         pass

@@ -1,8 +1,37 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
+
+两个 marketplace seed 从 `yield` 前的 `await` 改为 `create_task`(team seed 走网络最坏拖数分钟会冻启动、超 healthcheck);首次 reconcile 也移除(run_forever 首轮即做)。加 shutdown cancel。
+
+
+## 2026-07-22 — skill seed 接入 lifespan
+
+继 team seed 之后,registry host 再跑 `seed_skill_marketplace`(发布 repo 的
+marketplace_skills/ first-party 技能,含 NetMind vision/audio default)。best-
+effort、非阻塞;两个 seed 共用一个 try 块。
+
+
+## 2026-07-21 — /api/marketplace/teams 挂载 + team seed(Team Marketplace)
+
+挂 marketplace_teams_router 于 /api/marketplace/teams。lifespan 在
+registry host(cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY)跑 seed_team_marketplace
+(best-effort,非阻塞):从 narra.nexus 拉 9 个官方模板 → 本地 template store
+→ catalog。desktop 客户端不 seed(proxy 云端)。
+
+
+## 2026-07-21 — Skill Marketplace 路由挂载 + 对账器 lifespan 任务(stage 5/6)
+
+挂载 `marketplace_skills_router` 于 `/api/marketplace/skills`(marketplace
+命名空间按对象拆分;`/api/marketplace/teams/*` 预留给 bundle 分享)。lifespan
+新增 SkillSyncService:启动先跑一遍 reconcile_all,再起 run_forever 循环任务
+(`SKILL_SYNC_INTERVAL_SECONDS`,默认 1800,0 关闭),shutdown cancel;
+done-callback 记录非预期退出(fire-and-forget 教训 #2)。
+
 
 ## 2026-07-10 — feedback_router 注册
 

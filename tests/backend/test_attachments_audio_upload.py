@@ -37,7 +37,8 @@ def upload_app(monkeypatch, tmp_path):
     """FastAPI app exposing only the attachments router, with the
     storage layer redirected to ``tmp_path`` so we don't need workspace
     bootstrap. MIME sniffing is bypassed: we set the MIME via the
-    test's `Content-Type` and patch `_sniff_mime_type` to honour it."""
+    test's `Content-Type` and patch the module's `sniff_mime_type`
+    binding (imported from utils.mime_sniff) to honour it."""
     # Mount the real auth middleware: upload_attachment resolves identity
     # via resolve_current_user_id(request) (local mode: X-User-Id header);
     # the ?user_id= query param is no longer an identity source.
@@ -47,10 +48,10 @@ def upload_app(monkeypatch, tmp_path):
     app.middleware("http")(auth_middleware)
     app.include_router(attachments_mod.router, prefix="/api/agents")
 
-    def _sniff(file, raw_bytes):
-        return file.content_type or "application/octet-stream"
+    def _sniff(raw_bytes, *, filename="", client_type=None):
+        return client_type or "application/octet-stream"
 
-    monkeypatch.setattr(attachments_mod, "_sniff_mime_type", _sniff)
+    monkeypatch.setattr(attachments_mod, "sniff_mime_type", _sniff)
 
     def _fake_store(agent_id, user_id, *, raw_bytes, original_name, mime_type):
         target = tmp_path / f"att_{abs(hash(original_name)) & 0xffffffff:08x}{Path(original_name).suffix}"

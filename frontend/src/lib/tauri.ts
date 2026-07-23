@@ -51,6 +51,28 @@ function _getInvoke(): TauriInvoke | null {
   return null;
 }
 
+/**
+ * Generic typed Tauri command invoke, via the same `__TAURI_INTERNALS__`
+ * channel every other helper here uses (NO `@tauri-apps/api` npm dependency —
+ * that package isn't installed, so a bundled `import('@tauri-apps/api/core')`
+ * emits a bare specifier that the webview cannot resolve and throws at
+ * runtime). Shared so `lib/platform.ts` can drive its desktop bridge through
+ * the one invoke path proven to work inside the packaged DMG.
+ *
+ * Throws if called outside Tauri (no invoke channel) — callers already guard
+ * with `isTauri()`.
+ */
+export async function invokeTauri<T>(
+  cmd: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  const invoke = _getInvoke();
+  if (!invoke) {
+    throw new Error(`Tauri invoke channel unavailable (cmd: ${cmd})`);
+  }
+  return (await invoke(cmd, args)) as T;
+}
+
 export async function setTrayBadge(count: number): Promise<void> {
   if (!isTauri()) return;
   const clamped = Math.max(0, Math.min(999, Math.floor(count)));

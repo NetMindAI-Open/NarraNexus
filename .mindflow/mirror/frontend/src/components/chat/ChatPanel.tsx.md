@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -368,3 +368,10 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 `BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
+
+## 2026-07-21 — voice-unavailable dialog i18n (bug fix)
+
+The voice-input-unavailable `<Dialog>` (title, all three reason-branch bodies + lists, probe
+note, Cancel/Open Settings) and the "no longer available" notice were hardcoded English —
+they stayed English under a Chinese UI. Moved to `chat.audio.*` keys (en+zh). AudioRecorder
+was already i18n'd; only ChatPanel's dialog was missed.

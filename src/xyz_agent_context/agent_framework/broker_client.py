@@ -30,6 +30,10 @@ from typing import Optional
 import httpx
 from loguru import logger
 
+from xyz_agent_context.agent_framework.executor_errors import (
+    ExecutorUnreachableError,
+)
+
 
 @dataclass(frozen=True)
 class ExecutorEnsureResult:
@@ -56,16 +60,26 @@ async def ensure_executor(
     Returns ``None`` when no broker is configured (caller falls back).
     Raises on broker/transport error — in cloud we must NOT silently fall
     back to an in-process spawn (that would defeat isolation); the run
-    fails loudly instead.
+    fails loudly instead. A transport failure (broker unreachable) is raised
+    as ``ExecutorUnreachableError`` so step_3 surfaces an actionable
+    ``infra_transient`` error at cold start instead of a bare httpx exception
+    escaping the pipeline (issue ②). HTTP status errors from the broker are
+    NOT converted — those flow as-is.
     """
     base = broker_url()
     if not base:
         return None
     endpoint = f"{base.rstrip('/')}/executors"
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(endpoint, json={"user_id": user_id})
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(endpoint, json={"user_id": user_id})
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.TransportError as e:
+        raise ExecutorUnreachableError(
+            f"broker unreachable at {base}: {type(e).__name__}: {e}",
+            target=base,
+        ) from e
     executor_url = data.get("executor_url")
     status = data.get("status")
     logger.info(
@@ -96,8 +110,10 @@ async def wait_until_ready(
     into the fallback path. This polls the executor's ``/health`` until it
     answers — a condition-based wait, NOT a fixed sleep, and NOT a cap on the
     agent loop (binding rule #14): it only waits for infrastructure to become
-    ready. Raises ``RuntimeError`` if the executor never comes up within
-    ``timeout`` (a genuinely broken container — failing loudly is correct).
+    ready. Raises ``ExecutorUnreachableError`` if the executor never comes up
+    within ``timeout`` (a genuinely broken container — failing loudly is
+    correct, and the typed exception lets step_3 surface an actionable
+    ``infra_transient`` error rather than a bare RuntimeError).
     """
     health = f"{executor_url.rstrip('/')}/health"
     deadline = time.monotonic() + timeout
@@ -105,8 +121,9 @@ async def wait_until_ready(
         if await _executor_healthy(health):
             return
         if time.monotonic() >= deadline:
-            raise RuntimeError(
-                f"executor at {executor_url} did not become ready within {timeout}s"
+            raise ExecutorUnreachableError(
+                f"executor at {executor_url} did not become ready within {timeout}s",
+                target=executor_url,
             )
         await asyncio.sleep(interval)
 

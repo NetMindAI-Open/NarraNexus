@@ -295,12 +295,21 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               <PopoverContent side="top" align="end" className="w-[300px] p-3">
                 {message.actionReason ? (
                   <>
-                    {/* Deterministic, user-self-serviceable failure: show
-                        localized "what you can do" guidance instead of a
-                        generic "turn failed", with the raw provider detail
-                        (English, carries the concrete numbers) below. */}
+                    {/* Actionable failure: show localized "what you can do"
+                        guidance instead of a generic "turn failed", with the
+                        raw detail below. Platform-side executor-infra failures
+                        (OOM / unreachable — reasons starting with "executor_",
+                        or the generic "infra_transient") get a distinct
+                        "execution environment" title vs the user-config
+                        "Action needed" one, because the remedy differs
+                        (retry / split the task, not change a setting). */}
                     <div className="text-xs font-semibold mb-1" style={{ color: 'var(--color-error)' }}>
-                      {t('chat.error.titleActionable')}
+                      {t(
+                        message.actionReason === 'infra_transient' ||
+                          message.actionReason.startsWith('executor_')
+                          ? 'chat.error.titleInfra'
+                          : 'chat.error.titleActionable'
+                      )}
                     </div>
                     <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
                       {t(`chat.error.action.${message.actionReason}`, {

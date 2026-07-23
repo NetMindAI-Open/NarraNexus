@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/utils/office_watch.py
-last_verified: 2026-07-13
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -19,7 +19,7 @@ office-watch 路由(`backend/routes/office_watch_proxy.py`)和 executor 的 watc
 ## 关键内容
 
 - **`OFFICE_LIVE_KIND`**:office artifact 的 kind 字符串。单一真源——被
-  `artifact_runner`(注册白名单 + 按扩展名自动纠正)和 office-watch 代理路由共同 import。
+  artifact 注册实现(`xyz_agent_context/artifact/_artifact_impl/registration.py`,注册白名单 + 按扩展名自动纠正)和 office-watch 代理路由共同 import。
 - **`WATCH_PORT_MIN/MAX`(26315–26334,20 个)+ `is_watch_port`**:分配器发放的端口池,
   同时也是**安全 allowlist**——代理转发前校验,防止它变成打进容器内其它端口
   (executor :8020、sqlite :8100)的 SSRF。20 个槽足够单用户任何现实的并发预览数。
@@ -41,7 +41,7 @@ office-watch 路由(`backend/routes/office_watch_proxy.py`)和 executor 的 watc
 
 - **被谁用**:`office_watch_proxy.office_watch_open`(本地直接调 ensure_watch;云端经
   executor `/watch/ensure`)、`executor_service.watch_ensure`(容器内调 ensure_watch)、
-  `artifact_runner`(import OFFICE_LIVE_KIND)。
+  artifact 注册实现(import OFFICE_LIVE_KIND)。
 - **依赖谁**:`workspace_paths.resolve_existing_workspace`;`officecli` 二进制(PATH,由
   Docker/run.sh/build-desktop 预装);`subprocess`(detached spawn)。
 

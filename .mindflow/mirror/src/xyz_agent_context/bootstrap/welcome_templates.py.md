@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/welcome_templates.py
-last_verified: 2026-06-16
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -20,7 +20,7 @@ not auto-generated — a point the Owner pushed on hard.
 `welcome_artifact`) and `services/arena_provisioning_service.py` (the Arena
 profile). Both call `bilingual_html()` + `feature_card()`.
 **Rendered into:** a `text/html` pointer-model artifact written to the agent
-workspace and registered via `artifact_runner.register_artifact` (see
+workspace and registered via `ArtifactService.register` (see
 `profiles._create_welcome_artifact`).
 
 ## Design decisions

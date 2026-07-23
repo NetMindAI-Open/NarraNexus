@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/_skill_mcp_tools.py
-last_verified: 2026-04-10
+last_verified: 2026-07-21
 ---
+
+## 2026-07-21 — marketplace 三工具(stage 5)
+
+新增 `skill_search_marketplace` / `skill_install` / `skill_uninstall`。
+install/uninstall 是 Agent 侧唯一被允许的技能变更路径(配合 skill_module 的
+SKILL_MANAGEMENT_RULES prompt 条款),内部走 SkillMarketplaceService →
+InstallPipeline,享有扫描 Gate、config 迁移与审计。`skill_install` 同时接受
+marketplace id 和 GitHub URL(按前缀分流);返回文本里带 Needs-Config 提示,
+Agent 应转告用户去 Skill tab 配置。桌面模式下这些工具经 cloud API 搜索/下载,
+离线时返回明确的不可用消息(不抛异常打断 agent loop)。
+
 
 # _skill_mcp_tools.py — SkillModule MCP 工具定义
 

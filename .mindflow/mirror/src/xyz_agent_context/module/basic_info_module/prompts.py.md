@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-07-10
+last_verified: 2026-07-21
 ---
 
 ## 2026-07-10 — Product Feedback Duty 段
@@ -29,7 +29,7 @@ named `user_id` (e.g. `register_artifact`, `create_narrative`) the LLM
 substituted the only user-identity string still visible — the **display name**,
 which for NetMind users equals their **email** (`get_display_name` returns
 `display_name or user_id`, and NetMind sets `display_name = email`). With
-`user_id=<email>`, [[artifact_runner.py]] `_resolve_entry` computes a
+`user_id=<email>`, [[registration.py]] `_resolve_entry` computes a
 nonexistent workspace `{{base}}/{{agent_id}}_<email>` → every relative path is
 rejected "does not point at an existing file" and every correct absolute path is
 rejected "outside your agent workspace". Root cause traced from prod agent

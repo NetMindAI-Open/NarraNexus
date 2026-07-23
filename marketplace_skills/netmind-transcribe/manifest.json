@@ -1,0 +1,14 @@
+{
+  "id": "netmind-transcribe",
+  "name": "NetMind Transcribe",
+  "version": "1.0.0",
+  "description": "Transcribe audio to text via NetMind's Whisper. Auto-configured for NetMind-powered users.",
+  "author": {"name": "NarraNexus Team"},
+  "license": "Apache-2.0",
+  "entry": "SKILL.md",
+  "capabilities": ["audio:transcribe"],
+  "tags": ["audio", "speech", "whisper", "multimodal", "fallback", "netmind"],
+  "category": "fallback",
+  "dependencies": {},
+  "default": true
+}

@@ -17,6 +17,7 @@ import {
   RotateCcw,
   LayoutDashboard,
   MessageSquarePlus,
+  Store,
 } from 'lucide-react';
 import { Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
@@ -344,6 +345,20 @@ export function Sidebar() {
             <Button
               variant="ghost"
               size="sm"
+              onClick={() => navigate('/app/marketplace')}
+              className={cn(
+                'w-full justify-start gap-2',
+                NAV_ITEM,
+                location.pathname === '/app/marketplace' &&
+                  NAV_ITEM_ACTIVE,
+              )}
+            >
+              <Store className="w-4 h-4" />
+              {t('sidebar.marketplace')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => navigate('/app/settings')}
               className={cn(
                 'w-full justify-start gap-2',
@@ -403,6 +418,19 @@ export function Sidebar() {
               )}
             >
               <LayoutDashboard className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => navigate('/app/marketplace')}
+              title={t('sidebar.marketplace')}
+              className={cn(
+                NAV_ITEM,
+                location.pathname === '/app/marketplace' &&
+                  NAV_ITEM_ACTIVE,
+              )}
+            >
+              <Store className="w-4 h-4" />
             </Button>
             <Button
               variant="ghost"

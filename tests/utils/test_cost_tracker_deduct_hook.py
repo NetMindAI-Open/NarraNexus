@@ -136,7 +136,16 @@ async def test_deduct_called_with_exact_tokens_when_source_is_system():
         input_tokens=77,
         output_tokens=11,
     )
-    deduct.assert_awaited_once_with("usr_y", 77, 11)
+    # cost_record_id comes from the mock insert (returns 1); the ledger
+    # metadata (provider_source / model / agent_id) is threaded through so
+    # atomic_deduct can write a self-auditing quota_deductions row.
+    deduct.assert_awaited_once_with(
+        "usr_y", 77, 11,
+        cost_record_id=1,
+        provider_source="system",
+        model="claude-sonnet-4-5",
+        agent_id="a_1",
+    )
 
 
 @pytest.mark.asyncio
@@ -160,3 +169,111 @@ async def test_deduct_exceptions_swallowed():
         input_tokens=1,
         output_tokens=1,
     )  # must not raise
+
+
+# --- End-to-end against a real SQLite db: cost_records columns + ledger row ---
+
+from xyz_agent_context.repository.quota_repository import QuotaRepository  # noqa: E402
+
+
+class _EnabledProvider:
+    """Minimal SystemProviderService stand-in: feature enabled."""
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def get_initial_quota(self):
+        return (10_000, 10_000)
+
+
+@pytest.mark.asyncio
+async def test_record_cost_persists_user_and_writes_ledger(db_client):
+    """System branch, real DB: cost_records carries user_id/provider_source and
+    a linked quota_deductions ledger row is written in the same flow."""
+    repo = QuotaRepository(db_client)
+    await repo.create("usr_int", 10_000, 10_000)
+    QuotaService.set_default(
+        QuotaService(repo=repo, system_provider=_EnabledProvider())
+    )
+    set_provider_source("system")
+    set_current_user_id("usr_int")
+
+    await record_cost(
+        db=db_client,
+        agent_id="a_int",
+        event_id="evt_int",
+        call_type="agent_loop",
+        model="claude-sonnet-4-5",
+        input_tokens=50,
+        output_tokens=8,
+    )
+
+    cost_rows = await db_client.execute(
+        "SELECT id, user_id, provider_source FROM cost_records WHERE agent_id = %s",
+        params=("a_int",),
+        fetch=True,
+    )
+    assert len(cost_rows) == 1
+    assert cost_rows[0]["user_id"] == "usr_int"
+    assert cost_rows[0]["provider_source"] == "system"
+
+    led_rows = await db_client.execute(
+        "SELECT user_id, input_tokens, output_tokens, cost_record_id, "
+        "provider_source, model, agent_id FROM quota_deductions WHERE user_id = %s",
+        params=("usr_int",),
+        fetch=True,
+    )
+    assert len(led_rows) == 1
+    led = led_rows[0]
+    assert led["input_tokens"] == 50
+    assert led["output_tokens"] == 8
+    assert led["cost_record_id"] == cost_rows[0]["id"]
+    assert led["provider_source"] == "system"
+    assert led["model"] == "claude-sonnet-4-5"
+    assert led["agent_id"] == "a_int"
+
+    # Running total moved too.
+    q = await repo.get_by_user_id("usr_int")
+    assert q.used_input_tokens == 50
+    assert q.used_output_tokens == 8
+
+
+@pytest.mark.asyncio
+async def test_record_cost_non_system_records_attribution_but_no_ledger(db_client):
+    """Non-system call: cost_records is still written WITH attribution
+    (user_id + provider_source are captured for every call, not just system),
+    but NO quota_deductions ledger row is created (only the system branch
+    deducts)."""
+    repo = QuotaRepository(db_client)
+    QuotaService.set_default(
+        QuotaService(repo=repo, system_provider=_EnabledProvider())
+    )
+    set_provider_source("user")
+    set_current_user_id("usr_own")
+
+    await record_cost(
+        db=db_client,
+        agent_id="a_user",
+        event_id=None,
+        call_type="agent_loop",
+        model="claude-sonnet-4-5",
+        input_tokens=30,
+        output_tokens=5,
+    )
+
+    cost_rows = await db_client.execute(
+        "SELECT user_id, provider_source FROM cost_records WHERE agent_id = %s",
+        params=("a_user",),
+        fetch=True,
+    )
+    assert len(cost_rows) == 1
+    # provider_source is captured verbatim; user_id captured too (attribution is
+    # not gated on the system branch — only the DEDUCTION is).
+    assert cost_rows[0]["provider_source"] == "user"
+
+    led_rows = await db_client.execute(
+        "SELECT id FROM quota_deductions WHERE user_id = %s",
+        params=("usr_own",),
+        fetch=True,
+    )
+    assert led_rows == [] or len(led_rows) == 0

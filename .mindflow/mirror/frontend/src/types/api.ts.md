@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-18
+last_verified: 2026-07-20
 stub: true
 ---
+
+## 2026-07-20 — RoomMessage.attachments
+
+`RoomMessage` gained `attachments?: BusAttachment[]` so inbox message cards can render
+bus files (see [[BusAttachmentList]]).
 
 ## 2026-07-18 — FeeInfo.metrics 加 subscription_credit;两处注释改闩锁语义
 

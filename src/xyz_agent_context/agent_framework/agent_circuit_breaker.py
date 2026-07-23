@@ -53,6 +53,7 @@ from xyz_agent_context.schema import (
     CbStatus,
     ErrorCategory,
     PAUSING_CATEGORIES,
+    EXECUTOR_INFRA_ERROR_TYPE,
 )
 from xyz_agent_context.services.background_llm_alerts import (
     alert_agent_paused,
@@ -196,6 +197,20 @@ async def record_failure(
         logger.debug(
             f"[agent-cb] agent {agent_id} self-serviceable failure "
             f"({error_type}) — breaker not advanced"
+        )
+        return
+
+    # Executor-infra failures (OOM / unreachable) are a PLATFORM fault, not the
+    # agent's — and the surfaced ``infra_transient`` error tells the user to
+    # "resend shortly". Advancing the breaker would COOL the agent for 60s+ and
+    # reject that very resend (websocket should_skip), turning one platform blip
+    # into a self-inflicted second punishment. Same reasoning as the
+    # self-serviceable exemption above (binding rule #15: never be the
+    # interruption source). Stay out entirely — no cool, no pause, no counter.
+    if error_type == EXECUTOR_INFRA_ERROR_TYPE:
+        logger.debug(
+            f"[agent-cb] agent {agent_id} executor-infra failure "
+            f"({error_type}) — breaker not advanced (platform-side)"
         )
         return
 

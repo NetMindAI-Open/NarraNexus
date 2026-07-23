@@ -28,6 +28,7 @@ import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/li
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
+import { ClearTeamDataDialog } from '../teams/ClearTeamDataDialog';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
 import { TeamChatRow } from './TeamChatRow';
@@ -105,6 +106,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [clearTarget, setClearTarget] = useState<typeof rawAgents[0] | null>(null);
   const [clearBusy, setClearBusy] = useState(false);
+  const [clearTeamTarget, setClearTeamTarget] = useState<{ team_id: string; name: string } | null>(null);
+  const [clearTeamBusy, setClearTeamBusy] = useState(false);
   const [openMgmt, setOpenMgmt] = useState(false);
   const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
@@ -415,6 +418,29 @@ export function AgentList({ collapsed }: AgentListProps) {
     }
   };
 
+  const doClearTeamData = async (scopes: { chat: boolean; files: boolean }) => {
+    if (!clearTeamTarget) return;
+    setClearTeamBusy(true);
+    try {
+      const res = await api.clearTeamData(clearTeamTarget.team_id, scopes);
+      if (res.success) {
+        if (scopes.chat) requestHistoryRefresh();
+      } else {
+        await alert({
+          title: t('layout.agentList.deleteFailedTitle'),
+          message: res.error || 'Failed to clear team data',
+          danger: true,
+        });
+      }
+    } catch (err) {
+      console.error('Error clearing team data:', err);
+      await alert({ title: t('layout.agentList.deleteFailedTitle'), message: String(err), danger: true });
+    } finally {
+      setClearTeamBusy(false);
+      setClearTeamTarget(null);
+    }
+  };
+
   const handleImport = () => navigate('/app/bundle/import');
   const handleExport = () => {
     // Pre-fill export wizard with agents if a team context is relevant.
@@ -591,6 +617,14 @@ export function AgentList({ collapsed }: AgentListProps) {
           onConfirm={doClearData}
         />
       )}
+      {clearTeamTarget && (
+        <ClearTeamDataDialog
+          teamName={clearTeamTarget.name}
+          busy={clearTeamBusy}
+          onCancel={() => setClearTeamTarget(null)}
+          onConfirm={doClearTeamData}
+        />
+      )}
       <TeamManagementModal open={openMgmt} onClose={() => setOpenMgmt(false)} />
 
       {/* Header */}
@@ -685,6 +719,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                         onOpen={(tid) => navigate(`/app/teams/${tid}/chat`)}
                         onRename={(tid, name) => { void teamsUpdate(tid, { name }); }}
                         onDelete={handleDeleteTeam}
+                        onClearData={(tid) => setClearTeamTarget({ team_id: tid, name: t.team.name })}
                         onAddAgent={handleCreateAgentInTeam}
                         addingAgent={creatingAgent}
                       />

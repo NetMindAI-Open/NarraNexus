@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/bootstrap/profiles.py
-last_verified: 2026-06-16
+last_verified: 2026-07-21
 stub: false
 ---
 
@@ -16,7 +16,8 @@ first-run flow a named, pluggable object: `default`, `none`, `arena`, … each
 owns its greeting, its Bootstrap.md, its rule-based deletion threshold, and an
 optional **welcome artifact** (`welcome_artifact(ctx)` → a pinned text/html card
 rendered into the workspace by `apply_bootstrap._create_welcome_artifact`, which
-reuses `artifact_runner.register_artifact` so file_path/size_bytes are correct;
+reuses `ArtifactService.register` (xyz_agent_context/artifact, 2026-07-21 —
+previously `artifact_runner`) so file_path/size_bytes are correct;
 content comes from `bootstrap/welcome_templates.py`).
 
 Agent creation selects a profile by name (a `bootstrap` parameter; default =

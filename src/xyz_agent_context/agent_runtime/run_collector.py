@@ -33,7 +33,7 @@ and the frontend already knows how to render every message type.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from xyz_agent_context.schema.runtime_message import MessageType
 
@@ -88,6 +88,7 @@ async def collect_run(
     user_id: str,
     input_content: str,
     working_source,
+    on_progress: Optional[Callable[[str, Optional[str]], Awaitable[None]]] = None,
     **extra_kwargs,
 ) -> RunCollection:
     """Drive ``runtime.run(...)`` to completion and group its output.
@@ -96,6 +97,12 @@ async def collect_run(
     through ``extra_kwargs`` (e.g. ``trigger_extra_data``,
     ``job_instance_id``, ``forced_narrative_id``, ``pass_mcp_servers``,
     ``cancellation``).
+
+    ``on_progress(kind, tool_name)`` — optional, opt-in — is awaited once per
+    observed message with ``kind`` in {"thinking","tool","response","error"}
+    (``tool_name`` set only for "tool"). Used to mirror a live "what is this
+    agent doing" status (e.g. the team-chat activity view). It must never raise;
+    any exception is swallowed so status reporting can't break the run.
     """
     text_parts: list[str] = []
     tool_calls: list[str] = []
@@ -165,6 +172,27 @@ async def collect_run(
                 })
                 if tool_name not in tool_calls:
                     tool_calls.append(tool_name)
+
+        # Live progress mirror (opt-in). Detect the tool name from either the
+        # typed attr or the ProgressMessage details, then classify the phase.
+        if on_progress is not None:
+            _tool = getattr(msg, "tool_name", None)
+            if not _tool:
+                _d = getattr(msg, "details", None)
+                if isinstance(_d, dict):
+                    _tool = _d.get("tool_name")
+            kind = (
+                "tool" if _tool
+                else "thinking" if mt == MessageType.AGENT_THINKING
+                else "response" if mt == MessageType.AGENT_RESPONSE
+                else "error" if mt == MessageType.ERROR
+                else None
+            )
+            if kind:
+                try:
+                    await on_progress(kind, _tool)
+                except Exception:  # noqa: BLE001 — status must never break the run
+                    pass
 
     return RunCollection(
         output_text="".join(text_parts),

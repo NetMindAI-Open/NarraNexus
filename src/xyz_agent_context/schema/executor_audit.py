@@ -32,6 +32,10 @@ EVENT_OOM_RETRY_OK = "oom_retry_ok"
 EVENT_OOM_GAVE_UP = "oom_gave_up"
 EVENT_ADMIT_QUEUED = "admit_queued"
 EVENT_ADMIT_GRANTED = "admit_granted"
+# Executor/broker was unreachable (container not up, broker down, or the
+# :8020 connection dropped mid-run). Paired with EVENT_OOM_KILLED as the two
+# executor-infra fatals the orchestration layer records + surfaces to the user.
+EVENT_EXECUTOR_UNREACHABLE = "executor_unreachable"
 
 # Literal union of the closed set — used for type hints where strict validation
 # is wanted (e.g. in tests). The repository accepts plain str so new event_types
@@ -46,6 +50,7 @@ ExecutorEventType = Literal[
     "oom_gave_up",
     "admit_queued",
     "admit_granted",
+    "executor_unreachable",
 ]
 
 

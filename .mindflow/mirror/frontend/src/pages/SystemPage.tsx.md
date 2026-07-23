@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/pages/SystemPage.tsx
-last_verified: 2026-05-28
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — poll tick also fetches worker-supervisor liveness
+
+The 3 s poll now additionally calls `api.getWorkerStatus()` (backend :8000, NOT
+the Tauri bridge — works whenever the backend is reachable; failure is non-fatal
+→ `workerStatus=null`). The result is passed as the `workers` prop ONLY to the
+card whose `serviceId === 'workers'`, along with `workerHeartbeatAgeSeconds`
+(from `WorkerStatus`) so the card can gray out a stale snapshot (PR #136 review).
+This gives that single consolidated card its per-sub-worker expandable detail +
+flap warning (see [[ServiceCard.tsx]]). All other cards are unchanged. Restores
+the at-a-glance "which worker is flapping" that the pre-consolidation four-card
+layout used to give.
 
 ## 2026-05-28 — replaced event subscriptions with single poll tick
 

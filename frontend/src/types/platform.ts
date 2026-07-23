@@ -44,6 +44,34 @@ export interface LogEntry {
   message: string;
 }
 
+/**
+ * Per-worker liveness inside the consolidated `workers` supervisor process.
+ * The four merged workers (poller / jobs / bus / channels) share one OS
+ * process, so the process-level ServiceCard cannot show which sub-worker is
+ * degraded — this fills that gap. `restartCount` is cumulative, so a climbing
+ * count is the "this worker is flapping" signal even while the process is up.
+ * Sourced from GET /api/admin/runtime/workers (worker_supervisor heartbeat).
+ */
+export type WorkerState =
+  | 'starting'
+  | 'running'
+  | 'restarting'
+  | 'stopped'
+  | 'unknown';
+
+export interface WorkerLiveness {
+  name: string;
+  state: WorkerState;
+  restartCount: number;
+  lastError: string | null;
+}
+
+export interface WorkerStatus {
+  available: boolean;
+  heartbeatAgeSeconds: number | null;
+  workers: WorkerLiveness[];
+}
+
 export interface AppConfig {
   mode: AppMode;
   userType: UserType;

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/broker_client.py
 stub: false
-last_verified: 2026-06-18
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — broker/冷启动不可达 → 类型化 ExecutorUnreachableError
+
+两处改为抛类型化异常（[[executor_errors.py]]）：
+- `ensure_executor`：httpx 传输错误（`httpx.TransportError`）→
+  `ExecutorUnreachableError`。broker 的 HTTP status 错误**不**转换（照旧上抛）。
+- `wait_until_ready`：容器超时未就绪，`RuntimeError` → `ExecutorUnreachableError`。
+
+目的：冷启动阶段的不可达也能被上层 [[step_3_agent_loop.py]] 按类名 surface 成
+`infra_transient` 可读错误（配合 step_3 把 try 边界上移到 ensure/warm 之外）。
 
 ## 2026-06-18 — wait for cold-started executors before driving
 

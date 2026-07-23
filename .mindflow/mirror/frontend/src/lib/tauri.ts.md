@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/lib/tauri.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — exported invokeTauri(); events now rely on withGlobalTauri
+
+Added `invokeTauri<T>(cmd, args)` — a generic typed wrapper over the private
+`_getInvoke()` (`__TAURI_INTERNALS__.invoke`, no `@tauri-apps/api` npm dep).
+Extracted so [[platform.ts]] can drive its desktop bridge through the ONE invoke
+path proven to work in the packaged DMG; platform.ts previously did
+`import('@tauri-apps/api/core')`, which — since that package isn't installed —
+bundled as a bare specifier the webview can't resolve and threw at runtime.
+
+`listenTauri` / `listenUpdaterState` still read `window.__TAURI__.event.listen`
+(there is no internals-only event API without hand-rolling the `plugin:event|*`
+protocol — rule #9 says don't). To make that global real, `tauri.conf.json` now
+sets `app.withGlobalTauri: true`. That injects `window.__TAURI__` (with
+`event.listen` + `core.invoke`) in the desktop webview, so both event
+subscribers work; invoke still prefers `__TAURI_INTERNALS__`, and the NetMind
+OAuth poll fallback is unaffected (belt-and-suspenders, not regressed).
 
 ## 2026-07-13 — openNetmindOAuth + takeNetmindOAuthResult wrappers
 

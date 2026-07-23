@@ -18,11 +18,13 @@ import { ServiceCard } from '@/components/system/ServiceCard';
 import { HealthStatusBar } from '@/components/system/HealthStatusBar';
 import { LogViewer } from '@/components/system/LogViewer';
 import { platform } from '@/lib/platform';
+import { api } from '@/lib/api';
 import type {
   ProcessInfo,
   OverallHealth,
   LogEntry,
   ServiceHealth,
+  WorkerStatus,
 } from '@/types/platform';
 import type { ServiceStatus } from '@/components/system/ServiceCard';
 
@@ -51,6 +53,7 @@ export function SystemPage() {
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [health, setHealth] = useState<OverallHealth | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [platformError, setPlatformError] = useState<string | null>(null);
 
@@ -82,6 +85,15 @@ export function SystemPage() {
     } catch {
       // Health endpoint failure is non-fatal; cards fall back to the
       // process-level status from getServiceStatus above.
+    }
+    try {
+      // Per-worker liveness for the consolidated `workers` card. Backed by the
+      // backend :8000 (not the Tauri bridge), so it works whenever the backend
+      // is reachable; a failure is non-fatal (the card just omits the detail).
+      const ws = await api.getWorkerStatus();
+      setWorkerStatus(ws.available ? ws : null);
+    } catch {
+      setWorkerStatus(null);
     }
     try {
       const entries = await platform.getLogs();
@@ -208,6 +220,16 @@ export function SystemPage() {
               port={sh?.port ?? null}
               lastError={proc.lastError}
               onRestart={() => handleRestart(proc.serviceId)}
+              workers={
+                proc.serviceId === 'workers'
+                  ? workerStatus?.workers
+                  : undefined
+              }
+              workerHeartbeatAgeSeconds={
+                proc.serviceId === 'workers'
+                  ? workerStatus?.heartbeatAgeSeconds ?? null
+                  : null
+              }
             />
           );
         })}

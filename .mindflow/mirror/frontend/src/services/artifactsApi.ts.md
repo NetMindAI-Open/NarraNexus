@@ -1,9 +1,13 @@
 ---
 code_file: frontend/src/services/artifactsApi.ts
-last_verified: 2026-05-26
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — openUrl / setEmbedMode
+
+Added `openUrl(agentId, url, title?)` (POST .../artifacts/url) and
+`setEmbedMode(agentId, artifactId, mode)` (POST .../embed-mode) for URL tabs.
 ## 2026-05-26 — Absolute URLs via `getApiBaseUrl()` (fix dmg blank panel)
 
 The whole API surface — `base()`, `userBase()`, and the `raw_url`

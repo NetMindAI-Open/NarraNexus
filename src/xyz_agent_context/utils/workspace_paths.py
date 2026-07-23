@@ -57,6 +57,47 @@ def agent_workspace_path(
     return Path(base) / agent_workspace_relpath(agent_id, user_id)
 
 
+# ---------------------------------------------------------------------------
+# Per-user SHARED areas (cross-agent, same-user collaboration)
+# ---------------------------------------------------------------------------
+#
+# These live under the per-user root ``{base}/{user_id}`` — the exact subtree a
+# per-user Executor bind-mounts — so every agent OWNED BY THE SAME USER can
+# ``Read`` files here in both local and cloud mode (the message bus forbids
+# cross-user messaging, so "same user" is the only sharing scope that exists).
+# The shared area is deliberately a SIBLING of each agent's own workspace dir,
+# never inside one, so no single agent "owns" it.
+
+_SHARED_DIRNAME = "_shared"
+_BUS_FILES_DIRNAME = "bus_files"
+_TEAMS_DIRNAME = "teams"
+
+
+def _shared_base(base: Optional[str]) -> str:
+    if base is None:
+        from xyz_agent_context.settings import settings
+        return settings.base_working_path
+    return base
+
+
+def user_shared_root(user_id: str, base: Optional[str] = None) -> Path:
+    """Absolute per-user shared root: ``{base}/{user_id}/_shared``."""
+    return Path(_shared_base(base)) / user_id / _SHARED_DIRNAME
+
+
+def bus_files_dir(user_id: str, base: Optional[str] = None) -> Path:
+    """Absolute drop dir for files attached to bus messages:
+    ``{base}/{user_id}/_shared/bus_files``. Date-partitioned by the caller."""
+    return user_shared_root(user_id, base) / _BUS_FILES_DIRNAME
+
+
+def team_shared_dir(user_id: str, team_id: str, base: Optional[str] = None) -> Path:
+    """Absolute per-team shared scratch dir:
+    ``{base}/{user_id}/_shared/teams/{team_id}``. A common space for a team's
+    agents to hand off collaborative artifacts beyond single-message attachments."""
+    return user_shared_root(user_id, base) / _TEAMS_DIRNAME / team_id
+
+
 def _candidate_relpaths(agent_id: str, user_id: str) -> list[str]:
     """All workspace-dir relpath forms, current layout first then legacy.
 

@@ -33,8 +33,8 @@ from pathlib import Path
 from loguru import logger
 
 # Artifact kind for an office document (.pptx/.docx/.xlsx) that renders as a
-# LIVE officecli-watch preview. Single source of truth — imported by
-# artifact_runner (register/whitelist) and the office-watch proxy route.
+# LIVE officecli-watch preview. Single source of truth — imported by the
+# artifact registration impl (register/whitelist) and the office-watch proxy route.
 OFFICE_LIVE_KIND = "application/vnd.officecli-live"
 
 # Allowed officecli watch port range = the pool the allocator hands out, one

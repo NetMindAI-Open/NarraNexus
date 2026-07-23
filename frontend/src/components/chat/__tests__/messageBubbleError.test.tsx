@@ -33,4 +33,19 @@ describe('MessageBubble error badge', () => {
     render(<MessageBubble message={msg({ content: 'all good' })} />);
     expect(screen.queryByLabelText('Show error details')).not.toBeInTheDocument();
   });
+
+  // Executor-infra failures (OOM / unreachable) render the localized "what you
+  // can do" copy in the bubble body via chat.error.action.<reason>, keyed on
+  // the action_reason the backend surfaces (infra_transient error type).
+  it('renders the executor OOM guidance for an executor_oom reason', () => {
+    render(<MessageBubble message={msg({ isError: true, actionReason: 'executor_oom' })} />);
+    expect(screen.getByText(/ran out of memory/i)).toBeInTheDocument();
+  });
+
+  it('renders the unreachable guidance for an executor_unreachable reason', () => {
+    render(
+      <MessageBubble message={msg({ isError: true, actionReason: 'executor_unreachable' })} />
+    );
+    expect(screen.getByText(/temporarily unreachable/i)).toBeInTheDocument();
+  });
 });

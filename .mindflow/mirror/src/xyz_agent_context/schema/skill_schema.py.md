@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/skill_schema.py
-last_verified: 2026-07-10
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — SkillInfo.source_type(stage 7)
+
+新增 `source_type`(marketplace|url|github|zip|builtin|manual),由
+`_parse_skill_md` 从 `.skill_meta.json` 回填;前端 SkillCard 的来源徽标
+消费它。纯 additive。
+
 
 # skill_schema.py
 

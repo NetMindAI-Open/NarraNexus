@@ -25,7 +25,36 @@ export type ArtifactKind =
   | 'application/pdf'
   // Office document (.pptx/.docx/.xlsx) — rendered as a LIVE officecli-watch
   // preview (auto-refreshes as the agent edits), not a static file.
-  | 'application/vnd.officecli-live';
+  | 'application/vnd.officecli-live'
+  // A web page opened as a tab. The entry file is a small JSON doc
+  // (UrlArtifactDoc); the renderer iframes the URL or falls back per the
+  // embed verdict.
+  | 'application/x-url';
+
+/** How a URL tab should be surfaced. Mirrors backend EmbedMode. */
+export type EmbedMode = 'iframe' | 'stream';
+
+/** The embed decision for a URL tab. Mirrors backend EmbedVerdict. */
+export interface EmbedVerdict {
+  recommended: EmbedMode;
+  reason: string;
+  probe_status: 'ok' | 'failed' | 'skipped';
+  user_override: EmbedMode | null;
+}
+
+/** The on-disk entry doc of a URL tab (page.url.json). Mirrors UrlArtifactDoc. */
+export interface UrlArtifactDoc {
+  schema_version: number;
+  url: string;
+  title: string;
+  embed: EmbedVerdict | null;
+}
+
+/** Collapse recommended + override into the mode the renderer should use. */
+export function effectiveEmbedMode(embed: EmbedVerdict | null | undefined): EmbedMode {
+  if (!embed) return 'iframe';
+  return embed.user_override ?? embed.recommended;
+}
 
 export interface Artifact {
   artifact_id: string;

@@ -43,6 +43,13 @@ export default function BundleImportPage() {
   const [searchParams] = useSearchParams();
   const urlMode = searchParams.get('url') || null;
   const expectedSha256 = searchParams.get('sha256') || undefined;
+  // Team Marketplace deep-link: ?teamTemplate=<id> runs the server-side
+  // install-preflight (resolve + verify from our store) instead of a URL
+  // fetch, then drops into the SAME review/confirm wizard.
+  const teamTemplateMode = searchParams.get('teamTemplate') || null;
+  // Either deep-link (url fetch or team-template preflight) uses the same
+  // no-upload loading UI in the 'upload' step.
+  const deepLinkMode = urlMode || teamTemplateMode;
 
   const [step, setStep] = useState<Step>('upload');
   const [file, setFile] = useState<File | null>(null);
@@ -151,6 +158,32 @@ export default function BundleImportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlMode, retryNonce]);
 
+  // Team-template deep-link: run the server-side install-preflight (resolves
+  // + verifies the bundle from our store, then the local importer preflight)
+  // and drop into the review step — reusing the identical review/confirm UI.
+  useEffect(() => {
+    if (!teamTemplateMode || preflight) return;
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await api.installTeamTemplatePreflight(teamTemplateMode);
+        if (cancelled) return;
+        setPreflight(r);
+        setStep('review');
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message || t('pages.bundleImport.preflightFailed'));
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamTemplateMode, retryNonce]);
+
   const runConfirm = async () => {
     if (!preflight) return;
     setBusy(true);
@@ -185,20 +218,29 @@ export default function BundleImportPage() {
     }
   };
 
+  // Where "leave this page" goes, by origin. A team-template install came
+  // from the Marketplace Teams tab, so back/close returns there — NOT to
+  // settings, and NOT to the deep-link 'upload' step (which renders blank
+  // once the auto-preflight has resolved).
+  const exitToOrigin = () => {
+    if (teamTemplateMode) navigate('/app/marketplace?tab=teams');
+    else navigate('/app/settings');
+  };
+
   return (
     <div className="h-full flex flex-col bg-[var(--bg-primary)]">
       <div className="px-6 py-4 border-b border-[var(--border-default)] flex items-center gap-3">
-        <button onClick={() => navigate('/app/settings')} className="p-1 hover:bg-[var(--bg-tertiary)]">
+        <button onClick={exitToOrigin} className="p-1 hover:bg-[var(--bg-tertiary)]">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Package className="w-5 h-5" />
         <h1 className="font-mono text-base">
-          {urlMode ? t('pages.bundleImport.installTemplate') : t('pages.bundleImport.importBundle')}
+          {deepLinkMode ? t('pages.bundleImport.installTemplate') : t('pages.bundleImport.importBundle')}
         </h1>
         <div className="ml-auto w-[360px]">
           <StepIndicator
             steps={[
-              { key: 'upload', label: urlMode ? t('pages.bundleImport.stepFetch') : t('pages.bundleImport.stepUpload') },
+              { key: 'upload', label: deepLinkMode ? t('pages.bundleImport.stepFetch') : t('pages.bundleImport.stepUpload') },
               { key: 'review', label: t('pages.bundleImport.stepReview') },
               { key: 'done', label: t('pages.bundleImport.stepDone') },
             ]}
@@ -208,14 +250,14 @@ export default function BundleImportPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {step === 'upload' && urlMode && (
+        {step === 'upload' && deepLinkMode && (
           <div className="max-w-2xl mx-auto space-y-4">
             <div className="border border-[var(--border-default)] rounded-md p-10 text-center bg-[var(--bg-secondary)]">
               {busy && (
                 <>
                   <Loader2 className="w-10 h-10 mx-auto text-[var(--text-tertiary)] animate-spin" />
                   <p className="mt-3 text-sm text-[var(--text-secondary)]">
-                    {t('pages.bundleImport.fetchingFrom')} <span className="font-mono break-all">{urlMode}</span>…
+                    {t('pages.bundleImport.fetchingFrom')} <span className="font-mono break-all">{urlMode || teamTemplateMode}</span>…
                   </p>
                 </>
               )}
@@ -239,7 +281,7 @@ export default function BundleImportPage() {
             {error && <ErrorBanner error={error} />}
           </div>
         )}
-        {step === 'upload' && !urlMode && (
+        {step === 'upload' && !deepLinkMode && (
           <div className="max-w-2xl mx-auto space-y-4">
             <div ref={dropRef}>
               <BracketDropzone active={dragActive}>
@@ -286,7 +328,7 @@ export default function BundleImportPage() {
         {step === 'review' && preflight && (
           <ReviewPanel
             preflight={preflight}
-            onBack={() => setStep('upload')}
+            onBack={() => (deepLinkMode ? exitToOrigin() : setStep('upload'))}
             onConfirm={runConfirm}
             busy={busy}
             error={error}
@@ -296,7 +338,7 @@ export default function BundleImportPage() {
         {step === 'done' && confirmResult && (
           <DonePanel
             result={confirmResult}
-            onClose={() => navigate('/app/settings')}
+            onClose={exitToOrigin}
             onViewIntro={() => {
               if (confirmResult.team_id) {
                 navigate(`/app/teams/${confirmResult.team_id}`);

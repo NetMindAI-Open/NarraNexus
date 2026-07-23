@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/components/layout/TopBar.tsx
-last_verified: 2026-06-24
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -20,7 +20,19 @@ logout) are deliberately kept *out* of here.
 
 - Left side: mobile hamburger + `BindingDot` + a breadcrumb derived from the
   route (`pageLabel`) falling back to the selected agent's name. Right side: a
-  LOCAL/CLOUD runtime label with an online dot, and the ⌘K palette trigger.
+  "Find Us" community pill, a LOCAL/CLOUD runtime label with an online dot,
+  and the ⌘K palette trigger.
+- The "Find Us" pill (ops requirement, 2026-07) is a plain external link to
+  the marketing site's social hub (`FIND_US_URL` →
+  https://www.narra.nexus/connect) — it exists to shorten the "sign up → join
+  the community" path, sits deliberately LEFT of the runtime label
+  (`topBarFindUs.test.tsx` pins the order), and must stay an `<a
+  target="_blank" rel="noopener noreferrer">`, not in-app routing. Its label
+  reuses the marketing site's `nav.findUs` translations
+  (`layout.topBar.findUs`) so both surfaces speak with one voice. It is the
+  only filled pill in the strip — that is its prominence mechanism inside the
+  monochrome NM palette; don't add more filled pills here or it stops
+  standing out.
 - Upstream: rendered once by [[MainLayout]] at the top of the app shell.
   Downstream: reads agents/`agentId` from [[useConfigStore]], `mode` from
   [[runtimeStore]], `toggleMobileNav` from [[uiStore]]; owns and renders

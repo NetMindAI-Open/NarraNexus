@@ -136,6 +136,51 @@ async def test_self_serviceable_does_not_advance_breaker(db_client):
 
 
 @pytest.mark.asyncio
+async def test_executor_infra_does_not_advance_breaker(db_client):
+    """A platform-side executor-infra failure (OOM / unreachable, surfaced as
+    error_type=infra_transient) must NOT cool or pause. The surfaced error tells
+    the user to "resend shortly"; cooling the agent would reject that very
+    resend (websocket should_skip) — turning one platform blip into a
+    self-inflicted second punishment (binding rule #15). No row is created →
+    should_skip stays open."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "ag_infra"
+    await record_failure(
+        aid, "infra_transient",
+        "This turn could not run: your execution container is temporarily "
+        "unreachable.",
+        db=db_client,
+    )
+    assert await repo.get(aid) is None  # no cooling/pause row created
+    await record_failure(
+        aid, "infra_transient",
+        "This turn could not run: the execution environment ran out of memory.",
+        db=db_client,
+    )
+    assert await repo.get(aid) is None
+    assert await should_skip(aid, db=db_client) == (False, None)
+
+
+@pytest.mark.asyncio
+async def test_executor_infra_leaves_prior_streak_intact(db_client):
+    """An executor-infra failure mid-streak must not reset or advance an
+    unrelated (transient) streak — the breaker simply stays out."""
+    repo = AgentCircuitBreakerRepository(db_client)
+    aid = "ag_infra_mix"
+    await record_failure(aid, "TimeoutError", "timeout", db=db_client)
+    await record_failure(aid, "TimeoutError", "timeout", db=db_client)
+    before = await repo.get(aid)
+    assert before.consecutive_failure_count == 2
+    await record_failure(
+        aid, "infra_transient", "execution container is temporarily unreachable",
+        db=db_client,
+    )
+    after = await repo.get(aid)
+    assert after.consecutive_failure_count == 2  # unchanged
+    assert after.failure_category == before.failure_category
+
+
+@pytest.mark.asyncio
 async def test_self_serviceable_leaves_prior_streak_intact(db_client):
     """A self-serviceable failure mid-streak must not reset or advance an
     unrelated (transient) streak — the breaker simply stays out."""

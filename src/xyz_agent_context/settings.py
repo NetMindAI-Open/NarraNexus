@@ -165,6 +165,14 @@ class Settings(BaseSettings):
     # dev server, Electron bundle, and CLI scripts.
     base_working_path: str = str(Path.home() / ".nexusagent" / "workspaces")
 
+    # ===== Skill Marketplace =====
+    # When true, this instance hosts its OWN skill registry (catalog in the
+    # local DB, artifacts in the local store) instead of proxying browse/
+    # install to NARRANEXUS_MARKETPLACE_URL. For dev, offline demos, and the
+    # window before the cloud marketplace is live. Settable from .env so
+    # `make dev-backend` needs no env prefix.
+    skill_marketplace_local_registry: bool = False
+
     # Dedicated CLAUDE_CONFIG_DIR for the agent_loop CLI subprocess, kept
     # OUT of the host user's ~/.claude. Claude Code applies that file's `env`
     # block above the subprocess env we inject, so a developer's personal

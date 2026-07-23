@@ -872,9 +872,11 @@ async def get_agent_framework(request: Request):
 async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     """Persist the user's coding-agent framework choice.
 
-    Cloud: staff-only — the gate above 403s non-staff (switching to a
-    framework with no API-key provider would fall back to the shared CLI
-    credentials).
+    Cloud: DIRECTION-AWARE — a non-staff user may always switch back to
+    ``claude_code`` (the only cloud-supported framework; the gate below lets it
+    through), but switching to any OTHER framework is staff-only (it would fall
+    back to the shared CLI credentials). This unlocks old codex_cli users who
+    otherwise couldn't self-recover.
 
     Side effect: when ``framework == "codex_cli"`` this verifies the
     codex binary bundled with the ``openai-codex-cli-bin`` wheel is
@@ -887,10 +889,11 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     ``claude`` binary is installed at run.sh boot.
     """
     uid = _get_user_id(request)
-    if _is_cloud() and not _is_staff(request):
-        # Same copy as the per-agent framework pin gate (cloud_policy) —
-        # the old "use one-key onboarding with your own API key" advice
-        # contradicted the netmind-only policy.
+    # Direction-aware gate: a non-staff cloud user may ALWAYS switch back TO
+    # claude_code (the only cloud-supported framework) — blocking that direction
+    # dead-locked old codex_cli users who couldn't self-recover. Only switching
+    # to a NON-claude_code framework is staff-only.
+    if _is_cloud() and not _is_staff(request) and body.framework != "claude_code":
         raise HTTPException(status_code=403, detail=FRAMEWORK_LOCKED_DETAIL)
     if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
         raise HTTPException(

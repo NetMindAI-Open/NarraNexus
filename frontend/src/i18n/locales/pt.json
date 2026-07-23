@@ -132,11 +132,15 @@
       "situationFailed": "Esta execução encontrou um erro e o agente não conseguiu responder normalmente. Detalhes:",
       "situationRecovered": "O agente respondeu, mas ocorreram erros durante a execução. Detalhes:",
       "titleActionable": "Ação necessária",
+      "titleInfra": "Problema no ambiente de execução",
       "action": {
         "context_window": "A janela de contexto do modelo selecionado é pequena demais para este agente. Troque por um modelo com janela de contexto maior nas Configurações e envie novamente.",
         "insufficient_balance": "O provedor do modelo informa saldo ou cota insuficiente. Recarregue ou troque o provedor nas Configurações e envie novamente.",
         "model_not_found": "O id do modelo configurado foi rejeitado pelo provedor (não encontrado ou inválido). Escolha um modelo válido nas Configurações e envie novamente.",
-        "generic": "Este turno não pôde ser executado devido a um problema de configuração que você pode corrigir nas Configurações. Corrija e envie novamente."
+        "generic": "Este turno não pôde ser executado devido a um problema de configuração que você pode corrigir nas Configurações. Corrija e envie novamente.",
+        "executor_oom": "O ambiente de execução ficou sem memória e foi interrompido pelo sistema. Divida a tarefa em etapas menores ou reduza os módulos ativos e envie novamente.",
+        "executor_unreachable": "Seu contêiner de execução está temporariamente inacessível. Normalmente se recupera em alguns segundos — reenvie esta mensagem em breve.",
+        "infra_transient": "Este turno não pôde ser executado devido a um problema temporário de execução na plataforma. Envie a mensagem novamente em instantes."
       }
     }
   },
@@ -633,7 +637,9 @@
       "runtimeUnknown": "Desconhecido",
       "openMenu": "Abrir menu",
       "commandPaletteTitle": "Paleta de comandos (⌘K)",
-      "search": "buscar"
+      "search": "buscar",
+      "findUs": "Siga-nos",
+      "findUsTitle": "Junte-se à comunidade NarraNexus"
     },
     "commandPalette": {
       "hintAgent": "Agente",

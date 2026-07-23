@@ -4,6 +4,7 @@
  */
 
 import type {
+  BusAttachment,
   JobListResponse,
   JobDetailResponse,
   CancelJobResponse,
@@ -48,6 +49,10 @@ import type {
   SkillListResponse,
   SkillOperationResponse,
   SkillStudyResponse,
+  MarketplaceSearchResponse,
+  MarketplaceSkillDetail,
+  MarketplaceInstallResponse,
+  SkillUpdateInfo,
   CostResponse,
   SkillEnvConfigResponse,
   DashboardResponse,
@@ -62,6 +67,8 @@ import type {
   TeamChatSendResponse,
   BundleExportRequest,
   BundlePreflightResponse,
+  TeamTemplate,
+  TeamMarketplaceListResponse,
   BundleConfirmResponse,
   BundleArtifactPreview,
   BundleMcpPreview,
@@ -90,6 +97,8 @@ import type {
   RechargeStatusResponse,
   AgentSlotView,
   AgentSlotEffective,
+  WorkerStatus,
+  WorkerLiveness,
 } from '@/types';
 
 // Base URL resolution is delegated to runtimeStore.getApiBaseUrl() so
@@ -229,6 +238,43 @@ class ApiClient {
 
   async getJob(jobId: string): Promise<JobDetailResponse> {
     return this.request<JobDetailResponse>(`/api/jobs/${encodeURIComponent(jobId)}`);
+  }
+
+  // Per-worker liveness of the consolidated `workers` supervisor (System page).
+  // Maps the snake_case backend payload to the camelCase WorkerStatus type.
+  async getWorkerStatus(): Promise<WorkerStatus> {
+    const raw = await this.request<{
+      available: boolean;
+      heartbeat_age_seconds: number | null;
+      workers: Array<{
+        name: string;
+        state: string;
+        restart_count: number;
+        last_error: string | null;
+      }>;
+    }>('/api/admin/runtime/workers');
+    const KNOWN: WorkerLiveness['state'][] = [
+      'starting',
+      'running',
+      'restarting',
+      'stopped',
+      'unknown',
+    ];
+    return {
+      available: !!raw.available,
+      heartbeatAgeSeconds: raw.heartbeat_age_seconds ?? null,
+      workers: (raw.workers ?? []).map((w) => {
+        // Validate against the known set — a plain `as` cast would let an
+        // unrecognised backend state pass through and render a raw i18n key.
+        const s = w.state as WorkerLiveness['state'];
+        return {
+          name: w.name,
+          state: KNOWN.includes(s) ? s : 'unknown',
+          restartCount: w.restart_count ?? 0,
+          lastError: w.last_error ?? null,
+        };
+      }),
+    };
   }
 
   // ── Home Assistant (smart-home) binding — per-agent ──
@@ -775,6 +821,24 @@ class ApiClient {
     return response.blob();
   }
 
+  /**
+   * Fetch a bus-message attachment's bytes as a Blob (JWT/X-User-Id attached).
+   * Bus attachments live in the per-user shared area and are addressed by
+   * `rel_path` (from a message's `attachments` entry), served by
+   * `GET /api/agent-inbox/attachments/raw`. Bypasses `request<T>` — binary body.
+   */
+  async fetchBusAttachmentBlob(relPath: string): Promise<Blob> {
+    const url = `${getApiBaseUrl()}/api/agent-inbox/attachments/raw?path=${encodeURIComponent(relPath)}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.blob();
+  }
+
   async deleteFile(agentId: string, path: string): Promise<FileDeleteResponse> {
     // Path may contain slashes (nested workspace path). encodeURI preserves
     // them while still encoding spaces / unicode. The `{path:path}` route
@@ -951,6 +1015,58 @@ class ApiClient {
     return this.request<SkillOperationResponse>(
       `/api/skills/${encodeURIComponent(skillName)}/enable?${params}`,
       { method: 'PUT' }
+    );
+  }
+
+  // Skill Marketplace API — /api/marketplace/skills/* (read endpoints are
+  // public; agent_id-scoped calls carry identity headers like the rest).
+  async searchMarketplaceSkills(params: {
+    q?: string;
+    category?: string;
+    capability?: string;
+    sort?: 'downloads' | 'published' | 'name';
+    page?: number;
+    limit?: number;
+    agentId?: string;
+  }): Promise<MarketplaceSearchResponse> {
+    const search = new URLSearchParams();
+    if (params.q) search.set('q', params.q);
+    if (params.category) search.set('category', params.category);
+    if (params.capability) search.set('capability', params.capability);
+    if (params.sort) search.set('sort', params.sort);
+    if (params.page) search.set('page', String(params.page));
+    if (params.limit) search.set('limit', String(params.limit));
+    if (params.agentId) search.set('agent_id', params.agentId);
+    return this.request<MarketplaceSearchResponse>(
+      `/api/marketplace/skills/search?${search}`
+    );
+  }
+
+  async getMarketplaceSkillDetail(skillId: string): Promise<MarketplaceSkillDetail> {
+    return this.request<MarketplaceSkillDetail>(
+      `/api/marketplace/skills/${encodeURIComponent(skillId)}`
+    );
+  }
+
+  async installMarketplaceSkill(
+    skillId: string,
+    agentId: string,
+    version?: string
+  ): Promise<MarketplaceInstallResponse> {
+    return this.request<MarketplaceInstallResponse>(
+      `/api/marketplace/skills/${encodeURIComponent(skillId)}/install`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_id: agentId, ...(version ? { version } : {}) }),
+      }
+    );
+  }
+
+  async checkSkillUpdates(agentId: string): Promise<{ updates: SkillUpdateInfo[] }> {
+    const params = new URLSearchParams({ agent_id: agentId });
+    return this.request<{ updates: SkillUpdateInfo[] }>(
+      `/api/marketplace/skills/updates?${params}`
     );
   }
 
@@ -1593,7 +1709,7 @@ class ApiClient {
     });
   }
 
-  async updateTeam(teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string }): Promise<TeamOperationResponse> {
+  async updateTeam(teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string; lead_agent_id?: string }): Promise<TeamOperationResponse> {
     return this.request<TeamOperationResponse>(`/api/teams/${encodeURIComponent(teamId)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
@@ -1620,6 +1736,19 @@ class ApiClient {
     );
   }
 
+  /** Clear a team's data (group-chat and/or shared files), keeping the team,
+   *  its members and the bus channel. Team counterpart to clearHistory. */
+  async clearTeamData(
+    teamId: string,
+    opts: { chat: boolean; files: boolean } = { chat: true, files: true },
+  ): Promise<{ success: boolean; chat_messages?: number; files_removed?: boolean; error?: string }> {
+    const params = new URLSearchParams({ chat: String(opts.chat), files: String(opts.files) });
+    return this.request(
+      `/api/teams/${encodeURIComponent(teamId)}/data?${params}`,
+      { method: 'DELETE' },
+    );
+  }
+
   // --- Team group chat (over the message bus) ---
 
   async getTeamChat(teamId: string, since?: string): Promise<TeamChatHistoryResponse> {
@@ -1630,12 +1759,44 @@ class ApiClient {
   }
 
   /** Post a user message into a team's group chat. `mentions` carries
-   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone). */
-  async sendTeamChat(teamId: string, content: string, mentions: string[]): Promise<TeamChatSendResponse> {
+   *  agent_ids and/or the literal "@all" (the backend maps it to @everyone).
+   *  `attachments` are bus-attachment dicts from `uploadTeamChatAttachment`. */
+  async sendTeamChat(
+    teamId: string,
+    content: string,
+    mentions: string[],
+    attachments: BusAttachment[] = [],
+  ): Promise<TeamChatSendResponse> {
     return this.request<TeamChatSendResponse>(
       `/api/teams/${encodeURIComponent(teamId)}/chat/messages`,
-      { method: 'POST', body: JSON.stringify({ content, mentions }) },
+      { method: 'POST', body: JSON.stringify({ content, mentions, attachments }) },
     );
+  }
+
+  /** Upload a file to attach to a team chat message. Returns the
+   *  bus-attachment dict to echo back in `sendTeamChat`. Multipart, so it
+   *  bypasses `request<T>` (which forces application/json). */
+  async uploadTeamChatAttachment(
+    teamId: string,
+    file: File,
+    options?: { source?: 'recording' | 'upload' },
+  ): Promise<{
+    success: boolean;
+    attachment?: BusAttachment;
+    transcription_available?: boolean | null;
+    error?: string;
+  }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const params = new URLSearchParams();
+    if (options?.source) params.set('source', options.source);
+    const qs = params.toString();
+    const url = `${getApiBaseUrl()}/api/teams/${encodeURIComponent(teamId)}/chat/attachments${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url, { method: 'POST', body: formData, headers: this.getAuthHeaders() });
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
   }
 
   // =========================================================================
@@ -1708,6 +1869,29 @@ class ApiClient {
         expected_sha256: expectedSha256 ?? null,
       }),
     });
+  }
+
+  // Team Marketplace — /api/marketplace/teams/*
+  async getTeamTemplates(): Promise<TeamMarketplaceListResponse> {
+    return this.request<TeamMarketplaceListResponse>('/api/marketplace/teams/templates');
+  }
+
+  async getTeamTemplate(templateId: string): Promise<TeamTemplate> {
+    return this.request<TeamTemplate>(
+      `/api/marketplace/teams/templates/${encodeURIComponent(templateId)}`,
+    );
+  }
+
+  /** Resolve + verify the template bundle server-side and run the local
+   *  importer preflight. Same response shape as a normal bundle preflight,
+   *  so the existing review/confirm wizard consumes it unchanged. */
+  async installTeamTemplatePreflight(
+    templateId: string,
+  ): Promise<BundlePreflightResponse> {
+    return this.request<BundlePreflightResponse>(
+      `/api/marketplace/teams/templates/${encodeURIComponent(templateId)}/install-preflight`,
+      { method: 'POST', body: JSON.stringify({}) },
+    );
   }
 
   async previewBusChannels(agentIds: string[]): Promise<{ channels: Array<{

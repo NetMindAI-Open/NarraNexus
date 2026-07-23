@@ -271,16 +271,20 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 </span>
               )}
             </label>
-            {/* Cloud non-staff: framework switching is staff-only (backend
-                403s it). The select stays interactive — picking a different
-                framework pops an explanation and snaps back, which reads
-                friendlier than a greyed-out control with permanent copy. */}
+            {/* Cloud non-staff: switching TO a non-claude_code framework is
+                staff-only (backend 403s it); switching back to claude_code is
+                always allowed. The select stays interactive — picking a
+                non-claude_code framework pops an explanation and snaps back,
+                which reads friendlier than a greyed-out control. */}
             <select
               className={selectCls}
               value={framework}
               disabled={frameworkSaving}
               onChange={(e) => {
-                if (netmindOnly && e.target.value !== framework) {
+                // Direction-aware: a cloud netmind-only user may always switch
+                // back TO claude_code (recovers old codex_cli users); only
+                // switching to a NON-claude_code framework shows the notice.
+                if (netmindOnly && e.target.value !== 'claude_code') {
                   void showNotice({
                     title: t(
                       'pages.settings.modelDefaults.cloudFrameworkLockedTitle',

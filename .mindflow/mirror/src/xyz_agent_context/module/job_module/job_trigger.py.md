@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-18
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
+
+`JobTrigger.start()` is unchanged, but it is no longer launched as a standalone
+`job_trigger.py` process. It is now one supervised task inside
+[[run_worker_supervisor.py]] (shared event loop + DB pool, backoff-restart on
+crash — which does NOT cap a running agent_loop, only re-arms the task if the
+process-level loop itself raises; binding rule #14 intact). The "独立部署/独立
+进程" framing below is HISTORY. Its own `ServiceAuditor("job_trigger")`,
+`recover_all_running_jobs` startup recovery, and the `__main__` debug entrypoint
+are retained.
 
 ## 2026-07-18 — _user_can_run docstring 随偏好删除微调（行为不变）
 

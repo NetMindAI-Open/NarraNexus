@@ -344,4 +344,148 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             logger.exception(f"skill_list_unbackedup failed: {e}")
             return f"Query failed: {e}"
 
+    @mcp.tool()
+    async def skill_search_marketplace(
+        agent_id: str,
+        user_id: str,
+        query: str,
+        capability: str = "",
+    ) -> str:
+        """
+        Search the NarraNexus Skill Marketplace for installable skills.
+
+        **WHEN TO CALL**: The user asks for a capability you don't have, or asks
+        you to find/install a skill. After reviewing the results, install the
+        chosen one with `skill_install`.
+
+        Args:
+            agent_id: Agent ID
+            user_id: User ID
+            query: Free-text search (name/description/tags)
+            capability: Optional capability tag filter, e.g. "search:web"
+
+        Returns:
+            A ranked list of matching skills with id, version, description and
+            security-scan status, or a message when nothing matches.
+        """
+        try:
+            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+
+            payload = await SkillMarketplaceService().search(
+                q=query or None,
+                capability=capability or None,
+                agent_id=agent_id,
+                user_id=user_id,
+                limit=10,
+            )
+            items = payload.get("items", [])
+            if not items:
+                return f"No marketplace skills match '{query}'."
+            lines = []
+            for item in items:
+                skill_id = item.get("skill_id") or item.get("id")
+                flags = []
+                if item.get("installed"):
+                    flags.append("installed")
+                if item.get("update_available"):
+                    flags.append("update available")
+                suffix = f" [{', '.join(flags)}]" if flags else ""
+                scan = (item.get("security_scan") or {}).get("status") or item.get("scan_status")
+                lines.append(
+                    f"- {skill_id}@{item.get('version')}{suffix} — "
+                    f"{item.get('description') or ''} (scan: {scan}, "
+                    f"downloads: {item.get('downloads', 0)})"
+                )
+            return "Marketplace results:\n" + "\n".join(lines)
+        except Exception as e:
+            logger.exception(f"skill_search_marketplace failed: {e}")
+            return f"Marketplace search is unavailable right now: {e}"
+
+    @mcp.tool()
+    async def skill_install(
+        agent_id: str,
+        user_id: str,
+        skill_id_or_url: str,
+        version: str = "",
+    ) -> str:
+        """
+        Install a skill for this agent — the ONLY sanctioned way to install.
+
+        Never create skill directories by hand under `skills/`. This tool runs
+        the full install pipeline (security scan, conflict handling with config
+        migration, audit trail). Accepts either a marketplace skill id (from
+        `skill_search_marketplace`) or a GitHub URL the user provided.
+
+        Args:
+            agent_id: Agent ID
+            user_id: User ID
+            skill_id_or_url: Marketplace skill id, or https://github.com/... URL
+            version: Optional exact version (marketplace source only)
+
+        Returns:
+            Outcome message. If configuration is required, it says so — tell the
+            user to open the Skill tab and fill in the required keys.
+        """
+        try:
+            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+
+            service = SkillMarketplaceService()
+            if skill_id_or_url.startswith(("http://", "https://", "github:")):
+                result = await service.install_from_url(agent_id, user_id, skill_id_or_url)
+            else:
+                result = await service.install(
+                    agent_id, user_id, skill_id_or_url, version=version or None
+                )
+            name = result.skill.name if result.skill else skill_id_or_url
+            if result.status == "already_installed":
+                return f"Skill '{name}' is already installed at this version."
+            message = f"Installed skill '{name}'"
+            if result.replaced_version:
+                message += f" (replaced v{result.replaced_version}; existing config migrated)"
+            message += ". It takes effect on the next run."
+            if result.config_required:
+                message += (
+                    " ⚠️ It needs configuration — tell the user to open the Skill tab "
+                    "and fill in the required keys before using it."
+                )
+            if result.warnings:
+                message += f" Note: {len(result.warnings)} low-risk security warning(s) were found."
+            return message
+        except FileNotFoundError:
+            return f"Skill '{skill_id_or_url}' was not found in the marketplace."
+        except ValueError as e:
+            return f"Install rejected: {e}"
+        except Exception as e:
+            logger.exception(f"skill_install failed: {e}")
+            return f"Install failed: {e}"
+
+    @mcp.tool()
+    async def skill_uninstall(agent_id: str, user_id: str, skill_name: str) -> str:
+        """
+        Uninstall a skill — the ONLY sanctioned way to remove one.
+
+        Never delete skill directories by hand under `skills/`. Built-in skills
+        cannot be removed (disable them instead via the UI).
+
+        Args:
+            agent_id: Agent ID
+            user_id: User ID
+            skill_name: The installed skill's name (directory name)
+
+        Returns:
+            Outcome message.
+        """
+        try:
+            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+
+            removed = await SkillMarketplaceService().uninstall(agent_id, user_id, skill_name)
+            if removed:
+                return f"Skill '{skill_name}' has been uninstalled."
+            return f"Skill '{skill_name}' is not installed."
+        except ValueError as e:
+            return f"Cannot uninstall: {e}"
+        except Exception as e:
+            logger.exception(f"skill_uninstall failed: {e}")
+            return f"Uninstall failed: {e}"
+
     return mcp

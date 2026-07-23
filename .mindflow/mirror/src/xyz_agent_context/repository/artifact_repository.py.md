@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/repository/artifact_repository.py
-last_verified: 2026-05-19
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — update_title() added
+
+`PATCH .../artifacts/{aid}` used to inline `db.update("instance_artifacts",
+..., {"title": ...[:200]})` in the route handler — a repository bypass with
+the truncation rule living in the wrong layer. `update_title()` brings the
+write (and the 200-char cap + `updated_at` bump) into the repository, matching
+`update_pointer`'s conventions. The business-logic callers now live in
+`xyz_agent_context/artifact/` (ArtifactService); this repository stays the
+single SQL surface for `instance_artifacts`.
 
 ## 2026-05-19 — quota helpers removed
 

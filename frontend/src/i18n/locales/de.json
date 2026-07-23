@@ -132,11 +132,15 @@
       "situationFailed": "Bei dieser Ausführung trat ein Fehler auf und der Agent konnte nicht normal antworten. Details:",
       "situationRecovered": "Der Agent hat geantwortet, aber während der Ausführung traten Fehler auf. Details:",
       "titleActionable": "Aktion erforderlich",
+      "titleInfra": "Problem mit der Ausführungsumgebung",
       "action": {
         "context_window": "Das Kontextfenster des gewählten Modells ist für diesen Agent zu klein. Wählen Sie in den Einstellungen ein Modell mit größerem Kontextfenster und senden Sie erneut.",
         "insufficient_balance": "Der Modellanbieter meldet unzureichendes Guthaben oder Kontingent. Laden Sie in den Einstellungen auf oder wechseln Sie den Anbieter und senden Sie erneut.",
         "model_not_found": "Die konfigurierte Modell-ID wurde vom Anbieter abgelehnt (nicht gefunden oder ungültig). Wählen Sie in den Einstellungen ein gültiges Modell und senden Sie erneut.",
-        "generic": "Dieser Durchlauf konnte wegen eines in den Einstellungen behebbaren Konfigurationsproblems nicht ausgeführt werden. Beheben und erneut senden."
+        "generic": "Dieser Durchlauf konnte wegen eines in den Einstellungen behebbaren Konfigurationsproblems nicht ausgeführt werden. Beheben und erneut senden.",
+        "executor_oom": "Der Ausführungsumgebung ging der Speicher aus und sie wurde vom System gestoppt. Teilen Sie die Aufgabe in kleinere Schritte auf oder reduzieren Sie aktive Module und senden Sie erneut.",
+        "executor_unreachable": "Ihr Ausführungscontainer ist vorübergehend nicht erreichbar. Er erholt sich normalerweise innerhalb weniger Sekunden — bitte senden Sie diese Nachricht in Kürze erneut.",
+        "infra_transient": "Diese Runde konnte aufgrund eines vorübergehenden plattformseitigen Ausführungsproblems nicht ausgeführt werden. Bitte senden Sie die Nachricht gleich erneut."
       }
     }
   },
@@ -633,7 +637,9 @@
       "runtimeUnknown": "Unbekannt",
       "openMenu": "Menü öffnen",
       "commandPaletteTitle": "Befehlspalette (⌘K)",
-      "search": "suchen"
+      "search": "suchen",
+      "findUs": "Folgen Sie uns",
+      "findUsTitle": "Tritt der NarraNexus-Community bei"
     },
     "commandPalette": {
       "hintAgent": "Agent",

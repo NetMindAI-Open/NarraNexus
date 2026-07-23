@@ -1,8 +1,17 @@
 ---
 code_file: backend/routes/inbox.py
-last_verified: 2026-07-03
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — bus attachments surface in the inbox
+
+Each inbox message now carries `attachments` (parsed from the `bus_messages.attachments`
+JSON column). New `GET /attachments/raw?path=<rel_path>` streams a shared-area bus file
+after gating it to the authenticated user via
+`message_bus.attachments.resolve_shared_file_for_user` (facade over [[_bus_attachment_impl]]) (path's first segment must equal the
+user_id; no traversal outside `{base}/{user_id}`). This is the DM/peer counterpart to the
+team-chat attachment surface in [[teams]]; both serve through this one endpoint.
 
 ## 2026-07-03 — message_id tie-break in the per-channel message query
 

@@ -1,9 +1,14 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactRenderer.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — application/x-url → UrlRenderer
+
+Dispatch table gained `application/x-url` → lazy `UrlRenderer` (see
+[[UrlRenderer.tsx]]). Same office-live extension pattern (union + table +
+renderer).
 ## 2026-05-14 — drop `version` prop from RendererComponent
 
 Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`

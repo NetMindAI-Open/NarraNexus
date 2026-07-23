@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/repository/team_repository.py
-last_verified: 2026-05-08
+last_verified: 2026-07-22
 stub: false
 ---
 
@@ -35,3 +35,20 @@ stub: false
 ## Gotcha
 
 - `delete_team` 只删 `teams` 表行；调用方（routes/teams.py）必须**先**调 `member_repo.remove_all_members(team_id)`。这条契约只在 routes 层保证。
+
+## 2026-07-22 — member ordering: `id ASC`, not `joined_at`
+
+`list_members_by_team` orders by `id ASC` (auto-increment == join order). The
+original `"joined_at ASC, id ASC"` was silently mangled by the `order_by`
+parser (all three backends `split()` and only honor a single
+`<field> [ASC|DESC]` — the composite tiebreaker vanished), leaving
+`ORDER BY joined_at` alone; with SQLite's second-precision `joined_at`,
+same-second members tied and the default responder in [[teams]] could drift
+between requests. Don't pass composite `order_by` strings anywhere until
+`AsyncDatabaseClient.get` actually supports them.
+
+## 2026-07-21 — lead_agent_id + ordered members
+
+`_row_to_entity`/`_entity_to_row` now carry `teams.lead_agent_id`.
+`list_members_by_team` is ordered so the first entry is the earliest-joined
+member — the default-responder fallback in [[teams]] relies on that ordering.

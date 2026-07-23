@@ -26,12 +26,15 @@ from xyz_agent_context.schema import (
     ErrorMessage,
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
+    EXECUTOR_INFRA_ERROR_TYPE,
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.llm_failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
+    classify_executor_infra_failure,
+    executor_infra_user_message,
 )
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 
@@ -210,6 +213,23 @@ def _serialize_agent_loop_for_prompt(
     return body
 
 
+def _has_organic_reply(agent_loop_response: list) -> bool:
+    """True if the agent already sent a real user reply this turn via
+    ``send_message_to_user_directly`` (a ProgressMessage tagged with that tool
+    name). Used to decide severity when a LATER failure hits: a turn that
+    already spoke must not be re-surfaced as a hard "retry" fatal — the user
+    got their answer, so it's a warning that the turn didn't finish all planned
+    work (severity=recovered_after_reply)."""
+    for r in agent_loop_response:
+        if not isinstance(r, ProgressMessage) or not r.details:
+            continue
+        details = r.details if isinstance(r.details, dict) else {}
+        tool_name = details.get("tool_name") or ""
+        if "send_message_to_user_directly" in tool_name:
+            return True
+    return False
+
+
 def _should_run_helper_llm_fallback(
     working_source: str,
     agent_loop_response: list,
@@ -255,18 +275,7 @@ def _should_run_helper_llm_fallback(
         isinstance(r, ErrorMessage) and getattr(r, "severity", "fatal") == "fatal"
         for r in agent_loop_response
     )
-    has_reply = False
-    for r in agent_loop_response:
-        if not isinstance(r, ProgressMessage) or not r.details:
-            continue
-        tool_name = (
-            (r.details.get("tool_name") or "")
-            if isinstance(r.details, dict)
-            else ""
-        )
-        if "send_message_to_user_directly" in tool_name:
-            has_reply = True
-            break
+    has_reply = _has_organic_reply(agent_loop_response)
 
     if has_fatal and has_reply:
         return "partial_reply_then_error", ""
@@ -279,23 +288,27 @@ def _should_run_helper_llm_fallback(
 
 def _fallback_skip_decision(
     agent_loop_response: list, captured_error: dict | None
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, str | None, str | None]:
     """Decide whether the helper-LLM fallback must be SKIPPED because the turn
-    failed a way the USER must fix (dead credentials, or a deterministic
-    self-serviceable config error — context window too small, no credits, bad
-    model id). Fabricating a reply over such a turn hides a fixable cause and
-    misleads the user (the "black box" P1 + incident 2026-06-11).
+    failed a way a fabricated reply would MASK — either a user-fixable failure
+    (dead credentials, or a deterministic self-serviceable config error —
+    context window too small, no credits, bad model id) OR a platform-side
+    executor-infra failure (OOM kill, executor/broker unreachable). Fabricating
+    a reply over such a turn hides the real cause and misleads the user (the
+    "black box" P1 + incident 2026-06-11).
 
-    Returns ``(kind, reason)``:
-      - ``("inline", None)`` — response_processor already surfaced the fatal,
-        actionable ErrorMessage (``auth_expired`` / ``config_actionable``);
+    Returns ``(kind, reason, target_error_type)``:
+      - ``("inline", None, None)`` — response_processor already surfaced the
+        fatal, actionable ErrorMessage (``auth_expired`` / ``config_actionable``);
         it's in ``agent_loop_response``. Caller skips the fallback; no new
         message needed.
-      - ``("raw_exception", reason)`` — the loop raised a Python exception, so
-        ``captured_error`` is set but NO ErrorMessage exists yet, and it is
-        self-serviceable. Caller skips the fallback AND emits a fatal,
-        actionable ErrorMessage for ``reason`` (else the error is invisible).
-      - ``(None, None)`` — no user-fixable failure; run the normal fallback.
+      - ``("raw_exception", reason, target_error_type)`` — the loop raised a
+        Python exception, so ``captured_error`` is set but NO ErrorMessage
+        exists yet, and it is either self-serviceable
+        (``target_error_type == SELF_SERVICEABLE_ERROR_TYPE``) or executor-infra
+        (``target_error_type == EXECUTOR_INFRA_ERROR_TYPE``). Caller skips the
+        fallback AND emits a fatal, actionable ErrorMessage (else invisible).
+      - ``(None, None, None)`` — no maskable failure; run the normal fallback.
     """
     inline_fatal_user_fixable = any(
         isinstance(m, ErrorMessage)
@@ -304,15 +317,21 @@ def _fallback_skip_decision(
         for m in agent_loop_response
     )
     if inline_fatal_user_fixable:
-        return "inline", None
+        return "inline", None, None
     if captured_error is not None:
-        reason = classify_self_serviceable(
-            captured_error.get("error_type"),
-            captured_error.get("error_message"),
-        )
+        et = captured_error.get("error_type")
+        em = captured_error.get("error_message")
+        # Executor-infra checked first: an unreachable-executor exception is a
+        # RuntimeError whose text could otherwise be scanned by the more
+        # permissive self-serviceable markers; the typed/returncode signal is
+        # unambiguous, so it wins.
+        infra_reason = classify_executor_infra_failure(et, em)
+        if infra_reason is not None:
+            return "raw_exception", infra_reason, EXECUTOR_INFRA_ERROR_TYPE
+        reason = classify_self_serviceable(et, em)
         if reason is not None:
-            return "raw_exception", reason
-    return None, None
+            return "raw_exception", reason, SELF_SERVICEABLE_ERROR_TYPE
+    return None, None, None
 
 
 _FALLBACK_NO_REPLY_INSTRUCTIONS = (
@@ -631,35 +650,58 @@ async def _stream_fallback_recovery(
         )
 
 
-async def _record_oom_if_killed(
-    db_client: Any, user_id: str, error_str: str, output_already_emitted: bool
+async def _record_executor_infra_event(
+    db_client: Any,
+    user_id: str,
+    error_type: str,
+    error_str: str,
+    output_already_emitted: bool,
 ) -> None:
-    """Record an audit row when the agent loop died from an executor OOM
-    (subprocess SIGKILL — ``exit code -9``), for monitoring/alerting.
+    """Record an audit row when the agent loop died from an executor-infra
+    failure — an OOM subprocess kill (``exit code -9`` SIGKILL / ``-6``
+    SIGABRT) or an unreachable executor/broker (``ExecutorUnreachableError``)
+    — for monitoring/alerting (surfaced via /admin/runtime/status counts).
 
     Best-effort: never raises. A retry/recovery path is intentionally NOT
-    added here yet — the streaming loop must first be made cleanly
-    re-runnable (tracked separately in the scheduling-resource plan); today
-    an OOM falls through to the existing fallback. We only need visibility so
-    the platform can alert and the affected user's memory cap can be tuned.
+    added here (tracked separately in the scheduling-resource plan); today the
+    caller SURFACES an actionable ``infra_transient`` error to the user and
+    skips the helper-LLM fallback so the failure is never masked by a
+    fabricated reply. We only need visibility so the platform can alert and the
+    affected user's memory cap can be tuned.
     """
-    if "exit code -9" not in error_str:
+    reason = classify_executor_infra_failure(error_type, error_str)
+    if reason is None:
         return
     try:
         from xyz_agent_context.repository.executor_audit_repository import (
             ExecutorAuditRepository,
         )
+        from xyz_agent_context.schema.executor_audit import (
+            EVENT_OOM_KILLED,
+            EVENT_EXECUTOR_UNREACHABLE,
+        )
+        from xyz_agent_context.agent_framework.llm_failure import (
+            EXECUTOR_INFRA_REASON_OOM,
+        )
 
+        event_type = (
+            EVENT_OOM_KILLED
+            if reason == EXECUTOR_INFRA_REASON_OOM
+            else EVENT_EXECUTOR_UNREACHABLE
+        )
         await ExecutorAuditRepository(db_client).record(
-            event_type="oom_killed",
+            event_type=event_type,
             user_id=user_id,
             detail={
+                "error_type": error_type,
                 "error_message": error_str[:500],
                 "output_already_emitted": output_already_emitted,
             },
         )
     except Exception as audit_err:  # noqa: BLE001
-        logger.warning(f"[oom-audit] failed to record OOM event: {audit_err}")
+        logger.warning(
+            f"[executor-infra-audit] failed to record {reason} event: {audit_err}"
+        )
 
 
 @timed("step.3_agent_loop")
@@ -809,33 +851,38 @@ async def step_3_agent_loop(
         ensure_executor,
         wait_until_ready,
     )
-    ensured = await ensure_executor(ctx.user_id)
-    executor_url = ensured.url if ensured else None
-    if ensured is not None and ensured.cold_started:
-        # The user's executor was asleep and is being woken — emit a
-        # semantic marker so the frontend can show the "waking up" overlay.
-        # English text only (iron rule #1); the localized friendly copy
-        # lives in the frontend, keyed on step="executor.warming".
-        yield ProgressMessage(
-            step="executor.warming",
-            title="Waking up your agent",
-            description="Your agent was idle; starting it up…",
-            status=ProgressStatus.RUNNING,
-        )
-        # The container is started but uvicorn on :8020 takes a few seconds to
-        # come up. Wait for it to be ready BEFORE driving the loop — otherwise
-        # the first connection races the cold start, fails, and the run drops
-        # into the fallback path instead of actually running the agent.
-        await wait_until_ready(executor_url)
-    driver = get_agent_loop_driver(
-        framework=framework_name,
-        executor_url=executor_url,
-        working_path=agent_working_path,
-    )
-    # Clear the "waking up" overlay the instant the (now-awake) executor
-    # emits its first event — the COMPLETED that pairs the RUNNING above.
-    _warming_active = ensured is not None and ensured.cold_started
+    # Executor ensure/warm is INSIDE the try so a cold-start failure
+    # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
+    # down or the container never boots) lands in the same except as a mid-run
+    # drop, and is surfaced as an actionable ``infra_transient`` error rather
+    # than escaping step_3 as a raw exception (issue ②'s bare-ClientConnectorError).
     try:
+        ensured = await ensure_executor(ctx.user_id)
+        executor_url = ensured.url if ensured else None
+        if ensured is not None and ensured.cold_started:
+            # The user's executor was asleep and is being woken — emit a
+            # semantic marker so the frontend can show the "waking up" overlay.
+            # English text only (iron rule #1); the localized friendly copy
+            # lives in the frontend, keyed on step="executor.warming".
+            yield ProgressMessage(
+                step="executor.warming",
+                title="Waking up your agent",
+                description="Your agent was idle; starting it up…",
+                status=ProgressStatus.RUNNING,
+            )
+            # The container is started but uvicorn on :8020 takes a few seconds
+            # to come up. Wait for it to be ready BEFORE driving the loop —
+            # otherwise the first connection races the cold start, fails, and
+            # the run drops into the fallback path instead of running the agent.
+            await wait_until_ready(executor_url)
+        driver = get_agent_loop_driver(
+            framework=framework_name,
+            executor_url=executor_url,
+            working_path=agent_working_path,
+        )
+        # Clear the "waking up" overlay the instant the (now-awake) executor
+        # emits its first event — the COMPLETED that pairs the RUNNING above.
+        _warming_active = ensured is not None and ensured.cold_started
         async for response in driver.agent_loop(
             messages=messages,
             mcp_servers=ctx.mcp_servers,
@@ -890,11 +937,13 @@ async def step_3_agent_loop(
         logger.exception(f"[AGENT-LOOP-FATAL] {error_type}: {error_str}")
         captured_error = {"error_type": error_type, "error_message": error_str}
 
-        # Executor OOM (SIGKILL / exit code -9): record for monitoring +
-        # alerting. Retry is deferred (scheduling-resource plan) — the OOM
-        # falls through to the fallback recovery below as before.
-        await _record_oom_if_killed(
-            db_client, ctx.user_id, error_str, bool(agent_loop_response)
+        # Executor-infra failure (OOM SIGKILL/SIGABRT, or unreachable
+        # executor/broker): record for monitoring + alerting. Retry is deferred
+        # (scheduling-resource plan). The recovery phase below surfaces it as a
+        # fatal ``infra_transient`` error and SKIPS the fallback, so it is never
+        # masked by a fabricated reply.
+        await _record_executor_infra_event(
+            db_client, ctx.user_id, error_type, error_str, bool(agent_loop_response)
         )
 
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
@@ -932,7 +981,7 @@ async def step_3_agent_loop(
     #       ``ContextWindowExceededError``), emit the fatal actionable
     #       ErrorMessage here (mirroring response_processor) and skip the
     #       fallback — otherwise the error would be completely invisible.
-    skip_kind, skip_reason_detail = _fallback_skip_decision(
+    skip_kind, skip_reason_detail, skip_target_type = _fallback_skip_decision(
         agent_loop_response, captured_error
     )
 
@@ -943,17 +992,37 @@ async def step_3_agent_loop(
             "fabricating a reply"
         )
     elif skip_kind == "raw_exception":
+        # Compose the right actionable copy for the failure class: platform-side
+        # executor-infra ("retry / split the task") vs user-fixable config
+        # ("change a setting"). Both skip the fallback so neither is masked.
+        is_infra = skip_target_type == EXECUTOR_INFRA_ERROR_TYPE
+        failure_class = "executor-infra" if is_infra else "self-serviceable"
         logger.warning(
-            f"[FALLBACK] skipped: deterministic self-serviceable error "
-            f"({skip_reason_detail}) — surfacing actionable error instead of "
-            f"masking it with a fabricated reply"
+            f"[FALLBACK] skipped: {failure_class} error ({skip_reason_detail}) "
+            f"— surfacing actionable error instead of masking it with a "
+            f"fabricated reply"
+        )
+        raw_detail = captured_error.get("error_message", "")
+        message = (
+            executor_infra_user_message(skip_reason_detail, raw_detail)
+            if is_infra
+            else self_serviceable_user_message(skip_reason_detail, raw_detail)
+        )
+        # If the agent ALREADY sent a real reply before this failure (an executor
+        # OOM/drop can hit AFTER send_message_to_user_directly), surface a warning
+        # badge (recovered_after_reply), not a hard "retry" fatal — the user got
+        # their answer, and telling them to resend would re-run a done turn. Only
+        # a no-reply failure is fatal. (Self-serviceable errors fire before the
+        # agent runs, so this is virtually always "fatal" for them.)
+        severity = (
+            "recovered_after_reply"
+            if _has_organic_reply(agent_loop_response)
+            else "fatal"
         )
         err = ErrorMessage(
-            error_message=self_serviceable_user_message(
-                skip_reason_detail, captured_error.get("error_message", "")
-            ),
-            error_type=SELF_SERVICEABLE_ERROR_TYPE,
-            severity="fatal",
+            error_message=message,
+            error_type=skip_target_type,
+            severity=severity,
             action_reason=skip_reason_detail,
         )
         agent_loop_response.append(err)

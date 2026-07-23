@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/index.ts
-last_verified: 2026-06-24
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — +teamMarketplace 导出
+
+`export * from './teamMarketplace'`(Team Marketplace 类型)。
+
 
 # types/index.ts — the central barrel that re-exports every frontend type module
 

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — bus attachments on inbox message cards
+
+Each message card renders `<BusAttachmentList attachments={msg.attachments} />` after
+its content. `RoomMessage` gained `attachments?: BusAttachment[]` (populated by
+`GET /api/agent-inbox`). Same component/surface as [[InboxPanel]] and [[TeamChatPanel]];
+bytes served by `/api/agent-inbox/attachments/raw`. See [[BusAttachmentList]].
 
 ## 2026-07-13 — messages render as per-message cards with sender identity
 

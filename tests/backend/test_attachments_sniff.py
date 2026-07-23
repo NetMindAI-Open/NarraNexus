@@ -2,7 +2,7 @@
 @file_name: test_attachments_sniff.py
 @author: NarraNexus
 @date: 2026-05-05
-@description: Unit tests for _audio_video_container_override.
+@description: Unit tests for the shared MIME sniffer (utils/mime_sniff).
 
 Locks in the contract that audio-only WebM / Ogg / MP4 files (the shape
 MediaRecorder produces from the in-browser AudioRecorder) get
@@ -13,11 +13,9 @@ Whisper transcription entirely because the upload route's
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-from backend.routes.agents_attachments import (
+from xyz_agent_context.utils.mime_sniff import (
     _audio_video_container_override,
-    _sniff_mime_type,
+    sniff_mime_type,
 )
 
 
@@ -106,7 +104,7 @@ def test_no_override_for_non_video_libmagic_results():
 
 
 # ---------------------------------------------------------------------------
-# _sniff_mime_type end-to-end — override must apply on EVERY tier
+# sniff_mime_type end-to-end — override must apply on EVERY tier
 #
 # Regression: without applying the override to the mimetypes.guess_type
 # fallback, environments without python-magic fall through to the stdlib
@@ -116,20 +114,11 @@ def test_no_override_for_non_video_libmagic_results():
 # ---------------------------------------------------------------------------
 
 
-def _make_upload(filename: str, content_type: str | None) -> object:
-    """Minimal duck-typed FastAPI UploadFile for sniff testing."""
-    upload = MagicMock()
-    upload.filename = filename
-    upload.content_type = content_type
-    return upload
-
-
 def test_sniff_mimetypes_fallback_overrides_video_webm_to_audio():
     """When libmagic is absent and the stdlib guesses ``video/webm``
     by extension, the browser's ``audio/webm`` claim must still win
     via the same override."""
-    upload = _make_upload("voice_1234.webm", "audio/webm;codecs=opus")
-    out = _sniff_mime_type(upload, b"")  # raw_bytes irrelevant in fallback path
+    out = sniff_mime_type(b"", filename="voice_1234.webm", client_type="audio/webm;codecs=opus")
     # If python-magic is installed and sniffs ``video/webm`` from empty
     # bytes, the override fires; if absent, mimetypes returns
     # ``video/webm`` from the .webm extension and the override fires
@@ -138,8 +127,7 @@ def test_sniff_mimetypes_fallback_overrides_video_webm_to_audio():
 
 
 def test_sniff_mimetypes_fallback_overrides_video_mp4_to_audio_for_safari():
-    upload = _make_upload("voice_5678.mp4", "audio/mp4")
-    out = _sniff_mime_type(upload, b"")
+    out = sniff_mime_type(b"", filename="voice_5678.mp4", client_type="audio/mp4")
     assert out == "audio/mp4"
 
 
@@ -147,20 +135,17 @@ def test_sniff_mimetypes_fallback_keeps_video_when_browser_silent():
     """No browser-supplied audio claim → no override → stays as the
     stdlib's verdict. (PDFs, real videos, etc. shouldn't be silently
     rewritten.)"""
-    upload = _make_upload("clip.webm", None)
-    out = _sniff_mime_type(upload, b"")
+    out = sniff_mime_type(b"", filename="clip.webm", client_type=None)
     assert out == "video/webm"
 
 
 def test_sniff_unknown_extension_falls_back_to_browser_content_type():
     """Last-resort path: extension unknown to mimetypes, no libmagic
     sniff, fall through to the raw browser claim."""
-    upload = _make_upload("blob.xyz123", "audio/webm")
-    out = _sniff_mime_type(upload, b"")
+    out = sniff_mime_type(b"", filename="blob.xyz123", client_type="audio/webm")
     assert out == "audio/webm"
 
 
 def test_sniff_unknown_extension_no_browser_returns_octet_stream():
-    upload = _make_upload("blob.xyz123", None)
-    out = _sniff_mime_type(upload, b"")
+    out = sniff_mime_type(b"", filename="blob.xyz123", client_type=None)
     assert out == "application/octet-stream"

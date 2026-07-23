@@ -4,6 +4,13 @@ last_verified: 2026-07-18
 stub: false
 ---
 
+## 2026-07-18 — agent-framework 403 门禁方向化(修云端老 codex 死锁)
+
+`set_agent_framework` 的云端 403 原本方向不敏感(`_is_cloud() and not _is_staff` 就拦),
+老 codex 用户切不回 claude_code。改为加 `and body.framework != "claude_code"`——非 staff
+云端用户**总能切回 claude_code**,只挡切到其他框架。配套 m0003 数据迁移(存量用户自动迁)
++ 前端两个选择器弹窗方向修复。
+
 ## 2026-07-18 — netmind-only 规则收拢进 cloud_policy；检查下沉 set_slot
 
 Code review 重构（供 2026-07-17 条目参照的更正）：

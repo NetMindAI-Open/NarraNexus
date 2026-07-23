@@ -4,6 +4,7 @@
  * Holds only glanceable, GLOBAL state + one global action, so it never fights
  * the sidebar / bookmark strip / chat header for attention:
  *   - left:  binding-dot + a location breadcrumb (which agent / which page)
+ *   - right: "Find Us" community entry (external link to the marketing hub)
  *   - right: runtime + connection status (LOCAL/CLOUD + online dot)
  *   - right: ⌘K command palette trigger (jump to any agent or page)
  *
@@ -15,11 +16,18 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
-import { Menu } from 'lucide-react';
+import { Menu, Users } from 'lucide-react';
 import { BindingDot } from '@/components/nm';
 import { useConfigStore, useUIStore } from '@/stores';
 import { useRuntimeStore } from '@/stores/runtimeStore';
 import { CommandPalette } from './CommandPalette';
+
+/**
+ * Community hub on the marketing site (Discord / WeChat / socials). The
+ * TopBar entry exists to shorten the "sign up → join the community" path,
+ * so it must stay a plain external link — no in-app routing.
+ */
+const FIND_US_URL = 'https://www.narra.nexus/connect';
 
 /** Map a route to a breadcrumb i18n key (agent name handled separately). */
 function pageLabelKey(pathname: string): string | null {
@@ -85,8 +93,19 @@ export function TopBar() {
           </span>
         </div>
 
-        {/* right — connection status + ⌘K */}
+        {/* right — Find Us + connection status + ⌘K */}
         <div className="flex shrink-0 items-center gap-3.5">
+          <a
+            href={FIND_US_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t('layout.topBar.findUsTitle')}
+            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent-primary)]/40 bg-[var(--accent-primary)]/10 px-2.5 py-0.5 font-[family-name:var(--font-mono)] text-[10px] text-[var(--accent-primary)] transition-colors hover:border-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/20"
+            data-help-id="topbar.find-us"
+          >
+            <Users className="h-3 w-3" />
+            {t('layout.topBar.findUs')}
+          </a>
           <span
             title={t('layout.topBar.runtimeTitle', {
               mode:

@@ -1,8 +1,13 @@
 ---
 code_file: frontend/src/types/teams.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — TeamChatMessage.attachments
+
+`TeamChatMessage` gained `attachments?: BusAttachment[]` so team-chat bubbles can
+render files sent/shared into the room (see [[BusAttachmentList]]).
 
 ## 2026-07-13 — skill-secret bundle types
 
@@ -42,3 +47,8 @@ then mirror it here — otherwise runtime field-name drift bites silently.
 - **Gotcha**: same skill name can map to N agents (`SkillExportSpec.agent_id` +
   `skill_dir` disambiguate the physical folder); `skill_name` from frontmatter is
   NOT filesystem-unique.
+
+## 2026-07-21 — Team.lead_agent_id
+
+`Team` gained `lead_agent_id?` (default responder; null = earliest member). Set via the
+TeamManagementModal picker → `updateTeam`. See backend [[teams]].

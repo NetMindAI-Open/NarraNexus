@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — _sniff_mime delegates to the shared utils helper
+
+``_sniff_mime`` now calls [[mime_sniff]] (one tiering for IM downloads, WS
+uploads and team-chat uploads). Two deltas for THIS path: the platform
+``hint`` dropped from tier 2 to last resort (extension guess now outranks
+it; content sniff still outranks both), and the audio/video container
+override applies here too — an audio-only WebM/Ogg/MP4 whose platform hint
+says ``audio/`` no longer classifies as ``video/``.
 
 ## 2026-07-10 — "ack early" moved into the per-turn input (salience)
 

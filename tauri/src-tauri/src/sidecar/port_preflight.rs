@@ -197,18 +197,15 @@ fn process_cmdline(pid: u32) -> Option<String> {
 fn is_narranexus_sidecar_cmdline(cmdline: &str) -> bool {
     const SIDECAR_MARKERS: &[&str] = &[
         // Module launches (most reliable — backend / sqlite_proxy / mcp /
-        // lark_trigger / job_trigger / message_bus / slack / telegram all
-        // launch via `python -m <one of these>`).
+        // worker supervisor all launch via `python -m <one of these>`).
         "backend.main",
         "xyz_agent_context.utils.sqlite_proxy",
         "xyz_agent_context.module.module_runner",
-        "xyz_agent_context.module.lark_module.run_lark_trigger",
-        "xyz_agent_context.module.slack_module.run_slack_trigger",
-        "xyz_agent_context.module.telegram_module.run_telegram_trigger",
-        "xyz_agent_context.module.discord_module.run_discord_trigger",
-        "xyz_agent_context.utils.run_module_poller",
-        "xyz_agent_context.utils.run_job_trigger",
-        "xyz_agent_context.utils.run_message_bus_trigger",
+        // The consolidated worker supervisor (poller + job + message-bus + all
+        // IM channel triggers). run_channel_triggers is still launchable
+        // standalone (cloud `--only channels`), so match it too.
+        "xyz_agent_context.module.run_worker_supervisor",
+        "xyz_agent_context.module.run_channel_triggers",
         // Uvicorn invocation: when the backend is spawned as
         // `uvicorn backend.main:app` instead of `python -m backend.main`.
         "uvicorn backend.main",

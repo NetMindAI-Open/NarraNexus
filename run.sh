@@ -65,10 +65,7 @@ stop_all() {
   pkill -f "sqlite_proxy_server" 2>/dev/null || true
   pkill -f "uvicorn backend.main:app" 2>/dev/null || true
   pkill -f "xyz_agent_context.module.module_runner mcp" 2>/dev/null || true
-  pkill -f "module_poller" 2>/dev/null || true
-  pkill -f "job_trigger" 2>/dev/null || true
-  pkill -f "message_bus_trigger" 2>/dev/null || true
-  pkill -f "run_channel_triggers" 2>/dev/null || true
+  pkill -f "run_worker_supervisor" 2>/dev/null || true
   echo -e "${G}All services stopped.${R}"
 }
 
@@ -472,21 +469,16 @@ run_container_mode() {
     export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
 
-  # 2. MCP module runner
+  # 2. MCP module runner (stays its own process — port-bound SSE servers)
   "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.module_runner mcp &
-  # 3. Module poller
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.services.module_poller &
-  # 4. Job trigger
-  "$SCRIPT_DIR/.venv/bin/python3" src/xyz_agent_context/module/job_module/job_trigger.py &
-  # 5. Message bus trigger
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.message_bus.message_bus_trigger &
-  # 5b. Consolidated IM channel triggers (Lark / Slack / Telegram / Discord /
-  #     WeChat / NarraMessenger) — ONE supervisor process running every channel
-  #     in a single event loop, replacing the old six-process layout. Each
-  #     channel no-ops when nothing is bound, so launching all is safe.
-  #     message_bus_trigger deliberately defers IM channels to this supervisor,
-  #     so without it inbound IM messages are never received (issue #54).
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_channel_triggers &
+  # 3. Worker supervisor — ONE process running poller / job / message-bus / all
+  #     IM channel triggers in a single event loop, each as a supervised task
+  #     with backoff-restart, sharing one package import + one DB pool. Replaces
+  #     the old four-process layout (module_poller, job_trigger,
+  #     message_bus_trigger, run_channel_triggers). message_bus_trigger
+  #     deliberately defers IM channels to the channels worker, so without this
+  #     supervisor inbound IM messages are never received (issue #54).
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \

@@ -23,7 +23,8 @@
     "you": "你",
     "cloud": "云端",
     "localMode": "本地模式",
-    "cloudMode": "云端模式"
+    "cloudMode": "云端模式",
+    "marketplace": "技能市场"
   },
   "chat": {
     "conversation": "对话",
@@ -43,7 +44,22 @@
       "micDenied": "麦克风访问被拒绝。请在浏览器设置中启用麦克风权限后重试。",
       "micDeniedRetry": "麦克风访问被拒绝 — 启用权限后点击重试",
       "noMic": "未检测到麦克风。",
-      "recordingFailed": "录音失败：{{error}}"
+      "recordingFailed": "录音失败：{{error}}",
+      "noLongerAvailable": "语音输入已不可用 —— 供应商可能已被移除。请打开设置重新配置。",
+      "unavailableTitle": "语音输入不可用",
+      "unavailableFreeTier": "语音输入不可用。你的账户既没有平台免费额度，也没有自己的转写供应商。请在 设置 → 供应商 中添加 OpenAI 或 NetMind API 密钥以启用。",
+      "unavailableOpenaiOnlyIntro": "语音输入需要一个 OpenAI 兼容的转写供应商。桌面/本地版无法访问 NetMind 的转写服务（它需要从我们这里没有的公网 URL 拉取音频），因此 OpenAI 是受支持的方式：",
+      "unavailableOpenaiOnlyItem1": "OpenAI 官方 API（推荐）",
+      "unavailableOpenaiOnlyItem2": "云雾，或任何其它 OpenAI 协议的 Whisper 供应商",
+      "unavailableOpenaiOnlyItem3": "自建 whisper.cpp（暴露为 OpenAI 兼容端点）",
+      "unavailableOpenaiOnlyOutro": "在 设置 → 供应商 中添加一个即可启用语音输入。",
+      "unavailableDefaultIntro": "语音输入需要一个受支持的转写供应商。当前账户未配置：",
+      "unavailableDefaultItem1": "OpenAI 官方 API（推荐，质量最佳）",
+      "unavailableDefaultItem2": "NetMind API（按量付费，成本更低）",
+      "unavailableDefaultOutro": "在 设置 → 供应商 中添加任意一个即可启用语音输入 —— 保存后立即生效。",
+      "unavailableProbeFailed": "注意：可用性检查未能连上服务器 —— 配置可能其实已就绪。",
+      "openSettings": "打开设置",
+      "cancel": "取消"
     },
     "model": {
       "configureInSettings": "在「设置 › 提供方」中配置模型",
@@ -101,10 +117,26 @@
       "noAgents": "这个团队还没有智能体。",
       "placeholder": "向团队发消息 — @提及以指定某人…",
       "send": "发送（回车）",
+      "attach": "添加附件",
+      "uploading": "上传中…",
+      "removeAttachment": "移除",
+      "transcriptionUnavailable": "已录音，但转写不可用 —— 请在 设置 → 供应商 中添加 OpenAI 或 NetMind 密钥。",
+      "voiceUnavailableTitle": "语音输入不可用",
+      "voiceUnavailableBody": "语音输入需要受支持的转写供应商（OpenAI 或 NetMind）。当前账户未配置 —— 请在 设置 → 供应商 中添加以启用。",
+      "voiceUnavailableProbeFailed": "注意：可用性检查未能连上服务器 —— 配置可能其实已就绪。",
+      "openSettings": "打开设置",
+      "cancel": "取消",
       "all": "@all",
       "notifyEveryone": "通知所有人",
       "typing": "{{name}} 正在输入",
-      "youTitle": "你 · {{name}}"
+      "youTitle": "你 · {{name}}",
+      "activity": {
+        "running": "运行中",
+        "thinking": "思考中",
+        "replying": "回复中",
+        "tool": "调用 {{name}}",
+        "queued": "排队中"
+      }
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -138,12 +170,19 @@
       "situationFailed": "此次运行发生错误，Agent 未能正常回复。详情：",
       "situationRecovered": "Agent 已回复，但运行过程中发生了错误。详情：",
       "titleActionable": "需要你处理",
+      "titleInfra": "执行环境异常",
       "action": {
         "context_window": "所选模型的上下文窗口太小，装不下本 Agent 的上下文。请在设置中更换上下文更大的模型后重新发送。",
         "insufficient_balance": "模型提供方报告余额或额度不足。请在设置中充值或更换提供方后重新发送。",
         "model_not_found": "配置的模型 ID 被提供方拒绝（不存在或无效）。请在设置中选择有效的模型后重新发送。",
-        "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。"
+        "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。",
+        "executor_oom": "执行环境内存不足，被系统中断。请把任务拆小或减少启用的模块后重试。",
+        "executor_unreachable": "你的执行容器暂时不可达，通常几秒内自动恢复，请稍后重发这条消息。",
+        "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。"
       }
+    },
+    "attachments": {
+      "downloadTitle": "下载 {{name}}"
     }
   },
   "awareness": {
@@ -634,6 +673,7 @@
     "teamRowMenu": {
       "options": "群聊选项",
       "rename": "重命名",
+      "clearData": "清理数据",
       "delete": "删除"
     },
     "topBar": {
@@ -652,7 +692,9 @@
       "runtimeUnknown": "未知",
       "openMenu": "打开菜单",
       "commandPaletteTitle": "命令面板（⌘K）",
-      "search": "搜索"
+      "search": "搜索",
+      "findUs": "关注我们",
+      "findUsTitle": "加入 NarraNexus 社区"
     },
     "commandPalette": {
       "hintAgent": "智能体",
@@ -947,7 +989,19 @@
       "unknown": "未知"
     },
     "serviceCard": {
-      "restart": "重启服务"
+      "restart": "重启服务",
+      "workerCount": "{{count}} 个 worker",
+      "restarts": "重启 {{count}} 次",
+      "workersFlapping": "有 worker 正在重启 — 展开查看详情",
+      "workersStale": "已过期 · {{age}}前",
+      "workersStaleHint": "worker 状态快照未刷新 — supervisor 可能已停止"
+    },
+    "workerState": {
+      "starting": "启动中",
+      "running": "运行中",
+      "restarting": "重启中",
+      "stopped": "已停止",
+      "unknown": "未知"
     }
   },
   "teams": {
@@ -967,6 +1021,9 @@
     "saveChanges": "保存更改",
     "deleteTeam": "删除团队",
     "membersLabel": "成员（{{selected}} / {{total}}）",
+    "defaultResponderLabel": "默认负责人",
+    "defaultResponderAuto": "自动（最早加入的成员）",
+    "defaultResponderHint": "当消息没有 @ 任何人时，由谁来回复。TA 可以 @ 队友进行转派。",
     "noAgents": "你的账户中没有 Agent。",
     "remove": "移除",
     "add": "添加",
@@ -974,6 +1031,17 @@
       "title": "删除团队“{{name}}”？",
       "message": "成员将被解除关联。Agent 本身不会被删除。",
       "confirm": "删除"
+    },
+    "clearData": {
+      "title": "清理团队“{{name}}”的数据",
+      "subtitle": "选择要清理的内容。团队、成员和 Agent 都会保留。",
+      "optChat": "群聊记录",
+      "optChatDesc": "删除该团队群聊里的所有消息。",
+      "optFiles": "共享文件",
+      "optFilesDesc": "删除分享到该团队的文件（通过 bus_share_to_team）。",
+      "keepNote": "团队、成员，以及每个 Agent 自己的数据都会保留。",
+      "cancel": "取消",
+      "confirm": "清理"
     },
     "alert": {
       "createFailed": "创建团队失败：{{error}}",
@@ -1883,7 +1951,8 @@
     "actionBar": {
       "github": "GitHub",
       "zip": "Zip",
-      "showDisabled": "显示已禁用"
+      "showDisabled": "显示已禁用",
+      "marketplace": "技能市场"
     },
     "error": {
       "title": "错误",
@@ -1979,6 +2048,30 @@
         "apiKey": "如果需要 API 密钥，请在下方添加请求头（如 Authorization: Bearer <token>）——每次连接都会携带。",
         "validation": "添加后，状态指示点会校验连接 — “失败”表示该链接无法访问或不是有效的 SSE 端点。"
       }
+    },
+    "marketplace": {
+      "title": "技能市场",
+      "searchPlaceholder": "搜索技能…",
+      "empty": "没有找到技能",
+      "unavailable": "技能市场暂时不可用,请检查网络后重试。",
+      "install": "安装",
+      "installed": "已安装",
+      "updateAvailable": "可更新",
+      "downloads": "{{count}} 次下载",
+      "scanLabel": "安全扫描",
+      "lowIssues": "{{count}} 个低风险项",
+      "capabilities": "能力标签",
+      "configKeys": "配置项",
+      "versions": "版本历史",
+      "close": "关闭",
+      "pageSubtitle": "发现并安装技能,扩展你的 Agent 能力。",
+      "category": {
+        "all": "全部",
+        "fallback": "能力补齐",
+        "utility": "实用工具",
+        "integration": "集成",
+        "enhancement": "增强"
+      }
     }
   },
   "feedback": {
@@ -2006,5 +2099,20 @@
     "loading": "正在打开实时预览…",
     "loadError": "无法打开实时预览。",
     "livePreview": "实时预览"
+  },
+  "marketplace": {
+    "tabs": {
+      "skills": "技能",
+      "teams": "团队"
+    }
+  },
+  "teamMarketplace": {
+    "searchPlaceholder": "搜索团队模板…",
+    "categoryAll": "全部",
+    "unavailable": "团队市场暂时不可用,请检查网络后重试。",
+    "empty": "没有找到团队模板",
+    "install": "安装",
+    "agentCount": "{{count}} 个 Agent",
+    "agentCount_one": "{{count}} 个 Agent"
   }
 }

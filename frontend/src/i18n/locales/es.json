@@ -132,11 +132,15 @@
       "situationFailed": "Esta ejecución tuvo un error y el agente no pudo responder con normalidad. Detalles:",
       "situationRecovered": "El agente respondió, pero ocurrieron errores durante la ejecución. Detalles:",
       "titleActionable": "Acción necesaria",
+      "titleInfra": "Problema del entorno de ejecución",
       "action": {
         "context_window": "La ventana de contexto del modelo seleccionado es demasiado pequeña para este agente. Cambia a un modelo con mayor ventana de contexto en Ajustes y vuelve a enviar.",
         "insufficient_balance": "El proveedor del modelo informa saldo o cuota insuficiente. Recarga o cambia de proveedor en Ajustes y vuelve a enviar.",
         "model_not_found": "El proveedor rechazó el id del modelo configurado (no encontrado o inválido). Elige un modelo válido en Ajustes y vuelve a enviar.",
-        "generic": "Este turno no pudo ejecutarse por un problema de configuración que puedes corregir en Ajustes. Corrígelo y vuelve a enviar."
+        "generic": "Este turno no pudo ejecutarse por un problema de configuración que puedes corregir en Ajustes. Corrígelo y vuelve a enviar.",
+        "executor_oom": "El entorno de ejecución se quedó sin memoria y el sistema lo detuvo. Divide la tarea en pasos más pequeños o reduce los módulos activos y vuelve a enviar.",
+        "executor_unreachable": "Tu contenedor de ejecución no está disponible temporalmente. Suele recuperarse en unos segundos; vuelve a enviar este mensaje en breve.",
+        "infra_transient": "Este turno no se pudo ejecutar debido a un problema temporal de ejecución en la plataforma. Vuelve a enviar el mensaje en un momento."
       }
     }
   },
@@ -633,7 +637,9 @@
       "runtimeUnknown": "Desconocido",
       "openMenu": "Abrir menú",
       "commandPaletteTitle": "Paleta de comandos (⌘K)",
-      "search": "buscar"
+      "search": "buscar",
+      "findUs": "Síguenos",
+      "findUsTitle": "Únete a la comunidad de NarraNexus"
     },
     "commandPalette": {
       "hintAgent": "Agente",

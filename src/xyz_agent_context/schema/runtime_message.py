@@ -286,3 +286,18 @@ AUTH_EXPIRED_ERROR_TYPE = "auth_expired"
 # + an actionable hint — it never force-stops a run, injects a prompt, judges
 # the model, or switches the user's model. Whether to act is the user's call.
 SELF_SERVICEABLE_ERROR_TYPE = "config_actionable"
+
+# error_type marker for PLATFORM-side executor infrastructure failures — the
+# per-user execution container ran out of memory (subprocess SIGKILL/SIGABRT)
+# or became unreachable (container not up / broker down / :8020 dropped). Unlike
+# SELF_SERVICEABLE_ERROR_TYPE, the user CANNOT fix these by changing their config
+# (there is no setting to change); the correct owner-facing guidance is "retry /
+# split the task", so the frontend renders a distinct "execution environment"
+# badge rather than the "Action needed → Settings" one. Like the two markers
+# above it must skip the helper-LLM fallback: fabricating a reply over an OOM /
+# dropped container hides the real infrastructure failure. The concrete reason
+# (executor_oom / executor_unreachable) rides in ErrorMessage.action_reason so
+# the frontend can pick the right copy. Kept here (leaf schema module) so both
+# the classifier consumers import it without a circular import. NOTE (binding
+# rules #14/#15): surfaces the truth + a retry hint only — never a force-stop.
+EXECUTOR_INFRA_ERROR_TYPE = "infra_transient"

@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/users_artifacts.py
-last_verified: 2026-05-19
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — stale delete_source design notes removed
+
+Two "Design decisions" paragraphs still described the `delete_source`
+best-effort rmtree + path confinement — behavior that was removed in
+2026-05-14-r3 (bulk delete has been registry-only ever since; the code never
+touches workspace files). Doc-only fix; the source is unchanged.
 
 ## 2026-05-19 — `/quota` endpoint removed
 
@@ -50,14 +57,8 @@ Mounted under `/api/users` (see `backend/main.py`).
 are dropped into `skipped_not_owned` (never silently deleted) so a tenant
 cannot mass-delete another's artifacts by guessing IDs.
 
-**`delete_source` is best-effort per artifact.** A failed `rmtree` is
-logged but the batch continues, and the DB row is still removed — matches
-the per-row delete contract in `agents_artifacts.delete_artifact` and
-avoids leaving half-deleted state across many rows.
-
-**Path confinement.** The artifact root must start with
-`{base}/{agent_id}_{user_id}/` AND not equal the workspace itself, defence
-in depth against a bad DB row.
+**Registry-only bulk delete** (2026-05-14-r3): there is no `delete_source`
+option; workspace files are never touched by this endpoint.
 
 ## Gotchas
 

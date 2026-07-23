@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Mail, RefreshCw, Hash, Users, ChevronRight, ChevronDown } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Markdown, ScrollArea } from '@/components/ui';
 import { useConfigStore, usePreloadStore } from '@/stores';
+import { BusAttachmentList } from '@/components/chat/BusAttachmentList';
 import { cn, formatRelativeTime } from '@/lib/utils';
 import { api } from '@/lib/api';
 
@@ -153,6 +154,7 @@ export function InboxPanel() {
                         <div className="text-xs text-[var(--text-secondary)] mt-0.5 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                           <Markdown content={msg.content} />
                         </div>
+                        <BusAttachmentList attachments={msg.attachments} />
                       </div>
                     ))}
                   </div>

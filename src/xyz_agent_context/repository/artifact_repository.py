@@ -11,6 +11,7 @@ an artifact overwrites the pointer in place.
 Provides:
 - create(): insert one artifact row
 - update_pointer(): overwrite file_path/size_bytes/title/description in place
+- update_title(): rename an artifact (200-char cap)
 - set_pinned(): toggle pinned flag; pinning clears session_id
 - list_by_session(): non-pinned artifacts for a given session
 - list_pinned(): pinned artifacts for an agent
@@ -94,6 +95,23 @@ class ArtifactRepository(BaseRepository[Artifact]):
         if description is not None:
             data["description"] = description
         await self._db.update(self.table_name, {self.id_field: artifact_id}, data)
+
+    async def update_title(self, artifact_id: str, title: str) -> None:
+        """
+        Update an artifact's title (truncated to the schema's 200-char cap).
+
+        Args:
+            artifact_id: ID of the artifact to rename.
+            title: New title.
+        """
+        await self._db.update(
+            self.table_name,
+            {self.id_field: artifact_id},
+            {
+                "title": title[:200],
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def set_pinned(self, artifact_id: str, *, pinned: bool) -> None:
         """

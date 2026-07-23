@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — Marketplace 一级入口
+
+Dashboard 与 Settings 之间新增「Marketplace」导航(Store icon,展开/收起
+两种形态都有),路由 `/app/marketplace` → pages/MarketplacePage。
+
 
 ## 2026-07-10 (4) — footer "clear history" button removed
 

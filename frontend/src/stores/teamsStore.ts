@@ -14,7 +14,7 @@ interface TeamsState {
 
   refresh: () => Promise<void>;
   createTeam: (payload: { name: string; description?: string; color?: string }) => Promise<string | null>;
-  updateTeam: (teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string }) => Promise<void>;
+  updateTeam: (teamId: string, patch: { name?: string; description?: string; color?: string; intro_md?: string; lead_agent_id?: string }) => Promise<void>;
   deleteTeam: (teamId: string) => Promise<void>;
   addMember: (teamId: string, agentId: string) => Promise<void>;
   removeMember: (teamId: string, agentId: string) => Promise<void>;

@@ -31,6 +31,7 @@ class SkillInfo(BaseModel):
     )
     version: Optional[str] = Field(default=None, description="Skill version (from SKILL.md frontmatter)")
     author: Optional[str] = Field(default=None, description="Skill author (from SKILL.md frontmatter)")
+    source_type: Optional[str] = None  # marketplace|url|github|zip|builtin|manual
     source_url: Optional[str] = Field(
         default=None, description="Installation source URL (saved during GitHub installation)"
     )

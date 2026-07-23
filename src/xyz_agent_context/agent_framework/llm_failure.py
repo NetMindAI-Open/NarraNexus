@@ -250,3 +250,95 @@ def self_serviceable_user_message(reason: str, raw_detail: str) -> str:
     )
     detail = redact_secrets(raw_detail).strip()
     return f"{base}\n\nProvider detail: {detail}" if detail else base
+
+
+# --------------------------------------------------------------------------
+# Executor infrastructure failures (PLATFORM-side)
+# --------------------------------------------------------------------------
+# Distinct from the self-serviceable class above: the user CANNOT fix these by
+# changing their config — the platform's per-user execution container ran out
+# of memory (subprocess SIGKILL/SIGABRT) or became unreachable (container not
+# up / broker down / :8020 connection dropped). Like the self-serviceable
+# class, a helper-LLM fallback reply MUST NOT paper over them — that would hide
+# an OOM / dropped container behind a fabricated answer (the exact "black box"
+# failure mode). Surfaced to the owner as ``infra_transient`` (retry / split
+# the task), NEVER as a force-stop or model judgement (binding rules #14/#15).
+#
+# Two recognition channels, on purpose:
+#   - OOM: only signal available is the child-process returncode folded into
+#     the error string ("exit code -9" = SIGKILL/OOM, "exit code -6" = SIGABRT)
+#     — substring match. Positive exit codes (a tool the agent ran failed) are
+#     NOT infra and must not match.
+#   - Unreachable: the executor boundary raises the typed
+#     ``ExecutorUnreachableError`` (see agent_framework/executor_errors.py) —
+#     matched by exception class NAME, not fragile text matching. This keeps a
+#     USER's LLM-provider connection blip (which arrives as a response.error
+#     frame / transient, handled elsewhere) from being misread as executor
+#     infra.
+EXECUTOR_INFRA_REASON_OOM = "executor_oom"
+EXECUTOR_INFRA_REASON_UNREACHABLE = "executor_unreachable"
+
+# Child-process returncode substrings that mean "killed by a signal" (negative
+# returncode). -9 = SIGKILL (the OOM killer's weapon), -6 = SIGABRT (abort,
+# also seen under memory pressure / native crashes).
+_OOM_RETURNCODE_MARKERS: tuple[str, ...] = (
+    "exit code -9",
+    "exit code -6",
+)
+
+# Exact exception class name raised at the executor transport boundary.
+_EXECUTOR_UNREACHABLE_TYPE = "ExecutorUnreachableError"
+
+
+def classify_executor_infra_failure(
+    error_type: Optional[str], error_message: Optional[str]
+) -> Optional[str]:
+    """Return the executor-infrastructure reason for a platform-side failure,
+    or ``None`` if the error is not one.
+
+    Kept deliberately separate from ``classify_self_serviceable`` (disjoint
+    concepts): this fires ONLY on an executor OOM (subprocess signal kill) or
+    the typed ``ExecutorUnreachableError``. A user's LLM-provider connection
+    error is NOT one of these — it is a transient the circuit breaker retries.
+    """
+    et = (error_type or "").strip()
+    if et == _EXECUTOR_UNREACHABLE_TYPE:
+        return EXECUTOR_INFRA_REASON_UNREACHABLE
+    hay = f"{et}\n{error_message or ''}".lower()
+    if not hay.strip():
+        return None
+    if any(marker in hay for marker in _OOM_RETURNCODE_MARKERS):
+        return EXECUTOR_INFRA_REASON_OOM
+    return None
+
+
+# Per-reason owner-facing guidance for an executor-infra failure. Provider- and
+# vendor-neutral (binding rule #15): state what happened and the user's next
+# step (retry / split), never a model judgement or a force-stop.
+EXECUTOR_INFRA_USER_MESSAGE: dict[str, str] = {
+    EXECUTOR_INFRA_REASON_OOM: (
+        "This turn could not run: the execution environment ran out of memory "
+        "and was stopped by the system. This usually means the task or its "
+        "tool outputs grew too large for one run. Try splitting it into smaller "
+        "steps, or reduce the number of active modules, then send the message "
+        "again."
+    ),
+    EXECUTOR_INFRA_REASON_UNREACHABLE: (
+        "This turn could not run: your execution container is temporarily "
+        "unreachable. It usually recovers automatically within a few seconds — "
+        "please resend this message shortly."
+    ),
+}
+
+
+def executor_infra_user_message(reason: str, raw_detail: str) -> str:
+    """Compose the owner-facing message for an executor-infra failure:
+    per-reason guidance plus the redacted transport detail so the concrete
+    cause is visible, not hidden behind a black-box 'unknown'."""
+    base = EXECUTOR_INFRA_USER_MESSAGE.get(
+        reason,
+        "This turn could not run due to a temporary platform-side execution "
+        "issue. Please send the message again in a moment.",
+    )
+    detail = redact_secrets(raw_detail).strip()
+    return f"{base}\n\nDetail: {detail}" if detail else base

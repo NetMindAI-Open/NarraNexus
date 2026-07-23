@@ -1,7 +1,23 @@
 ---
 code_file: tauri/src-tauri/src/state.rs
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — four worker ServiceDefs collapsed into one `workers` service
+
+Both factories replaced the four separate worker ServiceDefs (`poller` o3,
+`job_trigger` o4, `message_bus_trigger` o5, `channel_triggers` o6) with a SINGLE
+`workers` service (id `workers`, label "Workers", order 3) running
+`python -m xyz_agent_context.module.run_worker_supervisor` — one process running
+the module poller, job / message-bus triggers, and every IM channel trigger in
+one event loop (see [[run_worker_supervisor.py]]). So each factory now defines
+**FOUR** services (orders 0–3): sqlite_proxy, backend, mcp, workers — down from
+seven. `is_required_service` in [[process_manager.rs]] was updated to
+`sqlite_proxy | backend | mcp | workers` (an unconfigured channel never fails
+`workers` — per-channel startup is isolated in `start_channel_triggers`). The
+"seven services (orders 0–6)" section below is now HISTORY. MCP remains its own
+service. Startup-path alignment is guarded by
+`tests/channel/test_trigger_startup_alignment.py`.
 
 ## 2026-07-13 — pending_netmind_oauth buffer
 

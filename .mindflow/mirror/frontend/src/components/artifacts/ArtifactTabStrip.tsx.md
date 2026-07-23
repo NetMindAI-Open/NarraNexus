@@ -1,9 +1,14 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactTabStrip.tsx
-last_verified: 2026-05-14
+last_verified: 2026-07-22
 stub: false
 ---
 
+## 2026-07-22 — trailing "+" new-tab entry
+
+Added an always-present trailing `+` button (even with zero artifacts) opening
+[[NewTabOmnibox.tsx]] — the browser-style new-tab affordance for opening a URL
+or picking an existing artifact.
 ## 2026-05-14-r3 — delete popup simplified to a single confirm + notice
 
 The two-state checkbox dialog (delete tab only / delete tab + files) is

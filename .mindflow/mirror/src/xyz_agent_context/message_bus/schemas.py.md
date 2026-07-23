@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-04-10
+last_verified: 2026-07-20
 stub: false
 ---
+
+## 2026-07-20 — BusMessage.attachments
+
+`BusMessage` gained `attachments: Optional[List[dict]]` (bus-attachment dicts:
+file_id/original_name/mime_type/size_bytes/category/rel_path). None for text-only.
+Files travel by reference; see [[_bus_attachment_impl]] for the dict contract.
 
 # schemas.py — MessageBus 数据模型定义
 

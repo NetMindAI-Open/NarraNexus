@@ -24,7 +24,7 @@ import asyncio
 import re
 import time
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from loguru import logger
 
@@ -68,6 +68,13 @@ POLL_STEP_UP = 3
 # @mentions are dropped so two agents can't @ each other forever. A user
 # message resets the chain.
 MAX_TEAM_AGENT_HOPS = 4
+
+# Team group chat: how many recent room messages to feed a triggered agent as
+# context (oldest→newest). The agent replies to the latest message addressed to
+# it, but SEES the recent scrollback — incl. a shared image/file posted by
+# someone else — so it can Read and discuss it without a manual relay. Capped to
+# bound the per-turn token cost.
+TEAM_HISTORY_LIMIT = 20
 
 # Kept in sync with LocalMessageBus.get_pending_messages' inline
 # `failure_count < 3` poison-message filter (local_bus.py). Once a message's
@@ -401,7 +408,18 @@ class MessageBusTrigger:
         try:
             if is_team:
                 member_map = await self._team_member_names(channel_id)
-                prompt = self._build_team_prompt(agent_id, messages, member_map)
+                team_owner = await self._get_agent_owner(agent_id)
+                team_id = channel_owner[len(TEAM_ROOM_OWNER_PREFIX):]
+                # Feed the recent room scrollback (not just the @mention batch)
+                # so the agent sees a shared file/image posted earlier by anyone
+                # and can Read it — no manual relay. `messages` (the @mentions
+                # for THIS agent) still marks what it should respond to.
+                history = await self._bus.get_recent_messages(channel_id, limit=TEAM_HISTORY_LIMIT)
+                prompt = self._build_team_prompt(
+                    agent_id, history, member_map,
+                    owner_user_id=team_owner, team_id=team_id,
+                    trigger_messages=messages,
+                )
             else:
                 # Owner lookup up-front — used by both the prompt (to remind the
                 # agent its owner is waiting in chat) and the inbox writer.
@@ -424,17 +442,38 @@ class MessageBusTrigger:
                 f"for channel {channel_id} ({len(messages)} messages, team={is_team})"
             )
 
+            # Team rooms mirror live "what is this agent doing" into
+            # bus_agent_activity so the team-chat UI can show running/phase/
+            # elapsed (the bus path has no WS stream). Only for team channels.
+            activity_db = None
+            on_progress = None
+            if is_team:
+                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.message_bus import _bus_activity
+                activity_db = await get_db_client()
+                await _bus_activity.mark_running(activity_db, agent_id, channel_id)
+                on_progress = self._make_activity_progress(activity_db, agent_id, channel_id)
+
             # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
             # only, no Owner-Relay boilerplate) for narrative routing — the
             # execution `prompt` is far noisier. See 2026-06-01 design.
-            response_text = await self._invoke_runtime(
-                agent_id=agent_id,
-                sender_agent_id=trigger_message.from_agent,
-                prompt=prompt,
-                channel_id=channel_id,
-                trigger_message_id=trigger_message.message_id,
-                retrieval_anchor=build_bus_anchor(messages),
-            )
+            try:
+                response_text = await self._invoke_runtime(
+                    agent_id=agent_id,
+                    sender_agent_id=trigger_message.from_agent,
+                    prompt=prompt,
+                    channel_id=channel_id,
+                    trigger_message_id=trigger_message.message_id,
+                    retrieval_anchor=build_bus_anchor(messages),
+                    on_progress=on_progress,
+                )
+            finally:
+                if activity_db is not None:
+                    from xyz_agent_context.message_bus import _bus_activity
+                    try:
+                        await _bus_activity.mark_idle(activity_db, agent_id, channel_id)
+                    except Exception:  # noqa: BLE001 — status write must never break delivery
+                        pass
 
             # On success: advance cursor
             await self._bus.ack_processed(
@@ -639,11 +678,24 @@ class MessageBusTrigger:
         return out
 
     def _build_team_prompt(
-        self, agent_id: str, messages: List[BusMessage], member_map: Dict[str, str]
+        self,
+        agent_id: str,
+        history: List[BusMessage],
+        member_map: Dict[str, str],
+        owner_user_id: str = "",
+        team_id: str = "",
+        trigger_messages: Optional[List[BusMessage]] = None,
     ) -> str:
         """Group-chat prompt for a team room. The agent's plain reply is posted
         back into the shared room (the user + teammates see it), so — unlike the
-        peer/owner-relay path — there is no send_message_to_user_directly step."""
+        peer/owner-relay path — there is no send_message_to_user_directly step.
+
+        ``history`` is the recent room scrollback (oldest→newest) so the agent
+        sees files/images posted by ANYONE, not only the message that @mentioned
+        it; ``trigger_messages`` are the @mentions for this agent — what it
+        should respond to."""
+        from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
+
         me = member_map.get(agent_id, agent_id)
         teammates = [n for a, n in member_map.items() if a != agent_id]
         roster = ", ".join(teammates) if teammates else "(no other agents yet)"
@@ -655,23 +707,68 @@ class MessageBusTrigger:
             "These are the ONLY participants who can see this chat. Someone "
             "named in the history but not in that list has LEFT or was never "
             "here — they are not present.",
-            "",
-            "Recent messages:",
+            # Kills the "I forwarded it ✅" white lie: everyone already sees room
+            # files, so there is nothing to forward — @mention is enough.
+            "Every member already sees every message and file posted in THIS "
+            "room (they are in the conversation below). So NEVER 'forward' or "
+            "'send' a file that's already here, and never claim you did — to "
+            "bring a teammate in, just @mention them and they'll see it too.",
         ]
-        for msg in messages:
-            sender = (
+        if owner_user_id and team_id:
+            from xyz_agent_context.utils.workspace_paths import team_shared_dir
+            shared = team_shared_dir(owner_user_id, team_id)
+            lines.append(
+                f"Team shared folder: {shared} — files placed here (via "
+                f"bus_share_to_team) are visible to every teammate; open them "
+                f"with the Read tool."
+            )
+
+        def _sender(msg: BusMessage) -> str:
+            return (
                 "User"
                 if msg.from_agent.startswith(USER_SENDER_PREFIX)
                 else member_map.get(msg.from_agent, msg.from_agent)
             )
+
+        lines += ["", "Recent messages (oldest first) — the shared conversation, "
+                  "including any files posted by anyone; open a file path with Read "
+                  "if you need its contents:"]
+        for msg in history:
+            sender = _sender(msg)
             lines.append(f"{sender}: {msg.content}")
+            marker = build_bus_markers(msg.attachments, from_agent=sender)
+            if marker:
+                lines.append(marker)
+
+        # Point the agent at what it must answer — the latest message that
+        # @mentioned it (it's already in the history above, shown in order).
+        if trigger_messages:
+            tm = trigger_messages[-1]
+            lines += [
+                "",
+                f"You were just @mentioned by {_sender(tm)}. Respond to that "
+                f"message. If it refers to a file/image shown above, open the "
+                f"path with the Read tool first, then reply.",
+            ]
         lines += [
             "",
             "Write your chat reply now. Rules:",
             "- Output ONLY the message itself — natural, conversational text "
             "(markdown is fine). It is posted to the group as-is; everyone sees it.",
-            "- Do NOT use any tools and do NOT call any send/bus function. Your "
-            "text reply is delivered automatically — there is nothing to invoke.",
+            # Distinguish REPLY-DELIVERY functions (forbidden — the reply
+            # auto-posts, so re-sending double-delivers) from ACTION tools
+            # (allowed): Read views a file; bus_share_to_team publishes a file to
+            # the team folder (it stages bytes, it does NOT post a message). A
+            # blanket "no tools" ban made agents refuse to open a shared image and
+            # even fake a "forwarded ✅" they couldn't actually do.
+            "- Do NOT deliver your answer through a function: no "
+            "send_message_to_user_directly, no bus_send_message/bus_send_to_agent "
+            "to post this reply — your text below is posted to the group "
+            "automatically. You MAY use action tools that DO something: the "
+            "built-in Read tool to open a file path shown above, and "
+            "bus_share_to_team to publish a file YOU produced to the team folder "
+            "(then mention the returned path in your reply). Do the action, then "
+            "reply with plain text.",
             "- Do NOT narrate your process or thinking. No \"Let me…\", no \"I "
             "need to find…\", no tool/function names, no step-by-step. Just talk.",
             "- Keep it short, like a real group chat. To pull in a teammate, "
@@ -740,13 +837,19 @@ class MessageBusTrigger:
         "go talk to agent B for me" never hears back — the reply only lands
         in the Inbox. observed as a silent-failure UX issue in production.
         """
+        from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
+
         lines = ["[Message Bus - Incoming Messages]", ""]
         for msg in messages:
-            lines.append(
+            block = (
                 f"From: {msg.from_agent}\n"
                 f"Time: {msg.created_at}\n"
                 f"{msg.content}\n"
             )
+            marker = build_bus_markers(msg.attachments, from_agent=msg.from_agent)
+            if marker:
+                block += f"{marker}\n"
+            lines.append(block)
 
         if owner_user_id:
             lines.append("")
@@ -797,6 +900,32 @@ class MessageBusTrigger:
 
         return "\n".join(lines)
 
+    def _make_activity_progress(self, db, agent_id: str, channel_id: str):
+        """Build a throttled ``on_progress(kind, tool_name)`` for a team run —
+        mirrors the current phase into ``bus_agent_activity`` on phase change or
+        at most every ~2s (heartbeat), so per-delta calls stay cheap."""
+        from xyz_agent_context.message_bus import _bus_activity
+
+        state = {"phase": None, "tools": 0, "last": 0.0}
+
+        async def on_progress(kind: str, tool_name=None) -> None:
+            if kind == "tool":
+                state["tools"] += 1
+                phase = f"tool:{tool_name}" if tool_name else "tool"
+            elif kind == "thinking":
+                phase = "thinking"
+            elif kind == "response":
+                phase = "replying"
+            else:
+                return
+            now = time.monotonic()
+            if phase != state["phase"] or (now - state["last"]) > 2.0:
+                state["phase"] = phase
+                state["last"] = now
+                await _bus_activity.update_phase(db, agent_id, channel_id, phase, state["tools"])
+
+        return on_progress
+
     async def _invoke_runtime(
         self,
         agent_id: str,
@@ -805,6 +934,7 @@ class MessageBusTrigger:
         channel_id: str,
         trigger_message_id: str = "",
         retrieval_anchor: str = "",
+        on_progress=None,
     ) -> str:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
@@ -829,6 +959,7 @@ class MessageBusTrigger:
             user_id=sender_agent_id,
             input_content=prompt,
             working_source=WorkingSource.MESSAGE_BUS,
+            on_progress=on_progress,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,

@@ -4,6 +4,12 @@ last_verified: 2026-07-18
 stub: false
 ---
 
+## 2026-07-18 — per-agent 框架选择器弹窗方向化(修云端老 codex 死锁)
+
+同 [[ModelDefaultsSettings]]:弹窗条件从"任何切换都拦"改为只在切到非 claude_code 时拦
+(`e.target.value !== 'claude_code'`),切回 claude_code 放行——让被锁的老 codex 用户能在
+聊天页 UI 自救。与后端 403 方向化一致。
+
 ## 2026-07-18 — 云端锁定 per-agent 框架（禁用 → alert → useConfirm，三改定稿）
 
 与 [[ModelDefaultsSettings]] 同款演进，定稿为 `useConfirm().alert` 样式弹窗

@@ -449,30 +449,14 @@ class ChannelTriggerBase(ABC):
 
     @staticmethod
     def _sniff_mime(raw_bytes: bytes, hint: str, filename: str) -> str:
-        """Tiered MIME sniff: libmagic > platform hint > extension > octet-stream.
-
-        Mirrors ``backend/routes/agents_attachments.py:_sniff_mime_type``
-        tiering so IM uploads and WS uploads classify the same way.
-        libmagic is optional — when unavailable we fall through cleanly
-        to the platform hint.
+        """Tiered MIME sniff — delegates to the shared ``utils.mime_sniff``
+        helper so IM downloads, WS uploads and team-chat uploads all classify
+        the same way. The platform-supplied ``hint`` plays the client-type
+        role: container-ambiguity tiebreaker and last resort, never primary.
         """
-        try:
-            import magic  # type: ignore[import-not-found]
+        from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 
-            sniffed = magic.from_buffer(raw_bytes, mime=True)
-            if sniffed and sniffed != "application/octet-stream":
-                return sniffed
-        except ImportError:
-            # python-magic not installed; fall through.
-            pass
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"libmagic sniff failed: {e}; falling back to hint")
-        if hint:
-            return hint
-        import mimetypes
-
-        guessed, _ = mimetypes.guess_type(filename or "")
-        return guessed or "application/octet-stream"
+        return sniff_mime_type(raw_bytes, filename=filename, client_type=hint or None)
 
     # ────────────────────────────────────────────────────────────────────
     # PUSH mode stubs (Phase 6)

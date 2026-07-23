@@ -1,8 +1,16 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-17
+last_verified: 2026-07-21
 stub: false
 ---
+
+## 2026-07-21 — create_agent 默认技能装机(stage 9)
+
+创建 agent 成功后 fire-and-forget 一个 asyncio task 调
+`SkillMarketplaceService.install_defaults`(带 done-callback,教训 #2)。
+非阻塞、非致命:registry 离线/未部署时优雅跳过;builtin 物化机制不受影响,
+仍是离线兜底。
+
 
 ## 2026-07-17 — `/api/auth/agents` first-paint sort by recent conversation
 

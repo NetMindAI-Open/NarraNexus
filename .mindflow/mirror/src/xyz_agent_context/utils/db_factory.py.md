@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/utils/db_factory.py
-last_verified: 2026-07-13
+last_verified: 2026-07-22
 stub: false
 ---
+
+## 2026-07-22 — MySQL pool size env-tunable (MYSQL_POOL_SIZE)
+
+The MySQL construction path now reads `MYSQL_POOL_SIZE` (default 10, min 1,
+invalid → 10) and passes it to `MySQLBackend(pool_size=...)`. Rationale: the
+worker supervisor ([[run_worker_supervisor.py]]) drives poller + jobs + bus +
+every channel trigger from ONE process = ONE pool, where the pre-consolidation
+layout had 4 processes × their own pools. A supervisor deployment should raise
+this to ≥25 so combined worker/subscriber concurrency doesn't starve on
+`pool.acquire()`. SQLite path unaffected. (PR #136 review.)
 
 ## 2026-05-22 — parse_sqlite_url collapses leading `//`
 

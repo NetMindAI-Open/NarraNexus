@@ -17,6 +17,34 @@ from __future__ import annotations
 from typing import Any, Callable, List, Optional
 
 
+def _split_refs(refs: str) -> List[str]:
+    """Parse a comma-separated attachment_refs string into a clean list."""
+    return [r.strip() for r in (refs or "").split(",") if r.strip()]
+
+
+async def _resolve_owner_user_id(agent_id: str) -> Optional[str]:
+    """Look up an agent's owning user_id (agents.created_by), dialect-safe."""
+    from xyz_agent_context.utils.db_factory import get_db_client
+    db = await get_db_client()
+    row = await db.get_one("agents", {"agent_id": agent_id})
+    return row.get("created_by") if row else None
+
+
+async def _stage_send_attachments(agent_id: str, refs: str) -> List[dict]:
+    """Resolve + stage attachment_refs for a sending agent into the shared bus
+    area. Returns [] when there are no refs or the owner can't be resolved."""
+    ref_list = _split_refs(refs)
+    if not ref_list:
+        return []
+    owner = await _resolve_owner_user_id(agent_id)
+    if not owner:
+        return []
+    from xyz_agent_context.message_bus.attachments import resolve_and_stage_refs
+    return await resolve_and_stage_refs(
+        sender_agent_id=agent_id, owner_user_id=owner, refs=ref_list
+    )
+
+
 def register_message_bus_mcp_tools(
     mcp: Any,
     get_message_bus_fn: Callable,
@@ -37,11 +65,22 @@ def register_message_bus_mcp_tools(
         channel_id: str,
         content: str,
         mention_list: str = "",
+        attachment_refs: str = "",
     ) -> dict:
         """
-        Send a text message to a MessageBus channel.
+        Send a message (optionally with files) to a MessageBus channel.
 
         Use this to reply to messages or initiate conversations in channels you belong to.
+
+        Attaching files:
+        - Set attachment_refs to a comma-separated list of file handles. Each
+          handle is EITHER an attachment file_id (starts with "att_", e.g. a
+          file a user or another agent sent you) OR a path to a file in YOUR
+          workspace that you produced (e.g. "work/report.pdf"). Example:
+          attachment_refs="att_1a2b3c4d,work/chart.png".
+        - Files are shared by reference (recipients open them with the Read
+          tool). Large files are hard-linked, not copied — attach freely.
+        - Recipients are same-user agents only; you cannot send files across users.
 
         IMPORTANT — Mention trigger semantics:
         - In GROUP channels, only @-mentioned agents are activated (each mention triggers a
@@ -77,13 +116,15 @@ def register_message_bus_mcp_tools(
             if mention_list.strip():
                 mentions = [m.strip() for m in mention_list.split(",") if m.strip()]
 
+            attachments = await _stage_send_attachments(agent_id, attachment_refs)
             msg_id = await bus.send_message(
                 from_agent=agent_id,
                 to_channel=channel_id,
                 content=content,
                 mentions=mentions,
+                attachments=attachments or None,
             )
-            return {"success": True, "message_id": msg_id}
+            return {"success": True, "message_id": msg_id, "attached": len(attachments)}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -209,13 +250,19 @@ def register_message_bus_mcp_tools(
         agent_id: str,
         to_agent_id: str,
         content: str,
+        attachment_refs: str = "",
     ) -> dict:
         """
-        Send a direct message to another agent by their agent_id.
+        Send a direct message (optionally with files) to another agent by agent_id.
 
         Auto-creates a DM channel between you and the target on first use.
         This is the preferred tool for 1-on-1 agent communication — you do
         NOT need to call `bus_create_channel` first for DMs.
+
+        Attaching files: set attachment_refs to a comma-separated list of file
+        handles — attachment file_ids ("att_...") you received, and/or paths to
+        files in your own workspace (e.g. "work/report.pdf"). The recipient
+        opens them with the Read tool. Large files are hard-linked, not copied.
 
         The recipient IS triggered (direct messages always activate the target).
         Apply Reply Discipline:
@@ -237,12 +284,78 @@ def register_message_bus_mcp_tools(
             return {"success": False, "error": "MessageBus not available"}
 
         try:
+            attachments = await _stage_send_attachments(agent_id, attachment_refs)
             msg_id = await bus.send_to_agent(
                 from_agent=agent_id,
                 to_agent=to_agent_id,
                 content=content,
+                attachments=attachments or None,
             )
-            return {"success": True, "message_id": msg_id, "to_agent": to_agent_id}
+            return {
+                "success": True,
+                "message_id": msg_id,
+                "to_agent": to_agent_id,
+                "attached": len(attachments),
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    @mcp.tool()
+    async def bus_share_to_team(
+        agent_id: str,
+        team_id: str,
+        file_path: str,
+    ) -> dict:
+        """
+        Publish one of your files into a team's SHARED folder.
+
+        Use this to hand a file to a whole team at once — a collaborative
+        artifact, a report, a dataset — instead of attaching it to a single
+        message. Every teammate can open the returned path with the Read tool.
+
+        You can only share a file you actually have: a path in your own
+        workspace (e.g. "work/plan.md") or an attachment file_id ("att_...").
+        You must be a member of the team.
+
+        Args:
+            agent_id: Your agent ID
+            team_id: The team to share into (you must be a member)
+            file_path: A workspace-relative path OR an "att_" file_id
+
+        Returns:
+            Result dict with the shared absolute `path` on success. Announce
+            that path in the team chat so teammates know it is there.
+        """
+        try:
+            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.message_bus.attachments import (
+                stage_path_into_team,
+            )
+
+            db = await get_db_client()
+            agent_row = await db.get_one("agents", {"agent_id": agent_id})
+            if not agent_row:
+                return {"success": False, "error": "unknown agent"}
+            owner = agent_row.get("created_by")
+
+            team = await db.get_one("teams", {"team_id": team_id})
+            if not team or team.get("owner_user_id") != owner:
+                return {"success": False, "error": "team not found for this owner"}
+            membership = await db.get_one(
+                "team_members", {"team_id": team_id, "agent_id": agent_id}
+            )
+            if not membership:
+                return {"success": False, "error": "you are not a member of this team"}
+
+            staged = await stage_path_into_team(
+                sender_agent_id=agent_id,
+                owner_user_id=owner,
+                team_id=team_id,
+                ref=file_path,
+            )
+            if staged is None:
+                return {"success": False, "error": f"file not found: {file_path}"}
+            return {"success": True, "path": staged["path"], "name": staged["original_name"]}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

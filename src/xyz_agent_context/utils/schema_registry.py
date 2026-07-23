@@ -599,12 +599,25 @@ _register(
             Column("input_tokens", "INTEGER", "INT", nullable=False, default="0"),
             Column("output_tokens", "INTEGER", "INT", nullable=False, default="0"),
             Column("total_cost_usd", "REAL", "DECIMAL(10,6)", nullable=False, default="0"),
+            # Owner attribution captured at write time. Nullable: background /
+            # non-user LLM calls (memory consolidation, no auth context) leave
+            # it NULL. VARCHAR(128) matches user_quotas.user_id so the two
+            # tables join without truncation. Before this column, the only way
+            # to attribute a cost row to a user was cost_records.agent_id ->
+            # agents.created_by, which breaks the moment the agent is hard
+            # deleted (see backfill_cost_records_user_id.py).
+            Column("user_id", "TEXT", "VARCHAR(128)"),
+            # Which provider branch served the call ("system" free-tier vs the
+            # user's own key). Was only ever a ContextVar (api_config.py);
+            # persisting it here makes billing auditable.
+            Column("provider_source", "TEXT", "VARCHAR(32)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
             Index("idx_cost_agent_id", ["agent_id"]),
             Index("idx_cost_created_at", ["created_at"]),
             Index("idx_cost_call_type", ["call_type"]),
+            Index("idx_cost_records_user_id", ["user_id"]),
         ],
     )
 )
@@ -654,6 +667,11 @@ _register(
             Column("content", "TEXT", "TEXT", nullable=False),
             Column("msg_type", "TEXT", "VARCHAR(32)", nullable=False, default="'text'"),
             Column("mentions", "TEXT", "TEXT", nullable=True),
+            # JSON list of bus-attachment dicts (file_id/original_name/mime_type/
+            # size_bytes/category/rel_path). rel_path is base_working_path-relative
+            # and points into the per-user shared area; markers are built from it
+            # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
+            Column("attachments", "TEXT", "TEXT", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -678,6 +696,31 @@ _register(
         indexes=[
             Index("idx_bus_registry_visibility", ["visibility"]),
             Index("idx_bus_registry_owner", ["owner_user_id"]),
+        ],
+    )
+)
+
+# 23b. bus_agent_activity — live "what is this agent doing" for a channel.
+# Written by MessageBusTrigger while it runs a team-room agent so the team
+# chat UI can show running / phase / elapsed. One row per (agent_id,
+# channel_id); state flips to 'idle' when the turn ends. `updated_at` is a
+# heartbeat — a stale 'running' row (process died) is treated as not-running
+# by readers. This is NOT the events pipeline; it's a lightweight status mirror.
+_register(
+    TableDef(
+        name="bus_agent_activity",
+        columns=[
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("channel_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("state", "TEXT", "VARCHAR(16)", nullable=False, default="'idle'"),
+            Column("phase", "TEXT", "VARCHAR(64)"),
+            Column("tool_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("started_at", "TEXT", "DATETIME(6)"),
+            Column("updated_at", "TEXT", "DATETIME(6)"),
+        ],
+        primary_key=["agent_id", "channel_id"],
+        indexes=[
+            Index("idx_bus_activity_channel", ["channel_id"]),
         ],
     )
 )
@@ -1129,6 +1172,48 @@ _register(
 )
 
 
+# 28b. quota_deductions — per-deduction audit ledger for the free-tier quota.
+#
+# user_quotas holds only cumulative scalars (used_input/output_tokens), so a
+# single wrong charge could never be isolated or refunded — the only remedy
+# was a platform-wide reset. quota_repository.atomic_deduct now writes one row
+# here per deduction. It is NOT wrapped in a DB transaction with the user_quotas
+# UPDATE (the client's transaction() is single-connection and unsafe on this
+# concurrent hot path — see atomic_deduct's docstring): the UPDATE runs first as
+# the spend-control invariant, the ledger row follows best-effort. So ledger and
+# total are reconcilable, not transactionally identical — `used_* >= SUM(rows)`,
+# with a hard-crash-between-writes gap at most. Rows are self-auditing:
+# provider_source / model / agent_id are stored redundantly so a ledger entry
+# stands on its own even if the linked cost_records row is missing (insert
+# failed -> cost_record_id NULL) or later purged. Sum a user's rows to compute
+# an exact refund instead of resetting everyone.
+_register(
+    TableDef(
+        name="quota_deductions",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
+            Column("user_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("input_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            Column("output_tokens", "INTEGER", "BIGINT UNSIGNED", nullable=False, default="0"),
+            # Link to the cost_records row that triggered this deduction.
+            # Nullable: if the cost_records insert failed, the deduction still
+            # happened and must still be recorded — just without the link.
+            Column("cost_record_id", "INTEGER", "BIGINT UNSIGNED"),
+            # Redundant self-audit columns (see table comment).
+            Column("provider_source", "TEXT", "VARCHAR(32)"),
+            Column("model", "TEXT", "VARCHAR(128)"),
+            Column("agent_id", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_quota_deductions_user", ["user_id"]),
+            Index("idx_quota_deductions_created", ["created_at"]),
+            Index("idx_quota_deductions_cost_record", ["cost_record_id"]),
+        ],
+    )
+)
+
+
 # ----------------------------------------------------------------------------
 # 29. user_notifications — out-of-band messages to surface in UI
 #
@@ -1328,6 +1413,10 @@ _register(
             Column("color", "TEXT", "VARCHAR(16)"),
             Column("source", "TEXT", "VARCHAR(64)", nullable=False, default="'user'"),
             Column("intro_md", "TEXT", "MEDIUMTEXT"),
+            # Agent that responds to a team-chat message with NO @mention.
+            # NULL = fall back to the earliest-joined member. auto_migrate adds
+            # this to pre-existing tables. See backend/routes/teams.py.
+            Column("lead_agent_id", "TEXT", "VARCHAR(64)"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
@@ -1425,6 +1514,147 @@ _register(
 )
 
 # ----------------------------------------------------------------------------
+# Skill Marketplace (spec: 2026-07-20-skill-marketplace-tech-design-v1.1.md)
+#
+# skill_catalog / skill_scan_results are written only by the cloud registry
+# instance; they exist (empty) on desktop deployments because auto_migrate
+# is unconditional. skill_installations is written on both sides and is an
+# AUDIT FOLLOWER of the filesystem truth (skills/ + .skill_meta.json) — the
+# reconciler only ever updates rows, never touches user files.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="skill_catalog",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("version", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("author_json", "TEXT", "TEXT"),
+            Column("license", "TEXT", "VARCHAR(64)"),
+            Column("category", "TEXT", "VARCHAR(32)"),
+            Column("capabilities_json", "TEXT", "TEXT"),
+            Column("tags_json", "TEXT", "TEXT"),
+            Column("config_schema_json", "TEXT", "MEDIUMTEXT"),
+            Column("dependencies_json", "TEXT", "TEXT"),
+            Column("compatibility_json", "TEXT", "TEXT"),
+            Column("s3_key", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("package_hash", "TEXT", "VARCHAR(80)", nullable=False),
+            Column("publisher", "TEXT", "VARCHAR(128)"),
+            Column("scan_status", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("downloads", "INTEGER", "BIGINT", nullable=False, default="0"),
+            Column("is_default", "INTEGER", "TINYINT(1)", nullable=False, default="0"),
+            Column("avg_rating", "REAL", "DECIMAL(3,2)"),
+            Column("published_at", "TEXT", "DATETIME(6)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_skill_catalog_id_ver", ["skill_id", "version"], unique=True),
+            Index("idx_skill_catalog_category", ["category"]),
+            Index("idx_skill_catalog_status", ["status"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="skill_installations",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("agent_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("user_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("version", "TEXT", "VARCHAR(32)"),
+            Column("source_type", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("source_url", "TEXT", "VARCHAR(1024)"),
+            Column("package_hash", "TEXT", "VARCHAR(80)"),
+            Column("status", "TEXT", "VARCHAR(24)", nullable=False),
+            Column("last_event", "TEXT", "VARCHAR(24)"),
+            Column("installed_at", "TEXT", "DATETIME(6)"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_skill_inst_agent_user_skill", ["agent_id", "user_id", "skill_id"], unique=True),
+            Index("idx_skill_inst_user", ["user_id"]),
+        ],
+    )
+)
+
+_register(
+    TableDef(
+        name="skill_scan_results",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("version", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("status", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("high_issues", "INTEGER", "INT", nullable=False, default="0"),
+            Column("low_issues", "INTEGER", "INT", nullable=False, default="0"),
+            Column("issues_json", "TEXT", "MEDIUMTEXT"),
+            Column("scanner_version", "TEXT", "VARCHAR(16)"),
+            Column("scanned_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_skill_scan_id_ver", ["skill_id", "version"])],
+    )
+)
+
+# ----------------------------------------------------------------------------
+# Team Marketplace (spec: 2026-07-21-team-marketplace-tech-design.md)
+#
+# Catalog INDEX for team/agent bundle templates. The .nxbundle blob lives in
+# the artifact store (get_template_store, own S3 prefix / local subfolder);
+# this table only points at it via store_key + bundle_sha256. Written only by
+# the cloud registry instance; desktop deployments have the (empty) table and
+# proxy browse/install to the cloud API.
+# ----------------------------------------------------------------------------
+_register(
+    TableDef(
+        name="team_catalog",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("template_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("name", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("description", "TEXT", "TEXT"),
+            Column("categories_json", "TEXT", "TEXT"),
+            Column("author", "TEXT", "VARCHAR(128)"),
+            Column("agent_count", "INTEGER", "INT", nullable=False, default="1"),
+            Column("thumbnail_url", "TEXT", "VARCHAR(1024)"),
+            Column("store_key", "TEXT", "VARCHAR(512)", nullable=False),
+            Column("bundle_sha256", "TEXT", "VARCHAR(80)", nullable=False),
+            Column("enabled", "INTEGER", "TINYINT(1)", nullable=False, default="1"),
+            Column("sort_order", "INTEGER", "INT", nullable=False, default="0"),
+            Column("downloads", "INTEGER", "BIGINT", nullable=False, default="0"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_catalog_tid", ["template_id"], unique=True),
+            Index("idx_team_catalog_enabled_sort", ["enabled", "sort_order"]),
+        ],
+    )
+)
+
+# Placeholder registration (Team Recommended phase implements the logic).
+_register(
+    TableDef(
+        name="team_skill_policies",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("team_id", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("skill_id", "TEXT", "VARCHAR(128)", nullable=False),
+            Column("policy_type", "TEXT", "VARCHAR(16)", nullable=False),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_team_skill_policy", ["team_id", "skill_id"], unique=True),
+        ],
+    )
+)
+
+# ----------------------------------------------------------------------------
 # channel_trigger_audit — multi-channel lifecycle audit (Phase 1 / IM abstraction)
 #
 # Generic version of `lark_trigger_audit` with an additional `channel` column
@@ -1484,9 +1714,9 @@ _register(
             Column("file_path", "TEXT", "VARCHAR(512)"),
             Column("size_bytes", "INTEGER", "BIGINT", nullable=False, default="0"),
             # DEPRECATED (2026-05-14): versioning was dropped with the pointer
-            # model. Column kept so auto_migrate keeps provisioning it and
-            # colleagues can hand-migrate old rows. No code reads/writes it.
-            # Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
+            # model. Column kept registered because dropping a column is a
+            # destructive migration (铁律 #6) — removal is Owner-gated, see
+            # reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
             Column("latest_version", "INTEGER", "INT", nullable=False, default="1"),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
@@ -1499,25 +1729,14 @@ _register(
     )
 )
 
-# DEPRECATED (2026-05-14): the pointer model dropped per-version content rows.
-# This table is kept registered so auto_migrate keeps provisioning it and
-# colleagues with old saved HTML can hand-migrate from these rows. No code
-# reads or writes it anymore.
-# Cleanup: reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
-_register(
-    TableDef(
-        name="instance_artifact_versions",
-        columns=[
-            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, primary_key=True, auto_increment=True),
-            Column("artifact_id", "TEXT", "VARCHAR(32)", nullable=False),
-            Column("version", "INTEGER", "INT", nullable=False),
-            Column("file_path", "TEXT", "VARCHAR(512)", nullable=False),
-            Column("size_bytes", "INTEGER", "BIGINT", nullable=False),
-            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
-        ],
-        indexes=[Index("idx_artifact_version", ["artifact_id", "version"], unique=True)],
-    )
-)
+# RETIRED (2026-07-21): `instance_artifact_versions` is no longer registered.
+# The pointer model (2026-05-14) dropped per-version content rows; no code has
+# read or written the table since. Existing databases keep the table and its
+# rows untouched (auto_migrate never drops) so old saved HTML can still be
+# hand-migrated; fresh databases simply stop provisioning it. Dropping the
+# table (and `instance_artifacts.latest_version`) remains an explicit
+# Owner-gated migration — see
+# reference/self_notebook/todo/2026-05-14-cleanup-dead-artifact-versions.md
 
 
 # ----------------------------------------------------------------------------

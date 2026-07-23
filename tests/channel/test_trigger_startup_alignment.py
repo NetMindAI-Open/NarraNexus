@@ -2,29 +2,34 @@
 @file_name: test_trigger_startup_alignment.py
 @author: Bin Liang
 @date: 2026-07-02 (rewritten 2026-07-08 for the consolidated supervisor)
-@description: Guard test — the ONE channel-trigger supervisor must be wired into
-              every startup path, and every channel trigger class must be
-              registered so the supervisor actually launches it (CLAUDE.md #7).
+@description: Guard test — the ONE worker supervisor must be wired into every
+              startup path, it must launch the channel core, and every channel
+              trigger class must be registered so it is actually run (#7).
 
 Historical context: IM channels used to ship one ``run_*_trigger.py`` entrypoint
 each, and a startup path forgetting one meant a bound channel silently received
 nothing (bit Slack/Telegram, NarraMessenger, WeChat in turn). Those per-channel
-entrypoints were consolidated into a single supervisor
-(``module/run_channel_triggers.py``) that runs every ``ChannelTriggerBase``
-subclass listed in ``CHANNEL_TRIGGER_MAP``.
+entrypoints were consolidated into ``module/run_channel_triggers.py`` (one
+process, all channels). Since 2026-07-22 that channel core is itself launched by
+the broader ``module/run_worker_supervisor.py`` — the ONE process that also runs
+the module poller, job trigger, and message-bus trigger, each as a supervised
+backoff-restart task. So the startup paths now launch the WORKER supervisor, and
+channels are reached through it via ``start_channel_triggers``.
 
-The failure class therefore MOVED, and this guard moved with it:
+The failure class therefore MOVED again, and this guard moved with it:
 
   1. Every channel trigger class (subclass of ``ChannelTriggerBase`` found on
-     disk) MUST be in ``CHANNEL_TRIGGER_MAP`` — else the supervisor never
-     starts it, reproducing the old silent-drop outage one layer up.
-  2. The single supervisor entrypoint MUST appear in every startup path:
+     disk) MUST be in ``CHANNEL_TRIGGER_MAP`` — else it is never started,
+     reproducing the old silent-drop outage one layer up.
+  2. The worker supervisor entrypoint MUST appear in every startup path:
        - ``run.sh``                        (bash local / container)
        - ``scripts/dev-local.sh``          (tmux dev mode)
        - ``scripts/.dev-local-safe.sh``    (tmux safe variant)
        - ``scripts/deploy-cloud.sh``       (systemd cloud VM)
        - ``tauri/src-tauri/src/state.rs``  (desktop dmg — BOTH factories)
-  3. ``run.sh`` stop path MUST pkill the supervisor, or restarts leak it.
+  3. The worker supervisor MUST launch the channel core
+     (``start_channel_triggers``), or channels silently never run.
+  4. ``run.sh`` stop path MUST pkill the supervisor, or restarts leak it.
 
 The cloud compose file (``NarraNexus-deploy`` repo) is guarded by that repo's
 own check script.
@@ -36,7 +41,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULE_DIR = REPO_ROOT / "src" / "xyz_agent_context" / "module"
 
-SUPERVISOR_ENTRYPOINT = "xyz_agent_context.module.run_channel_triggers"
+SUPERVISOR_ENTRYPOINT = "xyz_agent_context.module.run_worker_supervisor"
+WORKER_SUPERVISOR_FILE = MODULE_DIR / "run_worker_supervisor.py"
 
 STARTUP_FILES = {
     "run.sh": REPO_ROOT / "run.sh",
@@ -130,9 +136,19 @@ def test_state_rs_wires_supervisor_in_both_factories():
     assert not missing, "state.rs factories missing the supervisor:\n" + "\n".join(missing)
 
 
+def test_worker_supervisor_launches_the_channel_core():
+    """The worker supervisor MUST call ``start_channel_triggers`` — otherwise
+    every IM channel silently never runs (the old outage, one layer up)."""
+    text = WORKER_SUPERVISOR_FILE.read_text(encoding="utf-8")
+    assert "start_channel_triggers" in text, (
+        "run_worker_supervisor.py no longer launches the channel core "
+        "(start_channel_triggers) — channels would silently never run"
+    )
+
+
 def test_run_sh_kills_supervisor_on_stop():
-    """run.sh stop must pkill the supervisor, or restarts leak a stale poller."""
+    """run.sh stop must pkill the supervisor, or restarts leak a stale worker."""
     text = STARTUP_FILES["run.sh"].read_text(encoding="utf-8")
-    assert re.search(r'pkill -f "?run_channel_triggers"?', text), (
-        "run.sh stop path missing pkill for run_channel_triggers"
+    assert re.search(r'pkill -f "?run_worker_supervisor"?', text), (
+        "run.sh stop path missing pkill for run_worker_supervisor"
     )

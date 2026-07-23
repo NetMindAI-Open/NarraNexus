@@ -1,7 +1,20 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-05-27
+last_verified: 2026-07-22
 ---
+
+## 2026-07-22 — SIDECAR_MARKERS updated for the worker supervisor
+
+`SIDECAR_MARKERS` (orphan-classification whitelist for `is_narranexus_sidecar_cmdline`)
+now lists `xyz_agent_context.module.run_worker_supervisor` (the consolidated
+worker process — see [[run_worker_supervisor.py]]) and keeps
+`…run_channel_triggers` (still launchable standalone via cloud `--only channels`).
+The stale per-channel markers (`…lark_module.run_lark_trigger`, slack/telegram/
+discord) and the bogus `…utils.run_module_poller` / `run_job_trigger` /
+`run_message_bus_trigger` entries (paths that never existed) were removed —
+those workers no longer spawn as their own processes. `REQUIRED_PORTS` is
+UNCHANGED (workers are portless; the channel /healthz 47831 already listed; MCP
+7801–7820 unaffected).
 
 ## 2026-05-27 — REQUIRED_PORTS expanded to cover ALL sidecar ports
 

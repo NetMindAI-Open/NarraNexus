@@ -228,6 +228,46 @@ export const artifactsApi = {
     return r.json();
   },
 
+  /**
+   * Open a web page as a URL-tab artifact. The backend probes the URL's
+   * embeddability and stores the verdict; the initial URL is SSRF-gated
+   * (a non-public target is rejected with the backend's error detail).
+   */
+  async openUrl(agentId: string, url: string, title?: string): Promise<Artifact> {
+    const r = await fetch(`${base(agentId)}/url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ url, title }),
+    });
+    if (!r.ok) {
+      let detail: string = String(r.status);
+      try {
+        const body = await r.json();
+        if (body?.detail) detail = String(body.detail);
+      } catch { /* not JSON */ }
+      throw new Error(detail);
+    }
+    return r.json();
+  },
+
+  /**
+   * Set (or clear, mode=null) the user's manual embed override on a URL tab.
+   * The override wins over the probe recommendation for that tab.
+   */
+  async setEmbedMode(
+    agentId: string,
+    artifactId: string,
+    mode: 'iframe' | 'stream' | null,
+  ): Promise<Artifact> {
+    const r = await fetch(`${base(agentId)}/${artifactId}/embed-mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ mode }),
+    });
+    if (!r.ok) throw new Error(`setEmbedMode failed: ${r.status}`);
+    return r.json();
+  },
+
   // ── user-scoped (Settings → Artifacts management UI) ────────────────────────
 
   async listAll(userId: string): Promise<Artifact[]> {
