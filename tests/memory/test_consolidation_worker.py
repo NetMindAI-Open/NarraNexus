@@ -61,6 +61,12 @@ def _row(
     }
 
 
+
+async def _seed_agent(db, agent_id, created_by="usr1"):
+    """Queue rows are only processed for agents that still exist (deleted
+    agents' rows are purged) — seed the agents row the scope points at."""
+    await db.insert("agents", {"agent_id": agent_id, "agent_name": agent_id, "created_by": created_by})
+
 # ── helper: build worker with mocked engine ──────────────────────────────────
 
 def _make_worker(db_client, consolidate_return=2):
@@ -150,6 +156,7 @@ async def test_successful_consolidation_resets_state(db_client):
     """After a successful consolidation: pending_count=0, status='dirty',
     last_consolidated_at updated."""
     spec = get_spec("observation")
+    await _seed_agent(db_client, "agt1")
     row = _row(kind="observation", pending_count=spec.consolidate_threshold)
     await db_client.insert(_QUEUE, row)
 
@@ -177,6 +184,8 @@ async def test_failed_consolidation_isolates_scope(db_client):
     spec = get_spec("observation")
 
     # Two scopes: one will fail, one will succeed
+    await _seed_agent(db_client, "agt_fail")
+    await _seed_agent(db_client, "agt_ok")
     await db_client.insert(_QUEUE, _row(
         agent_id="agt_fail", kind="observation", pending_count=spec.consolidate_threshold
     ))
@@ -231,6 +240,7 @@ async def test_processing_rows_skipped(db_client):
 async def test_flush_scope_forces_processing(db_client):
     """flush_scope() triggers consolidation regardless of count/idle state."""
     # Low count, fresh — would normally not trigger
+    await _seed_agent(db_client, "agt1")
     row = _row(kind="observation", pending_count=1)
     await db_client.insert(_QUEUE, row)
 
@@ -282,7 +292,7 @@ async def test_inject_owner_credentials_resolves_for_agent_owner(db_client):
     db_client.get_one = AsyncMock(return_value={"agent_id": "agent_x", "created_by": "user_owner"})
 
     with patch(
-        "xyz_agent_context.agent_framework.provider_resolver.resolve_and_set_provider_for_user",
+        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_x")
@@ -299,7 +309,7 @@ async def test_inject_owner_credentials_no_owner_is_noop(db_client):
     db_client.get_one = AsyncMock(return_value=None)
 
     with patch(
-        "xyz_agent_context.agent_framework.provider_resolver.resolve_and_set_provider_for_user",
+        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ) as resolver:
         await worker._inject_owner_credentials("agent_ghost")
@@ -316,6 +326,7 @@ async def test_resolver_failure_isolates_scope_with_facts_intact(db_client):
     worker._engine_consolidate = AsyncMock(side_effect=RuntimeError("FREE_TIER_EXHAUSTED"))
 
     key = {"agent_id": "agent_q", "scope_type": "agent", "scope_id": "", "kind": "observation"}
+    await _seed_agent(db_client, "agent_q")
     await db_client.insert(
         "memory_consolidation_queue",
         {**key, "status": "dirty", "pending_count": 10,
@@ -347,9 +358,39 @@ async def test_inject_owner_credentials_never_leaks_previous_tenant(db_client):
 
     db_client.get_one = AsyncMock(return_value=None)  # deleted agent
     with patch(
-        "xyz_agent_context.agent_framework.provider_resolver.resolve_and_set_provider_for_user",
+        "xyz_agent_context.agent_framework.providers.resolver.resolve_and_set_provider_for_user",
         new=AsyncMock(),
     ):
         await worker._inject_owner_credentials("agent_deleted")
 
     assert openai_config.api_key != "tenant_a_key"
+
+
+@pytest.mark.asyncio
+async def test_deleted_agent_scopes_purged_from_queue(db_client):
+    """Queue rows whose agent no longer exists are PURGED, not processed.
+
+    Agent deletion used to leave queue rows behind; the idle trigger then
+    reprocessed them forever, spamming "no owner row" warnings (prod:
+    1,880 warnings / 14 days). The worker must self-heal: agent gone →
+    delete every queue row of that agent, never call the engine for it.
+    """
+    await db_client.insert("agents", {
+        "agent_id": "agt_live", "agent_name": "L", "created_by": "usr1",
+    })
+    await db_client.insert(_QUEUE, _row(agent_id="agt_gone", pending_count=99))
+    await db_client.insert(_QUEUE, _row(
+        agent_id="agt_gone", scope_type="narrative", scope_id="nar1",
+        kind="chat", pending_count=99,
+    ))
+    await db_client.insert(_QUEUE, _row(agent_id="agt_live", pending_count=99))
+
+    worker = _make_worker(db_client)
+    await worker._run_one_pass()
+
+    rows = await db_client.execute(
+        f"SELECT agent_id FROM {_QUEUE}", params=(), fetch=True,
+    )
+    assert [r["agent_id"] for r in rows] == ["agt_live"]
+    processed = [c.kwargs["agent_id"] for c in worker._engine_consolidate.await_args_list]
+    assert processed == ["agt_live"]

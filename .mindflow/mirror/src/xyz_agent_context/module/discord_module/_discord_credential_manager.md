@@ -36,12 +36,12 @@ id. Sibling of ``_telegram_credential_manager.py``.
   ``AsyncDatabaseClient``.
 - **Downstream**: consumed by ``discord_module`` (get_credential),
   ``discord_trigger`` (load_active / set_enabled), ``_discord_service``,
-  ``_discord_mcp_tools``, and ``backend/routes/discord.py``.
+  ``_discord_mcp_tools``, and ``backend/routes/channels/discord.py``.
 
 ## Gotchas
 
 - ``to_public_dict`` is the only safe shape for API responses / logs —
   it omits the token. The raw ``bot_token`` lives only on the dataclass.
-- The table is registered in ``utils/schema_registry.py`` as
+- The table is registered in ``utils/db/schema_registry.py`` as
   ``channel_discord_credentials`` with a UNIQUE index on both
   ``agent_id`` and ``bot_user_id``.

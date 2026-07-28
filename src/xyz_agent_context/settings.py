@@ -71,6 +71,21 @@ _dotenv_values = _read_dotenv_raw(_PROJECT_ROOT / ".env")
 _API_KEY_FIELDS = {"OPENAI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"}
 _DOTENV_PASSTHROUGH = {
     "BUNDLE_FETCH_ALLOWED_HOSTS",  # backend/routes/bundle.py — /import/from-url SSRF guard
+    # Free tier (cloud-only). Read via os.environ.get() by
+    # providers/free_tier.py + integrations/free_tier/wallet_client.py. Cloud
+    # sets these as real container env; listed here so a local .env can too.
+    # NOTE the gateway's own admin key is deliberately ABSENT: the backend must
+    # never hold it — it talks to quota-api, which does.
+    "FREE_TIER_ENABLED",
+    "FREE_TIER_WALLET_API_URL",
+    "FREE_TIER_WALLET_API_TOKEN",
+    "FREE_TIER_GATEWAY_ANTHROPIC_BASE_URL",
+    "FREE_TIER_GATEWAY_OPENAI_BASE_URL",
+    "FREE_TIER_AGENT_MODEL",
+    "FREE_TIER_HELPER_MODEL",
+    # Where transcription goes for a free-tier user. The proxy holds the
+    # operator's STT credential; we only ever send the user's wallet key.
+    "FREE_TIER_STT_PROXY_URL",
 }
 for _k, _v in _dotenv_values.items():
     if not _v:
@@ -262,12 +277,11 @@ class Settings(BaseSettings):
     # production. In local mode an unset value falls back to admin_secret_key.
     transcription_hmac_secret: str = ""
 
-    # System-default NetMind credentials for the cloud free tier. When
-    # present and SystemProviderService is enabled, the transcription
-    # resolver appends NetMind as the last fallback (after user providers
-    # and settings.openai_api_key) without consulting the LLM token quota.
-    system_default_netmind_api_key: str = ""
-    system_default_netmind_base_url: str = "https://api.netmind.ai"
+    # NOTE: the operator's NetMind STT credential is deliberately NOT here any
+    # more (2026-07-28). Transcription for free-tier users goes through the
+    # deploy-side STT proxy authenticated by the user's own wallet key, so the
+    # operator credential lives only in that proxy's container — it used to
+    # have to be present in backend, mcp and workers for STT to work at all.
 
     @property
     def is_cloud_mode(self) -> bool:

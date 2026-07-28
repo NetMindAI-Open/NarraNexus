@@ -187,6 +187,21 @@ class DiscordModule(ChannelModuleBase):
     ctx_data_key = "discord_info"
     mcp_server_name = "discord_module"
     mcp_port = DISCORD_MCP_PORT
+    # Setup-residency (B++): while unbound, only discord_bind stays visible;
+    # the other tools' schemas are suppressed via disallowed_tools. Keep in
+    # sync with register_discord_mcp_tools — unit test asserts equality.
+    all_tool_names = (
+        "discord_send",
+        "react_to_user_message",
+        "discord_reply",
+        "discord_read_history",
+        "discord_dm",
+        "discord_list_channels",
+        "discord_bind",
+        "discord_status",
+        "discord_unbind",
+    )
+    setup_tool_names = frozenset({"discord_bind"})
 
     @staticmethod
     def get_config() -> ModuleConfig:
@@ -233,7 +248,14 @@ class DiscordModule(ChannelModuleBase):
     async def get_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
-            return _NO_BOT_INSTRUCTION + _DISCORD_IRON_RULES
+            # Setup-residency (B++): unbound agents get ONE line instead of
+            # the full onboarding walkthrough; the full guide is served on
+            # demand by discord_bind() called with no arguments. A bound
+            # agent whose credential data failed to load this turn gets
+            # nothing rather than a misleading onboarding prompt.
+            if await self.is_bound():
+                return ""
+            return self.unbound_setup_line()
 
         bot_username = info.get("bot_username", "") or "(unknown bot)"
         bot_user_id = info.get("bot_user_id", "")

@@ -38,4 +38,3 @@ provider service 里重复且只看 `DATABASE_URL`。本模块收敛成一个纯
   Power 登录则设 `NARRANEXUS_ENABLE_POWER_LOGIN=true`(run.sh 与 DMG 都要设,
   铁律 #7)。
 
-Spec: reference/self_notebook/plans/2026-07-13-本地双模式登录.md（对应本仓 plan）

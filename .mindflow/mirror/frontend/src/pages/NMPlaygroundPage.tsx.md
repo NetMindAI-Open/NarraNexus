@@ -63,4 +63,3 @@ harmless if it leaks to production (just a long demo page).
 
 - `components/nm/index.ts` — barrel export this page exercises
 - `lib/echarts-nm-theme.ts` — theme that ChartCard will use in production
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §7.1

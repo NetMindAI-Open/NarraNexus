@@ -6,7 +6,7 @@
 """
 
 from backend.routes.websocket import router as websocket_router
-from backend.routes.agents import router as agents_router
+from backend.routes.agents.core import router as agents_router
 from backend.routes.jobs import router as jobs_router
 from backend.routes.skills import router as skills_router
 from backend.routes.providers import router as providers_router

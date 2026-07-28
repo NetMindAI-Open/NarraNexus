@@ -16,7 +16,7 @@ Strategy
 Originally this file mocked the deleted ``utils.audio_transcription``
 module. After the abstraction landed (see
 ``2026-05-07-transcription-provider-abstraction-design.md``) the upload
-route imports ``agent_framework.transcription.TranscriptionService``,
+route imports ``agent_framework.llm.transcription.TranscriptionService``,
 so the patch target is the singleton instead of two free functions.
 """
 from __future__ import annotations
@@ -28,8 +28,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.routes import agents_attachments as attachments_mod
-from xyz_agent_context.agent_framework.transcription import service as svc_mod
+from backend.routes.agents import attachments as attachments_mod
+from xyz_agent_context.agent_framework.llm.transcription import service as svc_mod
 
 
 @pytest.fixture

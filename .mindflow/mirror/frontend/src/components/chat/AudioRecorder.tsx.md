@@ -7,7 +7,7 @@ stub: false
 ## 2026-07-18 — onPreflight 注释去开关化（行为不变）
 
 两处注释举例"user toggled off 'Use free quota'"——该开关已随免费额度偏好
-删除（[[provider_resolver]]），改为真实存在的过期场景（额度用尽/provider
+删除（[[resolver]]），改为真实存在的过期场景（额度用尽/provider
 被删）。re-probe 机制本身不变且依然必要。
 
 # AudioRecorder.tsx — Voice capture button for the chat input bar

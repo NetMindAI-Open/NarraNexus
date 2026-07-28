@@ -84,4 +84,3 @@ Carbon orange).
 - `nm/identity.tsx` RingAvatar — typically renders to the left of the
   BubbleMetaRow + bubble stack
 - `chat/MessageBubble.tsx` (existing) — restyled in M3 to delegate
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.4 + §6.1

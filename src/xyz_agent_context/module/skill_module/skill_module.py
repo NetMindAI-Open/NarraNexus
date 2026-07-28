@@ -837,7 +837,7 @@ class SkillModule(XYZBaseModule):
 
     def set_skill_env_config(self, skill_name: str, env_config: dict) -> None:
         """Save env var values to .skill_meta.json (Fernet encrypted)."""
-        from xyz_agent_context._skill_marketplace_impl.secret_box import get_secret_box
+        from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import get_secret_box
 
         meta_data = self._read_skill_meta(skill_name)
 
@@ -922,7 +922,7 @@ class SkillModule(XYZBaseModule):
         Legacy plain-base64 values (pre-Fernet format) are decrypted
         transparently and re-persisted encrypted on first read.
         """
-        from xyz_agent_context._skill_marketplace_impl.secret_box import get_secret_box
+        from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import get_secret_box
 
         box = get_secret_box()
         all_env = {}

@@ -8,8 +8,7 @@ A TeamTemplate is a catalog INDEX row: presentation metadata + a pointer
 (store_key + bundle_sha256) to a `.nxbundle` in OUR artifact store (S3/local,
 separate from skills). Install fetches the blob (directly on the registry
 host, over HTTP on a desktop client) and runs the existing bundle importer
-(fork semantics). Design:
-reference/self_notebook/specs/2026-07-21-team-marketplace-tech-design.md
+(fork semantics).
 """
 
 from datetime import datetime

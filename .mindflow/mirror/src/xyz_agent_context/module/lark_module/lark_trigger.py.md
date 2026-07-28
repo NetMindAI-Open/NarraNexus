@@ -740,7 +740,7 @@ without EC2 shell access.
 ### Observability additions
 
 - **`lark_trigger_audit` table** (schema in
-  `utils/schema_registry.py`, repo in
+  `utils/db/schema_registry.py`, repo in
   `repository/lark_trigger_audit_repository.py`): every lifecycle
   decision writes a row — ingress accept/drop (with dedup layer),
   echo drop, unbound drop, WS connect/disconnect/backoff, subscriber

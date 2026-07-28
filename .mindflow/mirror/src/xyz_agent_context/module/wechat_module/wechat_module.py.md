@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_module.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): ALL tools suppressed while unbound
+
+Declares `all_tool_names` with an EMPTY `setup_tool_names` — WeChat binding is
+a frontend-only QR flow, there is no bind tool for the agent to run, so while
+unbound every wechat tool is suppressed and `unbound_setup_line()` falls back
+to pointing the user at Settings. The `get_instructions` unbound branch
+returns that one-liner instead of the walkthrough (bound-but-info-missing
+returns ""). Contract: [[channel_module_base]].
 
 ## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
 
@@ -122,7 +131,7 @@ Telegram:
     back through ``hook_after_event_execution``.
   - ``MessageSourceRegistry`` / ``MessageSourceHandler`` — reply
     recording (the "not Background activity" guard).
-- **Binding flow lives elsewhere**: ``backend/routes/wechat.py`` drives
+- **Binding flow lives elsewhere**: ``backend/routes/channels/wechat.py`` drives
   the QR scan; this module never binds.
 
 ## Gotchas

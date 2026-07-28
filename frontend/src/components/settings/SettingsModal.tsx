@@ -12,13 +12,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Cpu, Info, Shield } from 'lucide-react';
+import { X, Cpu, Info, Shield, Monitor } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { Button, ScrollArea } from '@/components/ui';
 import { ProviderSettings } from './ProviderSettings';
 import { useConfigStore } from '@/stores/configStore';
+import { usePowerStore } from '@/stores/powerStore';
 import { api } from '@/lib/api';
+import { isTauri } from '@/lib/tauri';
 
 // =============================================================================
 // Sidebar navigation sections
@@ -33,6 +35,8 @@ interface NavSection {
 const NAV_SECTIONS: NavSection[] = [
   { id: 'providers', labelKey: 'settings.modal.navProviders', icon: Cpu },
   { id: 'privacy', labelKey: 'settings.modal.navPrivacy', icon: Shield },
+  // Desktop-only power controls — filtered out on web in the component.
+  { id: 'desktop', labelKey: 'settings.modal.navDesktop', icon: Monitor },
 ];
 
 // =============================================================================
@@ -70,6 +74,24 @@ interface SettingsModalProps {
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState('providers');
+
+  // Desktop-only sections are hidden on web — the power controls need the
+  // Tauri shell (caffeinate lives on the Rust side).
+  const navSections = NAV_SECTIONS.filter((s) => s.id !== 'desktop' || isTauri());
+
+  // Locked Use (prevent sleep) — desktop only.
+  const preventSleep = usePowerStore((s) => s.preventSleep);
+  const setPreventSleep = usePowerStore((s) => s.setPreventSleep);
+  const [preventSleepBusy, setPreventSleepBusy] = useState(false);
+  const handlePreventSleepToggle = useCallback(async () => {
+    if (preventSleepBusy) return;
+    setPreventSleepBusy(true);
+    try {
+      await setPreventSleep(!preventSleep);
+    } finally {
+      setPreventSleepBusy(false);
+    }
+  }, [preventSleep, preventSleepBusy, setPreventSleep]);
 
   // Analytics opt-out state: true = analytics ON (opted_out = false)
   const userId = useConfigStore((s) => s.userId);
@@ -158,7 +180,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           <div className="relative flex flex-1 min-h-0">
             {/* Sidebar */}
             <nav className="w-48 shrink-0 border-r border-[var(--border-subtle)] py-3 px-2">
-              {NAV_SECTIONS.map((section) => {
+              {navSections.map((section) => {
                 const Icon = section.icon;
                 const isActive = activeSection === section.id;
 
@@ -274,6 +296,55 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                           'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm',
                           'transition-transform duration-200',
                           analyticsEnabled ? 'translate-x-6' : 'translate-x-1',
+                        )}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── Desktop Section (Tauri only) ─── */}
+              {activeSection === 'desktop' && isTauri() && (
+                <div className="space-y-4 max-w-2xl">
+                  <div>
+                    <h3 className="text-sm font-medium text-[var(--text-primary)] mb-2">
+                      {t('settings.modal.desktopHeading')}
+                    </h3>
+                    <p className="text-xs text-[var(--text-tertiary)] leading-relaxed">
+                      {t('settings.modal.desktopIntro')}
+                    </p>
+                  </div>
+
+                  {/* Locked Use toggle row */}
+                  <div className="flex items-center justify-between p-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
+                    <div className="flex-1 min-w-0 pr-4">
+                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                        {t('settings.modal.lockedUseTitle')}
+                      </p>
+                      <p className="text-xs text-[var(--text-tertiary)] mt-0.5 leading-relaxed">
+                        {t('settings.modal.lockedUseDesc')}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={preventSleep}
+                      disabled={preventSleepBusy}
+                      onClick={handlePreventSleepToggle}
+                      className={cn(
+                        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full',
+                        'transition-colors duration-200 focus-visible:outline-none',
+                        'disabled:cursor-not-allowed disabled:opacity-50',
+                        preventSleep
+                          ? 'bg-[var(--accent-primary)]'
+                          : 'bg-[var(--bg-primary)] border border-[var(--border-subtle)]',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm',
+                          'transition-transform duration-200',
+                          preventSleep ? 'translate-x-6' : 'translate-x-1',
                         )}
                       />
                     </button>

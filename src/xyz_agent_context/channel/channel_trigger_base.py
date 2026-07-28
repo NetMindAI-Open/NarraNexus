@@ -390,7 +390,7 @@ class ChannelTriggerBase(ABC):
 
         MIME tier:  libmagic > platform hint > mimetypes.guess > octet-stream.
         STT:        same TranscriptionService used by the WS upload route
-                    (see ``backend/routes/agents_attachments.py``).
+                    (see ``backend/routes/agents/attachments.py``).
                     Never-raise contract — transcript stays ``None`` on
                     failure / provider unavailable / non-audio MIME.
 
@@ -414,7 +414,7 @@ class ChannelTriggerBase(ABC):
             try:
                 # Lazy import to keep the channel layer free of agent_framework
                 # dependencies at import time.
-                from xyz_agent_context.agent_framework.transcription import (
+                from xyz_agent_context.agent_framework.llm.transcription import (
                     TranscriptionService,
                 )
 

@@ -27,7 +27,18 @@ from xyz_agent_context.schema import (
     AUTH_EXPIRED_ERROR_TYPE,
     SELF_SERVICEABLE_ERROR_TYPE,
 )
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.loop.events import (
+    DATA_TYPE_DONE,
+    DATA_TYPE_ERROR,
+    DATA_TYPE_TEXT_DELTA,
+    DATA_TYPE_USAGE,
+    ITEM_TYPE_THINKING,
+    ITEM_TYPE_TOOL_CALL,
+    ITEM_TYPE_TOOL_CALL_OUTPUT,
+    TYPE_RAW_RESPONSE_EVENT,
+    TYPE_RUN_ITEM_STREAM_EVENT,
+)
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
 )
@@ -122,16 +133,18 @@ def _is_auth_failure(error_type: str, error_message: str) -> bool:
 # in the schema layer to avoid a circular import with step_3_agent_loop.
 _AUTH_EXPIRED_USER_MESSAGE = (
     "Your coding-agent login has expired or is no longer valid, so this "
-    "turn could not run. Re-authenticate — run `codex login` (or "
-    "`claude login`) on the host, or assign an API-key provider to the "
-    "Agent slot in Settings — then send the message again."
+    "turn could not run. Re-authenticate — for Claude, run "
+    "`claude setup-token` and paste the token in Settings → LLM Providers "
+    "(most reliable); or run `codex login` / `claude login` on the host; "
+    "or assign an API-key provider to the Agent slot in Settings — then "
+    "send the message again."
 )
 
 # ``SELF_SERVICEABLE_ERROR_TYPE`` marks a deterministic failure the USER can
 # fix (see runtime_message.py). Like auth, step_3 keys on this error_type to
 # skip the helper-LLM fallback — a fabricated reply over a turn that never
 # ran hides the real, fixable cause. The actionable copy lives in
-# ``llm_failure.self_serviceable_user_message`` (shared with step_3's raw-
+# ``llm.failure.self_serviceable_user_message`` (shared with step_3's raw-
 # exception path). Reason also rides on ``ErrorMessage.action_reason`` so the
 # frontend can pick its own copy.
 
@@ -241,7 +254,7 @@ class ResponseProcessor:
         response_type = response.get("type")
 
         # Handle raw_response_event (text output, completion markers, etc.)
-        if response_type == "raw_response_event":
+        if response_type == TYPE_RAW_RESPONSE_EVENT:
             # Non-thinking event arriving — flush any residual thinking
             # FIRST so the front-end sees thinking → text in the actual
             # order the LLM produced it.
@@ -250,7 +263,7 @@ class ResponseProcessor:
             return
 
         # Handle run_item_stream_event (tool calls, tool results, etc.)
-        if response_type == "run_item_stream_event":
+        if response_type == TYPE_RUN_ITEM_STREAM_EVENT:
             yield from self._handle_run_item_stream_event(response, state)
             return
 
@@ -331,7 +344,7 @@ class ResponseProcessor:
         data = response.get("data", {})
         data_type = data.get("type")
 
-        if data_type == "response.text.delta":
+        if data_type == DATA_TYPE_TEXT_DELTA:
             # Text delta output
             delta = data.get("delta", "")
             # Filter out empty deltas (from structural StreamEvents, input_json_delta, etc.)
@@ -347,7 +360,7 @@ class ResponseProcessor:
                 state_update={"method": "append_text", "args": {"text": delta}}
             )
 
-        if data_type == "response.error":
+        if data_type == DATA_TYPE_ERROR:
             # API error (rate limit, auth failure, quota exhaustion, etc.)
             # surfaced inline by the SDK while the stream is still alive.
             #
@@ -423,19 +436,53 @@ class ResponseProcessor:
                 state_update={"method": "increment_response", "args": {}}
             )
 
-        if data_type == "response.done":
-            # Agent Loop completion marker — extract token usage for cost tracking
-            # Claude Agent SDK puts usage in ResultMessage; model is not available,
-            # so we default to the model configured in settings
+        if data_type == DATA_TYPE_USAGE:
+            # Per-turn token usage harvested from the streaming events
+            # (message_start → input, message_delta → output), accumulated across
+            # turns into a SEPARATE streamed_* tally. It is a FALLBACK: finalize()
+            # promotes it only when the terminal ResultMessage.usage is 0 (proxied
+            # non-Anthropic model via the LiteLLM gateway). Keeping it separate is
+            # what prevents double-counting on real Anthropic (where the DONE
+            # event already carries authoritative usage). No message is yielded.
+            u = data.get("usage", {})
+            return ProcessedResponse(
+                type=ResponseType.OTHER,
+                message=None,
+                state_update={
+                    "method": "accumulate_streamed_usage",
+                    "args": {
+                        "input_tokens": u.get("input_tokens", 0) or 0,
+                        "output_tokens": u.get("output_tokens", 0) or 0,
+                        "cache_read_tokens": u.get("cache_read_input_tokens", 0) or 0,
+                        "cache_creation_tokens": u.get("cache_creation_input_tokens", 0) or 0,
+                    },
+                },
+            )
+
+        if data_type == DATA_TYPE_DONE:
+            # Agent Loop completion marker — authoritative token usage when the
+            # CLI populates it (real Anthropic). For proxied models it is 0 and
+            # finalize() falls back to the streamed_* tally above.
             usage = data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
+            # Prompt-cache telemetry. Two provider vocabularies reach here:
+            # Anthropic (cache_read_input_tokens + cache_creation_input_tokens)
+            # and OpenAI/codex (cached_input_tokens, reads only — no write
+            # counter exists in that vocabulary).
+            cache_read_tokens = usage.get("cache_read_input_tokens", 0) or usage.get(
+                "cached_input_tokens", 0
+            )
+            cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
+            num_turns = data.get("num_turns")  # None when the framework doesn't report it
             model = data.get("model", "")
             total_cost_usd = data.get("total_cost_usd")  # SDK-calculated cost
             stop_reason = data.get("stop_reason", "unknown")
             logger.info(
                 f"Agent done: {stop_reason} model={model or '(sdk)'} "
                 f"(tokens: {input_tokens}+{output_tokens}"
+                f", cache_read={cache_read_tokens}, cache_write={cache_creation_tokens}"
+                f"{f', turns={num_turns}' if num_turns is not None else ''}"
                 f"{f', sdk_cost=${total_cost_usd:.6f}' if total_cost_usd else ''})"
             )
             return ProcessedResponse(
@@ -448,6 +495,9 @@ class ResponseProcessor:
                         "output_tokens": output_tokens,
                         "model": model,
                         "total_cost_usd": total_cost_usd,
+                        "cache_read_tokens": cache_read_tokens,
+                        "cache_creation_tokens": cache_creation_tokens,
+                        "num_turns": num_turns,
                     },
                 },
             )
@@ -475,7 +525,7 @@ class ResponseProcessor:
         item = response.get("item", {})
         item_type = item.get("type")
 
-        if item_type == "thinking_item":
+        if item_type == ITEM_TYPE_THINKING:
             # Buffer into the WS-tier batcher. May or may not produce
             # an emission this round. The DB-tier (per-segment) flush
             # is added in Phase C alongside event_stream persistence.
@@ -502,7 +552,7 @@ class ResponseProcessor:
         # user sees thinking → tool_call in the correct order.
         yield from self._flush_thinking_residual(state)
 
-        if item_type == "tool_call_item":
+        if item_type == ITEM_TYPE_TOOL_CALL:
             # Tool call - use ProgressMessage to display in the step panel
             # Step numbering uses 3.4.x format (sub-steps of Step 3.4 Agent Loop)
             tool_name = item.get("tool_name", "unknown")
@@ -551,7 +601,7 @@ class ResponseProcessor:
             )
             return
 
-        if item_type == "tool_call_output_item":
+        if item_type == ITEM_TYPE_TOOL_CALL_OUTPUT:
             # Tool call result - update the corresponding tool call status to completed
             # 使用 tool_output_count + 1 作为 step ID（与 tool_call 的序号一一对应）
             # 不能用 tool_call_count，因为并行工具调用时所有 call 先到达，

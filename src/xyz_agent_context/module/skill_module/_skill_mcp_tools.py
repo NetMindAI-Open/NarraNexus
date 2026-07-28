@@ -369,7 +369,7 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             security-scan status, or a message when nothing matches.
         """
         try:
-            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
 
             payload = await SkillMarketplaceService().search(
                 q=query or None,
@@ -427,7 +427,7 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             user to open the Skill tab and fill in the required keys.
         """
         try:
-            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
 
             service = SkillMarketplaceService()
             if skill_id_or_url.startswith(("http://", "https://", "github:")):
@@ -476,7 +476,7 @@ def create_skill_mcp_server(port: int) -> FastMCP:
             Outcome message.
         """
         try:
-            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
 
             removed = await SkillMarketplaceService().uninstall(agent_id, user_id, skill_name)
             if removed:

@@ -30,4 +30,4 @@ SocialNetworkModule 让 Agent 具备"认识人"的能力——记录与之交互
 - `repository/SocialNetworkRepository`：唯一的实体 DB 操作通道，支持精确查询、标签搜索、语义向量检索、关键词模糊搜索
 - `JobModule`（跨模块数据传递）：`hook_data_gathering` 把当前实体的 `related_job_ids` 写入 `ctx_data.extra_data`，JobModule 在后续的顺序 hook 里读取，加载关联 Job 上下文
 - `job_service.JobInstanceService`：创建 Job 时调用 `_sync_job_to_entity()` 把 `job_id` 写回 Entity，形成双向索引
-- `agent_framework/llm_api/embedding`：`_entity_updater.update_entity_embedding()` 更新实体向量；语义检索时也需要嵌入 API
+- `agent_framework/llm/api/embedding`：`_entity_updater.update_entity_embedding()` 更新实体向量；语义检索时也需要嵌入 API

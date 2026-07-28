@@ -4,7 +4,7 @@
 @date: 2026-07-13
 @description: Shared constants + helpers for the live Office-document preview
 (officecli watch). Used by the backend office-watch routes
-(`backend/routes/office_watch_proxy.py`): the `/office-watch/open` endpoint
+(`backend/routes/office_watch/proxy.py`): the `/office-watch/open` endpoint
 ensures a watch is running for an office artifact and the reverse-proxy streams
 it to the browser.
 

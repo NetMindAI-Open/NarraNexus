@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
-from xyz_agent_context._skill_marketplace_impl.registry import (
+import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
+from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
     LocalMarketplaceSource,
     PublishRejectedError,
     RegistryService,
@@ -217,7 +217,7 @@ async def test_marketplace_install_uses_catalog_id_for_dir(db_client, workspace,
 
     # End-to-end observable: the marketplace marks it INSTALLED (this is what
     # broke before — search keyed on catalog id but installed keyed on name).
-    import xyz_agent_context.skill_marketplace_service as svc_mod
+    import xyz_agent_context.marketplace.skill_marketplace_service as svc_mod
 
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(svc_mod, "get_deployment_mode", lambda: "cloud")

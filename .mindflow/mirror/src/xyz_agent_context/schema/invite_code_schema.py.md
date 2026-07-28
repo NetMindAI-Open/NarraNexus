@@ -8,4 +8,4 @@ stub: false
 
 单一 `InviteCode` 模型对应 `invite_codes` 表行。字段语义、status 流转见
 `invite_code_repository.py` 的 mirror md 与 `schema_registry.py` 的
-`invite_codes` 表定义注释。设计背景：`drafts/logs/invite_code_2026_05_14.md`。
+`invite_codes` 表定义注释。设计记录为作者本地 worklog，不入库。

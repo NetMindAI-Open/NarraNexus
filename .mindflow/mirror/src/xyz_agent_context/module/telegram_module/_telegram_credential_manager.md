@@ -61,13 +61,13 @@ deltas captured here so the structural symmetry stays load-bearing.
 ## Upstream / downstream
 
 - **Reads / writes**: ``channel_telegram_credentials`` table
-  (registered in ``utils/schema_registry.py``).
+  (registered in ``utils/db/schema_registry.py``).
 - **Calls**: ``TelegramSDKClient.get_me / get_chat / delete_webhook``.
 - **Used by**: ``_telegram_service.do_bind / do_test_connection``,
   ``telegram_trigger.load_active_credentials``,
   ``telegram_module.get_credential``,
   ``_telegram_mcp_tools.tg_cli / tg_status / tg_unbind``,
-  ``backend/routes/telegram.py``,
+  ``backend/routes/channels/telegram.py``,
   ``backend/routes/auth.py:delete_agent`` (via the channel cleanup
   registry walking ``ChannelModuleBase`` subclasses).
 

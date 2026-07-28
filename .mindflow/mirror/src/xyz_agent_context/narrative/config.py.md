@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-05-29
+last_verified: 2026-07-24
 stub: false
 ---
 
@@ -23,7 +23,7 @@ Narrative 检索、连续性判断、embedding 更新是计算密集型操作，
 
 所有参数都有行内注释解释推荐值、调参建议和适用场景，这是刻意的——这个文件就是系统的"调参手册"，不依赖外部文档。
 
-`NARRATIVE_LLM_UPDATE_INTERVAL` 这个参数**不在这里**，而是在 `xyz_agent_context/config.py`（全局 config）里——因为它控制的是 LLM API 调用频率，是运营成本相关的全局参数，不是 Narrative 内部的行为参数。这个分工容易让新人找错地方。
+`NARRATIVE_LLM_UPDATE_INTERVAL` 2026-07-24 起就在这里（NarrativeConfig 类属性）——包根那个只剩单常量的全局 config.py 已删除，narrative 是它唯一的消费者，「全局/局部」的历史分工不复存在。
 
 `EVERMEMOS_ENABLED = False` 现在是默认值——云端部署目前没有运行 EverMemOS 服务，开着会让 backend 在每次 hook 写入时打 ConnectError。打开前先确保 EverMemOS 服务已经跑起来；retrieval.py 在禁用时直接走纯向量检索路径，不会触碰 HTTP 客户端。配套的 belt-and-suspenders 在 `utils/evermemos/client.py:get_evermemos_client` 里——禁用时返回 no-op stub，覆盖那些没显式 gate 的调用方。
 

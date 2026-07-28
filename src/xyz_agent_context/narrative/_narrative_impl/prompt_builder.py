@@ -67,7 +67,7 @@ class PromptBuilder:
         # actor.id for those is a user_id (an opaque NetMind userSystemCode in
         # cloud mode), which must not be shown to the LLM as a person. AGENT /
         # SYSTEM actor ids are agent_id / system keys and stay as-is.
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         from xyz_agent_context.repository import UserRepository
         _repo = UserRepository(await get_db_client())
         _human_actor_types = (NarrativeActorType.USER, NarrativeActorType.PARTICIPANT)

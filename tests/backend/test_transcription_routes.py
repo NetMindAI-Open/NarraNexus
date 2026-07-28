@@ -13,11 +13,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.routes import (
-    transcription as availability_route,
-    transcription_public as public_route,
+from backend.routes.transcription import (
+    routes as availability_route,
+    public as public_route,
 )
-from xyz_agent_context.agent_framework.transcription import (
+from xyz_agent_context.agent_framework.llm.transcription import (
     service as svc_mod,
     url_signer,
 )

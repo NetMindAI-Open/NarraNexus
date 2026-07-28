@@ -1,7 +1,8 @@
 """
 @file_name: test_factory_gating.py
 @date: 2026-06-08
-@description: get_analytics() returns NullSink unless enabled+keyed+non-cloud.
+@description: get_analytics() returns NullSink unless enabled + non-cloud +
+a platform sink factory is registered (backend/analytics registers PostHog).
 track()/identify_user() are best-effort and never raise.
 """
 import importlib
@@ -29,7 +30,11 @@ def test_disabled_returns_null_sink(monkeypatch):
 
 
 def test_missing_key_returns_null_sink(monkeypatch):
+    """The REAL platform factory with no key -> None -> NullSink (parity
+    with the pre-split lazy-import gate)."""
     a = _reload(monkeypatch, enabled="true", key=None, surface="local")
+    from backend.analytics import register_posthog_sink
+    register_posthog_sink()
     assert type(a.get_analytics()).__name__ == "NullSink"
 
 
@@ -38,9 +43,30 @@ def test_cloud_surface_returns_null_sink_this_phase(monkeypatch):
     assert type(a.get_analytics()).__name__ == "NullSink"
 
 
-def test_enabled_local_with_key_returns_posthog_sink(monkeypatch):
+def test_enabled_local_without_factory_returns_null_sink(monkeypatch):
+    """The kernel alone never produces a vendor sink — platform must inject."""
     a = _reload(monkeypatch, enabled="true", key="phc_x", surface="local")
+    assert type(a.get_analytics()).__name__ == "NullSink"
+
+
+def test_enabled_local_with_registered_factory_returns_posthog_sink(monkeypatch):
+    a = _reload(monkeypatch, enabled="true", key="phc_x", surface="local")
+    from backend.analytics import register_posthog_sink
+    register_posthog_sink()
     assert type(a.get_analytics()).__name__ == "PostHogSink"
+
+
+def test_factory_returning_none_falls_back_to_null(monkeypatch):
+    a = _reload(monkeypatch, enabled="true", key=None, surface="local")
+    a.register_sink_factory(lambda: None)
+    assert type(a.get_analytics()).__name__ == "NullSink"
+
+
+def test_cloud_gate_beats_registered_factory(monkeypatch):
+    a = _reload(monkeypatch, enabled="true", key="phc_x", surface="cloud")
+    from backend.analytics import register_posthog_sink
+    register_posthog_sink()
+    assert type(a.get_analytics()).__name__ == "NullSink"
 
 
 @pytest.mark.asyncio

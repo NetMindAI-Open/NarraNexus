@@ -19,11 +19,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents_chat_history as hist_mod
+import backend.routes.agents.chat_history as hist_mod
 
 
 @pytest_asyncio.fixture
@@ -48,7 +48,7 @@ def _build_client(db_client, viewer_id: str = "user_x", tmp_path=None):
     async def _get_db_override():
         return db_client
 
-    import xyz_agent_context.utils.db_factory as db_factory_mod
+    import xyz_agent_context.utils.db.db_factory as db_factory_mod
 
     db_factory_mod.get_db_client = _get_db_override
     hist_mod.get_db_client = _get_db_override
@@ -72,7 +72,7 @@ async def _seed(db, agent_id="agent_a", owner="user_x"):
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db_factory as db_factory_mod
+    import xyz_agent_context.utils.db.db_factory as db_factory_mod
     original = db_factory_mod.get_db_client
     yield
     db_factory_mod.get_db_client = original

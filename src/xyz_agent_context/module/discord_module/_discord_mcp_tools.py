@@ -191,23 +191,27 @@ def register_discord_mcp_tools(mcp: Any) -> None:
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
     async def discord_bind(
-        agent_id: str, bot_token: str, owner_user_id: str = ""
+        agent_id: str, bot_token: str = "", owner_user_id: str = ""
     ) -> dict:
         """Bind a Discord bot to this agent.
 
-        ``bot_token`` is the token from the Discord Developer Portal
-        (Your App → Bot → Reset Token). The bot must have the
-        **Message Content Intent** enabled (Bot page → Privileged Gateway
-        Intents) or it will receive empty message bodies.
+        Call with NO token to get the full step-by-step setup guide
+        (Developer Portal flow incl. the Message Content Intent). Then call
+        again with ``bot_token`` and the OPTIONAL numeric ``owner_user_id``
+        (owner trust signal).
 
-        ``owner_user_id`` is OPTIONAL — the numeric Discord user id of the
-        agent owner (Discord → Settings → Advanced → Developer Mode, then
-        right-click your name → Copy User ID). Supplying it lets the agent
-        distinguish owner from stranger. Without it, every Discord sender
-        is treated as untrusted.
-
-        Returns ``{"success": bool, "error"?: str, "data"?: {...}}``.
+        Returns ``{"success": bool, "error"?: str, "data"?: {...}}``; the
+        no-argument form returns ``{"success": True, "setup_guide": str}``.
         """
+        if not bot_token:
+            # Setup-residency (B++): the onboarding walkthrough left the
+            # per-turn system prompt; it is served here on demand instead.
+            # Lazy import avoids a module-level cycle (discord_module
+            # imports this file for register_discord_mcp_tools).
+            from xyz_agent_context.module.discord_module.discord_module import (
+                _NO_BOT_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
         mgr = await _get_manager()
         return await do_bind(mgr, agent_id, bot_token, owner_user_id=owner_user_id)
 

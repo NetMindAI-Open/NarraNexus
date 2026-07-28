@@ -24,7 +24,7 @@ def _split_refs(refs: str) -> List[str]:
 
 async def _resolve_owner_user_id(agent_id: str) -> Optional[str]:
     """Look up an agent's owning user_id (agents.created_by), dialect-safe."""
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("agents", {"agent_id": agent_id})
     return row.get("created_by") if row else None
@@ -327,7 +327,7 @@ def register_message_bus_mcp_tools(
             that path in the team chat so teammates know it is there.
         """
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             from xyz_agent_context.message_bus.attachments import (
                 stage_path_into_team,
             )

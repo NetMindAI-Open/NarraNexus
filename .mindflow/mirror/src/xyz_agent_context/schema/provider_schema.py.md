@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/schema/provider_schema.py
-last_verified: 2026-06-10
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — AuthType 增加 `oauth_token`
+
+`claude setup-token` 生成的一年期订阅 token：存 `user_providers.api_key`
+列、spawn 时以 `CLAUDE_CODE_OAUTH_TOKEN` env 注入（官方 headless 通道，
+认证优先级第 5 位）。与 `oauth`（host-CLI 托管凭据）共用同一张
+claude_oauth 卡，只是凭据运输层不同。动机 = 2026-07-23 macOS 事故：CLI
+把 staged 凭据文件一次性导入按 CONFIG_DIR 哈希命名空间化的 Keychain 条目
+后不再读文件，冻结副本随宿主 OAuth 家族轮换死亡；env 注入完全绕开 CLI
+凭据存储。
+
 ## 2026-06-10 — helper_llm slot accepts both protocols
 
 `SLOT_REQUIRED_PROTOCOLS[HELPER_LLM]` widened to `[OPENAI, ANTHROPIC]`. The

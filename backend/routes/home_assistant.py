@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.repository import HomeAssistantBindingRepository
 from xyz_agent_context.schema.home_assistant_schema import HAConfig
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 router = APIRouter()
 
@@ -59,7 +59,7 @@ async def _require_agent_owner(request: Request, db, agent_id: str) -> None:
     attacker-controlled input, so we must verify it belongs to the current user
     or a cross-tenant IDOR opens up (read/overwrite others' HA bindings, or make
     the backend ping a victim's home with their stored token). Mirrors
-    `backend/routes/lark.py::_verify_agent_ownership`.
+    `backend/routes/channels/lark.py::_verify_agent_ownership`.
 
     Local mode (no JWT identity) does not enforce ownership.
     """

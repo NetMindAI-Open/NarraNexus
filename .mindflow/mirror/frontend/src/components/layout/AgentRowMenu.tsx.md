@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/AgentRowMenu.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 新增"编辑…"菜单项
+
+在"重命名"下方加 `onEditAgent` 驱动的"编辑…"项(SquarePen 图标),打开
+[[EditAgentDialog.tsx]] 编辑名称 + 描述。重命名仍是行内快速改名;编辑项是名称 +
+描述的完整编辑器(描述字段唯一的编辑入口)。对所有人可见,归属校验在保存时由后端做。
 
 ## 2026-07-10 — "Clear data…" entry (owner-only)
 

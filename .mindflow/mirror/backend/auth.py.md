@@ -75,7 +75,7 @@ ContextVar（`set_user_config` / `set_provider_source`），不写
 loop。改之前逐路由核实过：`backend/routes/**` 里每一个会花费 LLM 额度
 的端点都是 POST（`/v1/chat/completions`、所有 agent-run/trigger 路由）；
 唯一几个用 `StreamingResponse` 的 GET handler（如
-`backend/routes/manyfold_files.py` 的文件读取端点）只是把磁盘文件流式
+`backend/routes/manyfold/files.py` 的文件读取端点）只是把磁盘文件流式
 传出，不碰 LLM。因此这次豁免是方法级的、全路径生效，不需要给
 `QUOTA_BYPASS_PREFIXES` 追加白名单条目。
 
@@ -86,7 +86,7 @@ loop。改之前逐路由核实过：`backend/routes/**` 里每一个会花费 L
 
 ## 2026-06-12 — AUTH_EXEMPT_PATHS 新增 /api/admin/migrate-identity
 
-`/api/admin/migrate-identity`（`backend/routes/admin_migration.py`）加入豁免列表。该端点用 `X-Admin-Secret` header 自带凭证校验（`settings.admin_secret_key`），与 `/api/auth/netmind-login`（携带 NetMind loginToken）、`/api/invite/internal/issue`（携带 X-Internal-Secret）同属"自凭证、不走 JWT middleware"模式。离线批量迁移脚本没有 JWT，不豁免则 JWT middleware 会先返回 401，端点自身的 `_require_admin_secret` 检查永远不会执行。
+`/api/admin/migrate-identity`（`backend/routes/admin/migration.py`）加入豁免列表。该端点用 `X-Admin-Secret` header 自带凭证校验（`settings.admin_secret_key`），与 `/api/auth/netmind-login`（携带 NetMind loginToken）、`/api/invite/internal/issue`（携带 X-Internal-Secret）同属"自凭证、不走 JWT middleware"模式。离线批量迁移脚本没有 JWT，不豁免则 JWT middleware 会先返回 401，端点自身的 `_require_admin_secret` 检查永远不会执行。
 
 ## 2026-06-11 — _is_cloud_mode honors NARRANEXUS_DEPLOYMENT_MODE
 

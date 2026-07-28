@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — full date on time hover
+
+The HH:mm:ss stamp gained `title="{formatDate} {formatTime}"` so a
+single message reveals its calendar day on hover without needing a
+day separator in view.
 
 ## 2026-07-22 — executor-infra 徽章标题区分
 

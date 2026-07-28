@@ -29,7 +29,7 @@ features are available". Those are separate concerns:
     in via ``NARRANEXUS_ENABLE_POWER_LOGIN``. Gates route reachability, the
     public billing catalog, and the login-page Power entry.
   - ``is_power_account(user_id)`` — axis (B) at the **per-user** level. Lives in
-    ``services/power_account.py`` (needs a DB read; this module stays a pure env
+    ``backend/integrations/netmind/power_account.py`` (needs a DB read; this module stays a pure env
     leaf). Gates user-scoped billing + the account panel.
 
 Before this module, two copies of a `_is_cloud_mode()` helper in

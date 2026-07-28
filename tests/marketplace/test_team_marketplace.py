@@ -22,7 +22,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-from xyz_agent_context._skill_marketplace_impl.artifact_store import (
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import (
     LocalArtifactStore,
     get_artifact_store,
     get_template_store,
@@ -113,7 +113,7 @@ def test_template_store_is_separate_from_skills(tmp_path, monkeypatch):
 
 
 def test_template_store_s3_prefix(monkeypatch):
-    from xyz_agent_context._skill_marketplace_impl.artifact_store import S3ArtifactStore
+    from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import S3ArtifactStore
 
     monkeypatch.setenv("TEMPLATE_S3_BUCKET", "my-bucket")
     store = get_template_store()
@@ -128,7 +128,7 @@ def test_template_store_s3_prefix(monkeypatch):
 
 @pytest.fixture
 def service(db_client, tmp_path, monkeypatch):
-    import xyz_agent_context.team_marketplace_service as mod
+    import xyz_agent_context.marketplace.team_marketplace_service as mod
 
     monkeypatch.setattr(mod, "get_deployment_mode", lambda: "cloud")
     store = LocalArtifactStore(tmp_path / "team_store")
@@ -218,14 +218,14 @@ def app(db_client, tmp_path, monkeypatch):
     monkeypatch.delenv("SKILL_S3_BUCKET", raising=False)
     monkeypatch.delenv("TEMPLATE_S3_BUCKET", raising=False)
 
-    import xyz_agent_context.team_marketplace_service as svc_mod
+    import xyz_agent_context.marketplace.team_marketplace_service as svc_mod
 
     monkeypatch.setattr(svc_mod, "get_deployment_mode", lambda: "cloud")
 
     async def _get_db():
         return db_client
 
-    import xyz_agent_context.utils.db_factory as db_factory
+    import xyz_agent_context.utils.db.db_factory as db_factory
 
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 

@@ -100,7 +100,7 @@ Import 侧（`importer.py:844-864`）也无条件读这 4 张表 → instance_id
 
 这些字段同样属于"chat 派生但藏在别处的副本"。未来如果用户反馈"还有泄漏"再扩 helper。
 
-E2E 测试：`real_case_e2e_test/cases/bundle_chat_history_scrub/run_test.py` 直接 seed 一个 `narrative_info.description` 含 SECRET 短语的 narrative，POST `/api/bundle/export` 两次（chat history on / off），unzip 后断言 off 那次 SECRET 不存在。
+E2E 覆盖（operator-local live-stack 工具箱承担，不入库）：seed 一个 `narrative_info.description` 含 SECRET 短语的 narrative → POST `/api/bundle/export` 两次（chat history on / off）→ unzip 后断言 off 那次 SECRET 不存在。
 
 # builder.py — bundle export pipeline
 

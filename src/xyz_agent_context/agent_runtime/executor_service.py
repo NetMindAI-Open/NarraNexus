@@ -38,7 +38,7 @@ from loguru import logger
 # Importing the package registers the built-in agent-loop drivers
 # (claude_code / codex_cli) into the registry.
 import xyz_agent_context.agent_framework  # noqa: F401
-from xyz_agent_context.agent_framework.agent_loop_driver import (
+from xyz_agent_context.agent_framework.loop.driver import (
     get_agent_loop_driver,
 )
 from xyz_agent_context.agent_runtime.executor_protocol import (
@@ -189,6 +189,7 @@ async def agent_loop(request: Request) -> StreamingResponse:
                 streaming=bool(body.get("streaming", True)),
                 extra_env=body.get("extra_env") or None,
                 cancellation=None,  # cancellation = orchestrator aborts the stream
+                disallowed_tools=body.get("disallowed_tools") or None,
             ):
                 yield json.dumps({"event": event}, default=str) + "\n"
         except Exception as e:  # noqa: BLE001 — surface to caller, never crash the service

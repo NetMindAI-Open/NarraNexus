@@ -23,8 +23,8 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework import model_sync
-from xyz_agent_context.agent_framework.model_probe_ledger import load_ledger, save_ledger
+from xyz_agent_context.agent_framework.providers import model_sync
+from xyz_agent_context.agent_framework.providers.model_probe_ledger import load_ledger, save_ledger
 
 DAILY_HOUR_UTC = 5
 
@@ -40,7 +40,7 @@ def _seconds_until(hour_utc: int) -> float:
 async def run_once() -> dict:
     """One full pass: refresh the ledger for every keyed source, then overwrite
     every user's provider lists in the DB. Returns a summary dict."""
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     plan = [
         ("netmind", os.environ.get("NETMIND_API_KEY"), None),
@@ -76,8 +76,15 @@ async def run_once() -> dict:
 
     db = await get_db_client()
     applied = await model_sync.apply_ledger_to_db(db, sources=synced)
-    logger.info(f"model_sync_runner: pass DONE synced={synced} applied={applied}")
-    return {"synced": synced, "applied": applied}
+    # The free-tier card's catalogue comes from OUR gateway, not the upstream
+    # probe — see refresh_free_tier_models. Same pass so a gateway config change
+    # reaches existing cards without a manual step.
+    free_tier = await model_sync.refresh_free_tier_models(db)
+    logger.info(
+        f"model_sync_runner: pass DONE synced={synced} applied={applied} "
+        f"free_tier_rows={free_tier}"
+    )
+    return {"synced": synced, "applied": applied, "free_tier_rows": free_tier}
 
 
 async def run_loop() -> None:

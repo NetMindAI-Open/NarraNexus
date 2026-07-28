@@ -31,7 +31,7 @@ from xyz_agent_context.utils import DatabaseClient
 from xyz_agent_context.utils.mcp_executor import list_mcp_tools
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 def mcp_host() -> str:
@@ -130,7 +130,7 @@ class XYZBaseModule(ABC):
                 result = await db.get_one("table", {"id": arg})
                 return str(result)
         """
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         return await get_db_client()
 
     @classmethod
@@ -313,6 +313,22 @@ MCPs: {mcp_tools}
             MCPServerConfig or None
         """
         pass
+
+    async def get_disallowed_tools(self) -> list[str]:
+        """
+        Fully-qualified MCP tool names to suppress for THIS agent THIS turn.
+
+        The module's MCP server is a shared process serving every agent, so
+        per-agent tool trimming cannot happen server-side. Names returned
+        here (``mcp__<server_name>__<tool_name>``) are merged into the CLI's
+        ``disallowed_tools``, which removes the tool schemas from the model
+        context entirely (verified 2026-07-24: disallowing 11 built-in tools
+        shrank the cached prefix by ~4.1K tokens).
+
+        Default: nothing suppressed. ChannelModuleBase overrides this to
+        suppress non-setup tools while the channel is unbound.
+        """
+        return []
 
     def create_mcp_server(self) -> Optional[Any]:
         """

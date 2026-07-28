@@ -20,7 +20,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from loguru import logger
 
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from ..config import config
 from .prompts import (
     NARRATIVE_SINGLE_MATCH_INSTRUCTIONS,

@@ -32,7 +32,7 @@ from xyz_agent_context.schema.hook_schema import WorkingSource
 def patch_get_db(monkeypatch, db_client):
     """Every inner `get_db_client()` call inside AgentRuntime, EventService,
     etc. routes to the test's in-memory sqlite fixture."""
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
 
     async def _fake_get_db():
         return db_client

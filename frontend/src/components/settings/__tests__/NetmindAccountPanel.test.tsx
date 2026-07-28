@@ -103,25 +103,20 @@ const PRO_PLAN = {
   prices: [{ period: 'month', currency: 'USD', stripe_price_id: 'price_x' }],
 };
 
-// input 62% left / output ~79% left → bar shows the more depleted: 62%.
+// A $10 wallet with $6.20 left → the bar shows 62%.
 const QUOTA_ACTIVE = {
   enabled: true,
   status: 'active',
-  remaining_input_tokens: 124_000,
-  remaining_output_tokens: 119_000,
-  initial_input_tokens: 200_000,
-  initial_output_tokens: 150_000,
-  granted_input_tokens: 0,
-  granted_output_tokens: 0,
-  used_input_tokens: 76_000,
-  used_output_tokens: 31_000,
-  prefer_system_override: true,
+  currency: 'USD',
+  max_budget: 10,
+  spend: 3.8,
+  remaining: 6.2,
 };
 const QUOTA_EXHAUSTED = {
   ...QUOTA_ACTIVE,
   status: 'exhausted',
-  remaining_input_tokens: 0,
-  remaining_output_tokens: 0,
+  spend: 10,
+  remaining: 0,
 };
 
 const FEE_RICH = {
@@ -411,16 +406,18 @@ test('S3: resume button → confirm true → api.reactivateSubscription', async 
 
 // ── runway view: free-tier bar / balance / grant / flow line / toggle ───────
 
-test('runway: free-tier row shows tokens of the more depleted side, bar keeps the pct', async () => {
+test('runway: free-tier row shows the wallet in dollars, bar keeps the pct', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetMyQuota.mockResolvedValue(QUOTA_ACTIVE);
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
   expect(await screen.findByText('Free tier')).toBeTruthy();
-  // input is the more depleted dimension (62% vs 79%): 124k remaining.
-  // Remaining only — the bar carries the proportion (Owner: "/total" too dense).
-  expect(screen.getByText('124K tokens left')).toBeTruthy();
-  // The bar width still reflects the percentage of the same dimension.
+  // Dollars, not tokens: the wallet's own unit, so the row and the balance
+  // hero below it mean the same thing. Remaining only — the bar carries the
+  // proportion (Owner: "/total" too dense). Six decimals, unlike the balance
+  // hero: free-tier turns cost fractions of a cent, and at two the number
+  // never appears to move (Owner, 2026-07-28).
+  expect(screen.getByText('$6.200000 left')).toBeTruthy();
   expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('62');
   // free-tier bar visible → the flow line may mention it
   expect(screen.getByText(/free tier first, then your balance\./)).toBeTruthy();

@@ -5,7 +5,6 @@
 and workspace-relative paths), hard-link into the per-user shared area, reject
 workspace escapes, and render Read-tool markers.
 
-Design: reference/self_notebook/specs/2026-07-20-a2a-multimodal-bus-design.md
 """
 
 from __future__ import annotations

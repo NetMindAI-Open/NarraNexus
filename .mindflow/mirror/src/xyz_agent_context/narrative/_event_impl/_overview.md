@@ -24,7 +24,7 @@ stub: false
 **向上暴露**：通过 `_event_impl/__init__.py` 导出 `EventCRUD`、`EventProcessor`、`EventPromptBuilder`，供 `EventService` 消费。
 
 **外部依赖**：
-- `processor.py` 依赖 `agent_framework/llm_api/embedding.py` 的 `get_embedding()` 和 `cosine_similarity()`，在 `update_event()` 时生成并存储 Event 的 embedding 向量
+- `processor.py` 依赖 `agent_framework/llm/api/embedding.py` 的 `get_embedding()` 和 `cosine_similarity()`，在 `update_event()` 时生成并存储 Event 的 embedding 向量
 - `crud.py` 可以接受 `EventRepository` 和 `DataLoader[str, Event]` 注入，解决 step_2 里批量加载多条 Narrative 对应 Event 时的 N+1 问题
 - `processor.py` 的 `select_for_context()` 的参数默认值来自 `narrative/config.py`（`MAX_RECENT_EVENTS`、`MAX_RELEVANT_EVENTS` 等），修改 config 会直接影响上下文长度
 

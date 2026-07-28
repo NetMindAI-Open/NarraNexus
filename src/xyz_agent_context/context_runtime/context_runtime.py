@@ -157,13 +157,18 @@ class ContextRuntime:
 
         # Step 5: Build input for Agent Framework
         logger.info("    │ Step 2: Building input for Agent Framework")
-        messages, mcp_servers = await self.build_input_for_framework(
+        messages, mcp_servers, disallowed_tools = await self.build_input_for_framework(
             messages, system_prompt, active_instances, ctx_data
         )
         logger.info(f"    │ ✅ Framework input built: {len(messages)} messages, {len(mcp_servers)} MCP servers")
 
         logger.info("    └─ ContextRuntime.run() completed")
-        return ContextRuntimeOutput(messages=messages, mcp_servers=mcp_servers, ctx_data=ctx_data)
+        return ContextRuntimeOutput(
+            messages=messages,
+            mcp_servers=mcp_servers,
+            disallowed_tools=disallowed_tools,
+            ctx_data=ctx_data,
+        )
 
 
     async def build_module_instructions(
@@ -619,7 +624,7 @@ class ContextRuntime:
         system_prompt: str,
         active_instances: List,  # Changed to active_instances
         ctx_data: ContextData
-    ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], List[str]]:
         """
         Build input for the Agent Framework.
 
@@ -630,9 +635,11 @@ class ContextRuntime:
             ctx_data: Context data (containing chat_history populated by ChatModule)
 
         Returns:
-            (messages, mcp_servers)
+            (messages, mcp_servers, disallowed_tools)
             - messages: Complete messages list including system prompt and historical messages
             - mcp_servers: Dictionary of {server_name: {"url": str, "headers": {str: str}?}}
+            - disallowed_tools: Fully-qualified tool names modules asked to
+              suppress this turn (setup-residency; sorted, deduplicated)
 
         Note (after 2025-12-09 refactoring):
         - Chat history preferentially uses ctx_data.chat_history (provided by ChatModule via EventMemoryModule)
@@ -740,6 +747,7 @@ class ContextRuntime:
         # Step 2: Collect all Module MCP URLs (deduplicated by module_class)
         logger.debug("        Step 2: Collecting MCP URLs from instances (deduped by module_class)")
         mcp_servers = {}
+        disallowed_tools: list[str] = []
         seen_module_classes = set()
         collected_count = 0
 
@@ -753,12 +761,33 @@ class ContextRuntime:
                     logger.debug(f"          ✓ Added MCP: {mcp_config.server_name} -> {mcp_config.server_url}")
                 elif mcp_config:
                     logger.debug(f"          ⏭ Skipped MCP: {mcp_config.server_name} -> (empty URL)")
+                # Per-agent tool suppression (setup-residency): modules may
+                # declare tools whose schemas must not reach the model this
+                # turn (e.g. an unbound channel keeps only its bind tool).
+                # Failures fail-open — suppression is an optimization, never
+                # worth breaking the turn over.
+                try:
+                    suppressed = await inst.module.get_disallowed_tools()
+                    if suppressed:
+                        disallowed_tools.extend(suppressed)
+                        logger.debug(
+                            f"          ⛔ {inst.module_class} suppresses "
+                            f"{len(suppressed)} tools (setup-residency)"
+                        )
+                except Exception as e:  # noqa: BLE001 — fail-open
+                    logger.warning(
+                        f"          get_disallowed_tools failed for "
+                        f"{inst.module_class}: {e}"
+                    )
                 seen_module_classes.add(inst.module_class)
 
         logger.debug(f"        Collected {collected_count} MCP URLs from {len(active_instances)} instances (deduped by module_class)")
 
-        logger.debug(f"      build_input_for_framework() completed: {len(final_messages)} messages, {len(mcp_servers)} MCP servers")
-        return final_messages, mcp_servers
+        logger.debug(
+            f"      build_input_for_framework() completed: {len(final_messages)} messages, "
+            f"{len(mcp_servers)} MCP servers, {len(disallowed_tools)} suppressed tools"
+        )
+        return final_messages, mcp_servers, sorted(set(disallowed_tools))
 
     @staticmethod
     def _format_timeline_tag(meta: Dict[str, Any]) -> str:

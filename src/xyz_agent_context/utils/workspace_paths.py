@@ -218,7 +218,7 @@ def migrate_flat_to_nested(
         (reported as ``unknown``), never guessed;
       - already-nested user dirs are skipped.
 
-    Run once at deploy (see ``scripts/migrate_workspace_layout.py``) BEFORE
+    Run once at deploy (see ``scripts/data_migrations/migrate_workspace_layout.py``) BEFORE
     flipping ``_LAYOUT`` to "nested". Returns a report dict.
     """
     root = Path(base)

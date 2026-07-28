@@ -8,9 +8,9 @@ import asyncio
 import os
 import sys
 
-sys.path.insert(0, "/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "src"))
 from dotenv import load_dotenv
-load_dotenv("/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus/.env")
+load_dotenv(str(__import__("pathlib").Path(__file__).resolve().parents[3] / ".env"))
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ api_config.openai_config.api_key = os.getenv("NETMIND_API_KEY")
 api_config.openai_config.base_url = "https://api.netmind.ai/inference-api/openai/v1"
 api_config.openai_config.model = "deepseek-ai/DeepSeek-V3.1"
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import (  # noqa: E402
+from xyz_agent_context.agent_framework.adapters.openai_agents import (  # noqa: E402
     OpenAIAgentsSDK,
     _structured_output_blocklist,
     _response_format_capability,

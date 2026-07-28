@@ -13,7 +13,7 @@ FastAPI 进程级 WebSocket session registry。Dashboard v2 的"public agent 并
 
 ## 上下游
 - 写入：`backend/routes/websocket.py::websocket_agent_run` 在 auth 通过后、MCP/Runtime 构造前 `add`；任何异常路径（MCP 失败、AgentRuntime 崩溃、WebSocketDisconnect、CancelledError）的最外层 `finally` `remove`
-- 读出：`backend/routes/dashboard.py::agents_status` 调 `snapshot()`
+- 读出：`backend/routes/dashboard/routes.py::agents_status` 调 `snapshot()`
 
 ## 设计决策
 - **Protocol 抽象**（TDR-1）：未来 WEB_CONCURRENCY>1 切 `RedisSessionRegistry` 实现同 Protocol，调用点零改

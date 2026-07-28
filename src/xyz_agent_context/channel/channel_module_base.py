@@ -81,6 +81,18 @@ class ChannelModuleBase(XYZBaseModule):
     mcp_server_name: str = ""
     mcp_port: int = 0
 
+    # ── Setup-residency contract (B++ channel gating, 2026-07-24) ─────────
+    # While an agent has NO binding for this channel, the module stays
+    # loaded but degrades to a "setup surface": instructions collapse to a
+    # one-liner and every tool EXCEPT the ones in ``setup_tool_names`` is
+    # suppressed via the CLI's disallowed_tools (schemas leave the model
+    # context). ``all_tool_names`` must list every tool the module's
+    # ``register_mcp_tools`` registers — a unit test per channel asserts
+    # the two stay in sync, so a newly added tool can't silently keep
+    # shipping its schema to unbound agents.
+    all_tool_names: tuple[str, ...] = ()
+    setup_tool_names: frozenset[str] = frozenset()
+
     # ── Class-level guard so multi-instance instantiation doesn't double-register ──
     # Maps channel_name -> True once that channel's sender has been registered.
     # Class-level so it survives across all subclass instances within a process.
@@ -250,15 +262,71 @@ class ChannelModuleBase(XYZBaseModule):
         """
         try:
             cred = await self.get_credential(self.agent_id)
+            self._bound_cache = cred is not None
             if cred is not None:
                 ctx_data.extra_data[self.ctx_data_key] = await self.build_extra_data(
                     cred, ctx_data
                 )
         except Exception as e:
+            self._bound_cache = True  # fail-open: see is_bound()
             logger.warning(
                 f"{type(self).__name__} hook_data_gathering failed: {e}"
             )
         return ctx_data
+
+    # Per-instance memo of the binding state. Module instances are created
+    # fresh by the loader each run, so this never goes stale across turns.
+    # None = not yet determined this run.
+    _bound_cache: Optional[bool] = None
+
+    async def is_bound(self) -> bool:
+        """Whether this agent has a binding for this channel.
+
+        FAIL-OPEN: any lookup error counts as bound → the module keeps its
+        full instructions and tools. Wrongly gating a BOUND channel is a
+        user-visible loss of function; wrongly keeping an unbound one only
+        costs tokens (binding rule #16 spirit).
+
+        Memoized per instance: ``hook_data_gathering`` (step 2) already
+        loads the credential before instructions/tool-gating (context
+        build) run, so the common path costs zero extra queries.
+        """
+        if self._bound_cache is None:
+            try:
+                self._bound_cache = (
+                    await self.get_credential(self.agent_id)
+                ) is not None
+            except Exception as e:  # noqa: BLE001 — fail-open by contract
+                logger.warning(f"{type(self).__name__} is_bound failed: {e}")
+                self._bound_cache = True
+        return self._bound_cache
+
+    async def get_disallowed_tools(self) -> list[str]:
+        """Unbound → suppress every tool except the setup surface."""
+        if await self.is_bound():
+            return []
+        return [
+            f"mcp__{self.mcp_server_name}__{name}"
+            for name in self.all_tool_names
+            if name not in self.setup_tool_names
+        ]
+
+    def unbound_setup_line(self) -> str:
+        """One-line instruction replacing the full onboarding prompt while
+        unbound. Subclasses with an in-chat setup tool override
+        ``setup_hint`` via ``setup_tool_names``; wechat (no tool) falls back
+        to the Settings-only wording automatically."""
+        if self.setup_tool_names:
+            tools = " / ".join(sorted(self.setup_tool_names))
+            return (
+                f"- {self.brand_display}: not connected. To bind in chat, call "
+                f"{tools} with no arguments to get the setup guide; or connect "
+                f"via Settings → Awareness."
+            )
+        return (
+            f"- {self.brand_display}: not connected. Connect via Settings → "
+            f"Awareness (setup happens in the dashboard, not in chat)."
+        )
 
     async def hook_after_event_execution(
         self, params: HookAfterExecutionParams

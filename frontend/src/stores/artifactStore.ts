@@ -69,7 +69,14 @@ interface ArtifactState {
   loadForSession: (agentId: string, sessionId: string) => Promise<void>;
   loadPinned: (agentId: string) => Promise<void>;
   setActive: (artifactId: string | null) => void;
-  upsert: (artifact: Artifact) => void;
+  /**
+   * Insert or replace an artifact. New artifacts of the active agent
+   * auto-focus. `focus: true` additionally forces focus (and un-minimizes)
+   * even when the artifact already exists — used by the register_artifact
+   * success signal so a generated/regenerated doc always comes to front
+   * instead of the panel staying on the previous tab.
+   */
+  upsert: (artifact: Artifact, opts?: { focus?: boolean }) => void;
   remove: (artifactId: string) => void;
   setCollapsed: (collapsed: boolean) => void;
   registerChartInstance: (artifactId: string, instance: ChartInstanceLike | null) => void;
@@ -217,13 +224,21 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     }));
   },
 
-  upsert(artifact) {
+  upsert(artifact, opts) {
     const list = get().artifacts;
     const idx = list.findIndex((a) => a.artifact_id === artifact.artifact_id);
     const nextList = idx === -1 ? [artifact, ...list] : list.map((a, i) => (i === idx ? artifact : a));
     const agentId = artifact.agent_id;
     const isActiveAgent = get().activeAgentId === agentId;
-    const newActiveId = idx === -1 && isActiveAgent ? artifact.artifact_id : get().activeArtifactId;
+    const takeFocus = isActiveAgent && (idx === -1 || opts?.focus === true);
+    const newActiveId = takeFocus ? artifact.artifact_id : get().activeArtifactId;
+    if (takeFocus && get().minimizedTabIds.has(artifact.artifact_id)) {
+      // A focused tab must actually be visible — TabStrip filters minimized ids.
+      const next = new Set(get().minimizedTabIds);
+      next.delete(artifact.artifact_id);
+      persistMinimizedTabIds(next);
+      set({ minimizedTabIds: next });
+    }
     set((state) => ({
       artifacts: isActiveAgent ? nextList : get().artifacts,
       artifactsByAgent: {

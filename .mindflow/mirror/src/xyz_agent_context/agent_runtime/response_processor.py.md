@@ -1,14 +1,37 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-14
+last_verified: 2026-07-27
 stub: false
 ---
+
+## 2026-07-27 — DATA_TYPE_USAGE 累加进 streamed_* 兜底
+
+新增 `DATA_TYPE_USAGE` 分支:把从流式事件抠出的每轮 usage(见 [[output_transfer]])
+经 `accumulate_streamed_usage` 累加进 [[execution_state]] 的 **streamed_* 独立字段**
+(不碰权威的 input/output_tokens),不 yield 消息。DONE 分支不变——真 Anthropic 的
+`ResultMessage.usage` 仍走权威路径。二者靠 `finalize()`「DONE 为 0 才提升 streamed」
+避免重复计。修的是:网关代理的非 Anthropic 模型 usage 恒 0 → 免费额度不扣的问题。
+
+## 2026-07-26 — auth-expired 文案优先指向 setup-token
+
+`_AUTH_EXPIRED_USER_MESSAGE` 把 `claude setup-token` + Settings 粘贴列为
+首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
+`claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
+用户引进死胡同。
+
+## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
+
+`response.done` 分支现在读 cache 字段并入 `accumulate_usage` 参数。**词汇归一化
+是这里唯一的坑**:Anthropic 叫 `cache_read_input_tokens`/`cache_creation_input_tokens`,
+OpenAI/codex 叫 `cached_input_tokens`(只有读、没有写计数)——两者都折到
+`cache_read_tokens`,codex 的 `cache_creation_tokens` 恒 0 是词汇缺失不是 bug。
+`num_turns` 从 data(非 usage)读取,None = 框架没报,与 0 语义不同。
 
 ## 2026-07-14 — `response.error` 新增确定性自助类分支（不再被兜底掩盖 / "黑盒" P1）
 
 在 `response.error` 处理里，**auth 判断之后、recoverable 之前**插入一层
 `classify_self_serviceable(error_type, error_message)`（来自
-`agent_framework/llm_failure`）。命中（context-window / 余额 / 模型 ID）则产出
+`agent_framework/llm/failure`）。命中（context-window / 余额 / 模型 ID）则产出
 `ErrorMessage(error_type=config_actionable, severity=fatal,
 action_reason=<reason>)` + 由 `self_serviceable_user_message` 组的可操作文案
 （引导 + 脱敏 provider 原文，保留 token 数字）。`step_3` 据此 skip 兜底。
@@ -74,6 +97,13 @@ processor.process(...):` 而不是 `result = processor.process(...)`。Stream �
 后必须 `for result in processor.flush_pending(state):` 收尾。
 
 # response_processor.py — Agent Loop 原始事件 → 类型化消息的转换器
+
+## 2026-07-27 — 事件类型字面量收敛到 loop/events.py 常量
+
+六种事件形状的字符串字面量改为 import `loop/events.py` 的常量
+（TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
+事件契约自此有唯一事实源，详见 events.py.md。
+
 
 ## 为什么存在
 

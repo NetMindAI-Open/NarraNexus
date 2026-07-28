@@ -34,9 +34,9 @@ from xyz_agent_context.schema.skill_marketplace_schema import (
     SkillScanResult,
 )
 from xyz_agent_context.schema.team_marketplace_schema import TeamTemplate
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"
 

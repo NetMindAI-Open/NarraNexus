@@ -18,9 +18,9 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context._skill_marketplace_impl.registry import (
+import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from xyz_agent_context.marketplace._skill_marketplace_impl.registry import (
     LocalMarketplaceSource,
     RegistryService,
 )
@@ -73,7 +73,7 @@ def _registry(db_client, tmp_path):
 
 
 def _service(db_client, registry, monkeypatch):
-    import xyz_agent_context.skill_marketplace_service as service_module
+    import xyz_agent_context.marketplace.skill_marketplace_service as service_module
 
     monkeypatch.setattr(service_module, "get_deployment_mode", lambda: "cloud")
     service = service_module.SkillMarketplaceService(db_client=db_client)
@@ -142,7 +142,7 @@ async def test_install_defaults_installs_and_skips(db_client, workspace, tmp_pat
 
 @pytest.mark.asyncio
 async def test_install_defaults_registry_unreachable_degrades(db_client, workspace, monkeypatch):
-    import xyz_agent_context.skill_marketplace_service as service_module
+    import xyz_agent_context.marketplace.skill_marketplace_service as service_module
 
     monkeypatch.setattr(service_module, "get_deployment_mode", lambda: "local")
     from xyz_agent_context.settings import settings
@@ -171,7 +171,7 @@ async def _install_netmind_skill(db_client, tmp_path, monkeypatch):
     await registry.publish(
         _make_zip(tmp_path, "netmind-vision", requires_env=["NETMIND_API_KEY"]), "team"
     )
-    from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
+    from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
     pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
     await pipeline.install_from_marketplace(
@@ -250,7 +250,7 @@ async def test_declared_requires_suppresses_body_scan(db_client, workspace, tmp_
         zf.writestr("declared-skill/manifest.json", json.dumps({"id": "declared-skill", "version": "1.0.0"}))
     await registry.publish(zip_path, "team")
 
-    from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
+    from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
     pipeline = InstallPipeline(AGENT_ID, USER_ID, db_client=db_client)
     await pipeline.install_from_marketplace(

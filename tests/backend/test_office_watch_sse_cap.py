@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 
-import backend.routes.office_watch_proxy as owp
+import backend.routes.office_watch.proxy as owp
 
 
 class _FakeSession:

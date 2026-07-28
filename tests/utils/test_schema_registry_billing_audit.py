@@ -6,7 +6,7 @@
 cost_records gains user_id / provider_source (+ index), and the new
 quota_deductions ledger table exists with its self-audit columns.
 """
-from xyz_agent_context.utils.schema_registry import get_registered_tables
+from xyz_agent_context.utils.db.schema_registry import get_registered_tables
 
 
 def test_cost_records_has_user_id_and_provider_source():

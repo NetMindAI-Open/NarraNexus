@@ -17,7 +17,7 @@ not auto-generated — a point the Owner pushed on hard.
 ## Upstream / Downstream
 
 **Consumed by:** `bootstrap/profiles.py` (the default profile's
-`welcome_artifact`) and `services/arena_provisioning_service.py` (the Arena
+`welcome_artifact`) and `backend/integrations/arena/arena_provisioning_service.py` (the Arena
 profile). Both call `bilingual_html()` + `feature_card()`.
 **Rendered into:** a `text/html` pointer-model artifact written to the agent
 workspace and registered via `ArtifactService.register` (see

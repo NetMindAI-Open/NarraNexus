@@ -11,8 +11,6 @@ through to `sdk.llm_function(db=...)`, so consolidation records its token usage
 even when no ambient cost context is set (double insurance; the worker also sets
 one via [[memory_consolidation_worker]]). Bisect recursion forwards `db`.
 
-
-
 # consolidate.py — unified Agent Memory
 
 ## 2026-06-14 — systemic-error 检测补 anthropic 协议(PR #25 §5)
@@ -28,8 +26,8 @@ helper SDK 走 anthropic 协议时返回 AnthropicHelperSDK,其 `anthropic.APICo
 
 LLM consolidation (9 processing rules, Hindsight-derived) distilling raw units into evolving observations, with adaptive-bisect resilience. Fully LLM+SQL, no vectors.
 
-Part of the unified memory system (`refactor/agent-memory`). Full design,
-data model, retrieval stack and migration: reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md. Mechanism vs policy split
+Part of the unified memory system (`refactor/agent-memory`). The unified design covers data model, retrieval stack and migration
+(author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.
 

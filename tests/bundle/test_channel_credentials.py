@@ -4,8 +4,7 @@
 @date: 2026-07-10
 @description: Opt-in channel-credential export/import roundtrip tests.
 
-Covers the "带凭据打包" feature (design:
-reference/self_notebook/specs/2026-07-10-channel-credential-export-design.md):
+Covers the "带凭据打包" feature:
 
 1. Default export does NOT ship any IM channel credential (privacy — the
    pre-feature behaviour is unchanged when the opt-in flag is off).
@@ -61,11 +60,11 @@ async def db_client(tmp_db_path, monkeypatch):
     from xyz_agent_context.settings import settings as core_settings
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
 
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
     db_factory._clients_by_loop.clear()
 
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)

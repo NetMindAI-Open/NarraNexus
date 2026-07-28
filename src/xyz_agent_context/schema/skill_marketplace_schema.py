@@ -4,7 +4,6 @@
 @date: 2026-07-20
 @description: Pydantic models for the Skill Marketplace (catalog, installations, scans).
 
-Spec: reference/self_notebook/specs/2026-07-20-skill-marketplace-tech-design-v1.1.md §3.
 JSON-shaped fields (capabilities, tags, dependencies, ...) are Python-native here;
 serialization to the *_json TEXT columns happens in the repositories.
 """

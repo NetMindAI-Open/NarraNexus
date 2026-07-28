@@ -10,8 +10,6 @@ stub: false
 
 ## 2026-05-14 — pointer model
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The card mints a view token via `useArtifactRawUrl` and fetches the
 thumbnail content (csv head / markdown head / image bytes) from the
 token-protected public URL — no `Authorization` header is attached. Drops

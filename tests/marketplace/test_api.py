@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport
 
-import xyz_agent_context._skill_marketplace_impl.secret_box as secret_box_module
+import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
 
 AGENT_ID = "agt_test"
 USER_ID = "usr_test"
@@ -38,7 +38,7 @@ def app(db_client, tmp_path, monkeypatch):
     monkeypatch.setenv("MARKETPLACE_PUBLISH_TOKEN", TOKEN)
 
     # Force "cloud" so SkillMarketplaceService uses the local DB registry.
-    import xyz_agent_context.skill_marketplace_service as service_module
+    import xyz_agent_context.marketplace.skill_marketplace_service as service_module
 
     monkeypatch.setattr(service_module, "get_deployment_mode", lambda: "cloud")
 
@@ -46,7 +46,7 @@ def app(db_client, tmp_path, monkeypatch):
     async def _get_db():
         return db_client
 
-    import xyz_agent_context.utils.db_factory as db_factory
+    import xyz_agent_context.utils.db.db_factory as db_factory
 
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
@@ -131,7 +131,7 @@ async def test_publish_without_configured_token_closed_on_cloud(
 
 @pytest.mark.asyncio
 async def test_local_registry_flag_forces_registry_host(monkeypatch):
-    from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+    from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
 
     monkeypatch.setenv("SKILL_MARKETPLACE_LOCAL_REGISTRY", "1")
     assert SkillMarketplaceService()._is_registry_host() is True

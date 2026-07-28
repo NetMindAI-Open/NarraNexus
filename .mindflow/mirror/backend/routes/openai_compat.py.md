@@ -1,8 +1,24 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-07-15
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — run-job 控制消息短路
+
+`chat_completions` 在提取 `user_input` 之后、构造 `BackgroundRun` 之前插入
+一道短路：`parse_run_job_control(user_input)` 命中时不起 agent run，转而
+`_run_job_completion()` → `execute_job_once()` 走 `JobTrigger._execute_job`
+的执行体（副作用与 poller 拾取完全一致）。两种 OpenAI 形状都答：非流式直接
+返回 outcome 文本；流式每 15s 发一个空 content 心跳，防代理和平台 idle
+watchdog 掐断长 job。客户端断开**不**取消 job run（铁律 #14）——
+`asyncio.shield` + done-callback 只负责取回异常。
+
+匹配是**严格全匹配**（`_RUN_JOB_RE.match(user_input.strip())`）：只有整条
+输入恰好是 `[[nx:run_job <job_id> v1]]` 才拦截，带任何多余文字都当普通对话，
+所以正常用户消息不会被误伤。这段**有意不做 env 门控**——端点本身在
+`ENABLE_MANYFOLD_API` 块内才注册且有 gateway-token 鉴权，`try_acquire_job`
+兜底双跑。见 `[[manyfold/sync.py]]`。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

@@ -55,12 +55,21 @@ use std::process::Command;
 ///   7806   — MCP SkillModule (7805 retired, leave a gap)
 ///   7807   — MCP CommonToolsModule
 ///   7808   — MCP BasicInfoModule
+///   7809   — MCP GeneralMemoryModule
+///   7810   — MCP HomeAssistantModule
 ///   7820   — MCP MessageBusModule
 ///   7830   — MCP LarkModule (+ LarkTrigger SDK subscriber)
 ///   7831   — MCP SlackModule
 ///   7832   — MCP TelegramModule
+///   7833   — MCP NarramessengerModule
 ///   7834   — MCP DiscordModule
+///   7835   — MCP WeChatModule
 ///   47831  — LarkTrigger health endpoint (_health_server.py)
+///
+/// This list is the single Rust-side copy of module_runner.all_module_ports().
+/// The Python test tests/module/test_port_preflight_ports_sync.py fails if any
+/// MCP port here is missing, so a new module / channel can't silently drift out
+/// of preflight coverage.
 ///
 /// History (2026-05-27): the list used to be only `[8000, 8100, 7801,
 /// 7830]`. A real incident with the Owner showed that when a
@@ -73,10 +82,10 @@ use std::process::Command;
 /// next launch auto-recovers from every sidecar port, not just the
 /// "primary four".
 pub const REQUIRED_PORTS: &[u16] = &[
-    8000, 8100,                                       // backend + sqlite proxy
-    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7820, // MCP modules
-    7830, 7831, 7832, 7834,                          // channel MCP modules
-    47831,                                            // LarkTrigger health endpoint
+    8000, 8100,                                                   // backend + sqlite proxy
+    7801, 7802, 7803, 7804, 7806, 7807, 7808, 7809, 7810, 7820, // core MCP modules
+    7830, 7831, 7832, 7833, 7834, 7835,                          // channel MCP modules
+    47831,                                                        // LarkTrigger health endpoint
 ];
 
 #[derive(Debug, Clone)]
@@ -291,22 +300,20 @@ mod tests {
     }
 
     #[test]
-    fn classifier_recognises_lark_trigger() {
-        let cmd = "python3 -m xyz_agent_context.module.lark_module.run_lark_trigger";
+    fn classifier_recognises_worker_supervisor() {
+        // The consolidated worker process (poller + job/message-bus triggers +
+        // every IM channel trigger). Per-channel trigger processes
+        // (run_lark_trigger / run_slack_trigger / ...) no longer spawn
+        // standalone — they live inside this supervisor now.
+        let cmd = "python3 -m xyz_agent_context.module.run_worker_supervisor";
         assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
     #[test]
-    fn classifier_recognises_slack_telegram_discord_triggers() {
-        assert!(is_narranexus_sidecar_cmdline(
-            "python3 -m xyz_agent_context.module.slack_module.run_slack_trigger"
-        ));
-        assert!(is_narranexus_sidecar_cmdline(
-            "python3 -m xyz_agent_context.module.telegram_module.run_telegram_trigger"
-        ));
-        assert!(is_narranexus_sidecar_cmdline(
-            "python3 -m xyz_agent_context.module.discord_module.run_discord_trigger"
-        ));
+    fn classifier_recognises_standalone_channel_triggers() {
+        // Cloud `--only channels` still launches this entrypoint standalone.
+        let cmd = "python3 -m xyz_agent_context.module.run_channel_triggers";
+        assert!(is_narranexus_sidecar_cmdline(cmd));
     }
 
     #[test]

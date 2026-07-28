@@ -24,7 +24,7 @@ stub: false
 `ErrorMessage` 加了可选字段 `action_reason`（`context_window` /
 `insufficient_balance` / `model_not_found`），仅当 `error_type ==
 config_actionable` 时设置，供前端挑选"你可以做什么"文案。判定逻辑在
-`agent_framework/llm_failure.classify_self_serviceable`（双通道：type 精确 +
+`agent_framework/llm/failure.classify_self_serviceable`（双通道：type 精确 +
 message 子串）。铁律 #15：只做透传+告知，不 force-stop、不判定模型、不替用户换模型。
 
 ## 2026-06-17 — `AUTH_EXPIRED_ERROR_TYPE` 常量落户本 leaf schema 模块

@@ -30,7 +30,7 @@ Invite-code mechanism retired (see routes/auth.py.md); the cap setting and its e
 - **被谁用**：
   - `backend/main.py` — 读取 `settings.cors_origins` 用于 CORSMiddleware，读取 `settings.frontend_dist` 决定是否挂载前端静态文件
   - `backend/routes/websocket.py` — 读取 `settings.ws_heartbeat_interval` 控制心跳频率
-  - `backend/routes/agents_files.py` — 读取 `settings.max_upload_bytes` 限制文件上传大小
+  - `backend/routes/agents/files.py` — 读取 `settings.max_upload_bytes` 限制文件上传大小
   - `backend/routes/agents_rag.py` — 同上
   - `backend/routes/skills.py` — 同上
 - **依赖谁**：只依赖 Python 标准库 `os` 和 `pathlib`，无外部依赖

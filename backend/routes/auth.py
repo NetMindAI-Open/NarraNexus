@@ -17,9 +17,10 @@ import os
 import json
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, EmailStr, Field
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.analytics import track, identify_user
 from xyz_agent_context.analytics.events import (
@@ -64,6 +65,7 @@ from backend.auth import (
     _is_cloud_mode,
     resolve_current_user_id,
 )
+from backend.routes._rate_limiter import SlidingWindowRateLimiter
 from xyz_agent_context.utils.deployment_mode import is_power_login_enabled
 from xyz_agent_context.utils import is_valid_timezone
 from xyz_agent_context.agent_runtime.background_run import run_is_live
@@ -148,9 +150,157 @@ def _get_netmind_auth_client():
     Module-level indirection so tests can monkeypatch it; the client is
     cheap to construct (stateless besides config), so no caching.
     """
-    from xyz_agent_context.services.netmind_auth_client import NetmindAuthClient
+    from backend.integrations.netmind.netmind_auth_client import NetmindAuthClient
 
     return NetmindAuthClient()
+
+
+# ---------------------------------------------------------------------------
+# Self-serve signup. Until 2026-07-28 "Create account" bounced users to
+# netmind.ai and back; these two routes let the page own the flow.
+#
+# Proxied rather than called from the browser for one reason above the others:
+# /register/sendCode sends mail on our behalf, so it needs a rate limit, and a
+# limit that lives in the page is not a limit. See netmind_register_client for
+# the secret-handling rules this path must honour.
+# ---------------------------------------------------------------------------
+
+# One code request per email per 60s — the same beat as the UI countdown, so a
+# well-behaved client never trips it. Keyed by email rather than IP: the abuse
+# we care about is one mailbox being flooded, and NAT would make IP both too
+# coarse and too easy to rotate around.
+_signup_code_limiter = SlidingWindowRateLimiter(limit=1, window_sec=60.0)
+# A far looser ceiling on account creation attempts per email, so a wrong code
+# can be retried a few times without opening a brute-force window on it.
+_signup_attempt_limiter = SlidingWindowRateLimiter(limit=10, window_sec=600.0)
+
+
+class SendSignupCodeRequest(BaseModel):
+    email: EmailStr
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    password: str
+    verify_code: str = Field(min_length=1, max_length=6)
+
+
+def _register_client():
+    from backend.integrations.netmind.netmind_register_client import (
+        NetmindRegisterClient,
+    )
+
+    if not is_power_login_enabled():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
+    return NetmindRegisterClient()
+
+
+@router.post("/signup/send-code")
+async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
+    """Email a 6-digit registration code."""
+    from backend.integrations.netmind.netmind_register_client import (
+        RegistrationError,
+        RegistrationUpstreamError,
+    )
+
+    client = _register_client()
+    email = payload.email.strip().lower()
+    if not _signup_code_limiter.allow(email):
+        raise HTTPException(
+            status_code=429,
+            detail="A code was just sent. Please wait a minute before retrying.",
+        )
+    try:
+        await client.send_code(email)
+    except RegistrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RegistrationUpstreamError as e:
+        logger.error(f"[signup] send-code upstream failure: {e}")
+        raise HTTPException(
+            status_code=502, detail="Sign-up service unavailable, try again"
+        )
+    return {"success": True}
+
+
+@router.post("/signup")
+async def register_account(payload: SignupRequest) -> dict:
+    """Create a NetMind account from our own signup form.
+
+    Deliberately does NOT log the user in. The page holds the credentials it
+    just submitted and calls the normal login path next, so success here has
+    exactly one meaning — the account exists — and no session is minted on a
+    route that also accepts unverified input.
+    """
+    from backend.integrations.netmind.netmind_register_client import (
+        RegistrationError,
+        RegistrationUpstreamError,
+        password_policy_error,
+    )
+
+    client = _register_client()
+    email = payload.email.strip().lower()
+
+    # Re-checked server-side: the UI validates the same rules for feedback, but
+    # that is a convenience, not a guarantee.
+    policy_error = password_policy_error(payload.password)
+    if policy_error:
+        raise HTTPException(status_code=400, detail=policy_error)
+
+    if not _signup_attempt_limiter.allow(email):
+        raise HTTPException(
+            status_code=429, detail="Too many attempts. Please try again later."
+        )
+    try:
+        await client.register(email, payload.password, payload.verify_code.strip())
+    except RegistrationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RegistrationUpstreamError as e:
+        logger.error(f"[signup] register upstream failure: {e}")
+        raise HTTPException(
+            status_code=502, detail="Sign-up service unavailable, try again"
+        )
+    return {"success": True}
+
+
+async def _provision_providers(user_id: str, netmind_token: str) -> None:
+    """Register the user's provider cards — free tier first, then their own.
+
+    The ORDER is the point; see the call site for the race it closes. Kept as a
+    plain coroutine (rather than inlined in the scheduler below) so a test can
+    await it and observe that order without racing a fire-and-forget task.
+
+    Each step is independently non-fatal: a wallet-service outage must not stop
+    the user's own NetMind card from being registered, and vice versa.
+    """
+    from backend.integrations.free_tier import provisioner as free_tier
+    from backend.integrations.netmind import netmind_provisioner as netmind
+
+    try:
+        await free_tier.ensure_free_tier_provider(user_id)
+    except Exception as e:  # noqa: BLE001 — retried on the next login
+        logger.warning(f"[login] free-tier provisioning failed for {user_id}: {e!r}")
+    try:
+        await netmind.ensure_netmind_provider(user_id, netmind_token)
+    except Exception as e:  # noqa: BLE001 — same
+        logger.warning(f"[login] netmind provisioning failed for {user_id}: {e!r}")
+
+
+def _schedule_provider_provisioning(user_id: str, netmind_token: str) -> None:
+    """Run :func:`_provision_providers` off the login path."""
+    import asyncio
+
+    try:
+        task = asyncio.get_running_loop().create_task(
+            _provision_providers(user_id, netmind_token)
+        )
+    except RuntimeError:
+        return  # no loop (not the request path) — nothing to schedule
+    # Incident lesson #2: a bare create_task swallows its exception at GC.
+    task.add_done_callback(
+        lambda t: t.cancelled() or t.exception() and logger.error(
+            f"[login] provisioning task died for {user_id}: {t.exception()!r}"
+        )
+    )
 
 
 @router.post("/netmind-login", response_model=NetmindLoginResponse)
@@ -170,7 +320,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     unreachable or contract drift -> 502 (never disguised as a user
     credential failure).
     """
-    from xyz_agent_context.services.netmind_auth_client import (
+    from backend.integrations.netmind.netmind_auth_client import (
         NetmindAuthError,
         NetmindUpstreamError,
     )
@@ -198,19 +348,7 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         display_name=netmind_user.nickname,
     )
 
-    # Seed the system-default free-tier quota on first login (registration
-    # is gone — first login IS registration now). Failures must not fail
-    # the login; staff can re-seed via /api/admin/quota/init.
-    quota_row = None
     if is_new:
-        quota_service = getattr(http_request.app.state, "quota_service", None)
-        if quota_service is not None:
-            try:
-                quota_row = await quota_service.init_for_user(user.user_id)
-            except Exception as e:
-                logger.exception(
-                    f"netmind-login: failed to init quota for {user.user_id}: {e}"
-                )
         try:
             identify_user(user.user_id, {"signup_method": "netmind"})
             track(user.user_id, EVENT_SIGNED_UP, {PROP_METHOD: "netmind"})
@@ -227,15 +365,22 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
     )
     _schedule_login_rearm(user.user_id)
 
-    # Cloud login IS NetMind login — make the user's NetMind.AI Power credits
-    # available automatically (mint key + register the netmind provider if
-    # missing). Fire-and-forget + non-fatal: login must never block on or fail
-    # from NetMind minting. Self-guards on the feature flag; register-only when
-    # the user already has an active config (no slot hijack).
-    from xyz_agent_context.services.netmind_provisioner import (
-        schedule_ensure_netmind_provider,
-    )
-    schedule_ensure_netmind_provider(user.user_id, request.netmind_token)
+    # Provision the user's providers — free tier FIRST, then their own NetMind
+    # account. Both are fire-and-forget (login must never block on, or fail
+    # from, either) but they are chained rather than started side by side.
+    #
+    # Started independently they raced, and the race was silently harmful: each
+    # provisioner reads "does this user already have a usable config" to decide
+    # whether to bind the slots, and both read it before either had written. The
+    # NetMind one finished second (it has to mint a key first) and rebound the
+    # slots to a brand-new Power account with NO balance, so every agent call
+    # failed with an opaque upstream error while a funded $10 wallet sat unused.
+    #
+    # Ordering free tier first is not arbitrary: it is the credential we know
+    # works. A fresh Power account has no credit, and an existing funded one is
+    # unaffected — the NetMind provisioner still registers-only when it finds a
+    # complete config, which after chaining it actually does.
+    _schedule_provider_provisioning(user.user_id, request.netmind_token)
 
     return NetmindLoginResponse(
         success=True,
@@ -245,9 +390,6 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         is_new_user=is_new,
         display_name=user.display_name,
         email=user.email,
-        has_system_quota=quota_row is not None,
-        initial_input_tokens=(quota_row.initial_input_tokens if quota_row else 0),
-        initial_output_tokens=(quota_row.initial_output_tokens if quota_row else 0),
     )
 
 
@@ -585,7 +727,7 @@ async def create_agent(http_request: Request, request: CreateAgentRequest):
         try:
             import asyncio as _asyncio
 
-            from xyz_agent_context.skill_marketplace_service import SkillMarketplaceService
+            from xyz_agent_context.marketplace.skill_marketplace_service import SkillMarketplaceService
 
             async def _install_default_skills(aid: str, uid: str) -> None:
                 try:
@@ -918,7 +1060,7 @@ async def delete_agent(
         # 7b. Unified memory tables (by agent_id) — observation/entity/chat/...
         # are all agent-scoped; without this an account deletion would leave
         # orphaned memory rows (entities, learned facts, etc.).
-        from xyz_agent_context.utils.schema_registry import MEMORY_KINDS
+        from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
         for _kind in MEMORY_KINDS:
             _tbl = f"memory_{_kind}"
             try:
@@ -932,6 +1074,18 @@ async def delete_agent(
                     stats[_tbl] = cnt
             except Exception:
                 pass  # Table may not exist on older DBs — skip.
+
+        # 7c. Memory consolidation queue (by agent_id) — without this the
+        # consolidation worker's idle trigger reprocesses the dead agent's
+        # scopes on every poll, logging "no owner row" warnings forever.
+        result = await db_client.execute(
+            "DELETE FROM memory_consolidation_queue WHERE agent_id = %s",
+            (agent_id,),
+            fetch=False,
+        )
+        cnt = result if isinstance(result, int) else 0
+        if cnt > 0:
+            stats["memory_consolidation_queue"] = cnt
 
         # 8. Module Instances (by agent_id)
         result = await db_client.execute(

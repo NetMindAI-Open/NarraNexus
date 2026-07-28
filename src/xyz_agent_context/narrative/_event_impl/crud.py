@@ -21,7 +21,7 @@ from ..models import Event, EventLogEntry, TriggerType
 
 if TYPE_CHECKING:
     from xyz_agent_context.schema.module_schema import ModuleInstance
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.repository import EventRepository
     from xyz_agent_context.utils import DataLoader
 
@@ -63,7 +63,7 @@ class EventCRUD:
     async def _get_db_client(self) -> "AsyncDatabaseClient":
         """Get the database client (lazy loaded)"""
         if self._database_client is None:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             self._database_client = await get_db_client()
         return self._database_client
 

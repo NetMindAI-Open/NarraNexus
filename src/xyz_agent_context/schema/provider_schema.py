@@ -39,11 +39,14 @@ class AuthType(str, Enum):
     API_KEY = "api_key"              # Standard API key (X-Api-Key header for Anthropic, Bearer for OpenAI)
     BEARER_TOKEN = "bearer_token"    # Custom Bearer token (e.g., NetMind key via Anthropic protocol)
     OAUTH = "oauth"                  # Claude Code CLI managed OAuth (no key needed)
+    OAUTH_TOKEN = "oauth_token"      # Long-lived subscription token from `claude setup-token`,
+    #                                  env-injected as CLAUDE_CODE_OAUTH_TOKEN (no CLI credential store)
 
 
 class ProviderSource(str, Enum):
     """How this provider was created (informational, not logic-driving)"""
     NETMIND = "netmind"            # Auto-created from NetMind one-key card
+    NETMIND_FREE = "netmind_free"  # Platform free-tier wallet card (see providers/free_tier)
     YUNWU = "yunwu"                # Auto-created from Yunwu one-key card
     OPENROUTER = "openrouter"      # Auto-created from OpenRouter one-key card
     CLAUDE_OAUTH = "claude_oauth"  # Auto-created from Claude Code Login card

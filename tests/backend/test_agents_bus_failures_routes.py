@@ -22,11 +22,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents_bus_failures as bus_failures_mod
+import backend.routes.agents.bus_failures as bus_failures_mod
 
 
 @pytest_asyncio.fixture
@@ -51,7 +51,7 @@ def _build_client(db_client, viewer_id: str = "user_x"):
     async def _get_db_override():
         return db_client
 
-    import xyz_agent_context.utils.db_factory as db_factory_mod
+    import xyz_agent_context.utils.db.db_factory as db_factory_mod
 
     original = db_factory_mod.get_db_client
     db_factory_mod.get_db_client = _get_db_override
@@ -226,7 +226,7 @@ async def test_retry_rejects_non_owner(db_client):
 
 @pytest.fixture(autouse=True)
 def _restore_get_db():
-    import xyz_agent_context.utils.db_factory as db_factory_mod
+    import xyz_agent_context.utils.db.db_factory as db_factory_mod
 
     original = db_factory_mod.get_db_client
     yield

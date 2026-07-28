@@ -22,4 +22,4 @@ stub: false
 ## 上下游
 
 - **被谁用**:`binding.resolve_client`(读)、`backend/routes/home_assistant`(读写)。
-- **依赖**:`repository/base.BaseRepository`。表定义在 `utils/schema_registry`。
+- **依赖**:`repository/base.BaseRepository`。表定义在 `utils/db/schema_registry`。

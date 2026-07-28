@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-import backend.routes._artifact_token as tok
+import backend.routes.artifacts._token as tok
 from xyz_agent_context.utils import deployment_mode
 
 

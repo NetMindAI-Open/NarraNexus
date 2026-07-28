@@ -31,8 +31,8 @@ async def setup(db_client, monkeypatch, tmp_path):
     from xyz_agent_context.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
-    from backend.routes.users_artifacts import router as users_router
-    import backend.routes.users_artifacts as users_mod
+    from backend.routes.artifacts.users import router as users_router
+    import backend.routes.artifacts.users as users_mod
     monkeypatch.setattr(users_mod, "get_db_client", lambda: _async_return(db_client))
 
     app = FastAPI()
@@ -131,7 +131,7 @@ def test_bulk_delete_empty_body_is_noop(setup):
 def test_cloud_mode_blocks_other_users(setup, monkeypatch):
     """In cloud mode, a JWT for user A cannot delete user B's artifacts."""
     from starlette.middleware.base import BaseHTTPMiddleware
-    from backend.routes.users_artifacts import router as users_router
+    from backend.routes.artifacts.users import router as users_router
 
     class FakeJWTMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):

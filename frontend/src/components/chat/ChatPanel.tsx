@@ -28,6 +28,7 @@ import { useAgentWebSocket } from '@/hooks';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { buildUnifiedTimeline, type TimelineItem } from '@/lib/buildTimeline';
+import { chatDayInfo } from '@/lib/chatDays';
 import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
@@ -90,7 +91,11 @@ function refreshArtifactFromToolCall(
   _seenArtifactToolCallIds.add(toolCallId);
   artifactsApi
     .getDetail(agentId, artifactId)
-    .then((d) => useArtifactStore.getState().upsert(d))
+    // focus: a register_artifact success must bring the doc to front even
+    // if a list refresh already inserted it (or it is a re-register) —
+    // otherwise the panel stays on the previous tab and the user reads
+    // the successful generation as a failure.
+    .then((d) => useArtifactStore.getState().upsert(d, { focus: true }))
     .catch(() => undefined);
 }
 
@@ -482,6 +487,18 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
   const timeline: TimelineItem[] = useMemo(
     () => buildUnifiedTimeline(historyMessages, messages),
     [historyMessages, messages],
+  );
+
+  // Per-tab visible items, computed BEFORE rendering so day separators can
+  // compare each item against the previous VISIBLE one — comparing against
+  // a neighbour that the tab filter hides would draw phantom separators.
+  const visibleTimeline: TimelineItem[] = useMemo(
+    () =>
+      timeline.filter((item) => {
+        const isInner = item.messageType === 'activity';
+        return chatTab === 'inner' ? isInner : !isInner;
+      }),
+    [timeline, chatTab],
   );
 
   // ── Bug 15: initial jump-to-bottom on open / agent switch ──
@@ -970,29 +987,47 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
           </div>
         )}
 
-        {/* Unified timeline */}
-        {timeline.map((item) => {
-          // What belongs in Inner Thoughts vs Conversation:
-          //   - activity records ("Background activity (discord)") — the
-          //     lightweight "a background turn happened" markers — are the ONLY
-          //     thing routed to Inner Thoughts.
-          //   - everything the agent actually *says* is owner-facing and stays
-          //     in Conversation. This includes its "I replied to a Discord user
-          //     / notified you" narrations: the agent chose to address the owner
-          //     via send_message_to_user_directly, so the channel that triggered
-          //     the turn (discord / slack / lark / job / …) is irrelevant — it
-          //     is still a real message to the owner and must show in the direct
-          //     conversation, not be hidden away as an "inner thought".
-          // Session items (the owner's live in-app turn) are conversation too.
-          const isActivity = item.messageType === 'activity';
-          const isInner = isActivity;
+        {/* Unified timeline. Tab routing (what belongs in Inner Thoughts vs
+            Conversation) lives in the visibleTimeline memo above: activity
+            records — the lightweight "a background turn happened" markers —
+            are the ONLY thing routed to Inner Thoughts; everything the agent
+            actually *says* is owner-facing and stays in Conversation,
+            including its cross-channel "I replied / notified you" narrations
+            (send_message_to_user_directly targets the owner regardless of
+            which channel triggered the turn). Session items (the owner's
+            live in-app turn) are conversation too.
 
-          // Route by tab: each tab renders only its own items.
-          if (chatTab === 'inner' ? !isInner : isInner) return null;
+            Messages only show HH:mm:ss, so a history spanning days had no
+            date context — insert a separator at every local-day boundary
+            (Today / Yesterday / date, matching IM convention). */}
+        {visibleTimeline.map((item, idx) => {
+          const dayInfo = chatDayInfo(item.timestamp);
+          const prevKey = idx > 0 ? chatDayInfo(visibleTimeline[idx - 1].timestamp).key : null;
+          const separator = dayInfo.key !== prevKey ? (
+            <div
+              data-testid="chat-day-separator"
+              className="flex items-center gap-3 px-6 py-1.5"
+            >
+              <span className="flex-1 h-px bg-[var(--border-subtle)]" />
+              <span className="text-[10px] font-mono text-[var(--text-tertiary)]">
+                {dayInfo.kind === 'today'
+                  ? t('chat.dateToday')
+                  : dayInfo.kind === 'yesterday'
+                    ? t('chat.dateYesterday')
+                    : dayInfo.label}
+              </span>
+              <span className="flex-1 h-px bg-[var(--border-subtle)]" />
+            </div>
+          ) : null;
 
           // Activity record → source-labelled, expandable card (Inner Thoughts only).
-          if (isActivity) {
-            return <InnerThoughtCard key={item.id} item={item} agentId={agentId} />;
+          if (item.messageType === 'activity') {
+            return (
+              <div key={item.id}>
+                {separator}
+                <InnerThoughtCard item={item} agentId={agentId} />
+              </div>
+            );
           }
 
           // Full message bubble (Conversation: owner↔agent chat; Inner Thoughts:
@@ -1008,6 +1043,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               key={item.id}
               className={isNewSession ? 'animate-slide-up' : undefined}
             >
+              {separator}
               <MessageBubble
                 message={{
                   id: item.id,

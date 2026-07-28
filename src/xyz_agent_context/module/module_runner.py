@@ -74,7 +74,9 @@ Architecture
 """
 
 import asyncio
+import contextlib
 import multiprocessing
+import signal
 from typing import Any, List, Optional, Type, Union
 
 from loguru import logger
@@ -89,6 +91,26 @@ from xyz_agent_context.module.job_module.job_module import JobModule
 from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client_sync
 
 
+@contextlib.contextmanager
+def _no_signal_capture():
+    """Drop-in no-op replacement for ``uvicorn.Server.capture_signals``.
+
+    Every ``uvicorn.Server.serve()`` wraps itself in ``capture_signals()``,
+    which calls ``signal.signal(SIGTERM/SIGINT, self.handle_exit)`` — a
+    PROCESS-GLOBAL registration. In the single-loop MCP deployment we run N
+    servers concurrently in one process, so the last server to enter the
+    context wins and a delivered SIGTERM flips ``should_exit`` on that one
+    server only; the other N-1 keep serving and hold their ports, so the
+    process never exits on its own (it hangs until an external SIGKILL) and
+    the next launch hits "address already in use".
+
+    We neutralise each server's own capture and install ONE shared handler
+    in ``run_mcp_servers_async`` that stops every server at once. Mirrors
+    ``run_worker_supervisor``'s central SIGINT+SIGTERM handling.
+    """
+    yield
+
+
 # =============================================================================
 # Default Configuration
 # =============================================================================
@@ -98,16 +120,16 @@ from xyz_agent_context.utils import DatabaseClient, get_db_client, get_db_client
 # a new IM channel needs zero edits here — just subclass ChannelModuleBase
 # with `mcp_port = NNNN` and register in MODULE_MAP.
 CORE_MCP_MODULES = [
-    "AwarenessModule",      # port: 7801
-    "ChatModule",           # port: 7804
+    "AwarenessModule",  # port: 7801
+    "ChatModule",  # port: 7804
     "SocialNetworkModule",  # port: 7802
-    "JobModule",            # port: 7803
-    "SkillModule",          # port: 7806
-    "CommonToolsModule",    # port: 7807
-    "BasicInfoModule",      # port: 7808 (narrative-awareness tools — Fix #2 P3)
+    "JobModule",  # port: 7803
+    "SkillModule",  # port: 7806
+    "CommonToolsModule",  # port: 7807
+    "BasicInfoModule",  # port: 7808 (narrative-awareness tools — Fix #2 P3)
     "GeneralMemoryModule",  # port: 7809 (remember / grep_memory tools)
     "HomeAssistantModule",  # port: 7810 (smart-home query/control via Home Assistant)
-    "MessageBusModule",     # port: 7820
+    "MessageBusModule",  # port: 7820
 ]
 CORE_MODULE_PORTS = {
     "AwarenessModule": 7801,
@@ -142,9 +164,7 @@ def discover_channel_modules(
             names.append(name)
             port = getattr(cls, "mcp_port", None)
             if not port:
-                raise ValueError(
-                    f"{name}: ChannelModuleBase subclass must define mcp_port"
-                )
+                raise ValueError(f"{name}: ChannelModuleBase subclass must define mcp_port")
             ports[name] = port
     return sorted(names), ports
 
@@ -214,8 +234,7 @@ class ModuleRunner:
     # =========================================================================
 
     def _resolve_modules(
-        self,
-        modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None
+        self, modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None
     ) -> List[Type[XYZBaseModule]]:
         """
         Resolve module specifications to module classes.
@@ -261,7 +280,7 @@ class ModuleRunner:
         module_class: Type[XYZBaseModule],
         agent_id: str,
         user_id: Optional[str] = None,
-        db_client: Optional[DatabaseClient] = None
+        db_client: Optional[DatabaseClient] = None,
     ) -> XYZBaseModule:
         """
         Create an instance of a module.
@@ -304,6 +323,7 @@ class ModuleRunner:
             # Mirror the fix that _serve_one_mcp applies in async mode.
             mcp_server.settings.host = "0.0.0.0"
             from mcp.server.transport_security import TransportSecuritySettings
+
             mcp_server.settings.transport_security = TransportSecuritySettings(
                 enable_dns_rebinding_protection=False,
             )
@@ -338,7 +358,7 @@ class ModuleRunner:
         self,
         agent_id: str = "mcp_deploy",
         user_id: Optional[str] = None,
-        modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None
+        modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None,
     ) -> None:
         """
         Run all MCP servers in separate processes.
@@ -380,10 +400,7 @@ class ModuleRunner:
             logger.info(f"  Starting {module_name} (port: {port})...")
 
             # Create independent process
-            process = multiprocessing.Process(
-                target=self._run_single_mcp,
-                args=(module_class, agent_id, user_id)
-            )
+            process = multiprocessing.Process(target=self._run_single_mcp, args=(module_class, agent_id, user_id))
             process.start()
             processes.append((module_name, process, port))
             logger.info(f"  {module_name} started (PID: {process.pid})")
@@ -412,7 +429,7 @@ class ModuleRunner:
         self,
         agent_id: str = "mcp_deploy",
         user_id: Optional[str] = None,
-        modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None
+        modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None,
     ) -> None:
         """
         Run multiple MCP servers concurrently in a single process using asyncio.
@@ -445,7 +462,8 @@ class ModuleRunner:
         db = await get_db_client()
 
         # Ensure all tables exist (MCP runs as separate process)
-        from xyz_agent_context.utils.schema_registry import auto_migrate
+        from xyz_agent_context.utils.db.schema_registry import auto_migrate
+
         await auto_migrate(db._backend)
         logger.info("Schema auto-migration complete")
 
@@ -476,34 +494,60 @@ class ModuleRunner:
         # same loop that is actually processing requests. See
         # PLAN-2026-04-22-mcp-single-loop.md for the full root-cause
         # analysis and POC evidence.
-        from mcp.server.transport_security import TransportSecuritySettings
-
-        coros = []
+        servers = []
         for module_name, mcp_server in instances:
-            port = MODULE_PORTS.get(module_name, 7800 + len(coros))
+            port = MODULE_PORTS.get(module_name, 7800 + len(servers))
             logger.info(f"{module_name} → http://0.0.0.0:{port}/sse")
-            coros.append(self._serve_one_mcp(mcp_server, module_name, port))
+            servers.append(self._build_mcp_server(mcp_server, module_name, port))
 
-        logger.info(
-            f"\n✅ {len(coros)} MCP servers running (single-process, single-loop)"
-        )
+        # Centralised graceful shutdown. Each server's own signal capture is
+        # neutralised (see _no_signal_capture) — with many uvicorn servers on
+        # one loop, the last capture_signals() to run would win and a SIGTERM
+        # would stop only that server, leaving the rest holding their ports and
+        # hanging process exit until an external SIGKILL (the desktop app then
+        # leaks "address already in use" on the next launch). Install ONE
+        # handler for both signals that flips should_exit on EVERY server so
+        # all serve() coroutines return, asyncio.run() unwinds, and all MCP
+        # ports are released. Mirrors run_worker_supervisor's SIGINT+SIGTERM
+        # handling (iron rule #7: run.sh and the desktop app must behave the
+        # same on shutdown).
+        loop = asyncio.get_running_loop()
+
+        def _request_shutdown() -> None:
+            logger.info("Signal received — stopping all MCP servers")
+            for s in servers:
+                s.should_exit = True
+
+        installed_signals = []
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(sig, _request_shutdown)
+                installed_signals.append(sig)
+            except NotImplementedError:  # pragma: no cover — non-Unix
+                pass
+
+        logger.info(f"\n✅ {len(servers)} MCP servers running (single-process, single-loop)")
 
         try:
-            await asyncio.gather(*coros)
+            await asyncio.gather(*(s.serve() for s in servers))
         except asyncio.CancelledError:
             logger.info("MCP servers cancelled")
-        except KeyboardInterrupt:
-            logger.info("Stopping MCP servers...")
+        finally:
+            for sig in installed_signals:
+                try:
+                    loop.remove_signal_handler(sig)
+                except (NotImplementedError, ValueError):  # pragma: no cover
+                    pass
 
     @staticmethod
-    async def _serve_one_mcp(mcp_server: Any, module_name: str, port: int) -> None:
-        """Run a single FastMCP server on the caller's event loop with
-        BOTH the legacy SSE transport AND the modern streamable HTTP
+    def _build_mcp_server(mcp_server: Any, module_name: str, port: int) -> Any:
+        """Build (but do not start) the uvicorn.Server for one FastMCP server,
+        exposing BOTH the legacy SSE transport AND the modern streamable HTTP
         transport on the same port.
 
         Why both:
           - Claude Code's MCP client expects ``{type: "sse", url: ".../sse"}``
-            (see xyz_claude_agent_sdk.py). It will not work with the
+            (see adapters/claude/sdk.py). It will not work with the
             streamable HTTP transport.
           - OpenAI Codex CLI's MCP client only speaks streamable HTTP
             (POST to a single ``/mcp`` endpoint, optional GET for SSE
@@ -531,6 +575,20 @@ class ModuleRunner:
         the no-op default lifespan. We adopt the streamable
         lifespan as the parent app's so the session manager starts /
         stops correctly.
+
+        Returns the constructed ``uvicorn.Server``. Signal capture is
+        neutralised here (see ``_no_signal_capture``) so many servers can
+        share one loop without their per-server handlers fighting over the
+        process-global SIGTERM disposition; ``run_mcp_servers_async`` owns
+        shutdown centrally instead.
+
+        Args:
+            mcp_server: FastMCP server instance to wrap.
+            module_name: Owning module name (used only for logging).
+            port: TCP port to bind.
+
+        Returns:
+            An unstarted ``uvicorn.Server`` bound to ``0.0.0.0:port``.
         """
         import uvicorn
         from starlette.applications import Starlette
@@ -572,6 +630,21 @@ class ModuleRunner:
             log_config=None,
         )
         server = uvicorn.Server(config)
+        # Neutralise uvicorn's own process-global signal capture; shutdown is
+        # handled centrally in run_mcp_servers_async. See _no_signal_capture.
+        server.capture_signals = _no_signal_capture
+        return server
+
+    @staticmethod
+    async def _serve_one_mcp(mcp_server: Any, module_name: str, port: int) -> None:
+        """Build and serve a single FastMCP server on the caller's loop.
+
+        Thin wrapper over ``_build_mcp_server`` kept for standalone
+        single-server use; the multi-server path in
+        ``run_mcp_servers_async`` builds servers itself so it can hold the
+        references for centralised shutdown.
+        """
+        server = ModuleRunner._build_mcp_server(mcp_server, module_name, port)
         try:
             await server.serve()
         except asyncio.CancelledError:
@@ -600,7 +673,7 @@ class ModuleRunner:
         host: str = "0.0.0.0",
         port: int = 8000,
         agent_name: str = "XYZ Agent",
-        agent_description: str = "XYZ Agent Context - Intelligent Conversational Agent"
+        agent_description: str = "XYZ Agent Context - Intelligent Conversational Agent",
     ) -> None:
         """
         Run A2A Protocol API Server
@@ -623,12 +696,7 @@ class ModuleRunner:
         logger.info(f"   Host: {host}")
         logger.info(f"   Port: {port}")
         logger.info("   Protocol: A2A/0.3 (Google Agent-to-Agent)")
-        server = A2AServer(
-            host=host,
-            port=port,
-            agent_name=agent_name,
-            agent_description=agent_description
-        )
+        server = A2AServer(host=host, port=port, agent_name=agent_name, agent_description=agent_description)
         server.run()
 
     # =========================================================================
@@ -641,7 +709,7 @@ class ModuleRunner:
         user_id: Optional[str] = None,
         modules: Optional[Union[List[str], List[Type[XYZBaseModule]]]] = None,
         api_host: str = "0.0.0.0",
-        api_port: int = 8000
+        api_port: int = 8000,
     ) -> None:
         """
         Run A2A API Server and all MCP Servers together [Recommended].
@@ -677,10 +745,7 @@ class ModuleRunner:
         # 启动 A2A API Server
         logger.info("Starting A2A Protocol API Server...")
         logger.info(f"   Endpoint: http://{api_host}:{api_port}")
-        api_process = multiprocessing.Process(
-            target=self._run_api_server,
-            args=(api_host, api_port)
-        )
+        api_process = multiprocessing.Process(target=self._run_api_server, args=(api_host, api_port))
         api_process.start()
         processes.append(("A2A-API-Server", api_process, api_port))
         logger.info(f"   A2A API Server started (PID: {api_process.pid})")
@@ -692,10 +757,7 @@ class ModuleRunner:
             port = MODULE_PORTS.get(module_name, 7800 + i)
             logger.info(f"   Starting {module_name} (port: {port})...")
 
-            process = multiprocessing.Process(
-                target=self._run_single_mcp,
-                args=(module_class, agent_id, user_id)
-            )
+            process = multiprocessing.Process(target=self._run_single_mcp, args=(module_class, agent_id, user_id))
             process.start()
             processes.append((module_name, process, port))
             logger.info(f"   {module_name} started (PID: {process.pid})")
@@ -748,6 +810,7 @@ class ModuleRunner:
 def _is_sqlite_mode() -> bool:
     """Check if the current DATABASE_URL points to SQLite."""
     import os
+
     url = os.environ.get("DATABASE_URL", "")
     return url.startswith("sqlite") or not url
 
@@ -755,6 +818,7 @@ def _is_sqlite_mode() -> bool:
 if __name__ == "__main__":
     import sys
     from xyz_agent_context.utils.logging import setup_logging
+
     setup_logging("mcp")
 
     runner = ModuleRunner()
@@ -779,10 +843,10 @@ Commands:
   <default>  Run all default MCP servers
 
 Available Modules:
-  {', '.join(available)}
+  {", ".join(available)}
 
 Default MCP Modules:
-  {', '.join(defaults)}
+  {", ".join(defaults)}
 
 Examples:
   # Full deployment (A2A + MCP)
@@ -836,6 +900,7 @@ Supported JSON-RPC Methods:
             # to avoid multi-process write lock contention
             if _is_sqlite_mode():
                 import asyncio
+
                 asyncio.run(runner.run_mcp_servers_async())
             else:
                 runner.run_all_mcp_servers()
@@ -857,6 +922,7 @@ Supported JSON-RPC Methods:
         print("   (Use 'module' command for full deployment with A2A API)\n")
         if _is_sqlite_mode():
             import asyncio
+
             asyncio.run(runner.run_mcp_servers_async())
         else:
             runner.run_all_mcp_servers()

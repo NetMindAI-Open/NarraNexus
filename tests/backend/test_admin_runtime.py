@@ -133,7 +133,7 @@ def _make_app(db_client, monkeypatch, ctrl: AgentAdmissionController):
     - admin_runtime.get_db_client → returns the test db_client
     - admin_runtime.get_admission_controller → returns ctrl
     """
-    import backend.routes.admin_runtime as mod
+    import backend.routes.admin.runtime as mod
 
     async def _fake_db():
         return db_client
@@ -225,7 +225,7 @@ async def test_status_executors_present(db_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_status_resilient_when_broker_raises(db_client, monkeypatch):
     """If broker query raises, endpoint still returns 200 with executors fallback."""
-    import backend.routes.admin_runtime as mod
+    import backend.routes.admin.runtime as mod
 
     ctrl = _ctrl()
     reset_admission_controller_for_test(ctrl)
@@ -258,7 +258,7 @@ async def test_status_resilient_when_broker_raises(db_client, monkeypatch):
 
 def _make_workers_app(db_client, monkeypatch):
     """Minimal app wiring only the admin_runtime router + a fake get_db_client."""
-    import backend.routes.admin_runtime as mod
+    import backend.routes.admin.runtime as mod
 
     async def _fake_db():
         return db_client
@@ -333,7 +333,7 @@ async def test_workers_available_false_when_no_rows(db_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_workers_resilient_when_db_raises(db_client, monkeypatch):
     """A DB blip yields available:false, never a 500."""
-    import backend.routes.admin_runtime as mod
+    import backend.routes.admin.runtime as mod
 
     async def _bad_db():
         raise RuntimeError("db down")

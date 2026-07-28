@@ -6,7 +6,6 @@
  * Implements NM Axiom #4 (lift via paper not shadow) and #8 (motion =
  * paper rhythm).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.9
  */
 
 import { cn } from '@/lib/utils';

@@ -7,7 +7,7 @@ stub: false
 ## 2026-07-17 — 新增 cloudNetmindOnly 策略谓词 + DESKTOP_RELEASES_URL
 
 `cloudNetmindOnly(role)` = `isForcedCloud() && role !== 'staff'`——后端两个
-route 门禁（providers.py / agents_llm_config.py 的云端 netmind-only 槽位策略）
+route 门禁（providers.py / agents/llm_config.py 的云端 netmind-only 槽位策略）
 的前端孪生。两个槽位编辑器（[[ModelDefaultsSettings]] +
 [[AgentLlmConfigPanel]]）都经它过滤 provider 下拉（`source !== 'netmind'`
 隐藏），保证 UI 不给出会被 403 的选项。role 由调用方从 configStore 读出传入
@@ -30,7 +30,7 @@ OpenAI 自己的 codex 后端才强制 `CODEX_CURATED_MODELS`(它按账号 tier 
 openai provider(聚合商/自填 base_url)返回自己的 `prov.models`。与后端
 `get_user_service.get_user_config`(同样 codex_oauth-only 覆盖)对齐。修掉"选了
 netmind 却只看得到 gpt-5.x 三个模型"的 bug。详见后端 mirror
-[[user_provider_service]] 2026-07-10 条目。
+[[user_service]] 2026-07-10 条目。
 
 ## 2026-07-09 — defaultHelperModel(选 helper provider 时默认便宜模型)
 
@@ -50,7 +50,7 @@ Settings editor ([[ProviderSettings]]) and the per-agent chat surfaces
 exactly the same choices as the global-default editor.
 
 Holds: ``AGENT_FRAMEWORKS`` + ``isCodexFramework``; ``CODEX_CURATED_MODELS``
-(codex_oauth-only — mirror of backend ``user_provider_service``);
+(codex_oauth-only — mirror of backend ``providers.user_service``);
 ``RECOMMENDED_HELPER_MODEL_BY_PROTOCOL`` (mirror of backend
 ``_ONBOARD_HELPER_MODELS``); ``MODEL_SUGGESTION_GROUPS``; reasoning option
 lists; and ``getModelsForSlot(prov, slot, framework, knownModels)`` (agent+codex

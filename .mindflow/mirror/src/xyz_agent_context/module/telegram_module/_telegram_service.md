@@ -7,7 +7,7 @@ last_verified: 2026-05-09
 ## Why it exists
 
 Two stateless helpers — ``do_bind`` and ``do_test_connection`` — that
-both REST routes (``backend/routes/telegram.py``) and MCP tools
+both REST routes (``backend/routes/channels/telegram.py``) and MCP tools
 (``_telegram_mcp_tools.py``) call into. Single source of truth for
 "bind a Telegram bot to an agent" and "is the stored token still
 valid against ``getMe``?".
@@ -39,7 +39,7 @@ two call surfaces keeps them in lockstep — adding a side-effect
 
 ## Upstream / downstream
 
-- **Called by**: ``backend/routes/telegram.py`` (POST /bind, POST /test)
+- **Called by**: ``backend/routes/channels/telegram.py`` (POST /bind, POST /test)
   and ``_telegram_mcp_tools.tg_bind / tg_status``.
 - **Calls**: ``TelegramCredentialManager.bind / get``,
   ``TelegramSDKClient.get_me``.

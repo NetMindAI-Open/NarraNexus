@@ -5,8 +5,8 @@
 @description: full_copy skill import must land in the bundle's known skill_dir
              (not a random temp name) and preserve the skill's .skill_meta.json.
 
-Regression for the arena bug (see
-reference/self_notebook/plans/2026-07-13-skill-bundle-optimization.md §1):
+Regression for the arena bug (skill-bundle optimization plan §1,
+author-local):
 
 - A skill is packed twice in a bundle: inside workspace.tar.gz (with its
   credentials.json stripped by the sensitive-file scanner) AND as a separate
@@ -62,11 +62,11 @@ async def db_client(tmp_db_path, monkeypatch):
     from xyz_agent_context.settings import settings as core_settings
 
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{tmp_db_path}")
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
 
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)

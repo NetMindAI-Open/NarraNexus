@@ -253,7 +253,7 @@ Adapt your communication style according to this persona."""
                 # Derived: team-mates of the current agent.
                 try:
                     from xyz_agent_context.repository import TeamMemberRepository, AgentRepository
-                    from xyz_agent_context.utils.db_factory import get_db_client
+                    from xyz_agent_context.utils.db.db_factory import get_db_client
                     db = await get_db_client()
                     member_repo = TeamMemberRepository(db)
                     agent_repo = AgentRepository(db)

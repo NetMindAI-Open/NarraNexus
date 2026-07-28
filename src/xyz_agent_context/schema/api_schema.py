@@ -15,7 +15,9 @@ Includes:
 """
 
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 
 
 # ===== Auth Schemas =====
@@ -59,11 +61,6 @@ class NetmindLoginResponse(BaseModel):
     is_new_user: bool = False
     display_name: Optional[str] = None
     email: Optional[str] = None
-    # Free-tier seeding outcome (first login only) — mirrors the fields
-    # RegisterResponse carried so the frontend welcome toast keeps working.
-    has_system_quota: bool = False
-    initial_input_tokens: int = 0
-    initial_output_tokens: int = 0
     error: Optional[str] = None
 
 
@@ -126,8 +123,11 @@ class AgentListResponse(BaseModel):
 class CreateAgentRequest(BaseModel):
     """Request model for creating agent. Identity (created_by) comes from
     auth_middleware, never from the body."""
-    agent_name: Optional[str] = None
-    agent_description: Optional[str] = None
+    # Length-capped at the write edge so an over-long name/description is
+    # rejected as 422 here, never reaching the DB — the same ceiling the
+    # Agent entity model enforces on read (see AGENT_TEXT_MAX_LENGTH).
+    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
     # Bootstrap profile name (first-run flow). None/omitted → "default" (today's
     # behavior). Scenario creators (e.g. Arena) use their own profile instead.
     bootstrap: Optional[str] = None
@@ -146,8 +146,9 @@ class CreateAgentResponse(BaseModel):
 
 class UpdateAgentRequest(BaseModel):
     """Request model for updating agent"""
-    agent_name: Optional[str] = None
-    agent_description: Optional[str] = None
+    # See CreateAgentRequest — same write-edge length cap (422 on overflow).
+    agent_name: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
+    agent_description: Optional[str] = Field(None, max_length=AGENT_TEXT_MAX_LENGTH)
     is_public: Optional[bool] = None
 
 
@@ -427,6 +428,36 @@ class EventLogTimelineEntry(BaseModel):
     reply_via: Optional[str] = None
 
 
+class EventLogMeta(BaseModel):
+    """Run-level metadata for one activation.
+
+    Drives the activity ("inner thought") card header: what input the agent
+    received and from where, what it produced, when the run started, how
+    long it took, and what it cost on which models. Sourced from the events
+    row (lifecycle Phase C columns) + cost_records aggregation. Every field
+    is optional-ish because legacy rows predate the lifecycle columns and
+    background helper calls may have no cost rows.
+    """
+    trigger: str = ""
+    trigger_source: str = ""
+    # What the agent received (env_context.input), capped server-side so a
+    # huge bus payload cannot bloat the response.
+    input_text: Optional[str] = None
+    final_output: Optional[str] = None
+    state: str = "completed"
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    # Distinct models that served this event (agent slot + helper + embed).
+    models: List[str] = []
+    # None (not 0) when no cost rows exist — the UI hides the chip instead
+    # of showing a misleading "$0".
+    total_cost_usd: Optional[float] = None
+    input_tokens: int = 0
+    output_tokens: int = 0
+    tool_call_count: int = 0
+
+
 class EventLogResponse(BaseModel):
     """Response for event log detail endpoint (on-demand loading)"""
     success: bool
@@ -437,6 +468,8 @@ class EventLogResponse(BaseModel):
     # this when present; the legacy thinking / tool_calls fields remain for
     # back-compat with any older client builds still in the wild.
     timeline: List[EventLogTimelineEntry] = []
+    # Run-level header info for the activity card; None only on error.
+    meta: Optional[EventLogMeta] = None
     error: Optional[str] = None
 
 

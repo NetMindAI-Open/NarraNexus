@@ -35,8 +35,7 @@ Known residual: Python threads can't be externally cancelled, so a
 DDGS call stuck at the C/Rust layer will leak its worker thread even
 though our asyncio layer has moved on. The default asyncio thread
 pool (32+ workers) tolerates a handful of leaks. Full subprocess
-isolation is a future upgrade — tracked in
-``reference/self_notebook/todo/waiting/web_search_subprocess_isolation.md``.
+isolation is a future upgrade (author-local todo).
 """
 
 import asyncio

@@ -27,7 +27,7 @@ from fastapi.responses import StreamingResponse, FileResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.bundle.builder import ExportSelection, build_bundle
 from xyz_agent_context.bundle.importer import preflight, confirm
 from xyz_agent_context.bundle.security import MAX_BUNDLE_BYTES, file_sha256

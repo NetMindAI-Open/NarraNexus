@@ -10,7 +10,7 @@ auth phrases.
 """
 from types import SimpleNamespace
 
-from xyz_agent_context.agent_framework.provider_registry import ProviderRegistry
+from xyz_agent_context.agent_framework.providers.registry import ProviderRegistry
 
 
 def _resp(status, text=""):

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/AgentGroupSection.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 透传 onEditAgent + inline 改名加 maxLength
+
+Section/Row 两处 props 新增 `onEditAgent`,与 `onStartEdit`/`onClearData` 同样
+一路传到 [[AgentRowMenu.tsx]] 的"编辑…"项。inline 快速改名的 `<input>` 加
+`maxLength={AGENT_TEXT_MAX_LENGTH}`(255),让快速改名路径也无法超限。
 
 ## 2026-07-10 — threads `onClearData`
 

@@ -85,7 +85,7 @@ async def _run(chat_module, inst_nar_pairs, fake_memories):
         return [nid] if nid else []
 
     with patch(
-        "xyz_agent_context.utils.db_factory.get_db_client",
+        "xyz_agent_context.utils.db.db_factory.get_db_client",
         new=AsyncMock(return_value=MagicMock()),
     ), patch(
         "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",

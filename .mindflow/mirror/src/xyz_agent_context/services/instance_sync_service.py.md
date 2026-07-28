@@ -18,7 +18,7 @@ AgentRuntime 的 step_3 让 LLM 决策"接下来需要哪些 Module Instance"，
 
 **被谁用**：`agent_runtime/_agent_runtime_steps/step_3_decide_modules.py` 在 LLM 返回 Instance 决策后立即调用 `process_instance_decision()` 和 `create_jobs_for_instances()`。这是同步调用，在请求处理流程里阻塞执行。
 
-**调用谁**：`repository.JobRepository` 创建 Job 记录；`repository.InstanceRepository` 创建 SocialNetworkModule 实例（当 Job 需要绑定 Entity 时）；`repository.SocialNetworkRepository` 更新 Entity 的 `related_job_ids`；`repository.NarrativeRepository` 给 Narrative 添加 PARTICIPANT actor；`agent_framework/llm_api/embedding.py` 为每个 Job 生成 embedding。
+**调用谁**：`repository.JobRepository` 创建 Job 记录；`repository.InstanceRepository` 创建 SocialNetworkModule 实例（当 Job 需要绑定 Entity 时）；`repository.SocialNetworkRepository` 更新 Entity 的 `related_job_ids`；`repository.NarrativeRepository` 给 Narrative 添加 PARTICIPANT actor；`agent_framework/llm/api/embedding.py` 为每个 Job 生成 embedding。
 
 ## 设计决策
 

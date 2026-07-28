@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-20
+last_verified: 2026-07-23
 stub: true
 ---
+
+## 2026-07-23 — QuotaMeResponse.free_tier
+
+`QuotaMeResponse` 的两个 enabled 分支加可选 `free_tier?: {active, model}`
+（`FreeTierLock`）。免费额度有余量时运行时锁死系统模型、忽略用户自有 slot 编辑，
+`active` 让 [[ModelDefaultsSettings]] 渲染诚实 banner，`model` 是锁定时真正运行的模型。
+后端见 [[quota]] 的 free_tier 块。
 
 ## 2026-07-20 — RoomMessage.attachments
 
@@ -26,7 +33,6 @@ bus files (see [[BusAttachmentList]]).
 
 新增 `CircuitBreakerStatus` 与 `AgentCircuitBreakerResponse` 类型（熔断状态查询响应）。
 
-
 ## 2026-07-10 — ClearHistoryResponse expanded
 
 `ClearHistoryResponse` now carries `scopes` + per-target counts
@@ -47,8 +53,6 @@ slot). Consumed by [[api.ts]], [[ComposerModelBadge]], [[AgentLlmConfigPanel]].
 Added RechargeCheckout/RechargeResponse ({recharge_id, session_id, checkout_url, status}) and
 RechargeStatus/RechargeStatusResponse ({status: pending|succeeded|failed}) for the top-up flow.
 
-
-
 ## 2026-07-03 — BusFailureItem/BusFailuresResponse + NoticeItem/NoticesResponse
 
 Types for the upstream #52 recovery surface.
@@ -63,8 +67,6 @@ title/message/action_hint/console_url; falls back to plain `error`
 when absent.
 
 ## 2026-05-14 — FileInfo becomes a recursive tree node
-
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 
 Mirrors the backend `api_schema.FileInfo` change. The flat
 `{filename, size, modified_at}` shape became a recursive tree node:
@@ -101,7 +103,7 @@ last_run_at?: string;
 last_run_timezone?: string;
 ```
 
-背景见 `reference/self_notebook/specs/2026-04-21-job-timezone-redesign-design.md`。前端不再感知 UTC——所有时间都以 "local + tz" 配对流动。
+背景：job 时区重设计（2026-04-21）。前端不再感知 UTC——所有时间都以 "local + tz" 配对流动。
 
 ## 2026-06-16 — CreateAgentRequest.team_id (#43)
 

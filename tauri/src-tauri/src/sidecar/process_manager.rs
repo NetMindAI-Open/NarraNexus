@@ -154,7 +154,7 @@ impl ProcessManager {
             // NetMind ("Power") account login (local dual-mode). A Finder-
             // launched .app inherits no shell env, so — exactly like
             // NARRA_POSTHOG_KEY above — these are baked at COMPILE time: a build
-            // that exported them (before `bash scripts/build-desktop.sh`) ships a
+            // that exported them (before `bash scripts/release/build-desktop.sh`) ships a
             // Power-enabled desktop app; a normal community/source build leaves
             // them None so the backend stays pure-local (username-only). A runtime
             // env var still wins (e.g. `open`ing the .app from a shell that set
@@ -247,7 +247,7 @@ impl ProcessManager {
 
         for def in &sorted_defs {
             self.start_service(def, project_root).await?;
-            // Mirror `scripts/dev-local.sh`'s `sleep 3` after
+            // Mirror `scripts/dev/dev-local.sh`'s `sleep 3` after
             // sqlite_proxy_server: give a service time to come up before
             // dependents start, when requested via ServiceDef.
             if let Some(delay_ms) = def.startup_delay_ms {

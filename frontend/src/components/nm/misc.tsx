@@ -4,7 +4,6 @@
  * @date: 2026-05-18
  * @description: Miscellaneous primitives — Chip, Tag, Badge, CodeBlock, Kbd, Link.
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.12
  */
 
 import { Fragment, useState, type AnchorHTMLAttributes, type ReactNode } from 'react';

@@ -27,9 +27,9 @@ for an S3 / object-store backend and nothing else moves.
 ## Upstream / Downstream
 
 Upstream callers:
-- `backend.routes.agents_attachments.upload_attachment` writes via
+- `backend.routes.agents.attachments.upload_attachment` writes via
   `store_uploaded_attachment`
-- `backend.routes.agents_attachments.get_attachment_raw` reads via
+- `backend.routes.agents.attachments.get_attachment_raw` reads via
   `resolve_attachment_path`
 - `xyz_agent_context.schema.attachment_schema.Attachment.synthesize_marker`
   reads via `resolve_attachment_path`
@@ -102,5 +102,5 @@ corrupt.
   declared truth for the file_id format and `is_valid_file_id()` is
   its paired validator — keep them together.
 - `get_workspace_path` deliberately mirrors the layout used by
-  `backend/routes/agents_files.py`. If that route's path scheme
+  `backend/routes/agents/files.py`. If that route's path scheme
   changes, this function must change in lockstep.

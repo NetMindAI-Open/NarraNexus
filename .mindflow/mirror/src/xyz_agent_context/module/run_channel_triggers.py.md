@@ -22,7 +22,7 @@ The consolidated supervisor for ALL IM channel triggers. Replaces the six
 near-identical `run_<channel>_trigger.py` entrypoints (deleted 2026-07-08) with
 one process running every `ChannelTriggerBase` subclass in a single event loop.
 
-Motivation (see `reference/self_notebook/specs/2026-07-08-trigger-consolidation-design.md`):
+Motivation (trigger-consolidation redesign, 2026-07-08):
 - Memory: the heavy package import graph was resident six times; now once.
 - SQLite: six processes each opened the same file, multiplying lock contention
   (handoff issue #5); one process = one opener.

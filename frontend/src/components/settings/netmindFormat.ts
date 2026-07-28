@@ -16,46 +16,43 @@ export function money(v?: string | number | null): string {
   return Number.isFinite(n) ? n.toFixed(2) : '—';
 }
 
-// A single "how much free tier is left" percentage (0–100), taking the more
-// depleted of input/output — that's the honest ceiling on what you can still
-// do. Returns null when there is no free-tier bar to show (feature off /
-// uninitialized / disabled).
+// The free-tier wallet needs more precision than a balance does. A real agent
+// turn on it costs a fraction of a cent (~$0.0027), so at two decimals a whole
+// session of use rounds away and the grant looks frozen at "10.00" — which is
+// exactly how it read to the Owner on 2026-07-28. Six decimals is the gateway's
+// own resolution, and padding keeps the digit count stable so the number does
+// not visibly reflow between polls.
+export function creditMoney(v?: string | number | null): string {
+  if (v == null || v === '') return '—';
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(6) : '—';
+}
+
+// A single "how much free tier is left" percentage (0–100) of the wallet.
+// Returns null when there is no free-tier bar to show (feature off /
+// uninitialized).
 export function freeTierPctLeft(quota: QuotaMeResponse | null): number | null {
   if (!quota || quota.enabled !== true) return null;
   if (quota.status === 'exhausted') return 0;
-  if (quota.status !== 'active') return null; // uninitialized / disabled
-  const totIn = quota.initial_input_tokens + quota.granted_input_tokens;
-  const totOut = quota.initial_output_tokens + quota.granted_output_tokens;
-  const rIn = totIn > 0 ? quota.remaining_input_tokens / totIn : 1;
-  const rOut = totOut > 0 ? quota.remaining_output_tokens / totOut : 1;
-  return Math.max(0, Math.min(100, Math.floor(Math.min(rIn, rOut) * 100)));
+  if (quota.status !== 'active') return null; // uninitialized
+  if (!(quota.max_budget > 0)) return null;
+  const ratio = quota.remaining / quota.max_budget;
+  return Math.max(0, Math.min(100, Math.floor(ratio * 100)));
 }
 
-// Compact token count: 4_500_000 → "4.5M", 900_000 → "900K", 850 → "850".
-// One decimal max, trailing ".0" trimmed — panel row values, not analytics.
-export function formatTokens(n: number): string {
-  if (!Number.isFinite(n) || n < 0) return '0';
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
-  return String(Math.floor(n));
-}
-
-// Remaining/total tokens of the MORE DEPLETED dimension (same dimension the
-// pct bar reflects, so the number and the bar never disagree). Returns null
-// exactly when freeTierPctLeft would (feature off / uninitialized / disabled);
-// exhausted is the caller's business (the bar collapses to a note there).
-export function freeTierTokensLeft(
+// Remaining / total dollars of the free-tier wallet. Returns null exactly when
+// freeTierPctLeft would for a non-exhausted wallet; exhausted is the caller's
+// business (the bar collapses to a note there).
+export function freeTierCreditLeft(
   quota: QuotaMeResponse | null,
-): { remaining: number; total: number } | null {
+): { remaining: number; total: number; currency: string } | null {
   if (!quota || quota.enabled !== true) return null;
   if (quota.status !== 'active' && quota.status !== 'exhausted') return null;
-  const totIn = quota.initial_input_tokens + quota.granted_input_tokens;
-  const totOut = quota.initial_output_tokens + quota.granted_output_tokens;
-  const rIn = totIn > 0 ? quota.remaining_input_tokens / totIn : 1;
-  const rOut = totOut > 0 ? quota.remaining_output_tokens / totOut : 1;
-  return rIn <= rOut
-    ? { remaining: Math.max(0, quota.remaining_input_tokens), total: totIn }
-    : { remaining: Math.max(0, quota.remaining_output_tokens), total: totOut };
+  return {
+    remaining: Math.max(0, quota.remaining),
+    total: quota.max_budget,
+    currency: quota.currency,
+  };
 }
 
 // Format a plan billing period. NetMind dev drifts period to "2day"; prod is

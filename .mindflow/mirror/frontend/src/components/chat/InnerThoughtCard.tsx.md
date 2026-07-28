@@ -1,7 +1,19 @@
 ---
 code_file: frontend/src/components/chat/InnerThoughtCard.tsx
-last_verified: 2026-07-03
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — run meta header (activity card upgrade)
+
+Expanded view now renders `EventLogResponse.meta`: a stat-chip row
+(duration / cost / tokens in-out / models, + Failed/Cancelled badge),
+an INPUT block (what the agent received — env_context.input, scrollable,
+capped server-side) above the loop timeline, and an OUTPUT block
+(final_output) below it. Chips render only when their datum exists so
+legacy rows degrade to the old view. Collapsed card got line-clamp-2 on
+the summary + hover shadow. Backend counterpart:
+[[agents/chat_history.py]] `_build_event_meta` (bug "Agent 内心活动显示
+优化"). i18n: `chat.inner.meta.*` in all 10 locales.
 
 ## 2026-07-03 — per-source colour + name (scannable), icons dropped
 

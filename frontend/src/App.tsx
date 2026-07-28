@@ -11,6 +11,7 @@ import { useConfigStore, useRuntimeStore } from '@/stores';
 import { getInboundEntry, exchangeInboundToken } from '@/lib/netmindAuth/tokenInbound';
 import { runArenaLandingIfNeeded } from '@/lib/arenaLanding';
 import { useUpdaterStore } from '@/stores/updaterStore';
+import { usePowerStore } from '@/stores/powerStore';
 import { api } from '@/lib/api';
 import { isForcedCloud } from '@/lib/runtimeConfig';
 import { MockBanner } from '@/components/ui/MockBanner';
@@ -173,11 +174,11 @@ function RootRedirect() {
     return <PageFallback />;
   }
   // Only local installs walk the user through provider setup on first
-  // login. The cloud website (cloud-web) starts every account on the
-  // system free-tier quota (SystemProviderService), so a fresh cloud user
-  // can chat immediately — the provider screen confused users who had no
-  // key to enter. They can still add their own provider later from
-  // Settings; the onboarding checklist + quota panel surface that path.
+  // login. On cloud, first login provisions a free-tier provider card
+  // (a $10 gateway wallet), so a fresh account can chat immediately — the
+  // provider screen confused users who had no key to enter. They can still
+  // add their own provider later from Settings; the onboarding checklist +
+  // balance panel surface that path.
   if (needsSetup && mode === 'local') {
     return <Navigate to="/setup" replace />;
   }
@@ -192,6 +193,13 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', effectiveTheme === 'dark');
   }, [effectiveTheme]);
+
+  // Locked Use: re-assert a persisted prevent-sleep state on startup — the
+  // previous process's OS assertion (caffeinate child) died with it.
+  // No-op on web and when the toggle is off (see stores/powerStore).
+  useEffect(() => {
+    void usePowerStore.getState().applyOnStartup();
+  }, []);
 
   // Deep-link handler: route narranexus:// URLs from the website (or any
   // app firing `open narranexus://...`) into the in-app install flow.

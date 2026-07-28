@@ -39,8 +39,8 @@ from xyz_agent_context.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
 )
-from xyz_agent_context.services.power_account import is_power_account
-from xyz_agent_context.services.netmind_billing_client import (
+from backend.integrations.netmind.power_account import is_power_account
+from backend.integrations.netmind.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
     BillingForbiddenError,

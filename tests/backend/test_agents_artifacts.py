@@ -59,10 +59,10 @@ async def setup(db_client, monkeypatch, tmp_path):
     monkeypatch.setattr(sa_settings, "transcription_hmac_secret", "test-secret", raising=False)
     monkeypatch.setattr(sa_settings, "admin_secret_key", "test-admin", raising=False)
 
-    from backend.routes.agents_artifacts import router as agents_router
-    import backend.routes.agents_artifacts as agents_mod
-    from backend.routes.artifacts_public import router as public_router
-    import backend.routes.artifacts_public as public_mod
+    from backend.routes.agents.artifacts import router as agents_router
+    import backend.routes.agents.artifacts as agents_mod
+    from backend.routes.artifacts.public import router as public_router
+    import backend.routes.artifacts.public as public_mod
 
     monkeypatch.setattr(agents_mod, "get_db_client", lambda: _async_return(db_client))
     monkeypatch.setattr(public_mod, "get_db_client", lambda: _async_return(db_client))
@@ -373,11 +373,11 @@ def test_non_owner_jwt_returns_403(monkeypatch, tmp_path):
     from xyz_agent_context.settings import settings as sa_settings
     monkeypatch.setattr(sa_settings, "base_working_path", str(base), raising=False)
 
-    from backend.routes.agents_artifacts import router as agents_router
-    import backend.routes.agents_artifacts as agents_mod
-    from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from backend.routes.agents.artifacts import router as agents_router
+    import backend.routes.agents.artifacts as agents_mod
+    from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     async def _make_db():
         backend = SQLiteBackend(":memory:")

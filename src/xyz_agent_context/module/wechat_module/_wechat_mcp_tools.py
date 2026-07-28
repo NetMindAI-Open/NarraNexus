@@ -11,7 +11,7 @@ Tools exposed:
 
 Mirrors ``telegram_module/_telegram_mcp_tools.py``. Unlike Telegram there is no
 ``wechat_bind`` tool — binding is a QR-scan flow driven by the Brain-panel UI +
-``backend/routes/wechat.py``, not something the agent does. The trigger gives
+``backend/routes/channels/wechat.py``, not something the agent does. The trigger gives
 the agent the inbound ``to_user_id`` + ``context_token`` in the prompt; the
 agent calls ``wechat_send`` to reply (the trigger's ``extract_output`` scrapes
 this call for the inbox record).

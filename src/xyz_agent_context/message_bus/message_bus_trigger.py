@@ -28,7 +28,7 @@ from typing import Dict, List, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     MAX_REDACTED_ERROR_LEN,
     is_credential_error,
     redact_secrets,
@@ -90,7 +90,7 @@ POISON_FAILURE_THRESHOLD = 3
 FAILURE_NOTIFY_COOLDOWN_SECONDS = 1800  # 30 minutes
 
 # Credential-error classification and secret redaction moved to the shared
-# ``agent_framework.llm_failure`` module so every background LLM path (bus,
+# ``agent_framework.llm.failure`` module so every background LLM path (bus,
 # narrative updater, Step-5 hooks) asks the same questions the same way.
 # ``_classify_error`` / ``_redact_error_for_owner`` below delegate to it.
 MAX_NOTIFIED_ERROR_LEN = MAX_REDACTED_ERROR_LEN
@@ -303,7 +303,7 @@ class MessageBusTrigger:
         # burst on resume. That's intended — dropping/ack'ing messages for a
         # temporarily-broken agent would be silent data loss; the backlog
         # converges once the owner reconfigures and the breaker re-arms.
-        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
         cb_skip, cb_reason = await should_skip(agent_id)
         if cb_skip:
             logger.debug(
@@ -374,7 +374,7 @@ class MessageBusTrigger:
     async def _get_agent_owner(self, agent_id: str) -> str:
         """Look up the owner user_id for an agent. Returns "" if unknown."""
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             db = await get_db_client()
             row = await db.get_one("agents", {"agent_id": agent_id})
             return (row or {}).get("created_by", "") or ""
@@ -428,7 +428,7 @@ class MessageBusTrigger:
                 # user_id stays as the send_message_to_user_directly routing key).
                 owner_name = ""
                 if owner_user_id:
-                    from xyz_agent_context.utils.db_factory import get_db_client
+                    from xyz_agent_context.utils.db.db_factory import get_db_client
                     from xyz_agent_context.repository import UserRepository
                     owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
@@ -448,7 +448,7 @@ class MessageBusTrigger:
             activity_db = None
             on_progress = None
             if is_team:
-                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.utils.db.db_factory import get_db_client
                 from xyz_agent_context.message_bus import _bus_activity
                 activity_db = await get_db_client()
                 await _bus_activity.mark_running(activity_db, agent_id, channel_id)
@@ -624,7 +624,7 @@ class MessageBusTrigger:
                 InboxMessageType,
                 MessageSource,
             )
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             if category == "provider_credential":
                 hint = (
@@ -1011,7 +1011,7 @@ class MessageBusTrigger:
                 InboxMessageType,
                 MessageSource,
             )
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
             agent_row = await db.get_one("agents", {"agent_id": agent_id})
@@ -1047,22 +1047,18 @@ async def _get_bus() -> LocalMessageBus:
     Works with both SQLite (local) and MySQL (cloud) backends — LocalMessageBus
     is a misnomer; it's a database-backed bus that runs against any backend.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
 
     db = await get_db_client()
     backend = db._backend
 
     # Ensure all tables exist (schema_registry covers all 26 tables including bus)
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     await auto_migrate(backend)
 
     # Initialise the system-default quota subsystem so bus-triggered
     # agent turns can fall back to the free-tier config when the owner
     # hasn't configured their own provider.
-    from xyz_agent_context.agent_framework.quota_service import (
-        bootstrap_quota_subsystem,
-    )
-    await bootstrap_quota_subsystem(db)
 
     return LocalMessageBus(backend=backend)
 

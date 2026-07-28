@@ -11,7 +11,7 @@ fallback returns the FIRST balanced object so structured helper calls still work
 """
 import pytest
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import (
+from xyz_agent_context.agent_framework.adapters.openai_agents import (
     _extract_json_from_llm_output as extract,
 )
 

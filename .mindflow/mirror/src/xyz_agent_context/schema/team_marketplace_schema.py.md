@@ -15,4 +15,3 @@ self-host blobs (S3/local, separate from skills) instead of pointing at
 narra.nexus. `agent_count` is a UI badge only — a "team template" is just a
 multi-agent bundle (team_id set); single-agent bundles use the identical
 format. Timestamps are Optional[datetime] (SQLite returns datetime objects).
-Spec: reference/self_notebook/specs/2026-07-21-team-marketplace-tech-design.md

@@ -46,7 +46,7 @@ fact from the incident; not code-derivable). The user-facing copy says so.
 
 ## How a balance/quota-insufficient failure is handled
 
-Detection is provider-agnostic via `llm_failure.classify_self_serviceable`
+Detection is provider-agnostic via `llm.failure.classify_self_serviceable`
 (#110): `insufficient balance / insufficient_quota / insufficient funds /
 insufficient credit / not enough balance / exceeded your current quota /
 402 payment` (also context-window and model-not-found). A bare `429` / rate-limit

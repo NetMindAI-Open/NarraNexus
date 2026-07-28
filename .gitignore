@@ -16,6 +16,15 @@
 # ── Reference & internal docs ─────────────────────────────────────────────
 /reference/
 /deploy/synapse/
+# Personal work-in-progress notes stay local. The repo keeps NO
+# development records (worklogs, specs, drafts) — the Tier-2 mirror
+# system is the canonical carrier of design intent. Draft/worklog/spec
+# markdown belongs in reference/self_notebook/ (local-only).
+/drafts/
+/production_plan/
+# Live-stack e2e workflows are an operator-local toolkit, not shipped.
+/real_case_e2e_test/
+/.mindflow/mirror/real_case_e2e_test/
 # NOTE: AGENTS.md used to be ignored as an internal scratch file
 # (under its old single-form name AGENT.md). It is now a tracked,
 # vendor-neutral pointer that redirects AI editors to CLAUDE.md per
@@ -144,8 +153,6 @@ scripts/.control.sh
 
 # Local-only scratch / test-run state — never committed.
 .tmp/
-/real_case_e2e_test/reports/
-/real_case_e2e_test/state/
 DESIGN-unified-memory-search.md
 TODO-unified-memory-overhaul.md
 

@@ -113,7 +113,7 @@ async def _ensure_user_chat_instance(
     Returns:
         str: ChatModule instance ID
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.utils import utc_now
     from xyz_agent_context.repository import InstanceRepository, InstanceNarrativeLinkRepository
     from xyz_agent_context.schema.instance_schema import ModuleInstanceRecord, InstanceStatus, LinkType

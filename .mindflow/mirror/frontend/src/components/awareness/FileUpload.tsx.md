@@ -37,8 +37,6 @@ Tree's inner `<ScrollArea>` now uses `type="auto"` (always-visible scrollbar whe
 
 ## 2026-05-14 — workspace tree viewer + manual register
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The flat file list became a **collapsible directory tree** (the backend
 already filters dotfolders, so the UI doesn't need to). Per-file actions:
 

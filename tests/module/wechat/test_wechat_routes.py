@@ -5,7 +5,7 @@ the backend then fetched verbatim. The fix drops the field entirely — the host
 is the fixed iLink default (or the baseurl the gateway returns at confirm time),
 never a value the caller injects.
 """
-from backend.routes.wechat import QrPollRequest
+from backend.routes.channels.wechat import QrPollRequest
 
 
 def test_poll_request_has_no_base_url_field():

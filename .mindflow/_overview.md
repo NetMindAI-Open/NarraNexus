@@ -56,4 +56,3 @@ make dev-poller       # ModulePoller 后台服务
 ## 相关
 
 - 方法论全本：[`./README.md`](./README.md)
-- 系统设计 spec：`/reference/self_notebook/specs/2026-04-09-nac-doc-system-design.md`

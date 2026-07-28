@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { MoreVertical, Pencil, Trash2, Globe, Lock, Eraser } from 'lucide-react';
+import { MoreVertical, Pencil, SquarePen, Trash2, Globe, Lock, Eraser } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface AgentRowMenuProps {
@@ -20,6 +20,7 @@ export interface AgentRowMenuProps {
   isPublic: boolean;
   showPublicToggle: boolean;
   onStartEdit: (e: React.MouseEvent) => void;
+  onEditAgent: (e: React.MouseEvent) => void;
   onClearData: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   onTogglePublic: (e: React.MouseEvent) => void;
@@ -44,6 +45,7 @@ export function AgentRowMenu({
   isPublic,
   showPublicToggle,
   onStartEdit,
+  onEditAgent,
   onClearData,
   onDelete,
   onTogglePublic,
@@ -98,11 +100,20 @@ export function AgentRowMenu({
               'bg-[var(--nm-paper)] border-[var(--nm-hairline)]',
             )}
           >
-            {/* Rename — available to everyone */}
+            {/* Rename — quick inline name edit, available to everyone */}
             <MenuItem
               icon={<Pencil className="w-3 h-3" />}
               label={t('layout.agentRowMenu.rename')}
               onClick={handleItem(onStartEdit)}
+            />
+
+            {/* Edit — full name + description editor (the only UI for the
+                description field). Available to everyone; backend enforces
+                ownership on the save. */}
+            <MenuItem
+              icon={<SquarePen className="w-3 h-3" />}
+              label={t('layout.agentRowMenu.edit')}
+              onClick={handleItem(onEditAgent)}
             />
 
             {/* Owner-only: public/private toggle */}

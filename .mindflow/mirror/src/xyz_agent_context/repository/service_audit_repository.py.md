@@ -25,5 +25,5 @@ stub: false
   具体 client 类只会增加加载顺序耦合，没有收益。
 - 事件词汇（started/stopped/heartbeat/error）在本文件定义为模块常量，被
   `services/service_audit.py` 复用，两边保持同步。
-- 表定义 + 索引在 `utils/schema_registry.py`（`service_audit`），由 auto_migrate 进程
+- 表定义 + 索引在 `utils/db/schema_registry.py`（`service_audit`），由 auto_migrate 进程
   启动时幂等创建——禁止手写 DDL。

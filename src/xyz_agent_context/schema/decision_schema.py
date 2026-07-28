@@ -198,6 +198,18 @@ class PathExecutionResult(BaseModel):
         default=0.0,
         description="SDK-calculated cost in USD (Claude Agent SDK provides this directly)"
     )
+    cache_read_tokens: int = Field(
+        default=0,
+        description="Prompt-cache read tokens summed across all Agent Loop turns"
+    )
+    cache_creation_tokens: int = Field(
+        default=0,
+        description="Prompt-cache write tokens summed across all Agent Loop turns"
+    )
+    num_turns: Optional[int] = Field(
+        default=None,
+        description="Model calls the framework made during this run (None = not reported)"
+    )
 
     # ========== Context Data ==========
     # Context data (for Hook)

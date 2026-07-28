@@ -24,7 +24,7 @@ from .crud import NarrativeCRUD
 
 if TYPE_CHECKING:
     from xyz_agent_context.schema.module_schema import ModuleInstance, InstanceStatus
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 class InstanceHandler:
@@ -60,7 +60,7 @@ class InstanceHandler:
     async def _get_db_client(self) -> "AsyncDatabaseClient":
         """Get the database client"""
         if self._db_client is None:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             self._db_client = await get_db_client()
         return self._db_client
 

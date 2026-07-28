@@ -13,7 +13,7 @@ Under the pointer model an artifact row can outlive its on-disk entry file
 mid-flight). The raw route answers 410 for such rows; the frontend
 ([[useArtifactHeal.ts]]) calls heal to reconnect the pointer.
 
-Extracted 2026-07-21 from the `agents_artifacts.py` route handler (where the
+Extracted 2026-07-21 from the `agents/artifacts.py` route handler (where the
 whole strategy lived inline) so it is plain, testable service logic
 (`tests/artifact/test_heal.py` covers every branch) instead of HTTP-handler
 body.

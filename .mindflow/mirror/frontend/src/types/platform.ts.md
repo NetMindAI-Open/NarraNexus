@@ -23,7 +23,7 @@ Pure type declarations, no logic. Consumed by [[platform.ts]] (the bridge),
 - **`WorkerState` / `WorkerLiveness` / `WorkerStatus`** (added 2026-07-22) — the
   per-worker liveness of the consolidated `workers` supervisor
   ([[run_worker_supervisor.py]]), sourced from `GET /api/admin/runtime/workers`
-  ([[admin_runtime.py]]). `restartCount` is cumulative (a climbing count is the
+  ([[admin/runtime.py]]). `restartCount` is cumulative (a climbing count is the
   "flapping" signal); `heartbeatAgeSeconds` lets the UI detect a stale snapshot
   (dead supervisor → frozen row still returns available:true). Rendered by
   [[ServiceCard.tsx]].

@@ -25,7 +25,7 @@ Job 是一种带触发条件的任务（单次、定时、持续），由 `Modul
 - **被谁用**：`backend/main.py` — `include_router(jobs_router, prefix="/api/jobs")`；前端 Jobs 面板
 - **依赖谁**：
   - `JobRepository` — Job 的基础查询和状态更新
-  - `xyz_agent_context.utils.db_factory.get_db_client` — 直接查询 `instance_jobs` 和 `module_instances` 表
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `instance_jobs` 和 `module_instances` 表
   - `xyz_agent_context.module.job_module.job_service.JobInstanceService` — 创建 Job Complex 时同时创建 ModuleInstance 和 Job 记录
 
 ## 设计决策

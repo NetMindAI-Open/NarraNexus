@@ -4,7 +4,7 @@
 <dict>
     <!--
       Entitlements for Developer ID signing + notarization.
-      Applied by scripts/build-desktop.sh step 7 to both the main .app and
+      Applied by scripts/release/build-desktop.sh step 7 to both the main .app and
       every inner Mach-O (bundled Python, bundled Node, bundled dylibs).
 
       Audit rule: every key here MUST carry a one-paragraph rationale. If

@@ -23,9 +23,9 @@ The failure class therefore MOVED again, and this guard moved with it:
      reproducing the old silent-drop outage one layer up.
   2. The worker supervisor entrypoint MUST appear in every startup path:
        - ``run.sh``                        (bash local / container)
-       - ``scripts/dev-local.sh``          (tmux dev mode)
-       - ``scripts/.dev-local-safe.sh``    (tmux safe variant)
-       - ``scripts/deploy-cloud.sh``       (systemd cloud VM)
+       - ``scripts/dev/dev-local.sh``          (tmux dev mode)
+       - ``scripts/dev/.dev-local-safe.sh``    (tmux safe variant)
+       - ``scripts/release/deploy-cloud.sh``       (systemd cloud VM)
        - ``tauri/src-tauri/src/state.rs``  (desktop dmg — BOTH factories)
   3. The worker supervisor MUST launch the channel core
      (``start_channel_triggers``), or channels silently never run.
@@ -46,9 +46,9 @@ WORKER_SUPERVISOR_FILE = MODULE_DIR / "run_worker_supervisor.py"
 
 STARTUP_FILES = {
     "run.sh": REPO_ROOT / "run.sh",
-    "scripts/dev-local.sh": REPO_ROOT / "scripts" / "dev-local.sh",
-    "scripts/.dev-local-safe.sh": REPO_ROOT / "scripts" / ".dev-local-safe.sh",
-    "scripts/deploy-cloud.sh": REPO_ROOT / "scripts" / "deploy-cloud.sh",
+    "scripts/dev/dev-local.sh": REPO_ROOT / "scripts" / "dev" / "dev-local.sh",
+    "scripts/dev/.dev-local-safe.sh": REPO_ROOT / "scripts" / "dev" / ".dev-local-safe.sh",
+    "scripts/release/deploy-cloud.sh": REPO_ROOT / "scripts" / "release" / "deploy-cloud.sh",
     "tauri/src-tauri/src/state.rs": REPO_ROOT / "tauri" / "src-tauri" / "src" / "state.rs",
 }
 

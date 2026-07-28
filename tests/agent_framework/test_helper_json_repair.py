@@ -34,8 +34,8 @@ from xyz_agent_context.agent_framework.api_config import (
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.anthropic_helper_sdk import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.cli_helper_sdk import CliHelperSDK
+from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
+from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
 from xyz_agent_context.settings import settings
 
 

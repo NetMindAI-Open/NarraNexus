@@ -254,6 +254,13 @@ Non-social things mentioned alongside a person should become **keywords** on tha
 - "agent" — AI agent
 - "group" — team/squad that acts as a collective unit
 
+**Confidence:**
+- Set `confidence` (0-1) to how sure you are this is a real, individually
+  identifiable social entity worth remembering.
+- Use LOW confidence (< 0.5) when the "entity" might actually be a concept,
+  role, product, or an artifact of the conversation — such entries are
+  discarded rather than added to the social graph.
+
 Examples:
 - "My colleague Bob is a frontend expert at Google" → Bob (user, keywords=["frontend", "google"], familiarity="known_of")
 - "alpha4 (@agent_5a22e015f115:localhost) joined the Bitcoin Forum" → alpha4 (agent, aliases=["@agent_5a22e015f115:localhost"], keywords=["bitcoin_forum"], familiarity="known_of")

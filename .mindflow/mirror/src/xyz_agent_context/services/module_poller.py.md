@@ -33,7 +33,7 @@ Job 是异步执行的——一个 Job 可能跑几分钟到几小时，完成�
 - `repository/InstanceRepository` 查询状态变化的 Instance
 - `repository/InstanceNarrativeLinkRepository` 查找 Instance 对应的 Narrative
 - `narrative.InstanceHandler.handle_completion()` 处理依赖激活逻辑（InstanceHandler 直接从 `narrative` 包顶层导入，而非通过 NarrativeService，是有意绕过 Service 层的快捷路径）
-- 启动时调用 `utils/schema_registry.auto_migrate()` 确保所有表结构是最新的
+- 启动时调用 `utils/db/schema_registry.auto_migrate()` 确保所有表结构是最新的
 
 ## 设计决策
 

@@ -22,10 +22,10 @@ from xyz_agent_context.agent_framework.api_config import (
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.anthropic_helper_sdk import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.cli_helper_sdk import CliHelperSDK
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
+from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
 
 def _run_isolated(fn):
@@ -108,7 +108,7 @@ def test_resolve_model_slot_wins_over_percall():
 # ---------------------------------------------------------------------------
 
 def _card(**kw):
-    from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
     base = dict(
         provider_id="p1", user_id="u1", name="n", source="claude_oauth",
         protocol="anthropic", auth_type="oauth", api_key="", base_url="",
@@ -119,7 +119,7 @@ def _card(**kw):
 
 
 def test_claude_oauth_driver_builds_cli_helper():
-    from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     cfg = ClaudeOAuthDriver(_card()).build_cli_helper_config("haiku")
@@ -131,7 +131,7 @@ def test_claude_oauth_driver_builds_cli_helper():
 
 
 def test_codex_oauth_driver_builds_cli_helper():
-    from xyz_agent_context.agent_framework.provider_driver.drivers.codex_oauth import (
+    from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
         CodexOAuthDriver,
     )
     card = _card(source="codex_oauth", protocol="openai", driver_type="codex_oauth")
@@ -145,7 +145,7 @@ def test_codex_oauth_driver_builds_cli_helper():
 # ---------------------------------------------------------------------------
 
 def test_resolver_routes_oauth_helper_to_cli():
-    from xyz_agent_context.agent_framework.provider_driver.resolver import (
+    from xyz_agent_context.agent_framework.providers.driver.resolver import (
         _resolve_slot_target,
     )
     method, key = _resolve_slot_target("helper_llm", "claude_code", _card())
@@ -154,7 +154,7 @@ def test_resolver_routes_oauth_helper_to_cli():
 
 
 def test_resolver_apikey_helper_still_openai():
-    from xyz_agent_context.agent_framework.provider_driver.resolver import (
+    from xyz_agent_context.agent_framework.providers.driver.resolver import (
         _resolve_slot_target,
     )
     card = _card(source="user", protocol="openai", auth_type="api_key", api_key="sk-x")
@@ -306,7 +306,7 @@ async def test_codex_oneshot_passes_instructions_as_system_message(monkeypatch):
 async def test_codex_oneshot_raises_classifiable_error_on_response_error(monkeypatch):
     """A terminal response.error (e.g. expired OAuth token) must raise an error
     that is_credential_error can classify — not silently return empty text."""
-    from xyz_agent_context.agent_framework.llm_failure import is_credential_error
+    from xyz_agent_context.agent_framework.llm.failure import is_credential_error
 
     captured = {}
     events = [{
@@ -337,7 +337,7 @@ async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
         CodexConfig,
         codex_config,
     )
-    from xyz_agent_context.agent_framework.provider_driver.derive import (
+    from xyz_agent_context.agent_framework.providers.driver.derive import (
         CODEX_CLI_CREDENTIALS_REF,
     )
     import xyz_agent_context.agent_framework as af
@@ -371,7 +371,7 @@ async def test_codex_oneshot_installs_helper_model_and_creds(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
-    from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     missing = tmp_path / "nope" / ".credentials.json"
@@ -389,7 +389,7 @@ async def test_probe_ok_via_keychain_when_file_missing(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_probe_fails_when_neither_file_nor_keychain(monkeypatch, tmp_path):
-    from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+    from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
         ClaudeOAuthDriver,
     )
     missing = tmp_path / "nope" / ".credentials.json"

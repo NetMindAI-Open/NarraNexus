@@ -83,4 +83,8 @@ class ContextRuntimeOutput(BaseModel):
     # Module-internal servers carry only "url"; user-configured external
     # servers may add "headers" (e.g. Authorization) applied on connect.
     mcp_servers: Dict[str, Dict[str, Any]]
+    # Fully-qualified tool names (mcp__<server>__<tool>) whose schemas must
+    # not reach the model this turn (setup-residency: unbound channels keep
+    # only their bind tool). Merged into the CLI's disallowed_tools.
+    disallowed_tools: List[str] = []
     ctx_data: ContextData  # ContextData (contains all collected data)

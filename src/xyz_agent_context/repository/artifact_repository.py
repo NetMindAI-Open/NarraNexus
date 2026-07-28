@@ -23,15 +23,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from .base import BaseRepository
+from .base import BaseRepository, parse_dt
 from xyz_agent_context.schema.artifact_schema import Artifact
 
 
-def _parse_dt(v: Any) -> datetime:
-    """Parse a datetime value from either a datetime object or an ISO string."""
-    if isinstance(v, datetime):
-        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
 
 
 def _parse_bool(v: Any) -> bool:
@@ -271,8 +266,8 @@ class ArtifactRepository(BaseRepository[Artifact]):
             pinned=_parse_bool(row.get("pinned", 0)),
             file_path=row.get("file_path") or "",
             size_bytes=int(row.get("size_bytes") or 0),
-            created_at=_parse_dt(row["created_at"]),
-            updated_at=_parse_dt(row["updated_at"]),
+            created_at=parse_dt(row["created_at"]),
+            updated_at=parse_dt(row["updated_at"]),
         )
 
     def _entity_to_row(self, entity: Artifact) -> Dict[str, Any]:

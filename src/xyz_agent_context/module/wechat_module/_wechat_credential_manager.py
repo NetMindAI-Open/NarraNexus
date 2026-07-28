@@ -22,7 +22,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.utils.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 def _encode_token(raw: str) -> str:

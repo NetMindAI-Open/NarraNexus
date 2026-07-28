@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/bundle/importer.py
-last_verified: 2026-07-13
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 导入修剪超长 agent_name / agent_description(#71)
+
+confirm 写 `agents` 行前,用 `_clamp_agent_text` 把 name/description 截到
+`AGENT_TEXT_MAX_LENGTH`。**顺序关键:先 dedupe 再截 `final_name`**——`dedupe_name`
+撞名时追加 ` (n)` 后缀且没有长度预算,若先截到 255 再 dedupe,`"…255… (1)"` 会
+变成 259 又越界(review #1)。所以对 dedupe 结果再 clamp 一次,`final_name` 才是
+真正入库的值;`agent_name` 无 UNIQUE 约束,截后偶发同名无害(等同手动建同名)。
+根因:raw `db.insert` 绕过 Agent 模型的 max_length,超长值入库后每次编辑/删除
+反序列化都炸 string_too_long(insertable-but-unreadable)。被截的 agent 记进
+`written_summary["agent_fields_trimmed"]`(`[{agent_name, fields}]`)并各加一条
+`warnings`——修剪只发生在 `confirm`(_confirm_inner 写库阶段),`preflight` 不改
+数据,所以是 **confirm 返回的 summary** 里能看到哪些 agent 被截(前端 done 屏
+现在也列出 warnings 正文,见 [[BundleImportPage.tsx]])。
+测试:tests/bundle/test_agent_field_length.py(含重复导入的后缀越界回归)。
 
 ## 2026-07-13 — skill install to the known skill_dir
 
@@ -100,7 +115,7 @@ Social-network import reconstructs `SocialNetworkEntity` objects and writes them
 - **依赖谁**：
   - `bundle/security.py` — `extract_zip_safely`、size limits
   - `bundle/id_field_map.py` / `id_schema.py` — ID rewrite 5 层防御 Layer 2 + Layer 1
-  - `utils/db_factory.get_db_client` — 写库
+  - `utils/db/db_factory.get_db_client` — 写库
   - `bundle_preflight_sessions` 表 — token 持久化（B5 修复）
 
 ## 设计决策

@@ -6,7 +6,6 @@
 bodies, stripping the per-turn Owner-Relay boilerplate + Time metadata that
 made bus the only real 400 source in prod.
 
-Design: reference/self_notebook/specs/2026-06-01-embedding-anchor-redesign-design.md
 """
 from __future__ import annotations
 

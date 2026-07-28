@@ -15,7 +15,7 @@ from xyz_agent_context.agent_runtime.response_processor import (
     ResponseProcessor,
     ResponseType,
 )
-from xyz_agent_context.agent_framework.output_transfer import output_transfer
+from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
 
 
 def _t(event: dict) -> list[dict]:

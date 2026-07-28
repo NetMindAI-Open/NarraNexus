@@ -58,7 +58,7 @@ from typing import Any, List, Optional
 from loguru import logger
 
 from xyz_agent_context.repository import InstanceRepository
-from xyz_agent_context.utils.schema_registry import MEMORY_KINDS
+from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
 from .exporters import NarrativeMarkdownManager, TrajectoryRecorder
 from .session_service import SessionService
 

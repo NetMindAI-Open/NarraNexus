@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
 
 
 class _MemoryDB:

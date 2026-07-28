@@ -5,7 +5,7 @@ last_verified: 2026-07-10
 
 ## 2026-07-10 — hook 填入真实 LLM 身份（framework + model）
 
-`hook_data_gathering` 新增一段：调 [[agent_model_identity.py]]
+`hook_data_gathering` 新增一段：调 [[providers/model_identity.py]]
 `resolve_agent_model_identity(self.agent_id, self.db)`，把
 `ctx_data.agent_info_model_type`（framework 展示名，如 "Codex CLI"）+
 `ctx_data.model_name`（真实 model，如 "gpt-5"）填上，供 [[prompts.py]] 的

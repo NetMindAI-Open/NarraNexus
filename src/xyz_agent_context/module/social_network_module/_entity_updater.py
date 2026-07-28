@@ -24,12 +24,13 @@ the semantic-search chain (Owner spec). Mentioned-entity dedup now
 relies on Stage 1 (name/alias exact match) + LLM disambiguation only.
 """
 
+import re
 from typing import List, Optional
 
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity
 from xyz_agent_context.module.social_network_module.prompts import (
     ENTITY_SUMMARY_INSTRUCTIONS,
@@ -68,6 +69,14 @@ class ExtractedEntity(BaseModel):
     keywords: List[str] = Field(default_factory=list, description="0-3 contextual keywords (topics, domains, platforms associated with this person)")
     aliases: List[str] = Field(default_factory=list, description="System IDs and alternate names (e.g. Lark open_ids, platform agent IDs)")
     familiarity: str = Field(default="known_of", description="direct (participating in conversation) | known_of (only referenced)")
+    confidence: float = Field(
+        default=1.0,
+        description=(
+            "0-1: how confident you are that this is a REAL, individually "
+            "identifiable social entity (not a concept, role, or artifact of "
+            "the conversation). Below 0.5 the entity is discarded."
+        ),
+    )
 
 
 class BatchExtractionOutput(BaseModel):
@@ -83,6 +92,68 @@ class DedupDecision(BaseModel):
     decision: str = Field(description="MERGE or CREATE_NEW")
     merge_target_index: Optional[int] = Field(default=None, description="Index of the existing entity to merge with (0-based). Required if decision is MERGE.")
     reason: str = Field(default="", description="One-line explanation for the decision")
+
+
+# ── Meaningfulness Guard ────────────────────────────────────────────────────
+#
+# The extraction prompt already forbids concepts / roles / bare IDs, but weak
+# helper models leak them anyway and every leaked row becomes a permanent
+# junk node in the social graph (bug: "entity 图无意义条目"). This guard is
+# the deterministic backstop: cheap, model-independent, applied to every
+# extracted entity before it can be created or merged.
+
+# Names that are roles/categories, not individuals (lowercased for compare).
+_GENERIC_ENTITY_NAMES = {
+    # English
+    "user", "users", "the user", "assistant", "the assistant", "agent",
+    "the agent", "agents", "admin", "administrator", "bot", "the bot",
+    "system", "someone", "somebody", "anyone", "everyone", "everybody",
+    "people", "team", "the team", "group", "members", "colleagues",
+    "participants", "customer", "client", "owner", "creator", "my creator",
+    "human", "unknown", "n/a", "none", "null",
+    # Chinese
+    "用户", "助手", "客服", "管理员", "机器人", "某人", "有人", "大家",
+    "所有人", "团队", "群组", "成员", "同事", "客户", "创建者", "主人",
+}
+
+# Bare system/platform identifiers masquerading as names.
+_ID_LIKE_PATTERNS = (
+    re.compile(r"^(ou|oc|om|on|cli|usr|user|agent|bot|app|team|grp|art|evt|nar|sess)_[0-9a-z_-]+$", re.IGNORECASE),
+    re.compile(r"^[0-9]+$"),                      # pure digits
+    re.compile(r"^[0-9a-f]{12,}$", re.IGNORECASE),  # long hex blob
+    re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE),  # uuid
+)
+
+_MIN_CONFIDENCE = 0.5
+_MAX_NAME_LENGTH = 80
+
+
+def is_meaningful_entity(entity: ExtractedEntity) -> bool:
+    """
+    Deterministic backstop that keeps junk out of the social graph.
+
+    Rejects:
+    - generic role/category names ("user", "团队", ...) — not individuals
+    - bare system IDs, pure digits, uuid/hex blobs — IDs belong in aliases
+    - absurdly long names (garbage sentences from a confused model)
+    - entities the model itself marked low-confidence (< 0.5)
+
+    Args:
+        entity: One extracted entity from the LLM.
+
+    Returns:
+        True if the entity may enter the create/merge pipeline.
+    """
+    name = entity.name.strip()
+    if not name or len(name) > _MAX_NAME_LENGTH:
+        return False
+    if name.lower() in _GENERIC_ENTITY_NAMES:
+        return False
+    if any(p.match(name) for p in _ID_LIKE_PATTERNS):
+        return False
+    if entity.confidence < _MIN_CONFIDENCE:
+        return False
+    return True
 
 
 # ── Dedup Pipeline ──────────────────────────────────────────────────────────
@@ -241,12 +312,21 @@ Extract all OTHER social entities mentioned:"""
         if agent_id:
             exclude_lower.add(agent_id.lower())
 
-        # Filter out empty, primary entity, and self-references
-        filtered = [
-            e for e in output.entities
-            if e.name.strip()
-            and e.name.lower() not in exclude_lower
-        ]
+        # Filter out primary entity / self-references, then run every
+        # survivor through the deterministic meaningfulness guard so junk
+        # (generic roles, bare IDs, low-confidence guesses) never becomes
+        # a permanent node in the social graph.
+        filtered = []
+        for e in output.entities:
+            if not e.name.strip() or e.name.lower() in exclude_lower:
+                continue
+            if not is_meaningful_entity(e):
+                logger.info(
+                    f"[SocialExtraction] Dropped meaningless entity "
+                    f"'{e.name}' (confidence={e.confidence})"
+                )
+                continue
+            filtered.append(e)
 
         if filtered:
             logger.info(f"[SocialExtraction] After filtering: {len(filtered)} entities")

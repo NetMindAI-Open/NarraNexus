@@ -1,7 +1,13 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/prompts.py
-last_verified: 2026-04-10
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — extraction prompt: Confidence section
+
+`BATCH_ENTITY_EXTRACTION_INSTRUCTIONS` now asks for a 0-1 `confidence`
+per entity (low = might be a concept/role/artifact → discarded). Pairs
+with the deterministic guard in [[_entity_updater.py]].
 
 # prompts.py — SocialNetworkModule 提示词集合
 

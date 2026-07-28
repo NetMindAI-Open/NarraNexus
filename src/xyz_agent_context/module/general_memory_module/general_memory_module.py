@@ -24,7 +24,7 @@ from typing import List, Optional
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine, MemoryRecord, SCOPE_AGENT, get_spec, passive_kinds
 from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema.context_schema import ContextData

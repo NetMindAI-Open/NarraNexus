@@ -67,4 +67,3 @@ zone; labels uppercase mono ensures they read at small size.
 ## Related
 
 - `nm/bracket.tsx` BracketSectionLabel — sibling for sidebar section headers
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.7

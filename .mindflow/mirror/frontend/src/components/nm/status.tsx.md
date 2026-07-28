@@ -69,4 +69,3 @@ hairline-bordered; a ring-dot inside a ring-pill is too much hairline.
 ## Related
 
 - `nm/feedback.tsx` Spinner — sibling motion primitive
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.5

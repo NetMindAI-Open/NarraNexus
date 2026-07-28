@@ -14,7 +14,7 @@ from typing import Optional, List, Dict, Any
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.schema import ContextData, WorkingSource
 from xyz_agent_context.schema.module_schema import (
     HookCallbackResult,

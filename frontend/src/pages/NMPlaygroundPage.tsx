@@ -9,7 +9,6 @@
  * Mount at /app/nm-playground (or wherever the route table allows) and
  * walk through to verify NM tokens render correctly across every primitive.
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §7.1
  */
 
 import { useState, type ReactNode } from 'react';

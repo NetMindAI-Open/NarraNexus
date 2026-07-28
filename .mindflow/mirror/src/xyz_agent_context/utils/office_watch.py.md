@@ -9,7 +9,7 @@ stub: false
 ## 为什么存在
 
 承载"office 文档作为实时 artifact 预览"这个能力的**共享常量 + 纯逻辑**,让后端
-office-watch 路由(`backend/routes/office_watch_proxy.py`)和 executor 的 watch
+office-watch 路由(`backend/routes/office_watch/proxy.py`)和 executor 的 watch
 端点(`agent_runtime/executor_service.py`)引用同一份定义,避免漂移。
 
 背景:office 文件(pptx/docx/xlsx)浏览器无法原生渲染,但 `officecli watch` 能起一个

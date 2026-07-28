@@ -12,7 +12,7 @@ stub: false
 ## 上下游
 - **上游**：`AgentCard.tsx::OwnedCard` expanded 态渲染
 - **下游**：`lib/api.ts::getAgentSparkline(agentId, hours=24)` → 后端 `/api/dashboard/agents/{id}/sparkline`
-- **后端**：`backend/routes/dashboard.py::agent_sparkline` 端点 → `fetch_sparkline_24h` 做 GROUP BY hour
+- **后端**：`backend/routes/dashboard/routes.py::agent_sparkline` 端点 → `fetch_sparkline_24h` 做 GROUP BY hour
 
 ## 设计决策
 1. **懒加载**：不放在主 `/agents-status` 响应里——每个 agent 多 24 个数字会让主 polling 响应膨胀。单独 endpoint，卡片展开时才 fetch。

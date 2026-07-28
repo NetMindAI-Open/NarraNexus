@@ -5,7 +5,6 @@
 @description: Channel retrieval-anchor builder — strips the execution template
 down to "[From <name>] <this-turn body>" for narrative embedding.
 
-Design: reference/self_notebook/specs/2026-06-01-embedding-anchor-redesign-design.md
 The narrative query must embed a clean anchor (sender name + this-turn body),
 NOT the full 6-section execution prompt (history/profile/members/instructions),
 which diluted the retrieval vector in prod.

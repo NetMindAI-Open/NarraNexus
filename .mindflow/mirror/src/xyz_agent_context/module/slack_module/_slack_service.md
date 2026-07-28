@@ -36,7 +36,7 @@ Pattern lifted directly from ``lark_module/_lark_service.py``.
 ## Upstream / downstream
 
 - **Upstream**:
-  - ``backend/routes/slack.py`` — POST /bind and POST /test endpoints.
+  - ``backend/routes/channels/slack.py`` — POST /bind and POST /test endpoints.
   - ``_slack_mcp_tools.py`` — ``slack_bind`` and ``slack_status``
     tools.
 - **Downstream**:

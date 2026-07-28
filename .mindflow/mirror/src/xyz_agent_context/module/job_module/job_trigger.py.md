@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — no-quota 判定的第 1、3 层收缩
+
+`_NO_QUOTA_ERROR_TYPES` 只剩 `NoProviderConfiguredError` /
+`LLMConfigNotConfigured`；`_NO_QUOTA_ERROR_MARKERS` 只剩
+`"no provider configured"`。
+
+不是放松，是搬家：**免费额度花光已经没有专属的错误类型了**（钱包在网关上，
+网关在请求路径里拒绝），它经由第 2 层 `classify_self_serviceable` 的
+`insufficient_balance` 命中。第 1、3 层再留一份自己的措辞列表，就是两套分类
+规则各自漂移的开始。
 
 ## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
 
@@ -16,7 +27,7 @@ are retained.
 
 ## 2026-07-18 — _user_can_run docstring 随偏好删除微调（行为不变）
 
-免费额度偏好删除（[[provider_resolver]]）后 `_user_can_run` 的 docstring 更新
+免费额度偏好删除（[[resolver]]）后 `_user_can_run` 的 docstring 更新
 措辞——网关继续委托统一 classifier，行为零变化。注意下方 2026-06-01 条目是
 **历史事故记录**：其中 `prefer_system_override`（当年是用户偏好）与
 `FREE_TIER_EXHAUSTED`（判定已删）描述的是当时语义；现行判定里对应场景直接
@@ -24,7 +35,7 @@ are retained.
 
 ## 2026-07-16 — 后台 job 在"自助类"失败上暂停 + paused_reason 分流恢复
 
-`_is_no_quota_failure` 复用 `agent_framework.llm_failure.classify_self_serviceable`
+`_is_no_quota_failure` 复用 `agent_framework.llm.failure.classify_self_serviceable`
 (#110 检测器,leaf util,非跨模块依赖——铁律 #3):任何**确定性自助类**失败
 (余额/配额不足、上下文窗口过小、模型不存在)→ True → `PAUSED_NO_QUOTA`。
 
@@ -143,8 +154,7 @@ False (don't resume into an unknown state).
 platform never overrides the user's choice — it only stops resuming a job into a
 run the runtime is guaranteed to refuse.
 
-(Design: `reference/self_notebook/specs/2026-06-01-job-scheduler-resilience-design.md`,
-batch ①. Remaining batches — cooling/backoff, edge-triggered recovery, pause/resume
+(Job-scheduler resilience redesign batch ①, 2026-06-01. Remaining batches — cooling/backoff, edge-triggered recovery, pause/resume
 API + notifications + frontend — are not yet implemented.)
 
 ## 2026-05-22 — no-quota auto-pause + resume (#6 infinite-loop fix)

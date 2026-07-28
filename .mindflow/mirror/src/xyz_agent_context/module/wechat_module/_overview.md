@@ -51,7 +51,7 @@ login QR — there is no bot token to paste, and inbound delivery is
 
 Mirrors the Telegram/Lark/Slack channel layout: a Module + Trigger +
 ChannelSender(MCP tools) triad over the shared channel base classes.
-The bind REST surface lives in ``backend/routes/wechat.py``; the
+The bind REST surface lives in ``backend/routes/channels/wechat.py``; the
 frontend binding card is
 ``frontend/src/components/awareness/WeChatConfig.tsx`` (registered in
 ``IMChannelsSection``'s ``IM_CHANNELS``).

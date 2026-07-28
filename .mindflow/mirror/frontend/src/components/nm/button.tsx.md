@@ -83,4 +83,3 @@ clash with the primary primary button. A future refactor could add
 
 - `nm/feedback.tsx` Spinner — standalone version of the inline spinner
 - `nm/feedback-radix.tsx` Popover — typical SplitButton dropdown shell
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.8

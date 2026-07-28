@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context._skill_marketplace_impl.artifact_store import LocalArtifactStore
-from xyz_agent_context.repository._skill_marketplace_seed import (
+import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from xyz_agent_context.marketplace._skill_marketplace_seed import (
     _skills_root,
     seed_skill_marketplace,
 )
@@ -49,7 +49,7 @@ def seeded_env(db_client, tmp_path, monkeypatch):
 
     # RegistryService(db) uses get_artifact_store(); point it at a temp store.
     store = LocalArtifactStore(tmp_path / "skill_store")
-    import xyz_agent_context._skill_marketplace_impl.registry as reg
+    import xyz_agent_context.marketplace._skill_marketplace_impl.registry as reg
 
     monkeypatch.setattr(reg, "get_artifact_store", lambda: store)
     return {"store": store}

@@ -21,7 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes.billing as billing_mod
-from xyz_agent_context.services.netmind_billing_client import (
+from backend.integrations.netmind.netmind_billing_client import (
     BillingAuthError,
     BillingBusinessError,
     BillingForbiddenError,

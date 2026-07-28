@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/analytics/__init__.py
-last_verified: 2026-06-08
+last_verified: 2026-07-24
 stub: false
 ---
 
@@ -25,7 +25,7 @@ logic, or toggling the opt-out mechanism requires touching exactly one file.
   - `analytics/base.py` — `AnalyticsClient` Protocol (re-exported here)
   - `analytics/surface.py` — process-level `SURFACE` constant
   - `analytics/_impl/null_sink.py` — default / disabled path
-  - `analytics/_impl/posthog_sink.py` — lazy-imported only when enabled
+  - (vendor sinks are NOT imported here — see the injection seam below)
   - `repository/user_settings_repository.py` — opt-out DB lookup
   - `utils.get_db_client` — DB connection for opt-out check
 
@@ -82,3 +82,14 @@ explicitly — but they can override it if needed.
 - `shutdown_analytics()` must be awaited in the lifespan shutdown path
   (after `close_db_client`), not fire-and-forget. Skipping it silently drops
   all buffered PostHog events that haven't been flushed by the background thread.
+
+## 2026-07-24 — vendor sinks move behind an injection seam (B4)
+
+The kernel no longer imports any vendor SDK. `register_sink_factory()` is
+the new seam: the backend (`backend/analytics/`) registers a PostHog
+factory at startup; the kernel keeps the gating (enabled/cloud) and the
+NullSink fallback. Processes that never register (workers, MCP servers,
+tests) get NullSink — which is the only behavior they ever had, since no
+agent-side process calls track(). This completes the agent/platform
+placement rule for analytics: capture API + privacy in the kernel,
+vendor integration on the platform side.

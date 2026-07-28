@@ -140,9 +140,8 @@ makes the claim idempotent and race-safe (only the first writer wins).
 **Known residual risk (not yet addressed):** if anyone DMs the freshly
 bound account *before* the owner does, they claim owner and the module
 then surfaces owner-private context to them. The QR-bind flow makes this
-unlikely in practice, but it is a real impersonation window — tracked in
-``reference/self_notebook/todo/wechat-owner-claim-confirmation.md`` for a
-future confirm-token gate. Deliberately left as-is for now.
+unlikely in practice, but it is a real impersonation window — a future confirm-token gate is
+tracked (author-local todo). Deliberately left as-is for now.
 
 ## Upstream / downstream
 

@@ -80,7 +80,7 @@ different kind of thing) and already single-process via
 `ServiceAuditor("worker_supervisor")` emits started/stopped plus a heartbeat
 (emit-first, then every `_HEARTBEAT_INTERVAL`=30 s so the desktop System page's
 Workers card — which reads the latest row via `GET /api/admin/runtime/workers`,
-see [[admin_runtime.py]] — has data within a tick of boot and ≤30 s staleness)
+see [[admin/runtime.py]] — has data within a tick of boot and ≤30 s staleness)
 carrying a per-worker liveness snapshot
 (`{name: {state, restart_count, last_error}}`, `state ∈ starting/running/
 restarting/stopped`) to the `service_audit` table. This gives one-row-per-minute
@@ -91,7 +91,7 @@ L2 across all merged workers — and is `message_bus_trigger`'s FIRST L2 signal
 ## Upstream / downstream
 
 - **Upstream**: launched by run.sh (container + `exec dev-local.sh`),
-  scripts/dev-local.sh, scripts/.dev-local-safe.sh, scripts/deploy-cloud.sh, and
+  scripts/dev/dev-local.sh, scripts/dev/.dev-local-safe.sh, scripts/release/deploy-cloud.sh, and
   Tauri [[state.rs]] (both factories, service id `workers`, order 3). The
   startup-alignment guard `tests/channel/test_trigger_startup_alignment.py`
   enforces this wiring.
@@ -116,6 +116,6 @@ L2 across all merged workers — and is `message_bus_trigger`'s FIRST L2 signal
   via `MYSQL_POOL_SIZE` (default 10; see [[db_factory.py]]) — a supervisor
   deployment should set ≥25. Note: cloud compose still runs the 4 separate
   containers today, so the single-pool case only bites once compose switches to
-  the supervisor (tracked in `reference/self_notebook/todo/`).
+  the supervisor (author-local todo).
 - The individual workers keep their `if __name__ == "__main__"` blocks as
   standalone DEBUG entrypoints only — no launcher wires them anymore.

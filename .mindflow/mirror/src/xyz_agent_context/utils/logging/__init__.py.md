@@ -57,6 +57,4 @@ _intercept.py   # InterceptHandler + 噪音 logger 静音名单
 
 ## 参考
 
-- 设计：`reference/self_notebook/specs/2026-04-28-log-system-design.md`
-- 计划：`reference/self_notebook/plans/2026-04-28-log-system.md`
 - loguru 官方文档：https://loguru.readthedocs.io/en/stable/api/logger.html

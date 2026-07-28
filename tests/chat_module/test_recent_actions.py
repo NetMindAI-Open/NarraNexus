@@ -78,7 +78,7 @@ async def test_recent_actions_collects_activity_rows_only_latest_first(chat_modu
         side_effect=lambda module_name, inst_id: fake_memories.get(inst_id)
     )
     with patch(
-        "xyz_agent_context.utils.db_factory.get_db_client",
+        "xyz_agent_context.utils.db.db_factory.get_db_client",
         new=AsyncMock(return_value=MagicMock(get_by_ids=AsyncMock(return_value=[]))),
     ), patch(
         "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",
@@ -101,7 +101,7 @@ async def test_recent_actions_caps_at_max(chat_module):
         return_value={"messages": msgs}
     )
     with patch(
-        "xyz_agent_context.utils.db_factory.get_db_client",
+        "xyz_agent_context.utils.db.db_factory.get_db_client",
         new=AsyncMock(return_value=MagicMock(get_by_ids=AsyncMock(return_value=[]))),
     ), patch(
         "xyz_agent_context.repository.InstanceRepository.get_chat_instances_by_user",

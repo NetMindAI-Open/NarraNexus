@@ -24,13 +24,13 @@ from xyz_agent_context.agent_framework.api_config import (
     OpenAIConfig,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
-from xyz_agent_context.agent_framework.anthropic_helper_sdk import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
-from xyz_agent_context.agent_framework.provider_driver import (
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
+from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
+from xyz_agent_context.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
 )
-from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
 
 
 # =============================================================================
@@ -86,7 +86,7 @@ def _stub_key_probe(monkeypatch):
     """onboard_one_key live-probes the key via provider_registry.
     Stub it for every test in this file so nothing touches the network;
     individual tests override the stub to exercise failure outcomes."""
-    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+    from xyz_agent_context.agent_framework.providers.registry import provider_registry
 
     async def _ok(provider):
         return True, "Connected successfully"
@@ -505,7 +505,7 @@ async def test_onboard_explicit_type_overrides_prefix():
 async def test_onboard_rejects_invalid_key_before_writing(monkeypatch):
     """A definitively rejected key (401/403) must fail the onboard AND
     leave the config untouched — no provider row, no slots."""
-    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+    from xyz_agent_context.agent_framework.providers.registry import provider_registry
 
     async def _auth_fail(provider):
         return False, "Authentication failed (invalid API key)"
@@ -524,7 +524,7 @@ async def test_onboard_rejects_invalid_key_before_writing(monkeypatch):
 async def test_onboard_proceeds_unverified_on_transient_probe_failure(monkeypatch):
     """Network/5xx probe failures must NOT block a (possibly good) key —
     proceed and report key_check='unverified (...)'."""
-    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+    from xyz_agent_context.agent_framework.providers.registry import provider_registry
 
     async def _net_fail(provider):
         return False, "Connection failed: timeout"
@@ -640,7 +640,7 @@ async def test_resolver_threads_reasoning_params_into_claude():
 def test_codex_toml_maps_reasoning_effort():
     from pathlib import Path
     from xyz_agent_context.agent_framework.api_config import CodexConfig
-    from xyz_agent_context.agent_framework._codex_config_toml_builder import (
+    from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -656,7 +656,7 @@ def test_codex_toml_maps_reasoning_effort():
 def test_codex_toml_clamps_max_to_high():
     from pathlib import Path
     from xyz_agent_context.agent_framework.api_config import CodexConfig
-    from xyz_agent_context.agent_framework._codex_config_toml_builder import (
+    from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -672,7 +672,7 @@ def test_codex_toml_clamps_max_to_high():
 def test_codex_toml_auto_emits_no_effort_key():
     from pathlib import Path
     from xyz_agent_context.agent_framework.api_config import CodexConfig
-    from xyz_agent_context.agent_framework._codex_config_toml_builder import (
+    from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
         build_codex_config_toml,
     )
 
@@ -695,7 +695,7 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
     NOT be told 'auth missing, run codex login' — the API key IS the
     auth. Same for claude_code with an anthropic key."""
     from backend.routes.providers import _probe_agent_framework_auth
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
 
     db = _FakeDB()
     svc = UserProviderService(db)
@@ -722,7 +722,7 @@ async def test_framework_probe_passes_on_api_key_provider(monkeypatch):
 
 def test_build_dual_providers_netmind_default_is_prod():
     """No inference_base → the hardcoded prod bases (manual-paste path)."""
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {r["protocol"]: r for r in _build_dual_providers("netmind", "k", "g")}
@@ -732,7 +732,7 @@ def test_build_dual_providers_netmind_default_is_prod():
 
 def test_build_dual_providers_netmind_inference_base_override():
     """use-subscription passes a base → both rows point at that env (dev)."""
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {
@@ -747,7 +747,7 @@ def test_build_dual_providers_netmind_inference_base_override():
 
 
 def test_build_dual_providers_trailing_slash_normalized():
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {
@@ -762,7 +762,7 @@ def test_build_dual_providers_trailing_slash_normalized():
 
 def test_inference_base_override_only_applies_to_netmind():
     """A stray inference_base must NOT rewrite yunwu/openrouter bases."""
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         _build_dual_providers,
     )
     rows = {

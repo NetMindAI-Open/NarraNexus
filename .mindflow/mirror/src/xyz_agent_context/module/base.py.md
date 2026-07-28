@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-05-29
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — generic `get_disallowed_tools()` surface (setup-residency B++)
+
+New async `get_disallowed_tools()` on the base, default `[]`: a module may ask
+the runtime to strip fully-qualified MCP tools (`mcp__<server>__<tool>`) from
+the model context this turn. The generic layer stays scenario-free (rule #4) —
+this file only defines the surface; the unbound-channel gating lives in the
+channel base override ([[channel_module_base]]). Collected by
+[[context_runtime.py]] `build_input_for_framework`.
 
 ## 2026-05-29 — capability flags (decouple orchestration from class names)
 
@@ -35,7 +44,7 @@ summaries). Default for both is no-op.
 ## 上下游关系
 
 - **被谁用**：`ModuleLoader`（`_module_impl/loader.py`）通过 `MODULE_MAP` 按名实例化子类；`HookManager` 循环调用 `hook_data_gathering` / `hook_after_event_execution`；`ModuleRunner` 调用 `create_mcp_server()` 部署 MCP 进程
-- **依赖谁**：`DatabaseClient`（`utils/`）同步 wrapper；`AsyncDatabaseClient` 通过 `utils/db_factory.get_db_client()` 懒加载（MCP 进程专用）；`schema/` 中的 `ModuleConfig`、`MCPServerConfig`、`ContextData`、`HookAfterExecutionParams`
+- **依赖谁**：`DatabaseClient`（`utils/`）同步 wrapper；`AsyncDatabaseClient` 通过 `utils/db/db_factory.get_db_client()` 懒加载（MCP 进程专用）；`schema/` 中的 `ModuleConfig`、`MCPServerConfig`、`ContextData`、`HookAfterExecutionParams`
 
 ## 设计决策
 

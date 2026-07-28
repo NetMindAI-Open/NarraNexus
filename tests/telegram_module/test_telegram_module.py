@@ -106,22 +106,30 @@ async def test_build_extra_data_owner_match_sets_trust_signal():
 
 
 @pytest.mark.asyncio
-async def test_get_instructions_returns_no_bot_block_when_unbound():
+async def test_get_instructions_returns_setup_line_when_unbound():
+    """Setup-residency (2026-07-24): unbound agents get a ONE-LINE setup
+    pointer; the full @BotFather walkthrough is served on demand by
+    tg_bind() called with no arguments."""
     module = _make_module()
     text = await module.get_instructions(_ctx(extra=None))
 
-    # Discovery banner specific to Telegram setup
-    assert "BotFather" in text
-    # Privacy mode guidance — KEEP DEFAULT ON, do NOT disable.
-    # Earlier draft told users to /setprivacy → Disable; the right
-    # default is the opposite (matches Slack Phase 5 reply-policy work).
-    # The phrase "KEEP DEFAULT ON" must be present so the agent
-    # actively guides users away from disabling privacy.
-    assert "KEEP DEFAULT ON" in text
-    assert "DO NOT" in text  # explicit anti-disable instruction
-    # Iron rules appended (note: "Iron rules" appears twice — in the
-    # discovery prompt's setup section AND in the always-appended block)
-    assert "Iron rules" in text
+    assert "tg_bind" in text
+    assert "not connected" in text
+    # The walkthrough must NOT ride the per-turn prompt anymore
+    assert "BotFather" not in text
+    assert len(text) < 400
+
+
+def test_no_bot_instruction_keeps_discovery_walkthrough_wording():
+    """The discovery constant (now served by tg_bind's zero-arg form)
+    must keep the setup walkthrough content."""
+    from xyz_agent_context.module.telegram_module.telegram_module import (
+        _NO_BOT_INSTRUCTION,
+    )
+
+    assert "BotFather" in _NO_BOT_INSTRUCTION
+    assert "KEEP DEFAULT ON" in _NO_BOT_INSTRUCTION
+    assert "Iron rules" in _NO_BOT_INSTRUCTION
 
 
 @pytest.mark.asyncio
@@ -133,9 +141,16 @@ async def test_no_bot_instruction_does_not_recommend_disable_privacy():
       - explicitly says DO NOT (negative-imperative against disabling)
       - establishes @-mention-only as the iron rule for groups
     Keep this test so the recommendation can't silently regress to
-    the noisy-listener default."""
-    module = _make_module()
-    text = await module.get_instructions(_ctx(extra=None))
+    the noisy-listener default.
+
+    Setup-residency note (2026-07-24): the walkthrough left the per-turn
+    prompt; it is served by tg_bind() with no arguments. The wording
+    guards below now assert against the constants directly."""
+    from xyz_agent_context.module.telegram_module.telegram_module import (
+        _NO_BOT_INSTRUCTION,
+        _TELEGRAM_IRON_RULES,
+    )
+    text = _NO_BOT_INSTRUCTION + _TELEGRAM_IRON_RULES
 
     # Positive recommendation present
     assert "KEEP DEFAULT ON" in text

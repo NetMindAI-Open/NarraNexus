@@ -118,6 +118,19 @@ class MemoryConsolidationWorker:
     async def _process_scope(self, key: Dict[str, Any]) -> None:
         """Run one scope through consolidation with the processing→dirty/failed
         state machine. Isolated per scope: a failure here never propagates."""
+        # Self-heal: a queue row whose agent was deleted must be purged, not
+        # processed. Agent deletion now cascades the queue, but rows left by
+        # earlier deletions (or any other path that removes the agent without
+        # the route) would otherwise idle-trigger on every poll and spam
+        # "no owner row" warnings forever.
+        agent_row = await self._db.get_one("agents", {"agent_id": key["agent_id"]})
+        if agent_row is None:
+            await self._db.delete(_QUEUE, {"agent_id": key["agent_id"]})
+            logger.info(
+                f"[memory.consolidation] purged queue rows for deleted agent "
+                f"{key['agent_id']}"
+            )
+            return
         now = utc_now()
         await self._db.update(_QUEUE, key, {"status": "processing", "updated_at": now})
         try:
@@ -157,7 +170,7 @@ class MemoryConsolidationWorker:
         clear-first / owner-lookup / resolve sequence lives in exactly one
         place.
         """
-        from xyz_agent_context.agent_framework.provider_resolver import (
+        from xyz_agent_context.agent_framework.providers.resolver import (
             inject_owner_helper_credentials,
         )
 
@@ -175,13 +188,12 @@ class MemoryConsolidationWorker:
         # so every consolidation call recorded ZERO — the largest silent hole
         # in token accounting (Phase 0 / module H).
         #
-        # RECORD ONLY, NEVER BILL: record_cost's deduct hook fires solely when
-        # provider_source=="system" AND current_user_id is set. The worker set
-        # neither current_user_id here (_inject_owner_credentials sets
-        # provider_source only) — so consolidation is fully accounted yet never
-        # charged to the owner's free tier. Do NOT add set_current_user_id in
-        # this path: that would silently drain the owner's system quota for
-        # background work they never initiated (iron rule #15).
+        # RECORD ONLY: cost_records is a token log, not a bill — since the free
+        # tier became a gateway wallet (2026-07-28) nothing in this process
+        # deducts anything. Deliberately still does NOT set current_user_id:
+        # the row stays attributed to the agent, not charged to a person, which
+        # keeps background work the owner never initiated out of their name
+        # (iron rule #15).
         set_cost_context(agent_id, self._db)
         try:
             spec = get_spec(kind)

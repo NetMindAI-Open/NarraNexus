@@ -49,5 +49,4 @@ pattern (require Provider, etc.). Import as:
 
 ## Related
 
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5
 - `pages/NMPlaygroundPage.tsx` — visual gallery

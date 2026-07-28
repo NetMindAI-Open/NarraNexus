@@ -23,7 +23,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
 from xyz_agent_context.repository.user_repository import UserRepository
@@ -323,7 +323,7 @@ async def upload_team_chat_attachment(
     # Transcribe audio uploads so team agents get the words (they can't listen).
     transcription_available: bool | None = None
     if mime_type.startswith("audio/"):
-        from xyz_agent_context.agent_framework.transcription import TranscriptionService
+        from xyz_agent_context.agent_framework.llm.transcription import TranscriptionService
 
         on_disk = resolve_shared_file_for_user(user_id, att["rel_path"])
         svc = TranscriptionService.instance()

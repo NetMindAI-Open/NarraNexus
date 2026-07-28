@@ -13,8 +13,8 @@ Tauri WKWebView (under `tauri.localhost` origin), the webview either
 swallows the click or tries to navigate within itself — CSP /
 cross-origin blocks the load, no visible error. Every help link in
 the dmg ("Getting started", provider docs, Lark/Slack/Telegram
-setup hints, artifact fallback link) was silently dead. TODO:
-`reference/self_notebook/todo/2026-05-27-dmg-external-links-dead.md`.
+setup hints, artifact fallback link) was silently dead (follow-up
+tracked, author-local todo).
 
 This module installs ONE global capturing-phase click listener on
 `document`. It walks up from the click target to the nearest `<a>`,

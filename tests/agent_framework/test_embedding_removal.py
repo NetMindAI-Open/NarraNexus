@@ -69,17 +69,15 @@ async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
         ClaudeConfig,
         OpenAIConfig,
     )
-    from xyz_agent_context.utils import db_factory
-    from xyz_agent_context.agent_framework.quota_service import QuotaService, bootstrap_quota_subsystem
-    from xyz_agent_context.agent_framework.system_provider_service import SystemProviderService
+    from xyz_agent_context.utils.db import db_factory
 
-    # Patch db so the lazy bootstrap finds the in-memory db.
+    # Patch db so the resolver finds the in-memory db.
     async def _fake_db():
         return db_client
     monkeypatch.setattr(db_factory, "get_db_client", _fake_db)
-
-    # Disable system provider so we go through the user-owns path.
-    SystemProviderService._instance = SystemProviderService(enabled=False, config=None)
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
 
     # Seed providers + slots.
     now = "2026-06-04T00:00:00"
@@ -112,25 +110,18 @@ async def test_get_user_llm_configs_returns_2_tuple(db_client, monkeypatch):
             "updated_at": now,
         })
 
-    # Bootstrap quota service so _ensure_quota_service() finds it.
-    qs = await bootstrap_quota_subsystem(db_client)
-    QuotaService.set_default(qs)
-
     result = await get_user_llm_configs("alice")
     assert len(result) == 2, f"Expected 2-tuple, got length {len(result)}"
     claude, openai = result
     assert isinstance(claude, ClaudeConfig)
     assert isinstance(openai, OpenAIConfig)
 
-    # Cleanup
-    SystemProviderService._instance = None
-    QuotaService._default = None
 
 
 # ── 4. _REQUIRED_SLOTS in provider_resolver does NOT include "embedding" ─────
 
 def test_required_slots_no_embedding():
-    from xyz_agent_context.agent_framework import provider_resolver
+    from xyz_agent_context.agent_framework.providers import resolver as provider_resolver
     assert "embedding" not in provider_resolver._REQUIRED_SLOTS, (
         "_REQUIRED_SLOTS must not contain 'embedding'"
     )
@@ -150,7 +141,7 @@ def test_slot_required_protocols_no_embedding():
 # ── 6. provider_driver.resolver._REQUIRED_SLOTS has no "embedding" ───────────
 
 def test_slot_builders_no_embedding():
-    from xyz_agent_context.agent_framework.provider_driver.resolver import _REQUIRED_SLOTS
+    from xyz_agent_context.agent_framework.providers.driver.resolver import _REQUIRED_SLOTS
     assert "embedding" not in _REQUIRED_SLOTS, (
         "_REQUIRED_SLOTS in provider_driver.resolver must not contain 'embedding'"
     )
@@ -164,11 +155,11 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
     """ProviderResolver.resolve returns (RuntimeLLMConfigs, source) — 2 items —
     and the RuntimeLLMConfigs carries no embedding slot."""
     from unittest.mock import AsyncMock, MagicMock
-    from xyz_agent_context.agent_framework import provider_driver
+    from xyz_agent_context.agent_framework.providers import driver as provider_driver
     from xyz_agent_context.agent_framework.api_config import (
         ClaudeConfig, OpenAIConfig, RuntimeLLMConfigs,
     )
-    from xyz_agent_context.agent_framework.provider_resolver import ProviderResolver
+    from xyz_agent_context.agent_framework.providers.resolver import ProviderResolver
     from xyz_agent_context.schema.provider_schema import (
         AuthType, LLMConfig, ProviderConfig, ProviderProtocol, ProviderSource,
         SlotConfig,
@@ -202,14 +193,12 @@ async def test_provider_resolver_resolve_returns_configs_and_source(monkeypatch)
         },
     )
     user_svc = MagicMock()
-    sys_svc = MagicMock()
-    sys_svc.is_enabled.return_value = True
-    quota_svc = MagicMock()
-    quota_svc.get = AsyncMock(return_value=None)      # no quota row → opt-out
-    quota_svc.check = AsyncMock(return_value=True)
     user_svc.get_user_config = AsyncMock(return_value=complete_cfg)
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
 
-    resolver = ProviderResolver(user_svc, sys_svc, quota_svc)
+    resolver = ProviderResolver(user_svc)
     result = await resolver.resolve("usr_x")
     assert result is not None
     assert len(result) == 2, f"Expected (configs, source), got len {len(result)}"

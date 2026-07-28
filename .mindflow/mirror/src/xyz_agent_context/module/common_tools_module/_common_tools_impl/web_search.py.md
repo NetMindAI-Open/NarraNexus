@@ -27,7 +27,7 @@ stub: false
 | 2 | `PER_QUERY_TIMEOUT_S` | 15s | `_one` 里 `asyncio.wait_for(to_thread, ...)` |
 | 3 | `OVERALL_TIMEOUT_S` | 30s | `search_many` 里 `asyncio.wait_for(gather, ...)` |
 
-外层 MCP handler 还有第四层 45s（见 `_common_tools_mcp_tools.py` 的 `with_mcp_timeout`）。Idle timeout 从 1200s 降到 600s（`xyz_claude_agent_sdk.py`）做最终兜底。
+外层 MCP handler 还有第四层 45s（见 `_common_tools_mcp_tools.py` 的 `with_mcp_timeout`）。Idle timeout 从 1200s 降到 600s（`adapters/claude/sdk.py`）做最终兜底。
 
 ## 历史残留问题（已由 Bug 24 subprocess 隔离彻底解决）
 

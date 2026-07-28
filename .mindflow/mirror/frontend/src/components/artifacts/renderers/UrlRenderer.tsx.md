@@ -48,8 +48,7 @@ renderer fetches it through the token-authed raw route, then:
   BROWSER mode only. On the packaged Tauri DMG, WKWebView blocks popups (see
   netmind_oauth.rs), so URL-tab target=_blank links are likely STILL dead on
   desktop until a Tauri new-window handler routes them to the OS browser (or
-  the streaming browser lands). Tracked in
-  reference/self_notebook/todo/2026-07-22-url-tab-desktop-links.md.
+  the streaming browser lands). Follow-up tracked (author-local todo).
 - The doc fetch uses `fetchArtifactText` like the other text renderers
   (Csv/Markdown/Chart) — same pattern, same Tauri behavior.
 

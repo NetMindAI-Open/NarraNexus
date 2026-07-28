@@ -8,7 +8,7 @@ stub: false
 
 ## Why it exists
 
-Extracted 2026-07-21 from `backend/routes/artifacts_public.py::get_raw`,
+Extracted 2026-07-21 from `backend/routes/artifacts/public.py::get_raw`,
 which had grown into a fat handler mixing HTTP concerns with pointer/path
 logic. The split: this module owns everything that is NOT HTTP (pointer
 lookup, flat→nested workspace fallback, path-escape confinement, the

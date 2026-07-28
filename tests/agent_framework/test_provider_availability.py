@@ -10,26 +10,29 @@ oscillation: the resume gate reimplemented the decision tree and drifted).
 
 Decision tree (identical to `resolve`, just verdict-only):
 
-  0. system disabled                                  -> SYSTEM_DISABLED (not gated)
-  1. prefer_system_override=True:
-     1a. has budget                                   -> SYSTEM_OK
-     1b. no budget + complete own config              -> auto-disable the
-         free-tier preference and route USER_OK (#48)
-     1c. no budget + no own provider                  -> QUOTA_EXCEEDED
-  2. prefer_system_override=False (or no quota row):
-     2a. complete own config                          -> USER_OK
-     2b. no own provider                              -> NO_PROVIDER
+  0. not cloud mode                    -> LOCAL_PASSTHROUGH (not gated)
+  1. cloud + complete own config       -> USER_OK
+  2. cloud + config missing/incomplete -> NO_PROVIDER
 
-`is_runnable(verdict)` is True only for {SYSTEM_OK, USER_OK, SYSTEM_DISABLED}.
+The free tier used to be a third branch here with its own token budget. It is
+now an ordinary provider card (a wallet on the gateway), so a free-tier user
+lands in USER_OK like everyone else, and an EMPTY wallet is not visible to this
+classifier at all — the gateway refuses the call at runtime and
+`llm/failure.py` classifies it. Guarding that here is the point of
+`test_exhausted_wallet_is_not_a_classify_concern`.
+
+`is_runnable(verdict)` is True only for {USER_OK, LOCAL_PASSTHROUGH}.
 """
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from xyz_agent_context.agent_framework.provider_resolver import (
-    ProviderResolver,
+from xyz_agent_context.agent_framework.providers.free_tier import FREE_TIER_SOURCE
+from xyz_agent_context.agent_framework.providers.resolver import (
     ProviderAvailability,
+    ProviderResolver,
     is_runnable,
+    is_user_config_complete,
 )
 from xyz_agent_context.schema.provider_schema import (
     AuthType,
@@ -40,146 +43,114 @@ from xyz_agent_context.schema.provider_schema import (
     SlotConfig,
 )
 
+_CLOUD = "xyz_agent_context.utils.deployment_mode.is_cloud_mode"
 
-def _complete_user_cfg():
+
+def _cfg(*, source=ProviderSource.USER, active=True):
     prov_a = ProviderConfig(
-        provider_id="p_a", name="mine-a", source=ProviderSource.USER,
+        provider_id="p_a", name="mine-a", source=source,
         protocol=ProviderProtocol.ANTHROPIC, auth_type=AuthType.API_KEY,
-        api_key="sk-a", is_active=True, models=["claude-x"],
+        api_key="sk-a", is_active=active, models=["claude-x"],
     )
     prov_o = ProviderConfig(
-        provider_id="p_o", name="mine-o", source=ProviderSource.USER,
+        provider_id="p_o", name="mine-o", source=source,
         protocol=ProviderProtocol.OPENAI, auth_type=AuthType.API_KEY,
-        api_key="sk-o", is_active=True, models=["gpt-x", "emb-x"],
+        api_key="sk-o", is_active=active, models=["gpt-x"],
     )
     return LLMConfig(
         providers={"p_a": prov_a, "p_o": prov_o},
         slots={
             "agent": SlotConfig(provider_id="p_a", model="claude-x"),
-            "embedding": SlotConfig(provider_id="p_o", model="emb-x"),
             "helper_llm": SlotConfig(provider_id="p_o", model="gpt-x"),
         },
     )
 
 
-def _mk_sys(enabled: bool):
-    m = MagicMock()
-    m.is_enabled.return_value = enabled
-    return m
-
-
-def _mk_user_svc(user_cfg):
-    m = MagicMock()
-    m.get_user_config = AsyncMock(return_value=user_cfg)
-    return m
-
-
-def _mk_quota_svc(*, prefer_system, has_budget):
-    m = MagicMock()
-    if prefer_system is None:
-        m.get = AsyncMock(return_value=None)
-    else:
-        row = MagicMock()
-        row.prefer_system_override = prefer_system
-        m.get = AsyncMock(return_value=row)
-    m.check = AsyncMock(return_value=has_budget)
-    # classify() compare-and-swaps the notice latch OFF on exhaustion (#48);
-    # the winner returns True and fires the one-time auto-switch notice.
-    m.disable_preference_if_enabled = AsyncMock(return_value=True)
-    m.rearm_switch_notice = AsyncMock()
-    return m
-
-
-def _resolver(user_cfg, *, enabled, prefer_system, has_budget):
-    return ProviderResolver(
-        user_provider_svc=_mk_user_svc(user_cfg),
-        system_provider_svc=_mk_sys(enabled),
-        quota_svc=_mk_quota_svc(prefer_system=prefer_system, has_budget=has_budget),
-    )
+def _resolver(user_cfg):
+    svc = MagicMock()
+    svc.get_user_config = AsyncMock(return_value=user_cfg)
+    return ProviderResolver(svc), svc
 
 
 # ── classify decision matrix ────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_disabled_is_passthrough_and_lazy():
-    """System off → SYSTEM_DISABLED, and must not touch quota / user services
-    (preserves the existing strict-no-op laziness)."""
-    user_svc = _mk_user_svc(None)
-    quota_svc = _mk_quota_svc(prefer_system=True, has_budget=True)
-    r = ProviderResolver(user_svc, _mk_sys(False), quota_svc)
-    assert await r.classify("u") == ProviderAvailability.SYSTEM_DISABLED
-    user_svc.get_user_config.assert_not_called()
-    quota_svc.get.assert_not_called()
-    quota_svc.check.assert_not_called()
+async def test_local_mode_is_passthrough_and_lazy():
+    """Local → LOCAL_PASSTHROUGH without even reading the user's providers
+    (there are none per-user locally; the global config applies)."""
+    resolver, svc = _resolver(_cfg())
+    with patch(_CLOUD, return_value=False):
+        assert await resolver.classify("u") == ProviderAvailability.LOCAL_PASSTHROUGH
+    svc.get_user_config.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_opted_in_with_budget_is_system_ok_even_with_own_config():
-    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=True, has_budget=True)
-    assert await r.classify("u") == ProviderAvailability.SYSTEM_OK
+async def test_cloud_with_complete_config_is_user_ok():
+    resolver, _ = _resolver(_cfg())
+    with patch(_CLOUD, return_value=True):
+        assert await resolver.classify("u") == ProviderAvailability.USER_OK
 
 
 @pytest.mark.asyncio
-async def test_opted_in_exhausted_with_own_config_auto_migrates_to_user_ok(monkeypatch):
-    """#48: pref=1 + exhausted + own provider. Instead of dead-ending on the
-    exhausted free tier, the free-tier preference is auto-disabled and the user
-    routes to their own key — so the verdict is USER_OK and IS runnable."""
-    from xyz_agent_context.agent_framework import provider_resolver as pr
-    monkeypatch.setattr(pr, "_emit_free_tier_switch_notice", AsyncMock())
-    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=True, has_budget=False)
-    verdict = await r.classify("u")
-    assert verdict == ProviderAvailability.USER_OK
-    assert is_runnable(verdict) is True
-    # the preference flip was persisted via compare-and-swap (toggle unchecks)
-    r.quota_svc.disable_preference_if_enabled.assert_awaited_once_with("u")
+async def test_free_tier_card_is_just_a_provider():
+    """A user whose only card is the free-tier wallet is USER_OK — the whole
+    point of the redesign is that this needs no special branch."""
+    resolver, _ = _resolver(_cfg(source=FREE_TIER_SOURCE))
+    with patch(_CLOUD, return_value=True):
+        assert await resolver.classify("u") == ProviderAvailability.USER_OK
 
 
 @pytest.mark.asyncio
-async def test_opted_in_exhausted_without_own_provider_is_quota_exceeded():
-    r = _resolver(None, enabled=True, prefer_system=True, has_budget=False)
-    assert await r.classify("u") == ProviderAvailability.QUOTA_EXCEEDED
+async def test_cloud_without_config_is_no_provider():
+    resolver, _ = _resolver(None)
+    with patch(_CLOUD, return_value=True):
+        assert await resolver.classify("u") == ProviderAvailability.NO_PROVIDER
 
 
 @pytest.mark.asyncio
-async def test_fired_latch_with_budget_is_system_ok_and_rearms():
-    """Free-tier-first is platform behavior (the opt-out preference is gone,
-    2026-07-18): budget → SYSTEM_OK even with the notice latch fired (0),
-    and the latch is re-armed for the next exhaustion cycle."""
-    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=True)
-    assert await r.classify("u") == ProviderAvailability.SYSTEM_OK
-    r.quota_svc.rearm_switch_notice.assert_awaited_once_with("u")
+async def test_inactive_provider_does_not_count_as_configured():
+    resolver, _ = _resolver(_cfg(active=False))
+    with patch(_CLOUD, return_value=True):
+        assert await resolver.classify("u") == ProviderAvailability.NO_PROVIDER
 
 
 @pytest.mark.asyncio
-async def test_rearm_failure_never_blocks_a_budgeted_run():
-    """The latch re-arm is a cosmetic notice-dedup write on the SYSTEM_OK
-    success path — a transient DB error there must NOT fail the run
-    (classify's contract is "without raising"). Review fix 2026-07-18."""
-    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=False, has_budget=True)
-    r.quota_svc.rearm_switch_notice = AsyncMock(side_effect=RuntimeError("db blip"))
-    assert await r.classify("u") == ProviderAvailability.SYSTEM_OK
+async def test_exhausted_wallet_is_not_a_classify_concern():
+    """An empty wallet is still a well-formed provider card, so classify says
+    USER_OK. Exhaustion surfaces at CALL time (the gateway refuses) and is
+    handled by the self-serviceable classifier — deliberately NOT a pre-run
+    gate any more."""
+    resolver, svc = _resolver(_cfg(source=FREE_TIER_SOURCE))
+    with patch(_CLOUD, return_value=True):
+        assert await resolver.classify("u") == ProviderAvailability.USER_OK
+    # No balance lookup happens on the run path — that would put a network call
+    # in front of every request.
+    assert svc.mock_calls == [("get_user_config", ("u",), {})]
 
 
-@pytest.mark.asyncio
-async def test_no_quota_row_without_own_config_is_no_provider():
-    r = _resolver(None, enabled=True, prefer_system=None, has_budget=True)
-    assert await r.classify("u") == ProviderAvailability.NO_PROVIDER
+# ── is_runnable ─────────────────────────────────────────────────────────────
+
+def test_is_runnable_matrix():
+    assert is_runnable(ProviderAvailability.USER_OK)
+    assert is_runnable(ProviderAvailability.LOCAL_PASSTHROUGH)
+    assert not is_runnable(ProviderAvailability.NO_PROVIDER)
 
 
-@pytest.mark.asyncio
-async def test_no_quota_row_with_own_config_is_user_ok_without_checking_quota():
-    """No quota row = no free tier granted — own provider only, quota never
-    probed (implicit-grant liability guard)."""
-    r = _resolver(_complete_user_cfg(), enabled=True, prefer_system=None, has_budget=True)
-    assert await r.classify("u") == ProviderAvailability.USER_OK
-    r.quota_svc.check.assert_not_called()
+# ── is_user_config_complete ─────────────────────────────────────────────────
+
+def test_config_completeness_requires_every_required_slot():
+    cfg = _cfg()
+    assert is_user_config_complete(cfg)
+    del cfg.slots["helper_llm"]
+    assert not is_user_config_complete(cfg)
 
 
-# ── is_runnable helper ──────────────────────────────────────────────────────
+def test_config_completeness_rejects_none_and_empty():
+    assert not is_user_config_complete(None)
+    assert not is_user_config_complete(LLMConfig(providers={}, slots={}))
 
-def test_is_runnable_truth_table():
-    assert is_runnable(ProviderAvailability.SYSTEM_OK) is True
-    assert is_runnable(ProviderAvailability.USER_OK) is True
-    assert is_runnable(ProviderAvailability.SYSTEM_DISABLED) is True
-    assert is_runnable(ProviderAvailability.QUOTA_EXCEEDED) is False
-    assert is_runnable(ProviderAvailability.NO_PROVIDER) is False
+
+def test_config_completeness_rejects_a_slot_pointing_at_a_missing_provider():
+    cfg = _cfg()
+    cfg.slots["agent"] = SlotConfig(provider_id="ghost", model="claude-x")
+    assert not is_user_config_complete(cfg)

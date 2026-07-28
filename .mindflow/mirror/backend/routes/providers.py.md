@@ -1,8 +1,33 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-18
+last_verified: 2026-07-26
 stub: false
 ---
+
+## 2026-07-26 — agent-framework 探测 Leg 1 命中 setup-token 卡
+
+`oauth_token` 卡的 token 存在 api_key 列，Leg 1 的「api_key 非空 +
+protocol 匹配」判定天然命中——这是正确行为（token 在库=无需 host CLI
+登录即可认证），只把文案从 "API-key provider" 区分为 "setup-token
+provider" 免得误导。token 保存/重连不需要新端点：复用
+`POST /api/providers`（card_type=claude_oauth + api_key=token），staff
+门禁按 card_type 拦所以自动继承。
+
+## 2026-07-23 — `POST /test-config`：保存前测连通的无状态端点
+
+测试连通现在有两条入口：有状态 `POST /{provider_id}/test`（测已存的、
+可能脱敏的 key）、无状态 `POST /test-config`（`TestProviderConfigRequest`
+带 card_type/api_key/base_url/auth_type/models，直接测表单值、不落库）。
+后者让添加表单「先验证再保存」。仍要求登录（`_get_user_id` 鉴权），只是
+探测本身 per-request。静态路径不与 `/{provider_id}/test` 冲突。底层都委托
+[[user_service]] → `provider_registry`。
+
+`TestProviderConfigRequest.auth_type` 收紧为 `Literal["api_key",
+"bearer_token"]`：oauth 及任意非法值在 API 边界直接 422，而非落到
+pydantic 构造抛 `ValidationError` → 500（无全局 handler）。service 侧另有
+对称守卫，双保险。探测无 DB 痕迹但会主动请求用户可控的 base_url，故加一条
+`logger.info`（uid + protocol + 目标 host）——对齐事故教训「DB/审计痕迹优于
+grep 日志」，让出站请求可观测。
 
 ## 2026-07-18 — agent-framework 403 门禁方向化(修云端老 codex 死锁)
 
@@ -90,7 +115,7 @@ converged on the same helper. Import is top-level now.
 /use-subscription now passes inference_base=settings.netmind_inference_base into
 onboard_one_key, so a dev-minted key is registered against dev inference
 (test.api.netmind.ai) rather than the hardcoded prod. /onboard (manual paste) is
-unchanged (prod). See [[user_provider_service]].
+unchanged (prod). See [[user_service]].
 
 
 
@@ -135,7 +160,7 @@ staff 时应隐藏/禁用，否则切换会收到 403 报错。后端门禁是�
 测试：`tests/backend/test_provider_oauth_gating.py`（9 个，DB-free，stub
 `_get_service` 区分「过门禁」与门禁自身的 403）。**未动**的死路：§1/§2 沙箱
 （codex 原生 approval 只有 auto_review/deny_all 两档，给不了 workspace 内放行+
-越界拒的中间档，见 `xyz_codex_official_sdk.py.md` 2026-06-14 条目）。
+越界拒的中间档，见 `adapters/codex/official_sdk.py.md` 2026-06-14 条目）。
 
 ## 2026-06-11 — /codex-status 不再把"文件存在"当"已登录"
 
@@ -248,7 +273,7 @@ async def _ensure_codex_installed() -> dict:
 修法：route 层直接 import service 层的常量当 single source of truth：
 
 ```python
-from xyz_agent_context.agent_framework.user_provider_service import (
+from xyz_agent_context.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
@@ -261,7 +286,7 @@ _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT
 **铁律：framework 名字白名单四处必须同步**：
 1. `agent_framework/__init__.py` register_agent_loop_driver
 2. `provider_driver/resolver._KNOWN_AGENT_FRAMEWORKS` + `_CODEX_FRAMEWORK_VALUES`
-3. `user_provider_service._SUPPORTED_AGENT_FRAMEWORKS` （= 后端 single source of truth）
+3. `providers.user_service._SUPPORTED_AGENT_FRAMEWORKS` （= 后端 single source of truth）
 4. `frontend/src/components/settings/ProviderSettings.tsx` 的 `AGENT_FRAMEWORKS` + `CODEX_FRAMEWORK_IDS`
 
 route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。但 frontend 不能 import Python，仍需手 sync。
@@ -284,8 +309,8 @@ route 层 #4 后已经不算独立条目了，因为 import 自动跟 service。
 
 - **被谁用**：`backend/main.py` — `include_router(providers_router, prefix="/api/providers")`；前端设置面板；`backend/auth.py` 的 `AUTH_EXEMPT_PATHS` 包含 `/api/providers/claude-status`
 - **依赖谁**：
-  - `UserProviderService`（来自 `xyz_agent_context.agent_framework.user_provider_service`）— 所有提供商和 Slot 操作
-  - `xyz_agent_context.agent_framework.model_catalog` — 获取已知模型列表和建议值
+  - `UserProviderService`（来自 `xyz_agent_context.agent_framework.providers.user_service`）— 所有提供商和 Slot 操作
+  - `xyz_agent_context.agent_framework.providers.model_catalog` — 获取已知模型列表和建议值
   - `xyz_agent_context.schema.provider_schema` — `LLMConfig`、`SlotName`、`SLOT_REQUIRED_PROTOCOLS`
   - `xyz_agent_context.agent_framework.api_config` — 热重载配置（本地进程内）
   - `EmbeddingMigrationService` — 嵌入向量重建

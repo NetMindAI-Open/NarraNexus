@@ -58,7 +58,7 @@ missed whenever the session-assembled content and the DB-persisted
 content drifted by even one character — and they ARE produced by
 different code paths (session joins `send_message_to_user_directly` args
 with `\n\n`; the backend persists independently and sometimes *rewrites*
-content, e.g. owner-notify substitution in `agents_chat_history.py`).
+content, e.g. owner-notify substitution in `agents/chat_history.py`).
 That drift made the latest reply occasionally render twice — the bug
 this file fixes.
 

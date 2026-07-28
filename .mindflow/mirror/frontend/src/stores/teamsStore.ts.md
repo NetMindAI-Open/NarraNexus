@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/stores/teamsStore.ts
-last_verified: 2026-05-08
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — deleteTeam tolerates 404
+
+`deleteTeam` catches `ApiError` 404 (team already gone server-side) and
+still runs `refresh()`. Rationale: the store is persisted to localStorage,
+so a team deleted in another session kept resurrecting — deleting it again
+hit 404, the throw skipped `refresh()`, and the stale cache could never be
+purged (delete → 404 → still shown loop). Non-404 errors still rethrow
+without refreshing. Tests: `__tests__/teamsStore.test.ts`.
 
 # teamsStore.ts — Zustand store for subproject 1
 

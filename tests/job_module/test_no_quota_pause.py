@@ -44,13 +44,25 @@ async def _insert_job(db, job_id, status="active"):
 # ── pure detection ────────────────────────────────────────────────────────────
 
 def test_is_no_quota_failure_by_error_type():
-    assert _is_no_quota_failure({"success": False, "error_type": "QuotaExceededError"})
     assert _is_no_quota_failure({"success": False, "error_type": "NoProviderConfiguredError"})
-    assert _is_no_quota_failure({"success": False, "error_type": "FreeTierExhaustedError"})
+    assert _is_no_quota_failure({"success": False, "error_type": "LLMConfigNotConfigured"})
 
 
 def test_is_no_quota_failure_by_message_fallback():
-    assert _is_no_quota_failure({"success": False, "error": "Free quota exhausted. Configure your own provider."})
+    assert _is_no_quota_failure({"success": False, "error": "No provider configured. Add one in Settings."})
+
+
+def test_spent_free_tier_wallet_pauses_via_the_balance_classifier():
+    """Free-tier exhaustion no longer has an error type of its own: the wallet
+    lives on the gateway, which refuses the call in the request path. It must
+    still reach PAUSED_NO_QUOTA — through the self-serviceable classifier, not
+    through a second bespoke marker list."""
+    assert _is_no_quota_failure({
+        "success": False,
+        "error_type": "unknown",
+        "error": "litellm.BudgetExceededError: Budget has been exceeded! "
+                 "Current cost: 10.02, Max budget: 10.0",
+    })
 
 
 def test_real_resolver_messages_still_pause_jobs():
@@ -66,12 +78,11 @@ def test_real_resolver_messages_still_pause_jobs():
     So: build the errors for real and assert the classifier still fires.
     Anyone rewording them has to keep the markers intact or turn this red.
     """
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         NoProviderConfiguredError,
-        QuotaExceededError,
     )
 
-    for exc in (QuotaExceededError("u1"), NoProviderConfiguredError("u1")):
+    for exc in (NoProviderConfiguredError("u1"),):
         assert _is_no_quota_failure({"success": False, "error": str(exc)}), (
             f"{type(exc).__name__} message no longer matches any "
             f"_NO_QUOTA_ERROR_MARKERS entry: {str(exc)!r}"
@@ -120,8 +131,8 @@ async def test_finalize_pauses_on_quota_failure(db_client):
 
     await trigger._finalize_job_execution(job, {
         "success": False,
-        "error_type": "QuotaExceededError",
-        "error": "Free quota exhausted.",
+        "error_type": "NoProviderConfiguredError",
+        "error": "No provider configured.",
         "event_id": None,
     })
 

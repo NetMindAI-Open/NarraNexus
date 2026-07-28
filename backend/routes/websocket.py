@@ -41,7 +41,7 @@ from xyz_agent_context.agent_runtime.background_run import BackgroundRun, run_is
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken, CancelledByUser
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.repository import MCPRepository
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()
@@ -371,7 +371,7 @@ async def _listen_for_stop(websocket: WebSocket, cancellation: CancellationToken
                 # stop above has been pending ≥10 s and the agent still
                 # has not torn down. We surface a louder cancellation
                 # reason so logs distinguish the path; the actual SIGKILL
-                # is performed by xyz_claude_agent_sdk's bounded
+                # is performed by adapters.claude.sdk's bounded
                 # disconnect (Phase A C2) — see the 5-second wait_for
                 # + process.kill() fallback. Note: even force_stop is
                 # cooperative at the asyncio layer — we don't bypass
@@ -587,7 +587,7 @@ async def websocket_agent_run(websocket: WebSocket):
         # do NOT start a run that would just fail again and burn resources.
         # Tell the user why instead of silently 401ing. Fail-open — a breaker
         # read error never blocks a turn.
-        from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
         cb_skip, cb_reason = await should_skip(request.agent_id)
         if cb_skip:
             await websocket.send_json(_circuit_open_frame(cb_reason))

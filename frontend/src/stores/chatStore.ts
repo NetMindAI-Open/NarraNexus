@@ -21,6 +21,7 @@ import type {
   TurnEvent,
 } from '@/types';
 import { generateId } from '@/lib/utils';
+import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -133,7 +134,7 @@ interface ChatState {
     timestampMs?: number,
   ) => string;
   startStreaming: (agentId: string) => void;
-  stopStreaming: (agentId: string, agentName?: string) => void;
+  stopStreaming: (agentId: string, agentName?: string, opts?: { cancelled?: boolean }) => void;
   /** Set the current run's event_id and backfill it onto the trailing
    *  event-id-less user message. Called from the `run_started` frame
    *  (fresh run) and from wsManager on reconnect. */
@@ -305,7 +306,22 @@ export const useChatStore = create<ChatState>((_set, get) => {
     },
 
     // Stop streaming and save to history for a specific agent
-    stopStreaming: (agentId: string, agentName?: string) => {
+    stopStreaming: (agentId: string, agentName?: string, opts?: { cancelled?: boolean }) => {
+      // OS-level completion notice (#44): the in-app toast is invisible when
+      // the user is in another application, so the desktop build forwards a
+      // system notification when the window has no focus. A user-cancelled
+      // run is the user's own action — never notify for it. Read the
+      // streaming flag BEFORE set() so the duplicate-call guard below also
+      // guards the notification.
+      const wasStreaming = getSession(get().agentSessions, agentId).isStreaming;
+      if (
+        wasStreaming &&
+        !opts?.cancelled &&
+        typeof document !== 'undefined' &&
+        !document.hasFocus()
+      ) {
+        void notifyAgentReplyCompleted(agentName || agentId);
+      }
       set((prevState) => {
         const session = getSession(prevState.agentSessions, agentId);
 
@@ -724,8 +740,9 @@ export const useChatStore = create<ChatState>((_set, get) => {
         }
 
         case 'cancelled': {
-          // User-initiated cancellation — stop streaming gracefully
-          get().stopStreaming(agentId);
+          // User-initiated cancellation — stop streaming gracefully,
+          // and never fire the OS completion notification for it.
+          get().stopStreaming(agentId, undefined, { cancelled: true });
           break;
         }
       }

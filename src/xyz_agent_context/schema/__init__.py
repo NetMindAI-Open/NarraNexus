@@ -162,6 +162,7 @@ from .api_schema import (
     # Event Log Detail
     EventLogToolCall,
     EventLogTimelineEntry,
+    EventLogMeta,
     EventLogResponse,
     # Files
     FileInfo,
@@ -390,6 +391,7 @@ __all__ = [
     # Event Log Detail
     "EventLogToolCall",
     "EventLogTimelineEntry",
+    "EventLogMeta",
     "EventLogResponse",
     # Files
     "FileInfo",

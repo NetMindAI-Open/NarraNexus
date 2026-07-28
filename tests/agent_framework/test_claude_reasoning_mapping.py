@@ -26,7 +26,7 @@ We never produce a positive --max-thinking-tokens, hence never the rejected
 from __future__ import annotations
 
 from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+from xyz_agent_context.agent_framework.adapters.claude.sdk import (
     _resolve_reasoning_options,
 )
 

@@ -1,7 +1,20 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_entity_updater.py
-last_verified: 2026-06-10
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — meaningfulness guard (junk-entity filter)
+
+`ExtractedEntity` gained `confidence` (default 1.0 so old outputs pass);
+`is_meaningful_entity()` is the deterministic backstop applied inside
+`extract_mentioned_entities` before create/merge: rejects generic
+role/category names (en+zh set), bare system IDs / pure digits / uuid /
+long-hex blobs, names > 80 chars, and confidence < 0.5. Rationale: the
+prompt already forbids these but weak helper models leak them and every
+leaked row is a permanent junk node in the graph (bug "entity 图无意义
+条目"). Dropped entities are logged at INFO. Prompt gained a Confidence
+section ([[prompts.py]]). Tests:
+`tests/social_network_module/test_entity_filter.py`.
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 All five llm_function call sites switched to the protocol-agnostic
@@ -17,7 +30,7 @@ match) → LLM 拍板 MERGE/CREATE**，不再做向量相似度检索 ("Bob" vs
 "Robert" 异名同人会产生两条记录，后续靠人工/LLM 合并)。
 
 同时 `get_embedding` import 也被删，文件不再依赖
-`agent_framework.llm_api.embedding`。
+agent_framework 的 embedding 工具（该子系统现已整体移除）。
 
 为什么这么彻底——参见 [[social_network_module.py]] 的 2026-05-27 条目和
 [[social_network_repository.py]] 的同期改动。

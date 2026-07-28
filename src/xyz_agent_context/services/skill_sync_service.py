@@ -33,7 +33,7 @@ from typing import Dict, Optional
 
 from loguru import logger
 
-from xyz_agent_context._skill_marketplace_impl.install_pipeline import compute_content_hash
+from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import compute_content_hash
 from xyz_agent_context.repository.skill_installation_repository import (
     SkillInstallationRepository,
 )

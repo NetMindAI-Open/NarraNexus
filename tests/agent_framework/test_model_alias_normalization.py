@@ -15,7 +15,7 @@ current full id for every non-OAuth transport, everything else passes through.
 """
 
 from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.model_catalog import (
+from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_all_known_models,
     resolve_cli_alias,
 )

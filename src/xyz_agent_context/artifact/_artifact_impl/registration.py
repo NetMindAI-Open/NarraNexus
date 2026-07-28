@@ -268,6 +268,31 @@ async def register_artifact(
             created_at=existing.created_at,
         )
 
+    if session_id is None:
+        # Agent-scoped dedup: the LLM tool path never knows a session_id, so
+        # re-registering the same entry file WITHOUT target_artifact_id would
+        # mint a second pinned row — a duplicate tab that lives forever
+        # (prod 2026-06-30: two pinned "Welcome to NarraNexus" tabs on one
+        # agent). Same agent + same entry pointer + agent scope = the same
+        # artifact: update it in place and hand the existing id back.
+        for existing in await repo.find({"agent_id": agent_id, "file_path": rel_path}):
+            if existing.pinned and existing.kind == kind:
+                await repo.update_pointer(
+                    existing.artifact_id,
+                    file_path=rel_path,
+                    size_bytes=size_bytes,
+                    title=title[:200],
+                    description=description,
+                )
+                logger.debug(
+                    "Deduped agent-scoped re-register {} -> {}", existing.artifact_id, rel_path
+                )
+                return CreateArtifactToolResult(
+                    artifact_id=existing.artifact_id,
+                    url=_build_url(agent_id, existing.artifact_id),
+                    created_at=existing.created_at,
+                )
+
     artifact_id = _new_artifact_id()
     # No session context (LLM-driven calls cannot know a session_id) → default
     # to agent-scoped (pinned=True). Otherwise the artifact would land with

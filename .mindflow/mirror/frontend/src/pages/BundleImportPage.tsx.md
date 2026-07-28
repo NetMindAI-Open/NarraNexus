@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/pages/BundleImportPage.tsx
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — done 屏列出 warnings 正文(review #3)
+
+DonePanel 原来只在汇总里显示"N warnings"计数,用户看不到具体哪条(比如某 agent
+的 name/description 被导入修剪)。改为在汇总框下新增一个黄色 warnings 区块,把
+`result.warnings` 每条正文用 `<li>` 列出(复用 review 阶段同样的渲染形态)。
+新增 i18n `pages.bundleImport.done.warningsTitle`。
 
 ## 2026-07-22 — deep-link 返回修复(黑屏 bug)
 

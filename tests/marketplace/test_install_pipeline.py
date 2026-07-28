@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-import xyz_agent_context._skill_marketplace_impl.secret_box as secret_box_module
-from xyz_agent_context._skill_marketplace_impl.install_pipeline import (
+import xyz_agent_context.marketplace._skill_marketplace_impl.secret_box as secret_box_module
+from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import (
     InstallPipeline,
     compute_content_hash,
 )

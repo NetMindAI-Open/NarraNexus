@@ -22,9 +22,9 @@ from fastapi.testclient import TestClient
 
 from xyz_agent_context.repository.inbox_repository import InboxRepository
 from xyz_agent_context.schema.inbox_schema import InboxMessageType
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 import backend.routes.notices as notices_mod
 

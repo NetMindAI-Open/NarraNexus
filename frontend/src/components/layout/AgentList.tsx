@@ -28,6 +28,7 @@ import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/li
 import { AgentGroupSection, AvatarWithStreaming } from './AgentGroupSection';
 import { sortAgentsByActivity } from './agentGroupUtils';
 import { ClearAgentDataDialog } from './ClearAgentDataDialog';
+import { EditAgentDialog } from './EditAgentDialog';
 import { ClearTeamDataDialog } from '../teams/ClearTeamDataDialog';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
@@ -106,6 +107,8 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [clearTarget, setClearTarget] = useState<typeof rawAgents[0] | null>(null);
   const [clearBusy, setClearBusy] = useState(false);
+  const [editTarget, setEditTarget] = useState<typeof rawAgents[0] | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
   const [clearTeamTarget, setClearTeamTarget] = useState<{ team_id: string; name: string } | null>(null);
   const [clearTeamBusy, setClearTeamBusy] = useState(false);
   const [openMgmt, setOpenMgmt] = useState(false);
@@ -295,6 +298,41 @@ export function AgentList({ collapsed }: AgentListProps) {
     e.stopPropagation();
     setEditingAgentId(agent.agent_id);
     setEditingName(agent.name || agent.agent_id);
+  };
+
+  const handleEditAgent = (agent: typeof rawAgents[0], e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditTarget(agent);
+  };
+
+  const doEditAgent = async (name: string, description: string) => {
+    if (!editTarget) return;
+    setEditBusy(true);
+    try {
+      const res = await api.updateAgent(editTarget.agent_id, name, description);
+      if (res.success && res.agent) {
+        setAgents(rawAgents.map(a =>
+          a.agent_id === editTarget.agent_id
+            ? { ...a, name: res.agent?.name, description: res.agent?.description }
+            : a
+        ));
+        setEditTarget(null);
+      } else {
+        await alert({
+          title: t('layout.editAgentDialog.saveFailedTitle'),
+          message: res.error || 'Failed to update agent',
+          danger: true,
+        });
+      }
+    } catch (err) {
+      await alert({
+        title: t('layout.editAgentDialog.saveFailedTitle'),
+        message: String(err),
+        danger: true,
+      });
+    } finally {
+      setEditBusy(false);
+    }
   };
 
   const handleCancelEdit = (e: React.SyntheticEvent) => {
@@ -617,6 +655,15 @@ export function AgentList({ collapsed }: AgentListProps) {
           onConfirm={doClearData}
         />
       )}
+      {editTarget && (
+        <EditAgentDialog
+          initialName={editTarget.name || ''}
+          initialDescription={editTarget.description || ''}
+          busy={editBusy}
+          onCancel={() => setEditTarget(null)}
+          onSave={doEditAgent}
+        />
+      )}
       {clearTeamTarget && (
         <ClearTeamDataDialog
           teamName={clearTeamTarget.name}
@@ -766,6 +813,7 @@ export function AgentList({ collapsed }: AgentListProps) {
                     onCancelEdit={handleCancelEdit}
                     savingName={savingName}
                     onStartEdit={handleStartEdit}
+                    onEditAgent={handleEditAgent}
                     onClearData={handleClearData}
                     onDelete={handleDeleteAgent}
                     onTogglePublic={handleTogglePublic}

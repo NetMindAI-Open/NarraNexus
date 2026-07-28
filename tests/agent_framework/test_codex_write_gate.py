@@ -18,7 +18,7 @@ These tests do NOT exercise the SDK (no subprocess, no network). They lock:
     users.
 
 Live behavior (does `cancel` actually block the write?) is verified by
-scripts/spike_codex_approval_probe.py as a manual release gate.
+scripts/spikes/spike_codex_approval_probe.py as a manual release gate.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ import types
 
 import pytest
 
-from xyz_agent_context.agent_framework.xyz_codex_official_sdk import (
+from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
     _ESCALATION_METHODS,
     _install_write_gate,
     _workspace_write_cancel_handler,

@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from xyz_agent_context.agent_framework import provider_driver
+from xyz_agent_context.agent_framework.providers import driver as provider_driver
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
     ClaudeConfig,
@@ -32,7 +32,7 @@ from xyz_agent_context.agent_framework.api_config import (
     clear_user_config,
     set_user_config,
 )
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.schema.provider_schema import (
     AuthType,
     LLMConfig,
@@ -79,7 +79,7 @@ def test_factory_returns_anthropic_when_helper_config_set():
         ClaudeConfig(), OpenAIConfig(), CodexConfig(),
         AnthropicHelperConfig(api_key="sk-ant", model="claude-haiku-4-5"),
     )
-    from xyz_agent_context.agent_framework.anthropic_helper_sdk import (
+    from xyz_agent_context.agent_framework.llm.anthropic_helper import (
         AnthropicHelperSDK,
     )
     assert isinstance(get_helper_sdk(), AnthropicHelperSDK)
@@ -87,7 +87,7 @@ def test_factory_returns_anthropic_when_helper_config_set():
 
 def test_factory_returns_openai_by_default():
     set_user_config(ClaudeConfig(), OpenAIConfig(api_key="sk", model="gpt-x"))
-    from xyz_agent_context.agent_framework.openai_agents_sdk import OpenAIAgentsSDK
+    from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
     assert isinstance(get_helper_sdk(), OpenAIAgentsSDK)
 
 
@@ -116,8 +116,8 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
     must route an anthropic-protocol helper to AnthropicHelperSDK. Before the
     fix it dropped anthropic_helper (2-arg set_user_config) → OpenAIAgentsSDK
     against anthropic creds."""
-    from xyz_agent_context.agent_framework.provider_resolver import ProviderResolver
-    from xyz_agent_context.agent_framework.anthropic_helper_sdk import (
+    from xyz_agent_context.agent_framework.providers.resolver import ProviderResolver
+    from xyz_agent_context.agent_framework.llm.anthropic_helper import (
         AnthropicHelperSDK,
     )
 
@@ -136,13 +136,11 @@ async def test_resolve_and_set_wires_anthropic_helper(monkeypatch):
 
     user_svc = MagicMock()
     user_svc.get_user_config = AsyncMock(return_value=_complete_cfg())
-    sys_svc = MagicMock()
-    sys_svc.is_enabled.return_value = True
-    quota_svc = MagicMock()
-    quota_svc.get = AsyncMock(return_value=None)   # no quota row → opt-out → USER
-    quota_svc.check = AsyncMock(return_value=True)
 
-    await ProviderResolver(user_svc, sys_svc, quota_svc).resolve_and_set("u")
+    monkeypatch.setattr(
+        "xyz_agent_context.utils.deployment_mode.is_cloud_mode", lambda: True
+    )
+    await ProviderResolver(user_svc).resolve_and_set("u")
 
     assert isinstance(get_helper_sdk(), AnthropicHelperSDK)
     assert _anthropic_helper_ctx.get() is not None

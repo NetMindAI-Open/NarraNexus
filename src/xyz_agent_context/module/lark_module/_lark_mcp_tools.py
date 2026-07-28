@@ -13,7 +13,6 @@ Tools exposed (7 total):
   - lark_status(agent_id)                          — Health + Matrix self-heal
   - lark_skill(agent_id, name, path="SKILL.md")    — Read any skill file
 
-See spec: reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md
 
 Four tools were removed in the C-mini redesign; all four funnel into
 `lark_permission_advance`:
@@ -647,10 +646,13 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         )
 
     @mcp.tool()
-    async def lark_setup(agent_id: str, brand: str, owner_email: str = "") -> dict:
+    async def lark_setup(agent_id: str, brand: str = "", owner_email: str = "") -> dict:
         """Create a NEW Lark/Feishu app and bind it as this agent's bot
         (Click 1 of 3). Agent-assisted flow — subprocesses
         `lark-cli config init --new` and extracts the auth URL.
+
+        Call with NO brand to get the discovery guide (the two questions
+        to ask the user first) as ``{"success": True, "setup_guide": str}``.
 
         State: agent has NO credential row. If the user is pasting values
         that look like `cli_xxx` + a long secret, they have an existing
@@ -670,6 +672,16 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         is determined by Matrix row 2 stage, not by user's words.
         """
         import re
+
+        if not brand:
+            # Setup-residency (B++): the discovery walkthrough left the
+            # per-turn system prompt; it is served here on demand instead.
+            # Lazy import avoids a module-level cycle (lark_module imports
+            # from this package at module scope).
+            from xyz_agent_context.module.lark_module.lark_module import (
+                _NO_BOT_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
 
         if brand not in ("feishu", "lark"):
             return {"success": False, "error": "brand must be 'feishu' or 'lark'."}
@@ -816,12 +828,15 @@ def register_lark_mcp_tools(mcp: Any) -> None:
     @mcp.tool()
     async def lark_bind(
         agent_id: str,
-        app_id: str,
-        app_secret: str,
-        brand: str,
+        app_id: str = "",
+        app_secret: str = "",
+        brand: str = "",
         owner_email: str = "",
     ) -> dict:
         """Bind an EXISTING Lark/Feishu app (user has app_id + app_secret on hand).
+
+        Call with NO credentials to get the discovery guide as
+        ``{"success": True, "setup_guide": str}``.
 
         State: agent has NO credential row yet. Triggered when user pastes:
           - string starting with `cli_` + a long secret, OR
@@ -843,6 +858,16 @@ def register_lark_mcp_tools(mcp: Any) -> None:
             owner_email: Optional but recommended so "me/my/I" resolves correctly.
         """
         from ._lark_service import do_bind
+
+        if not app_id or not app_secret:
+            # Setup-residency (B++): no-credential call returns the
+            # discovery guide instead of an error. Lazy import avoids a
+            # module-level cycle (lark_module imports from this package
+            # at module scope).
+            from xyz_agent_context.module.lark_module.lark_module import (
+                _NO_BOT_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
 
         if brand not in ("feishu", "lark"):
             return {"success": False, "error": "brand must be 'feishu' or 'lark'."}

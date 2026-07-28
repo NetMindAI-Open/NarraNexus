@@ -46,10 +46,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from backend.routes.manyfold.sync import (
+    execute_job_once,
+    parse_run_job_control,
+)
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken
 from xyz_agent_context.schema import WorkingSource
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()
@@ -310,6 +314,100 @@ def _is_error(event: dict) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Manyfold run-job dispatch (control message short-circuit)
+# ---------------------------------------------------------------------------
+
+_RUN_JOB_HEARTBEAT_S = 15.0
+
+
+async def _run_job_completion(
+    *, agent_id: str, job_id: str, stream: bool
+):
+    """Answer a `[[nx:run_job ...]]` turn with the job's execution outcome
+    in both OpenAI shapes. No BackgroundRun is started — execute_job_once
+    drives JobTrigger's execution body directly (identical side effects to
+    a poller pickup: Inbox writes, next_run_time advance, status flips)."""
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created_ts = int(time.time())
+
+    task = asyncio.create_task(execute_job_once(agent_id, job_id))
+    # A disconnected client must never cancel the job run (铁律 #14) — the
+    # task keeps going; the callback just retrieves a potential exception.
+    task.add_done_callback(_log_orphaned_run_job)
+
+    if not stream:
+        outcome = await asyncio.shield(task)
+        return {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created_ts,
+            "model": agent_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": outcome.as_text(),
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        }
+
+    async def gen():
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={"role": "assistant", "content": ""},
+        )
+        while True:
+            try:
+                outcome = await asyncio.wait_for(
+                    asyncio.shield(task), timeout=_RUN_JOB_HEARTBEAT_S
+                )
+                break
+            except asyncio.TimeoutError:
+                # Empty-content heartbeat keeps proxies and the platform's
+                # idle watchdog from cutting a long job run's stream.
+                yield _chunk(
+                    id_=completion_id,
+                    created=created_ts,
+                    model=agent_id,
+                    delta={"content": ""},
+                )
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={"content": outcome.as_text()},
+        )
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={},
+            finish_reason="stop",
+        )
+        yield _done_sentinel()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+def _log_orphaned_run_job(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.exception(f"run_job task failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Main endpoint
 # ---------------------------------------------------------------------------
 
@@ -341,6 +439,21 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         )
 
     user_input = _extract_user_input(body.messages)
+
+    # Manyfold managed-trigger dispatch: a mirrored alarm fires a chat turn
+    # whose entire input is a run-job control message. Execute the stored
+    # job through JobTrigger's own body instead of starting an agent run
+    # around the literal control text. Not env-gated on purpose — the
+    # endpoint is already gateway-token-authed and try_acquire_job prevents
+    # double execution, so a rollback that leaves stale alarms behind stays
+    # harmless.
+    run_job_id = parse_run_job_control(user_input)
+    if run_job_id is not None:
+        return await _run_job_completion(
+            agent_id=agent_id,
+            job_id=run_job_id,
+            stream=body.stream,
+        )
 
     db = await get_db_client()
     active_runs = request.app.state.active_runs

@@ -6,7 +6,6 @@
  * StatusDot, StatusBadge, Toast. Implements NM Axiom #2 (warm-tinted status
  * palette independent of species).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.5
  */
 
 import type { ReactNode } from 'react';

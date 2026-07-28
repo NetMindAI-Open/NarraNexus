@@ -70,7 +70,7 @@ def test_config_dir_always_set_to_block_inheritance():
 def test_stage_oauth_credentials_copies_only_credential_file(tmp_path, monkeypatch):
     """Stage ONLY .credentials.json into the isolated dir — never the poisoned
     settings.json that caused the original incident."""
-    from xyz_agent_context.agent_framework import xyz_claude_agent_sdk as sdk
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as sdk
 
     host = tmp_path / "host_claude"
     host.mkdir()
@@ -104,7 +104,7 @@ def test_stage_oauth_credentials_newest_wins(tmp_path, monkeypatch):
     the CLI refreshed inside the isolated dir must not be clobbered by an older
     host copy (rotating refresh tokens would break); a fresh host login (host
     newer by mtime) DOES propagate in."""
-    from xyz_agent_context.agent_framework import xyz_claude_agent_sdk as sdk
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as sdk
 
     host_cred = tmp_path / ".credentials.json"
     host_cred.write_text('{"token":"host_login"}')
@@ -130,7 +130,7 @@ def test_stage_oauth_credentials_newest_wins(tmp_path, monkeypatch):
 
 def test_stage_oauth_credentials_missing_source_is_noop(tmp_path, monkeypatch):
     """No host file AND no Keychain entry → warn + no-op, never raise."""
-    from xyz_agent_context.agent_framework import xyz_claude_agent_sdk as sdk
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as sdk
 
     monkeypatch.setenv(
         "CLAUDE_CLI_CREDENTIALS_PATH", str(tmp_path / "nonexistent.json")
@@ -150,7 +150,7 @@ def test_darwin_keychain_wins_over_stale_host_file(tmp_path, monkeypatch):
     Jun-25 relic → the isolated CLI reported 'Not logged in' every turn."""
     import sys
 
-    from xyz_agent_context.agent_framework import xyz_claude_agent_sdk as sdk
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as sdk
 
     stale_host = tmp_path / ".credentials.json"
     stale_host.write_text('{"claudeAiOauth":{"accessToken":"STALE","expiresAt":1000}}')
@@ -171,7 +171,7 @@ def test_darwin_falls_back_to_host_file_when_keychain_empty(tmp_path, monkeypatc
     host file (the file path), so old file-based logins still work."""
     import sys
 
-    from xyz_agent_context.agent_framework import xyz_claude_agent_sdk as sdk
+    from xyz_agent_context.agent_framework.adapters.claude import sdk as sdk
 
     host = tmp_path / ".credentials.json"
     host.write_text('{"token":"from_file"}')
@@ -187,7 +187,7 @@ def test_darwin_falls_back_to_host_file_when_keychain_empty(tmp_path, monkeypatc
 def test_stage_blob_newest_wins_restages_when_newer(tmp_path):
     """A source blob with a LATER ``expiresAt`` replaces a stale staged copy —
     this is what propagates a fresh ``claude login`` on macOS."""
-    from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+    from xyz_agent_context.agent_framework.adapters.claude.sdk import (
         _stage_blob_newest_wins,
     )
 
@@ -205,7 +205,7 @@ def test_stage_blob_preserves_inplace_refresh(tmp_path):
     """A token the isolated CLI refreshed in place (staged ``expiresAt`` NEWER
     than the source's stale copy) must NOT be clobbered — re-injecting the
     source's already-consumed refresh token would log the user out."""
-    from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+    from xyz_agent_context.agent_framework.adapters.claude.sdk import (
         _stage_blob_newest_wins,
     )
 

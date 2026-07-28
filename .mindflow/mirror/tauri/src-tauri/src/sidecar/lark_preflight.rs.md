@@ -22,7 +22,7 @@ Broken in two ways:
 2. Requires outbound network to npm registry. China users / corp
    firewalls fail unpredictably.
 
-**v2 (current)**: bundle-first. `scripts/build-desktop.sh` runs
+**v2 (current)**: bundle-first. `scripts/release/build-desktop.sh` runs
 `npx skills add larksuite/cli -y -g` at BUILD time, stages the
 resulting `lark-*/` directories into `resources/lark-skills/`, and
 Tauri packages them into the .app. At first launch the preflight does

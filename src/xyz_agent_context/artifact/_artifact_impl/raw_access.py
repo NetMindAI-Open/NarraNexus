@@ -4,14 +4,14 @@
 @date: 2026-07-21
 @description: Resolve an artifact + sub-path to the on-disk file it serves.
 
-The public raw route (`backend/routes/artifacts_public.py`) serves an
+The public raw route (`backend/routes/artifacts/public.py`) serves an
 artifact's root directory: the entry file at `/raw/{token}/`, sibling assets
 at `/raw/{token}/{name}`. This module owns everything that is NOT HTTP:
 pointer lookup, workspace path resolution (flat→nested fallback), path-escape
 confinement, the workspace-root single-file constraint, and media-type
 selection. The route keeps token verification and response headers (CSP).
 
-Extracted from `backend/routes/artifacts_public.py` (2026-07-21).
+Extracted from `backend/routes/artifacts/public.py` (2026-07-21).
 
 Failure → structured ArtifactError:
 - ArtifactNotFound (404): artifact missing, token/agent mismatch, requested

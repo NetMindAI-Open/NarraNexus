@@ -35,7 +35,7 @@ than touching the DB directly.
 ## Upstream / downstream
 
 - **Upstream**: `lark_module.py`, `_lark_mcp_tools.py`, `lark_trigger.py`,
-  `backend/routes/lark.py`.
+  `backend/routes/channels/lark.py`.
 - **Downstream**: `AsyncDatabaseClient` via `self.db`.
 
 ## Gotchas

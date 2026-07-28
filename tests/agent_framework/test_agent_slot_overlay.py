@@ -16,15 +16,15 @@ from collections import defaultdict
 
 import pytest
 
-from xyz_agent_context.agent_framework.agent_slot_service import AgentSlotService
-from xyz_agent_context.agent_framework.provider_driver import (
+from xyz_agent_context.agent_framework.providers.slot_service import AgentSlotService
+from xyz_agent_context.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
 )
-from xyz_agent_context.agent_framework.provider_driver.self_heal import (
+from xyz_agent_context.agent_framework.providers.driver.self_heal import (
     self_heal_if_broken,
 )
-from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
-from xyz_agent_context.agent_framework.user_provider_service import (
+from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
+from xyz_agent_context.agent_framework.providers.user_service import (
     UserProviderService,
 )
 

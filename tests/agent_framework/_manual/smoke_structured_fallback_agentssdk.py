@@ -14,9 +14,9 @@ import os
 import sys
 from typing import Optional
 
-sys.path.insert(0, "/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus")
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "src"))
 from dotenv import load_dotenv
-load_dotenv("/home/bin.liang/Documents/03-open-source/NarraNexus-deploy/NarraNexus/.env")
+load_dotenv(str(__import__("pathlib").Path(__file__).resolve().parents[3] / ".env"))
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +31,7 @@ api_config.openai_config.base_url = "https://api.netmind.ai/inference-api/openai
 # Will be overridden per-call by passing model=
 api_config.openai_config.model = "deepseek-ai/DeepSeek-V3.1"
 
-from xyz_agent_context.agent_framework.openai_agents_sdk import (  # noqa: E402
+from xyz_agent_context.agent_framework.adapters.openai_agents import (  # noqa: E402
     OpenAIAgentsSDK,
     _response_format_capability,
     _capability_key,
@@ -109,7 +109,7 @@ async def run_once(sdk, model: str, schema, instructions: str, user_input: str) 
             output_type=schema,
             model=model,
         )
-        from xyz_agent_context.agent_framework.openai_agents_sdk import (
+        from xyz_agent_context.agent_framework.adapters.openai_agents import (
             get_last_llm_call_info,
         )
         info = get_last_llm_call_info() or {}
@@ -196,7 +196,7 @@ async def test_c_cache_persistence():
     # Subsequent calls: blocklisted → 1 fallback hop using cached level.
     print()
     print(f"  API hops per call: {api_calls_per_run}")
-    print(f"  Expected: 1st > 2nd ≈ 3rd (cache short-circuits the probing)")
+    print("  Expected: 1st > 2nd ≈ 3rd (cache short-circuits the probing)")
 
 
 async def test_d_default_model_path():

@@ -6,7 +6,6 @@
  * future graph view. ReactFlow has no theme system, so we centralize the
  * NM-conforming defaults here and pass them as props (or via helper).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §6.3
  */
 
 import type { CSSProperties } from 'react';

@@ -7,7 +7,6 @@
  * (sunken paper inputs), #3 (rings on toggles/radios), #6 (bracket motif on
  * checkbox / search).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.6
  */
 
 import {

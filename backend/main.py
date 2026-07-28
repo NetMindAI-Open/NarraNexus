@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from loguru import logger
 
 from xyz_agent_context.utils.logging import setup_logging
-from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
 from xyz_agent_context.utils.timezone import utc_now
 from backend.config import settings
 from backend.auth import _is_cloud_mode
@@ -117,7 +117,7 @@ async def lifespan(app: FastAPI):
     logger.info("Database connection pool initialized")
 
     # Auto-migrate schema (unified: works for both SQLite and MySQL via backend)
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     await auto_migrate(db._backend)
     logger.info("Schema auto-migration complete")
@@ -125,8 +125,7 @@ async def lifespan(app: FastAPI):
     # Provider Unification (Phase 0) — backfill new columns on legacy
     # user_providers rows. Idempotent + cheap; runs every boot so a row
     # added by an older codebase gets classified the moment we start.
-    # See reference/self_notebook/specs/2026-05-13-provider-unification-design.md
-    from xyz_agent_context.agent_framework.provider_driver import (
+    from xyz_agent_context.agent_framework.providers.driver import (
         backfill_provider_metadata,
     )
 
@@ -141,7 +140,6 @@ async def lifespan(app: FastAPI):
     # those to `failed` so the UI doesn't claim "still running" for
     # an agent that no longer exists in memory.
     #
-    # See reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md §4.1.6
     app.state.active_runs = {}
     try:
         running_rows = await db.get("events", {"state": "running"})
@@ -197,9 +195,9 @@ async def lifespan(app: FastAPI):
     # lifespan), applying every still-pending migration in order — so a DB that
     # skipped versions catches up one layer at a time. Best-effort: never block
     # startup on a migration error (search degrades gracefully; it retries next
-    # startup). See xyz_agent_context/migrations/.
+    # startup). See backend/migrations/.
     try:
-        from xyz_agent_context.migrations import run_pending_migrations
+        from backend.migrations import run_pending_migrations
 
         migrated = await run_pending_migrations(db)
         if migrated:
@@ -207,39 +205,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001 — data migration must never block startup
         logger.error(f"[migrate] migration runner skipped due to error: {e}")
 
-    # Wire system-default quota services. SystemProviderService is a
-    # module-level singleton that reads env once; in local mode or when
-    # env is incomplete its is_enabled() returns False and every downstream
-    # call is a no-op. Expose each piece on app.state for routes to consume.
-    from xyz_agent_context.agent_framework.system_provider_service import (
-        SystemProviderService,
+    # Provider resolution. One tree for every caller (see providers/resolver);
+    # the free tier is an ordinary provider card, so nothing extra is wired for
+    # it here beyond the wallet client the routes build on demand.
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        is_free_tier_enabled,
     )
-    from xyz_agent_context.agent_framework.quota_service import QuotaService
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         ProviderResolver,
     )
-    from xyz_agent_context.agent_framework.user_provider_service import (
+    from xyz_agent_context.agent_framework.providers.user_service import (
         UserProviderService,
     )
-    from xyz_agent_context.repository.quota_repository import QuotaRepository
     from xyz_agent_context.repository.user_repository import UserRepository
 
-    system_provider = SystemProviderService.instance()
-    quota_service = QuotaService(
-        repo=QuotaRepository(db),
-        system_provider=system_provider,
-    )
-    QuotaService.set_default(quota_service)  # cost_tracker hook reaches it
-
-    app.state.system_provider = system_provider
-    app.state.quota_service = quota_service
     app.state.user_repository = UserRepository(db)
-    app.state.provider_resolver = ProviderResolver(
-        user_provider_svc=UserProviderService(db),
-        system_provider_svc=system_provider,
-        quota_svc=quota_service,
-    )
-    logger.info(f"Quota subsystem wired (enabled={system_provider.is_enabled()})")
+    app.state.provider_resolver = ProviderResolver(UserProviderService(db))
+    logger.info(f"Provider resolution wired (free tier={is_free_tier_enabled()})")
 
     # Unified Agent Memory — start the background consolidation worker
     # (design 2026-06-03 §7.4). Drains the dirty-scope queue and distils raw
@@ -274,22 +256,22 @@ async def lifespan(app: FastAPI):
     # compose healthcheck start_period. Fire-and-forget with a done-callback.
     async def _seed_marketplaces() -> None:
         try:
-            from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
+            from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
 
             if not TeamMarketplaceService()._is_registry_host():
                 return  # a pure desktop client proxies to the cloud
-            from xyz_agent_context.repository._team_marketplace_seed import (
+            from xyz_agent_context.marketplace._team_marketplace_seed import (
                 seed_team_marketplace,
             )
 
             seeded = await seed_team_marketplace(db)
             logger.info(f"Team Marketplace seed: {seeded} templates present")
 
-            # First-party skills vendored in marketplace_skills/ (incl. the
+            # First-party skills vendored in marketplace/resources/marketplace_skills/ (incl. the
             # default NetMind vision/audio fallbacks) — without this a fresh
             # deploy has an empty Skills tab and default-skill install finds
             # nothing to auto-install on agent creation.
-            from xyz_agent_context.repository._skill_marketplace_seed import (
+            from xyz_agent_context.marketplace._skill_marketplace_seed import (
                 seed_skill_marketplace,
             )
 
@@ -359,6 +341,12 @@ async def lifespan(app: FastAPI):
 
 
 # Create FastAPI application
+# Vendor analytics sink is platform code — install the seam before any
+# route can fire track() (kernel default is NullSink otherwise).
+from backend.analytics import register_posthog_sink  # noqa: E402
+
+register_posthog_sink()
+
 app = FastAPI(
     title="Agent Context API",
     description="WebSocket streaming and REST APIs for Agent Context runtime",
@@ -388,9 +376,9 @@ app.middleware("http")(access_log_middleware)
 
 # Import and include routers
 from backend.routes.websocket import router as websocket_router
-from backend.routes.agents import router as agents_router
-from backend.routes.agents_artifacts import router as agents_artifacts_router
-from backend.routes.users_artifacts import router as users_artifacts_router
+from backend.routes.agents.core import router as agents_router
+from backend.routes.agents.artifacts import router as agents_artifacts_router
+from backend.routes.artifacts.users import router as users_artifacts_router
 from backend.routes.jobs import router as jobs_router
 from backend.routes.auth import router as auth_router
 from backend.routes.skills import router as skills_router
@@ -400,23 +388,23 @@ from backend.routes.home_assistant import router as home_assistant_router
 from backend.routes.providers import router as providers_router
 from backend.routes.inbox import router as inbox_router
 from backend.routes.notices import router as notices_router
-from backend.routes.dashboard import router as dashboard_router
-from backend.routes.lark import router as lark_router
-from backend.routes.slack import router as slack_router
-from backend.routes.telegram import router as telegram_router
-from backend.routes.wechat import router as wechat_router
-from backend.routes.narramessenger import router as narramessenger_router
-from backend.routes.discord import router as discord_router
+from backend.routes.dashboard.routes import router as dashboard_router
+from backend.routes.channels.lark import router as lark_router
+from backend.routes.channels.slack import router as slack_router
+from backend.routes.channels.telegram import router as telegram_router
+from backend.routes.channels.wechat import router as wechat_router
+from backend.routes.channels.narramessenger import router as narramessenger_router
+from backend.routes.channels.discord import router as discord_router
 from backend.routes.quota import router as quota_router
-from backend.routes.admin_quota import router as admin_quota_router
+from backend.routes.admin.quota import router as admin_quota_router
 from backend.routes.notifications import router as notifications_router
-from backend.routes.admin_logs import router as admin_logs_router
-from backend.routes.admin_migration import router as admin_migration_router
-from backend.routes.admin_runtime import router as admin_runtime_router
-from backend.routes.transcription import router as transcription_router
-from backend.routes.transcription_public import router as transcription_public_router
-from backend.routes.artifacts_public import router as artifacts_public_router
-from backend.routes.office_watch_proxy import (
+from backend.routes.admin.logs import router as admin_logs_router
+from backend.routes.admin.migration import router as admin_migration_router
+from backend.routes.admin.runtime import router as admin_runtime_router
+from backend.routes.transcription.routes import router as transcription_router
+from backend.routes.transcription.public import router as transcription_public_router
+from backend.routes.artifacts.public import router as artifacts_public_router
+from backend.routes.office_watch.proxy import (
     router as office_watch_router,
     public_router as office_watch_public_router,
 )
@@ -512,16 +500,26 @@ async def healthz():
 
 if os.environ.get("ENABLE_MANYFOLD_API", "").strip() in ("1", "true", "yes"):
     from backend.routes.openai_compat import router as openai_compat_router
-    from backend.routes.manyfold_agents import router as manyfold_agents_router
-    from backend.routes.manyfold_diagnostics import (
+    from backend.routes.manyfold.agents import router as manyfold_agents_router
+    from backend.routes.manyfold.diagnostics import (
         router as manyfold_diagnostics_router,
     )
-    from backend.routes.manyfold_files import router as manyfold_files_router
+    from backend.routes.manyfold.files import router as manyfold_files_router
+    from backend.routes.manyfold.sync import (
+        config_change_webhook_middleware,
+        router as manyfold_sync_router,
+    )
 
     app.include_router(openai_compat_router, tags=["ManyfoldOpenAI"])
     app.include_router(manyfold_agents_router, tags=["ManyfoldAgents"])
     app.include_router(manyfold_diagnostics_router, tags=["ManyfoldDiagnostics"])
     app.include_router(manyfold_files_router, tags=["ManyfoldFiles"])
+    app.include_router(manyfold_sync_router, tags=["ManyfoldSync"])
+    # Registered last → runs outermost (Starlette LIFO), so it observes the
+    # final status code and stays transparent for OPTIONS/non-2xx. It only
+    # acts on the response side; the webhook itself no-ops without the
+    # MANYFOLD_SYNC_WEBHOOK_* env.
+    app.middleware("http")(config_change_webhook_middleware)
     logger.info("Manyfold API enabled: /v1/chat/completions + /manyfold/* registered")
 else:
     logger.info("Manyfold API disabled (ENABLE_MANYFOLD_API not set)")

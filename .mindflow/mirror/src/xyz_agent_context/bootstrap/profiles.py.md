@@ -21,8 +21,8 @@ previously `artifact_runner`) so file_path/size_bytes are correct;
 content comes from `bootstrap/welcome_templates.py`).
 
 Agent creation selects a profile by name (a `bootstrap` parameter; default =
-today's behavior). See design + experiment evidence in
-`reference/self_notebook/specs/2026-06-16-bootstrap-profiles-design.md`.
+today's behavior). Design + experiment evidence are author-local
+(2026-06-16).
 
 ## Upstream / Downstream
 
@@ -59,7 +59,7 @@ hook a profile can override for richer conditions later (Decision D).
 ## Gotchas
 
 - The `arena` profile is registered as a side effect of importing
-  `services/arena_provisioning_service.py`. The runtime never resolves it (it
+  `backend/integrations/arena/arena_provisioning_service.py`. The runtime never resolves it (it
   reads stored metadata), so the import-timing only matters at create time,
   where arena always imports its own module.
 - `bootstrap_md()` returning `None` means "no Bootstrap.md" → `apply_bootstrap`

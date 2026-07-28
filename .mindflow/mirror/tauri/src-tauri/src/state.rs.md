@@ -60,7 +60,7 @@ check script in the deploy repo).
 Both factories gain a tenth service, `narramessenger_trigger` (order 9) —
 gateway long-poll subscriber, one async loop per
 `channel_narramessenger_credentials` row, no bound port. Added in lockstep
-across all startup paths per rule #7: `scripts/dev-local.sh`, `run.sh`, and
+across all startup paths per rule #7: `scripts/dev/dev-local.sh`, `run.sh`, and
 both factories here. **Still pending: `NarraNexus-deploy/.../compose.yml`**
 (separate deploy repo) — must add the trigger there before the cloud deploy
 or inbound NarraMessenger silently misses on EC2 (same class of gap that bit
@@ -90,8 +90,7 @@ React frontend mounts a `deep-link-received` event listener (events
 fired with no listener are dropped). The deep-link `on_open_url`
 callback in `lib.rs::setup` writes here; the frontend drains it via the
 `consume_pending_deep_link` Tauri command on first mount. See
-`.mindflow/mirror/tauri/src-tauri/src/lib.rs.md` and
-`drafts/logs/template_sharing_2026_05_18.md`.
+`.mindflow/mirror/tauri/src-tauri/src/lib.rs.md`.
 
 # state.rs — AppState, ServiceDef, and path resolution for the Tauri app
 
@@ -148,7 +147,7 @@ Both factories define the same seven services in the same order (since the
    (Lark / Slack / Telegram / Discord / WeChat / NarraMessenger) in a single
    event loop. Replaced the six per-channel services. No bound port.
 
-**These MUST stay in sync with `scripts/dev-local.sh` AND with
+**These MUST stay in sync with `scripts/dev/dev-local.sh` AND with
 `NarraNexus-deploy/stacks/narranexus-app/compose.yml` (CLAUDE.md rule #7).**
 Specifically the backend uvicorn ws-ping args above — mismatching the two
 makes chat streams drop on the dmg while they survive on dev. Adding a new
@@ -158,7 +157,7 @@ any non-channel service MUST still touch all startup paths together.
 ## The SQLite proxy startup delay
 
 Order 0 (sqlite_proxy) has `startup_delay_ms: Some(3000)`. This mirrors the
-`sleep 3` in `scripts/dev-local.sh`. Without this delay, backend/mcp/poller
+`sleep 3` in `scripts/dev/dev-local.sh`. Without this delay, backend/mcp/poller
 try to connect to the proxy before it binds port 8100 and crash. The value
 was chosen empirically — on slow machines 3 s may not be enough.
 
@@ -169,7 +168,7 @@ PATH for every Python child process when running from the dmg:
   `resources/nodejs/bin` (real node interpreter) and
   `resources/nodejs/node_modules/.bin` (the `claude` / `lark-cli` shims).
 
-Layout is produced by `scripts/build-desktop.sh` step 3.5-3.6. In dev mode
+Layout is produced by `scripts/release/build-desktop.sh` step 3.5-3.6. In dev mode
 the helper returns an empty Vec — dev users already have node + CLIs on
 their shell PATH.
 

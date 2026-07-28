@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from ..models import ConversationSession, ContinuityResult
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from ..config import config as narrative_config
 from .prompts import CONTINUITY_DETECTION_INSTRUCTIONS
 

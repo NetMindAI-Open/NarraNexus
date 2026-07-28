@@ -35,7 +35,7 @@ def _narrative(actors):
 
 @pytest.mark.asyncio
 async def test_user_actor_rendered_as_name_agent_kept_as_id(db_client, monkeypatch):
-    import xyz_agent_context.utils.db_factory as dbf
+    import xyz_agent_context.utils.db.db_factory as dbf
     async def _fake_db():
         return db_client
     monkeypatch.setattr(dbf, "get_db_client", _fake_db)

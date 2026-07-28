@@ -13,13 +13,13 @@ import json
 import pytest
 
 from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.provider_driver import (
+from xyz_agent_context.agent_framework.providers.driver import (
     resolve_user_runtime_llm_configs,
 )
-from xyz_agent_context.agent_framework.provider_driver.backfill import (
+from xyz_agent_context.agent_framework.providers.driver.backfill import (
     backfill_provider_metadata,
 )
-from xyz_agent_context.agent_framework.user_provider_service import (
+from xyz_agent_context.agent_framework.providers.user_service import (
     CODEX_CURATED_MODELS,
     UserProviderService,
 )

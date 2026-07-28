@@ -190,22 +190,27 @@ def register_telegram_mcp_tools(mcp: Any) -> None:
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
     async def tg_bind(
-        agent_id: str, bot_token: str, owner_username: str = ""
+        agent_id: str, bot_token: str = "", owner_username: str = ""
     ) -> dict:
         """Bind a Telegram bot to this agent.
 
-        ``bot_token`` is the token from @BotFather, format
-        ``<digits>:<base64>`` (e.g. ``7981632450:AAH-kxRP...``).
+        Call with NO token to get the full step-by-step setup guide
+        (@BotFather flow). Then call again with ``bot_token``
+        (``<digits>:<base64>`` from @BotFather) and the OPTIONAL
+        ``owner_username`` (owner trust signal).
 
-        ``owner_username`` is OPTIONAL — supply the user's Telegram
-        @username (e.g. ``@bin_liang`` or ``bin_liang``) so the agent
-        can later distinguish owner from stranger. We resolve it via
-        ``getChat("@handle")`` to get the immutable numeric user_id.
-        Without it, no trust signal — agent treats every Telegram
-        sender as untrusted.
-
-        Returns ``{"success": bool, "error"?: str, "data"?: {...}}``.
+        Returns ``{"success": bool, "error"?: str, "data"?: {...}}``; the
+        no-argument form returns ``{"success": True, "setup_guide": str}``.
         """
+        if not bot_token:
+            # Setup-residency (B++): the onboarding walkthrough left the
+            # per-turn system prompt; it is served here on demand instead.
+            # Lazy import avoids a module-level cycle (telegram_module
+            # imports this file for register_telegram_mcp_tools).
+            from xyz_agent_context.module.telegram_module.telegram_module import (
+                _NO_BOT_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
         mgr = await _get_manager()
         return await do_bind(mgr, agent_id, bot_token, owner_username)
 

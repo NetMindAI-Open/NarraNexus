@@ -28,4 +28,3 @@ service/route layers never touch raw JSON strings.
   with inline comments, consistent with the rest of `schema/` (no Python Enum
   classes anywhere in the package).
 
-Spec: `reference/self_notebook/specs/2026-07-20-skill-marketplace-tech-design-v1.1.md` §3.

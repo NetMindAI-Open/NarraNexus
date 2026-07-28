@@ -48,7 +48,7 @@ async def test_write_to_inbox_persists_row_with_correct_schema(
     )
     # Also patch the lazy import inside _write_to_inbox.
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client",
+        "xyz_agent_context.utils.db.db_factory.get_db_client",
         _async_db,
     )
 
@@ -99,7 +99,7 @@ async def test_write_to_inbox_swallows_missing_agent(db_client, monkeypatch):
 
     monkeypatch.setattr(bus_mod, "get_db_client", _async_db, raising=False)
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client",
+        "xyz_agent_context.utils.db.db_factory.get_db_client",
         _async_db,
     )
 

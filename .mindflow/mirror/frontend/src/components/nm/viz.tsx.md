@@ -63,4 +63,3 @@ viz-library-agnostic.
 
 - `lib/echarts-nm-theme.ts` — ECharts theme registered at app boot
 - `lib/reactflow-nm-config.ts` — ReactFlow defaults
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.11

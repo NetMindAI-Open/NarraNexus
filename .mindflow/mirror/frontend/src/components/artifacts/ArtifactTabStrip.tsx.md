@@ -19,8 +19,6 @@ want to — "use the workspace section of the config panel".
 
 ## 2026-05-14 — delete-source popup (pointer model)
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The 🗑️ button no longer fires `window.confirm` + immediate delete. It opens
 an inline `Dialog` with a checkbox:
 

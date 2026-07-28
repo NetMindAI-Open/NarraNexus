@@ -80,7 +80,7 @@ def is_valid_file_id(file_id: str) -> bool:
 def get_workspace_path(agent_id: str, user_id: str) -> Path:
     """Return the agent-user workspace root.
 
-    Mirrors `backend.routes.agents_files._get_workspace_path` so file uploads
+    Mirrors `backend.routes.agents.files._get_workspace_path` so file uploads
     from chat live alongside the workspace files the agent already manages.
     Imported lazily so this util has no FastAPI dependency at import time.
     """

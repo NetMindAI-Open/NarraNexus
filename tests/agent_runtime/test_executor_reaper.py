@@ -55,6 +55,28 @@ async def test_reap_once_empty_when_nothing_idle():
     assert await reaper.reap_once() == []
 
 
+@pytest.mark.asyncio
+async def test_a_stop_failure_does_not_abort_the_pass():
+    """One user's broker hiccup must not stop the others from being culled —
+    the broker's own label-based reaper is the backstop for the one that
+    failed."""
+    stopped = []
+
+    async def stop_fn(user_id):
+        if user_id == "b":
+            raise RuntimeError("broker down")
+        stopped.append(user_id)
+
+    reaper = ExecutorReaper(
+        _FakeController(["a", "b", "c"]), stop_fn, ttl_seconds=1
+    )
+    reaped = await reaper.reap_once()
+
+    assert stopped == ["a", "c"]
+    assert reaped == ["a", "c"]
+
+
+
 def test_maybe_start_is_noop_without_broker(monkeypatch):
     monkeypatch.delenv("BROKER_URL", raising=False)
     assert maybe_start_executor_reaper() is None

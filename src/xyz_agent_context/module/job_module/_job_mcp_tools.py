@@ -60,97 +60,44 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         narrative_id: Optional[str] = None
     ) -> dict:
         """
-        Create a background Job - USE SPARINGLY, CHECK IF I ALREADY CREATED JOBS FIRST!
-
-        ⚠️ IMPORTANT: Before calling this tool, check the "Jobs I Just Created" section
-        in my instructions. I may have already created jobs for the user's request.
-        Only use this tool for NEW scheduled/recurring tasks not already created.
-
-        When to use this tool (RARE):
-        - User explicitly requests a NEW recurring reminder (e.g., "Remind me to drink water every day at 8am")
-        - User requests a NEW one-time scheduled task not covered by existing jobs
-        - NO matching job exists in the jobs I already created
-
-        When NOT to use this tool:
-        - Any task that matches a job I already created
-        - Multi-step workflows (I already created job chains for these)
-        - Research/analysis tasks (I already created jobs for these)
+        Create a background Job. IDEMPOTENCY: first check "Jobs I Just Created"
+        in my instructions; call ONLY if no matching job already exists.
 
         Args:
-            agent_id: The Agent ID that owns this job
-            user_id: The User ID who created/requested this job
-            title: Short title for the job
+            agent_id: Owning Agent ID
+            user_id: Requesting User ID
+            title: Short title
             description: Detailed description
-            job_type: Job type - MUST choose the right type:
-                - "one_off": Single execution at a specific time
-                - "scheduled": Periodic execution on a schedule (cron or interval)
-                - "ongoing": Continuous execution until end_condition is met (REQUIRED for sales follow-up!)
-            trigger_config: Configuration depends on job_type.
-                REQUIRED for every shape: "timezone" as an IANA name
-                (e.g. "Asia/Shanghai", "America/New_York"). Use the user's
-                current timezone from the User Temporal Context.
+            job_type: "one_off" (run once) | "scheduled" (repeat on
+                cron/interval) | "ongoing" (repeat until end_condition met;
+                use for persistent follow-up goals)
+            trigger_config: Shape per job_type; EVERY shape REQUIRES "timezone"
+                (IANA name from User Temporal Context).
                 - one_off: {"run_at": "2026-01-20T09:00:00", "timezone": "Asia/Shanghai"}
-                    NOTE: run_at MUST be naive ISO 8601 (no "Z", no "+08:00" suffix).
-                    Declare timezone via the separate "timezone" field instead.
-                - scheduled: {"cron": "0 8 * * *", "timezone": "Asia/Shanghai"}
-                             or {"interval_seconds": 3600, "timezone": "Asia/Shanghai"}
-                - ongoing: {"interval_seconds": 86400, "end_condition": "...", "timezone": "Asia/Shanghai"}
-            payload: The instruction to execute
-            notification_method: default "inbox"
-            task_key: Optional identifier for dependencies
-            depends_on_job_ids: Optional list of job instance_ids to wait for
-            related_entity_id: Target user ID for this job. IMPORTANT rules:
-                - If job is for Agent to work and report back to requester: put requester's user_id
-                  Example: User asks "research competitors" → "user_requester_id"
-                - If job involves acting on another user (sales, notifications): put target user's ID
-                  Example: Manager says "sell to xiaoming" → "user_xiaoming"
-                - This ID will be used as the main identity when job executes
-            narrative_id: Narrative ID to load conversation context/summary during execution
+                  run_at MUST be naive ISO 8601 — no "Z"/offset suffix.
+                - scheduled: {"cron": "0 8 * * *", "timezone": ...} OR
+                  {"interval_seconds": 3600, "timezone": ...}
+                - ongoing: {"interval_seconds": 86400, "end_condition": "...",
+                  "timezone": ...}
+            payload: Instruction executed when the job runs
+            notification_method: delivery method (use default)
+            task_key: Optional dependency identifier
+            depends_on_job_ids: instance_ids ("job_xxxxxxxx") to wait for —
+                NOT DB job_id
+            related_entity_id: Target user ID. RULE: report-back-to-requester
+                job → requester's user_id; job acting ON another user → that
+                user's ID. Decides whose context loads at execution.
+            narrative_id: Narrative to load as conversation context at execution
 
-        Returns:
-            dict with success, job_id, instance_id, message
+        Returns: dict(success, job_id, instance_id, message)
 
-        Examples:
-            # Self-service job (Agent works, reports back to requester)
-            job_create(
-                agent_id="agent_123",
-                user_id="user_manager",
-                title="Competitor Research",
-                description="Research main competitors",
-                job_type="one_off",
-                trigger_config={"run_at": "2026-01-20T09:00:00", "timezone": "Asia/Shanghai"},
-                payload="Research competitors and send report...",
-                related_entity_id="user_manager"  # Report back to requester
-            )
+        Example:
+            job_create(agent_id="agent_1", user_id="user_m", title="Report",
+                description="...", job_type="scheduled", payload="...",
+                trigger_config={"cron": "0 18 * * *", "timezone": "Asia/Shanghai"})
 
-            # ONGOING job for sales follow-up (IMPORTANT: Use this for sales tasks!)
-            job_create(
-                agent_id="agent_123",
-                user_id="user_manager",  # Manager who assigned the task
-                title="Sell MacBook Air M4 to Xiaoming",
-                description="Continuously follow up with customer Xiaoming to sell MacBook Air M4",
-                job_type="ongoing",  # ← MUST be "ongoing" for sales follow-up!
-                trigger_config={
-                    "interval_seconds": 86400,  # Check every day
-                    "end_condition": "Customer explicitly closes deal (places order) or explicitly declines (says not needed)",
-                    "timezone": "Asia/Shanghai"
-                },
-                payload="Target customer Xiaoming, sell MacBook Air M4, understand needs and recommend suitable configuration",
-                related_entity_id="user_xiaoming",  # Target customer
-                narrative_id="nar_xxx"  # Link to sales project narrative
-            )
-
-            # Scheduled job for daily progress report
-            job_create(
-                agent_id="agent_123",
-                user_id="user_manager",
-                title="MacBook Air Sales Progress Monitoring",
-                description="Report customer follow-up progress to sales manager daily",
-                job_type="scheduled",
-                trigger_config={"cron": "0 18 * * *", "timezone": "Asia/Shanghai"},  # 6 PM daily
-                payload="Report follow-up progress for all customers, report regardless of whether there is progress",
-                related_entity_id="user_manager"  # Report to manager
-            )
+        Common errors: missing "timezone"; run_at with "Z"/offset; "scheduled"
+        with end_condition (use "ongoing"); DB job_id in depends_on_job_ids.
         """
         from xyz_agent_context.module.job_module.job_service import JobInstanceService
 
@@ -411,123 +358,39 @@ def create_job_mcp_server(port: int, get_db_client_fn) -> FastMCP:
         related_entity_id: Optional[str] = None
     ) -> dict:
         """
-        Update an existing Job's properties, scheduling, or status.
+        Update an existing Job. Only passed fields change. New job → job_create;
+        query → job_retrieval_by_id.
 
-        WHEN TO USE THIS TOOL:
-        - Manager requests to modify a job (e.g., "Change follow-up frequency to weekly")
-        - Manager provides additional guidance for a job (e.g., "Emphasize after-sales service when following up with Xiaoming")
-        - Manager wants to pause/resume/cancel a job (e.g., "Pause follow-up with Xiaoming")
-        - Manager wants to reschedule a job (e.g., "Execute this task immediately")
-        - Need to change job type (e.g., from one_off to ongoing)
+        Args:
+            agent_id: Your Agent ID (authorization)
+            job_id: Format "job_xxxxxxxx" (from job_retrieval_* tools)
+            title: New title
+            description: New description
+            payload: New instruction — REPLACES the entire payload
+            guidance_text: APPENDS a "## Manager Guidance" section to the
+                payload (after new payload if both given)
+            trigger_config: Same shapes/rules as job_create. EVERY shape
+                REQUIRES "timezone" (IANA name); run_at naive ISO 8601 (no
+                "Z"/offset). Shapes: one_off {"run_at","timezone"}; scheduled
+                {"cron" OR "interval_seconds","timezone"}; ongoing
+                {"interval_seconds","end_condition","timezone", optional
+                "max_iterations"}
+            job_type: "one_off" | "scheduled" | "ongoing". WARNING: also
+                update trigger_config to match the new type.
+            next_run_time: Override next run, ISO8601 UTC ("...Z" or offset).
+                For "execute now" / one-shot reschedule; lasting changes go
+                via trigger_config (re-applies the job's frozen timezone).
+            status: "active" (resume) | "paused" (skipped until resumed) |
+                "cancelled" (TERMINAL, cannot undo)
+            related_entity_id: New target user ID (who the job is for/about)
 
-        WHEN NOT TO USE THIS TOOL:
-        - Creating a new job → use job_create instead
-        - Querying job details → use job_retrieval_by_id instead
-        - The job doesn't exist yet
+        Returns: dict(success, job_id, updated_fields, message)
 
-        ARGS:
-            agent_id (str, required): Your Agent ID. Used for authorization check.
+        Example: job_update(agent_id="agent_1", job_id="job_abc1",
+            trigger_config={"interval_seconds": 604800, "timezone": "Asia/Shanghai"})
 
-            job_id (str, required): The ID of the job to update. Format: "job_xxxxxxxx".
-                You can get this from job_retrieval_* tools or from the jobs I already created.
-
-            title (str, optional): New title for the job.
-                Example: "Sell MacBook Pro M4 to Xiaoming"
-
-            description (str, optional): New description for the job.
-                Example: "Continuously follow up with customer Xiaoming to sell new MacBook Pro"
-
-            payload (str, optional): New execution instruction. REPLACES the entire existing payload.
-                Use this when you need to completely rewrite the job's instructions.
-                Example: "Contact Xiaoming, understand his interest in MacBook Pro, focus on M4 chip performance"
-
-            guidance_text (str, optional): Additional guidance to APPEND to the existing payload.
-                This adds a "## Manager Guidance" section at the end of the payload.
-                Use this when manager provides supplementary instructions without replacing the original.
-                Example: "Emphasize our 24-hour after-sales service and free on-site repair"
-                Note: If both payload and guidance_text are provided, guidance_text appends to the new payload.
-
-            trigger_config (dict, optional): New trigger configuration.
-                REQUIRED for every shape: "timezone" as an IANA name (e.g.
-                "Asia/Shanghai"). Use the user's current timezone from the
-                User Temporal Context. Examples:
-                - For ONE_OFF jobs:
-                    {"run_at": "2026-01-20T09:00:00", "timezone": "Asia/Shanghai"}
-                    NOTE: run_at MUST be naive ISO 8601 (no "Z" / no offset).
-                - For SCHEDULED jobs (choose one):
-                    {"cron": "0 8 * * *", "timezone": "Asia/Shanghai"}
-                    {"cron": "0 9 * * 1", "timezone": "America/New_York"}
-                    {"interval_seconds": 3600, "timezone": "Asia/Shanghai"}
-                    {"interval_seconds": 86400, "timezone": "Asia/Shanghai"}
-                - For ONGOING jobs:
-                    {"interval_seconds": 86400, "end_condition": "...", "timezone": "Asia/Shanghai"}
-                    {"interval_seconds": 172800, "end_condition": "...", "max_iterations": 10, "timezone": "Asia/Shanghai"}
-                Common intervals: 3600(1h), 86400(1d), 172800(2d), 604800(1w)
-
-            job_type (str, optional): Change the job type. Valid values:
-                - "one_off": Execute once at a specific time, then complete
-                - "scheduled": Execute repeatedly on a schedule (cron or interval)
-                - "ongoing": Execute repeatedly until end_condition is met
-                WARNING: When changing job_type, you should also update trigger_config accordingly.
-
-            next_run_time (str, optional): Override the next execution time.
-                ISO8601 UTC format ("YYYY-MM-DDTHH:MM:SSZ" or with explicit offset).
-                Use this for Type-B "execute immediately" or "reschedule to X".
-                For regular schedule changes, prefer updating trigger_config so the
-                job's frozen timezone is re-applied automatically.
-
-            status (str, optional): Change job status. Valid values:
-                - "active": Activate or resume the job. JobTrigger will poll and execute it.
-                - "paused": Pause the job. JobTrigger will skip it. Can be resumed later.
-                - "cancelled": Cancel permanently. This is a TERMINAL state - cannot be undone.
-                Note: Use job_pause tool for simple pause, job_cancel for simple cancel.
-
-            related_entity_id (str, optional): Update the target entity (user) for this job.
-                This determines who the job is "about" or "for".
-                Example: "user_xiaoming" for a sales follow-up job targeting xiaoming.
-
-        RETURNS:
-            dict with keys:
-            - success (bool): Whether the update succeeded
-            - job_id (str): The job ID that was updated
-            - updated_fields (list): List of field names that were updated
-            - message (str): Success or error message
-
-        EXAMPLES:
-            # Manager says: "Change Xiaoming's follow-up task to weekly"
-            job_update(
-                agent_id="agent_123",
-                job_id="job_abc123",
-                trigger_config={"interval_seconds": 604800, "timezone": "Asia/Shanghai"}  # 7 days
-            )
-
-            # Manager says: "Emphasize after-sales service advantages when following up with Xiaoming"
-            job_update(
-                agent_id="agent_123",
-                job_id="job_abc123",
-                guidance_text="Focus on emphasizing our 24-hour after-sales service and 3-year warranty policy"
-            )
-
-            # Manager says: "Execute this task right now"
-            job_update(
-                agent_id="agent_123",
-                job_id="job_abc123",
-                next_run_time="2026-01-15T10:30:00"  # current time
-            )
-
-            # Manager says: "Pause follow-up with Xiaoming, wait until their internal discussion is done"
-            job_update(agent_id="agent_123", job_id="job_abc123", status="paused")
-
-            # Manager says: "Xiaoming already bought from another vendor, cancel this task"
-            job_update(agent_id="agent_123", job_id="job_abc123", status="cancelled")
-
-            # Change a one-off job to ongoing with end condition
-            job_update(
-                agent_id="agent_123",
-                job_id="job_abc123",
-                job_type="ongoing",
-                trigger_config={"interval_seconds": 86400, "end_condition": "Customer completes purchase or explicitly refuses", "timezone": "Asia/Shanghai"}
-            )
+        Common errors: job not found / other agent's; missing "timezone" or
+        run_at with offset; invalid job_type/status; no fields passed.
         """
         try:
             from xyz_agent_context.module.job_module.job_service import JobInstanceService

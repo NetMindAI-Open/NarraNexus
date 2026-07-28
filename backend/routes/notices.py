@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request, Query
 
 from xyz_agent_context.repository.inbox_repository import InboxRepository
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 from backend.auth import resolve_current_user_id
 

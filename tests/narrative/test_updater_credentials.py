@@ -10,9 +10,9 @@ import types
 
 import pytest
 
-from xyz_agent_context.agent_framework import provider_resolver
+from xyz_agent_context.agent_framework.providers import resolver as provider_resolver
 from xyz_agent_context.narrative._narrative_impl import updater as updater_mod
-from xyz_agent_context.utils import db_factory
+from xyz_agent_context.utils.db import db_factory
 from xyz_agent_context.services import background_llm_alerts as alerts
 
 
@@ -76,7 +76,7 @@ async def test_resolver_failure_skips_llm_and_alerts(monkeypatch):
         return object()
 
     async def _fake_inject(agent_id, db):
-        raise provider_resolver.QuotaExceededError("free tier exhausted")
+        raise provider_resolver.NoProviderConfiguredError("u_owner")
 
     async def _fake_alert(**kwargs):
         captured.update(kwargs)

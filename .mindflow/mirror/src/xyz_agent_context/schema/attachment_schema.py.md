@@ -26,7 +26,7 @@ binary content lives on disk under the agent workspace via
 ## Upstream / Downstream
 
 Producers:
-- `backend/routes/agents_attachments.py::upload_attachment` builds an
+- `backend/routes/agents/attachments.py::upload_attachment` builds an
   Attachment after sniffing MIME and storing the bytes
 - `frontend/src/components/chat/ChatPanel.tsx` accumulates Attachments
   in `pendingAttachments` state and sends them with the WS payload
@@ -63,7 +63,7 @@ built.
 new mime type only needs to be classified once and every layer benefits.
 
 **`transcript` is now actively populated for audio uploads.** Set by
-`backend/routes/agents_attachments.py` via
+`backend/routes/agents/attachments.py` via
 `xyz_agent_context.utils.audio_transcription.transcribe_audio` when the
 upload's MIME starts with `audio/` AND the user has an OpenAI-protocol
 provider configured. `synthesize_marker` checks this field and, when

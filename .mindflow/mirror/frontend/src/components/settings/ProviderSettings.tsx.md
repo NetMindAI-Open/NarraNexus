@@ -1,7 +1,30 @@
 ---
 code_file: frontend/src/components/settings/ProviderSettings.tsx
-last_verified: 2026-07-16
+last_verified: 2026-07-26
 ---
+
+## 2026-07-26 — Claude 卡片 Section C：setup-token 粘贴连接
+
+Claude Code Login 卡新增第三段（A=CLI 登录态、B=provider 记录态之下）：
+`claude setup-token` 指引 + password 输入框 + 连接按钮，走既有
+`addProvider({card_type:'claude_oauth', api_key: token})` 通道（后端对已
+有卡做原位升级，槽绑定不动）。`auth_type === 'oauth_token'` 时 Section B
+显示「已通过 setup-token 连接」，Section C 变为换 token 提示（一年期）。
+推荐 token 而非登录态的原因 = 2026-07-23 macOS Keychain 命名空间事故：
+token 运输层不依赖上方 CLI 登录状态。i18n 键 settings.provider.setupToken*
+已加全 10 个 locale。
+
+## 2026-07-23 — 自定义 provider 表单内「测试连通」按钮
+
+原来只有详情弹窗（provider 存好后）才有 Test 按钮，添加表单只能保存。
+现在自定义表单底部按钮改成一行两个：左「测试连通」（`handleTestForm`
+→ `POST /api/providers/test-config`，直接测表单值、不落库）+ 右「Add
+provider」。结果行 `formTestResult`（绿/红）复用详情弹窗测试结果样式；
+`openForm`/切协议/保存成功都会清空它；**且 key/url/models/auth_type 任一
+onChange 也清空**——测出红字后改正输入，红字不再挂着说谎。响应做兜底：
+`.json().catch(()=>({}))` + `res.message || (string 型 res.detail) ||
+networkError`，401/422 的 `{detail}` 不会渲染成一行空红字。i18n 新增
+`settings.provider.testConnection`（10 语言）。
 
 ## 2026-07-16 — 每把 NetMind key 显示所属账户邮箱
 
@@ -12,7 +35,7 @@ last_verified: 2026-07-16
 > **Obsolete claim below (2026-07-10)**: the 2026-06-10 entry "accurate codex
 > no-provider message" describes a `CODEX_ALLOWED_PROVIDER_SOURCES` filter and a
 > "NetMind / Yunwu / OpenRouter not supported" message. That constant was
-> **removed** (see [[agentFramework]] / [[user_provider_service]] 2026-07-10) and
+> **removed** (see [[agentFramework]] / [[user_service]] 2026-07-10) and
 > that error copy no longer lives in this component (the agent-slot editor moved
 > to [[ModelDefaultsSettings]] in #81). codex_cli now accepts any openai-protocol
 > provider — aggregators included (binding rule #15).
@@ -123,7 +146,7 @@ anthropic → claude-haiku-4-5). That map **mirrors backend
 ``_ONBOARD_HELPER_MODELS``** in model_catalog.py and must stay in sync.
 Display-only; the persisted slot value is still the ``"default"``
 sentinel (which lets each helper call site pick its own fast model — see
-``openai_agents_sdk._resolve_model`` mode 1).
+``adapters.openai_agents._resolve_model`` mode 1).
 
 ## 2026-06-10 (5th pass) — helper dropdown honors server required_protocols
 
@@ -142,7 +165,7 @@ The helper_llm provider dropdown now filters out auth_type=oauth rows.
 This became urgent after the helper slot opened to the anthropic
 protocol: claude_oauth (anthropic) joined codex_oauth (openai) as a
 selectable-but-broken option. Server-side mirror gate lives in
-user_provider_service.set_slot.
+providers.user_service.set_slot.
 
 ## 2026-06-10 (later) — Quick Add block replaced by shared OneKeyOnboard
 
@@ -206,7 +229,7 @@ still holding the dropped A/B aliases (`codex_cli_v2`,
 over a silent startup migration: cleaner code, one-time minor
 user friction, no automation that has to keep working forever.
 
-v1 source file (`xyz_codex_cli_sdk.py`) intentionally kept in the
+v1 source file (`adapters/codex/cli_sdk.py`) intentionally kept in the
 repo as revival fallback — if v2 has a critical regression we can
 flip one `register_agent_loop_driver` line in
 `agent_framework/__init__.py` to bring v1 back online without

@@ -21,7 +21,7 @@ from fastapi.responses import Response
 from loguru import logger
 
 from backend.auth import reject_cross_origin, resolve_current_user_id
-from xyz_agent_context.team_marketplace_service import TeamMarketplaceService
+from xyz_agent_context.marketplace.team_marketplace_service import TeamMarketplaceService
 
 router = APIRouter()
 

@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-06-08
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — [4.6] record_cost 透传 cache/num_turns(W1,纯搬运)
+
+`record_cost(...)` 调用新增 `cache_read_tokens`/`cache_creation_tokens`/`num_turns`
+三个实参(来自 execution_result)。fire-and-forget 契约不变。
 
 ## 2026-06-08 — interaction index (chat+event merge)
 

@@ -12,7 +12,7 @@ Phase 3 of the multimodal-audio rollout was originally going to ship an `<audio>
 
 This component owns the voice-memo render path. Plain audio file uploads (Paperclip / drag-drop / paste) deliberately do NOT go through here: those keep the regular file-chip rendering because the user is sharing a file with the agent, not dictating. The discriminator is `att.source === 'recording'`, which the upload route echoes back from the request's `source` query param and which is persisted on the attachment dict so chat history reload still picks the right path.
 
-Both cases (recording AND upload) get Whisper-style transcription on the backend so the agent always receives the spoken content via the system prompt — `source` only changes how the bubble renders. Transcription routes through `agent_framework.transcription.TranscriptionService` (not the deleted `utils/audio_transcription`); resolver picks OpenAI multipart or NetMind submit-poll based on the user's existing provider config.
+Both cases (recording AND upload) get Whisper-style transcription on the backend so the agent always receives the spoken content via the system prompt — `source` only changes how the bubble renders. Transcription routes through `agent_framework.llm.transcription.TranscriptionService` (not the deleted `utils/audio_transcription`); resolver picks OpenAI multipart or NetMind submit-poll based on the user's existing provider config.
 
 ## Upstream / Downstream
 

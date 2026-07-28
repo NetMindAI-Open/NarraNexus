@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
+
+Declares `all_tool_names` + `setup_tool_names = {slack_bind}` per the
+[[channel_module_base]] setup-residency contract. The `get_instructions`
+unbound branch now returns `unbound_setup_line()` instead of the full
+onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
+served on demand by zero-arg `slack_bind` (see [[_slack_mcp_tools]]). While
+unbound, every non-setup tool's schema is stripped from the model context.
 
 ## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
 
@@ -31,8 +40,7 @@ flag (see message_source_handler.py.md, 2026-07-03).
 
 ## Why it exists
 
-Phase 3 of the IM channel abstraction (see
-``reference/self_notebook/specs/2026-05-08-im-integration-design.md`` § 9).
+Phase 3 of the IM channel abstraction (2026-05-08 design, author-local).
 Slack's ``ChannelModuleBase`` subclass — wires platform-specific prompt
 content, credential schema, sender, and MCP tool registration to the
 shared mechanism.

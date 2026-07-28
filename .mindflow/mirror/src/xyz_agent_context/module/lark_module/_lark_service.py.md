@@ -9,14 +9,14 @@ stub: false
 ## Why it exists
 
 Business logic for Lark binding that must NOT live in the API layer
-(`backend/routes/lark.py`) to avoid circular imports: both the HTTP
+(`backend/routes/channels/lark.py`) to avoid circular imports: both the HTTP
 route AND the MCP tool layer (`_lark_mcp_tools.py`) call into here.
 The two surfaces share the same `do_bind`, `resolve_owner`,
 `determine_auth_status` primitives.
 
 ## Upstream / Downstream
 
-- **Called by**: `backend/routes/lark.py` (HTTP bind), `_lark_mcp_tools.py`
+- **Called by**: `backend/routes/channels/lark.py` (HTTP bind), `_lark_mcp_tools.py`
   (agent-driven bind / diagnostic).
 - **Calls**: `_lark_credential_manager` (DB), `lark_cli_client` (subprocess),
   `_lark_workspace` (HOME isolation), `_lark_error_translator` (user-facing

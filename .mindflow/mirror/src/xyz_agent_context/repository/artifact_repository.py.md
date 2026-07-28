@@ -23,8 +23,6 @@ agent-scoped scans still want it.
 
 ## 2026-05-14 — pointer model: version table dropped
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The repository no longer touches `instance_artifact_versions`. Changes:
 - `create()` is now a plain single-row insert — the entity carries `file_path`
   + `size_bytes` (the runner computes both).
@@ -43,13 +41,13 @@ checks) live upstream in `artifact_runner`; this layer is deliberately dumb.
 ## Upstream
 
 - `artifact_runner.register_artifact` — the production caller.
-- `backend/routes/agents_artifacts.py` + `users_artifacts.py` — list / detail /
+- `backend/routes/agents/artifacts.py` + `artifacts/users.py` — list / detail /
   pin / delete endpoints.
 - Tests — `tests/repository/test_artifact_repository.py` (real in-memory SQLite).
 
 ## Downstream
 
-- `AsyncDatabaseClient` (utils/database.py) — CRUD helpers + `execute` for raw SQL.
+- `AsyncDatabaseClient` (utils/db/database.py) — CRUD helpers + `execute` for raw SQL.
 - `schema_registry` `instance_artifacts` table — row shape.
 - `BaseRepository[Artifact]` — `get_by_id`, `get_by_ids`, `find`, `find_one`.
 

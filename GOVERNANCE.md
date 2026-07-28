@@ -28,7 +28,7 @@ and uncontroversial, but anything touching the items below requires
 a second maintainer review:
 
 - `CLAUDE.md` or any file under `.mindflow/project/references/`
-- Database schema (`src/.../utils/schema_registry.py` or table
+- Database schema (`src/.../utils/db/schema_registry.py` or table
   registrations)
 - Auth / identity (`backend/auth.py`,
   `backend/routes/auth.py`, anything around `request.state.user_id`)

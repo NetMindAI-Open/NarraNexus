@@ -15,7 +15,6 @@ Privacy: the user's typed text travels verbatim (they wrote it FOR the team);
 identifiers are hashed by feedback_client. The send is one awaited attempt
 capped at 3 s — the dialog shows a sending state meanwhile.
 
-Spec: reference/self_notebook/specs/2026-07-10-feedback-mechanism-design.md
 """
 from __future__ import annotations
 
@@ -25,7 +24,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from backend.auth import CurrentUser, get_current_user
-from xyz_agent_context.services.feedback_client import CATEGORIES, send_feedback
+from xyz_agent_context.integrations.feedback_client import CATEGORIES, send_feedback
 
 router = APIRouter()
 

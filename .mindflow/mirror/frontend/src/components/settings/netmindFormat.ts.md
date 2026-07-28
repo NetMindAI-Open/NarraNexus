@@ -1,8 +1,29 @@
 ---
 code_file: frontend/src/components/settings/netmindFormat.ts
-last_verified: 2026-07-20
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28（补）— 免费额度专用 `creditMoney`，6 位小数
+
+Owner 现场反馈：账号明明用过了，免费额度还是 `10`。数据没错（接口返回
+`remaining: 9.993714`），是 `money()` 的 `toFixed(2)` 把它抹平了 —— 免费额度
+上跑一轮真实对话只花几厘（~$0.0027），两位小数下**一整段使用都四舍五入没了**，
+看起来像根本没扣。
+
+新增 `creditMoney`（`toFixed(6)`，网关自己的精度）只给免费额度那一行用；
+`money()` 保持两位 —— 余额 hero 和套餐额度不是亚分级数字，六位只会变难读。
+补零是有意的：位数固定，轮询刷新时数字不会左右跳。
+
+## 2026-07-28 — 免费额度的单位从 token 变美元
+
+`freeTierTokensLeft` / `formatTokens` 换成 `freeTierCreditLeft`，
+`freeTierPctLeft` 从「input/output 里更枯竭的那一维」改成「钱包已花掉多少
+比例」。
+
+双维度的写法本来就是 token 计量的产物（input/output 差价约 5 倍，所以必须
+取更紧的那一维）。钱包是单一美元数，天然只有一个维度 —— 而且这样一来，
+这一行的数字和它下面那个余额 hero 说的是同一件事。
 
 ## 2026-07-20 — 新增 formatTokens + freeTierTokensLeft（行值从 % 改 token）
 

@@ -17,7 +17,7 @@ stub: false
 ## 2026-07-20 — install/remove 端点接入 InstallPipeline(stage 3)
 
 `POST /install` 与 `DELETE /{skill_name}` 改为经
-`_skill_marketplace_impl/install_pipeline.py`(7 步引擎:扫描 Gate → 依赖/
+`marketplace/_skill_marketplace_impl/install_pipeline.py`(7 步引擎:扫描 Gate → 依赖/
 兼容校验 → 冲突+config 迁移 → 落盘 → meta hash 字段 → skill_installations
 审计 → 自动归档)。响应模型不变;`backup_after_api_install` 从本文件移入
 pipeline(所有安装入口统一享有)。行为差异仅两点:恶意包(HIGH 扫描规则)

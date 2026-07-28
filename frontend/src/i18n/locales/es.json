@@ -123,6 +123,16 @@
         "activity": "Actividad en segundo plano",
         "lark": "Lark",
         "callback": "Retorno de llamada"
+      },
+      "meta": {
+        "input": "Entrada",
+        "output": "Salida",
+        "duration": "Duración",
+        "cost": "Coste",
+        "tokens": "Tokens entrada/salida",
+        "model": "Modelo",
+        "stateFailed": "Fallido",
+        "stateCancelled": "Cancelado"
       }
     },
     "error": {
@@ -142,7 +152,9 @@
         "executor_unreachable": "Tu contenedor de ejecución no está disponible temporalmente. Suele recuperarse en unos segundos; vuelve a enviar este mensaje en breve.",
         "infra_transient": "Este turno no se pudo ejecutar debido a un problema temporal de ejecución en la plataforma. Vuelve a enviar el mensaje en un momento."
       }
-    }
+    },
+    "dateToday": "Hoy",
+    "dateYesterday": "Ayer"
   },
   "awareness": {
     "common": {
@@ -692,6 +704,7 @@
       "title": "Configuración",
       "navProviders": "Proveedores de LLM",
       "navPrivacy": "Privacidad",
+      "navDesktop": "Escritorio",
       "slotAgentName": "Agent",
       "slotAgentDesc": "El \"cerebro\" de tu agent de IA. Este modelo gestiona todas las conversaciones con los usuarios, toma decisiones y ejecuta tareas. Un modelo más capaz aquí significa respuestas más inteligentes y matizadas.",
       "slotAgentProtocol": "Protocolo Anthropic",
@@ -703,7 +716,11 @@
       "privacyHeading": "Privacidad",
       "privacyIntro": "Controla qué datos recopila NarraNexus para mejorar el producto.",
       "analyticsTitle": "Analítica del producto",
-      "analyticsDesc": "Permite que NarraNexus recopile datos de uso anónimos para mejorar el producto. Nunca se recopila el contenido de las conversaciones."
+      "analyticsDesc": "Permite que NarraNexus recopile datos de uso anónimos para mejorar el producto. Nunca se recopila el contenido de las conversaciones.",
+      "desktopHeading": "Escritorio",
+      "desktopIntro": "Ajustes que controlan cómo NarraNexus interactúa con este equipo. Solo disponible en la aplicación de escritorio.",
+      "lockedUseTitle": "Locked Use — mantener el equipo despierto",
+      "lockedUseDesc": "Evita que este equipo entre en reposo para que las automatizaciones en segundo plano sigan ejecutándose. Solo se mantiene mientras NarraNexus está abierto."
     },
     "provider": {
       "presetNetmindDesc": "Una sola clave cubre los endpoints de Anthropic y OpenAI",
@@ -783,6 +800,12 @@
       "webModeNotInstalled": "Instala primero Claude Code CLI y luego ejecuta \"claude auth login\" en tu terminal.",
       "cliNotInBundle": "No se encontró Claude Code CLI en el paquete. Vuelve a compilar la aplicación.",
       "addedAsProvider": "Añadido como proveedor de NarraNexus — asignable en el Paso 2 de abajo.",
+      "setupTokenConnected": "Conectado mediante setup-token — asignable en el paso 2 abajo.",
+      "setupTokenHint": "Recomendado: ejecuta \"claude setup-token\" en tu terminal y pega aquí el token de un año. Es la forma más fiable de usar tu suscripción — no depende del estado de sesión del CLI de arriba.",
+      "setupTokenReplaceHint": "Pega un token nuevo de \"claude setup-token\" para reemplazar el almacenado (validez: un año).",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "Conectar con token",
+      "setupTokenSaving": "Conectando...",
       "addAsProvider": "Añadir como proveedor",
       "loginToAdd": "Inicia sesión arriba para añadir Claude Code como proveedor.",
       "customAnthropic": "+ Anthropic personalizado",
@@ -806,6 +829,7 @@
       "configuredProviders": "Proveedores configurados",
       "modelsCount": "{{count}} modelo(s)",
       "test": "Probar",
+      "testConnection": "Probar conexión",
       "edit": "Editar",
       "delete": "Eliminar",
       "section2Title": "Asignación de modelos",
@@ -821,7 +845,11 @@
       "readyTitle": "Todo listo para empezar",
       "readyIntro": "Tu clave está introducida y hemos configurado tus ranuras de modelo para que puedas empezar a chatear de inmediato:",
       "readyNote": "¿Quieres modelos diferentes? Cambia cualquier ranura en la sección de configuración de abajo — tus ediciones siempre prevalecen sobre estos valores predeterminados.",
-      "gotIt": "Entendido"
+      "gotIt": "Entendido",
+      "freeTierHowToTitle": "Sobre tu crédito gratuito",
+      "freeTierHowToSwitch": "La tarjeta «Free Tier» ya está conectada a tus ranuras de Agent y Helper. Para usar tu propia clave, añade un proveedor abajo y selecciónalo para la ranura Agent / Helper en Modelos predeterminados: surte efecto en tu siguiente mensaje.",
+      "freeTierAnytime": "Puedes cambiar cuando quieras. No hace falta gastar antes el crédito gratuito, y cambiar no lo pierde: el saldo se conserva.",
+      "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla."
     }
   },
   "system": {
@@ -921,7 +949,9 @@
       "retry": "Reintentar",
       "unknownError": "Error desconocido",
       "attempts": "{{count}} intentos fallidos"
-    }
+    },
+    "showMore": "Mostrar más",
+    "showLess": "Mostrar menos"
   },
   "help": {
     "overlay": {
@@ -1514,6 +1544,32 @@
         "pinned": "fijado",
         "fullModeNote": "El modo de instantánea completa incluye automáticamente cada artefacto. Cambia a Personalizado para elegir."
       }
+    },
+    "signup": {
+      "title": "Crea tu cuenta",
+      "subtitle": "Un correo, una contraseña y el código que te enviamos. Ya está.",
+      "email": "Correo electrónico",
+      "password": "Contraseña",
+      "confirmPassword": "Confirmar contraseña",
+      "code": "Código de verificación",
+      "sendCode": "Enviar código",
+      "sending": "Enviando…",
+      "resendIn": "Reenviar en {{seconds}} s",
+      "codeSent": "Código enviado: revisa tu bandeja (y el spam).",
+      "mismatch": "Las contraseñas no coinciden.",
+      "submit": "Crear cuenta",
+      "creating": "Creando…",
+      "haveAccount": "¿Ya tienes cuenta? Inicia sesión",
+      "sendFailed": "No se pudo enviar el código. Inténtalo de nuevo.",
+      "failed": "No se pudo crear la cuenta. Inténtalo de nuevo.",
+      "rule": {
+        "length": "8–16 caracteres",
+        "upper": "Una mayúscula",
+        "lower": "Una minúscula",
+        "digit": "Un número",
+        "special": "Un carácter especial"
+      },
+      "codePlaceholder": "Código de 6 caracteres"
     }
   },
   "rail": {
@@ -1870,5 +1926,8 @@
     "loading": "Abriendo la vista previa en vivo…",
     "loadError": "No se pudo abrir la vista previa en vivo.",
     "livePreview": "Vista previa en vivo"
+  },
+  "common": {
+    "close": "Close"
   }
 }

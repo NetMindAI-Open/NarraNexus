@@ -6,7 +6,7 @@
 on the instance_jobs table. Guards against accidental regressions from
 schema_registry edits.
 """
-from xyz_agent_context.utils.schema_registry import TABLES
+from xyz_agent_context.utils.db.schema_registry import TABLES
 
 
 def test_instance_jobs_has_v2_timezone_columns():

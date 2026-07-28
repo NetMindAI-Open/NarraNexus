@@ -1,8 +1,26 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — day separators in the timeline
+
+Messages show only HH:mm:ss, so multi-day history had no date context.
+New `visibleTimeline` memo applies the tab filter BEFORE rendering so
+separators compare adjacent VISIBLE items (comparing against
+tab-hidden neighbours would draw phantom separators); a separator
+(Today / Yesterday / locale date — [[chatDays.ts]]) renders at every
+local-day boundary, for both bubbles and activity cards. i18n:
+`chat.dateToday` / `chat.dateYesterday`.
+
+## 2026-07-23 — register signal passes focus to upsert
+
+`refreshArtifactFromToolCall` now calls `upsert(d, {focus: true})` so a
+successful register_artifact always brings the doc to front, even when a
+list refresh raced ahead and already inserted it (see [[artifactStore.ts]]
+2026-07-23). Dedup via the module-scope seen-Set is unchanged, so history
+re-renders don't re-steal focus.
 
 ## 2026-07-18 — 语音不可用弹窗：free_tier_opted_out → free_tier_not_granted
 
@@ -191,8 +209,6 @@ per session, no leak concern).
 
 ## 2026-05-14 — artifact tool name collapsed to `register_artifact`
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `ARTIFACT_TOOL_BASE_NAMES` is now `['register_artifact']` (was
 `['create_artifact', 'upload_artifact_file']`). The frontend's live artifact
 discovery keys off this list to recognise tool calls in the agent stream
@@ -336,7 +352,7 @@ The primary user-facing interface. All agent interaction goes through here. Merg
 
 ## 设计决策
 
-**Unified timeline**: History messages and session messages are merged and sorted by timestamp. Dedup is done by `role:content` key + 60-second timestamp-proximity check. **Match-and-consume semantics (Bug 19 fix)**: once a session message pairs with a history timestamp, that timestamp is spliced out of the per-key array so it can't dedup another session message with the same role+content. Without consumption, a single history row would gobble multiple session messages — realistic trigger is "user retries the exact same question after a failed turn", which would silently drop the retry bubble from the UI. Plan B (event_id-based precise dedup) is logged in `reference/self_notebook/todo/waiting/chat_dedup_by_event_id.md` as a future upgrade.
+**Unified timeline**: History messages and session messages are merged and sorted by timestamp. Dedup is done by `role:content` key + 60-second timestamp-proximity check. **Match-and-consume semantics (Bug 19 fix)**: once a session message pairs with a history timestamp, that timestamp is spliced out of the per-key array so it can't dedup another session message with the same role+content. Without consumption, a single history row would gobble multiple session messages — realistic trigger is "user retries the exact same question after a failed turn", which would silently drop the retry bubble from the UI. Plan B — event_id-based precise dedup — is a known future upgrade (author-local todo).
 
 **Polling**: A 12-second interval polls for new background messages (from non-chat agent runs like Jobs). It only replaces the tail of history to avoid losing scroll position for users who've loaded older messages.
 

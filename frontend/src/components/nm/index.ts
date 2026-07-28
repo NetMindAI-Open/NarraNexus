@@ -5,7 +5,6 @@
  * @description: Barrel export for all NM primitives. Consumers import as:
  *   import { RingAvatar, MessageBubble, Button } from '@/components/nm';
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md
  */
 
 export * from './identity';

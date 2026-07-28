@@ -36,7 +36,7 @@ stays uniform across IM channels:
   load-bearing difference from Telegram's tool set. Telegram binds by
   the agent/user pasting a Bot Token, so ``tg_bind`` makes sense.
   WeChat binds via a **QR-scan flow** driven by the Brain/Channels
-  panel UI + ``backend/routes/wechat.py`` — the user scans a login QR
+  panel UI + ``backend/routes/channels/wechat.py`` — the user scans a login QR
   in their WeChat app. That handshake cannot be performed by the agent
   through a tool call, so exposing a ``wechat_bind`` tool would only
   invite the agent to attempt something it can't do. Binding is

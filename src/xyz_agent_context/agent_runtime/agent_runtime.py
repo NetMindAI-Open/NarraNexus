@@ -715,17 +715,17 @@ class AgentRuntime:
                 # Step-5 LLM hooks (social-network entity summaries, memory
                 # extraction) run on the user's provider — not the platform key
                 # they used to silently fall through to (2026-07 incident).
-                from xyz_agent_context.agent_framework.llm_failure import (
+                from xyz_agent_context.agent_framework.llm.failure import (
                     is_credential_error,
                 )
-                from xyz_agent_context.agent_framework.provider_resolver import (
+                from xyz_agent_context.agent_framework.providers.resolver import (
                     ProviderResolverError,
                     inject_owner_helper_credentials,
                 )
                 from xyz_agent_context.services.background_llm_alerts import (
                     alert_background_llm_failure,
                 )
-                from xyz_agent_context.utils.db_factory import get_db_client
+                from xyz_agent_context.utils.db.db_factory import get_db_client
 
                 owner_user_id = None
                 try:
@@ -875,7 +875,7 @@ class AgentRuntime:
         """
         if self._database_client is None:
             # Use the globally shared AsyncDatabaseClient (singleton pattern)
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             logger.info("Getting shared AsyncDatabaseClient from db_factory")
             self._database_client = await get_db_client()
         return self._database_client

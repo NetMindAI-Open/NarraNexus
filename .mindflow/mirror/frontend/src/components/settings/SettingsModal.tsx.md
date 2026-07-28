@@ -1,7 +1,15 @@
 ---
 code_file: frontend/src/components/settings/SettingsModal.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-23
 ---
+
+## 2026-07-23 — Desktop section (Locked Use)
+
+New Tauri-only nav section `desktop` (filtered out on web via `isTauri()`)
+with the Locked Use prevent-sleep toggle, wired to [[powerStore.ts]] —
+same row/switch treatment as the Privacy analytics toggle. i18n keys
+`settings.modal.navDesktop / desktopHeading / desktopIntro /
+lockedUseTitle / lockedUseDesc` in all 10 locales.
 
 ## 2026-06-10 — review fix: English-only label, identity via auth header
 

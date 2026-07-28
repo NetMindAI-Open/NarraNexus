@@ -31,6 +31,6 @@ stub: false
 
 **被谁调用**：主要被 `agent_runtime/_agent_runtime_steps/` 调用（step_1 调 select、step_5 调 update_with_event）；`services/instance_sync_service.py` 在写 Job 时会写入 Narrative actors；`services/module_poller.py` 在 Instance 完成时调 `InstanceHandler.handle_completion`。
 
-**依赖谁**：依赖 `agent_framework/llm_api/embedding.py` 生成向量；依赖 `repository/narrative_repository.py` 做数据库读写；依赖 `schema/module_schema.py` 的 ModuleInstance 类型；`continuity.py` 依赖 `agent_framework/openai_agents_sdk` 做 LLM 结构化调用。
+**依赖谁**：依赖 `agent_framework/llm/api/embedding.py` 生成向量；依赖 `repository/narrative_repository.py` 做数据库读写；依赖 `schema/module_schema.py` 的 ModuleInstance 类型；`continuity.py` 依赖 `agent_framework/adapters/openai_agents` 做 LLM 结构化调用。
 
 **channel 模块的耦合**：`_narrative_impl/continuity.py` 里的 `_extract_core_content()` 硬编码了 Matrix 消息模板的格式（`[Matrix · ... · ...] ...`），用于剥离 channel wrapper 取出核心消息内容。如果 `channel/channel_prompts.py` 或 `channel_context_builder_base.py` 改变了模板格式，这里必须同步更新。

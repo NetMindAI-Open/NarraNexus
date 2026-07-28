@@ -1,8 +1,55 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_3_agent_loop.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — 不再现发会话票
+
+step 3 开头那段「system-tier 运行就向网关 mint 一把 per-run key、注入
+ClaudeConfig、finally 里吊销」的逻辑整段删除，连带 `gateway_unavailable`
+的提前返回分支。
+
+免费额度的凭据现在是用户 `user_providers` 里那张卡上的长期 key，和自带 key
+走完全一样的 `provider_configs` 下发路径 —— step 3 对它没有任何特殊认知，
+这正是目的。
+
+
+## 2026-07-27 — driver 调用入参打包为 TurnInput（纯搬运）
+
+3.4 组装 driver.agent_loop kwargs 的四个散落 local 收进
+[[turn_input.py]] `TurnInput`，调用点改为
+`driver.agent_loop(cancellation=..., **turn_input.driver_kwargs())`。
+driver_kwargs() 复刻历史形状（含空值→None 归一），零行为变化。
+
+## 2026-07-24 — 透传 `context.disallowed_tools` 到 driver kwargs（B++）
+
+组装 driver.agent_loop kwargs 时新增 `disallowed_tools`（来自
+[[context_schema.py]] `ContextRuntimeOutput.disallowed_tools`，即未绑定
+channel 要求剔除的工具）。本地 SDK 侧与 WebSearch 守卫**合并**（见
+[[xyz_claude_agent_sdk.py]]），remote 侧进请求体
+（[[remote_agent_loop_driver.py]]）。codex driver 接受但忽略该 kwarg（本阶段
+已知限制：codex 路径只有指令侧裁剪）。本文件纯搬运，无逻辑。
+
+## 2026-07-23 — PathExecutionResult 透传 cache/num_turns(W1,纯搬运)
+
+末尾组装 PathExecutionResult 时新增 `cache_read_tokens`/`cache_creation_tokens`/
+`num_turns` 三项赋值(来自 state)。无逻辑变化;语义见 execution_state.py.md。
+
+## 2026-07-23 — 免费额度网关会话票在此签发/作废（后端唯一正确的层）
+
+免费额度改造：主钥匙只在 LiteLLM 网关容器，每次运行签一张会话票。**签票必须在本步
+（后端 orchestrator）做，不能在 executor**——executor 跑用户可控代码、只收
+`provider_configs`、绝不能持有网关 admin key。流程：驱动分发前调
+`gateway_key_service.open_backend_session(db, agent_id)`：若 `provider_source=="system"`
+就 mint 一张票并**写进 `ClaudeConfig` ContextVar**，随后
+`executor_protocol.serialize_provider_configs()` 把它打包送到 executor，executor 只拿到
+这张 scoped/可作废的票。返回 `(session, ok)`：`ok=False`（网关不可达/未配置）→ 直接
+`yield ErrorMessage(error_type="gateway_unavailable", severity="fatal")` 并 `return`，
+**绝不回退主钥匙、绝不用空占位 key 起子进程**。`session.close()` 在驱动 try 的 **`finally`**
+里作废——run 生命周期界定、非定时器（铁律 #14）；非 system 运行整条链路是 no-op。硬崩溃
+遗留孤儿由 executor-reaper 钩子回收（见 [[executor_reaper]]）。凭据细节见
+[[gateway_key_service]]。
 
 ## 2026-07-22 — executor-infra 失败统一 surface + 审计 + try 边界上移
 
@@ -10,7 +57,7 @@ stub: false
 
 1. `_record_oom_if_killed` → **泛化**为 `_record_executor_infra_event(db_client,
    user_id, error_type, error_str, output_already_emitted)`：用
-   [[llm_failure.py]] `classify_executor_infra_failure` 判类，写
+   [[llm/failure.py]] `classify_executor_infra_failure` 判类，写
    `oom_killed`（-9/-6）或 `executor_unreachable`（[[executor_audit.py]]）。
    best-effort 永不抛，沿用原模式。
 2. `_fallback_skip_decision` 返回**三元组** `(kind, reason, target_error_type)`：
@@ -28,7 +75,7 @@ stub: false
    `send_message_to_user_directly` 回复过**（executor OOM/掉线可能发生在回复之后）→
    `severity="recovered_after_reply"`（warning 徽章、保留回复），否则 `fatal`。避免对
    已经拿到答案的用户显示"请重试"、也避免把"已回复但收尾失败"整轮记失败。配合
-   [[agent_circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
+   [[loop/circuit_breaker.py]] 对 `infra_transient` 的熔断豁免，杜绝"平台抖动→冷却
    →拒掉用户按提示的重发"。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
@@ -54,13 +101,13 @@ error 路径都盖住:
 
 理由同 auth:context-window 这类确定性失败，agent 本体（工具/MCP/记忆）根本
 没跑，兜底生成一条正常样子的回复是对事实的谎报——这正是"黑盒" P1 的根因。
-分类器在 [[llm_failure.py]]，共享文案 `self_serviceable_user_message` 也在那，
+分类器在 [[llm/failure.py]]，共享文案 `self_serviceable_user_message` 也在那，
 避免 step_3 → response_processor 的循环导入。
 
 ## 2026-07-10 — `_resolve_agent_framework_name` 收缩为委托（单一 overlay）
 
 原本这里手写了一份 agent_slots→user_slots 的 overlay。它现在**委托**给
-[[agent_model_identity.py]] 的 `resolve_agent_model_identity(...).framework`——
+[[providers/model_identity.py]] 的 `resolve_agent_model_identity(...).framework`——
 同一份 overlay 既供 dispatch（选 driver）又供 prompt 的 "LLM Model" 行，二者不可能
 再不一致。（PR #84：两份手抄 overlay 的判定曾漂移——prompt 侧漏了 `agent_framework`
 非空这一条，在"有 provider 但 framework NULL"的 agent_slots 行上重新渲染出错误身份。）
@@ -117,16 +164,15 @@ auth_failed 时**继续 fall through** 到 sub-step 收尾 + PathExecutionResult
 ## 2026-06-10 — helper obtained via get_helper_sdk()
 
 The fallback-reply stream no longer instantiates OpenAIAgentsSDK directly —
-`get_helper_sdk()` (agent_framework/helper_sdk.py) returns the per-task
+`get_helper_sdk()` (agent_framework/llm/helper_sdk.py) returns the per-task
 helper (OpenAI or Anthropic Messages API) based on which helper config the
 resolver installed. Call shape (llm_stream) unchanged.
-
 
 ## 2026-05-29 — pluggable driver + EverMemOS removed
 
 The agent loop is now obtained via `get_agent_loop_driver(working_path=...)`
 (framework registry, iron rule #9) — do NOT instantiate `ClaudeAgentSDK`
-directly here; register a driver instead (see [[agent_loop_driver.py]]).
+directly here; register a driver instead (see [[loop/driver.py]]).
 The former EverMemOS episode await (`ctx.evermemos_task` → `relevant_episodes`
 → `context_runtime.run`) was removed.
 
@@ -168,10 +214,9 @@ the cap, oldest entries drop first (with an `[... earlier activity
 omitted ...]` marker) because the recovery reply needs recent activity
 more than ancient setup. Adjacent `AgentTextDelta` frames coalesce into
 one `[assistant_text]` block so the LLM sees coherent text instead of
-the delta soup that's natural for streaming. See spec
-`reference/self_notebook/specs/2026-05-25-fallback-llm-context-design.md`
-for the bigger redesign this enables (fatal-path recovery with full
-context).
+the delta soup that's natural for streaming. This is the building block
+for the bigger fallback-LLM-context redesign (fatal-path recovery with
+full context; design is author-local).
 
 Contract is pinned by `tests/agent_runtime/test_fallback_prompt_assembly.py`.
 

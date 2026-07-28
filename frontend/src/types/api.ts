@@ -250,6 +250,25 @@ export interface EventLogTimelineEntry {
   reply_via?: string;
 }
 
+// Mirrors backend EventLogMeta — run-level header for the activity card:
+// what the agent received, what it produced, lifecycle and costs. Fields
+// are null/empty on legacy rows (pre-lifecycle) and cost-less runs.
+export interface EventLogMeta {
+  trigger: string;
+  trigger_source: string;
+  input_text?: string | null;
+  final_output?: string | null;
+  state: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_seconds?: number | null;
+  models: string[];
+  total_cost_usd?: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  tool_call_count: number;
+}
+
 export interface EventLogResponse extends ApiResponse {
   event_id: string;
   thinking?: string;
@@ -258,6 +277,8 @@ export interface EventLogResponse extends ApiResponse {
   // falls back to (thinking, tool_calls) only for old backends that
   // haven't been redeployed yet.
   timeline?: EventLogTimelineEntry[];
+  // Run-level header info; absent on old backends.
+  meta?: EventLogMeta | null;
 }
 
 export interface ChatHistoryEvent {
@@ -371,44 +392,26 @@ export interface NetmindLoginResponse extends ApiResponse {
   is_new_user?: boolean;
   display_name?: string;
   email?: string;
-  has_system_quota?: boolean;
-  initial_input_tokens?: number;
-  initial_output_tokens?: number;
-}
-
-// Response from /api/auth/register. Carries the optional system free-tier
-// quota fields so the client can render a welcome toast without a follow-up
-// API call. has_system_quota is false in local mode or when the feature is
-// disabled server-side.
-export interface RegisterResponse extends ApiResponse {
-  user_id?: string;
-  token?: string;
-  has_system_quota?: boolean;
-  initial_input_tokens?: number;
-  initial_output_tokens?: number;
 }
 
 // Response shape for GET /api/quota/me. Discriminated by `enabled` and
 // `status` so the UI can switch exhaustively without "is the feature on"
 // booleans scattered through the component tree.
+//
+// The free tier is a USD wallet on the LLM gateway (not a token counter), and
+// it is registered as an ordinary provider card — so there is no "your model
+// choice is ignored while the free tier lasts" lock any more. Users on the free
+// tier switch models like anyone else; only the balance is special.
 export type QuotaMeResponse =
   | { enabled: false }
   | { enabled: true; status: 'uninitialized' }
   | {
       enabled: true;
-      status: 'active' | 'exhausted' | 'disabled';
-      remaining_input_tokens: number;
-      remaining_output_tokens: number;
-      initial_input_tokens: number;
-      initial_output_tokens: number;
-      granted_input_tokens: number;
-      granted_output_tokens: number;
-      used_input_tokens: number;
-      used_output_tokens: number;
-      // Exhaustion-notice dedup latch, NOT a user preference (the toggle was
-      // removed 2026-07-18; free-tier-first is platform behavior). Returned
-      // read-only; no frontend writes it or renders it anymore.
-      prefer_system_override: boolean;
+      status: 'active' | 'exhausted';
+      currency: string;
+      max_budget: number;
+      spend: number;
+      remaining: number;
     };
 
 export interface CreateUserResponse extends ApiResponse {

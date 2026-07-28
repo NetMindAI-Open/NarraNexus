@@ -357,7 +357,16 @@ export function ProviderSettings() {
   const [formAuth, setFormAuth] = useState<'api_key' | 'bearer_token'>('api_key')
   const [formModels, setFormModels] = useState<string[]>([])
   const [formAdding, setFormAdding] = useState(false)
+  // In-form connectivity probe (verify BEFORE saving). Result is cleared
+  // whenever the form context changes so the UI never shows a stale verdict.
+  const [formTesting, setFormTesting] = useState(false)
+  const [formTestResult, setFormTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
+
+  // Setup-token paste flow (`claude setup-token` → long-lived subscription
+  // token stored server-side, env-injected at spawn; no CLI login state).
+  const [setupToken, setSetupToken] = useState('')
+  const [savingSetupToken, setSavingSetupToken] = useState(false)
 
   // Testing
   const [testing, setTesting] = useState<string | null>(null)
@@ -423,7 +432,15 @@ export function ProviderSettings() {
 
   const providerList = Object.values(providers)
   const hasProviders = providerList.length > 0
-  const hasClaude = providerList.some((p) => p.source === 'claude_oauth')
+  // The platform-funded card. Its presence is what makes the free-tier
+  // explainer relevant — a bring-your-own-key user should not read it.
+  const hasFreeTierCard = providerList.some((p) => p.source === 'netmind_free')
+  const claudeCard = providerList.find((p) => p.source === 'claude_oauth')
+  const hasClaude = claudeCard !== undefined
+  // Token transport (`claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN env
+  // injection): no CLI login state, no Keychain — see the setup-token
+  // section of the Claude card below.
+  const claudeTokenConnected = claudeCard?.auth_type === 'oauth_token'
   const hasCodex = providerList.some((p) => p.source === 'codex_oauth')
 
 
@@ -443,6 +460,20 @@ export function ProviderSettings() {
 
   const handleAddClaudeOAuth = async () => {
     await addProvider({ card_type: 'claude_oauth' })
+  }
+
+  const handleSaveSetupToken = async () => {
+    const token = setupToken.trim()
+    if (!token) return
+    setSavingSetupToken(true)
+    try {
+      // Same card_type; a non-empty api_key makes the backend store/upgrade
+      // the card as auth_type=oauth_token (reconnect-in-place keeps slots).
+      const ok = await addProvider({ card_type: 'claude_oauth', api_key: token })
+      if (ok) setSetupToken('')
+    } finally {
+      setSavingSetupToken(false)
+    }
   }
 
   const handleAddCodexOAuth = async () => {
@@ -491,8 +522,40 @@ export function ProviderSettings() {
     })
     if (ok) {
       setShowForm(null); setFormName(''); setFormUrl(''); setFormKey(''); setFormAuth('api_key'); setFormModels([])
+      setFormTestResult(null)
     }
     setFormAdding(false)
+  }
+
+  // Stateless "verify before save": probe the endpoint straight from the
+  // current form values via /test-config — nothing is persisted, so the
+  // user can fix a wrong key / url / model without polluting stored config.
+  const handleTestForm = async () => {
+    if (!showForm || !formKey.trim()) { setError(t('settings.provider.enterApiKeyShort')); return }
+    setFormTesting(true)
+    setFormTestResult(null)
+    try {
+      const res = await authFetch(providerUrl('/test-config'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          card_type: showForm,
+          api_key: formKey.trim(),
+          base_url: formUrl.trim(),
+          auth_type: formAuth,
+          models: formModels,
+        }),
+      }).then((r) => r.json()).catch(() => ({}))
+      // On 401/422 the body is { detail }, not { success, message } — fall
+      // back so we never render an empty red line (a blank "failure").
+      const msg = res.message
+        || (typeof res.detail === 'string' ? res.detail : null)
+        || t('settings.provider.networkError')
+      setFormTestResult({ ok: !!res.success, msg })
+    } catch {
+      setFormTestResult({ ok: false, msg: t('settings.provider.networkError') })
+    }
+    setFormTesting(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -578,6 +641,7 @@ export function ProviderSettings() {
     setFormName('')
     setFormUrl(protocol === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1')
     setFormKey(''); setFormAuth('api_key'); setFormModels([]); setError('')
+    setFormTesting(false); setFormTestResult(null)
   }
 
   // ---- Full view (always expanded) ----
@@ -619,6 +683,23 @@ export function ProviderSettings() {
             ) : undefined
           }
         />
+        {/* Free-tier explainer. Users kept asking two things the card grid
+            cannot answer on its own: how do I actually start using my own key,
+            and do I have to burn the free credit first (no). Placed above the
+            grid so it is read before someone goes looking for a Delete button
+            on the free card — which is exactly what we block. */}
+        {hasFreeTierCard && (
+          <div className="mb-4 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]/40 px-4 py-3 text-xs leading-relaxed text-[var(--text-secondary)] space-y-1.5">
+            <div className="font-medium text-[var(--text-primary)]">
+              {t('settings.provider.freeTierHowToTitle')}
+            </div>
+            <div>{t('settings.provider.freeTierHowToSwitch')}</div>
+            <div>{t('settings.provider.freeTierAnytime')}</div>
+            <div className="text-[var(--text-tertiary)]">
+              {t('settings.provider.freeTierNoDelete')}
+            </div>
+          </div>
+        )}
         {syncResult && (
           <p
             className={cn(
@@ -802,7 +883,12 @@ export function ProviderSettings() {
 
                 {/* ---- Section B: Provider record state ---- */}
                 <div className="pt-2 border-t border-[var(--border-subtle)]">
-                  {hasClaude ? (
+                  {claudeTokenConnected ? (
+                    <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+                      <span>{'\u2713'}</span>
+                      <span>{t('settings.provider.setupTokenConnected')}</span>
+                    </div>
+                  ) : hasClaude ? (
                     <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
                       <span>{'\u2713'}</span>
                       <span>{t('settings.provider.addedAsProvider')}</span>
@@ -817,6 +903,42 @@ export function ProviderSettings() {
                       {t('settings.provider.loginToAdd')}
                     </p>
                   )}
+                </div>
+
+                {/* ---- Section C: setup-token connect / replace ----
+                  *
+                  * The token transport bypasses the CLI's login state and
+                  * credential store entirely (the macOS Keychain divergence
+                  * made staged host credentials unreadable to the runtime
+                  * CLI \u2014 2026-07-23 incident), so it is the recommended way
+                  * to connect a subscription. Shown for BOTH states: not
+                  * connected (recommend) and connected (allow yearly token
+                  * replacement).
+                  */}
+                <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2">
+                  <p className="text-sm text-[var(--text-tertiary)]">
+                    {claudeTokenConnected
+                      ? t('settings.provider.setupTokenReplaceHint')
+                      : t('settings.provider.setupTokenHint')}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={setupToken}
+                      onChange={(e) => setSetupToken(e.target.value)}
+                      placeholder={t('settings.provider.setupTokenPlaceholder')}
+                      className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                    />
+                    <button
+                      onClick={handleSaveSetupToken}
+                      disabled={savingSetupToken || !setupToken.trim()}
+                      className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors disabled:opacity-50"
+                    >
+                      {savingSetupToken
+                        ? t('settings.provider.setupTokenSaving')
+                        : t('settings.provider.setupTokenSave')}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -945,7 +1067,7 @@ export function ProviderSettings() {
                   {showForm === 'anthropic' ? (
                     <div>
                       <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.authType')}</label>
-                      <select value={formAuth} onChange={(e) => setFormAuth(e.target.value as 'api_key' | 'bearer_token')}
+                      <select value={formAuth} onChange={(e) => { setFormAuth(e.target.value as 'api_key' | 'bearer_token'); setFormTestResult(null) }}
                         className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none">
                         <option value="api_key">{t('settings.provider.authApiKey')}</option>
                         <option value="bearer_token">{t('settings.provider.authBearerToken')}</option>
@@ -955,13 +1077,13 @@ export function ProviderSettings() {
                 </div>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.baseUrl')}</label>
-                  <input type="text" value={formUrl} onChange={(e) => setFormUrl(e.target.value)}
+                  <input type="text" value={formUrl} onChange={(e) => { setFormUrl(e.target.value); setFormTestResult(null) }}
                     placeholder={t('settings.provider.baseUrl')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
                 <div>
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.apiKeyLabel')}</label>
-                  <input type="password" value={formKey} onChange={(e) => setFormKey(e.target.value)}
+                  <input type="password" value={formKey} onChange={(e) => { setFormKey(e.target.value); setFormTestResult(null) }}
                     placeholder={t('settings.provider.yourApiKey')}
                     className="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-default)] bg-[var(--bg-primary)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]" />
                 </div>
@@ -969,14 +1091,25 @@ export function ProviderSettings() {
                   <label className="block text-sm text-[var(--text-tertiary)] mb-1">{t('settings.provider.availableModels')}</label>
                   <ModelBubbleInput
                     models={formModels}
-                    onChange={setFormModels}
+                    onChange={(m) => { setFormModels(m); setFormTestResult(null) }}
                     suggestions={MODEL_SUGGESTION_GROUPS}
                   />
                 </div>
-                <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
-                  className="w-full py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
-                  {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
-                </button>
+                {formTestResult && (
+                  <p className={cn('text-sm', formTestResult.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}>
+                    {formTestResult.msg}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={handleTestForm} disabled={formTesting || formAdding || !formKey.trim()}
+                    className="px-4 py-2.5 text-sm font-medium rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] disabled:opacity-40 transition-colors">
+                    {formTesting ? '...' : t('settings.provider.testConnection')}
+                  </button>
+                  <button onClick={handleAddProtocol} disabled={formAdding || !formKey.trim()}
+                    className="flex-1 py-2.5 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-40 transition-colors">
+                    {formAdding ? t('settings.provider.adding') : t('settings.provider.addProvider')}
+                  </button>
+                </div>
               </div>
             )}
           </div>

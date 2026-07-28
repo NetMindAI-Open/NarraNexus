@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.memory.spec import MemoryKindSpec, get_spec
 from xyz_agent_context.memory._memory_impl.repository import MemoryRepository

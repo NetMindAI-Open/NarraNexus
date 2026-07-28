@@ -30,7 +30,8 @@ from xyz_agent_context.schema import (
 )
 from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     self_serviceable_user_message,
     classify_executor_infra_failure,
@@ -80,14 +81,14 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
     ``get_agent_loop_driver`` which raises ``ValueError`` so a config typo
     surfaces at the dispatch site instead of masquerading as "claude".
 
-    The overlay itself lives in ``agent_framework.agent_model_identity`` — the
+    The overlay itself lives in ``agent_framework.providers.model_identity`` — the
     SINGLE source of truth shared with the prompt's "LLM Model" line, so the
     displayed identity can never disagree with the driver we dispatch. This
     thin wrapper just projects the ``framework`` field (identity resolution
     never raises; unknown names pass through verbatim on the ``framework``
     field, so the registry still fails loud on typos).
     """
-    from xyz_agent_context.agent_framework.agent_model_identity import (
+    from xyz_agent_context.agent_framework.providers.model_identity import (
         resolve_agent_model_identity,
     )
 
@@ -502,7 +503,7 @@ async def _generate_fallback_reply_stream(
        agent-loop generator body.
     2. Lets us test the prompt assembly + streaming wiring in isolation.
     """
-    from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+    from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
     from xyz_agent_context.utils.cost_tracker import set_cost_context, clear_cost_context
 
     set_cost_context(agent_id, db)
@@ -680,7 +681,7 @@ async def _record_executor_infra_event(
             EVENT_OOM_KILLED,
             EVENT_EXECUTOR_UNREACHABLE,
         )
-        from xyz_agent_context.agent_framework.llm_failure import (
+        from xyz_agent_context.agent_framework.llm.failure import (
             EXECUTOR_INFRA_REASON_OOM,
         )
 
@@ -786,8 +787,12 @@ async def step_3_agent_loop(
     # ------------- 3.3: Extract messages and MCP URLs -------------
     messages = context.messages
     ctx.mcp_servers.update(context.mcp_servers)
+    # Setup-residency: tools suppressed for this agent this turn (schemas
+    # removed from the model context via the CLI's disallowed_tools).
+    extra_disallowed_tools = list(context.disallowed_tools or [])
     substeps.append(
         f"[3.3] ✓ Extraction complete: {len(messages)} messages, {len(ctx.mcp_servers)} MCP servers"
+        + (f", {len(extra_disallowed_tools)} suppressed tools" if extra_disallowed_tools else "")
     )
     logger.debug(f"context.messages count={len(messages)}")
     logger.debug(f"context.mcp_servers={list(ctx.mcp_servers.keys())}")
@@ -825,6 +830,17 @@ async def step_3_agent_loop(
     if context.ctx_data and context.ctx_data.extra_data:
         skill_env_vars = context.ctx_data.extra_data.get("skill_env_vars", {})
 
+    # The materialized turn bundle — one explicit object instead of four
+    # loose locals, so every driver demonstrably eats the same thing.
+    # driver_kwargs() reproduces the historical call shape exactly
+    # (including empty→None normalization); cancellation stays separate.
+    turn_input = TurnInput(
+        messages=messages,
+        mcp_servers=ctx.mcp_servers,
+        disallowed_tools=tuple(extra_disallowed_tools),
+        extra_env=skill_env_vars,
+    )
+
     # `captured_error` defers the ErrorMessage yield until AFTER the
     # recovery phase, so frontend renders the recovered reply FIRST and
     # the warning badge SECOND. Yielding ErrorMessage immediately on
@@ -847,10 +863,11 @@ async def step_3_agent_loop(
     # user's Executor container and use its URL. Returns None when no
     # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
     # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.broker_client import (
+    from xyz_agent_context.agent_framework.loop.broker_client import (
         ensure_executor,
         wait_until_ready,
     )
+
     # Executor ensure/warm is INSIDE the try so a cold-start failure
     # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
     # down or the container never boots) lands in the same except as a mid-run
@@ -884,10 +901,8 @@ async def step_3_agent_loop(
         # emits its first event — the COMPLETED that pairs the RUNNING above.
         _warming_active = ensured is not None and ensured.cold_started
         async for response in driver.agent_loop(
-            messages=messages,
-            mcp_servers=ctx.mcp_servers,
-            extra_env=skill_env_vars or None,
             cancellation=ctx.cancellation,
+            **turn_input.driver_kwargs(),
         ):
             if _warming_active:
                 _warming_active = False
@@ -945,7 +960,6 @@ async def step_3_agent_loop(
         await _record_executor_infra_event(
             db_client, ctx.user_id, error_type, error_str, bool(agent_loop_response)
         )
-
     # Finalize state BEFORE inspecting it — accessing `state.final_output`
     # on an unfinalized state is undefined per ExecutionState's contract.
     state = state.finalize()
@@ -1109,6 +1123,9 @@ async def step_3_agent_loop(
         output_tokens=state.output_tokens,
         model=state.model,
         total_cost_usd=state.total_cost_usd,
+        cache_read_tokens=state.cache_read_tokens,
+        cache_creation_tokens=state.cache_creation_tokens,
+        num_turns=state.num_turns,
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

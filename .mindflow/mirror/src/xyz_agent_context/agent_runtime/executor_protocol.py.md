@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_protocol.py
 stub: false
-last_verified: 2026-07-15
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — body 新字段 `disallowed_tools`（setup-residency B++）
+
+`build_agent_loop_request` 新增 `disallowed_tools: Optional[list[str]]`，body
+恒带 `"disallowed_tools": disallowed_tools or []`。旧 executor 容器不认该字段
+时安全降级（只是不裁剪、多花 token，不影响功能）。上游
+[[remote_agent_loop_driver.py]]，下游 [[executor_service.py]]。
 
 ## 2026-07-15 — 协议字段 `mcp_server_urls` → `mcp_servers`（spec 对象）
 

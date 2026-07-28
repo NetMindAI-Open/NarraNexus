@@ -644,7 +644,7 @@ class ChatModule(XYZBaseModule):
         Returns: list of {timestamp, working_source, summary, event_id,
         narrative_id, title?} sorted oldest -> newest.
         """
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         from xyz_agent_context.repository import InstanceRepository
 
         db = await get_db_client()
@@ -727,7 +727,7 @@ class ChatModule(XYZBaseModule):
             return
         alias_by_id: Dict[str, str] = {}
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             import json as _json
             db = await get_db_client()
             rows = await db.get_by_ids("narratives", "narrative_id", list(nar_ids))
@@ -769,7 +769,7 @@ class ChatModule(XYZBaseModule):
         instance belongs to must be resolved from instance_narrative_links here,
         not read off the record attribute.
         """
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         from xyz_agent_context.repository.instance_link_repository import (
             InstanceNarrativeLinkRepository,
         )
@@ -804,7 +804,7 @@ class ChatModule(XYZBaseModule):
         Returns:
             Short-term memory message list (marked with memory_type="short_term")
         """
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         from xyz_agent_context.repository import InstanceRepository
 
         # Get all other ChatModule instances for the user
@@ -923,7 +923,7 @@ class ChatModule(XYZBaseModule):
         scenario-free (铁律 #4); only runs on the first turn (rare).
         """
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             from xyz_agent_context.repository.agent_repository import AgentRepository
 
             db = await get_db_client()

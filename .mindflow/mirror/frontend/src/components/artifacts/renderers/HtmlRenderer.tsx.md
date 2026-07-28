@@ -68,8 +68,6 @@ same URL string.
 
 ## 2026-05-14 — multi-file iframe via token-protected directory URL
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The renderer switched from `blob:` URL to a real `iframe src=` pointing at
 the token-protected public directory URL minted by `useArtifactRawUrl`.
 Why: blob URLs break relative sub-resource resolution, so the previous

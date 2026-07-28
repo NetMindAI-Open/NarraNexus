@@ -470,9 +470,18 @@ function DonePanel({
           {result.mcp_hints > 0 && <li>{t('pages.bundleImport.done.mcpHints', { count: result.mcp_hints })}</li>}
           {(result.channel_credentials_imported || 0) > 0 && <li>{t('pages.bundleImport.done.channelCredentialsImported', { count: result.channel_credentials_imported })}</li>}
           {(result.channel_credentials_skipped_conflict || 0) > 0 && <li className="text-[var(--color-yellow-500)]">{t('pages.bundleImport.done.channelCredentialsSkipped', { count: result.channel_credentials_skipped_conflict })}</li>}
-          {result.warnings.length > 0 && <li className="text-[var(--color-yellow-500)]">{t('pages.bundleImport.done.warnings', { count: result.warnings.length })}</li>}
         </ul>
       </div>
+      {result.warnings.length > 0 && (
+        <div className="border border-[var(--color-yellow-500)]/50 bg-[var(--color-yellow-500)]/5 p-4">
+          <div className="text-xs font-mono uppercase mb-2 text-[var(--color-yellow-500)] flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> {t('pages.bundleImport.done.warningsTitle', { count: result.warnings.length })}
+          </div>
+          <ul className="space-y-1 text-xs text-[var(--text-secondary)] list-disc pl-5">
+            {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+        </div>
+      )}
       {result.agents_created > 0 && (
         <div className="border border-[var(--color-yellow-500)]/50 bg-[var(--color-yellow-500)]/5 p-4">
           <div className="text-xs font-mono uppercase mb-2 text-[var(--color-yellow-500)] flex items-center gap-1.5">

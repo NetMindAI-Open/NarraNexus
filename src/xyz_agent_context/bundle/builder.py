@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .security import (
     bytes_sha256,

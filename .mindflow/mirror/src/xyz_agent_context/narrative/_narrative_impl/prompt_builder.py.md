@@ -30,7 +30,7 @@ prompt（main prompt）以及 summary prompt。它是 narrative 子系统对外�
 **依赖谁：** `..models`（Narrative / NarrativeType / NarrativeActorType）、
 `.prompts`（各 type / actor 描述常量 + `NARRATIVE_MAIN_PROMPT_TEMPLATE`）、
 以及 [[user_repository.py]]（actor 人名解析，运行时通过
-`xyz_agent_context.utils.db_factory.get_db_client` 取 DB）。
+`xyz_agent_context.utils.db.db_factory.get_db_client` 取 DB）。
 
 **被谁用：** narrative 的 prompt 组装路径。`build_main_prompt` 是 async，因为
 actor 人名解析需要查 DB。

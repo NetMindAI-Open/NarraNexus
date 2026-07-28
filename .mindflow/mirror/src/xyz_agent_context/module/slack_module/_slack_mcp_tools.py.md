@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/_slack_mcp_tools.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): zero-arg `slack_bind` returns the guide
+
+`slack_bind` called with empty credential args now returns `{"success": True,
+"setup_guide": _NO_BOT_INSTRUCTION}` instead of a "required" error — the full
+walkthrough left the system prompt ([[slack_module]] unbound one-liner) and is
+served here on demand. The walkthrough text stays in its original constant;
+lazy import avoids a module-import cycle.
 
 ## 2026-07-10 — PR #87 review: react tool body → shared helper
 

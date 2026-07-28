@@ -8,7 +8,7 @@ last_verified: 2026-05-08
 
 Serves the ``slack_skill(method)`` MCP tool. Reads per-method markdown
 docs from ``skills/`` (~250 files generated from the Slack OpenAPI
-spec at build time by ``scripts/gen_slack_skills.py``) and returns the
+spec at build time by ``scripts/publish/gen_slack_skills.py``) and returns the
 content on demand.
 
 The whole point: instead of stuffing 250 method specs into every
@@ -47,7 +47,7 @@ smaller method surface.
   Also called by ``slack_cli`` to warn on unknown method names.
 - **Downstream**: filesystem (``skills/*.md``) only — no DB, no
   network. The directory is populated by
-  ``scripts/gen_slack_skills.py``.
+  ``scripts/publish/gen_slack_skills.py``.
 
 ## Gotchas
 

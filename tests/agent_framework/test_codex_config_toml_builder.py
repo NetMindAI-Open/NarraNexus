@@ -12,10 +12,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from xyz_agent_context.agent_framework.api_config import CodexConfig
-from xyz_agent_context.agent_framework._codex_config_toml_builder import (
+from xyz_agent_context.agent_framework.adapters.codex._config_toml_builder import (
     build_codex_config_toml,
 )
-from xyz_agent_context.agent_framework._codex_permission_translator import (
+from xyz_agent_context.agent_framework.adapters.codex._permission_translator import (
     translate_tool_policy_to_codex_permissions,
 )
 

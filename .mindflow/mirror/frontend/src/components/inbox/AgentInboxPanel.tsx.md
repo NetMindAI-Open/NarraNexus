@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/inbox/AgentInboxPanel.tsx
-last_verified: 2026-07-20
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — readability upgrade (bug: 浏览器阅读不友好)
+
+Four targeted changes: (1) `MessageBody` clamps content over 500 chars
+(max-h + bottom fade) with a show-more/less toggle — bus messages are
+often full reports and an expanded room read as a wall of text; (2)
+messages grouped by calendar day with hairline day separators (list is
+newest-first, separator when the day changes); (3) per-message unread
+dot from `is_read`; (4) member chips show names only, raw agent_id
+moved to the tooltip. i18n: `inbox.showMore/showLess` in 10 locales.
 
 ## 2026-07-20 — bus attachments on inbox message cards
 

@@ -161,6 +161,16 @@
         "activity": "Background activity",
         "lark": "Lark",
         "callback": "Callback"
+      },
+      "meta": {
+        "input": "Input",
+        "output": "Output",
+        "duration": "Run duration",
+        "cost": "Cost",
+        "tokens": "Tokens in / out",
+        "model": "Model",
+        "stateFailed": "Failed",
+        "stateCancelled": "Cancelled"
       }
     },
     "error": {
@@ -183,7 +193,9 @@
     },
     "attachments": {
       "downloadTitle": "Download {{name}}"
-    }
+    },
+    "dateToday": "Today",
+    "dateYesterday": "Yesterday"
   },
   "awareness": {
     "common": {
@@ -637,10 +649,21 @@
     "agentRowMenu": {
       "options": "Agent options",
       "rename": "Rename",
+      "edit": "Edit…",
       "setPrivate": "Set to Private",
       "setPublic": "Set to Public",
       "clearData": "Clear data",
       "delete": "Delete"
+    },
+    "editAgentDialog": {
+      "title": "Edit agent",
+      "nameLabel": "Name",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "What is this agent for? Shown to the agent itself and to other agents.",
+      "tooLong": "Must be {{max}} characters or fewer.",
+      "save": "Save",
+      "cancel": "Cancel",
+      "saveFailedTitle": "Update failed"
     },
     "clearAgentData": {
       "title": "Clear data · {{name}}",
@@ -803,13 +826,14 @@
       "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.",
       "linkNow": "Link it now",
       "linkFailed": "Linking failed:",
-      "freeTierTokensLeft": "{{remaining}} tokens left"
+      "freeTierCreditLeft": "${{remaining}} left"
     },
     "modal": {
       "title": "Settings",
       "navProviders": "LLM Providers",
       "navBilling": "Account & Subscription",
       "navPrivacy": "Privacy",
+      "navDesktop": "Desktop",
       "slotAgentName": "Agent",
       "slotAgentDesc": "The \"brain\" of your AI agent. This model handles all conversations with users, makes decisions, and executes tasks. A more capable model here means smarter, more nuanced responses.",
       "slotAgentProtocol": "Anthropic protocol",
@@ -821,7 +845,11 @@
       "privacyHeading": "Privacy",
       "privacyIntro": "Control what data NarraNexus collects to improve the product.",
       "analyticsTitle": "Product analytics",
-      "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected."
+      "analyticsDesc": "Allow NarraNexus to collect anonymous usage data to improve the product. No conversation content is ever collected.",
+      "desktopHeading": "Desktop",
+      "desktopIntro": "Settings that control how NarraNexus interacts with this computer. Only available in the desktop app.",
+      "lockedUseTitle": "Locked Use — keep the computer awake",
+      "lockedUseDesc": "Prevents this computer from going to sleep so background automations keep running. Held only while NarraNexus is open."
     },
     "provider": {
       "oneKeySaved": "Key saved",
@@ -903,6 +931,12 @@
       "webModeNotInstalled": "Install Claude Code CLI first, then run \"claude auth login\" in your terminal.",
       "cliNotInBundle": "Claude Code CLI not found in bundle. Please rebuild the app.",
       "addedAsProvider": "Added as a NarraNexus provider — assignable in Step 2 below.",
+      "setupTokenConnected": "Connected via setup-token — assignable in Step 2 below.",
+      "setupTokenHint": "Recommended: run \"claude setup-token\" in your terminal and paste the one-year token here. This is the most reliable way to use your subscription — it does not depend on the CLI login state above.",
+      "setupTokenReplaceHint": "Paste a new token from \"claude setup-token\" to replace the stored one (tokens last one year).",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "Connect with token",
+      "setupTokenSaving": "Connecting...",
       "addAsProvider": "Add as Provider",
       "loginToAdd": "Log in above to add Claude Code as a provider.",
       "customAnthropic": "+ Custom Anthropic",
@@ -926,6 +960,7 @@
       "configuredProviders": "Configured Providers",
       "modelsCount": "{{count}} model(s)",
       "test": "Test",
+      "testConnection": "Test connection",
       "edit": "Edit",
       "delete": "Delete",
       "section2Title": "Global Default",
@@ -962,7 +997,11 @@
       "readyTitle": "You're ready to go",
       "readyIntro": "Your key is in, and we've set up your model slots so you can start chatting right away:",
       "readyNote": "Want different models? Change any slot in the configuration section below — your edits always win over these defaults.",
-      "gotIt": "Got it"
+      "gotIt": "Got it",
+      "freeTierHowToTitle": "About your free credit",
+      "freeTierHowToSwitch": "The “Free Tier” card is already wired to your Agent and Helper slots. To run on your own key instead, add a provider below, then pick it for the Agent / Helper slot in Model Defaults — that switch takes effect on your next message.",
+      "freeTierAnytime": "You can switch at any time. You do not have to spend the free credit first, and switching away does not forfeit it — the balance stays and you can switch back.",
+      "freeTierNoDelete": "The Free Tier card can’t be deleted while credit remains: it holds the only key to that balance. Once it’s spent, you can remove it."
     }
   },
   "system": {
@@ -1088,7 +1127,9 @@
       "retry": "Retry",
       "unknownError": "Unknown error",
       "attempts": "{{count}} failed attempts"
-    }
+    },
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "help": {
     "overlay": {
@@ -1449,6 +1490,7 @@
         "activateChannelsTitle": "Activate imported channels",
         "activateChannelsHint": "Imported IM channel credentials are DISABLED so they don't fight the source environment for the single connection each bot allows. Open each channel under the agent's Settings and enable it — but only after confirming the source environment is no longer connected.",
         "warnings": "{{count}} warnings (see details)",
+        "warningsTitle": "Warnings ({{count}})",
         "suggestedMcpTitle": "Suggested external MCP URLs",
         "mcpNotAutoInstalled": "These are not auto-installed. Add them under each agent's Settings → MCPs if you trust them.",
         "skillsTip": "Tip: skills marked as \"full copy\" already have credentials. URL/Zip skills need re-study or new credentials — talk to the imported agents to complete setup.",
@@ -1702,6 +1744,32 @@
         "pinned": "pinned",
         "fullModeNote": "Full snapshot mode auto-includes every artifact. Switch to Custom to pick."
       }
+    },
+    "signup": {
+      "title": "Create your account",
+      "subtitle": "Email, a password, and a code we'll send you. That's it.",
+      "email": "Email",
+      "password": "Password",
+      "confirmPassword": "Confirm password",
+      "code": "Verification code",
+      "sendCode": "Send code",
+      "sending": "Sending…",
+      "resendIn": "Resend in {{seconds}}s",
+      "codeSent": "Code sent — check your inbox (and spam).",
+      "mismatch": "Passwords don't match.",
+      "submit": "Create account",
+      "creating": "Creating…",
+      "haveAccount": "Already have an account? Sign in",
+      "sendFailed": "Couldn't send the code. Please try again.",
+      "failed": "Couldn't create the account. Please try again.",
+      "rule": {
+        "length": "8–16 characters",
+        "upper": "An uppercase letter",
+        "lower": "A lowercase letter",
+        "digit": "A number",
+        "special": "A special character"
+      },
+      "codePlaceholder": "6-character code"
     }
   },
   "rail": {
@@ -2115,5 +2183,8 @@
     "install": "Install",
     "agentCount": "{{count}} agents",
     "agentCount_one": "{{count}} agent"
+  },
+  "common": {
+    "close": "Close"
   }
 }

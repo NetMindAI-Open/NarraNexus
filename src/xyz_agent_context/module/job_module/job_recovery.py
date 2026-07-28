@@ -24,7 +24,7 @@ from loguru import logger
 
 from xyz_agent_context.repository import JobRepository
 from xyz_agent_context.schema.job_schema import JobStatus
-from xyz_agent_context.agent_framework.provider_readiness import ProviderReadiness
+from xyz_agent_context.agent_framework.providers.readiness import ProviderReadiness
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from xyz_agent_context.utils import utc_now
 

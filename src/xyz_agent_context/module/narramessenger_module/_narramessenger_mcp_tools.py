@@ -170,19 +170,26 @@ def register_narramessenger_mcp_tools(mcp: Any) -> None:
 
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
-    async def narra_bind(agent_id: str, bind_command: str) -> dict:
+    async def narra_bind(agent_id: str, bind_command: str = "") -> dict:
         """Bind this agent to NarraMessenger from a pasted bind command/link.
 
-        The owner gets the bind command from the NarraMessenger app
-        (My Space → My Agents → Bind Agents) and pastes it. Pass that whole
-        string here; this drives the Gateway bind and saves the credential.
-        Once it returns success, real-time receiving starts automatically.
+        Call with NO bind_command to get the full step-by-step setup guide
+        (where the owner copies the bind command). Then call again with the
+        whole pasted string as ``bind_command``.
 
         Returns ``{"success": true, "data": {...}}`` or
-        ``{"success": false, "error": ...}``.
+        ``{"success": false, "error": ...}``; the no-argument form returns
+        ``{"success": True, "setup_guide": str}``.
         """
         if not bind_command or not bind_command.strip():
-            return {"success": False, "error": "bind_command is required"}
+            # Setup-residency (B++): the bind walkthrough left the per-turn
+            # system prompt; it is served here on demand instead. Lazy
+            # import avoids a module-level cycle (narramessenger_module
+            # imports this file for register_narramessenger_mcp_tools).
+            from xyz_agent_context.module.narramessenger_module.narramessenger_module import (
+                _SETUP_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _SETUP_INSTRUCTION}
         db = await XYZBaseModule.get_mcp_db_client()
         return await do_bind(db, agent_id, bind_command)
 

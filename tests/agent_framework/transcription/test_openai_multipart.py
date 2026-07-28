@@ -10,14 +10,14 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.agent_framework.transcription.backends import (
+from xyz_agent_context.agent_framework.llm.transcription.backends import (
     openai_multipart as M,
 )
-from xyz_agent_context.agent_framework.transcription.backends.openai_multipart import (
+from xyz_agent_context.agent_framework.llm.transcription.backends.openai_multipart import (
     OpenAIMultipartBackend,
     WHISPER_MAX_FILE_BYTES,
 )
-from xyz_agent_context.agent_framework.transcription.credential import (
+from xyz_agent_context.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )

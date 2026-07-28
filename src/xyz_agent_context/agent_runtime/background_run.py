@@ -72,7 +72,7 @@ from xyz_agent_context.agent_runtime.cancellation import (
 from xyz_agent_context.utils.timezone import utc_now
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 # Heartbeat cadence — every N seconds the heartbeat task bumps
@@ -632,7 +632,7 @@ class BackgroundRun:
                 # completed run would surface a spurious failure. The cause is
                 # not lost: it's already an `error` stream row AND recorded in
                 # the circuit-breaker's last_error.
-                from xyz_agent_context.agent_framework.llm_failure import redact_secrets
+                from xyz_agent_context.agent_framework.llm.failure import redact_secrets
                 if self._last_error_message:
                     updates["error_message"] = redact_secrets(self._last_error_message)
             # For completed runs, populate final_output if we captured deltas.
@@ -717,7 +717,7 @@ class BackgroundRun:
         if not (is_failure or is_success):
             return  # cancelled or otherwise — leave breaker state untouched
         try:
-            from xyz_agent_context.agent_framework import agent_circuit_breaker as cb
+            from xyz_agent_context.agent_framework.loop import circuit_breaker as cb
             if is_failure:
                 await cb.record_failure(
                     self.agent_id,

@@ -121,3 +121,79 @@ describe('AgentInboxPanel message cards', () => {
     expect(b1).toHaveTextContent('BB'); // Bob Broker
   });
 });
+
+describe('readability upgrade (bug: 浏览器阅读不友好)', () => {
+  test('long message content is clamped with a show-more toggle', async () => {
+    ROOMS[0].messages.push({
+      message_id: 'msg_long',
+      sender_id: 'agent_alice',
+      sender_name: 'Alice Analyst',
+      content: 'Line of report text. '.repeat(80),
+      is_read: true,
+      created_at: '2026-07-13 09:00:00',
+    });
+    try {
+      await expandRoom();
+      const card = screen.getByTestId('inbox-message-card-msg_long');
+      const toggle = card.querySelector('[data-testid="inbox-show-more"]');
+      expect(toggle).toBeTruthy();
+      const collapsedLabel = toggle!.textContent;
+      fireEvent.click(toggle!);
+      const expandedLabel = card.querySelector('[data-testid="inbox-show-more"]')!.textContent;
+      // The toggle flips between show-more and show-less labels.
+      expect(expandedLabel).not.toBe(collapsedLabel);
+    } finally {
+      ROOMS[0].messages.pop();
+    }
+  });
+
+  test('short message has no show-more toggle', async () => {
+    await expandRoom();
+    const card = screen.getByTestId('inbox-message-card-msg_a1');
+    expect(card.querySelector('[data-testid="inbox-show-more"]')).toBeNull();
+  });
+
+  test('unread messages carry an unread marker', async () => {
+    ROOMS[0].messages.push({
+      message_id: 'msg_unread',
+      sender_id: 'agent_bob',
+      sender_name: 'Bob Broker',
+      content: 'New unread note.',
+      is_read: false,
+      created_at: '2026-07-13 09:30:00',
+    });
+    try {
+      await expandRoom();
+      const card = screen.getByTestId('inbox-message-card-msg_unread');
+      expect(card.querySelector('[data-testid="inbox-unread-dot"]')).toBeTruthy();
+      const read = screen.getByTestId('inbox-message-card-msg_a1');
+      expect(read.querySelector('[data-testid="inbox-unread-dot"]')).toBeNull();
+    } finally {
+      ROOMS[0].messages.pop();
+    }
+  });
+
+  test('member chips show names without raw agent ids', async () => {
+    await expandRoom();
+    const memberStrip = screen.getByTestId('inbox-member-strip');
+    expect(memberStrip).toHaveTextContent('Alice Analyst');
+    expect(memberStrip.textContent).not.toContain('agent_alice');
+  });
+
+  test('messages from different days get a day separator', async () => {
+    ROOMS[0].messages.push({
+      message_id: 'msg_older',
+      sender_id: 'agent_bob',
+      sender_name: 'Bob Broker',
+      content: 'From another day.',
+      is_read: true,
+      created_at: '2026-07-11 10:00:00',
+    });
+    try {
+      await expandRoom();
+      expect(screen.getAllByTestId('inbox-day-separator').length).toBeGreaterThanOrEqual(2);
+    } finally {
+      ROOMS[0].messages.pop();
+    }
+  });
+});

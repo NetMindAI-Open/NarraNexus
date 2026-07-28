@@ -22,7 +22,7 @@ async def test_attach_netmind_accounts(db_client, monkeypatch):
     async def fake_db():
         return db_client
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client", fake_db
+        "xyz_agent_context.utils.db.db_factory.get_db_client", fake_db
     )
 
     data = {"providers": {"p1": {"name": "p1"}, "p_other": {"name": "x"}}}
@@ -38,7 +38,7 @@ async def test_attach_best_effort_on_db_error(monkeypatch):
     async def boom():
         raise RuntimeError("db down")
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client", boom
+        "xyz_agent_context.utils.db.db_factory.get_db_client", boom
     )
     data = {"providers": {"p1": {"name": "p1"}}}
     # Must NOT raise — display enrichment is best-effort.

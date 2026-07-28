@@ -82,7 +82,7 @@ class CancellationToken:
         Designed for race patterns where a coroutine wants to wait for
         EITHER "next LLM message" OR "user pressed Stop", whichever
         comes first. The canonical use is in
-        ``xyz_claude_agent_sdk.agent_loop`` which previously did::
+        ``adapters.claude.sdk.agent_loop`` which previously did::
 
             message = await asyncio.wait_for(response_iter.__anext__(), 600)
             if cancellation.is_cancelled:

@@ -39,8 +39,7 @@ slot, matching the other channels' `team_id`/`bot_user_id`). Test:
 
 ### 激活语义（为什么 force-inactive）
 
-IM 凭据一律以停用态导入。用户必须在新环境手动激活，这一步才是"抢占该 app 唯一那条 WS/连接槽位"的动作，防止迁移后的 Agent 从源、目标两个环境同时连同一个 bot。详见设计文档
-`reference/self_notebook/specs/2026-07-10-channel-credential-export-design.md`。
+IM 凭据一律以停用态导入。用户必须在新环境手动激活，这一步才是"抢占该 app 唯一那条 WS/连接槽位"的动作，防止迁移后的 Agent 从源、目标两个环境同时连同一个 bot。
 
 ## Gotcha
 

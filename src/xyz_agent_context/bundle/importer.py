@@ -28,11 +28,12 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from xyz_agent_context.utils.schema_registry import TABLES
+from xyz_agent_context.utils.db.schema_registry import TABLES
 from typing import Any, Dict, List, Optional
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
+from xyz_agent_context.schema.entity_schema import AGENT_TEXT_MAX_LENGTH
 from .id_field_map import STRUCTURED_ID_FIELDS, gen_new_id
 from .channel_credential_tables import CHANNEL_CREDENTIAL_TABLES
 from .id_schema import build_all_id_regex, ID_KINDS
@@ -66,6 +67,19 @@ def _loads_maybe(value: Any, default: Any) -> Any:
             return default
         return parsed if isinstance(parsed, type(default)) else default
     return value if isinstance(value, type(default)) else default
+
+
+def _clamp_agent_text(value: Optional[str]) -> tuple[Optional[str], bool]:
+    """Clamp an agent name/description to AGENT_TEXT_MAX_LENGTH.
+
+    Returns (clamped_value, was_trimmed). None/empty pass through untouched.
+    Used at import time because raw db.insert bypasses the Agent model's
+    length validation — see the call site for why an unclamped value would
+    strand the agent as insertable-but-unreadable.
+    """
+    if not value or len(value) <= AGENT_TEXT_MAX_LENGTH:
+        return value, False
+    return value[:AGENT_TEXT_MAX_LENGTH], True
 
 
 def _sanitize_for_schema(
@@ -636,6 +650,9 @@ async def _confirm_inner(
         # a same-bot binding already existed in the target env (see clash check).
         "channel_credentials_imported": 0,
         "channel_credentials_skipped_conflict": 0,
+        # [{agent_name, fields:[...]}] for agents whose name/description was
+        # over-long in the bundle and got trimmed to AGENT_TEXT_MAX_LENGTH.
+        "agent_fields_trimmed": [],
         "warnings": [],
     }
 
@@ -698,18 +715,49 @@ async def _confirm_inner(
         agent_record = json.loads(agent_path.read_text(encoding="utf-8"))
         new_aid = id_map[old_aid]
 
+        # Clamp over-long name/description to the AGENT_TEXT_MAX_LENGTH ceiling
+        # the Agent model enforces on read. The raw db.insert below bypasses
+        # that model, so an unclamped value would strand the agent as
+        # "insertable but unreadable" — every later edit/delete deserializes the
+        # row and fails Pydantic validation.
         original_name = agent_record["agent_name"]
+        clamped_name, name_trimmed = _clamp_agent_text(original_name)
+        clamped_desc, desc_trimmed = _clamp_agent_text(agent_record.get("agent_description"))
+        agent_record["agent_description"] = clamped_desc
+
+        # Dedupe against existing (already-clamped) names, THEN clamp again:
+        # dedupe_name appends a " (n)" suffix with no length budget of its own,
+        # so on a clash a clamped 255-char name becomes "…255… (1)" = 259 and
+        # would land back over the ceiling. Re-clamping the FINAL name is what
+        # actually guarantees the raw insert never stores an unreadable value.
+        # agent_name has no UNIQUE constraint, so a rare post-clamp collision is
+        # harmless — two same-named agents, exactly as manual creation allows.
         deduped_name = await dedupe_name(
-            "agents", "agent_name", {"created_by": user_id}, original_name
+            "agents", "agent_name", {"created_by": user_id}, clamped_name
         )
-        renamed = (deduped_name != original_name)
+        final_name, dedupe_overflow = _clamp_agent_text(deduped_name)
+        name_trimmed = name_trimmed or dedupe_overflow
+
+        renamed = (final_name != clamped_name)
         if renamed:
             written_summary["agents_renamed"] += 1
+        if name_trimmed or desc_trimmed:
+            trimmed_fields = [
+                f for f, hit in (("agent_name", name_trimmed),
+                                 ("agent_description", desc_trimmed)) if hit
+            ]
+            written_summary["agent_fields_trimmed"].append(
+                {"agent_name": final_name, "fields": trimmed_fields}
+            )
+            written_summary["warnings"].append(
+                f"Agent {final_name!r}: {', '.join(trimmed_fields)} exceeded "
+                f"{AGENT_TEXT_MAX_LENGTH} chars and was trimmed to fit."
+            )
 
         # Insert agents row (new agent_id, current user_id)
         new_agent_row = rewrite_row("agents", agent_record)
         new_agent_row["agent_id"] = new_aid
-        new_agent_row["agent_name"] = deduped_name
+        new_agent_row["agent_name"] = final_name
         new_agent_row["created_by"] = user_id
         new_agent_row.pop("agent_create_time", None)
         new_agent_row.pop("agent_update_time", None)
@@ -718,7 +766,7 @@ async def _confirm_inner(
         rename_part = f"renamed_from={original_name!r}" if renamed else "renamed=no"
         logger.info(
             f"bundle_import.agent.created old_id={old_aid} new_id={new_aid} "
-            f"name={deduped_name!r} {rename_part}"
+            f"name={final_name!r} {rename_part}"
         )
 
         # team_members

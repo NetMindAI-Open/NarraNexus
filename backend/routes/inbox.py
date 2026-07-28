@@ -50,7 +50,7 @@ def _to_iso(value: Any) -> str:
 
 
 async def _get_db():
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     return await get_db_client()
 
 

@@ -12,7 +12,7 @@ the parent origin detected from Referer/Origin per request.
 """
 from __future__ import annotations
 
-from backend.routes.artifacts_public import (
+from backend.routes.artifacts.public import (
     SAFE_HEADERS,
     _csp_for_html,
     _frame_ancestors,

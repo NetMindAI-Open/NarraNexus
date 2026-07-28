@@ -491,7 +491,7 @@ async def _get_default_bus_async():
 
     try:
         from xyz_agent_context.message_bus import LocalMessageBus
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         db = await get_db_client()
         backend = db._backend
@@ -521,7 +521,7 @@ def _get_default_bus():
 async def _get_shared_db():
     """Get the shared AsyncDatabaseClient."""
     try:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         return await get_db_client()
     except Exception as e:
         logger.debug(f"Failed to get shared DB client: {e}")

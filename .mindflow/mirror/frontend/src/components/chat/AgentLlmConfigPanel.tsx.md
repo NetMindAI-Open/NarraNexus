@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 免费额度生效诚实 banner
+
+`load()` 读 `getAgentLlmConfig` 返回的 `data.free_tier`（[[api]]），`active` 为真时
+面板顶部渲染一条信息 banner（`chat.model.freeTierBanner`，插值当前系统模型名）：说明
+免费额度生效中、当前实际使用的模型、此处设置将在额度用尽后生效。**控件仍保持可编辑**
+——刻意不硬禁用，让用户能预配置模型/框架，额度耗尽即自动生效；banner 负责诚实告知。
+与底部 [[ComposerModelBadge]] 的只读锁定 chip 是同一根因的两个入口（云端免费额度优先
+抢占 per-agent override，见 [[resolver]] / [[agents_llm_config]]）——徽章是
+快捷切换故锁死，本详细面板允许预配置故只提示。
 
 ## 2026-07-18 — per-agent 框架选择器弹窗方向化(修云端老 codex 死锁)
 
@@ -18,7 +28,7 @@ stub: false
 `e.target.value` 弹回（受控 select state 未变不会重渲染）。组件返回值包成
 fragment：`<>{主 Dialog}{noticeDialog}</>`（两个 portal 同 z-1000，后挂载者
 在上）。后端侧该锁已同日补齐：`set_agent_slot` 的框架钉选门禁
-（[[agent_slot_service]] 2026-07-18）会 403 与 owner 默认不同的钉选——前端
+（[[slot_service]] 2026-07-18）会 403 与 owner 默认不同的钉选——前端
 弹窗只是把这个 403 变成事前解释。
 
 ## 2026-07-17 — 云端 netmind-only：下拉过滤 + "下载本地版"提示
@@ -34,7 +44,7 @@ netmind-source 卡，error 行上方多一段同 i18n 键的提示 + DESKTOP_REL
 `agentProviders` 过滤删掉 `isCodexFramework → CODEX_ALLOWED_PROVIDER_SOURCES`
 分支,只留 `p.protocol !== fw.protocol`。codex_cli 现在能选任意 openai-protocol
 provider(含 netmind/yunwu/openrouter),恢复 pre-#81。理由与后端一致(铁律 #15,
-见 [[user_provider_service]] / [[agentFramework]] 2026-07-10)。相应删掉
+见 [[user_service]] / [[agentFramework]] 2026-07-10)。相应删掉
 `isCodexFramework` / `CODEX_ALLOWED_PROVIDER_SOURCES` 两个 import。
 
 ## 2026-07-09 — per-agent helper 放开 OAuth + 默认便宜模型
@@ -43,7 +53,7 @@ provider(含 netmind/yunwu/openrouter),恢复 pre-#81。理由与后端一致(�
 `p.auth_type !== 'oauth'` 过滤,helper 可选 OAuth;选定 provider 后默认 model 用
 `defaultHelperModel`(见 [[agentFramework]])挑便宜的 mini/haiku 而非旗舰;提示文案改为
 "OAuth 也能用"。后端 `validate_slot_binding` 已一致放开 helper 的 OAuth(见
-[[user_provider_service]]),所以 per-agent override 也能绑 OAuth helper。
+[[user_service]]),所以 per-agent override 也能绑 OAuth helper。
 
 ## 2026-07-09 — per-agent LLM config modal
 

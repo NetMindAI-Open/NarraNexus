@@ -53,4 +53,4 @@ URL+token,不走这个。
 ## 备注
 
 - #108 合入 + rebase 后要补:激活 materialize、run.sh/build-desktop/Dockerfile 三处分发对齐(铁律 #7)、
-  bundle 排除测试。见 `reference/self_notebook/todo/2026-07-14-ha-setup-skill-blocked-on-108.md`。
+  bundle 排除测试。(author-local todo)。

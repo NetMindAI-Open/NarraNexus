@@ -13,7 +13,7 @@ shape. Tests pin down the dimensions:
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework._codex_permission_translator import (
+from xyz_agent_context.agent_framework.adapters.codex._permission_translator import (
     translate_tool_policy_to_codex_permissions,
 )
 

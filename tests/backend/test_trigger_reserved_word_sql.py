@@ -12,7 +12,7 @@ it bare:
      (1064, "... near 'trigger IS NULL OR trigger != 'message_bus'"); 2585
      WARNINGs in 2 days, sidebar previews silently missing.
   2. Dashboard "recent activity" feed
-     (backend.routes._dashboard_helpers.fetch_recent_events). Same 1064, but
+     (backend.routes.dashboard._helpers.fetch_recent_events). Same 1064, but
      swallowed by a bare `except` -> the feed silently returned empty.
 
 Why local dev never caught it: the test DB is in-memory SQLite, and SQLite
@@ -31,7 +31,7 @@ from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 import backend.routes.auth as auth_mod
-import backend.routes._dashboard_helpers as dash_mod
+import backend.routes.dashboard._helpers as dash_mod
 from xyz_agent_context.repository.user_repository import UserRepository
 
 
@@ -159,7 +159,7 @@ def test_fetch_recent_events_survives_mysql(db_client, monkeypatch):
         return wrapped
 
     # fetch_recent_events imports get_db_client from db_factory at call time.
-    import xyz_agent_context.utils.db_factory as db_factory
+    import xyz_agent_context.utils.db.db_factory as db_factory
     monkeypatch.setattr(db_factory, "get_db_client", _get_db)
 
     _run(_seed_event(db_client, agent_id="ag_dash", trigger="job",

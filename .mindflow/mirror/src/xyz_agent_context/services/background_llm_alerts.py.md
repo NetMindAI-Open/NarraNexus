@@ -37,5 +37,5 @@ bus 的失败通知同款权衡。函数**永不抛**——观察者不得破坏
 ## 上游
 
 被 narrative updater 的 `_async_llm_update` 和 AgentRuntime 的 `_run_hooks_background`
-调用。复用 `agent_framework/llm_failure`（分类+脱敏）、`InboxRepository`（owner 通知）、
+调用。复用 `agent_framework/llm/failure`（分类+脱敏）、`InboxRepository`（owner 通知）、
 `ServiceAuditor`（审计）。

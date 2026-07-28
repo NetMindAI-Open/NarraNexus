@@ -65,4 +65,3 @@ bottom-right by default. NarraNexus is the product, not ReactFlow.
 - `lib/echarts-nm-theme.ts` — sibling NM bridge for charts
 - `lib/__tests__/reactflow-nm-config.test.ts` — unit test
 - `components/jobs/JobsPanel.tsx` — primary consumer (rewired in M4)
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §6.3

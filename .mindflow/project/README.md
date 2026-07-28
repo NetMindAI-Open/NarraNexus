@@ -36,4 +36,3 @@ last_verified: 2026-04-09
 
 - 方法论全本：[`../README.md`](../README.md)
 - NexusAgent 顶层入口：[`../_overview.md`](../_overview.md)
-- 系统设计 spec：`/reference/self_notebook/specs/2026-04-09-mindflow-system-design.md`

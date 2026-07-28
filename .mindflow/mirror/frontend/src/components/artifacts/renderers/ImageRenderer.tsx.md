@@ -12,8 +12,6 @@ shared bug story (modal stuck open after Dismiss, P0 2026-05-25).
 
 ## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 Renderer no longer takes a `version` prop. Uses `useArtifactRawUrl` to get
 the token-protected public URL, then `fetchArtifactBlobUrl` (no auth header)
 to wrap the bytes as a blob URL for `<img>`.

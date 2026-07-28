@@ -9,9 +9,8 @@ stub: false
 ## 为什么存在
 
 让 agent 能查询/控制用户家里的智能设备。capability 模块(自动加载),暴露 4 个 MCP 工具代理 HA 的
-REST API。**只对接 HA 的 Apache-2.0 API**(不碰 Xiaomi/Miloco 受限代码,品牌无关);为什么不直连
-miloco-miot 见 `reference/self_notebook/specs/2026-07-14-home-assistant-integration-design.md`(其
-License 禁商用/软件)。
+REST API。**只对接 HA 的 Apache-2.0 API**(不碰 Xiaomi/Miloco 受限代码,品牌无关);不直连
+miloco-miot 是因为其 License 禁商用/软件(设计记录为作者本地)。
 
 ## 关键点
 

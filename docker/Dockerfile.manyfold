@@ -82,7 +82,7 @@ RUN npm install -g @larksuite/cli \
 # container mode doesn't install CLIs at startup and _tool_policy_guard forbids
 # the agent from installing at runtime. Self-contained single binary (embedded
 # .NET, no deps). Pinned for layer-cache stability + reproducibility — bump in
-# lockstep with run.sh (_try_install_officecli) and scripts/build-desktop.sh.
+# lockstep with run.sh (_try_install_officecli) and scripts/release/build-desktop.sh.
 # Own RUN layer so a version bump doesn't bust the npm-CLI layer caches.
 ARG OFFICECLI_VERSION=v1.0.135
 RUN set -eux; \

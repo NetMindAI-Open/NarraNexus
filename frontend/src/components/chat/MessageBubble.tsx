@@ -18,7 +18,7 @@ import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Attachment, ChatMessage, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
-import { cn, formatTime } from '@/lib/utils';
+import { cn, formatDate, formatTime } from '@/lib/utils';
 import { Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
@@ -525,6 +525,9 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           )}
           <span
             className="font-mono tracking-wide"
+            // Hovering the HH:mm:ss reveals the full date — day context for
+            // a single message without waiting for a day separator.
+            title={`${formatDate(message.timestamp)} ${formatTime(message.timestamp)}`}
             style={{
               color: 'var(--nm-subtle)',
               fontSize: '9.5px',

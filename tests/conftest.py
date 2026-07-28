@@ -26,9 +26,9 @@ import asyncio
 import pytest
 import pytest_asyncio
 
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -64,7 +64,7 @@ def _isolate_shared_db(tmp_path_factory):
 
 def pytest_sessionfinish(session, exitstatus):
     """Close leaked factory clients so their worker threads let us exit."""
-    from xyz_agent_context.utils.db_factory import close_db_client
+    from xyz_agent_context.utils.db.db_factory import close_db_client
 
     asyncio.run(close_db_client())
 

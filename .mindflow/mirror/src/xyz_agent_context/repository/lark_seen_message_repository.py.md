@@ -22,8 +22,8 @@ Lark 的 WebSocket event 投递是 **at-least-once**：客户端 ack 不到位�
 `LarkTrigger._should_process_event` —— 事件进队列前的最后一道闸门。trigger 启动
 时也会调 `cleanup_older_than_days` 一次做表内存量管理。
 
-**调用谁**：`AsyncDatabaseClient`（`utils/db_factory.get_db_client`），表名
-`lark_seen_messages`（见 `utils/schema_registry.py`）。
+**调用谁**：`AsyncDatabaseClient`（`utils/db/db_factory.get_db_client`），表名
+`lark_seen_messages`（见 `utils/db/schema_registry.py`）。
 
 ## 设计决策
 

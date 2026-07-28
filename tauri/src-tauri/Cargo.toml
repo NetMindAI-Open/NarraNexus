@@ -1,6 +1,6 @@
 [package]
 name = "narranexus"
-version = "1.11.0"
+version = "1.12.0"
 edition = "2021"
 
 [lib]
@@ -28,6 +28,11 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # tauri.conf.json plugins.deep-link), and the runtime callback forwards
 # received URLs as Tauri events to the webview (src/lib.rs setup hook).
 tauri-plugin-deep-link = "2"
+# OS-level "agent finished responding" notifications (#44). The frontend
+# talks to it through the custom `notify_completion` command (commands/
+# notify.rs) — NOT the plugin's JS guest bindings — because the frontend
+# deliberately carries no @tauri-apps/* npm dependency (see lib/tauri.ts).
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

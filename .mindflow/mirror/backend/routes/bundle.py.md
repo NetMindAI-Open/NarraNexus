@@ -14,7 +14,7 @@ stub: false
 
 ## 2026-05-18 — 新增 `/import/from-url`(Template 一键 install 的入口)
 
-承接 templates marketplace feature(`drafts/logs/template_sharing_2026_05_18.md`)。
+承接 templates marketplace feature(设计记录为作者本地,不入库)。
 原 import 走"用户下载 → 浏览器上传 → /preflight"两跳;新 endpoint 让后端
 自己 fetch URL → 接现有 `preflight()`,实现"网站点 install → app 自动拉到
 review 页"的一键体验。

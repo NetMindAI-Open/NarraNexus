@@ -18,10 +18,10 @@ is_runnable, and a classifier error stays conservatively False.
 """
 import pytest
 
-from xyz_agent_context.agent_framework.provider_resolver import ProviderAvailability
+from xyz_agent_context.agent_framework.providers.resolver import ProviderAvailability
 from xyz_agent_context.module.job_module.job_trigger import JobTrigger
 
-_PATH = "xyz_agent_context.agent_framework.provider_resolver.classify_provider_for_user"
+_PATH = "xyz_agent_context.agent_framework.providers.resolver.classify_provider_for_user"
 
 
 @pytest.mark.asyncio
@@ -38,9 +38,9 @@ async def test_exhausted_with_own_provider_is_runnable_now(db_client, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_quota_exceeded_is_not_runnable(db_client, monkeypatch):
+async def test_no_provider_is_not_runnable(db_client, monkeypatch):
     async def _fake(uid, db):
-        return ProviderAvailability.QUOTA_EXCEEDED
+        return ProviderAvailability.NO_PROVIDER
     monkeypatch.setattr(_PATH, _fake)
     trigger = JobTrigger(database_client=db_client)
     assert await trigger._user_can_run("u") is False
@@ -56,9 +56,9 @@ async def test_user_ok_is_runnable(db_client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_system_ok_is_runnable(db_client, monkeypatch):
+async def test_local_passthrough_is_runnable(db_client, monkeypatch):
     async def _fake(uid, db):
-        return ProviderAvailability.SYSTEM_OK
+        return ProviderAvailability.LOCAL_PASSTHROUGH
     monkeypatch.setattr(_PATH, _fake)
     trigger = JobTrigger(database_client=db_client)
     assert await trigger._user_can_run("u") is True
@@ -66,8 +66,8 @@ async def test_system_ok_is_runnable(db_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_classifier_error_is_conservative_false(db_client, monkeypatch):
-    """If the quota/provider subsystem errors, default to not-runnable (don't
-    resume into an unknown state)."""
+    """If the provider subsystem errors, default to not-runnable (don't resume
+    into an unknown state)."""
     async def _boom(uid, db):
         raise RuntimeError("quota subsystem unbootstrapped")
     monkeypatch.setattr(_PATH, _boom)

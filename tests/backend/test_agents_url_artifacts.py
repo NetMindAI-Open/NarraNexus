@@ -48,8 +48,8 @@ async def client(db_client, monkeypatch, tmp_path):
     monkeypatch.setattr(ua, "probe_url", fake_probe)
     monkeypatch.setattr(ua, "assert_public_http_url", fake_assert)
 
-    from backend.routes.agents_artifacts import router as agents_router
-    import backend.routes.agents_artifacts as agents_mod
+    from backend.routes.agents.artifacts import router as agents_router
+    import backend.routes.agents.artifacts as agents_mod
     monkeypatch.setattr(agents_mod, "get_db_client", lambda: _async_return(db_client))
 
     await db_client.insert("agents", {

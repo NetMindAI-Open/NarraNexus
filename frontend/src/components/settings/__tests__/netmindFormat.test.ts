@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, test } from 'vitest';
-import { money, freeTierPctLeft, freeTierTokensLeft, formatTokens, formatPeriod, formatDate } from '../netmindFormat';
+import { money, creditMoney, freeTierPctLeft, freeTierCreditLeft, formatPeriod, formatDate } from '../netmindFormat';
 import type { QuotaMeResponse } from '@/types';
 
 describe('money', () => {
@@ -29,20 +29,14 @@ describe('freeTierPctLeft', () => {
     ({
       enabled: true,
       status: 'active',
-      remaining_input_tokens: 124_000,
-      remaining_output_tokens: 119_000,
-      initial_input_tokens: 200_000,
-      initial_output_tokens: 150_000,
-      granted_input_tokens: 0,
-      granted_output_tokens: 0,
-      used_input_tokens: 76_000,
-      used_output_tokens: 31_000,
-      prefer_system_override: true,
+      currency: 'USD',
+      max_budget: 10,
+      spend: 3.8,
+      remaining: 6.2,
       ...over,
     }) as unknown as QuotaMeResponse;
 
-  it('takes the MORE depleted of input/output (honest ceiling)', () => {
-    // input 62% left, output ~79% left → 62
+  it('is the share of the wallet still unspent', () => {
     expect(freeTierPctLeft(active())).toBe(62);
   });
   it('exhausted → 0', () => {
@@ -55,10 +49,11 @@ describe('freeTierPctLeft', () => {
       freeTierPctLeft({ enabled: true, status: 'uninitialized' } as QuotaMeResponse),
     ).toBeNull();
   });
-  it('zero totals count as untouched (ratio 1), not division crash', () => {
-    expect(
-      freeTierPctLeft(active({ initial_input_tokens: 0, remaining_input_tokens: 0 })),
-    ).toBe(79);
+  it('a zero-budget wallet has no bar rather than dividing by zero', () => {
+    expect(freeTierPctLeft(active({ max_budget: 0, remaining: 0 }))).toBeNull();
+  });
+  it('clamps an overspent wallet to 0 instead of going negative', () => {
+    expect(freeTierPctLeft(active({ spend: 12, remaining: 0 }))).toBe(0);
   });
 });
 
@@ -83,34 +78,54 @@ describe('formatDate', () => {
   });
 });
 
-// ── formatTokens / freeTierTokensLeft (2026-07-20: row value went from % to tokens) ──
+// ── freeTierCreditLeft (2026-07-28: the row value is dollars, not tokens) ──
 
-test('formatTokens compacts with one trimmed decimal', () => {
-  expect(formatTokens(4_500_000)).toBe('4.5M')
-  expect(formatTokens(1_000_000)).toBe('1M')
-  expect(formatTokens(900_000)).toBe('900K')
-  expect(formatTokens(123_456)).toBe('123.5K')
-  expect(formatTokens(850)).toBe('850')
-  expect(formatTokens(0)).toBe('0')
-  expect(formatTokens(-5)).toBe('0')
-  expect(formatTokens(Number.NaN)).toBe('0')
-})
-
-test('freeTierTokensLeft picks the SAME dimension as the pct bar', () => {
+test('freeTierCreditLeft reports the wallet in its own unit', () => {
   const quota = {
     enabled: true, status: 'active',
-    remaining_input_tokens: 124_000, remaining_output_tokens: 119_000,
-    initial_input_tokens: 200_000, initial_output_tokens: 150_000,
-    granted_input_tokens: 0, granted_output_tokens: 0,
-    used_input_tokens: 76_000, used_output_tokens: 31_000,
-    prefer_system_override: true,
+    currency: 'USD', max_budget: 10, spend: 3.8, remaining: 6.2,
   } as never
-  // input ratio 0.62 < output 0.79 → input is the binding dimension
-  expect(freeTierTokensLeft(quota)).toEqual({ remaining: 124_000, total: 200_000 })
+  expect(freeTierCreditLeft(quota)).toEqual({
+    remaining: 6.2, total: 10, currency: 'USD',
+  })
 })
 
-test('freeTierTokensLeft null exactly when there is no bar to annotate', () => {
-  expect(freeTierTokensLeft(null)).toBeNull()
-  expect(freeTierTokensLeft({ enabled: false } as never)).toBeNull()
-  expect(freeTierTokensLeft({ enabled: true, status: 'uninitialized' } as never)).toBeNull()
+test('freeTierCreditLeft floors a negative remaining at zero', () => {
+  const quota = {
+    enabled: true, status: 'exhausted',
+    currency: 'USD', max_budget: 10, spend: 11, remaining: -1,
+  } as never
+  expect(freeTierCreditLeft(quota)).toEqual({
+    remaining: 0, total: 10, currency: 'USD',
+  })
 })
+
+test('freeTierCreditLeft null exactly when there is no bar to annotate', () => {
+  expect(freeTierCreditLeft(null)).toBeNull()
+  expect(freeTierCreditLeft({ enabled: false } as never)).toBeNull()
+  expect(freeTierCreditLeft({ enabled: true, status: 'uninitialized' } as never)).toBeNull()
+})
+
+describe('creditMoney (free-tier wallet)', () => {
+  it('keeps six decimals so sub-cent usage is visible', () => {
+    // The reason this formatter exists: a real turn on the free tier costs
+    // fractions of a cent. At two decimals $9.993714 renders as "9.99" and a
+    // day of use looks like nothing happened at all.
+    expect(creditMoney(9.993714)).toBe('9.993714');
+    expect(creditMoney(9.999031)).toBe('9.999031');
+  });
+
+  it('pads so the digit count never jumps between renders', () => {
+    expect(creditMoney(10)).toBe('10.000000');
+  });
+
+  it('shows a dash for missing values, like money()', () => {
+    expect(creditMoney(null)).toBe('—');
+    expect(creditMoney(undefined)).toBe('—');
+    expect(creditMoney('')).toBe('—');
+  });
+
+  it('leaves the two-decimal money() alone — balances are not sub-cent', () => {
+    expect(money(9.993714)).toBe('9.99');
+  });
+});

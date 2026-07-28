@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context._skill_marketplace_impl.scanner import scan_skill_dir
-from xyz_agent_context._skill_marketplace_impl.scanner.patterns import SCANNER_VERSION
+from xyz_agent_context.marketplace._skill_marketplace_impl.scanner import scan_skill_dir
+from xyz_agent_context.marketplace._skill_marketplace_impl.scanner.patterns import SCANNER_VERSION
 
 
 def _skill(tmp_path: Path, *, md: str = "", py: str = "", sh: str = "", req: str = "") -> Path:

@@ -123,6 +123,16 @@
         "activity": "バックグラウンド活動",
         "lark": "Lark",
         "callback": "コールバック"
+      },
+      "meta": {
+        "input": "入力",
+        "output": "出力",
+        "duration": "実行時間",
+        "cost": "コスト",
+        "tokens": "入出力トークン",
+        "model": "モデル",
+        "stateFailed": "失敗",
+        "stateCancelled": "キャンセル済み"
       }
     },
     "error": {
@@ -142,7 +152,9 @@
         "executor_unreachable": "実行コンテナに一時的に接続できません。通常は数秒で回復します。しばらくしてからこのメッセージを再送信してください。",
         "infra_transient": "プラットフォーム側の一時的な実行問題により、このターンは実行できませんでした。しばらくしてからメッセージを再送信してください。"
       }
-    }
+    },
+    "dateToday": "今日",
+    "dateYesterday": "昨日"
   },
   "awareness": {
     "common": {
@@ -691,6 +703,7 @@
       "title": "設定",
       "navProviders": "LLM プロバイダー",
       "navPrivacy": "プライバシー",
+      "navDesktop": "デスクトップ",
       "slotAgentName": "Agent",
       "slotAgentDesc": "AI エージェントの「頭脳」。このモデルはユーザーとの全ての会話を処理し、判断を下し、タスクを実行します。ここでより高性能なモデルを使うほど、より賢く繊細な応答になります。",
       "slotAgentProtocol": "Anthropic プロトコル",
@@ -702,7 +715,11 @@
       "privacyHeading": "プライバシー",
       "privacyIntro": "製品改善のために NarraNexus が収集するデータを管理します。",
       "analyticsTitle": "製品アナリティクス",
-      "analyticsDesc": "製品改善のため NarraNexus が匿名の利用データを収集することを許可します。会話の内容は一切収集されません。"
+      "analyticsDesc": "製品改善のため NarraNexus が匿名の利用データを収集することを許可します。会話の内容は一切収集されません。",
+      "desktopHeading": "デスクトップ",
+      "desktopIntro": "NarraNexus とこのコンピュータの連携を制御する設定です。デスクトップアプリでのみ利用できます。",
+      "lockedUseTitle": "Locked Use — スリープを防止",
+      "lockedUseDesc": "コンピュータのスリープを防ぎ、バックグラウンドの自動処理を継続します。NarraNexus を開いている間のみ有効です。"
     },
     "provider": {
       "presetNetmindDesc": "1 つのキーで Anthropic と OpenAI 両方のエンドポイントをカバー",
@@ -782,6 +799,12 @@
       "webModeNotInstalled": "まず Claude Code CLI をインストールし、ターミナルで \"claude auth login\" を実行してください。",
       "cliNotInBundle": "バンドル内に Claude Code CLI が見つかりません。アプリを再ビルドしてください。",
       "addedAsProvider": "NarraNexus プロバイダーとして追加されました—下のステップ 2 で割り当て可能です。",
+      "setupTokenConnected": "setup-token で接続済み——下のステップ 2 で割り当て可能。",
+      "setupTokenHint": "推奨：ターミナルで \"claude setup-token\" を実行し、1 年間有効なトークンをここに貼り付けてください。サブスクリプションを最も確実に使う方法で、上の CLI ログイン状態に依存しません。",
+      "setupTokenReplaceHint": "\"claude setup-token\" で新しく生成したトークンを貼り付けると、保存済みのトークンを置き換えます（有効期間 1 年）。",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "トークンで接続",
+      "setupTokenSaving": "接続中...",
       "addAsProvider": "プロバイダーとして追加",
       "loginToAdd": "上でログインして Claude Code をプロバイダーとして追加してください。",
       "customAnthropic": "+ カスタム Anthropic",
@@ -805,6 +828,7 @@
       "configuredProviders": "設定済みプロバイダー",
       "modelsCount": "{{count}} 個のモデル",
       "test": "テスト",
+      "testConnection": "接続をテスト",
       "edit": "編集",
       "delete": "削除",
       "section2Title": "モデル割り当て",
@@ -820,7 +844,11 @@
       "readyTitle": "準備完了です",
       "readyIntro": "キーが登録され、すぐにチャットを始められるようモデルスロットを設定しました：",
       "readyNote": "別のモデルを使いたいですか？下の設定セクションで任意のスロットを変更してください—あなたの編集は常にこれらのデフォルトより優先されます。",
-      "gotIt": "了解"
+      "gotIt": "了解",
+      "freeTierHowToTitle": "無料クレジットについて",
+      "freeTierHowToSwitch": "「Free Tier」カードは Agent と Helper のスロットに設定済みです。自分のキーを使うには、下でプロバイダーを追加し、「モデル既定値」で Agent / Helper スロットに指定してください。次のメッセージから有効になります。",
+      "freeTierAnytime": "いつでも切り替えられます。無料クレジットを使い切る必要はなく、切り替えても残高は消えません。戻すこともできます。",
+      "freeTierNoDelete": "残高がある間、Free Tier カードは削除できません（その残高への唯一の鍵だからです）。使い切れば削除できます。"
     }
   },
   "system": {
@@ -920,7 +948,9 @@
       "retry": "再試行",
       "unknownError": "不明なエラー",
       "attempts": "{{count}} 回失敗"
-    }
+    },
+    "showMore": "続きを表示",
+    "showLess": "折りたたむ"
   },
   "help": {
     "overlay": {
@@ -1513,6 +1543,32 @@
         "pinned": "ピン留め済み",
         "fullModeNote": "フルスナップショットモードでは、すべてのアーティファクトが自動的に含まれます。選択するにはカスタムに切り替えてください。"
       }
+    },
+    "signup": {
+      "title": "アカウントを作成",
+      "subtitle": "メールアドレス、パスワード、送信される認証コードだけで完了します。",
+      "email": "メールアドレス",
+      "password": "パスワード",
+      "confirmPassword": "パスワード（確認）",
+      "code": "認証コード",
+      "sendCode": "コードを送信",
+      "sending": "送信中…",
+      "resendIn": "{{seconds}}秒後に再送できます",
+      "codeSent": "コードを送信しました。受信トレイ（迷惑メールも）をご確認ください。",
+      "mismatch": "パスワードが一致しません。",
+      "submit": "アカウントを作成",
+      "creating": "作成中…",
+      "haveAccount": "すでにアカウントをお持ちですか？ログイン",
+      "sendFailed": "コードを送信できませんでした。もう一度お試しください。",
+      "failed": "アカウントを作成できませんでした。もう一度お試しください。",
+      "rule": {
+        "length": "8〜16文字",
+        "upper": "大文字を含む",
+        "lower": "小文字を含む",
+        "digit": "数字を含む",
+        "special": "記号を含む"
+      },
+      "codePlaceholder": "6桁のコード"
     }
   },
   "rail": {
@@ -1869,5 +1925,8 @@
     "loading": "ライブプレビューを開いています…",
     "loadError": "ライブプレビューを開けませんでした。",
     "livePreview": "ライブプレビュー"
+  },
+  "common": {
+    "close": "Close"
   }
 }

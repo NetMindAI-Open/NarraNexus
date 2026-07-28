@@ -183,7 +183,7 @@ class ModulePoller:
             logger.info("Database client initialized in async context")
 
         # Ensure all tables exist (poller runs as separate process)
-        from xyz_agent_context.utils.schema_registry import auto_migrate
+        from xyz_agent_context.utils.db.schema_registry import auto_migrate
         await auto_migrate(self._db._backend)
         logger.info("Schema auto-migration complete")
 
@@ -494,7 +494,7 @@ class ModulePoller:
             # active — so this gate is defensive: if Path A is ever switched
             # on, a broken agent (dead key / quota) won't be re-triggered here
             # either. Fail-open on read error.
-            from xyz_agent_context.agent_framework.agent_circuit_breaker import should_skip
+            from xyz_agent_context.agent_framework.loop.circuit_breaker import should_skip
             cb_skip, cb_reason = await should_skip(agent_id)
             if cb_skip:
                 logger.info(

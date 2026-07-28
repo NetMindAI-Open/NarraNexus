@@ -51,9 +51,8 @@ even against the un-fixed bare-id code. `test_classify_db_layer_
 partitions_by_agent_id` now spins up `store_restarted` to actually
 exercise the durable composite-key dedup.
 
-Session log: `drafts/logs/narra_guide_v12_incident_2026_07_14.md`
-covers the wider Matrix-side incident; this fix is the client-side
-group-room half.
+The wider Matrix-side incident is documented in the author's local
+worklog; this fix is the client-side group-room half.
 
 ## 2026-07-03 — Layer 4: opt-in content-fingerprint window (X1)
 

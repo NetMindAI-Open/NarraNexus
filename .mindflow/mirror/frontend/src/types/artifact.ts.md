@@ -11,8 +11,6 @@ Added `application/x-url` to `ArtifactKind`; `EmbedMode`, `EmbedVerdict`,
 user_override — renderers must use it, not `recommended` directly).
 ## 2026-05-14 — pointer model (versioning dropped, rawUrl helper removed)
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `Artifact` mirror of the backend pointer model: dropped `ArtifactVersion`,
 `ArtifactWithVersions`, and `latest_version`; added `file_path` (entry file
 relative to base_working_path) and `size_bytes` (recursive size of the

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/telegram_module/telegram_module.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
+
+Declares `all_tool_names` + `setup_tool_names = {tg_bind}` per the
+[[channel_module_base]] setup-residency contract. The `get_instructions`
+unbound branch now returns `unbound_setup_line()` instead of the full
+onboarding walkthrough (bound-but-info-missing returns ""); the walkthrough is
+served on demand by zero-arg `tg_bind` (see [[_telegram_mcp_tools]]). While
+unbound, every non-setup tool's schema is stripped from the model context.
 
 ## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
 
@@ -31,8 +40,7 @@ flag (see message_source_handler.py.md, 2026-07-03).
 
 ## Why it exists
 
-Phase 4 of the IM channel abstraction (see
-``reference/self_notebook/specs/2026-05-08-im-integration-design.md`` § 8).
+Phase 4 of the IM channel abstraction (2026-05-08 design, author-local).
 Telegram's ``ChannelModuleBase`` subclass — the third application of the
 Phase 1+2 surface and the deliberate "simplest" channel: one Bot Token
 from @BotFather, no OAuth, no admin approval, no manifest YAML, no
@@ -61,7 +69,6 @@ not the abstraction failing.
   replies. The instruction now says the opposite of the original draft
   ("DO NOT disable privacy unless..."). Iron rule 1 also enforces
   agent-side: "in groups/supergroups you reply ONLY when @-mentioned".
-  See ``reference/self_notebook/todo/2026-05-09-slack-channel-reply-policy.md``
   for the cross-channel symmetry argument.
 - **No Slack-style App Manifest.** Replaced by the BotFather chat
   sequence. There is nothing to paste into a portal — every step

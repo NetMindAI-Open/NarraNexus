@@ -70,8 +70,6 @@ Same explanation is now in the module instruction (see
 
 ## 2026-05-14 — collapsed to one `register_artifact` tool (pointer model)
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The two old tools — `create_artifact` (inline content) and
 `upload_artifact_file` (copy a workspace file) — are replaced by **one**
 `register_artifact(entry_path, kind, title, ...)`. The new tool registers a

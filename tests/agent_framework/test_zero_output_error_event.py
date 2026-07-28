@@ -13,7 +13,7 @@ stderr → fatal AUTH_EXPIRED (re-login, no fabrication); anything else stays a
 recoverable "no output" error. The base sentence must be auth-phrase-free so an
 empty stderr is never misclassified as an auth failure.
 """
-from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+from xyz_agent_context.agent_framework.adapters.claude.sdk import (
     _zero_output_error_event,
 )
 from xyz_agent_context.agent_runtime.response_processor import _is_auth_failure

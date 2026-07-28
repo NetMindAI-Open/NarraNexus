@@ -8,7 +8,7 @@
 The pre-existing ``is_cancelled`` / ``raise_if_cancelled`` / ``cancel``
 methods are covered indirectly by every step that imports the module.
 These tests target the new ``await_cancelled`` coroutine which is the
-mechanism that lets ``xyz_claude_agent_sdk.agent_loop`` race "next LLM
+mechanism that lets ``adapters.claude.sdk.agent_loop`` race "next LLM
 message" against "user pressed Stop".
 """
 from __future__ import annotations

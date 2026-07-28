@@ -2,7 +2,7 @@
 @file_name: test_agent_loop_cancel_race.py
 @author: Bin Liang
 @date: 2026-05-13
-@description: Verify the race-with-cancel pattern in xyz_claude_agent_sdk
+@description: Verify the race-with-cancel pattern in adapters.claude.sdk
               break the receive loop within ~100 ms even when no message
               arrives from Claude CLI.
 
@@ -42,7 +42,7 @@ class _NeverYields:
 
 @pytest.mark.asyncio
 async def test_cancel_breaks_silent_receive_within_100ms():
-    """The exact pattern used in xyz_claude_agent_sdk:agent_loop —
+    """The exact pattern used in adapters.claude.sdk:agent_loop —
     asyncio.wait over (message, cancel). When no message arrives but
     cancel fires, we must break out within ~100 ms (regardless of the
     600 s IDLE_TIMEOUT_SECONDS upper bound)."""

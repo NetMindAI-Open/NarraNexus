@@ -227,7 +227,7 @@ i.e. after the agent loop finishes), while the user's first message
 carries `event.created_at` (turn-start). Because the agent loop spans
 seconds to minutes, the greeting timestamp ended up *later* than the
 user message timestamp. Both the chat-history API
-(`backend/routes/agents_chat_history.py`, sorts by
+(`backend/routes/agents/chat_history.py`, sorts by
 `meta_data.timestamp` ascending) and the frontend timeline
 (`frontend/src/components/chat/ChatPanel.tsx`, also ascending sort)
 then rendered the greeting *under* the user's first query bubble —

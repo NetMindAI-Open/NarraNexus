@@ -6,7 +6,7 @@ last_verified: 2026-05-22
 
 ## Why it exists
 
-Shared Lark business logic that both the HTTP routes (`backend/routes/lark.py`)
+Shared Lark business logic that both the HTTP routes (`backend/routes/channels/lark.py`)
 and MCP tools (`_lark_mcp_tools.py`) need.  Lives in the core package to
 avoid circular imports — the API layer imports from here, never the other
 way around.
@@ -19,7 +19,7 @@ way around.
 - **`do_unbind()`** — symmetrical to `do_bind`. Added 2026-05-22 after
   the agent reported "Lark module currently has no unbind tool" when a
   user asked to disconnect via natural language. The cleanup logic
-  used to live inline in `backend/routes/lark.py:unbind_lark_bot`; it
+  used to live inline in `backend/routes/channels/lark.py:unbind_lark_bot`; it
   is now hoisted here so the new `lark_unbind` MCP tool can call the
   exact same steps. Order: get credential (early `no_credential` if
   missing) → best-effort CLI profile remove → best-effort workspace
@@ -36,7 +36,7 @@ way around.
 
 ## Upstream / downstream
 
-- **Upstream**: `backend/routes/lark.py`, `_lark_mcp_tools.py`.
+- **Upstream**: `backend/routes/channels/lark.py`, `_lark_mcp_tools.py`.
 - **Downstream**: `LarkCLIClient` (`config_init`, `_run_with_agent_id`),
   `LarkCredentialManager`.
 

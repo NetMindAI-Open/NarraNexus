@@ -35,7 +35,7 @@ def _patch_db_factory(monkeypatch, db_client):
         return db_client
 
     monkeypatch.setattr(
-        "xyz_agent_context.utils.db_factory.get_db_client", _async_db
+        "xyz_agent_context.utils.db.db_factory.get_db_client", _async_db
     )
 
 

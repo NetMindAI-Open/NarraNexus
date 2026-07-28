@@ -29,7 +29,7 @@ from backend.auth import (
     resolve_current_user_id,
     resolve_optional_user_id,
 )
-from xyz_agent_context.skill_marketplace_service import (
+from xyz_agent_context.marketplace.skill_marketplace_service import (
     PublishRejectedError,
     SkillMarketplaceService,
 )

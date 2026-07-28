@@ -14,7 +14,6 @@ stub: false
 
 新增 `_record_circuit_breaker`：COMPLETED→`record_success`；STATE_FAILED **或** STATE_COMPLETED+`_had_fatal_error`→`record_failure`；CANCELLED 不动。喂实时层 Agent 熔断器（best-effort 包裹，观察者绝不弄坏 turn 收尾；只挡未来 turn，不碰在飞 loop）。关键点：auth/quota 致命错让 generator **自然结束**落到 STATE_COMPLETED，故不能只看 STATE_FAILED——`emit()` 在 fatal error 分支捕获 `_last_error_type/_message`，`except` 分支也捕获，`_finalize` 据此判定失败。**顺带修**：FAILED turn 之前不写 `events.error_message`（只有 CANCELLED 写），现补上脱敏后的错误。
 
-
 ## 2026-06-10 — `_finalize` 广播终结 `complete` 帧（live WS 唯一带内结束信号）
 
 v1.0 的 WS handler 在 agent loop 返回后会
@@ -148,4 +147,3 @@ run_id 设置之前的事件（step 0 RUNNING 的那条 progress）只 broadcast
 `state='failed', error_message='backend restarted, run lost'`。前端识别
 这个状态显示给用户。
 
-Spec: `reference/self_notebook/specs/2026-05-13-agent-runtime-lifecycle-and-stream-resilience-design.md` §4.1

@@ -40,11 +40,9 @@ Deletion is now registry-only. `remove(agentId, artifactId)` (no third arg)
 and `bulkDelete(userId, ids)` (no third arg) just remove the DB rows;
 workspace files are never touched. `BulkDeleteResult` no longer carries
 `source_deleted`. Same change rationale as the backend (see
-[[agents_artifacts.py]] / [[users_artifacts.py]] mirror md).
+[[agents/artifacts.py]] / [[artifacts/users.py]] mirror md).
 
 ## 2026-05-14 — pointer model: token-based raw fetch, register from workspace, delete_source
-
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 
 - `getDetail` returns a plain `Artifact` (the old `{artifact, versions}` shape
   is gone).

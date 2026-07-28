@@ -31,4 +31,4 @@ JobModule 的执行链跨越两个进程：
 - `repository/JobRepository`：唯一的 Job DB 操作通道，包含原子锁（`try_acquire_job`）和 ONGOING 状态追踪
 - `services/ModulePoller`：监听 `module_instances` 表的状态变化，当 `JobTrigger` 把实例标记为 `completed` 时触发依赖链激活
 - `SocialNetworkModule`：通过 `ctx_data.extra_data["related_job_ids"]` 把当前用户的关联 Job 传递给 JobModule
-- `agent_framework/llm_api/embedding`：`job_create` 时生成向量用于语义检索（`job_retrieval_semantic`）
+- `agent_framework/llm/api/embedding`：`job_create` 时生成向量用于语义检索（`job_retrieval_semantic`）

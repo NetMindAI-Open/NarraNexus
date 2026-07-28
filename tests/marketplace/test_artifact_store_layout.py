@@ -11,7 +11,7 @@ Verifies the dev/prod × skills/teams layout: MARKETPLACE_S3_ENV composes
 
 import pytest
 
-from xyz_agent_context._skill_marketplace_impl.artifact_store import (
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import (
     S3ArtifactStore,
     get_artifact_store,
     get_template_store,

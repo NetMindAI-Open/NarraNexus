@@ -19,7 +19,7 @@ from collections import defaultdict
 
 import pytest
 
-from xyz_agent_context.agent_framework.agent_model_identity import (
+from xyz_agent_context.agent_framework.providers.model_identity import (
     FRAMEWORK_DISPLAY_NAMES,
     resolve_agent_model_identity,
 )

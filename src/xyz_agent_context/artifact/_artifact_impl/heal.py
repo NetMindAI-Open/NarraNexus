@@ -9,7 +9,7 @@ Under the pointer model an artifact row can outlive its on-disk entry file
 mid-flight). The raw route answers 410 for such rows; the frontend calls heal
 to try to reconnect the pointer.
 
-Extracted from `backend/routes/agents_artifacts.py` (2026-07-21) so the
+Extracted from `backend/routes/agents/artifacts.py` (2026-07-21) so the
 recovery strategy is plain, testable service logic instead of living inside
 an HTTP handler.
 """

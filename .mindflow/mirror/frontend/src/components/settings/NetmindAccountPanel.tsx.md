@@ -30,7 +30,7 @@ stub: false
   （useEffect 同步最新引用）。
 
 同批：App.tsx 横幅与 QuotaExceededError 文案的"退出重登"引导改为指向本按钮
-（[[provider_resolver]]）；mock/index.ts 补 useSubscription 桩。测试 +5
+（[[resolver]]）；mock/index.ts 补 useSubscription 桩。测试 +5
 （按钮出现/成功流转 driving/409 视为成功/硬失败可重试/订阅后自动接入）。
 
 ## 2026-07-18 (同日三改) — Pro 套餐额度"溢出水箱"拆分（Owner 设计）

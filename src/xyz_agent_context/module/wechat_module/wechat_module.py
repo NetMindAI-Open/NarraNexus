@@ -7,7 +7,7 @@
 Personal-account WeChat via the iLink ("ClawBot") gateway. Architecturally
 closest to Telegram (long-poll, single token), so this mirrors
 ``telegram_module.py``. Deltas:
-  1. Binding is a QR-scan flow (Channels panel → backend/routes/wechat.py), not
+  1. Binding is a QR-scan flow (Channels panel → backend/routes/channels/wechat.py), not
      a token paste — so there is no ``wechat_bind`` MCP tool.
   2. The agent replies via ``wechat_send(to_user_id, context_token, text)``.
   3. Owner identity is the peer's wxid, claimed on first DM (opaque at bind).
@@ -100,6 +100,18 @@ class WeChatModule(ChannelModuleBase):
     ctx_data_key = "wechat_info"
     mcp_server_name = "wechat_module"
     mcp_port = WECHAT_MCP_PORT
+    # Setup-residency (B++): WeChat binding is a QR-scan flow in the
+    # Channels panel — there is NO in-chat bind tool, so while unbound
+    # EVERY tool is suppressed (empty setup_tool_names) and the one-liner
+    # points the user at Settings. Keep all_tool_names in sync with
+    # register_wechat_mcp_tools — unit test asserts equality.
+    all_tool_names = (
+        "wechat_send",
+        "react_to_user_message",
+        "wechat_status",
+        "wechat_unbind",
+    )
+    setup_tool_names = frozenset()
 
     @staticmethod
     def get_config() -> ModuleConfig:
@@ -137,7 +149,14 @@ class WeChatModule(ChannelModuleBase):
     async def get_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
-            return _NO_BIND_INSTRUCTION + _WECHAT_IRON_RULES
+            # Setup-residency (B++): unbound agents get ONE line pointing
+            # at the Channels panel (QR-scan binding is frontend-only — no
+            # in-chat bind tool exists). A bound agent whose credential
+            # data failed to load this turn gets nothing rather than a
+            # misleading onboarding prompt.
+            if await self.is_bound():
+                return ""
+            return self.unbound_setup_line()
 
         owner_wx_id = info.get("owner_wx_id", "")
         current_sender_id = info.get("current_sender_id", "")

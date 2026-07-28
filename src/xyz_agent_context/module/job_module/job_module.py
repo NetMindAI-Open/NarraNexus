@@ -492,7 +492,7 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
 
         try:
             from xyz_agent_context.repository import JobRepository
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
 
             db = await get_db_client()
             job_repo = JobRepository(db)

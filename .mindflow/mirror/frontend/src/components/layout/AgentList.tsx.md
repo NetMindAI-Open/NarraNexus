@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — 承载 EditAgentDialog(编辑名称 + 描述)
+
+新增 `editTarget` / `editBusy` 状态 + `handleEditAgent`(打开)/ `doEditAgent`
+(调 `api.updateAgent(id, name, description)` 并回写本地 name/description)。行 ⋮
+菜单新增"编辑…"入口经 `onEditAgent` 一路透传到 [[AgentRowMenu.tsx]]。这是
+`agent_description` 唯一的可编辑 UI(此前该字段进 LLM 上下文/Agent Card 却无编辑入口)。
+inline 重命名保留作快速改名。
 
 ## 2026-07-17 — flat AGENTS list sorted by recent conversation
 

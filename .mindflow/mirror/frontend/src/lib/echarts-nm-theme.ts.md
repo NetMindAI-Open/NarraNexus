@@ -66,4 +66,3 @@ restraint-first — 5 series readable without legend lookup is more useful than
 
 - `lib/reactflow-nm-config.ts` — sibling NM bridge for ReactFlow
 - `lib/__tests__/echarts-nm-theme.test.ts` — unit test
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §6.2

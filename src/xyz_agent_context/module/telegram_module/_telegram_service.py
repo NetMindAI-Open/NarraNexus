@@ -3,7 +3,7 @@
 @date: 2026-05-09
 @description: Shared bind/test helpers for Telegram channel.
 
-Both REST routes (`backend/routes/telegram.py`) and MCP tools
+Both REST routes (`backend/routes/channels/telegram.py`) and MCP tools
 (`_telegram_mcp_tools.py`) call into here so bind / test logic lives in
 one place. Pattern mirrors `lark_module/_lark_service.py` and
 `slack_module/_slack_service.py`.

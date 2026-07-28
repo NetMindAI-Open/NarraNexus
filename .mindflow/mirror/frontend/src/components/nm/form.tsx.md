@@ -103,4 +103,3 @@ choice".
 
 - `nm/surface.tsx` SunkenWell — visually matches TextInput/Textarea well
 - `nm/button.tsx` Button — used inside SearchInput trailing slot
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.6

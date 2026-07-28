@@ -130,13 +130,13 @@ jobs:
       #   - rsyncs project source into resources/project/ with the correct excludes
       #   - cargo tauri build (which assembles the .app)
       #   - manually codesigns inner Mach-O + outer bundle with hardened runtime
-      #   - runs scripts/pre-notarize-audit.sh
+      #   - runs scripts/release/pre-notarize-audit.sh
       #   - submits to Apple notary, polls, downloads log, staples ticket to dmg
       #
       # Apple env vars are CONSUMED inside step 6/7/8 of the script. If any
       # signing/notarize var is missing the script falls back to ad-hoc.
       - name: Build, sign, notarize via canonical script
-        run: bash scripts/build-desktop.sh
+        run: bash scripts/release/build-desktop.sh
         env:
           # Cert + cert-password are consumed by the prior keychain-import
           # step, not by this script — passing them again would make Tauri's

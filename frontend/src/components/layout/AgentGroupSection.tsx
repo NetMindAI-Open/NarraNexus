@@ -17,6 +17,7 @@ import { RingAvatar } from '@/components/nm';
 import { AgentRowMenu } from './AgentRowMenu';
 import { aggregateSectionUnread } from './agentGroupUtils';
 import { cn } from '@/lib/utils';
+import { AGENT_TEXT_MAX_LENGTH } from '@/lib/agentLimits';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,6 +70,7 @@ export interface AgentGroupSectionProps {
   savingName: boolean;
 
   onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
+  onEditAgent: (agent: AgentInfo, e: React.MouseEvent) => void;
   onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
   onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
   onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
@@ -112,6 +114,7 @@ export function AgentGroupSection({
   onCancelEdit,
   savingName,
   onStartEdit,
+  onEditAgent,
   onClearData,
   onDelete,
   onTogglePublic,
@@ -228,6 +231,7 @@ export function AgentGroupSection({
               savingName={savingName}
               onSelectAgent={onSelectAgent}
               onStartEdit={onStartEdit}
+              onEditAgent={onEditAgent}
               onClearData={onClearData}
               onDelete={onDelete}
               onTogglePublic={onTogglePublic}
@@ -261,6 +265,7 @@ interface AgentRowProps {
   savingName: boolean;
   onSelectAgent: (agentId: string) => void;
   onStartEdit: (agent: AgentInfo, e: React.MouseEvent) => void;
+  onEditAgent: (agent: AgentInfo, e: React.MouseEvent) => void;
   onClearData: (agent: AgentInfo, e: React.MouseEvent) => void;
   onDelete: (agent: AgentInfo, e: React.MouseEvent) => void;
   onTogglePublic: (agent: AgentInfo, e: React.MouseEvent) => void;
@@ -285,6 +290,7 @@ function AgentRow({
   savingName,
   onSelectAgent,
   onStartEdit,
+  onEditAgent,
   onClearData,
   onDelete,
   onTogglePublic,
@@ -362,6 +368,7 @@ function AgentRow({
                 type="text"
                 value={editingName}
                 onChange={(e) => onEditNameChange(e.target.value)}
+                maxLength={AGENT_TEXT_MAX_LENGTH}
                 className="flex-1 min-w-0 px-2 py-0.5 text-sm font-mono text-[var(--nm-ink)] bg-[var(--nm-paper-warm)] border border-[var(--nm-ink)] rounded-[var(--radius-xs)] focus:outline-none"
                 autoFocus
                 onKeyDown={(e) => {
@@ -417,6 +424,7 @@ function AgentRow({
                   isPublic={!!agent.is_public}
                   showPublicToggle={showPublicToggle}
                   onStartEdit={(e) => onStartEdit(agent, e)}
+                  onEditAgent={(e) => onEditAgent(agent, e)}
                   onClearData={(e) => onClearData(agent, e)}
                   onDelete={(e) => { if (deletingAgentId !== agent.agent_id) onDelete(agent, e); }}
                   onTogglePublic={(e) => onTogglePublic(agent, e)}

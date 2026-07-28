@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from xyz_agent_context.agent_framework import model_sync
-from xyz_agent_context.agent_framework.model_probe_ledger import PASS, FAIL
+from xyz_agent_context.agent_framework.providers import model_sync
+from xyz_agent_context.agent_framework.providers.model_probe_ledger import PASS, FAIL
 
 
 async def test_sync_dedup_and_overwrite(monkeypatch):

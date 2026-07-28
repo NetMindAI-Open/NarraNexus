@@ -4,7 +4,7 @@
 @description: Regressions for the codex CLI stdout StreamReader line limit.
 
 Companion to the 2026-07-08 multimodal-large-file incident. The
-``xyz_codex_cli_sdk`` wrapper spawns codex CLI via
+``adapters.codex.cli_sdk`` wrapper spawns codex CLI via
 ``asyncio.create_subprocess_exec``. Without an explicit ``limit=``
 kwarg it inherits ``asyncio.streams._DEFAULT_LIMIT = 65536`` (64 KiB),
 half of aiohttp's 128 KiB. A ``tool_result`` NDJSON line carrying a
@@ -24,8 +24,8 @@ import asyncio
 
 import pytest
 
-from xyz_agent_context.agent_framework import xyz_codex_cli_sdk as codex_mod
-from xyz_agent_context.agent_framework.xyz_codex_cli_sdk import (
+from xyz_agent_context.agent_framework.adapters.codex import cli_sdk as codex_mod
+from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import (
     CodexSDK,
     _STDOUT_LINE_LIMIT,
 )
@@ -95,7 +95,7 @@ async def test_agent_loop_passes_limit_kwarg_to_subprocess_spawn(monkeypatch):
     monkeypatch.setattr(codex_mod.asyncio, "create_subprocess_exec", _fake_spawn)
 
     sdk = CodexSDK("/tmp")
-    # Prime a minimum-viable messages list so _build_system_prompt_and_user_msg
+    # Prime a minimum-viable messages list so materializer.flatten_for_file
     # produces a real prompt string.
     messages = [
         {"role": "system", "content": "You are a test agent."},

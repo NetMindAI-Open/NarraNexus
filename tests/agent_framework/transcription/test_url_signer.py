@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from xyz_agent_context.agent_framework.transcription import url_signer
-from xyz_agent_context.agent_framework.transcription.url_signer import (
+from xyz_agent_context.agent_framework.llm.transcription import url_signer
+from xyz_agent_context.agent_framework.llm.transcription.url_signer import (
     TokenExpired,
     TokenInvalid,
     mint,

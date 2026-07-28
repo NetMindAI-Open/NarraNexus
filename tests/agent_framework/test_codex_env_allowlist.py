@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from xyz_agent_context.agent_framework._codex_env import (
+from xyz_agent_context.agent_framework.adapters.codex._env import (
     build_codex_subprocess_env,
 )
 
@@ -30,6 +30,8 @@ _LEAKED_SECRETS = (
     "INTERNAL_INVITE_SECRET",
     "TRANSCRIPTION_HMAC_SECRET",
     "SYSTEM_DEFAULT_LLM_API_KEY",
+    "SYSTEM_DEFAULT_LLM_GATEWAY_ADMIN_KEY",
+    "SYSTEM_DEFAULT_LLM_GATEWAY_BACKEND_KEY",
     "SYSTEM_DEFAULT_NETMIND_API_KEY",
     "BRAVE_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",

@@ -119,7 +119,11 @@ class NarrativeConfig:
     MAX_EVENTS_IN_CONTEXT = 6
 
     # ==================== Narrative LLM Dynamic Update ====================
-    # Note: NARRATIVE_LLM_UPDATE_INTERVAL has been moved to global config xyz_agent_context/config.py
+    # Use LLM to update Narrative metadata every N Events (name, current_summary,
+    # actors, topic_keywords, dynamic_summary). Default 1 = every Event; raise to
+    # 3-5 to reduce LLM call costs. (Moved back from the package-root config.py
+    # 2026-07-24 — narrative/ was its only consumer, the root file is gone.)
+    NARRATIVE_LLM_UPDATE_INTERVAL = 1
 
     # LLM model used for updates
     # Description: LLM model used for generating Narrative summaries and metadata.

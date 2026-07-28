@@ -207,6 +207,19 @@ class NarramessengerModule(ChannelModuleBase):
     ctx_data_key = "narramessenger_info"
     mcp_server_name = "narramessenger_module"
     mcp_port = NARRAMESSENGER_MCP_PORT
+    # Setup-residency (B++): while unbound, only narra_bind stays visible;
+    # the other tools' schemas are suppressed via disallowed_tools. Keep in
+    # sync with register_narramessenger_mcp_tools — unit test asserts
+    # equality.
+    all_tool_names = (
+        "narra_reply",
+        "narra_send",
+        "narra_send_media",
+        "narra_bind",
+        "narra_cli",
+        "narra_guide",
+    )
+    setup_tool_names = frozenset({"narra_bind"})
 
     @staticmethod
     def get_config() -> ModuleConfig:
@@ -260,7 +273,14 @@ class NarramessengerModule(ChannelModuleBase):
     async def get_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
-            return _SETUP_INSTRUCTION
+            # Setup-residency (B++): unbound agents get ONE line instead of
+            # the bind walkthrough; the full guide is served on demand by
+            # narra_bind() called with no arguments. A bound agent whose
+            # credential data failed to load this turn gets nothing rather
+            # than a misleading onboarding prompt.
+            if await self.is_bound():
+                return ""
+            return self.unbound_setup_line()
 
         matrix_user_id = info.get("matrix_user_id", "(unknown)")
         ws = ctx_data.working_source

@@ -11,8 +11,8 @@ Two invariants the blocklist MUST hold (incident lesson #3):
      trigger — transient network / 5xx errors are NOT.
 """
 
-from xyz_agent_context.agent_framework import openai_agents_sdk as oa
-from xyz_agent_context.agent_framework.openai_agents_sdk import (
+from xyz_agent_context.agent_framework.adapters import openai_agents as oa
+from xyz_agent_context.agent_framework.adapters.openai_agents import (
     _capability_key,
     _is_response_format_unsupported_error,
 )

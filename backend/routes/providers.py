@@ -13,17 +13,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pydantic import BaseModel
 
-from xyz_agent_context.agent_framework.cloud_policy import (
+from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
     netmind_slots_only,
 )
-from xyz_agent_context.agent_framework.model_catalog import (
+from xyz_agent_context.agent_framework.providers.model_catalog import (
     get_all_known_models,
     get_default_models,
     get_suggested_models,
@@ -59,6 +61,24 @@ class AddProviderRequest(BaseModel):
     auth_type: str = "api_key"
     models: list[str] = []
     default_slots: dict[str, SlotDefault] | None = None
+
+
+class TestProviderConfigRequest(BaseModel):
+    """Body for ``POST /api/providers/test-config`` — stateless probe.
+
+    Mirrors the custom-provider form fields so connectivity can be
+    verified BEFORE the provider is saved. Nothing here is persisted.
+    """
+    card_type: str
+    api_key: str = ""
+    base_url: str = ""
+    # Only real API-key auth types are probeable statelessly. "oauth" is
+    # intentionally excluded: a stateless probe has no stored CLI
+    # credential, so reporting it "connected" would be a lie (the service
+    # guards this too). Literal → FastAPI 422 on anything else, instead of
+    # a pydantic ValidationError surfacing as a 500.
+    auth_type: Literal["api_key", "bearer_token"] = "api_key"
+    models: list[str] = []
 
 
 class SetSlotRequest(BaseModel):
@@ -128,7 +148,7 @@ async def _resume_agent_circuit_breakers(uid: str) -> None:
     slot). Mirrors the ``schedule_user_no_quota_rearm`` edge-recovery already
     fired on these paths. Best-effort — never fails the reconfigure."""
     try:
-        from xyz_agent_context.agent_framework.agent_circuit_breaker import (
+        from xyz_agent_context.agent_framework.loop.circuit_breaker import (
             reset_for_owner,
         )
         await reset_for_owner(uid)
@@ -175,8 +195,8 @@ def _netmind_slots_only(request: Request) -> bool:
 
 async def _get_service():
     """Get UserProviderService with DB client."""
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
     db = await get_db_client()
     return UserProviderService(db)
 
@@ -213,7 +233,7 @@ async def _attach_netmind_accounts(uid: str, data: dict) -> dict:
     Best-effort — a lookup failure just omits the field. The account is stored
     on ``user_providers`` at key-mint time (netmind_provisioner)."""
     try:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
         db = await get_db_client()
         rows = await db.get(
             "user_providers", filters={"user_id": uid, "source": "netmind"}
@@ -422,11 +442,11 @@ async def use_subscription(request: Request):
     gated by ``settings.netmind_use_subscription_enabled``.
     """
     from xyz_agent_context.settings import settings
-    from xyz_agent_context.services.netmind_key_client import (
+    from backend.integrations.netmind.netmind_key_client import (
         KeyAuthError,
         KeyUpstreamError,
     )
-    from xyz_agent_context.services.netmind_provisioner import (
+    from backend.integrations.netmind.netmind_provisioner import (
         ensure_netmind_provider,
     )
 
@@ -501,6 +521,25 @@ async def use_subscription(request: Request):
 async def remove_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
+
+    # The free-tier card holds the ONLY copy of its wallet key (the gateway
+    # shows the secret once). Deleting it while credit remains strands that
+    # credit permanently, so the guard fails closed — see removal_policy.
+    from backend.integrations.free_tier.removal_policy import (
+        FreeTierCardProtected,
+        ensure_free_tier_card_removable,
+    )
+
+    row = await service.db.get_one(
+        "user_providers", {"user_id": uid, "provider_id": provider_id}
+    )
+    try:
+        await ensure_free_tier_card_removable(uid, row)
+    except FreeTierCardProtected as e:
+        # 409, not 403: the caller is allowed to do this — the resource's
+        # current state is what forbids it, and that state changes on its own.
+        raise HTTPException(status_code=409, detail=str(e))
+
     try:
         config = await service.remove_provider(uid, provider_id)
     except ValueError as e:
@@ -513,6 +552,36 @@ async def test_provider(provider_id: str, request: Request):
     uid = _get_user_id(request)
     service = await _get_service()
     success, message = await service.test_provider(uid, provider_id)
+    return {"success": success, "message": message}
+
+
+@router.post("/test-config")
+async def test_provider_config(req: TestProviderConfigRequest, request: Request):
+    """Probe an UNSAVED custom provider from raw form values.
+
+    Stateless counterpart to ``/{provider_id}/test``: it never reads or
+    writes the DB, letting the add-provider form validate a key /
+    base_url / model before the user commits it. Auth is still required
+    (a logged-in user), consistent with every other route here.
+    """
+    uid = _get_user_id(request)  # enforce auth; the probe itself is per-request
+    # This probe leaves NO DB row (unlike the stateful path, where testing
+    # a saved provider always had a user_providers row behind it), yet the
+    # server actively fetches a user-controlled base_url. Log one audit line
+    # so the outbound request is observable — CLAUDE.md incident lesson #5:
+    # a DB/audit trace beats a silent, grep-dependent log gap.
+    target_host = urlparse(req.base_url).hostname or "<provider-default>"
+    logger.info(
+        f"[test-config] uid={uid} protocol={req.card_type} host={target_host}"
+    )
+    service = await _get_service()
+    success, message = await service.test_provider_config(
+        card_type=req.card_type,
+        api_key=req.api_key,
+        base_url=req.base_url,
+        auth_type=req.auth_type,
+        models=req.models,
+    )
     return {"success": success, "message": message}
 
 
@@ -530,7 +599,7 @@ async def sync_default_models(request: Request):
     Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
     `source="user"` (hand-picked custom providers) is left untouched.
     """
-    from xyz_agent_context.agent_framework import model_sync
+    from xyz_agent_context.agent_framework.providers import model_sync
 
     uid = _get_user_id(request)
     service = await _get_service()
@@ -667,11 +736,11 @@ async def validate_slots(request: Request):
 # "claude_code" so existing users are unaffected.
 
 
-from xyz_agent_context.agent_framework.user_provider_service import (
+from xyz_agent_context.agent_framework.providers.user_service import (
     UserProviderService as _UserProviderServiceForFrameworks,
 )
 # Single source of truth — keep the route's whitelist in sync with the
-# service layer. Adding a v3 framework name in user_provider_service
+# service layer. Adding a v3 framework name in providers/user_service
 # automatically opens the route here, no double-edit required.
 _SUPPORTED_AGENT_FRAMEWORKS = _UserProviderServiceForFrameworks._SUPPORTED_AGENT_FRAMEWORKS
 
@@ -759,7 +828,7 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
     if user_id:
         required_proto = "openai" if framework == "codex_cli" else "anthropic"
         try:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             db = await get_db_client()
             slot = await db.get_one(
                 "user_slots", {"user_id": user_id, "slot_name": "agent"}
@@ -773,10 +842,19 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
                     and prov.get("api_key")
                     and (prov.get("protocol") or "").lower() == required_proto
                 ):
+                    # oauth_token rows land here too (their token rides
+                    # api_key) — that is correct: a stored setup-token means
+                    # the framework can authenticate without any host CLI
+                    # login. Only the wording differs.
+                    kind = (
+                        "setup-token"
+                        if prov.get("auth_type") == "oauth_token"
+                        else "API-key"
+                    )
                     return {
                         "ok": True,
                         "detail": (
-                            f"API-key provider configured "
+                            f"{kind} provider configured "
                             f"({prov.get('name') or slot['provider_id']})"
                         ),
                     }
@@ -787,16 +865,16 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
             )
 
     # ── Leg 2: CLI OAuth credentials on the host ─────────────────────
-    from xyz_agent_context.agent_framework.provider_driver.base import ProviderCard
+    from xyz_agent_context.agent_framework.providers.driver.base import ProviderCard
 
     # Codex auth probe — reads ``~/.codex/auth.json`` regardless of
     # which codex driver class is registered (v1 or v2 share the
     # auth file path).
     if framework == "codex_cli":
-        from xyz_agent_context.agent_framework.provider_driver.drivers.codex_oauth import (
+        from xyz_agent_context.agent_framework.providers.driver.drivers.codex_oauth import (
             CodexOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.provider_driver.derive import (
+        from xyz_agent_context.agent_framework.providers.driver.derive import (
             CODEX_CLI_CREDENTIALS_REF,
         )
         stub = ProviderCard(
@@ -821,10 +899,10 @@ async def _probe_agent_framework_auth(framework: str, user_id: str | None = None
         return {"ok": health.ok, "detail": detail}
 
     if framework == "claude_code":
-        from xyz_agent_context.agent_framework.provider_driver.drivers.claude_oauth import (
+        from xyz_agent_context.agent_framework.providers.driver.drivers.claude_oauth import (
             ClaudeOAuthDriver,
         )
-        from xyz_agent_context.agent_framework.provider_driver.derive import (
+        from xyz_agent_context.agent_framework.providers.driver.derive import (
             CLAUDE_CLI_CREDENTIALS_REF,
         )
         stub = ProviderCard(

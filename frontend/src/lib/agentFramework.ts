@@ -60,7 +60,7 @@ export const DESKTOP_RELEASES_URL = 'https://github.com/NetMindAI-Open/NarraNexu
 /**
  * Cloud netmind-only slot policy — the frontend twin of the route gates in
  * backend/routes/providers.py + agents_llm_config.py: a non-staff cloud user
- * may only bind NetMind-source providers to slots. Bring-your-own API keys
+ * may only bind NetMind-CAPACITY providers to slots. Bring-your-own API keys
  * can still be REGISTERED (the wallet stays open) but run in the local
  * (desktop) version only. Staff keeps full choice; local deployments are
  * never gated. Both slot editors (ModelDefaultsSettings and
@@ -69,6 +69,23 @@ export const DESKTOP_RELEASES_URL = 'https://github.com/NetMindAI-Open/NarraNexu
  */
 export function cloudNetmindOnly(role: string | undefined): boolean {
   return isForcedCloud() && role !== 'staff'
+}
+
+/**
+ * Provider sources a cloud non-staff user may BIND to a slot — the mirror of
+ * backend ``cloud_policy.CLOUD_BINDABLE_SOURCES``. Both are NetMind capacity:
+ * `netmind` is the user's own Power account, `netmind_free` is the
+ * platform-funded free-tier wallet reaching the same upstream through our
+ * gateway.
+ *
+ * Exported as a PREDICATE, not a constant to compare against, because the
+ * literal `p.source !== 'netmind'` was previously inlined in four places —
+ * and when `netmind_free` was added backend-side, all four kept filtering the
+ * free card out of every dropdown. A user could hold a working free provider
+ * and be unable to select it anywhere.
+ */
+export function isSlotBindableSource(source: string | undefined): boolean {
+  return source === 'netmind' || source === 'netmind_free'
 }
 
 // What the helper_llm "Default (recommended)" resolves to per protocol.
@@ -100,7 +117,7 @@ export function defaultHelperModel(
 // account tier. Scoped to codex_oauth ONLY — a third-party openai-protocol
 // provider (netmind / yunwu / openrouter / custom base_url) exposes its own
 // catalogue. Must stay in sync with backend ``CODEX_CURATED_MODELS`` in
-// user_provider_service.py (same codex_oauth-only scoping).
+// providers/user_service.py (same codex_oauth-only scoping).
 export const CODEX_CURATED_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini']
 
 export interface ModelSuggestionGroup {

@@ -48,5 +48,5 @@ stub: false
 ## 相关约束
 
 - 铁律 #5 — DB 审计 > 应用日志；这就是该铁律的直接产物。
-- 表定义在 `utils/schema_registry.py`（`instance_executor_audit`），由 `auto_migrate`
+- 表定义在 `utils/db/schema_registry.py`（`instance_executor_audit`），由 `auto_migrate`
   幂等创建，禁止手写 DDL。

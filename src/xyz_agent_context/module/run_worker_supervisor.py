@@ -217,7 +217,7 @@ async def _bus_factory(ctx: SupervisorContext) -> WorkerHandle:
         _get_bus,
     )
 
-    # _get_bus() does get_db_client + auto_migrate + bootstrap_quota_subsystem
+    # _get_bus() does get_db_client + auto_migrate
     # (all idempotent) on THIS loop, so the bus shares the per-loop pool.
     bus = await _get_bus()
     inst = MessageBusTrigger(bus=bus)
@@ -438,7 +438,7 @@ async def _drain_and_close(
     # the process alive after run() returns, turning a clean signal into a hang
     # (same reason as run_channel_triggers.main()).
     try:
-        from xyz_agent_context.utils.db_factory import close_db_client
+        from xyz_agent_context.utils.db.db_factory import close_db_client
 
         await close_db_client()
     except Exception as e:  # noqa: BLE001
@@ -461,11 +461,8 @@ async def run(
 ) -> None:
     """Supervisor entrypoint. Reuses run_channel_triggers.main()'s template."""
     import xyz_agent_context.settings  # noqa: F401 — ensure .env is loaded
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
-    from xyz_agent_context.agent_framework.quota_service import (
-        bootstrap_quota_subsystem,
-    )
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     from xyz_agent_context.services.service_audit import ServiceAuditor
 
     specs = build_specs(only, exclude)
@@ -473,10 +470,9 @@ async def run(
         f"[supervisor] starting workers: {[s.name for s in specs] or 'NONE (idle)'}"
     )
 
-    # ONE db + migration + quota bootstrap up front, on this loop.
+    # ONE db + migration up front, on this loop.
     db = await get_db_client()
     await auto_migrate(db._backend)
-    await bootstrap_quota_subsystem(db)
 
     ctx = SupervisorContext(
         db=db,

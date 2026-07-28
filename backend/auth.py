@@ -96,7 +96,7 @@ async def _resolve_manyfold_default_user_id() -> Optional[str]:
     path — see auth_middleware. Kept so older URLs (pre-2026-05-26 build
     of the frontend) keep working without 401.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     return row.get("user_id") if row else None
@@ -119,7 +119,7 @@ async def _ensure_manyfold_user_exists(user_id: str) -> None:
     """
     if not user_id.startswith("mf_"):
         return
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     existing = await db.get_one("users", {"user_id": user_id})
     if existing:
@@ -254,6 +254,12 @@ AUTH_EXEMPT_PATHS = {
     # NetMind loginToken is verified server-side against NetMind's auth
     # API inside the route handler, then exchanged for our own JWT.
     "/api/auth/netmind-login",
+    # Self-serve signup: by definition there is no identity yet. Both routes
+    # carry their own protection instead — per-email rate limits, server-side
+    # password policy, and the upstream's own verification code. Missing these
+    # two is why signup 401'd on first deploy.
+    "/api/auth/signup",
+    "/api/auth/signup/send-code",
     "/api/auth/create-user",
     # Admin identity migration (Phase 1): gated on the X-Admin-Secret header
     # inside the handler (admin_secret_key), not a user JWT — the offline batch
@@ -295,8 +301,8 @@ AUTH_EXEMPT_PREFIXES = (
     # Public transcription audio: NetMind's STT worker fetches via
     # HMAC-signed token URLs; the token IS the auth. Without bypass,
     # NetMind can't fetch (it has no JWT). See
-    # backend/routes/transcription_public.py and
-    # src/xyz_agent_context/agent_framework/transcription/url_signer.py.
+    # backend/routes/transcription/public.py and
+    # src/xyz_agent_context/agent_framework/llm/transcription/url_signer.py.
     "/api/public/",
 )
 
@@ -346,7 +352,7 @@ QUOTA_BYPASS_PREFIXES = (
 # agent loop or the LLM-facing routes (verified: every quota-spending
 # endpoint in backend/routes/**, including /v1/chat/completions and every
 # agent-run/trigger route, is a POST; the only GET handlers that stream
-# a response, e.g. backend/routes/manyfold_files.py's file-read endpoint,
+# a response, e.g. backend/routes/manyfold/files.py's file-read endpoint,
 # stream bytes off disk and never touch an LLM).
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD"})
 
@@ -513,20 +519,18 @@ async def auth_middleware(request: Request, call_next):
     except jwt.InvalidTokenError:
         return _json_response(401, {"detail": "Invalid token"})
 
-    # System-default quota routing. Tag current_user_id on the ContextVar
-    # (consumed by cost_tracker to attribute usage) and dispatch the
-    # resolver to decide user-vs-system routing + quota gating. Resolver
-    # itself short-circuits when SystemProviderService.is_enabled()==False,
-    # so local mode / feature-off is a no-op end-to-end.
+    # Provider routing. Tag current_user_id on the ContextVar (consumed by
+    # cost_tracker to attribute usage) and dispatch the resolver, which puts
+    # this user's provider config on the request's ContextVars. The resolver
+    # short-circuits in local mode, so that path is a no-op end-to-end.
     #
-    # Config-class paths (QUOTA_BYPASS_PREFIXES) skip the resolver entirely
-    # so users with an exhausted free tier can still reach /api/providers
-    # or flip /api/quota/me/preference to escape the dead-end. Safe/
-    # read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
-    # EVERY path, since reads never spend quota. JWT auth above still
+    # Config-class paths (QUOTA_BYPASS_PREFIXES) skip the resolver entirely so
+    # a user with NO usable provider can still reach /api/providers to fix it.
+    # Safe/read-only methods (SAFE_HTTP_METHODS) skip it for the same reason on
+    # EVERY path, since reads never spend anything. JWT auth above still
     # applies in both cases.
     from xyz_agent_context.agent_framework.api_config import set_current_user_id
-    from xyz_agent_context.agent_framework.provider_resolver import (
+    from xyz_agent_context.agent_framework.providers.resolver import (
         ProviderResolverError,
     )
 
@@ -640,7 +644,7 @@ async def ensure_local_default_user() -> str:
     Returns the user_id of an existing row when one is present, or
     creates 'local-default' and returns it. Idempotent.
     """
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     db = await get_db_client()
     row = await db.get_one("users", {})
     if row:

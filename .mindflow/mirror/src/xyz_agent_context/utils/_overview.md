@@ -4,25 +4,16 @@ Infrastructure utilities shared by every other layer of `xyz_agent_context` — 
 
 ## Directory role
 
-`utils/` is the project's lowest-level shared library. It has no knowledge of Narratives, Modules, or Agent pipelines. Every other directory in `src/xyz_agent_context/` is a consumer of `utils/`, never the other way around. The most critical cluster is the database stack: `schema_registry.py` defines table shapes, `db_backend.py` defines the driver interface, `db_backend_sqlite.py` / `db_backend_mysql.py` / `db_backend_sqlite_proxy.py` are the three concrete drivers, `database.py` provides the application-facing client plus the MySQL-to-SQLite dialect translator, and `db_factory.py` manages the process-wide singleton.
+`utils/` is the project's lowest-level shared library. It has no knowledge of Narratives, Modules, or Agent pipelines. Every other directory in `src/xyz_agent_context/` is a consumer of `utils/`, never the other way around. The most critical cluster is the database stack, grouped under `utils/db/` since 2026-07-24: `db/schema_registry.py` defines table shapes, `db/db_backend.py` defines the driver interface, `db/db_backend_sqlite.py` / `db/db_backend_mysql.py` / `db/db_backend_sqlite_proxy.py` are the three concrete drivers, `db/database.py` provides the application-facing client plus the MySQL-to-SQLite dialect translator, `db/db_factory.py` manages the process-wide singleton, `db/dataloader.py` batches N+1 reads, and `db/sqlite_proxy_server.py` is the desktop proxy process (run.sh / Makefile / Tauri sidecar entrypoint `xyz_agent_context.utils.db.sqlite_proxy_server`).
 
 ## Key file index
 
 | File | Role |
 |---|---|
-| `database.py` | `AsyncDatabaseClient` — the unified CRUD interface and dialect translator |
-| `schema_registry.py` | `TABLES` dict — single source of truth for every table's columns and indexes |
-| `db_factory.py` | `get_db_client()` singleton factory, URL-based backend selection |
-| `db_backend.py` | `DatabaseBackend` ABC — the interface all backends must implement |
-| `db_backend_sqlite.py` | `SQLiteBackend` — local/desktop driver via `aiosqlite` with WAL and write lock |
-| `db_backend_mysql.py` | `MySQLBackend` — cloud driver via `aiomysql` connection pool |
-| `db_backend_sqlite_proxy.py` | `SQLiteProxyBackend` — HTTP client that forwards all DB calls to the proxy process |
-| `sqlite_proxy_server.py` | The proxy process itself — owns the exclusive SQLite connection in multi-process deployments |
+| `db/` | The whole database stack (see the db/ mirrors): client, dialect backends ×3, factory, schema registry, dataloader, sqlite proxy server |
 | `settings.py` | (in parent dir) `Settings` singleton via `pydantic-settings` |
-| `config.py` | (in parent dir) Static algorithm tuning constants |
 | `service_logger.py` | One-call rotating file logger setup for background services |
 | `mcp_executor.py` | Transport-agnostic MCP tool invocation utility |
-| `dataloader.py` | GraphQL-DataLoader-style N+1 batcher |
 | `cost_tracker.py` | Ambient `ContextVar` for recording LLM API costs per agent turn |
 | `retry.py` | `@with_retry` decorator with exponential backoff |
 | `timezone.py` | UTC storage / user-timezone display / LLM-friendly formatting |

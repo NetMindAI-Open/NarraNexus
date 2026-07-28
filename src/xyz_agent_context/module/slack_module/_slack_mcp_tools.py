@@ -189,19 +189,27 @@ def register_slack_mcp_tools(mcp: Any) -> None:
     # ──────────────────────────────────────────────────────────────────
     @mcp.tool()
     async def slack_bind(
-        agent_id: str, bot_token: str, app_token: str
+        agent_id: str, bot_token: str = "", app_token: str = ""
     ) -> dict:
         """Bind a Slack workspace to this agent.
 
-        ``bot_token`` starts with ``xoxb-`` (from OAuth & Permissions →
-        Install App).
-        ``app_token`` starts with ``xapp-`` (from Basic Information →
-        App-Level Tokens, with ``connections:write`` scope, required for
-        Socket Mode).
+        Call with NO tokens to get the full step-by-step setup guide
+        (where to create the app and copy both tokens). Then call again
+        with ``bot_token`` (``xoxb-...``) and ``app_token`` (``xapp-...``).
 
         Returns ``{"success": bool, "error"?: str, "data"?: {team_id,
-        team_name, bot_user_id}}``.
+        team_name, bot_user_id}}``; the no-argument form returns
+        ``{"success": True, "setup_guide": str}``.
         """
+        if not bot_token or not app_token:
+            # Setup-residency (B++): the onboarding walkthrough left the
+            # per-turn system prompt; it is served here on demand instead.
+            # Lazy import avoids a module-level cycle (slack_module imports
+            # this file for register_slack_mcp_tools).
+            from xyz_agent_context.module.slack_module.slack_module import (
+                _NO_BOT_INSTRUCTION,
+            )
+            return {"success": True, "setup_guide": _NO_BOT_INSTRUCTION}
         mgr = await _get_manager()
         return await do_bind(mgr, agent_id, bot_token, app_token)
 

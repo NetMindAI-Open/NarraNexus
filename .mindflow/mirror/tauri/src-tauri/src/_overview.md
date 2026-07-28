@@ -43,7 +43,7 @@ codesign requirements.
 ## Iron rule alignment (CLAUDE.md rule #7)
 
 Every service definition in `state.rs` (`bundled_services`, `dev_services`)
-MUST stay in lockstep with `scripts/dev-local.sh`. Order, commands, delays —
+MUST stay in lockstep with `scripts/dev/dev-local.sh`. Order, commands, delays —
 all must match. Breaking this parity is a latent bug that only manifests in
 the packaged `.dmg`.
 

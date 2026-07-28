@@ -74,8 +74,6 @@ Pairs with the parallel update in [[artifact_tool.py]] description.
 
 ## 2026-05-14 — artifact instruction rewritten for the pointer model
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The "Visual Artifacts" section of the module instruction was rewritten:
 - one tool now: `register_artifact` (replaces `create_artifact` +
   `upload_artifact_file`);

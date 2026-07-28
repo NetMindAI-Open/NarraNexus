@@ -22,13 +22,13 @@
 # Auth / identity — requires extra eyes.
 /backend/auth.py                       @johnsonice @BinLiang2021
 /backend/routes/auth.py                @johnsonice @BinLiang2021
-/src/xyz_agent_context/agent_framework/provider_driver/ @johnsonice @BinLiang2021
+/src/xyz_agent_context/agent_framework/providers/driver/ @johnsonice @BinLiang2021
 
 # Bundle export / import — credentials and chat content flow here.
 /src/xyz_agent_context/bundle/ @johnsonice @BinLiang2021
 
 # Schema — never silently widen or narrow.
-/src/xyz_agent_context/utils/schema_registry.py @johnsonice @BinLiang2021
+/src/xyz_agent_context/utils/db/schema_registry.py @johnsonice @BinLiang2021
 
 # Release tooling.
 /.github/workflows/build-desktop.yml @johnsonice @BinLiang2021

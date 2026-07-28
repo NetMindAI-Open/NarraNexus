@@ -14,7 +14,6 @@
  * Then pass theme name to echarts.init():
  *   const chart = echarts.init(dom, pickNMTheme());
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §6.2
  */
 
 import * as echarts from 'echarts';

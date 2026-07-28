@@ -35,7 +35,7 @@ AsyncDatabaseClient + Schema      ← 数据层
 | **私有实现层** | `_narrative_impl/`, `_module_impl/`, `_agent_runtime_steps/` | 具体业务逻辑实现，以 `_` 前缀标识为私有包，不对外导出。 |
 | **后台服务层** | `services/` | 长期运行的后台进程，如 `ModulePoller`（轮询 Instance 状态变更触发依赖链）、`InstanceSyncService`（同步 Instance 与 Narrative 关联）。 |
 | **数据访问层** | `repository/` | 基于 `BaseRepository` 泛型基类的纯 CRUD 操作，解决 N+1 查询问题。每个业务实体对应一个 Repository 类。 |
-| **数据层** | `schema/`, `utils/db_factory.py` | Pydantic 数据模型定义（`schema/`）与全局单例 `AsyncDatabaseClient`（`db_factory.py`）。 |
+| **数据层** | `schema/`, `utils/db/db_factory.py` | Pydantic 数据模型定义（`schema/`）与全局单例 `AsyncDatabaseClient`（`db_factory.py`）。 |
 
 ## 2. 7 步流水线
 

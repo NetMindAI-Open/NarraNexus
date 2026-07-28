@@ -29,8 +29,8 @@ from loguru import logger
 # =============================================================================
 #
 # Only contains models whose name strings are controlled by our code:
-#   - OpenAI: hardcoded in openai_agents_sdk.py (MODEL_NAME)
-#   - Gemini: hardcoded in gemini_api_sdk.py (self.model)
+#   - OpenAI: hardcoded in adapters/openai_agents.py (MODEL_NAME)
+#   - Gemini: hardcoded in llm/gemini_api.py (self.model)
 # Claude costs use sdk_cost_usd directly (see record_cost), so no entry needed here.
 MODEL_PRICING: Dict[str, Dict[str, float]] = {
     # OpenAI
@@ -135,6 +135,9 @@ async def record_cost(
     input_tokens: int,
     output_tokens: int,
     sdk_cost_usd: Optional[float] = None,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+    num_turns: Optional[int] = None,
 ) -> None:
     """
     Calculate cost and persist a record to the database.
@@ -148,6 +151,10 @@ async def record_cost(
         input_tokens: Input token count
         output_tokens: Output token count
         sdk_cost_usd: SDK-calculated cost (used as fallback when model is unknown)
+        cache_read_tokens: Prompt-cache read tokens (defaults keep existing
+            callers untouched; only agent_loop reports these today)
+        cache_creation_tokens: Prompt-cache write tokens
+        num_turns: Model calls within this run (None = framework didn't report)
     """
     cost = calculate_cost(model, input_tokens, output_tokens)
     # Prefer SDK-provided cost (most accurate, e.g. Claude SDK considers caching discounts).
@@ -161,9 +168,9 @@ async def record_cost(
 
     # Resolve the owner attribution ONCE, up front, so it can be persisted onto
     # cost_records (making the row user-attributable without a fragile join to
-    # agents.created_by) and reused by the deduct hook below. Reading the
-    # ContextVars must never break cost tracking, so default to None on any
-    # failure — non-user / background calls legitimately have neither.
+    # agents.created_by). Reading the ContextVars must never break cost
+    # tracking, so default to None on any failure — non-user / background calls
+    # legitimately have neither.
     user_id: Optional[str] = None
     provider_source: Optional[str] = None
     try:
@@ -176,9 +183,8 @@ async def record_cost(
     except Exception:
         pass
 
-    cost_record_id: Optional[int] = None
     try:
-        cost_record_id = await db.insert("cost_records", {
+        await db.insert("cost_records", {
             "agent_id": agent_id,
             "event_id": event_id,
             "call_type": call_type,
@@ -188,45 +194,17 @@ async def record_cost(
             "total_cost_usd": final_cost,
             "user_id": user_id,
             "provider_source": provider_source,
+            "cache_read_input_tokens": cache_read_tokens or 0,
+            "cache_creation_input_tokens": cache_creation_tokens or 0,
+            "num_turns": num_turns,
         })
         logger.debug(
             f"Cost recorded: agent={agent_id} model={model} "
             f"tokens={input_tokens}+{output_tokens} cost=${final_cost:.6f}"
+            f" cache={cache_read_tokens}r/{cache_creation_tokens}w"
+            f"{f' turns={num_turns}' if num_turns is not None else ''}"
             f"{' (sdk)' if cost['total_cost'] == 0 and sdk_cost_usd else ''}"
         )
     except Exception as e:
         # Cost tracking failure should never block the main flow
         logger.exception(f"Failed to record cost: {e}")
-
-    # --- System-default quota deduct hook ---
-    # Fires only when the request was routed through the system free-tier
-    # branch (ProviderResolver tagged provider_source="system") AND
-    # auth_middleware tagged current_user_id. Any failure here is logged
-    # and swallowed — cost_tracker is observability, not flow control.
-    # cost_record_id / model / agent_id are threaded through so atomic_deduct
-    # can write a self-auditing ledger row linked back to this cost record.
-    try:
-        if provider_source == "system" and user_id:
-            from xyz_agent_context.agent_framework.quota_service import (
-                QuotaService,
-            )
-            try:
-                svc = QuotaService.default()
-            except RuntimeError:
-                svc = None
-            if svc is not None:
-                try:
-                    await svc.deduct(
-                        user_id,
-                        input_tokens,
-                        output_tokens,
-                        cost_record_id=cost_record_id,
-                        provider_source=provider_source,
-                        model=model,
-                        agent_id=agent_id,
-                    )
-                except Exception as e:
-                    logger.exception(f"quota deduct hook failed for {user_id}: {e}")
-    except Exception:
-        # Defensive: imports/ContextVar reads must never break cost_tracker.
-        pass

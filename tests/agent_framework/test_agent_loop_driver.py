@@ -15,7 +15,7 @@ from xyz_agent_context.agent_framework import (
     register_agent_loop_driver,
     resolve_framework_name,
 )
-from xyz_agent_context.agent_framework.agent_loop_driver import _REGISTRY
+from xyz_agent_context.agent_framework.loop.driver import _REGISTRY
 
 
 def test_claude_is_registered_by_default():

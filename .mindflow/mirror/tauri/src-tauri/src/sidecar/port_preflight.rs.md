@@ -1,7 +1,27 @@
 ---
 code_file: tauri/src-tauri/src/sidecar/port_preflight.rs
-last_verified: 2026-07-22
+last_verified: 2026-07-27
 ---
+
+## 2026-07-27 — REQUIRED_PORTS 补齐 4 个漏检端口 + Python 防腐化闸门
+
+`REQUIRED_PORTS` 是 `module_runner.all_module_ports()` 的**手抄 Rust 副本**，又
+一次腐化：漏了 `7809`(GeneralMemory) / `7810`(HomeAssistant) / `7833`
+(Narramessenger) / `7835`(WeChat)——正是真实事故里 `[Errno 48]` 报的端口。
+preflight 探测不到这些端口上的孤儿 sidecar → 放行启动 → 新 MCP 撞上 → 自动清理
+对话框覆盖不到，用户被迫手动 kill。
+
+- 补齐这 4 个端口（core 段加 7809/7810；channel 段加 7833/7835）。
+- 新增 Python 防腐化测试 `tests/module/test_port_preflight_ports_sync.py`：解析本
+  文件的 `REQUIRED_PORTS` 字面量，断言 `all_module_ports()` 全集 ⊆ 该清单。任何新
+  模块/channel 加端口而忘了同步 Rust，测试立即红。这是消除「双真源持续腐化」的闸门
+  （铁律 #8）。
+
+顺带修掉**同文件里 2026-07-22 遗留的过时单测**：`classifier_recognises_lark_trigger`
+/ `classifier_recognises_slack_telegram_discord_triggers` 仍断言已删除的 per-channel
+trigger markers（那次把它们并进 `run_worker_supervisor` 时没更新测试，测试套已红一
+段时间）。改为 `classifier_recognises_worker_supervisor` +
+`classifier_recognises_standalone_channel_triggers`，匹配当前 SIDECAR_MARKERS 现实。
 
 ## 2026-07-22 — SIDECAR_MARKERS updated for the worker supervisor
 

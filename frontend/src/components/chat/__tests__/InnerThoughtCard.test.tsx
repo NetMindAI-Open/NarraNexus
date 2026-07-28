@@ -106,3 +106,76 @@ describe('InnerThoughtCard', () => {
     expect(screen.queryByText('chat.inner.viewLoop')).toBeNull();
   });
 });
+
+describe('run meta header (activity card upgrade)', () => {
+  const metaResponse = {
+    success: true,
+    event_id: 'evt_1',
+    tool_calls: [],
+    timeline: [{ type: 'thinking', content: 'planning' }],
+    meta: {
+      trigger: 'job',
+      trigger_source: 'job',
+      input_text: 'Run the daily briefing for markets',
+      final_output: 'Briefing sent to the user.',
+      state: 'completed',
+      started_at: '2026-07-23 08:00:00',
+      finished_at: '2026-07-23 08:01:30',
+      duration_seconds: 90,
+      models: ['deepseek-v4'],
+      total_cost_usd: 0.0041,
+      input_tokens: 1250,
+      output_tokens: 300,
+      tool_call_count: 1,
+    },
+  };
+
+  test('expanded card shows input, output, duration, cost and model', async () => {
+    getEventLogMock.mockResolvedValue(metaResponse);
+    render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+    fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Run the daily briefing for markets')).toBeTruthy();
+    });
+    expect(screen.getByText('Briefing sent to the user.')).toBeTruthy();
+    expect(screen.getByText('1m 30s')).toBeTruthy();
+    expect(screen.getByText('$0.0041')).toBeTruthy();
+    expect(screen.getByText('deepseek-v4')).toBeTruthy();
+    expect(screen.getByText(/1\.3k.*300/)).toBeTruthy();
+  });
+
+  test('meta chips are hidden when the data is absent (legacy rows)', async () => {
+    getEventLogMock.mockResolvedValue({
+      ...metaResponse,
+      meta: {
+        ...metaResponse.meta,
+        input_text: null,
+        duration_seconds: null,
+        models: [],
+        total_cost_usd: null,
+        input_tokens: 0,
+        output_tokens: 0,
+      },
+    });
+    render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+    fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+
+    await waitFor(() => expect(getEventLogMock).toHaveBeenCalled());
+    expect(screen.queryByText(/\$\d/)).toBeNull();
+    expect(screen.queryByText('chat.inner.meta.input')).toBeNull();
+  });
+
+  test('a failed run shows the state badge', async () => {
+    getEventLogMock.mockResolvedValue({
+      ...metaResponse,
+      meta: { ...metaResponse.meta, state: 'failed' },
+    });
+    render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+    fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+
+    await waitFor(() => {
+      expect(screen.getByText('chat.inner.meta.stateFailed')).toBeTruthy();
+    });
+  });
+});

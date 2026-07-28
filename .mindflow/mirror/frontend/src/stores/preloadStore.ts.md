@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/stores/preloadStore.ts
-last_verified: 2026-04-10
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — identity switch clears per-agent domains synchronously
+
+`preloadAll` now drops every per-agent domain (awareness, jobs, inbox,
+social list, chat history, cost) the moment (userId, agentId) differs from
+the last loaded pair — BEFORE any fetch resolves. Rationale: the store
+holds one global copy per domain, so a newly created agent kept rendering
+the previous agent's awareness until its own fetch succeeded — and that
+fetch can fail (module instances are created async best-effort), leaving
+the stale persona one Edit+Save away from being persisted (bug "新建
+Agent 的 Awareness 默认带上前一个 Agent 的内容"). Same-identity calls keep
+the stale-while-revalidate behavior. Tests:
+`__tests__/preloadStore.agentSwitch.test.ts`.
 
 # preloadStore.ts — Parallel panel data cache with silent refresh
 

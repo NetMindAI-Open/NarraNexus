@@ -14,7 +14,7 @@ import stat
 
 import pytest
 
-from xyz_agent_context._skill_marketplace_impl.secret_box import SecretBox
+from xyz_agent_context.marketplace._skill_marketplace_impl.secret_box import SecretBox
 
 
 def test_encrypt_decrypt_roundtrip(tmp_path):

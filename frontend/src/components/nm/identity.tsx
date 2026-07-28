@@ -6,7 +6,6 @@
  * Avatar Stack. Implements NM Axiom #3 (ring over fill) and Axiom #1
  * (species color = human/AI identity).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.1
  */
 
 import type { CSSProperties, ReactNode } from 'react';

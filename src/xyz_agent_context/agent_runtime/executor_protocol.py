@@ -89,6 +89,7 @@ def build_agent_loop_request(
     mcp_servers: dict[str, dict],
     extra_env: Optional[dict[str, str]],
     streaming: bool = True,
+    disallowed_tools: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """Assemble the JSON body for ``POST /agent-loop``.
 
@@ -104,5 +105,8 @@ def build_agent_loop_request(
         "mcp_servers": mcp_servers,
         "extra_env": extra_env,
         "streaming": streaming,
+        # Setup-residency: per-agent tool suppression must cross the network
+        # boundary explicitly (it is per-run state, like the messages).
+        "disallowed_tools": disallowed_tools or [],
         "provider_configs": serialize_provider_configs(),
     }

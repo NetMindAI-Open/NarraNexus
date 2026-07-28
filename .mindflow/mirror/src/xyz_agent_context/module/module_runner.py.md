@@ -1,7 +1,41 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-07-13
+last_verified: 2026-07-27
 ---
+
+## 2026-07-27 — 单进程 MCP 的集中式 SIGTERM/SIGINT 优雅退出（修孤儿占端口）
+
+`run_mcp_servers_async`（桌面 SQLite 模式 + dev `pkill` 路径的实际入口）此前
+把每个 `uvicorn.Server` 直接 `gather(server.serve())`。uvicorn 0.38 的
+`serve()` 用 `capture_signals()` → `signal.signal(SIGTERM/SIGINT, handle_exit)`
+注册**进程级**信号处置；同一 loop 上 N 个 server 并发进入时**最后一个覆盖前面
+所有**，于是一个 SIGTERM 只让最后那个 server `should_exit`，其余 N-1 继续
+`serve()` 占着 MCP 端口，主进程不自行退出（hang 到被外部 SIGKILL），下次启动
+`[Errno 48] address already in use`（桌面版表现为「power 登录 load failed / 重开
+提示端口占用」）。
+
+修法：
+- 新增模块级 `_no_signal_capture`（no-op contextmanager），在 `_build_mcp_server`
+  里 `server.capture_signals = _no_signal_capture` **中和**每个 server 自带的
+  信号捕获。
+- `_serve_one_mcp` 拆成 `_build_mcp_server`（构造 uvicorn.Server，不 serve）+ 薄
+  serve 封装；`run_mcp_servers_async` 直接持有 server 引用列表。
+- `run_mcp_servers_async` 用 `loop.add_signal_handler(SIGINT/SIGTERM, …)` 装
+  **唯一**集中 handler，触发时把**所有** server `should_exit=True` → 全部
+  `serve()` 返回 → `asyncio.run()` 干净退栈 → 释放所有 MCP 端口；`finally` 里
+  `remove_signal_handler` 清理。对齐 `run_worker_supervisor` 的 SIGINT+SIGTERM
+  模式（铁律 #7：`run.sh`/dev `pkill` 与桌面退出行为一致）。
+
+Gotcha：**别再让 uvicorn 各 server 自己抢信号**——多 server 单进程时必经
+`_no_signal_capture` 中和，否则集中 handler 会被 uvicorn 的 `signal.signal`
+覆盖回去。回归守卫见 `test_sigterm_stops_every_server_not_just_the_last`
+（3 个 server，一次 SIGTERM 必须全退）+
+`test_build_mcp_server_neutralises_uvicorn_signal_capture`。
+
+**已知相邻问题（未在本次处理）**：MySQL/cloud 路径 `run_all_mcp_servers` /
+`run_module` 仍只在 `except KeyboardInterrupt`（SIGINT）里 `terminate()` 其
+multiprocessing 子进程，收到 SIGTERM 会漏杀子进程。云端跑在 Docker/独立容器里，
+容器销毁会连带回收，危害远低于共享主机上的桌面场景，故本次仅记录。
 
 ## 2026-06-17 — `_serve_one_mcp` 同端口同时挂 SSE + streamable HTTP
 

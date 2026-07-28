@@ -106,9 +106,9 @@ from xyz_agent_context.module.social_network_module.prompts import (
 
 # =============================================================================
 # 10. Agent Framework (Claude Agent SDK) — Agent Framework Prompt
-# File: agent_framework/prompts.py
+# File: agent_framework/adapters/claude/prompts.py
 # =============================================================================
-from xyz_agent_context.agent_framework.prompts import (
+from xyz_agent_context.agent_framework.adapters.claude.prompts import (
     CHAT_HISTORY_HEADER,               # Chat history section header
     CHAT_HISTORY_TRUNCATED_HEADER,     # Truncated chat history section header
     CHAT_HISTORY_END_INSTRUCTION,      # Chat history section footer instruction

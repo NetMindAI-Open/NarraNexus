@@ -96,4 +96,3 @@ spinner geometry.
 - `nm/identity.tsx` — RingAvatar etc. typically used together with
   BracketEdge / BracketCornerMarks
 - `nm/surface.tsx` — PaperCard often hosts BracketCornerMarks for selected state
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.2

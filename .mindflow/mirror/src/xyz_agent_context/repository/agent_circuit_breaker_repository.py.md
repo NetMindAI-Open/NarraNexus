@@ -8,11 +8,11 @@ stub: false
 ## 为什么存在
 
 `instance_agent_circuit_breaker`（每 agent 一行）的 CRUD。熔断器服务
-（`agent_framework/agent_circuit_breaker.py`）拥有全部升级逻辑，这一层只读写行。
+（`agent_framework/loop/circuit_breaker.py`）拥有全部升级逻辑，这一层只读写行。
 
 ## 上下游关系
 
-被 `agent_circuit_breaker` 服务和 `backend/routes/agents_circuit_breaker.py`（GET 状态）
+被 `agent_circuit_breaker` 服务和 `backend/routes/agents/circuit_breaker.py`（GET 状态）
 调用。继承 `BaseRepository[AgentCircuitBreaker]`，`id_field="agent_id"`。
 
 ## 设计决策

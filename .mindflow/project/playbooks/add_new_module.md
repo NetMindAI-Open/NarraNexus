@@ -67,7 +67,7 @@ src/xyz_agent_context/
 
 ```
 src/xyz_agent_context/module/__init__.py       # add EmailModule to MODULE_MAP
-src/xyz_agent_context/utils/schema_registry.py # _register(TableDef(...)) for instance_email_messages
+src/xyz_agent_context/utils/db/schema_registry.py # _register(TableDef(...)) for instance_email_messages
 ```
 
 ## Step-by-step
@@ -115,7 +115,7 @@ in your module's docstring so reviewers can verify.
 
 ### 4. Add a database table (if needed)
 
-`src/xyz_agent_context/utils/schema_registry.py`:
+`src/xyz_agent_context/utils/db/schema_registry.py`:
 
 ```python
 _register(TableDef(

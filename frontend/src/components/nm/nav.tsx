@@ -5,7 +5,6 @@
  * @description: Navigation primitives — TabBar, SidebarNavItem, Breadcrumb,
  * StepIndicator, BottomNavBar.
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.7
  */
 
 import { Fragment, type ReactNode, type ButtonHTMLAttributes } from 'react';

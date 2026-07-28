@@ -21,7 +21,6 @@ from pydantic import BaseModel, Field
 from loguru import logger
 
 from ..config import config
-from xyz_agent_context.config import NARRATIVE_LLM_UPDATE_INTERVAL
 from ..models import (
     DynamicSummaryEntry,
     Event,
@@ -35,7 +34,7 @@ from .prompts import NARRATIVE_UPDATE_INSTRUCTIONS
 # Use common utilities from utils
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 # ============================================================================
@@ -195,7 +194,7 @@ class NarrativeUpdater:
         # Auxiliary Narratives only get basic updates for now; dedicated update logic can be implemented in the future
         if is_main_narrative:
             event_count = len(narrative.event_ids)
-            update_interval = NARRATIVE_LLM_UPDATE_INTERVAL
+            update_interval = config.NARRATIVE_LLM_UPDATE_INTERVAL
 
             if update_interval > 0 and event_count % update_interval == 0:
                 logger.info(f"Triggering Narrative LLM update: {narrative.id} (event_count={event_count})")
@@ -233,15 +232,15 @@ class NarrativeUpdater:
             narrative: Narrative object
             event: Latest Event object
         """
-        from xyz_agent_context.agent_framework.llm_failure import is_credential_error
-        from xyz_agent_context.agent_framework.provider_resolver import (
+        from xyz_agent_context.agent_framework.llm.failure import is_credential_error
+        from xyz_agent_context.agent_framework.providers.resolver import (
             ProviderResolverError,
             inject_owner_helper_credentials,
         )
         from xyz_agent_context.services.background_llm_alerts import (
             alert_background_llm_failure,
         )
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         # This runs in a detached ``asyncio.create_task`` (see caller) whose
         # context does NOT carry the per-turn helper-LLM config that
@@ -348,7 +347,7 @@ class NarrativeUpdater:
         went unnoticed for two weeks). The caller treats a ``None`` return as
         "LLM produced nothing" and skips the update quietly.
         """
-        from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+        from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 
         instructions = NARRATIVE_UPDATE_INSTRUCTIONS
 

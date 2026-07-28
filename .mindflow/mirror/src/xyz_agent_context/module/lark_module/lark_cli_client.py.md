@@ -142,7 +142,7 @@ isolation transparently.
   (which uses `_run_with_agent_id` to verify credentials by hitting bot
   info), `lark_trigger.py` (for `get_user`, bot open_id lookup,
   `_resolve_sender_name`), `lark_context_builder.py` (`list_chat_messages`),
-  `lark_module.py` (`send_message`), `backend/routes/lark.py` (unbind),
+  `lark_module.py` (`send_message`), `backend/routes/channels/lark.py` (unbind),
   `backend/routes/auth.py` (delete_agent).
 - **Downstream**: `lark-cli` binary, `_lark_workspace.py` (paths + HOME
   env), `_lark_credential_manager.py` (cred fetch, lazy migration

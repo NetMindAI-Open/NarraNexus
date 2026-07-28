@@ -363,7 +363,7 @@ check_deps() {
   # Version pinned. officecli ships from FOUR independent places and they must
   # agree — bump all of them together:
   #   run.sh (here)                      local run
-  #   scripts/build-desktop.sh           the macOS app bundle
+  #   scripts/release/build-desktop.sh   the macOS app bundle
   #   deploy: docker/Dockerfile.python   cloud backend + workers
   #   deploy: docker/Dockerfile.executor cloud agent  <- the one that matters
   #                                      for the builtin skill; missed once and
@@ -451,7 +451,7 @@ run_container_mode() {
 
   # 1. sqlite_proxy (only when DATABASE_URL is sqlite-ish)
   if [[ "${DATABASE_URL}" == sqlite* ]]; then
-    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.sqlite_proxy_server &
+    "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.utils.db.sqlite_proxy_server &
     SQLITE_PID=$!
     # Wait up to 30s for :8100
     for i in {1..30}; do
@@ -464,7 +464,7 @@ run_container_mode() {
     # job/bus/IM triggers, backend) route their writes through the proxy.
     # Without this, every child opens its own SQLite connection to the
     # same file and concurrent writes deadlock with "database is locked"
-    # (the proxy was started but nobody talks to it). scripts/dev-local.sh
+    # (the proxy was started but nobody talks to it). scripts/dev/dev-local.sh
     # exports the same var for the local-development path.
     export SQLITE_PROXY_URL="${SQLITE_PROXY_URL:-http://127.0.0.1:8100}"
   fi
@@ -478,7 +478,20 @@ run_container_mode() {
   #     message_bus_trigger, run_channel_triggers). message_bus_trigger
   #     deliberately defers IM channels to the channels worker, so without this
   #     supervisor inbound IM messages are never received (issue #54).
-  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor &
+  #
+  #     NEXUS_EXTERNAL_TRIGGERS=1 hands the clock and the ears to the hosting
+  #     platform (Manyfold): the sandbox suspends while idle, so an in-process
+  #     scheduler silently misses alarms, and a second consumer of the same bot
+  #     fights the platform's (Telegram getUpdates vs webhook 409, duplicate
+  #     Discord gateway deliveries). Drop exactly those two workers — 'poller'
+  #     and 'bus' are sandbox-local and keep running.
+  supervisor_args=()
+  if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" = "1" ]; then
+    supervisor_args+=(--exclude jobs,channels)
+    echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
+  fi
+  "$SCRIPT_DIR/.venv/bin/python3" -m xyz_agent_context.module.run_worker_supervisor \
+    "${supervisor_args[@]+"${supervisor_args[@]}"}" &
 
   # 7. Backend — foreground (PID 1 effective). Manyfold expects 0.0.0.0:8000.
   exec "$SCRIPT_DIR/.venv/bin/python3" -m uvicorn backend.main:app \
@@ -560,6 +573,6 @@ case "${1:-}" in
     }
 
     # Start everything
-    exec "$SCRIPT_DIR/scripts/dev-local.sh"
+    exec "$SCRIPT_DIR/scripts/dev/dev-local.sh"
     ;;
 esac

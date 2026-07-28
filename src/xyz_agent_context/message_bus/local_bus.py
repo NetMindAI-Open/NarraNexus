@@ -22,7 +22,7 @@ from typing import List, Optional
 
 from xyz_agent_context.message_bus.message_bus_service import MessageBusService
 from xyz_agent_context.message_bus.schemas import BusAgentInfo, BusChannelMember, BusMessage
-from xyz_agent_context.utils.db_backend import DatabaseBackend
+from xyz_agent_context.utils.db.db_backend import DatabaseBackend
 
 
 def _generate_id(prefix: str) -> str:

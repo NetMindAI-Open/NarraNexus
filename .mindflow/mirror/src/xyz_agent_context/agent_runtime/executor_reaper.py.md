@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_reaper.py
 stub: false
-last_verified: 2026-06-17
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — post_reap 钩子随 per-run 会话票一起删除
+
+`post_reap_fn` 这个机制当初只有一个用途：culling 掉闲置 executor 后，顺手
+吊销该用户遗留的 free-tier 会话票。per-run 会话票整套已经不存在（改成每用户
+一把长期钱包 key，落在 `user_providers` 里），钩子随之失去唯一调用方，按
+铁律 #2/#8 一并删掉而不是留着空转。
 
 ## 为什么存在
 
@@ -35,3 +42,12 @@ reaper 通过构造注入 `controller` + `stop_fn`,可用 fake 完整单测,无�
   本地/桌面无 per-user executor,返回 None。在 `backend/main.py` lifespan 启动/取消。
 - TTL/间隔:`EXECUTOR_IDLE_TTL_SEC`(默认 1200=20min)、`EXECUTOR_REAP_INTERVAL_SEC`
   (默认 120)。
+- **免费额度网关票孤儿回收(2026-07-23)**:新增可选 `post_reap_fn(user_id)` 钩子,
+  在成功停掉某用户 executor **之后**触发。用途:回收该用户遗留的 gateway 会话票
+  (agent 硬崩溃、`agent_loop` 的 finally 没跑到 → 票没作废)。**为什么此刻安全**:
+  reaper 只回收 `claim_idle_users` 认领的空闲用户(0 活跃 loop),所以此刻该用户没有
+  在跑的 run,任何 ACTIVE 票必是孤儿 → 直接作废不违反铁律 #14(不需要定时器、不需要
+  猜哪个 run 还活着)。stop **失败**时**不**触发钩子(容器可能还活着,票不能动)。
+  `maybe_start_executor_reaper` 仅在配了 `SYSTEM_DEFAULT_LLM_GATEWAY_URL` 时装配该
+  钩子,钩子内 `GatewayKeyService.from_env(db).revoke_all_for_user`。见
+  [[gateway_key_service]]。

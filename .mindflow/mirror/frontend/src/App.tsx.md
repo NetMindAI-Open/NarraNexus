@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/App.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — Locked Use startup re-assert
+
+`App()` mounts one effect calling `usePowerStore.getState().applyOnStartup()`
+— re-asserts a persisted prevent-sleep state after restart (the previous
+process's caffeinate assertion died with it). No-op on web / when off.
 
 ## 2026-07-20 (续) — 横幅"退出重登"改为"Settings → Account 里接入"
 
@@ -16,7 +22,7 @@ use-subscription 按钮接上后（[[NetmindAccountPanel]] 同日条目），横
 
 ## 2026-07-20 — quota-exceeded 横幅文案补「订阅 NetMind.AI 套餐」
 
-与 [[provider_resolver]] / [[llm_failure]] 同批：额度耗尽的用户现在可能已经
+与 [[resolver]] / [[failure]] 同批：额度耗尽的用户现在可能已经
 被自动绑上了一把没余额的 NetMind key，只提示"添加自己的 API key"对他们无解。
 
 遗留问题（本次未处理，超出改动范围）：**这条横幅是全应用少数没走 i18n 的
@@ -58,7 +64,7 @@ stub: false
 
 `RootRedirect`'s setup gate is now `needsSetup && mode === 'local'` (was
 just `needsSetup`). Cloud accounts (`cloud-web` / `cloud-app`) boot on the
-system free-tier quota ([[system_provider_service]] / QuotaService), so a
+system free-tier quota ([[system_service]] / QuotaService), so a
 fresh cloud user can chat with zero configuration; the provider screen only
 confused users who had no API key to paste. Local installs have no system
 provider, so they still must configure one — the gate keeps `/setup` for
@@ -105,8 +111,7 @@ points at `BundleImportPage` which detects URL mode and auto-fetches via
 `POST /api/bundle/import/from-url`.
 
 Hook is a no-op outside Tauri (web/cloud build), so `isTauri()` guard at
-top. Design context:
-`drafts/logs/template_sharing_2026_05_18.md`.
+top.
 
 # App.tsx — Root routing, route guards, and global side-effects
 

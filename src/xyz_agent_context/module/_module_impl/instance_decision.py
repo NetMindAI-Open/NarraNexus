@@ -19,7 +19,7 @@ from xyz_agent_context.utils import utc_now
 
 from xyz_agent_context.schema.module_schema import ModuleInstance, InstanceStatus
 from xyz_agent_context.schema.decision_schema import DirectTriggerConfig
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.module._module_impl.prompts import INSTANCE_DECISION_PROMPT_TEMPLATE
 
 

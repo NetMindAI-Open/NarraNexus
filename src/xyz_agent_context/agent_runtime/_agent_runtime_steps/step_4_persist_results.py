@@ -22,7 +22,7 @@ from xyz_agent_context.schema import ProgressMessage, ProgressStatus
 from xyz_agent_context.narrative import EventLogEntry
 from xyz_agent_context.agent_runtime.execution_state import ExecutionState
 from xyz_agent_context.utils.cost_tracker import record_cost
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 if TYPE_CHECKING:
     from .context import RunContext
@@ -502,6 +502,9 @@ async def step_4_persist_results(
                 input_tokens=execution_result.input_tokens,
                 output_tokens=execution_result.output_tokens,
                 sdk_cost_usd=execution_result.total_cost_usd or None,
+                cache_read_tokens=execution_result.cache_read_tokens,
+                cache_creation_tokens=execution_result.cache_creation_tokens,
+                num_turns=execution_result.num_turns,
             )
             cost_display = (
                 f"${execution_result.total_cost_usd:.6f}"

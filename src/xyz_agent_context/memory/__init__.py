@@ -3,8 +3,7 @@ Unified Agent Memory system (refactor/agent-memory, 2026-06-03).
 
 One record shape, one Engine of fixed lifecycle steps, one Spec per kind
 (mechanism vs policy). Retrieval is vector-free: BM25 + grep + structured
-filters, with the LLM as the relevance arbiter. See
-reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md.
+filters, with the LLM as the relevance arbiter.
 """
 from xyz_agent_context.memory.record import (
     MemoryRecord,

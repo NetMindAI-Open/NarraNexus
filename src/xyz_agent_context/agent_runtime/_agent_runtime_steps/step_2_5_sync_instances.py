@@ -94,7 +94,7 @@ async def step_2_5_sync_instances(
         return
 
     # Get database client and Repository
-    from xyz_agent_context.utils.db_factory import get_db_client
+    from xyz_agent_context.utils.db.db_factory import get_db_client
     from xyz_agent_context.repository import InstanceRepository, InstanceNarrativeLinkRepository
     from xyz_agent_context.schema.instance_schema import LinkType
 

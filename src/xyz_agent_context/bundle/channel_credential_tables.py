@@ -25,8 +25,7 @@ IM credentials always import as INACTIVE (``active_col`` forced to 0). The user
 must explicitly activate the channel in the new environment, which is the moment
 of claiming the single WebSocket slot the IM issues per app. This prevents a
 migrated agent from silently double-connecting the same bot from both the source
-and target environment. See the design doc:
-reference/self_notebook/specs/2026-07-10-channel-credential-export-design.md
+and target environment.
 """
 
 from typing import Dict, List, TypedDict

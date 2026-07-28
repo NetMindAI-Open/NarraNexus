@@ -33,14 +33,14 @@ from typing import Dict, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     is_credential_error,
     redact_secrets,
 )
 from xyz_agent_context.repository.inbox_repository import InboxRepository
 from xyz_agent_context.schema.inbox_schema import InboxMessageType, MessageSource
 from xyz_agent_context.services.service_audit import ServiceAuditor
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 # Name the background LLM plane records under in the service_audit table.
 _AUDIT_SERVICE = "background_llm"

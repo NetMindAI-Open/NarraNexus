@@ -11,7 +11,7 @@ probe must classify reachability for the stall diagnostic.
 import pytest
 
 from xyz_agent_context.agent_framework.api_config import ClaudeConfig
-from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+from xyz_agent_context.agent_framework.adapters.claude.sdk import (
     _probe_provider_reachable,
 )
 from xyz_agent_context.settings import settings

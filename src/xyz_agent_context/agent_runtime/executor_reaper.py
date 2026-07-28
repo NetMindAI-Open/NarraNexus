@@ -98,12 +98,13 @@ def maybe_start_executor_reaper() -> Optional["asyncio.Task"]:
     No-op (returns None) on local/desktop, or whenever no broker is
     configured: there are no per-user executors to cull there.
     """
-    from xyz_agent_context.agent_framework.broker_client import broker_url, stop_executor
+    from xyz_agent_context.agent_framework.loop.broker_client import broker_url, stop_executor
 
     if not broker_url():
         return None
     ttl = int(os.getenv("EXECUTOR_IDLE_TTL_SEC", "") or DEFAULT_IDLE_TTL_SEC)
     interval = int(os.getenv("EXECUTOR_REAP_INTERVAL_SEC", "") or DEFAULT_INTERVAL_SEC)
+
     reaper = ExecutorReaper(
         get_admission_controller(), stop_executor,
         ttl_seconds=ttl, interval_seconds=interval,

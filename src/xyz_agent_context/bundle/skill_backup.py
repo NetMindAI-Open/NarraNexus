@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.repository import SkillArchiveRepository
 from .security import bytes_sha256, file_sha256
 from .skill_secrets import dir_is_builtin as _dir_is_builtin

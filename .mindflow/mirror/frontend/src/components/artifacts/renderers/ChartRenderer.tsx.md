@@ -15,8 +15,6 @@ hook state transition and bounced the modal back open after Dismiss. See
 
 ## 2026-05-14 — drop `version` prop, fetch via `useArtifactRawUrl`
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 The renderer no longer takes a `version` prop. It calls `useArtifactRawUrl`
 to mint a view token and fetches the chart JSON from the token-protected
 public directory URL (no Authorization header required — the token IS the auth).

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from xyz_agent_context._skill_marketplace_impl.artifact_store import LocalArtifactStore
+from xyz_agent_context.marketplace._skill_marketplace_impl.artifact_store import LocalArtifactStore
 
 FIXTURE = Path(__file__).parent / "fixtures" / "pm-bridge-bot.nxbundle"
 pytestmark = pytest.mark.skipif(
@@ -28,7 +28,7 @@ def service(db_client, tmp_path, monkeypatch):
     from xyz_agent_context.settings import settings
 
     monkeypatch.setattr(settings, "base_working_path", str(tmp_path / "workspaces"))
-    import xyz_agent_context.team_marketplace_service as mod
+    import xyz_agent_context.marketplace.team_marketplace_service as mod
 
     monkeypatch.setattr(mod, "get_deployment_mode", lambda: "cloud")
     store = LocalArtifactStore(tmp_path / "team_store")

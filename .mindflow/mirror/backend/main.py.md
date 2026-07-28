@@ -1,13 +1,56 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — manyfold sync router + config-change webhook middleware
+
+`ENABLE_MANYFOLD_API=1` 块内新增 `manyfold_sync_router`（`GET /manyfold/jobs`、
+`GET /manyfold/channels`）和 `config_change_webhook_middleware` 注册。middleware
+故意放在该块**最后**注册：Starlette LIFO 下它成为最外层，观察得到最终 status
+code；它只在 response 侧行动（job/channel/provider 路由的 2xx 写请求后
+fire-and-forget webhook），对 OPTIONS/非 2xx 完全透明，所以不触碰 auth/CORS 的
+LIFO 陷阱。无 `MANYFOLD_SYNC_WEBHOOK_*` env 时是纯透传。
+
+门控之外零影响：`ENABLE_MANYFOLD_API` 未设时（EC2 prod/dev、本地、DMG 的现状）
+router 和 middleware 都不注册，中间件栈长度不变。见
+`[[routes/manyfold/sync.py]]`。
+
+## 2026-07-28 — lifespan 里的配额子系统整块移除
+
+不再构造 `SystemProviderService` / `QuotaService` / `QuotaRepository`，
+`app.state` 上的 `system_provider` 和 `quota_service` 一并消失（路由改为按需
+构造 wallet client）。`gateway_spend_reconciler` 后台任务的启停也删除 ——
+计量已经在网关里实时完成，事后对账没有对象了。
+
+`ProviderResolver` 的构造从三个依赖降到一个。
+
+## 2026-07-27 — 免费额度 gateway spend reconciler 接入 lifespan
+
+`lifespan` 启动时紧接 executor-reaper 调 `maybe_start_gateway_spend_reconciler()`
+(存 `app.state.gateway_spend_reconciler_task`),teardown `cancel()`。云端+网关
+(`SYSTEM_DEFAULT_LLM_GATEWAY_URL`)才真起,本地/桌面 no-op。周期把免费档 agent
+运行的真实 token 用量(网关 SpendLogs)补记入配额——代理的非 Anthropic 模型 CLI
+报 0 token,不补记免费额度就永远不扣。绝不 force-stop(铁律 #14)。见
+`[[../src/xyz_agent_context/services/gateway_spend_reconciler.py]]`。
+
+## 2026-07-24 — analytics sink seam 在 import 期装配（B4）
+
+`register_posthog_sink()`（backend/analytics）在 **import 期**、`app = FastAPI(...)`
+之前调用——不是 lifespan。原因：track() 在任意 route 的请求路径上都可能触发，
+而 kernel 的 sink 是 lru_cache 单例；若装配放 lifespan，理论上存在「首个请求
+先于 lifespan 完成」的窗口拿到 NullSink 并被缓存（register_sink_factory 里的
+cache_clear 兜底了这个竞态，但 import 期装配让它根本不发生）。装配本身只存一个
+callable：不发网络、不碰 DB、不读 key（key 在 factory 被 kernel 调用时才读），
+对 /health 启动时序零影响。未注册该 seam 的进程（workers / mcp / model-sync）
+拿到 NullSink 是**预期行为**——它们从不调用 track()，此前也从未有过 vendor sink。
+（shutdown 侧见 2026-06-08 条目——两侧现在对称了。）
+
 
 ## 2026-07-22 — review 修复:seed/reconcile 移出启动关键路径
 
 两个 marketplace seed 从 `yield` 前的 `await` 改为 `create_task`(team seed 走网络最坏拖数分钟会冻启动、超 healthcheck);首次 reconcile 也移除(run_forever 首轮即做)。加 shutdown cancel。
-
 
 ## 2026-07-22 — skill seed 接入 lifespan
 
@@ -15,14 +58,12 @@ stub: false
 marketplace_skills/ first-party 技能,含 NetMind vision/audio default)。best-
 effort、非阻塞;两个 seed 共用一个 try 块。
 
-
 ## 2026-07-21 — /api/marketplace/teams 挂载 + team seed(Team Marketplace)
 
 挂 marketplace_teams_router 于 /api/marketplace/teams。lifespan 在
 registry host(cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY)跑 seed_team_marketplace
 (best-effort,非阻塞):从 narra.nexus 拉 9 个官方模板 → 本地 template store
 → catalog。desktop 客户端不 seed(proxy 云端)。
-
 
 ## 2026-07-21 — Skill Marketplace 路由挂载 + 对账器 lifespan 任务(stage 5/6)
 
@@ -32,12 +73,10 @@ registry host(cloud / SKILL_MARKETPLACE_LOCAL_REGISTRY)跑 seed_team_marketplace
 (`SKILL_SYNC_INTERVAL_SECONDS`,默认 1800,0 关闭),shutdown cancel;
 done-callback 记录非预期退出(fire-and-forget 教训 #2)。
 
-
 ## 2026-07-10 — feedback_router 注册
 
 `backend.routes.feedback` 挂在 `/api`（完整路径 POST /api/feedback）。web UI
 反馈弹窗的服务端中继——不让浏览器直连团队接收端（CORS/杀开关/身份可信）。
-
 
 ## 2026-07-02 — billing_router 注册
 
@@ -51,7 +90,7 @@ See backend/routes/notices.py.md.
 
 ## 2026-06-22 — narramessenger_router 注册
 
-新增 `from backend.routes.narramessenger import router as narramessenger_router`
+新增 `from backend.routes.channels.narramessenger import router as narramessenger_router`
 和 `app.include_router(...)`，挂载路径 `/api/narramessenger`（`bind` / `unbind` /
 `credential`）。与 lark/slack/telegram channel 的 router 同 pattern。
 
@@ -64,7 +103,7 @@ teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 
 
 ## 2026-06-12 — admin_migration_router 注册
 
-新增 `from backend.routes.admin_migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。
+新增 `from backend.routes.admin.migration import router as admin_migration_router` 和对应的 `app.include_router(admin_migration_router, tags=["AdminMigration"])`。router 自带 prefix `/api/admin`，最终挂载路径为 `POST /api/admin/migrate-identity`。与 `admin_quota_router` 同 pattern（自带 prefix，`include_router` 不再传 prefix 参数）。
 
 ## 2026-06-11 — invite routers unwired
 
@@ -127,8 +166,6 @@ columns on legacy rows so the unified resolver works on first boot after
 upgrade. Also registers `notifications_router` (`/api/notifications/*`)
 so the self-heal mechanism's notification feed has a public surface.
 
-See `reference/self_notebook/specs/2026-05-13-provider-unification-design.md`.
-
 ## 2026-05-08-r3 simplification — artifact_ws_router removed
 
 `artifact_ws_router` (added 2026-05-08) has been removed from `main.py`.
@@ -145,7 +182,7 @@ were removed. All other routers are unchanged.
 
 ## 2026-05-08 addition — agents_artifacts router wire-in
 
-`agents_artifacts_router` (from `backend.routes.agents_artifacts`) is now
+`agents_artifacts_router` (from `backend.routes.agents.artifacts`) is now
 imported and registered at `/api/agents` with `["Artifacts"]` tags. This
 router provides CRUD endpoints for artifact management:
 
@@ -180,7 +217,7 @@ FIRST and `access_log_middleware` SECOND, which means access_log
 wraps auth and 401 / 402 responses still produce one access line.
 
 A new admin-only router is mounted at `/api/admin/logs` (see
-`backend.routes.admin_logs`). It surfaces the on-disk
+`backend.routes.admin.logs`). It surfaces the on-disk
 `~/.narranexus/logs/<service>/` tree over HTTP so cloud operators
 can tail / download / event-grep without ssh. The prefix already sits
 under `QUOTA_BYPASS_PREFIXES` in `auth.py`, so it is unauthenticated
@@ -219,8 +256,8 @@ values, so lifespan wiring is harmless when the feature is off.
 - **依赖谁**：
   - `backend.config.settings` — 读取 CORS origins 和 frontend_dist 路径
   - `backend.auth.auth_middleware` — 注入 HTTP 鉴权中间件
-  - `xyz_agent_context.utils.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
-  - `xyz_agent_context.utils.schema_registry.auto_migrate` — 启动时执行表结构迁移
+  - `xyz_agent_context.utils.db.db_factory` — `get_db_client` / `close_db_client` 管理连接池生命周期
+  - `xyz_agent_context.utils.db.schema_registry.auto_migrate` — 启动时执行表结构迁移
   - 全部路由模块：`websocket`, `agents`, `jobs`, `auth`, `skills`, `providers`, `inbox`
 
 ## 设计决策
@@ -257,4 +294,4 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 
 ## 2026-07-13 — office-watch 路由
 
-注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch_proxy.py.md`。
+注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch/proxy.py.md`。

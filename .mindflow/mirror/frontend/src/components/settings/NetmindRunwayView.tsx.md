@@ -32,7 +32,7 @@ action zone 管。
 ## 2026-07-18 — 「Free tier first」开关整体删除（免费额度优先成为平台行为）
 
 Owner 决策：不再让用户选择用不用免费额度——resolver 恒定先扣免费额度、耗尽
-自动落到自有 key（见 [[provider_resolver]] 同日条目）。本组件删掉整个开关段
+自动落到自有 key（见 [[resolver]] 同日条目）。本组件删掉整个开关段
 及 `preferSystem/preferLocked/preferBusy/onTogglePrefer` 四个 props，只剩
 纯展示的池子明细（免费额度条 + 赠额行 + 扣费顺序句）。下方"开关锁定规则"
 一节自此为**历史记录**（描述已删代码的当年语义），不再对应现行实现。

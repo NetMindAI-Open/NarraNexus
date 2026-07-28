@@ -357,6 +357,18 @@ class SlackModule(ChannelModuleBase):
     ctx_data_key = "slack_info"
     mcp_server_name = "slack_module"
     mcp_port = SLACK_MCP_PORT
+    # Setup-residency (B++): while unbound, only slack_bind stays visible;
+    # the other tools' schemas are suppressed via disallowed_tools. Keep in
+    # sync with register_slack_mcp_tools — unit test asserts equality.
+    all_tool_names = (
+        "slack_cli",
+        "react_to_user_message",
+        "slack_skill",
+        "slack_bind",
+        "slack_status",
+        "slack_unbind",
+    )
+    setup_tool_names = frozenset({"slack_bind"})
 
     @staticmethod
     def get_config() -> ModuleConfig:
@@ -408,7 +420,14 @@ class SlackModule(ChannelModuleBase):
     async def get_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
-            return _NO_BOT_INSTRUCTION + _SLACK_IRON_RULES
+            # Setup-residency (B++): unbound agents get ONE line instead of
+            # the ~8K onboarding walkthrough; the full guide is served
+            # on demand by slack_bind() called with no arguments. A bound
+            # agent whose credential data failed to load this turn gets
+            # nothing rather than a misleading onboarding prompt.
+            if await self.is_bound():
+                return ""
+            return self.unbound_setup_line()
 
         team_name = info.get("team_name", "(unknown workspace)")
         bot_user_id = info.get("bot_user_id", "")

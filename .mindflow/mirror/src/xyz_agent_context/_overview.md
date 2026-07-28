@@ -21,7 +21,7 @@ repository/           ← data-access layer (uses utils/)
 services/             ← background services (ModulePoller, InstanceSyncService)
 ```
 
-The two files at this root level (`settings.py`, `config.py`) are special: they are consumed by almost every other file in the package and have no dependencies within the package. `__init__.py` stitches together the public API.
+The root-level `settings.py` are special: they are consumed by almost every other file in the package and have no dependencies within the package. `__init__.py` stitches together the public API.
 
 ## Key file index
 
@@ -29,11 +29,10 @@ The two files at this root level (`settings.py`, `config.py`) are special: they 
 |---|---|
 | `__init__.py` | Package public API — re-exports `AgentRuntime`, `NarrativeService`, `XYZBaseModule`, etc. |
 | `settings.py` | `Settings` singleton — all environment variables, loaded once at import time |
-| `config.py` | Static algorithm tuning constants (e.g., `NARRATIVE_LLM_UPDATE_INTERVAL`) |
 | `prompts_index.py` | Consolidated index of all prompt constants across subsystems |
 
 ## Collaboration with external directories
 
 - **`backend/`** — FastAPI routes import `AgentRuntime`, repository classes, `AsyncDatabaseClient`, and schema models directly from their submodules (not the package root) to minimize startup load.
 - **`frontend/`** — no direct dependency; the frontend communicates only via the FastAPI HTTP/WebSocket API.
-- **`utils/database_table_management/`** — standalone scripts that read `schema_registry.TABLES` from `utils/schema_registry.py` to create and migrate tables; not imported by the package at runtime.
+- **`utils/database_table_management/`** — standalone scripts that read `schema_registry.TABLES` from `utils/db/schema_registry.py` to create and migrate tables; not imported by the package at runtime.

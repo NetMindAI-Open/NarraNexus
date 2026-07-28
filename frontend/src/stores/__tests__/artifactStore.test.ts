@@ -90,6 +90,43 @@ describe('upsert', () => {
     expect(s.activeArtifactId).toBeNull();
     expect(s.artifactsByAgent['agent_other'].map((a) => a.artifact_id)).toEqual(['art_bg']);
   });
+
+  // register_artifact success is an explicit focus signal: even when the
+  // artifact is ALREADY in the list (a list refresh raced ahead of the
+  // tool_output roundtrip, or the agent re-registered an existing doc),
+  // the panel must switch to it — otherwise the user stays on the old
+  // Welcome tab and reads the successful generation as a failure.
+  test('focus option activates an artifact that already exists in the list', () => {
+    useArtifactStore.getState().upsert(makeArtifact('art_new'));
+    useArtifactStore.getState().upsert(makeArtifact('art_welcome'));
+    useArtifactStore.getState().setActive('art_welcome');
+
+    useArtifactStore.getState().upsert(makeArtifact('art_new', { title: 'regenerated' }), { focus: true });
+
+    expect(useArtifactStore.getState().activeArtifactId).toBe('art_new');
+  });
+
+  test('focus option un-minimizes the artifact so the tab is actually visible', () => {
+    useArtifactStore.getState().upsert(makeArtifact('art_1'));
+    useArtifactStore.getState().upsert(makeArtifact('art_2'));
+    useArtifactStore.getState().minimizeTab('art_1');
+
+    useArtifactStore.getState().upsert(makeArtifact('art_1', { title: 'back' }), { focus: true });
+
+    const s = useArtifactStore.getState();
+    expect(s.activeArtifactId).toBe('art_1');
+    expect(s.minimizedTabIds.has('art_1')).toBe(false);
+  });
+
+  test('focus option does not steal focus for a background agent', () => {
+    useArtifactStore.getState().upsert(makeArtifact('art_1'));
+
+    useArtifactStore
+      .getState()
+      .upsert(makeArtifact('art_bg', { agent_id: 'agent_other' }), { focus: true });
+
+    expect(useArtifactStore.getState().activeArtifactId).toBe('art_1');
+  });
 });
 
 describe('remove', () => {

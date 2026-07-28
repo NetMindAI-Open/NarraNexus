@@ -27,6 +27,7 @@ import {
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   cloudNetmindOnly,
+  isSlotBindableSource,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
 } from '@/lib/agentFramework';
@@ -73,11 +74,13 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
+      // No free-tier banner any more: the free tier is an ordinary provider
+      // card, so these defaults are never preempted — what is set here is what
+      // runs, on the free wallet just as on a user's own key.
       const [provRes, fwRes] = await Promise.all([
         api.getProviders(),
         api.getAgentFramework(),
@@ -122,7 +125,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   // validate_slot_binding. Cloud non-staff additionally sees NetMind-source
   // providers only (cloudNetmindOnly — the route gates would 403 anything else).
   const agentProviders = providerList.filter((p) => {
-    if (netmindOnly && p.source !== 'netmind') return false;
+    if (netmindOnly && !isSlotBindableSource(p.source)) return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
     if (fw && p.protocol !== fw.protocol) return false;
     return true;
@@ -132,7 +135,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   // through the same CLI as the agent, so one subscription covers both slots.
   const helperProviders = providerList.filter(
     (p) =>
-      (!netmindOnly || p.source === 'netmind') &&
+      (!netmindOnly || isSlotBindableSource(p.source)) &&
       ['openai', 'anthropic'].includes(p.protocol),
   );
 

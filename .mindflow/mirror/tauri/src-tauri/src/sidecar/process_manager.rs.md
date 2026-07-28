@@ -32,7 +32,7 @@ shell env, so — mirroring the existing `NARRA_POSTHOG_KEY` `option_env!` line
 right above — each is baked at COMPILE time (build shell exported it) with a
 runtime env override taking precedence. Unset at build → None → not forwarded →
 the packaged app stays pure-local (username-only); this is the DMG twin of the
-backend `is_power_login_enabled()` gate. **`scripts/build-desktop.sh` is
+backend `is_power_login_enabled()` gate. **`scripts/release/build-desktop.sh` is
 intentionally NOT modified** — the frontend half is baked by exporting
 `VITE_ENABLE_POWER_LOGIN` before that script (vite picks up exported `VITE_*`),
 and cargo reads these six via `option_env!` in the same build shell. See
@@ -49,7 +49,7 @@ final liveness sweep (`try_wait`) to catch crash-on-startup. A required service
 failing returns a detailed `startup_error` (label + reason + log path + stderr
 tail); optional channel triggers (lark/slack/telegram) only warn. `lib.rs` turns
 that error into a native dialog instead of the old silent `log::error!` that
-left the UI to fail with "Connection failed". Iron rule #7: `scripts/dev-local.sh`
+left the UI to fail with "Connection failed". Iron rule #7: `scripts/dev/dev-local.sh`
 runs the equivalent checks for the headless path. Borrow note: read the child's
 exit status into an owned `Option<String>` BEFORE calling `self.startup_error`
 (can't hold a `&mut self.processes` borrow across the `&self` call).
@@ -150,7 +150,7 @@ the single mechanism that makes telemetry "official builds only".
 
 The `backend` service additionally gets `.env("NARRA_SURFACE", "desktop")` so
 the Python `analytics.surface.resolve_surface()` knows it runs the desktop
-surface. The local launcher (`scripts/dev-local.sh`) injects `local`, container
+surface. The local launcher (`scripts/dev/dev-local.sh`) injects `local`, container
 mode (`run.sh` `run_container_mode`) injects `cloud`; this is the desktop one of
 those three launch-path labels.
 

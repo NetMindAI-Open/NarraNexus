@@ -37,8 +37,8 @@ single table write, it belongs here; otherwise call the repository.
 
 - Constructed per-request with an `AsyncDatabaseClient` (stateless besides the
   repo handle — cheap, matches how routes and the MCP tool get their client).
-- Called by: `artifact_tool.py` (MCP), `agents_artifacts.py` (manual register
-  + heal), `artifacts_public.py` (raw serving), `bootstrap/profiles.py`
+- Called by: `artifact_tool.py` (MCP), `agents/artifacts.py` (manual register
+  + heal), `artifacts/public.py` (raw serving), `bootstrap/profiles.py`
   (welcome artifact).
 - All failures raise the `ArtifactError` hierarchy (`.code` → HTTP status), so
   MCP and HTTP callers convert uniformly with a single except clause.

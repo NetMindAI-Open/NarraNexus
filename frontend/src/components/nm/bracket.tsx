@@ -7,7 +7,6 @@
  * Implements Axiom #6 (bracket as a universal syntax mark for "container /
  * quote / piece of context").
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.2
  */
 
 import type { CSSProperties, ReactNode, DragEventHandler } from 'react';

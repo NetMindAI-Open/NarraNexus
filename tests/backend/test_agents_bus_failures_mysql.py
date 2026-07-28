@@ -3,7 +3,7 @@
 @author: Bin Liang
 @date: 2026-07-02
 @description: Real-MySQL regression coverage for the two hand-written raw
-SQL statements in `backend/routes/agents_bus_failures.py`.
+SQL statements in `backend/routes/agents/bus_failures.py`.
 
 Why this file exists
 ---------------------
@@ -36,11 +36,11 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.db_backend_mysql import MySQLBackend
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.db_backend_mysql import MySQLBackend
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents_bus_failures as bus_failures_mod
+import backend.routes.agents.bus_failures as bus_failures_mod
 
 
 MYSQL_URL_ENV = "NARRANEXUS_MYSQL_TEST_URL"

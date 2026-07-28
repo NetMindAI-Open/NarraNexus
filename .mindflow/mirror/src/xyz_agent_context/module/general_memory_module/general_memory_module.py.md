@@ -20,8 +20,8 @@ helper。调用签名与行为不变。
 
 GeneralMemoryModule — learns world/experience observations each turn (hook_after_event) and injects cross-kind unified memory into context (hook_data_gathering via remember). The single point unified memory feeds the agent loop.
 
-Part of the unified memory system (`refactor/agent-memory`). Full design,
-data model, retrieval stack and migration: reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md. Mechanism vs policy split
+Part of the unified memory system (`refactor/agent-memory`). The unified design covers data model, retrieval stack and migration
+(author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.
 

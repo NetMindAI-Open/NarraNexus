@@ -15,7 +15,7 @@ EITHER the exception class name (raw-exception path) OR the message substring
 
 import pytest
 
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,

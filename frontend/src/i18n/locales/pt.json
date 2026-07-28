@@ -123,6 +123,16 @@
         "activity": "Atividade em segundo plano",
         "lark": "Lark",
         "callback": "Retorno de chamada"
+      },
+      "meta": {
+        "input": "Entrada",
+        "output": "Saída",
+        "duration": "Duração",
+        "cost": "Custo",
+        "tokens": "Tokens entrada/saída",
+        "model": "Modelo",
+        "stateFailed": "Falhou",
+        "stateCancelled": "Cancelado"
       }
     },
     "error": {
@@ -142,7 +152,9 @@
         "executor_unreachable": "Seu contêiner de execução está temporariamente inacessível. Normalmente se recupera em alguns segundos — reenvie esta mensagem em breve.",
         "infra_transient": "Este turno não pôde ser executado devido a um problema temporário de execução na plataforma. Envie a mensagem novamente em instantes."
       }
-    }
+    },
+    "dateToday": "Hoje",
+    "dateYesterday": "Ontem"
   },
   "awareness": {
     "common": {
@@ -692,6 +704,7 @@
       "title": "Definições",
       "navProviders": "Fornecedores de LLM",
       "navPrivacy": "Privacidade",
+      "navDesktop": "Desktop",
       "slotAgentName": "Agent",
       "slotAgentDesc": "O \"cérebro\" do seu agente de IA. Este modelo gere todas as conversas com os utilizadores, toma decisões e executa tarefas. Um modelo mais capaz aqui significa respostas mais inteligentes e matizadas.",
       "slotAgentProtocol": "Protocolo Anthropic",
@@ -703,7 +716,11 @@
       "privacyHeading": "Privacidade",
       "privacyIntro": "Controle que dados o NarraNexus recolhe para melhorar o produto.",
       "analyticsTitle": "Análise de produto",
-      "analyticsDesc": "Permitir que o NarraNexus recolha dados de uso anónimos para melhorar o produto. O conteúdo das conversas nunca é recolhido."
+      "analyticsDesc": "Permitir que o NarraNexus recolha dados de uso anónimos para melhorar o produto. O conteúdo das conversas nunca é recolhido.",
+      "desktopHeading": "Desktop",
+      "desktopIntro": "Configurações que controlam como o NarraNexus interage com este computador. Disponível apenas no aplicativo desktop.",
+      "lockedUseTitle": "Locked Use — manter o computador acordado",
+      "lockedUseDesc": "Impede que este computador entre em suspensão para que as automações em segundo plano continuem em execução. Mantido apenas enquanto o NarraNexus estiver aberto."
     },
     "provider": {
       "presetNetmindDesc": "Uma chave cobre os endpoints da Anthropic e da OpenAI",
@@ -783,6 +800,12 @@
       "webModeNotInstalled": "Instale primeiro o Claude Code CLI e, em seguida, execute \"claude auth login\" no seu terminal.",
       "cliNotInBundle": "Claude Code CLI não encontrado no pacote. Reconstrua a aplicação.",
       "addedAsProvider": "Adicionado como fornecedor NarraNexus — atribuível no Passo 2 abaixo.",
+      "setupTokenConnected": "Conectado via setup-token — atribuível no passo 2 abaixo.",
+      "setupTokenHint": "Recomendado: execute \"claude setup-token\" no terminal e cole aqui o token de um ano. É a forma mais confiável de usar sua assinatura — não depende do estado de login do CLI acima.",
+      "setupTokenReplaceHint": "Cole um novo token de \"claude setup-token\" para substituir o armazenado (validade: um ano).",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "Conectar com token",
+      "setupTokenSaving": "Conectando...",
       "addAsProvider": "Adicionar como Fornecedor",
       "loginToAdd": "Inicie sessão acima para adicionar o Claude Code como fornecedor.",
       "customAnthropic": "+ Anthropic Personalizado",
@@ -806,6 +829,7 @@
       "configuredProviders": "Fornecedores Configurados",
       "modelsCount": "{{count}} modelo(s)",
       "test": "Testar",
+      "testConnection": "Testar conexão",
       "edit": "Editar",
       "delete": "Eliminar",
       "section2Title": "Atribuição de Modelo",
@@ -821,7 +845,11 @@
       "readyTitle": "Está tudo pronto",
       "readyIntro": "A sua chave está inserida e configurámos as suas ranhuras de modelo para que possa começar a conversar de imediato:",
       "readyNote": "Quer modelos diferentes? Altere qualquer ranhura na secção de configuração abaixo — as suas edições prevalecem sempre sobre estas predefinições.",
-      "gotIt": "Entendido"
+      "gotIt": "Entendido",
+      "freeTierHowToTitle": "Sobre o seu crédito gratuito",
+      "freeTierHowToSwitch": "O cartão “Free Tier” já está ligado aos seus slots de Agent e Helper. Para usar a sua própria chave, adicione um provedor abaixo e selecione-o para o slot Agent / Helper em Padrões de Modelo — vale a partir da próxima mensagem.",
+      "freeTierAnytime": "Pode trocar quando quiser. Não precisa gastar o crédito gratuito primeiro, e trocar não o perde: o saldo permanece.",
+      "freeTierNoDelete": "O cartão Free Tier não pode ser excluído enquanto houver saldo: ele guarda a única chave desse crédito. Depois de gasto, você pode removê-lo."
     }
   },
   "system": {
@@ -921,7 +949,9 @@
       "retry": "Tentar novamente",
       "unknownError": "Erro desconhecido",
       "attempts": "{{count}} tentativas falhadas"
-    }
+    },
+    "showMore": "Mostrar mais",
+    "showLess": "Mostrar menos"
   },
   "help": {
     "overlay": {
@@ -1514,6 +1544,32 @@
         "pinned": "fixado",
         "fullModeNote": "O modo snapshot completo inclui automaticamente todos os artefatos. Mude para Personalizado para escolher."
       }
+    },
+    "signup": {
+      "title": "Crie sua conta",
+      "subtitle": "Um e-mail, uma senha e o código que enviaremos. Só isso.",
+      "email": "E-mail",
+      "password": "Senha",
+      "confirmPassword": "Confirmar senha",
+      "code": "Código de verificação",
+      "sendCode": "Enviar código",
+      "sending": "Enviando…",
+      "resendIn": "Reenviar em {{seconds}} s",
+      "codeSent": "Código enviado — confira sua caixa de entrada (e o spam).",
+      "mismatch": "As senhas não coincidem.",
+      "submit": "Criar conta",
+      "creating": "Criando…",
+      "haveAccount": "Já tem uma conta? Entrar",
+      "sendFailed": "Não foi possível enviar o código. Tente novamente.",
+      "failed": "Não foi possível criar a conta. Tente novamente.",
+      "rule": {
+        "length": "8–16 caracteres",
+        "upper": "Uma letra maiúscula",
+        "lower": "Uma letra minúscula",
+        "digit": "Um número",
+        "special": "Um caractere especial"
+      },
+      "codePlaceholder": "Código de 6 caracteres"
     }
   },
   "rail": {
@@ -1870,5 +1926,8 @@
     "loading": "Abrindo a pré-visualização ao vivo…",
     "loadError": "Não foi possível abrir a pré-visualização ao vivo.",
     "livePreview": "Pré-visualização ao vivo"
+  },
+  "common": {
+    "close": "Close"
   }
 }

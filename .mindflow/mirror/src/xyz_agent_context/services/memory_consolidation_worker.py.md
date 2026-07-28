@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/services/memory_consolidation_worker.py
-last_verified: 2026-07-07
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — deleted-agent queue rows self-purge
+
+`_process_scope` checks the agents row first: agent gone → DELETE every
+queue row of that agent_id and return (no engine call, no state machine).
+Rationale: agent deletion left queue rows behind; a successfully processed
+scope returns to `dirty` with its stale `last_dirty_at`, so the idle
+trigger re-fired it on EVERY 30s poll — each pass logging the
+"[background-llm] no owner row" warning (prod: 1,880 warnings/14d,
+bug tracker "Agent 无 owner 记录"). The delete_agent route now also
+cascades the queue ([[auth.py]] 7c); this purge is the self-heal for rows
+left by pre-fix deletions. Invariant for tests: a processed scope's agent
+must exist (`_seed_agent` helper).
 
 ## 2026-07-03 — cost accounting: worker sets the cost context (Phase 0 / module H)
 
@@ -18,17 +31,15 @@ deliberately NOT `current_user_id` (only `_inject_owner_credentials` →
 accounted yet never charged to the owner's free tier (iron rule #15). Adding
 `set_current_user_id` here would silently drain the owner's quota — forbidden.
 See [[cost_tracker]]; regression tests test_consolidation_worker_cost.py +
-test_cost_tracker_deduct_hook.py. Full inventory:
-reference/self_notebook/token-accounting-audit-checklist.md.
-
-
+test_cost_tracker_deduct_hook.py. Full inventory lives in the 2026-07
+token-accounting audit (author-local).
 
 # memory_consolidation_worker.py — unified Agent Memory
 
 Background dirty-scope consolidation worker (§7.4): count/idle/cap triggers, processing→dirty/failed state machine, per-scope failure isolation, flush_scope. Never caps the agent loop (iron rule #14).
 
-Part of the unified memory system (`refactor/agent-memory`). Full design,
-data model, retrieval stack and migration: reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md. Mechanism vs policy split
+Part of the unified memory system (`refactor/agent-memory`). The unified design covers data model, retrieval stack and migration
+(author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.
 
@@ -48,7 +59,6 @@ local mode = strict no-op; quota/no-provider verdicts raise → scope
 isolated as `failed` with pending_count and raw facts untouched.
 Systemic failures log at ERROR (lesson #4: L2 health = useful work,
 not loop-alive).
-
 
 ## 2026-07-07 — _inject_owner_credentials 委托到共享原语
 

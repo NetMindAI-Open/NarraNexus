@@ -79,4 +79,3 @@ both without forcing callers to pre-process.
 ## Related
 
 - `nm/bracket.tsx` — BracketCornerMarks complements RingAvatar for selection
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.1

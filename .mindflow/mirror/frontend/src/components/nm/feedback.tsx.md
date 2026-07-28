@@ -63,4 +63,3 @@ calculation errors elsewhere from breaking the rendering.
 ## Related
 
 - `nm/button.tsx` Button — inline spinner shares visual language
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.9

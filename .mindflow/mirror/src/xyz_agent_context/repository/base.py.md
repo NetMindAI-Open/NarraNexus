@@ -1,10 +1,18 @@
 ---
 code_file: src/xyz_agent_context/repository/base.py
-last_verified: 2026-04-10
+last_verified: 2026-07-27
 stub: false
 ---
 
 # base.py
+
+## 2026-07-27 — module-level `parse_dt` export
+
+Added `parse_dt(v)` at module scope: parse a timestamp column into an aware
+datetime (naive → UTC), handling both the `datetime` MySQL returns and the ISO
+string SQLite returns. Hoisted here because it was a byte-identical private copy
+in `gateway_session_key_repository`, `quota_repository`, and
+`artifact_repository`; all three now `from .base import parse_dt`.
 
 ## Why it exists
 

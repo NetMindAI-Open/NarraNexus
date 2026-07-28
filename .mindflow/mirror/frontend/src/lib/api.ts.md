@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — getAgentLlmConfig 返回类型加 `free_tier`
+
+`getAgentLlmConfig` 的 `data` 类型加可选 `free_tier?: {active, model}`：免费额度有余量时
+运行时锁死系统模型、忽略 per-agent override，前端据此渲染只读 chip（[[ComposerModelBadge]]）
+/ banner（[[AgentLlmConfigPanel]]）。后端见 [[agents_llm_config]]；用户级同一信号走
+[[quota]] 的 `QuotaMeResponse.free_tier`（[[ModelDefaultsSettings]] 消费）。纯类型补充，
+`request<T>` 逻辑未变。
+
+## 2026-07-23 — typed ApiError with status
+
+All non-2xx throws (the central `request<T>` plus the direct-fetch helpers)
+now raise `ApiError extends Error` carrying `.status`, so callers can branch
+on HTTP status (`e instanceof ApiError && e.status === 404`) instead of
+string-matching messages. First consumer: [[teamsStore.ts]] treats DELETE
+404 as already-gone. Messages are unchanged — existing string-based
+handling keeps working.
 
 ## 2026-07-22 — getWorkerStatus()
 
@@ -12,12 +29,11 @@ a bare `as` cast would let an unrecognised backend value render a raw i18n key �
 PR #136 review). It maps the
 snake_case payload (`heartbeat_age_seconds`, `restart_count`, `last_error`) to
 the camelCase `WorkerStatus` type. Consumed by [[SystemPage.tsx]] to enrich the
-consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
+consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin/runtime.py]].
 ## 2026-07-21 — Team Marketplace 三调用
 
 `getTeamTemplates` / `getTeamTemplate` / `installTeamTemplatePreflight`
 (POST install-preflight → BundlePreflightResponse,承接现有导入向导)。
-
 
 ## 2026-07-21 — Skill Marketplace 四调用(stage 7)
 
@@ -25,7 +41,6 @@ consolidated `workers` [[ServiceCard.tsx]]. Backend: [[admin_runtime.py]].
 `installMarketplaceSkill`(POST JSON,409=已安装,直接抛带 detail 的
 Error 由 Browser 展示)/ `checkSkillUpdates`。挂 `/api/marketplace/skills/*`
 前缀;读端点公开、agent 相关调用带身份头,复用 this.request。
-
 
 ## 2026-07-21 — team voice upload
 
@@ -62,7 +77,6 @@ register-only，activated=false）。仅类型声明，运行时无变化；消�
 
 新增 `getAgentCircuitBreaker(agentId)` / `resetAgentCircuitBreaker(agentId)`，打 `/api/agents/{id}/circuit-breaker[/reset]`（mirror getBusFailures/retryBusFailure）。
 
-
 ## 2026-07-13 — channel set-active methods
 
 Added `set{Lark,Slack,Telegram,WeChat,Discord}Active(agentId, active)` → `POST /api/<ch>/set-active`, flipping a bound credential's active flag without a re-bind (used to activate bundle-imported inactive channels).
@@ -79,7 +93,6 @@ extended in [[api.ts]] (types) with per-target counts + `disk_errors`.
 `submitFeedback(category, text)` → POST /api/feedback。返回 {ok, delivered}；
 delivered=false 只代表接收端不可达或杀开关开启，UI 不据此报错。
 
-
 ## 2026-07-09 — per-agent LLM config methods
 
 Added ``getAgentLlmConfig`` / ``setAgentLlmConfig`` / ``resetAgentLlmConfig``
@@ -95,8 +108,6 @@ user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
 `{checkout_url, session_id}`; `rechargeStatus(sessionId)` GETs by-session. Both forward the
 loginToken via X-Netmind-Token. Types RechargeResponse/RechargeStatusResponse added in
 [[api]] (types). The panel opens checkout_url then polls rechargeStatus.
-
-
 
 ## 2026-07-02 (Phase 3) — 订阅写操作
 
@@ -141,7 +152,6 @@ without leaving chat. Identity from the auth header as usual.
 `onboard(apiKey, providerType?)` → POST /api/providers/onboard. providerType
 is only sent when the user manually overrode the sk-ant- prefix detection;
 otherwise null lets the backend decide.
-
 
 ## 2026-06-23 — getMyNarratives / getMyNetwork (owner-scoped)
 
@@ -217,8 +227,6 @@ to populate the Artifacts tab and the MCP section of the renamed
 `Skills & MCP` tab.
 
 ## 2026-05-14 — workspace tree + nested delete + raw helpers
-
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
 
 `listFiles` now returns a recursive tree (`FileListResponse.tree`) rather
 than a flat array. `deleteFile(agentId, userId, path)` accepts a

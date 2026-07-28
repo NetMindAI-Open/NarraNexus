@@ -77,7 +77,7 @@ reconnect 仍然继续，只是前端那一帧拿不到 input_content，user 气
 `_listen_for_stop` 增加 `{"action":"force_stop"}` 分支——前端在用户点
 graceful stop 后 10 秒没看到 cancelled 时弹"强制结束"，确认后发这条。
 后端立即推 `{"type":"stopping","stage":"received","force":true}` ACK，
-然后 cancel token；SIGKILL 实际由 Phase A C2 在 xyz_claude_agent_sdk
+然后 cancel token；SIGKILL 实际由 Phase A C2 在 adapters.claude.sdk
 disconnect 5 秒超时后的 `process.kill()` 完成。
 
 注意：force_stop 仍**走 finally / events-row 持久化**，state 写入

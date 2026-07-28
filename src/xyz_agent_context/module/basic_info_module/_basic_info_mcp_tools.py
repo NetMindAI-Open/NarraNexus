@@ -33,7 +33,7 @@ from typing import Any, Dict, List
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 # Tool names the runtime hook scans agent_loop_response for (keep in lockstep
@@ -58,7 +58,7 @@ def create_basic_info_mcp_server(port: int) -> FastMCP:
 
 def _register_feedback_tool(mcp: FastMCP) -> None:
     """submit_feedback — the agent's channel for telling the NarraNexus team
-    something went wrong (spec 2026-07-10-feedback-mechanism-design.md).
+    something went wrong.
 
     Privacy: feedback_client enforces what it CAN (identifiers hashed, summary
     truncated); the CONTENT of the summary — no user quotes, no keys/PII — is
@@ -88,7 +88,7 @@ def _register_feedback_tool(mcp: FastMCP) -> None:
         summary: str,
         severity: str = "medium",
     ) -> dict:
-        from xyz_agent_context.services.feedback_client import send_feedback
+        from xyz_agent_context.integrations.feedback_client import send_feedback
 
         delivered = await send_feedback(
             category=category,

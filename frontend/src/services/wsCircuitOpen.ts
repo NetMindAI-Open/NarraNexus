@@ -7,7 +7,7 @@
  * Background: backend/routes/websocket.py sends a fresh-run rejection frame
  * `{type:'error', error_type:'agent_circuit_open', severity:'fatal',
  * cb_reason:'paused:auth'|'paused:quota'|'cooling'}` when the real-time-layer
- * circuit-breaker (agent_framework/agent_circuit_breaker.py) is open for that
+ * circuit-breaker (agent_framework/loop/circuit_breaker.py) is open for that
  * agent. Without this the user would just see a red chat bubble; the banner
  * gives them a one-click path to re-enable the agent once they've fixed the
  * underlying key/balance.

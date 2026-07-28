@@ -156,7 +156,7 @@ class BasicInfoModule(XYZBaseModule):
         # import + any truly unexpected error, and still sets safe non-None
         # strings so the prompt's `.format()` never renders "None".
         try:
-            from xyz_agent_context.agent_framework.agent_model_identity import (
+            from xyz_agent_context.agent_framework.providers.model_identity import (
                 resolve_agent_model_identity,
             )
             identity = await resolve_agent_model_identity(self.agent_id, self.db)

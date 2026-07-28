@@ -2,68 +2,76 @@
 @file_name: quota.py
 @author: Bin Liang
 @date: 2026-04-16
-@description: User-facing quota query endpoint.
+@description: User-facing free-tier balance endpoint.
 
-Three explicit response shapes so the frontend does not have to infer
-"is the feature on":
-  - {enabled: false}                          — local mode / env not set
-  - {enabled: true, status: "uninitialized"}  — cloud, user has no row yet
-  - {enabled: true, status: "active"|..., …}  — full budget breakdown
+The path is unchanged (``GET /api/quota/me``) but the meaning is not: since
+2026-07-28 the free tier is a USD wallet on the LiteLLM gateway, not a token
+counter in our own DB, so this route is a thin read-through to the deploy-side
+wallet service.
+
+Three explicit response shapes so the frontend never has to infer "is the
+feature on":
+  - ``{enabled: false}``                         — local mode / free tier off
+  - ``{enabled: true, status: "uninitialized"}`` — no wallet for this user yet
+  - ``{enabled: true, status: "active"|"exhausted", …}`` — full balance
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
+from loguru import logger
 
-from backend.auth import _is_cloud_mode
-
+from xyz_agent_context.agent_framework.providers.free_tier import (
+    is_free_tier_enabled,
+)
+from xyz_agent_context.integrations.free_tier.wallet_client import (
+    WalletBalance,
+    WalletClient,
+    WalletError,
+    WalletMissing,
+)
 
 router = APIRouter(prefix="/api/quota", tags=["quota"])
 
+_DISABLED: dict = {"enabled": False}
 
-def _quota_to_dict(q) -> dict:
+
+def balance_to_dict(balance: WalletBalance) -> dict:
+    """Wire shape for a wallet. Shared with the staff top-up route so the two
+    can never describe the same wallet differently."""
     return {
         "enabled": True,
-        "status": q.status.value,
-        "remaining_input_tokens": q.remaining_input,
-        "remaining_output_tokens": q.remaining_output,
-        "initial_input_tokens": q.initial_input_tokens,
-        "initial_output_tokens": q.initial_output_tokens,
-        "granted_input_tokens": q.granted_input_tokens,
-        "granted_output_tokens": q.granted_output_tokens,
-        "used_input_tokens": q.used_input_tokens,
-        "used_output_tokens": q.used_output_tokens,
-        "prefer_system_override": q.prefer_system_override,
+        "status": "exhausted" if balance.exhausted else "active",
+        "currency": balance.currency,
+        "max_budget": balance.max_budget,
+        "spend": balance.spend,
+        "remaining": balance.remaining,
     }
 
 
 @router.get("/me")
 async def get_my_quota(request: Request) -> dict:
-    # Local mode: feature is strictly off; do not consult any service.
-    if not _is_cloud_mode():
-        return {"enabled": False}
+    if not is_free_tier_enabled():
+        return _DISABLED
 
-    sys_svc = getattr(request.app.state, "system_provider", None)
-    quota_svc = getattr(request.app.state, "quota_service", None)
-    if sys_svc is None or quota_svc is None:
-        # Services not wired (should only happen pre-lifespan in tests).
-        return {"enabled": False}
-
-    if not sys_svc.is_enabled():
-        return {"enabled": False}
+    client = WalletClient.from_settings()
+    if client is None:
+        # Flag on but the service isn't wired — report "off" rather than an
+        # error: the settings panel must still render, and the misconfiguration
+        # is already logged loudly by the provisioner.
+        return _DISABLED
 
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    q = await quota_svc.get(user_id)
-    if q is None:
+    try:
+        return balance_to_dict(await client.balance(user_id))
+    except WalletMissing:
+        # Provisioning has not run yet (or ran before the feature was enabled).
+        # Not an error — the next login provisions it.
         return {"enabled": True, "status": "uninitialized"}
-
-    return _quota_to_dict(q)
-
-
-# PATCH /me/preference was removed 2026-07-18: "free tier first" is platform
-# behavior now, not a user preference — the resolver always draws the free
-# tier while it has budget and falls through to the user's own provider when
-# exhausted (see provider_resolver). The prefer_system_override column
-# survives as the exhaustion-notice dedup latch only.
+    except WalletError as e:
+        logger.warning(f"[quota] balance lookup failed for {user_id}: {e!r}")
+        raise HTTPException(
+            status_code=503, detail="Balance service unavailable, try again"
+        ) from e

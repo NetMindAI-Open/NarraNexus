@@ -4,7 +4,6 @@
  * Restyled in M2: warm-tinted inverted bubble + radius-sm + paper text +
  * subtle motion. No shadow, no border (the inversion carries the lift).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.9
  */
 
 import * as React from 'react';

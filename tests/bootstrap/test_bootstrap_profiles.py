@@ -8,7 +8,7 @@
 """
 
 # Importing the arena service registers the "arena" profile as a side effect.
-import xyz_agent_context.services.arena_provisioning_service  # noqa: F401
+import backend.integrations.arena.arena_provisioning_service  # noqa: F401
 from xyz_agent_context.bootstrap.profiles import (
     BootstrapContext,
     DEFAULT_AUTO_DELETE_AFTER_EVENTS,

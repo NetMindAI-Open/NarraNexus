@@ -6,7 +6,6 @@
  * Implements NM Axiom #4 (lift via paper, not shadow) — three semantic surface
  * elevations that all stay within the warm paper family.
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.3
  */
 
 import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';

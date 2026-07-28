@@ -256,6 +256,18 @@ class TelegramModule(ChannelModuleBase):
     ctx_data_key = "telegram_info"
     mcp_server_name = "telegram_module"
     mcp_port = TELEGRAM_MCP_PORT
+    # Setup-residency (B++): while unbound, only tg_bind stays visible;
+    # the other tools' schemas are suppressed via disallowed_tools. Keep in
+    # sync with register_telegram_mcp_tools — unit test asserts equality.
+    all_tool_names = (
+        "tg_cli",
+        "react_to_user_message",
+        "tg_skill",
+        "tg_bind",
+        "tg_status",
+        "tg_unbind",
+    )
+    setup_tool_names = frozenset({"tg_bind"})
 
     @staticmethod
     def get_config() -> ModuleConfig:
@@ -309,7 +321,14 @@ class TelegramModule(ChannelModuleBase):
     async def get_instructions(self, ctx_data: ContextData) -> str:
         info = ctx_data.extra_data.get(self.ctx_data_key)
         if not info:
-            return _NO_BOT_INSTRUCTION + _TELEGRAM_IRON_RULES
+            # Setup-residency (B++): unbound agents get ONE line instead of
+            # the full onboarding walkthrough; the full guide is served on
+            # demand by tg_bind() called with no arguments. A bound agent
+            # whose credential data failed to load this turn gets nothing
+            # rather than a misleading onboarding prompt.
+            if await self.is_bound():
+                return ""
+            return self.unbound_setup_line()
 
         bot_username = info.get("bot_username", "(unknown)")
         bot_user_id = info.get("bot_user_id", "")

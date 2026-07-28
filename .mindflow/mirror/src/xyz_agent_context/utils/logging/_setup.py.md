@@ -40,6 +40,6 @@ monkeypatches keep working. They touch ONLY dirs we own, within `$HOME` (never
 all sidecar stderr to the app's own stderr, so a terminal launch shows them live.
 
 Gotcha: don't "simplify" back to a bare `mkdir` — that reintroduces the
-service-killing crash. The desktop app + `scripts/dev-local.sh` also gained a
+service-killing crash. The desktop app + `scripts/dev/dev-local.sh` also gained a
 readiness gate that surfaces such a startup death with the stderr tail + log
 path, but the real fix is here: logging never takes the process down.

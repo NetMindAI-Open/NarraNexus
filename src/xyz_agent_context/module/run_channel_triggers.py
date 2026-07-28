@@ -112,8 +112,8 @@ async def start_channel_triggers(
 
 
 async def main(only: Optional[set[str]] = None) -> None:
-    from xyz_agent_context.utils.db_factory import get_db_client, close_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
     from xyz_agent_context.channel.channel_health_server import (
         start_channel_health_server,
     )

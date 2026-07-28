@@ -4,7 +4,6 @@
  * Restyled in M2: paper-raised bg + hairline border + radius-md + soft lift.
  * Replaces the previous Archive "1px ink border, no radius" treatment.
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.9
  */
 
 import * as React from 'react';

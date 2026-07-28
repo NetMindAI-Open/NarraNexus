@@ -29,8 +29,6 @@ message bus 原本只传纯文本。这个私有实现让 Agent 之间能通过 
 共享区"，消息里只存一小段元数据 + base 相对路径；投递时由 trigger 渲染成 Read 工具
 marker，recipient 用内置多模态 `Read` 直接读。
 
-设计文档：`reference/self_notebook/specs/2026-07-20-a2a-multimodal-bus-design.md`。
-
 ## 成立的前提（关键洞察）
 
 两条约束咬合让"跨 agent 传文件"变简单，无需 per-recipient 拷贝：

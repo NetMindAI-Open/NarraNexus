@@ -249,3 +249,73 @@ async def test_register_without_session_auto_pins(env):
     assert row.session_id is None
     assert row.pinned is True
     assert row.original_session_id is None
+
+
+@pytest.mark.asyncio
+async def test_agent_scoped_reregister_same_entry_dedupes(env):
+    """
+    Registering the SAME entry file agent-scoped twice (no target_artifact_id)
+    must not create a second pinned row — the second call is treated as a
+    re-register: pointer/title update in place, same artifact_id back.
+
+    Prod evidence 2026-06-30 (agent_7ce1e3120f46): bootstrap created the
+    welcome artifact, the agent later re-registered welcome/index.html via
+    the LLM tool (which never knows a session_id → agent-scoped) and the
+    tab bar showed two pinned "Welcome to NarraNexus" tabs forever.
+    """
+    repo: ArtifactRepository = env["repo"]
+    svc = ArtifactService(env["db"])
+
+    r1 = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="text/html", entry_path=str(env["entry"]),
+        title="Welcome", description=None, target_artifact_id=None,
+    )
+    r2 = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="text/html", entry_path=str(env["entry"]),
+        title="Welcome v2", description=None, target_artifact_id=None,
+    )
+
+    assert r2.artifact_id == r1.artifact_id
+    rows = await repo.find({"agent_id": "agent_x"})
+    assert len(rows) == 1
+    assert rows[0].title == "Welcome v2"
+
+
+@pytest.mark.asyncio
+async def test_agent_scoped_register_different_entries_stay_separate(env):
+    """Dedup keys on the entry file — different files are different artifacts."""
+    svc = ArtifactService(env["db"])
+    (env["workspace"] / "other").mkdir()
+    other = env["workspace"] / "other" / "index.html"
+    other.write_text("<p>other</p>", encoding="utf-8")
+
+    r1 = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="text/html", entry_path=str(env["entry"]),
+        title="One", description=None, target_artifact_id=None,
+    )
+    r2 = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id=None,
+        kind="text/html", entry_path=str(other),
+        title="Two", description=None, target_artifact_id=None,
+    )
+    assert r2.artifact_id != r1.artifact_id
+
+
+@pytest.mark.asyncio
+async def test_session_scoped_register_same_entry_not_deduped(env):
+    """Session-scoped registrations keep today's semantics (no dedup)."""
+    svc = ArtifactService(env["db"])
+    r1 = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id="sess_1",
+        kind="text/html", entry_path=str(env["entry"]),
+        title="One", description=None, target_artifact_id=None,
+    )
+    r2 = await svc.register(
+        agent_id="agent_x", user_id="user_y", session_id="sess_1",
+        kind="text/html", entry_path=str(env["entry"]),
+        title="Two", description=None, target_artifact_id=None,
+    )
+    assert r2.artifact_id != r1.artifact_id

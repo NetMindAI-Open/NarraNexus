@@ -156,13 +156,24 @@ class User(BaseModel):
 
 # ===== Agent Entity =====
 
+# Single source of truth for the agent_name / agent_description length ceiling.
+# The `agents` DB column is VARCHAR(255) (MySQL) / TEXT (SQLite — no enforcement),
+# so this cap is enforced at the application layer: the Agent model below (read
+# path), the CreateAgent/UpdateAgent request models (write path), and the bundle
+# importer (which trims to this length). Keep all three tied to this constant so
+# the three limits can never drift apart again.
+AGENT_TEXT_MAX_LENGTH = 255
+
+
 class Agent(BaseModel):
     """Agent data model"""
     id: Optional[int] = None
     agent_id: str = Field(..., max_length=64, description="Unique Agent identifier")
-    agent_name: str = Field(..., max_length=255, description="Agent name")
+    agent_name: str = Field(..., max_length=AGENT_TEXT_MAX_LENGTH, description="Agent name")
     created_by: str = Field(..., max_length=64, description="Creator")
-    agent_description: Optional[str] = Field(None, max_length=255, description="Agent description")
+    agent_description: Optional[str] = Field(
+        None, max_length=AGENT_TEXT_MAX_LENGTH, description="Agent description"
+    )
     agent_type: Optional[str] = Field(None, max_length=32, description="Agent type")
     is_public: bool = Field(default=False, description="Whether publicly visible (visible to all users)")
     agent_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")

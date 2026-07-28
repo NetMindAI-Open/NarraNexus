@@ -1,5 +1,25 @@
 # cost_tracker.py
 
+## 2026-07-28 — 配额扣减钩子删除
+
+`record_cost` 尾部那段「`provider_source=="system"` 就调
+`QuotaService.deduct`」的钩子整个拿掉了。免费额度的钱现在由 LiteLLM 网关在
+请求路径上按美元实时计量，我们这边不再维护第二本账。
+
+本文件回到纯粹的**可观测性**职责：往 `cost_records` 写一行 token 账，仅此
+而已。`user_id` / `provider_source` 两个 ContextVar 仍然读、仍然落库 ——
+它们现在只用于归属和审计，不再驱动任何扣费逻辑。
+
+## 2026-07-23 — record_cost 扩三参:cache 埋点 + num_turns(W1)
+
+`record_cost` 新增 `cache_read_tokens`/`cache_creation_tokens`(默认 0)与
+`num_turns`(默认 None),原样写入 cost_records 同名(前两者列名带 `_input_`)
+新列。**带默认值是契约**:llm_function/helper SDK 等旧调用点零改动,今天只有
+agent_loop(step_4)会传非默认值。金额计算完全不碰 cache 字段——Claude 的
+sdk_cost_usd 已含缓存折扣,价目表模型(GPT/Gemini)的 helper 路径根本不传。
+上游链:output_transfer(提取)→ response_processor(归一化两套词汇)→
+ExecutionState(累加;num_turns latest-wins)→ PathExecutionResult → step_4。
+
 ## 2026-07-22 — record_cost 落库归属 + 串联扣减流水
 
 `record_cost` 现在在函数开头（INSERT 之前）防御式读取 `current_user_id` /
@@ -43,7 +63,7 @@ The agent runtime calls multiple LLM APIs (Claude via the Anthropic SDK, OpenAI 
 
 **Set by:** `agent_runtime/` — `AgentRuntime.run()` calls `set_cost_context(agent_id, db)` at the start and `clear_cost_context()` in the `finally` block.
 
-**Called by:** `agent_framework/llm_api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
+**Called by:** `agent_framework/llm/api/` (Claude SDK wrapper, OpenAI wrapper, Gemini wrapper, embedding client) — each records its token usage via `record_cost()` after a successful API call.
 
 **Reads from:** `MODEL_PRICING` dict for per-million-token USD rates (GPT, Gemini, embeddings). Claude costs use the SDK's reported `cost_usd` directly.
 

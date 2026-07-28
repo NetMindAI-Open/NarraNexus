@@ -34,11 +34,11 @@ from xyz_agent_context.schema.runtime_message import MessageType
 
 # -------- pure formatter --------------------------------------------------
 
-def test_format_error_for_system_unavailable_is_user_friendly():
+def test_format_error_for_no_provider_is_user_friendly():
     text = format_lark_error_reply(
-        RunError(error_type="SystemDefaultUnavailable", error_message="quota exhausted")
+        RunError(error_type="NoProviderConfiguredError", error_message="no provider configured")
     )
-    assert "free-quota" in text.lower() or "quota" in text.lower()
+    assert "owner" in text.lower() and "credit" in text.lower()
     # Does NOT leak developer-language like "SlotConfig" / "provider_id"
     assert "slot" not in text.lower()
     assert "provider_id" not in text
@@ -114,7 +114,7 @@ async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
     monkeypatch.setattr(
         lt_mod, "AgentRuntime",
         lambda **_kw: _ErrorRuntime(
-            err_type="SystemDefaultUnavailable",
+            err_type="NoProviderConfiguredError",
             err_msg="quota exhausted",
         ),
     )
@@ -142,7 +142,7 @@ async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
 
     # Output is the friendly text (so the inbox row shows it).
     assert "⚠️" in output
-    assert "quota" in output.lower() or "free-quota" in output.lower()
+    assert "owner" in output.lower() and "credit" in output.lower()
 
     # lark-cli was called to deliver the reply to the chat.
     trigger._cli.send_message.assert_awaited_once()

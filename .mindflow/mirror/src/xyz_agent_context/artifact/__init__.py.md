@@ -20,6 +20,6 @@ Everything a consumer may touch is re-exported here: `ArtifactService`, the
 
 ## Upstream / Downstream
 
-Consumers: `artifact_tool.py` (MCP tool), `backend/routes/agents_artifacts.py`,
-`backend/routes/artifacts_public.py`, `bootstrap/profiles.py` (welcome
+Consumers: `artifact_tool.py` (MCP tool), `backend/routes/agents/artifacts.py`,
+`backend/routes/artifacts/public.py`, `bootstrap/profiles.py` (welcome
 artifact). All import from this package, never from `_artifact_impl`.

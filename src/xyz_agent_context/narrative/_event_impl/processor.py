@@ -20,7 +20,7 @@ from .crud import EventCRUD
 
 if TYPE_CHECKING:
     from xyz_agent_context.schema.module_schema import ModuleInstance
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 class EventProcessor:

@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-07-15
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — Create/UpdateAgentRequest 加写侧长度上限
+
+`CreateAgentRequest` / `UpdateAgentRequest` 的 `agent_name` / `agent_description`
+从裸 `Optional[str]` 改成 `Field(None, max_length=AGENT_TEXT_MAX_LENGTH)`
+(常量来自 entity_schema)。过去写请求这层不卡长度,超 255 只在读回(Agent 模型)
+时才炸;现在写边界直接 422。配合 importer 侧的修剪一起补齐 #71 的写侧缺口。
+
+## 2026-07-23 — EventLogMeta
+
+New `EventLogMeta` (run-level header for the activity card: trigger,
+input_text, final_output, lifecycle, models, cost/token aggregates) +
+`EventLogResponse.meta`. `total_cost_usd` is None (not 0) when no cost
+rows exist. Producer: [[agents/chat_history.py]]; consumer mirror type
+in frontend types/api.ts.
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

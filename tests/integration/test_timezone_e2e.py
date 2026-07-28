@@ -308,7 +308,7 @@ async def _drive_lifecycle(db_client, job_id: str, instance_id: str, status: Job
         return rows[0] if rows else None
 
     with patch(
-        "xyz_agent_context.agent_framework.openai_agents_sdk.OpenAIAgentsSDK.llm_function",
+        "xyz_agent_context.agent_framework.adapters.openai_agents.OpenAIAgentsSDK.llm_function",
         new=AsyncMock(return_value=llm_return),
     ):
         return await handle_job_execution_result(params, repo, _fetch)

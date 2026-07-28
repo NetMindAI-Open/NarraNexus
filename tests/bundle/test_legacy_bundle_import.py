@@ -60,10 +60,10 @@ async def isolated_db(tmp_path, tmp_workspace_root, monkeypatch):
     db_path = tmp_path / "test_nexus.db"
     monkeypatch.setattr(core_settings, "database_url", f"sqlite:///{db_path}")
 
-    from xyz_agent_context.utils import db_factory
+    from xyz_agent_context.utils.db import db_factory
     db_factory._clients_by_loop.clear()
-    from xyz_agent_context.utils.db_factory import get_db_client
-    from xyz_agent_context.utils.schema_registry import auto_migrate
+    from xyz_agent_context.utils.db.db_factory import get_db_client
+    from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
     db = await get_db_client()
     await auto_migrate(db._backend)

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-15
+last_verified: 2026-07-24
 stub: false
 ---
+
+## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
+
+返回值新增第三项：汇总各模块 `get_disallowed_tools()`（见 [[base.py]] 通用面 /
+[[channel_module_base]] channel 覆写）的全限定工具名列表，排序去重。单模块收集
+失败 **fail-open**（warning + 跳过——宁可多花 token 也不误伤已绑定 channel）。
+用途：未绑定 channel 的工具 schema 不进模型上下文，经 [[context_schema.py]]
+`ContextRuntimeOutput.disallowed_tools` → [[step_3_agent_loop.py]] → driver
+kwargs 下传。Plan：token 优化 W2 B++。
 
 ## 2026-07-15 — `build_input_for_framework` 返回 MCP spec dict
 
@@ -27,13 +36,13 @@ headers）；用户外部 MCP 的 headers 由 backend 装配层（websocket/skil
 `model_name="sonnet-4"`，经 basic_info [[prompts.py]] 的 "LLM Model" 段灌进系统
 prompt → **每个** agent（含 codex_cli+gpt5）都自称 Claude Sonnet-4，被问模型就照读
 （违反铁律#9）。两行 kwargs 已删；这两个字段改由 [[basic_info_module.py]]
-`hook_data_gathering` 经 [[agent_model_identity.py]] 按真实 slot 动态填。
+`hook_data_gathering` 经 [[providers/model_identity.py]] 按真实 slot 动态填。
 ContextRuntime 从此不掺和模型身份（本就不该知道），字段也在 [[context_schema.py]]
 正式声明了。
 
 ## 2026-07-09 — current-turn attachment marker injection
 
-`build_input_for_framework` 追加"当前 turn user message"时，读 `ctx_data.extra_data["attachments"]`，通过 `Attachment.markers_from_dicts(agent_id=ctx_data.agent_id, user_id=ctx_data.user_id)` 合成 marker 拼在 LLM 视图的 content 尾部。**关键：不动 `ctx_data.input_content`**——那个字符串会被 `ChatModule.hook_persist_turn` 原样写成用户消息的 `content`，`backend/routes/agents_chat_history.py` 又会把它回显到前端。marker 只走 LLM 视图，绝对路径不进 UI 也不进 DB。
+`build_input_for_framework` 追加"当前 turn user message"时，读 `ctx_data.extra_data["attachments"]`，通过 `Attachment.markers_from_dicts(agent_id=ctx_data.agent_id, user_id=ctx_data.user_id)` 合成 marker 拼在 LLM 视图的 content 尾部。**关键：不动 `ctx_data.input_content`**——那个字符串会被 `ChatModule.hook_persist_turn` 原样写成用户消息的 `content`，`backend/routes/agents/chat_history.py` 又会把它回显到前端。marker 只走 LLM 视图，绝对路径不进 UI 也不进 DB。
 
 `ctx_data.user_id` 已被 `AgentRuntime` 覆写为 agent owner（`_agent.created_by`，agent_runtime.py:245），marker 里的路径拿到的就是 owner workspace 的绝对路径——跟 trigger 落盘时的路径一致，agent Read 直接命中。
 
@@ -104,7 +113,7 @@ separate from the conversation timeline so background work doesn't pollute it.
 
 `build_input_for_framework()` now stamps each long-term history row with
 an internal `_source` field copied from its `meta_data.working_source`
-(default `"chat"`). Consumed by [[xyz_claude_agent_sdk.py]] for
+(default `"chat"`). Consumed by [[adapters/claude/sdk.py]] for
 source-aware truncation: when the system prompt + history would exceed
 the SDK's argv ceiling, oldest background-trigger rows
 (`job / message_bus / lark / callback`) are evicted first; chat rows

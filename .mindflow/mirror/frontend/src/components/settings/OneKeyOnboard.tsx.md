@@ -11,7 +11,7 @@ register-only 分支的标题/正文改走 `settings.provider.oneKeySaved` /
 
 ## 2026-07-17 — 成功面板区分 activated / register-only
 
-onboard 响应新增 `activated`（见 [[user_provider_service]]）：云端非 staff 时
+onboard 响应新增 `activated`（见 [[user_service]]）：云端非 staff 时
 后端只存 key 不动槽位。done state 增加 `activated`（`res.activated !== false`，
 旧响应无字段视为已激活）；`activated=false` 时成功面板标题变 "Key saved"，
 正文说明云端继续跑在 NetMind 账户上、想用自有 key 请用本地桌面版——**不再**

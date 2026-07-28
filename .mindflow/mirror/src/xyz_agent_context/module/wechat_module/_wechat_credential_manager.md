@@ -81,7 +81,7 @@ load-bearing.
 ## Upstream / downstream
 
 - **Reads / writes**: ``channel_wechat_credentials`` table (registered
-  in ``utils/schema_registry.py``).
+  in ``utils/db/schema_registry.py``).
 - **No gateway calls.** Unlike the Telegram manager (which calls
   ``getMe`` / ``getChat`` / ``deleteWebhook``), this manager never
   touches the network — token validity is established by the QR-scan

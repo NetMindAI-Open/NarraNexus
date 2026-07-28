@@ -31,9 +31,9 @@ from xyz_agent_context.agent_runtime.admission import (
     reset_admission_controller_for_test,
 )
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
 
 # ---------------------------------------------------------------------------

@@ -123,6 +123,16 @@
         "activity": "Hintergrundaktivität",
         "lark": "Lark",
         "callback": "Rückruf"
+      },
+      "meta": {
+        "input": "Eingabe",
+        "output": "Ausgabe",
+        "duration": "Laufzeit",
+        "cost": "Kosten",
+        "tokens": "Tokens ein/aus",
+        "model": "Modell",
+        "stateFailed": "Fehlgeschlagen",
+        "stateCancelled": "Abgebrochen"
       }
     },
     "error": {
@@ -142,7 +152,9 @@
         "executor_unreachable": "Ihr Ausführungscontainer ist vorübergehend nicht erreichbar. Er erholt sich normalerweise innerhalb weniger Sekunden — bitte senden Sie diese Nachricht in Kürze erneut.",
         "infra_transient": "Diese Runde konnte aufgrund eines vorübergehenden plattformseitigen Ausführungsproblems nicht ausgeführt werden. Bitte senden Sie die Nachricht gleich erneut."
       }
-    }
+    },
+    "dateToday": "Heute",
+    "dateYesterday": "Gestern"
   },
   "awareness": {
     "common": {
@@ -692,6 +704,7 @@
       "title": "Einstellungen",
       "navProviders": "LLM-Anbieter",
       "navPrivacy": "Datenschutz",
+      "navDesktop": "Desktop",
       "slotAgentName": "Agent",
       "slotAgentDesc": "Das „Gehirn“ deines KI-Agents. Dieses Modell führt alle Gespräche mit Benutzern, trifft Entscheidungen und führt Aufgaben aus. Ein leistungsfähigeres Modell bedeutet hier intelligentere, nuanciertere Antworten.",
       "slotAgentProtocol": "Anthropic-Protokoll",
@@ -703,7 +716,11 @@
       "privacyHeading": "Datenschutz",
       "privacyIntro": "Steuere, welche Daten NarraNexus erfasst, um das Produkt zu verbessern.",
       "analyticsTitle": "Produkt-Analyse",
-      "analyticsDesc": "Erlaube NarraNexus, anonyme Nutzungsdaten zu erfassen, um das Produkt zu verbessern. Es werden niemals Gesprächsinhalte erfasst."
+      "analyticsDesc": "Erlaube NarraNexus, anonyme Nutzungsdaten zu erfassen, um das Produkt zu verbessern. Es werden niemals Gesprächsinhalte erfasst.",
+      "desktopHeading": "Desktop",
+      "desktopIntro": "Einstellungen, die steuern, wie NarraNexus mit diesem Computer interagiert. Nur in der Desktop-App verfügbar.",
+      "lockedUseTitle": "Locked Use — Computer wach halten",
+      "lockedUseDesc": "Verhindert, dass dieser Computer in den Ruhezustand wechselt, damit Hintergrund-Automatisierungen weiterlaufen. Gilt nur, solange NarraNexus geöffnet ist."
     },
     "provider": {
       "presetNetmindDesc": "Ein Schlüssel deckt sowohl Anthropic- als auch OpenAI-Endpunkte ab",
@@ -783,6 +800,12 @@
       "webModeNotInstalled": "Installiere zuerst die Claude Code CLI und führe dann \"claude auth login\" in deinem Terminal aus.",
       "cliNotInBundle": "Claude Code CLI nicht im Bundle gefunden. Bitte erstelle die App neu.",
       "addedAsProvider": "Als NarraNexus-Anbieter hinzugefügt — in Schritt 2 unten zuweisbar.",
+      "setupTokenConnected": "Über Setup-Token verbunden — in Schritt 2 unten zuweisbar.",
+      "setupTokenHint": "Empfohlen: Führen Sie \"claude setup-token\" im Terminal aus und fügen Sie das einjährige Token hier ein. Dies ist der zuverlässigste Weg, Ihr Abonnement zu nutzen — unabhängig vom CLI-Anmeldestatus oben.",
+      "setupTokenReplaceHint": "Fügen Sie ein neues Token aus \"claude setup-token\" ein, um das gespeicherte zu ersetzen (Token gelten ein Jahr).",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "Mit Token verbinden",
+      "setupTokenSaving": "Verbinden...",
       "addAsProvider": "Als Anbieter hinzufügen",
       "loginToAdd": "Melde dich oben an, um Claude Code als Anbieter hinzuzufügen.",
       "customAnthropic": "+ Eigener Anthropic",
@@ -806,6 +829,7 @@
       "configuredProviders": "Konfigurierte Anbieter",
       "modelsCount": "{{count}} Modell(e)",
       "test": "Testen",
+      "testConnection": "Verbindung testen",
       "edit": "Bearbeiten",
       "delete": "Löschen",
       "section2Title": "Modellzuweisung",
@@ -821,7 +845,11 @@
       "readyTitle": "Du bist startklar",
       "readyIntro": "Dein Schlüssel ist eingetragen, und wir haben deine Modell-Slots eingerichtet, sodass du sofort loschatten kannst:",
       "readyNote": "Möchtest du andere Modelle? Ändere einen beliebigen Slot im Konfigurationsbereich unten — deine Anpassungen haben immer Vorrang vor diesen Standardeinstellungen.",
-      "gotIt": "Verstanden"
+      "gotIt": "Verstanden",
+      "freeTierHowToTitle": "Über dein Gratis-Guthaben",
+      "freeTierHowToSwitch": "Die Karte „Free Tier“ ist bereits mit deinen Agent- und Helper-Slots verbunden. Um deinen eigenen Schlüssel zu nutzen, füge unten einen Anbieter hinzu und wähle ihn in den Modell-Standards für den Agent-/Helper-Slot — wirksam ab der nächsten Nachricht.",
+      "freeTierAnytime": "Du kannst jederzeit wechseln. Du musst das Gratis-Guthaben nicht zuerst aufbrauchen, und beim Wechsel verfällt es nicht — das Guthaben bleibt erhalten.",
+      "freeTierNoDelete": "Solange Guthaben vorhanden ist, lässt sich die Free-Tier-Karte nicht löschen: Sie hält den einzigen Schlüssel dazu. Ist es aufgebraucht, kannst du sie entfernen."
     }
   },
   "system": {
@@ -921,7 +949,9 @@
       "retry": "Erneut versuchen",
       "unknownError": "Unbekannter Fehler",
       "attempts": "{{count}} fehlgeschlagene Versuche"
-    }
+    },
+    "showMore": "Mehr anzeigen",
+    "showLess": "Weniger anzeigen"
   },
   "help": {
     "overlay": {
@@ -1514,6 +1544,32 @@
         "pinned": "angeheftet",
         "fullModeNote": "Der vollständige Snapshot-Modus bezieht automatisch jedes Artefakt ein. Wechsle zu Benutzerdefiniert, um auszuwählen."
       }
+    },
+    "signup": {
+      "title": "Konto erstellen",
+      "subtitle": "E-Mail, ein Passwort und der Code, den wir dir senden. Mehr nicht.",
+      "email": "E-Mail",
+      "password": "Passwort",
+      "confirmPassword": "Passwort bestätigen",
+      "code": "Bestätigungscode",
+      "sendCode": "Code senden",
+      "sending": "Senden…",
+      "resendIn": "Erneut senden in {{seconds}} s",
+      "codeSent": "Code gesendet — sieh in deinem Postfach nach (auch im Spam).",
+      "mismatch": "Passwörter stimmen nicht überein.",
+      "submit": "Konto erstellen",
+      "creating": "Wird erstellt…",
+      "haveAccount": "Schon ein Konto? Anmelden",
+      "sendFailed": "Code konnte nicht gesendet werden. Bitte erneut versuchen.",
+      "failed": "Konto konnte nicht erstellt werden. Bitte erneut versuchen.",
+      "rule": {
+        "length": "8–16 Zeichen",
+        "upper": "Ein Großbuchstabe",
+        "lower": "Ein Kleinbuchstabe",
+        "digit": "Eine Ziffer",
+        "special": "Ein Sonderzeichen"
+      },
+      "codePlaceholder": "6-stelliger Code"
     }
   },
   "rail": {
@@ -1870,5 +1926,8 @@
     "loading": "Live-Vorschau wird geöffnet…",
     "loadError": "Live-Vorschau konnte nicht geöffnet werden.",
     "livePreview": "Live-Vorschau"
+  },
+  "common": {
+    "close": "Close"
   }
 }

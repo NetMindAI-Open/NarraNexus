@@ -131,7 +131,7 @@ markers — this only changes the hint text ("check the agent's LLM provider
 configuration…" vs. a generic "check recent activity"), not any retry or
 delivery behavior. The recovery half — clearing a failure record so
 `get_pending_messages` picks the message back up — lives in
-`backend/routes/agents_bus_failures.py`, not in this file (this file only
+`backend/routes/agents/bus_failures.py`, not in this file (this file only
 detects + reports the permanent failure).
 
 ## 2026-06-23 (PM) — prompt names the live roster, forbids off-channel @mentions
@@ -247,7 +247,7 @@ Agent 收到消息后不能靠自己去轮询——它不知道什么时候有�
 - `LocalMessageBus.ack_processed()` 推进游标（成功后）
 - `LocalMessageBus.record_failure()` 记录失败（失败后）
 - `db.insert("inbox_table", ...)` 把 Agent 的回复写入用户 inbox（通过 `_write_to_inbox()`）
-- `InboxRepository.create_message()`（`message_type=SYSTEM_NOTICE`）把永久失败通知写入 owner 的 inbox（通过 `_notify_permanent_failure()`，当某条消息的失败次数达到 `POISON_FAILURE_THRESHOLD` 时触发；见下方 2026-07-02 changelog）。这个失败记录的读取/清除（重试恢复路径）在 `backend/routes/agents_bus_failures.py` 里，**不在**本文件——本文件只负责检测和上报。
+- `InboxRepository.create_message()`（`message_type=SYSTEM_NOTICE`）把永久失败通知写入 owner 的 inbox（通过 `_notify_permanent_failure()`，当某条消息的失败次数达到 `POISON_FAILURE_THRESHOLD` 时触发；见下方 2026-07-02 changelog）。这个失败记录的读取/清除（重试恢复路径）在 `backend/routes/agents/bus_failures.py` 里，**不在**本文件——本文件只负责检测和上报。
 
 ## 设计决策
 
@@ -275,10 +275,10 @@ Rate limiter 的计数器用的是 `time.monotonic()`（进程内单调时钟）
 
 `trigger_extra_data={"bus_channel_id": channel_id}` 是通过 AgentRuntime 传递频道信息的方式。如果 AgentRuntime 步骤里有读取 `trigger_extra_data` 的逻辑，需要知道 key 是 `"bus_channel_id"`。
 
-## 2026-07-07 — 凭据分类 + 脱敏抽到 agent_framework/llm_failure
+## 2026-07-07 — 凭据分类 + 脱敏抽到 agent_framework/llm/failure
 
 `_classify_error` / `_redact_error_for_owner` 现委托到共享的
-`agent_framework.llm_failure`（`is_credential_error` / `redact_secrets`）。行为不变
+`agent_framework.llm.failure`（`is_credential_error` / `redact_secrets`）。行为不变
 （`MAX_NOTIFIED_ERROR_LEN` 仍 500），只是让 bus / narrative / Step-5 hooks 三条后台
 路径用同一套判断（去重，铁律 #8）。原本散落此处的 markers / _SECRET_* 正则已移除。
 

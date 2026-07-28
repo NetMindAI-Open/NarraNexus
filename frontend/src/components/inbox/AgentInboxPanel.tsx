@@ -51,6 +51,53 @@ function senderInitials(display: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+// Above this many characters a bus message is almost certainly a full
+// agent-to-agent report; clamp it so an expanded room reads as a scannable
+// list instead of a wall of text.
+const CLAMP_THRESHOLD = 500;
+
+/**
+ * Message body with a show-more/less toggle for long content. Bus messages
+ * are frequently multi-page reports — rendering them full-height made an
+ * expanded room unreadable (bug: "浏览器观感阅读不友好"). Short messages
+ * render unclamped with no toggle.
+ */
+function MessageBody({ content }: { content: string }) {
+  const { t } = useTranslation();
+  const [showAll, setShowAll] = useState(false);
+  const isLong = content.length > CLAMP_THRESHOLD;
+
+  return (
+    <>
+      <div
+        className={cn(
+          'text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
+          isLong && !showAll && 'max-h-28 overflow-hidden [mask-image:linear-gradient(to_bottom,black_70%,transparent)]'
+        )}
+      >
+        <Markdown content={content} />
+      </div>
+      {isLong && (
+        <button
+          type="button"
+          data-testid="inbox-show-more"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-1 text-[10px] font-medium text-[var(--accent-primary)] hover:underline"
+        >
+          {showAll ? t('inbox.showLess') : t('inbox.showMore')}
+        </button>
+      )}
+    </>
+  );
+}
+
+/** Local calendar day of a timestamp — the day-separator grouping key. */
+function dayKey(ts?: string): string {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+}
+
 interface AgentInboxPanelProps {
   /** Skip the outer Card chrome + duplicate title when hosted inside the
    *  bookmark drawer's ActivityPanel. Functional actions are kept. */
@@ -247,58 +294,84 @@ export function AgentInboxPanel({ embedded = false }: AgentInboxPanelProps = {})
                 {/* Room Content (Members + Messages) */}
                 {isRoomExpanded && (
                   <div className="px-3 pb-3 space-y-2">
-                    {/* Members */}
-                    <div className="flex flex-wrap gap-1.5 px-1 pb-2 border-b border-[var(--border-subtle)]">
+                    {/* Members — names only; the raw agent_id is tooltip-only
+                        noise reduction for readability. */}
+                    <div
+                      data-testid="inbox-member-strip"
+                      className="flex flex-wrap gap-1.5 px-1 pb-2 border-b border-[var(--border-subtle)]"
+                    >
                       {room.members.map((member) => (
                         <div
                           key={member.agent_id}
+                          title={member.agent_id}
                           className="flex items-center gap-1 px-2 py-1 rounded-md bg-[var(--bg-tertiary)] text-[10px]"
                         >
                           <span className="font-medium text-[var(--text-secondary)]">{member.agent_name}</span>
-                          <span className="text-[var(--text-tertiary)]">{member.agent_id}</span>
                         </div>
                       ))}
                     </div>
 
-                    {/* Messages (one card per message, sender-colored accent) */}
+                    {/* Messages (one card per message, sender-colored accent),
+                        grouped by calendar day so history reads in context. */}
                     <div className="space-y-2">
-                      {room.messages.map((msg) => {
+                      {room.messages.map((msg, idx) => {
                         const color = senderColor(msg.sender_id || msg.sender_name);
+                        const day = dayKey(msg.created_at);
+                        const prevDay = idx > 0 ? dayKey(room.messages[idx - 1].created_at) : null;
+                        const showSeparator = !!day && day !== prevDay;
                         return (
-                          <div
-                            key={msg.message_id}
-                            data-testid={`inbox-message-card-${msg.message_id}`}
-                            className={cn(
-                              'rounded-[var(--radius-sm)] border border-[color:var(--nm-hairline)] border-l-2',
-                              'bg-[color:var(--nm-paper-warm)] px-2.5 py-2',
-                              color.accent
-                            )}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className={cn(
-                                  'inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-semibold text-white shrink-0',
-                                  color.dot
-                                )}
+                          <div key={msg.message_id}>
+                            {showSeparator && (
+                              <div
+                                data-testid="inbox-day-separator"
+                                className="flex items-center gap-2 py-0.5"
                               >
-                                {senderInitials(msg.sender_name)}
-                              </span>
-                              <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                                {msg.sender_name}
-                              </span>
-                              {msg.created_at && (
-                                <span
-                                  data-testid="inbox-message-time"
-                                  className="ml-auto text-[10px] text-[var(--text-tertiary)] font-mono shrink-0"
-                                >
-                                  {formatRelativeTime(msg.created_at)}
+                                <span className="flex-1 h-px bg-[var(--border-subtle)]" />
+                                <span className="text-[9px] font-mono text-[var(--text-tertiary)]">
+                                  {day}
                                 </span>
+                                <span className="flex-1 h-px bg-[var(--border-subtle)]" />
+                              </div>
+                            )}
+                            <div
+                              data-testid={`inbox-message-card-${msg.message_id}`}
+                              className={cn(
+                                'rounded-[var(--radius-sm)] border border-[color:var(--nm-hairline)] border-l-2',
+                                'bg-[color:var(--nm-paper-warm)] px-2.5 py-2',
+                                color.accent
                               )}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={cn(
+                                    'inline-flex h-5 w-5 items-center justify-center rounded-full text-[8px] font-semibold text-white shrink-0',
+                                    color.dot
+                                  )}
+                                >
+                                  {senderInitials(msg.sender_name)}
+                                </span>
+                                <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                                  {msg.sender_name}
+                                </span>
+                                {!msg.is_read && (
+                                  <span
+                                    data-testid="inbox-unread-dot"
+                                    title={t('inbox.stats.unread')}
+                                    className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] shrink-0"
+                                  />
+                                )}
+                                {msg.created_at && (
+                                  <span
+                                    data-testid="inbox-message-time"
+                                    className="ml-auto text-[10px] text-[var(--text-tertiary)] font-mono shrink-0"
+                                  >
+                                    {formatRelativeTime(msg.created_at)}
+                                  </span>
+                                )}
+                              </div>
+                              <MessageBody content={msg.content} />
+                              <BusAttachmentList attachments={msg.attachments} />
                             </div>
-                            <div className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-                              <Markdown content={msg.content} />
-                            </div>
-                            <BusAttachmentList attachments={msg.attachments} />
                           </div>
                         );
                       })}

@@ -8,7 +8,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from xyz_agent_context.agent_framework import broker_client as bc
+from xyz_agent_context.agent_framework.loop import broker_client as bc
 
 
 @pytest.mark.asyncio

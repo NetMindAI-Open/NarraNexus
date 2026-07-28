@@ -63,4 +63,3 @@ focus management, intersection observers, etc.) without an extra wrapper.
 
 - `nm/bracket.tsx` BracketCornerMarks → typically wraps PaperCard for "selected"
 - `nm/form.tsx` TextInput → uses SunkenWell as the input "well"
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.3

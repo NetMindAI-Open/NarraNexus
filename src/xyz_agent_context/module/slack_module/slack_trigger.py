@@ -100,6 +100,17 @@ except ImportError:  # pragma: no cover
     SocketModeResponse = None  # type: ignore[assignment]
     _HAS_SLACK_SOCKET = False
 
+# The RAW slack_sdk error type. Socket Mode's ``connect()`` is the one
+# Slack call we make directly on the vendored SDK client (not via our
+# ``SlackSDKClient`` wrapper), so a dead app-level token surfaces as this
+# type — never as our ``SlackSDKError``. ``is_permanent_auth_failure``
+# must recognise it or the base loop reconnects forever. Import is
+# guarded because slack-sdk is an optional dependency (see ``start()``).
+try:
+    from slack_sdk.errors import SlackApiError as _SlackApiError
+except ImportError:  # pragma: no cover
+    _SlackApiError = None  # type: ignore[assignment,misc]
+
 
 # Subtypes we ignore (edits, deletes, system events, bot replies, etc.)
 _IGNORED_SUBTYPES = frozenset({
@@ -200,12 +211,16 @@ class SlackTrigger(ChannelTriggerBase):
         )
 
     async def stop(self) -> None:
-        # Disconnect any live Socket Mode sessions before the base tears down.
+        # Fully close (not just disconnect) any live Socket Mode sessions
+        # before the base tears down — ``close()`` also cancels the
+        # ``process_messages()`` task and shuts the ClientSession
+        # (aiohttp/__init__.py 446-457); ``disconnect()`` would leave both
+        # dangling past shutdown.
         for key, client in list(self._socket_clients.items()):
             try:
-                await asyncio.wait_for(client.disconnect(), timeout=3.0)
+                await asyncio.wait_for(client.close(), timeout=3.0)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
-                logger.warning(f"[slack:{key}] disconnect during stop: {e}")
+                logger.warning(f"[slack:{key}] close during stop: {e}")
         self._socket_clients.clear()
         await super().stop()
 
@@ -223,8 +238,28 @@ class SlackTrigger(ChannelTriggerBase):
         return f"{credential.agent_id}:{credential.team_id}"
 
     def is_permanent_auth_failure(self, exc: BaseException) -> bool:  # type: ignore[override]
+        # Wrapped path: every Slack Web API call routed through
+        # ``SlackSDKClient`` (auth.test, files.info, chat.postMessage, …)
+        # raises our ``SlackSDKError`` carrying the upstream ``code``.
         if isinstance(exc, SlackSDKError):
             return (exc.code or "") in _SLACK_PERMANENT_AUTH_CODES
+        # Raw path: Socket Mode's ``connect()`` → ``apps.connections.open``
+        # is called on the vendored SDK client directly, so a dead
+        # app-level token raises a raw ``slack_sdk.errors.SlackApiError``
+        # instead. Pull the error code out of its response envelope
+        # (a dict or an ``AsyncSlackResponse`` — both expose ``.get``).
+        if _SlackApiError is not None and isinstance(exc, _SlackApiError):
+            # ``.response`` is a dict or an ``AsyncSlackResponse`` — both
+            # expose ``.get`` — but can be None for a SlackApiError raised
+            # without a response body.
+            response = exc.response
+            if response is None:
+                return False
+            try:
+                code = response.get("error") or ""
+            except (AttributeError, TypeError):  # pragma: no cover — defensive
+                return False
+            return code in _SLACK_PERMANENT_AUTH_CODES
         return False
 
     async def disable_credential(self, credential: SlackCredential) -> None:  # type: ignore[override]
@@ -317,7 +352,48 @@ class SlackTrigger(ChannelTriggerBase):
             await queue.put(event)
 
         socket_client.socket_mode_request_listeners.append(_listener)
-        await socket_client.connect()
+
+        # Acquire the WSS URL OURSELVES before handing off to connect().
+        #
+        # slack_sdk's SocketModeClient.connect() wraps the WSS-URL fetch in
+        # a ``while True: try/except Exception`` loop (aiohttp/__init__.py
+        # 352-409): if ``apps.connections.open`` fails it logs the traceback
+        # and ``sleep``s, then retries — forever. That means a dead
+        # app-level token (``invalid_auth`` / ``token_revoked``) is
+        # SWALLOWED inside connect(): the exception never escapes, our
+        # ``_subscribe_loop`` never catches it, ``is_permanent_auth_failure``
+        # is never called, and the credential is never disabled — the
+        # process just spams "apps.connections.open ... invalid_auth ...
+        # Retrying..." indefinitely (this is exactly the bug we're fixing).
+        #
+        # ``issue_new_wss_url()`` (async_client.py 43-58) handles the
+        # genuinely-transient ``ratelimited`` case internally (sleep+retry)
+        # but RE-RAISES every other SlackApiError. So calling it here lets a
+        # permanent auth failure propagate up to the base loop, where
+        # ``is_permanent_auth_failure`` recognises it and disables the
+        # credential. connect() then skips its own fetch because
+        # ``wss_uri`` is already set (aiohttp/__init__.py 372).
+        #
+        # On ANY failure here we must ``close()`` — not ``disconnect()`` —
+        # the client. ``SocketModeClient.__init__`` already opened an
+        # ``aiohttp.ClientSession`` AND fired a ``process_messages()`` task
+        # (aiohttp/__init__.py 130,137); only ``close()`` cancels that task
+        # and closes the session (446-457), whereas ``disconnect()`` (411)
+        # just drops the ws. Without this, every backoff retry of a
+        # non-permanent connect failure (network blip, etc.) would leak one
+        # session + one forever-running task per round (CLAUDE.md lesson #2).
+        try:
+            socket_client.wss_uri = await socket_client.issue_new_wss_url()
+            await socket_client.connect()
+        except BaseException:
+            try:
+                await asyncio.wait_for(socket_client.close(), timeout=3.0)
+            except (asyncio.TimeoutError, Exception) as close_err:  # noqa: BLE001
+                logger.warning(
+                    f"[slack:{credential.agent_id}] close() after failed "
+                    f"connect raised: {close_err}"
+                )
+            raise
 
         key = self._subscriber_key(credential)
         self._socket_clients[key] = socket_client
@@ -335,11 +411,16 @@ class SlackTrigger(ChannelTriggerBase):
                     continue
                 yield event
         finally:
+            # ``close()`` not ``disconnect()``: the latter only drops the ws
+            # and leaves ``process_messages()`` + the ClientSession alive
+            # (aiohttp/__init__.py 411 vs 446-457). On every reconnect the
+            # base loop builds a fresh SocketModeClient, so leaking here
+            # accumulates one zombie task + session per session (lesson #2).
             try:
-                await asyncio.wait_for(socket_client.disconnect(), timeout=3.0)
+                await asyncio.wait_for(socket_client.close(), timeout=3.0)
             except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
                 logger.warning(
-                    f"[slack:{credential.agent_id}] disconnect on subscribe-loop exit: {e}"
+                    f"[slack:{credential.agent_id}] close on subscribe-loop exit: {e}"
                 )
             self._socket_clients.pop(key, None)
 

@@ -7,7 +7,7 @@ last_verified: 2026-06-16
 ## Why it exists
 
 Shared bind / test helpers so REST routes
-(``backend/routes/discord.py``) and MCP tools (``_discord_mcp_tools.py``)
+(``backend/routes/channels/discord.py``) and MCP tools (``_discord_mcp_tools.py``)
 call one place. Pattern mirrors ``slack_module/_slack_service.py``.
 
 ## Design decisions
@@ -23,7 +23,7 @@ call one place. Pattern mirrors ``slack_module/_slack_service.py``.
 ## Upstream / downstream
 
 - **Upstream**: ``DiscordCredentialManager``, ``DiscordSDKClient``.
-- **Downstream**: ``backend/routes/discord.py`` and ``_discord_mcp_tools``
+- **Downstream**: ``backend/routes/channels/discord.py`` and ``_discord_mcp_tools``
   (both bind / status paths).
 
 ## Gotchas

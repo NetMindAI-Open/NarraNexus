@@ -26,7 +26,7 @@ HEX = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
 
 
 def _make_app(db_client, monkeypatch, tmp_path, *, secret=SECRET):
-    import backend.routes.admin_migration as mod
+    import backend.routes.admin.migration as mod
 
     async def _ret(v):
         return v

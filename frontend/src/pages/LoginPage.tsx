@@ -28,7 +28,8 @@ import { CreateUserDialog } from './CreateUserDialog';
 import { useNetmindAuth } from '@/lib/netmindAuth/useNetmindAuth';
 import { AuthBindDialog } from '@/components/auth/AuthBindDialog';
 import { ForgotPasswordCard } from '@/components/auth/ForgotPasswordCard';
-import { getNetmindConfig, isPowerLoginAvailable } from '@/lib/runtimeConfig';
+import { SignUpDialog } from '@/components/auth/SignUpDialog';
+import { isPowerLoginAvailable } from '@/lib/runtimeConfig';
 
 export function LoginPage() {
   const [userId, setUserId] = useState('');
@@ -38,6 +39,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
+  const [showSignUp, setShowSignUp] = useState(false);
   // Which login method the local dual-mode page is showing. Only meaningful when
   // both are available (see showTabs below); forced-cloud / pure-local ignore it.
   // Defaults to 'power' — it's the recommended method (free credits, no setup).
@@ -384,15 +386,18 @@ export function LoginPage() {
 
       {orDivider}
 
-      <a
-        href={getNetmindConfig().registerUrl || 'https://www.netmind.ai/sign/register'}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center justify-center gap-2 rounded-[var(--radius-sm)] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--nm-ink)] h-10 px-4 text-sm bg-[color:var(--nm-raised)] text-[color:var(--nm-ink)] border border-[color:var(--nm-ink)] hover:bg-[color:var(--nm-paper-warm)] w-full"
+      {/* Signs up in place. This used to be an <a> to netmind.ai in a new tab,
+          which handed the user off mid-flow and returned them (sometimes) to a
+          login form with no indication of what had happened. */}
+      <Button
+        variant="secondary"
+        onClick={() => setShowSignUp(true)}
+        disabled={netmind.loading}
+        className="w-full"
       >
         <UserPlus className="w-4 h-4" />
         <span>{t('pages.login.createAccount')}</span>
-      </a>
+      </Button>
     </div>
   );
 
@@ -489,6 +494,19 @@ export function LoginPage() {
 
       {showForgot && (
         <ForgotPasswordCard onClose={() => setShowForgot(false)} />
+      )}
+
+      {showSignUp && (
+        <SignUpDialog
+          onClose={() => setShowSignUp(false)}
+          onRegistered={async (email, password) => {
+            // Close first: emailLogin drives this page's own onSuccess, which
+            // navigates away — leaving the dialog mounted through that would
+            // flash it over the destination.
+            setShowSignUp(false);
+            await netmind.emailLogin(email, password);
+          }}
+        />
       )}
     </div>
   );

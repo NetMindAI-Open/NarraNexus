@@ -16,6 +16,7 @@ Design notes:
 """
 
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from typing import Generic, TypeVar, List, Optional, Dict, Any
 from loguru import logger
 
@@ -291,3 +292,14 @@ class BaseRepository(ABC, Generic[T]):
             Database row (dictionary)
         """
         pass
+
+
+def parse_dt(v: Any) -> datetime:
+    """Parse a timestamp column into an aware datetime (naive → UTC).
+
+    Rows come back as a ``datetime`` on MySQL but an ISO string on SQLite;
+    repositories share this instead of each keeping a byte-identical copy.
+    """
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
+    return datetime.fromisoformat(str(v).replace("Z", "+00:00"))

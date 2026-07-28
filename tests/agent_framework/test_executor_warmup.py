@@ -7,7 +7,7 @@ boot and the run wrongly drops into the fallback path.
 """
 import pytest
 
-from xyz_agent_context.agent_framework import broker_client
+from xyz_agent_context.agent_framework.loop import broker_client
 
 
 @pytest.mark.asyncio

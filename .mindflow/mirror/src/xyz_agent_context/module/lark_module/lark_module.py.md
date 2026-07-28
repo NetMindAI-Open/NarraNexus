@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_module.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): unbound gating + lark_info for pending rows
+
+Declares `all_tool_names` + `setup_tool_names = {lark_setup, lark_bind}` per
+the [[channel_module_base]] setup-residency contract. The `get_instructions`
+unbound branch returns `unbound_setup_line()` instead of the full walkthrough;
+bound-but-info-missing returns "". To keep that latter state transient-only,
+`hook_data_gathering` now injects `lark_info` for ANY credential row —
+including `pending_setup` — so a bound agent can't be stuck info-less.
+Zero-arg setup tools serve the guide on demand (see [[_lark_mcp_tools]]).
 
 ## 2026-07-10 — early-feedback removed from get_instructions (moved to trigger)
 
@@ -313,9 +323,8 @@ point at this section rather than restate the incomplete one-liner.
 ## 2026-04-22 update — C-mini redesign (three-click authorization)
 
 The `get_instructions` render and `hook_data_gathering` were both reworked
-as part of the Lark three-click authorization redesign. See
-`reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md`
-for the full rationale.
+as part of the Lark three-click authorization redesign (2026-04-22,
+author-local design).
 
 ### What changed
 

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — setup residency (B++): zero-arg setup tools return the guide
+
+`lark_setup` with `brand=""` and `lark_bind` missing app_id/app_secret now
+return `{"success": True, "setup_guide": _NO_BOT_INSTRUCTION}` instead of a
+"required" error — the full walkthrough left the system prompt ([[lark_module]]
+unbound one-liner) and is served here on demand. Invalid-brand errors are
+unchanged. The walkthrough text stays in its original constant; lazy import
+avoids a module-import cycle.
 
 ## 2026-07-10 — PR #87 review: react tool body → shared helper
 

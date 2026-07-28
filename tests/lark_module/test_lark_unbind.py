@@ -9,7 +9,7 @@ the MCP toolset exposed ``lark_bind`` / ``lark_setup`` / ``lark_status``
 but no symmetrical ``lark_unbind``. Agents replied "Lark module
 currently has no unbind tool, I cannot disconnect directly" when the
 user asked to disconnect. Existing unbind logic lived inline in
-``backend/routes/lark.py`` so it wasn't reachable from MCP without
+``backend/routes/channels/lark.py`` so it wasn't reachable from MCP without
 duplication.
 
 The fix:

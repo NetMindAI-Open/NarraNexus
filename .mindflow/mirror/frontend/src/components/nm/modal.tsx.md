@@ -80,4 +80,3 @@ plumbing; YAGNI for M1.
 
 - `nm/button.tsx` Button — used in ConfirmDialog footer
 - `nm/bracket.tsx` BracketCornerMarks — wraps Dialog content
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.10

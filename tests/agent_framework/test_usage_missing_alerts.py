@@ -20,8 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import xyz_agent_context.agent_framework.gemini_api_sdk as gem
-import xyz_agent_context.agent_framework.openai_agents_sdk as oai
+import xyz_agent_context.agent_framework.llm.gemini_api as gem
+import xyz_agent_context.agent_framework.adapters.openai_agents as oai
 import xyz_agent_context.utils.cost_tracker as ct
 from xyz_agent_context.utils.cost_tracker import (
     clear_cost_context,

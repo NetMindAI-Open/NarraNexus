@@ -33,6 +33,6 @@ stub: false
 
 **外部依赖**：
 - `retrieval.py` 依赖 `utils/evermemos.py` 的 `get_evermemos_client()`，以及 `_retrieval_llm.py` 里的 LLM judge 函数
-- `updater.py` 依赖 `xyz_agent_context/config.py` 的 `NARRATIVE_LLM_UPDATE_INTERVAL`（全局 config）和 `agent_framework/llm_api/embedding.py`
-- `continuity.py` 依赖 `agent_framework/openai_agents_sdk.OpenAIAgentsSDK` 做结构化 LLM 调用，并与 `channel/channel_context_builder_base.py` 的 Matrix 模板格式有隐式耦合（`_extract_core_content()` 函数）
+- `updater.py` 依赖 `narrative/config.py` 的 `config.NARRATIVE_LLM_UPDATE_INTERVAL` 和 `agent_framework/llm/api/embedding.py`
+- `continuity.py` 依赖 `agent_framework/adapters/openai_agents.OpenAIAgentsSDK` 做结构化 LLM 调用，并与 `channel/channel_context_builder_base.py` 的 Matrix 模板格式有隐式耦合（`_extract_core_content()` 函数）
 - `instance_handler.py` 被 `services/module_poller.py` 直接从 `narrative` 包导入使用

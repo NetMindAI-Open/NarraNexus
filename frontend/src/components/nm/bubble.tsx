@@ -6,7 +6,6 @@
  * BubbleMetaRow. Implements NM Axiom #4 (paper-raised own bubble), #5
  * (radius-lg = 14px), #6 (bracket-edge per species).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.4
  */
 
 import type { ReactNode } from 'react';

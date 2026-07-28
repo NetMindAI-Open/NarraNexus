@@ -4,7 +4,7 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { TeamWithMembers } from '@/types';
 
 interface TeamsState {
@@ -54,7 +54,14 @@ export const useTeamsStore = create<TeamsState>()(
       },
 
       deleteTeam: async (teamId) => {
-        await api.deleteTeam(teamId);
+        try {
+          await api.deleteTeam(teamId);
+        } catch (e) {
+          // 404 = the team is already gone server-side; only the persisted
+          // localStorage cache still shows it. Rethrowing here would skip
+          // refresh() and trap the user in delete -> 404 -> still-shown.
+          if (!(e instanceof ApiError && e.status === 404)) throw e;
+        }
         await get().refresh();
       },
 

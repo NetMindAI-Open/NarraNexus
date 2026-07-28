@@ -22,7 +22,7 @@ transient the circuit breaker should retry, not an executor-infra fatal.
 
 import pytest
 
-from xyz_agent_context.agent_framework.llm_failure import (
+from xyz_agent_context.agent_framework.llm.failure import (
     classify_executor_infra_failure,
     classify_self_serviceable,
     EXECUTOR_INFRA_REASON_OOM,

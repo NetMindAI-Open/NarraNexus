@@ -5,7 +5,7 @@
 @description: Shared exponential-backoff math for failure cooldowns.
 
 Extracted so the real-time-layer Agent circuit-breaker
-(``agent_framework/agent_circuit_breaker.py``) and any future caller share
+(``agent_framework/loop/circuit_breaker.py``) and any future caller share
 ONE definition of "how long should a failing thing wait before its next
 retry". The Job scheduler (``module/job_module/job_trigger.py``) keeps its
 own inline copy for now (deliberately not migrated — see the circuit-breaker

@@ -72,7 +72,7 @@ ISO 8601 字符串按字典序就是时间序，跨后端等价。
 
 - **被谁用**：`backend/main.py` — `include_router(inbox_router, prefix="/api/agent-inbox")`；前端收件箱面板
 - **依赖谁**：
-  - `xyz_agent_context.utils.db_factory.get_db_client` — 直接查询 `bus_channel_members`、`bus_channels`、`bus_messages`、`agents` 表
+  - `xyz_agent_context.utils.db.db_factory.get_db_client` — 直接查询 `bus_channel_members`、`bus_channels`、`bus_messages`、`agents` 表
 
 ## 设计决策
 

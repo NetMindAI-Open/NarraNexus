@@ -5,7 +5,6 @@
 @description: narrative retrieval embeds the clean anchor when a trigger
 provided one, else falls back to raw input_content (capped by the token guard).
 
-Design: reference/self_notebook/specs/2026-06-01-embedding-anchor-redesign-design.md
 """
 from __future__ import annotations
 

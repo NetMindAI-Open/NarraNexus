@@ -28,7 +28,7 @@ from loguru import logger
 
 from backend.auth import resolve_current_user_id
 from backend.config import settings as backend_settings
-from xyz_agent_context.utils.db_factory import get_db_client
+from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.module.skill_module import SkillModule
 from xyz_agent_context.schema.skill_schema import (
     SkillInfo,
@@ -146,7 +146,7 @@ async def _enrich_platform_env_status(skill_module: SkillModule, skills, user_id
     if not affected:
         return
     try:
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         available = await platform_env_available(await get_db_client(), user_id)
     except Exception as e:
@@ -339,7 +339,7 @@ async def install_skill(
         # All install entrances converge on the InstallPipeline (scan gate,
         # conflict/config migration, .skill_meta hash fields, audit trail,
         # auto-archive). Response shape is unchanged.
-        from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
+        from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
         skill_module = _get_skill_module(agent_id, user_id)
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
@@ -399,7 +399,7 @@ async def remove_skill(
     logger.info(f"DELETE /api/skills/{skill_name} - agent_id={agent_id}, user_id={user_id}")
 
     try:
-        from xyz_agent_context._skill_marketplace_impl.install_pipeline import InstallPipeline
+        from xyz_agent_context.marketplace._skill_marketplace_impl.install_pipeline import InstallPipeline
 
         skill_module = _get_skill_module(agent_id, user_id)
         pipeline = InstallPipeline(agent_id, user_id, skill_module=skill_module)
@@ -582,7 +582,7 @@ async def get_skill_env(
             PLATFORM_RESOLVED_ENV,
             platform_env_available,
         )
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):
@@ -634,7 +634,7 @@ async def set_skill_env(
             PLATFORM_RESOLVED_ENV,
             platform_env_available,
         )
-        from xyz_agent_context.utils.db_factory import get_db_client
+        from xyz_agent_context.utils.db.db_factory import get_db_client
 
         available = set()
         if any(v in PLATFORM_RESOLVED_ENV for v in requires_env):

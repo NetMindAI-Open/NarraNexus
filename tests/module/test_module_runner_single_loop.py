@@ -18,9 +18,11 @@ Asserts the single-loop MCP invariants:
 These tests are a load-bearing guard: if someone re-introduces threads
 or nested event loops, the aiomysql cross-loop bug will come back.
 """
+
 from __future__ import annotations
 
 import asyncio
+import signal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -52,10 +54,12 @@ class _FakeMCPServer:
 
     def sse_app(self) -> Starlette:
         self.sse_app_called = True
-        return Starlette(routes=[
-            Route("/sse", _dummy_endpoint),
-            Route("/messages", _dummy_endpoint),
-        ])
+        return Starlette(
+            routes=[
+                Route("/sse", _dummy_endpoint),
+                Route("/messages", _dummy_endpoint),
+            ]
+        )
 
     def streamable_http_app(self) -> Starlette:
         self.streamable_app_called = True
@@ -78,17 +82,25 @@ class _FakeMCPServer:
 
 class _FakeUvicornServer:
     """Captures uvicorn.Config and blocks in serve() until released,
-    mimicking a real server's behaviour without binding a port."""
+    mimicking a real server's behaviour without binding a port.
+
+    ``serve()`` returns when EITHER the shared ``release`` event fires OR
+    this server's ``should_exit`` flag is set — the latter mirrors how a
+    real uvicorn.Server exits once its ``should_exit`` is flipped, which is
+    exactly what the centralised SIGTERM handler does to every server.
+    """
 
     instances: list["_FakeUvicornServer"] = []
     release: asyncio.Event  # set per-test
 
     def __init__(self, config) -> None:
         self.config = config
+        self.should_exit = False
         _FakeUvicornServer.instances.append(self)
 
-    async def serve(self) -> None:
-        await _FakeUvicornServer.release.wait()
+    async def serve(self, sockets=None) -> None:
+        while not self.should_exit and not _FakeUvicornServer.release.is_set():
+            await asyncio.sleep(0.005)
 
 
 @pytest.fixture
@@ -107,17 +119,13 @@ async def test_serve_one_mcp_uses_run_sse_async_and_configures_transport(fake_uv
     no sync run()' is still the invariant under guard.)"""
     server = _FakeMCPServer()
 
-    task = asyncio.create_task(
-        ModuleRunner._serve_one_mcp(server, "FakeModule", 19901)
-    )
+    task = asyncio.create_task(ModuleRunner._serve_one_mcp(server, "FakeModule", 19901))
     # Give the task a tick to reach serve().
     await asyncio.sleep(0.05)
 
     try:
         assert server.sse_app_called, "sse_app() routes must be mounted (Claude Code)"
-        assert server.streamable_app_called, (
-            "streamable_http_app() routes must be mounted (Codex CLI)"
-        )
+        assert server.streamable_app_called, "streamable_http_app() routes must be mounted (Codex CLI)"
         assert server.run_called is False, "sync run() must not be used"
         assert server.settings.host == "0.0.0.0"
         assert server.settings.port == 19901
@@ -132,14 +140,10 @@ async def test_serve_one_mcp_uses_run_sse_async_and_configures_transport(fake_uv
         assert config.port == 19901
         wrapped = config.app
         paths = {route.path for route in wrapped.router.routes}
-        assert {"/sse", "/messages", "/mcp"} <= paths, (
-            f"merged app must serve all transport paths at root, got {paths}"
-        )
+        assert {"/sse", "/messages", "/mcp"} <= paths, f"merged app must serve all transport paths at root, got {paths}"
         # The streamable app owns the StreamableHTTPSessionManager via its
         # lifespan; the merged app must adopt it or /mcp sessions never start.
-        assert wrapped.router.lifespan_context is (
-            server.last_streamable_app.router.lifespan_context
-        )
+        assert wrapped.router.lifespan_context is (server.last_streamable_app.router.lifespan_context)
     finally:
         fake_uvicorn.release.set()
         await task
@@ -171,9 +175,7 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
         def create_mcp_server(self):
             return fake_b
 
-    monkeypatch.setattr(
-        runner, "_resolve_modules", lambda _m: [_FakeModuleA, _FakeModuleB]
-    )
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: [_FakeModuleA, _FakeModuleB])
 
     # Override the port lookup so server names align with our fakes.
     monkeypatch.setattr(
@@ -184,6 +186,7 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
     # Tripwire: any threading.Thread construction during the async path
     # signals a regression back to the multi-loop architecture.
     import threading as _threading
+
     original_thread = _threading.Thread
     thread_spawn_count = {"n": 0}
 
@@ -208,7 +211,7 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
         _fake_get_db_client,
     )
     monkeypatch.setattr(
-        "xyz_agent_context.utils.schema_registry.auto_migrate",
+        "xyz_agent_context.utils.db.schema_registry.auto_migrate",
         _fake_auto_migrate,
     )
 
@@ -244,3 +247,118 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
         "recreate the multi-loop architecture. "
         f"Observed {thread_spawn_count['n']} Thread() constructions."
     )
+
+
+def _stub_db(monkeypatch):
+    """Stub get_db_client + auto_migrate so run_mcp_servers_async does no IO."""
+
+    async def _fake_get_db_client():
+        m = MagicMock()
+        m._backend = MagicMock()
+        return m
+
+    async def _fake_auto_migrate(_backend):
+        return None
+
+    monkeypatch.setattr("xyz_agent_context.module.module_runner.get_db_client", _fake_get_db_client)
+    monkeypatch.setattr("xyz_agent_context.utils.db.schema_registry.auto_migrate", _fake_auto_migrate)
+
+
+@pytest.mark.asyncio
+async def test_sigterm_stops_every_server_not_just_the_last(monkeypatch, fake_uvicorn):
+    """A single SIGTERM must gracefully stop ALL MCP servers, not only the
+    last one that happened to register uvicorn's own signal handler.
+
+    Regression guard for the orphaned-sidecar bug: uvicorn's per-server
+    ``capture_signals`` installs a process-global ``signal.signal`` handler,
+    so with N servers on one loop the last one wins and a SIGTERM stops only
+    that server — the other N-1 keep serving and hold their ports, hanging
+    process exit until an external SIGKILL. run_mcp_servers_async must instead
+    install ONE handler that flips ``should_exit`` on every server so the
+    whole process unwinds and releases every port.
+    """
+    runner = ModuleRunner()
+
+    # Three servers so "only the last one exits" is clearly distinguishable
+    # from "all exit".
+    fakes = [_FakeMCPServer() for _ in range(3)]
+
+    class _M0:
+        def __init__(self, agent_id, user_id, database_client):
+            pass
+
+        def create_mcp_server(self):
+            return fakes[0]
+
+    class _M1:
+        def __init__(self, agent_id, user_id, database_client):
+            pass
+
+        def create_mcp_server(self):
+            return fakes[1]
+
+    class _M2:
+        def __init__(self, agent_id, user_id, database_client):
+            pass
+
+        def create_mcp_server(self):
+            return fakes[2]
+
+    modules = [_M0, _M1, _M2]
+    monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)
+    monkeypatch.setattr(
+        "xyz_agent_context.module.module_runner.MODULE_PORTS",
+        {"_M0": 19921, "_M1": 19922, "_M2": 19923},
+    )
+    _stub_db(monkeypatch)
+
+    # Capture the signal handler run_mcp_servers_async installs instead of
+    # letting it touch the real test-process signal disposition.
+    loop = asyncio.get_running_loop()
+    registered: dict[int, object] = {}
+    monkeypatch.setattr(
+        loop,
+        "add_signal_handler",
+        lambda sig, cb, *a: registered.__setitem__(sig, cb),
+    )
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: True)
+
+    async def _fire_sigterm_once_ready():
+        # Wait until all three servers are built and the handler is installed.
+        for _ in range(500):
+            if signal.SIGTERM in registered and len(fake_uvicorn.instances) == 3:
+                break
+            await asyncio.sleep(0.005)
+        registered[signal.SIGTERM]()  # simulate the SIGTERM delivery
+
+    fire_task = asyncio.create_task(_fire_sigterm_once_ready())
+    # NOTE: fake_uvicorn.release is never set here — the ONLY way gather can
+    # complete is if the handler flips should_exit on every server.
+    await asyncio.wait_for(runner.run_mcp_servers_async(modules=modules), timeout=5.0)
+    await fire_task
+
+    assert signal.SIGINT in registered and signal.SIGTERM in registered, (
+        "run_mcp_servers_async must centrally handle both SIGINT and SIGTERM"
+    )
+    assert all(s.should_exit for s in fake_uvicorn.instances), (
+        "every server must be told to exit on one SIGTERM, not just the last"
+    )
+
+
+def test_build_mcp_server_neutralises_uvicorn_signal_capture():
+    """Each built server's own signal capture must be a no-op so it cannot
+    clobber the centralised handler (see the test above).
+
+    Uses a REAL uvicorn.Server: a stock one's ``capture_signals`` would swap
+    SIGTERM for its ``handle_exit``; the neutralised one must not.
+    """
+    server = ModuleRunner._build_mcp_server(_FakeMCPServer(), "FakeModule", 19931)
+    sentinel = lambda *_a: None  # noqa: E731
+    previous = signal.signal(signal.SIGTERM, sentinel)
+    try:
+        with server.capture_signals():
+            # A real uvicorn server would have replaced SIGTERM with its own
+            # handle_exit here; the neutralised one must leave ours in place.
+            assert signal.getsignal(signal.SIGTERM) is sentinel
+    finally:
+        signal.signal(signal.SIGTERM, previous)

@@ -12,8 +12,6 @@ top of the caller's `set_cost_context` (the consolidation worker). Turn-time
 dedup was already covered by the runtime's cost context; this makes the memory
 paths self-sufficient. See [[cost_tracker]] and the audit checklist.
 
-
-
 ## 2026-06-17 — helper SDK 不再硬绑 OpenAIAgentsSDK
 
 `MemoryEngine` 默认 helper SDK 从 `OpenAIAgentsSDK()` 改为
@@ -31,7 +29,7 @@ Added `index(kind, source_id, text, *, scope_type, scope_id, subtype, tags, agen
 
 MemoryEngine — the 7 fixed lifecycle methods (retain/resolve/persist/consolidate/evict/recall/grep), the 'mechanism' half. Per-turn recall bounded by candidate_cap so high-volume kinds never whole-table scan.
 
-Part of the unified memory system (`refactor/agent-memory`). Full design,
-data model, retrieval stack and migration: reference/self_notebook/specs/2026-06-03-agent-memory-unification-design.md. Mechanism vs policy split
+Part of the unified memory system (`refactor/agent-memory`). The unified design covers data model, retrieval stack and migration
+(author-local; the § numbers below cite its sections). Mechanism vs policy split
 (§3): the Engine holds the fixed lifecycle algorithm; each kind's Spec holds
 policy. No vectors — recall is BM25 + grep + structured filters.

@@ -24,7 +24,7 @@ from ..models import (
 )
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.repository import NarrativeRepository
 
 
@@ -57,7 +57,7 @@ class NarrativeCRUD:
     async def _get_db_client(self) -> "AsyncDatabaseClient":
         """Get the database client (lazy loaded)"""
         if self._database_client is None:
-            from xyz_agent_context.utils.db_factory import get_db_client
+            from xyz_agent_context.utils.db.db_factory import get_db_client
             self._database_client = await get_db_client()
         return self._database_client
 

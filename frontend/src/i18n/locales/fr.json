@@ -123,6 +123,16 @@
         "activity": "Activité en arrière-plan",
         "lark": "Lark",
         "callback": "Rappel"
+      },
+      "meta": {
+        "input": "Entrée",
+        "output": "Sortie",
+        "duration": "Durée",
+        "cost": "Coût",
+        "tokens": "Tokens entrée/sortie",
+        "model": "Modèle",
+        "stateFailed": "Échec",
+        "stateCancelled": "Annulé"
       }
     },
     "error": {
@@ -142,7 +152,9 @@
         "executor_unreachable": "Votre conteneur d'exécution est temporairement injoignable. Il récupère généralement en quelques secondes — veuillez renvoyer ce message sous peu.",
         "infra_transient": "Ce tour n'a pas pu s'exécuter en raison d'un problème d'exécution temporaire côté plateforme. Veuillez renvoyer le message dans un instant."
       }
-    }
+    },
+    "dateToday": "Aujourd'hui",
+    "dateYesterday": "Hier"
   },
   "awareness": {
     "common": {
@@ -692,6 +704,7 @@
       "title": "Paramètres",
       "navProviders": "Fournisseurs LLM",
       "navPrivacy": "Confidentialité",
+      "navDesktop": "Bureau",
       "slotAgentName": "Agent",
       "slotAgentDesc": "Le « cerveau » de votre agent IA. Ce modèle gère toutes les conversations avec les utilisateurs, prend les décisions et exécute les tâches. Un modèle plus performant ici signifie des réponses plus intelligentes et plus nuancées.",
       "slotAgentProtocol": "Protocole Anthropic",
@@ -703,7 +716,11 @@
       "privacyHeading": "Confidentialité",
       "privacyIntro": "Contrôlez les données que NarraNexus collecte pour améliorer le produit.",
       "analyticsTitle": "Analyses du produit",
-      "analyticsDesc": "Autoriser NarraNexus à collecter des données d'utilisation anonymes pour améliorer le produit. Aucun contenu de conversation n'est jamais collecté."
+      "analyticsDesc": "Autoriser NarraNexus à collecter des données d'utilisation anonymes pour améliorer le produit. Aucun contenu de conversation n'est jamais collecté.",
+      "desktopHeading": "Bureau",
+      "desktopIntro": "Paramètres contrôlant la manière dont NarraNexus interagit avec cet ordinateur. Disponible uniquement dans l'application de bureau.",
+      "lockedUseTitle": "Locked Use — garder l'ordinateur éveillé",
+      "lockedUseDesc": "Empêche cet ordinateur de se mettre en veille afin que les automatisations en arrière-plan continuent de fonctionner. Actif uniquement tant que NarraNexus est ouvert."
     },
     "provider": {
       "presetNetmindDesc": "Une seule clé couvre les points de terminaison Anthropic et OpenAI",
@@ -783,6 +800,12 @@
       "webModeNotInstalled": "Installez d'abord Claude Code CLI, puis exécutez \"claude auth login\" dans votre terminal.",
       "cliNotInBundle": "Claude Code CLI introuvable dans le bundle. Veuillez reconstruire l'application.",
       "addedAsProvider": "Ajouté en tant que fournisseur NarraNexus — assignable à l'étape 2 ci-dessous.",
+      "setupTokenConnected": "Connecté via setup-token — assignable à l'étape 2 ci-dessous.",
+      "setupTokenHint": "Recommandé : exécutez \"claude setup-token\" dans votre terminal et collez ici le jeton valable un an. C'est le moyen le plus fiable d'utiliser votre abonnement — indépendant de l'état de connexion CLI ci-dessus.",
+      "setupTokenReplaceHint": "Collez un nouveau jeton issu de \"claude setup-token\" pour remplacer celui enregistré (validité : un an).",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "Connecter avec le jeton",
+      "setupTokenSaving": "Connexion...",
       "addAsProvider": "Ajouter comme fournisseur",
       "loginToAdd": "Connectez-vous ci-dessus pour ajouter Claude Code en tant que fournisseur.",
       "customAnthropic": "+ Anthropic personnalisé",
@@ -806,6 +829,7 @@
       "configuredProviders": "Fournisseurs configurés",
       "modelsCount": "{{count}} modèle(s)",
       "test": "Tester",
+      "testConnection": "Tester la connexion",
       "edit": "Modifier",
       "delete": "Supprimer",
       "section2Title": "Attribution des modèles",
@@ -821,7 +845,11 @@
       "readyTitle": "Vous êtes prêt à démarrer",
       "readyIntro": "Votre clé est enregistrée, et nous avons configuré vos emplacements de modèles pour que vous puissiez commencer à discuter immédiatement :",
       "readyNote": "Vous voulez des modèles différents ? Modifiez n'importe quel emplacement dans la section de configuration ci-dessous — vos modifications l'emportent toujours sur ces valeurs par défaut.",
-      "gotIt": "Compris"
+      "gotIt": "Compris",
+      "freeTierHowToTitle": "À propos de votre crédit gratuit",
+      "freeTierHowToSwitch": "La carte « Free Tier » est déjà reliée à vos emplacements Agent et Helper. Pour utiliser votre propre clé, ajoutez un fournisseur ci-dessous, puis sélectionnez-le pour l’emplacement Agent / Helper dans les Modèles par défaut — effectif dès votre prochain message.",
+      "freeTierAnytime": "Vous pouvez changer à tout moment. Inutile d’épuiser le crédit gratuit d’abord, et changer ne le fait pas perdre : le solde reste disponible.",
+      "freeTierNoDelete": "La carte Free Tier ne peut pas être supprimée tant qu’il reste du crédit : elle détient l’unique clé de ce solde. Une fois épuisé, vous pourrez la retirer."
     }
   },
   "system": {
@@ -921,7 +949,9 @@
       "retry": "Réessayer",
       "unknownError": "Erreur inconnue",
       "attempts": "{{count}} tentatives échouées"
-    }
+    },
+    "showMore": "Afficher plus",
+    "showLess": "Afficher moins"
   },
   "help": {
     "overlay": {
@@ -1514,6 +1544,32 @@
         "pinned": "épinglé",
         "fullModeNote": "Le mode instantané complet inclut automatiquement chaque artefact. Passez en Personnalisé pour choisir."
       }
+    },
+    "signup": {
+      "title": "Créer votre compte",
+      "subtitle": "Un e-mail, un mot de passe et le code que nous vous envoyons. C'est tout.",
+      "email": "E-mail",
+      "password": "Mot de passe",
+      "confirmPassword": "Confirmer le mot de passe",
+      "code": "Code de vérification",
+      "sendCode": "Envoyer le code",
+      "sending": "Envoi…",
+      "resendIn": "Renvoyer dans {{seconds}} s",
+      "codeSent": "Code envoyé — vérifiez votre boîte de réception (et les spams).",
+      "mismatch": "Les mots de passe ne correspondent pas.",
+      "submit": "Créer le compte",
+      "creating": "Création…",
+      "haveAccount": "Vous avez déjà un compte ? Se connecter",
+      "sendFailed": "Impossible d'envoyer le code. Réessayez.",
+      "failed": "Impossible de créer le compte. Réessayez.",
+      "rule": {
+        "length": "8 à 16 caractères",
+        "upper": "Une majuscule",
+        "lower": "Une minuscule",
+        "digit": "Un chiffre",
+        "special": "Un caractère spécial"
+      },
+      "codePlaceholder": "Code à 6 caractères"
     }
   },
   "rail": {
@@ -1870,5 +1926,8 @@
     "loading": "Ouverture de l'aperçu en direct…",
     "loadError": "Impossible d'ouvrir l'aperçu en direct.",
     "livePreview": "Aperçu en direct"
+  },
+  "common": {
+    "close": "Close"
   }
 }

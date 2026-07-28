@@ -21,9 +21,8 @@ from fastapi.testclient import TestClient
 
 from backend import auth as auth_mod
 from backend.auth import auth_middleware, create_token
-from xyz_agent_context.agent_framework.provider_resolver import (
+from xyz_agent_context.agent_framework.providers.resolver import (
     NoProviderConfiguredError,
-    QuotaExceededError,
 )
 
 
@@ -81,14 +80,14 @@ def jwt_headers():
 
 # --------- Bypass: config-class paths reachable despite quota state ------
 
-def test_add_provider_reachable_when_resolver_would_raise_quota_exceeded(
+def test_add_provider_reachable_when_resolver_would_raise(
     force_cloud_mode, jwt_headers,
 ):
     """Core regression: a user with quota=0 and no own provider must still
     be able to POST /api/providers — otherwise they're permanently locked
     out."""
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.post("/api/providers", json={}, headers=jwt_headers)
@@ -101,7 +100,7 @@ def test_add_provider_reachable_when_resolver_would_raise_quota_exceeded(
 
 def test_quota_me_reachable_when_resolver_would_raise(force_cloud_mode, jwt_headers):
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.get("/api/quota/me", headers=jwt_headers)
@@ -113,7 +112,7 @@ def test_quota_me_reachable_when_resolver_would_raise(force_cloud_mode, jwt_head
 def test_provider_sub_path_also_bypassed(force_cloud_mode, jwt_headers):
     """/api/providers/slots/validate is config-related — bypass still applies."""
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.get("/api/providers/slots/validate", headers=jwt_headers)
@@ -137,22 +136,7 @@ def test_chat_route_runs_resolver(force_cloud_mode, jwt_headers):
 
 # --------- Error-code mapping on non-bypassed paths ----------------------
 
-def test_chat_quota_exceeded_returns_402_with_quota_exceeded_code(
-    force_cloud_mode, jwt_headers,
-):
-    resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
-
-    client = TestClient(_build_app(resolver))
-    r = client.post("/api/chat", json={}, headers=jwt_headers)
-
-    assert r.status_code == 402
-    body = r.json()
-    assert body["error_code"] == "QUOTA_EXCEEDED_NO_USER_PROVIDER"
-    assert body["success"] is False
-
-
-def test_chat_no_provider_configured_returns_402_with_no_provider_code(
+def test_chat_no_usable_provider_returns_402(
     force_cloud_mode, jwt_headers,
 ):
     resolver = MagicMock()
@@ -164,6 +148,7 @@ def test_chat_no_provider_configured_returns_402_with_no_provider_code(
     assert r.status_code == 402
     body = r.json()
     assert body["error_code"] == "NO_PROVIDER_CONFIGURED"
+    assert body["success"] is False
 
 
 # --------- JWT still enforced on bypassed paths --------------------------
@@ -193,7 +178,7 @@ def test_get_on_non_bypass_path_reachable_when_resolver_would_raise(
     """GET /api/agents is not in QUOTA_BYPASS_PREFIXES, but it's a pure read
     -- an exhausted account must still be able to see its own agent list."""
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.get("/api/agents", headers=jwt_headers)
@@ -207,7 +192,7 @@ def test_head_on_non_bypass_path_reachable_when_resolver_would_raise(
     force_cloud_mode, jwt_headers,
 ):
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.head("/api/agents", headers=jwt_headers)
@@ -220,7 +205,7 @@ def test_post_on_same_path_still_gated(force_cloud_mode, jwt_headers):
     """Same URL, but POST (a write) -- the quota gate must still apply.
     Proves the safe-method exemption is method-scoped, not path-scoped."""
     resolver = MagicMock()
-    resolver.resolve_and_set = AsyncMock(side_effect=QuotaExceededError("alice"))
+    resolver.resolve_and_set = AsyncMock(side_effect=NoProviderConfiguredError("alice"))
 
     client = TestClient(_build_app(resolver))
     r = client.post("/api/agents", json={}, headers=jwt_headers)

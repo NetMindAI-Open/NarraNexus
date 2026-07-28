@@ -38,7 +38,7 @@ from xyz_agent_context.schema.artifact_schema import (
     EmbedMode,
     HealResult,
 )
-from xyz_agent_context.utils.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 
 class ArtifactService:

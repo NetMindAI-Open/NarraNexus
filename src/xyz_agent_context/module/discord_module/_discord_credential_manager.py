@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 from loguru import logger
 
-from xyz_agent_context.utils.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
 
 from .discord_sdk_client import DiscordSDKClient, DiscordSDKError
 

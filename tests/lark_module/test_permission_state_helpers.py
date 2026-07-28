@@ -4,7 +4,6 @@
 @description: Unit tests for LarkCredential.current_click_stage() and related
 helpers introduced by the three-click authorization redesign.
 
-See spec: reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md
 """
 
 from __future__ import annotations

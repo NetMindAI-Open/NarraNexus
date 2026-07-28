@@ -91,14 +91,19 @@ async def test_build_extra_data_shape():
 
 
 @pytest.mark.asyncio
-async def test_get_instructions_returns_no_bot_block_when_unbound():
+async def test_get_instructions_returns_setup_line_when_unbound():
+    """Setup-residency (B++, 2026-07-24): unbound agents get a ONE-LINE
+    setup pointer instead of the ~8K onboarding walkthrough — the full
+    guide is served on demand by slack_bind() with no arguments."""
     module = _make_module()
+    module._bound_cache = False  # deterministic: no DB in unit tests
     text = await module.get_instructions(_ctx(extra=None))
 
-    # Discovery banner + iron rules appended
-    assert "does NOT yet have a Slack bot bound" in text
     assert "slack_bind" in text
-    assert "Iron rules" in text
+    assert "not connected" in text
+    # The walkthrough must NOT ride the per-turn prompt anymore
+    assert "does NOT yet have a Slack bot bound" not in text
+    assert len(text) < 400
 
 
 @pytest.mark.asyncio
@@ -109,9 +114,15 @@ async def test_no_bot_block_clarifies_manifest_name_fields_are_editable():
     the name was a placeholder, OR which of the two name fields
     (app name vs bot display name) corresponded to what they'd see in
     Slack. The prompt now spells out both fields and tells the agent
-    to surface that they're editable."""
-    module = _make_module()
-    text = await module.get_instructions(_ctx(extra=None))
+    to surface that they're editable.
+
+    Setup-residency note (2026-07-24): the walkthrough left the per-turn
+    prompt; it is served by slack_bind() with no arguments. The wording
+    guards below now assert against the constant it returns."""
+    from xyz_agent_context.module.slack_module.slack_module import (
+        _NO_BOT_INSTRUCTION,
+    )
+    text = _NO_BOT_INSTRUCTION
 
     # "verbatim" wording removed — it was the source of the confusion
     assert "verbatim" not in text
@@ -165,9 +176,16 @@ async def test_iron_rules_enforce_at_mention_only_in_channels():
     groups it replies only when @-mentioned, and that DMs are exempt.
     The L2 trigger filter is the load-bearing defence, but the prompt
     rule is the L1 backstop and is the one users notice when behaviour
-    drifts."""
-    module = _make_module()
-    text = await module.get_instructions(_ctx(extra=None))
+    drifts.
+
+    Setup-residency note (2026-07-24): iron rules only matter for BOUND
+    agents now (unbound ones get a one-liner), so assert against the
+    constants directly."""
+    from xyz_agent_context.module.slack_module.slack_module import (
+        _NO_BOT_INSTRUCTION,
+        _SLACK_IRON_RULES,
+    )
+    text = _NO_BOT_INSTRUCTION + _SLACK_IRON_RULES
 
     # Core directive
     assert "reply ONLY when @-mentioned" in text

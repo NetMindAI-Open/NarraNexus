@@ -13,7 +13,7 @@ import asyncio
 
 import pytest
 
-import xyz_agent_context.agent_framework.agent_circuit_breaker as cb
+import xyz_agent_context.agent_framework.loop.circuit_breaker as cb
 from xyz_agent_context.message_bus.message_bus_trigger import MessageBusTrigger
 
 

@@ -9,7 +9,6 @@ Each agent can bind its own Lark bot via CLI --profile isolation.
 
 Instance level: Agent-level (one per Agent, enabled when bot is bound).
 
-See spec: reference/self_notebook/specs/2026-04-22-lark-three-click-auth-design.md
 """
 
 from __future__ import annotations
@@ -472,6 +471,23 @@ class LarkModule(ChannelModuleBase):
     ctx_data_key = "lark_info"
     mcp_server_name = "lark_module"
     mcp_port = LARK_MCP_PORT
+    # Setup-residency (B++): while unbound, only the two entry points
+    # (lark_setup for a NEW app, lark_bind for an EXISTING app) stay
+    # visible; the other tools' schemas are suppressed via
+    # disallowed_tools. Keep in sync with register_lark_mcp_tools —
+    # unit test asserts equality.
+    all_tool_names = (
+        "lark_cli",
+        "react_to_user_message",
+        "lark_setup",
+        "lark_bind",
+        "lark_unbind",
+        "lark_permission_advance",
+        "lark_enable_receive",
+        "lark_status",
+        "lark_skill",
+    )
+    setup_tool_names = frozenset({"lark_setup", "lark_bind"})
 
     # =========================================================================
     # Configuration
@@ -537,7 +553,17 @@ class LarkModule(ChannelModuleBase):
         lark_info = ctx_data.extra_data.get("lark_info")
 
         if not lark_info:
-            return _NO_BOT_INSTRUCTION + "\n" + _IRON_RULES
+            # Setup-residency (B++): unbound agents get ONE line instead of
+            # the discovery walkthrough; the full guide is served on demand
+            # by lark_setup() / lark_bind() called with empty credential
+            # args. A bound agent whose credential data failed to load this
+            # turn gets nothing rather than a misleading onboarding prompt.
+            # (hook_data_gathering injects lark_info for ANY credential row,
+            # including pending_setup, so "no lark_info" + "bound" only
+            # happens on a transient load failure.)
+            if await self.is_bound():
+                return ""
+            return self.unbound_setup_line()
 
         brand_display = "Feishu" if lark_info.get("brand") == "feishu" else "Lark"
         bot_name = lark_info.get("bot_name") or "(name pending)"

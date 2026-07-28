@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — stopStreaming fires the desktop completion notification (#44)
+
+`stopStreaming(agentId, agentName?, opts?)` gained `opts.cancelled`. Before
+the state update it calls [[desktopNotify.ts]]'s
+`notifyAgentReplyCompleted` when (a) the session WAS streaming (the
+duplicate-call guard also guards the notification — flag read before
+`set()`), (b) not `opts.cancelled` (the `cancelled` WS case passes it), and
+(c) `!document.hasFocus()` — a focused window already shows the in-app
+toast/timeline. Web mode stays silent inside the lib (Tauri check there).
+Tests: `__tests__/chatStore.notify.test.ts`.
 
 ## 2026-07-22 — `currentActionReason` 也认 `infra_transient`
 

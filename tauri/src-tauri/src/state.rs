@@ -53,7 +53,7 @@ pub struct ServiceDef {
     pub health_url: Option<String>,
     pub order: u32,
     /// Optional delay (ms) to wait AFTER spawning this service before starting
-    /// the next one. Used to mirror `scripts/dev-local.sh`'s explicit
+    /// the next one. Used to mirror `scripts/dev/dev-local.sh`'s explicit
     /// `sleep 3` after `sqlite_proxy_server`, which every downstream service
     /// depends on.
     #[serde(default)]
@@ -175,7 +175,7 @@ impl ServiceDef {
     /// Services when running from a packaged .app bundle.
     /// Uses the standalone Python interpreter directly (no uv).
     ///
-    /// MUST stay in lockstep with `scripts/dev-local.sh` (CLAUDE.md iron rule #7):
+    /// MUST stay in lockstep with `scripts/dev/dev-local.sh` (CLAUDE.md iron rule #7):
     /// the dev script and the bundled app run the exact same set of services
     /// in the exact same order.
     fn bundled_services(project_root: &str, python_path: &str) -> Vec<ServiceDef> {
@@ -190,14 +190,14 @@ impl ServiceDef {
                 command: python_path.to_string(),
                 args: vec![
                     "-m".to_string(),
-                    "xyz_agent_context.utils.sqlite_proxy_server".to_string(),
+                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),
                 health_url: None,
                 order: 0,
                 // Give uvicorn a moment to bind :8100 before the dependents
-                // start. Mirrors `sleep 3` in scripts/dev-local.sh.
+                // start. Mirrors `sleep 3` in scripts/dev/dev-local.sh.
                 startup_delay_ms: Some(3000),
             },
             ServiceDef {
@@ -208,7 +208,7 @@ impl ServiceDef {
                 // lifespan in backend/main.py also asserts via DASHBOARD_BIND_HOST env
                 // (set in process_manager.rs for id=="backend").
                 //
-                // --ws-ping-interval / --ws-ping-timeout mirror scripts/dev-local.sh:
+                // --ws-ping-interval / --ws-ping-timeout mirror scripts/dev/dev-local.sh:
                 // uvicorn defaults (20s/20s) prematurely drop the chat SSE/WS stream
                 // while an Agent loop is waiting on an LLM call. 30s/60s keeps the
                 // connection alive across slower model turns. Iron rule #7 alignment.
@@ -271,7 +271,7 @@ impl ServiceDef {
 
     /// Services during development — uses `uv run`.
     ///
-    /// MUST stay in lockstep with `bundled_services` and `scripts/dev-local.sh`.
+    /// MUST stay in lockstep with `bundled_services` and `scripts/dev/dev-local.sh`.
     fn dev_services(project_root: &str) -> Vec<ServiceDef> {
         vec![
             // Order 0: SQLite Proxy — see bundled_services for rationale.
@@ -283,7 +283,7 @@ impl ServiceDef {
                     "run".to_string(),
                     "python".to_string(),
                     "-m".to_string(),
-                    "xyz_agent_context.utils.sqlite_proxy_server".to_string(),
+                    "xyz_agent_context.utils.db.sqlite_proxy_server".to_string(),
                 ],
                 cwd: Some(project_root.to_string()),
                 port: Some(8100),

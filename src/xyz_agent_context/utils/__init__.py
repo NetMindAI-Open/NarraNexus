@@ -10,11 +10,11 @@ Exports:
 - DataLoader: Automatic batch loading utility (solves the N+1 problem)
 """
 
-from xyz_agent_context.utils.database import (
+from xyz_agent_context.utils.db.database import (
     AsyncDatabaseClient,
     load_db_config,
 )
-from xyz_agent_context.utils.dataloader import DataLoader
+from xyz_agent_context.utils.db.dataloader import DataLoader
 
 # DatabaseClient is a short alias for AsyncDatabaseClient
 DatabaseClient = AsyncDatabaseClient
@@ -33,7 +33,7 @@ from xyz_agent_context.utils.retry import (
 )
 
 # Database factory (global singleton)
-from xyz_agent_context.utils.db_factory import (
+from xyz_agent_context.utils.db.db_factory import (
     get_db_client,
     get_db_client_sync,
     close_db_client,

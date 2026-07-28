@@ -11,8 +11,6 @@ Dispatch table gained `application/x-url` → lazy `UrlRenderer` (see
 renderer).
 ## 2026-05-14 — drop `version` prop from RendererComponent
 
-Spec: `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`
-
 `RendererComponent` props are now `{ artifact: Artifact }` — renderers each
 mint their own view token via `useArtifactRawUrl`, so the dispatcher no
 longer passes a `version` prop down. There is no version concept under the

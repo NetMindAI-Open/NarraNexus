@@ -123,6 +123,16 @@
         "activity": "백그라운드 활동",
         "lark": "Lark",
         "callback": "콜백"
+      },
+      "meta": {
+        "input": "입력",
+        "output": "출력",
+        "duration": "실행 시간",
+        "cost": "비용",
+        "tokens": "입력/출력 토큰",
+        "model": "모델",
+        "stateFailed": "실패",
+        "stateCancelled": "취소됨"
       }
     },
     "error": {
@@ -142,7 +152,9 @@
         "executor_unreachable": "실행 컨테이너에 일시적으로 연결할 수 없습니다. 보통 몇 초 내에 복구됩니다 — 잠시 후 이 메시지를 다시 보내세요.",
         "infra_transient": "플랫폼 측의 일시적인 실행 문제로 이번 턴을 실행하지 못했습니다. 잠시 후 메시지를 다시 보내세요."
       }
-    }
+    },
+    "dateToday": "오늘",
+    "dateYesterday": "어제"
   },
   "awareness": {
     "common": {
@@ -691,6 +703,7 @@
       "title": "설정",
       "navProviders": "LLM 제공자",
       "navPrivacy": "개인정보",
+      "navDesktop": "데스크톱",
       "slotAgentName": "Agent",
       "slotAgentDesc": "AI agent의 \"두뇌\"입니다. 이 모델은 사용자와의 모든 대화를 처리하고, 의사결정을 내리며, 작업을 실행합니다. 여기에 더 뛰어난 모델을 사용하면 더 똑똑하고 섬세한 응답을 얻을 수 있습니다.",
       "slotAgentProtocol": "Anthropic 프로토콜",
@@ -702,7 +715,11 @@
       "privacyHeading": "개인정보",
       "privacyIntro": "제품 개선을 위해 NarraNexus가 수집하는 데이터를 제어하세요.",
       "analyticsTitle": "제품 분석",
-      "analyticsDesc": "제품 개선을 위해 NarraNexus가 익명 사용 데이터를 수집하도록 허용합니다. 대화 내용은 절대 수집되지 않습니다."
+      "analyticsDesc": "제품 개선을 위해 NarraNexus가 익명 사용 데이터를 수집하도록 허용합니다. 대화 내용은 절대 수집되지 않습니다.",
+      "desktopHeading": "데스크톱",
+      "desktopIntro": "NarraNexus가 이 컴퓨터와 상호작용하는 방식을 제어하는 설정입니다. 데스크톱 앱에서만 사용할 수 있습니다.",
+      "lockedUseTitle": "Locked Use — 컴퓨터 깨어 있게 유지",
+      "lockedUseDesc": "컴퓨터가 절전 모드로 전환되는 것을 방지하여 백그라운드 자동화가 계속 실행되도록 합니다. NarraNexus가 열려 있는 동안에만 유지됩니다."
     },
     "provider": {
       "presetNetmindDesc": "하나의 키로 Anthropic 및 OpenAI 엔드포인트를 모두 사용",
@@ -782,6 +799,12 @@
       "webModeNotInstalled": "먼저 Claude Code CLI를 설치한 다음 터미널에서 \"claude auth login\"을 실행하세요.",
       "cliNotInBundle": "번들에서 Claude Code CLI를 찾을 수 없습니다. 앱을 다시 빌드하세요.",
       "addedAsProvider": "NarraNexus 제공자로 추가됨 — 아래 2단계에서 할당할 수 있습니다.",
+      "setupTokenConnected": "setup-token으로 연결됨 — 아래 2단계에서 할당할 수 있습니다.",
+      "setupTokenHint": "권장: 터미널에서 \"claude setup-token\"을 실행하고 1년 유효 토큰을 여기에 붙여넣으세요. 구독을 사용하는 가장 안정적인 방법이며 위의 CLI 로그인 상태에 의존하지 않습니다.",
+      "setupTokenReplaceHint": "\"claude setup-token\"으로 새로 생성한 토큰을 붙여넣으면 저장된 토큰을 교체합니다(유효기간 1년).",
+      "setupTokenPlaceholder": "sk-ant-oat01-…",
+      "setupTokenSave": "토큰으로 연결",
+      "setupTokenSaving": "연결 중...",
       "addAsProvider": "제공자로 추가",
       "loginToAdd": "Claude Code를 제공자로 추가하려면 위에서 로그인하세요.",
       "customAnthropic": "+ 커스텀 Anthropic",
@@ -805,6 +828,7 @@
       "configuredProviders": "구성된 제공자",
       "modelsCount": "모델 {{count}}개",
       "test": "테스트",
+      "testConnection": "연결 테스트",
       "edit": "편집",
       "delete": "삭제",
       "section2Title": "모델 할당",
@@ -820,7 +844,11 @@
       "readyTitle": "시작할 준비가 되었습니다",
       "readyIntro": "키가 입력되었고, 바로 채팅을 시작할 수 있도록 모델 슬롯을 설정했습니다:",
       "readyNote": "다른 모델을 원하시나요? 아래 구성 섹션에서 원하는 슬롯을 변경하세요 — 변경 사항은 항상 이 기본값보다 우선합니다.",
-      "gotIt": "확인"
+      "gotIt": "확인",
+      "freeTierHowToTitle": "무료 크레딧 안내",
+      "freeTierHowToSwitch": "‘Free Tier’ 카드는 이미 Agent·Helper 슬롯에 연결되어 있습니다. 직접 만든 키를 쓰려면 아래에서 제공자를 추가한 뒤 ‘모델 기본값’에서 해당 슬롯에 지정하세요. 다음 메시지부터 적용됩니다.",
+      "freeTierAnytime": "언제든 바꿀 수 있습니다. 무료 크레딧을 먼저 다 쓸 필요는 없고, 바꿔도 잔액은 남아 있어 되돌릴 수 있습니다.",
+      "freeTierNoDelete": "잔액이 남아 있는 동안에는 Free Tier 카드를 삭제할 수 없습니다. 이 카드가 잔액에 접근하는 유일한 키이기 때문입니다. 다 쓰면 삭제할 수 있습니다."
     }
   },
   "system": {
@@ -920,7 +948,9 @@
       "retry": "재시도",
       "unknownError": "알 수 없는 오류",
       "attempts": "{{count}}회 실패"
-    }
+    },
+    "showMore": "더 보기",
+    "showLess": "접기"
   },
   "help": {
     "overlay": {
@@ -1513,6 +1543,32 @@
         "pinned": "고정됨",
         "fullModeNote": "전체 스냅샷 모드는 모든 아티팩트를 자동 포함합니다. 선택하려면 사용자 지정으로 전환하세요."
       }
+    },
+    "signup": {
+      "title": "계정 만들기",
+      "subtitle": "이메일, 비밀번호, 그리고 보내드릴 인증 코드만 있으면 됩니다.",
+      "email": "이메일",
+      "password": "비밀번호",
+      "confirmPassword": "비밀번호 확인",
+      "code": "인증 코드",
+      "sendCode": "코드 전송",
+      "sending": "전송 중…",
+      "resendIn": "{{seconds}}초 후 재전송",
+      "codeSent": "코드를 보냈습니다. 받은 편지함(스팸함 포함)을 확인하세요.",
+      "mismatch": "비밀번호가 일치하지 않습니다.",
+      "submit": "계정 만들기",
+      "creating": "만드는 중…",
+      "haveAccount": "이미 계정이 있으신가요? 로그인",
+      "sendFailed": "코드를 보내지 못했습니다. 다시 시도해 주세요.",
+      "failed": "계정을 만들지 못했습니다. 다시 시도해 주세요.",
+      "rule": {
+        "length": "8–16자",
+        "upper": "대문자 포함",
+        "lower": "소문자 포함",
+        "digit": "숫자 포함",
+        "special": "특수문자 포함"
+      },
+      "codePlaceholder": "6자리 코드"
     }
   },
   "rail": {
@@ -1869,5 +1925,8 @@
     "loading": "실시간 미리보기를 여는 중…",
     "loadError": "실시간 미리보기를 열 수 없습니다.",
     "livePreview": "실시간 미리보기"
+  },
+  "common": {
+    "close": "Close"
   }
 }

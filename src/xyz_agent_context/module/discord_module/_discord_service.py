@@ -3,7 +3,7 @@
 @date: 2026-06-16
 @description: Shared bind/test helpers for the Discord channel.
 
-Both REST routes (`backend/routes/discord.py`) and MCP tools
+Both REST routes (`backend/routes/channels/discord.py`) and MCP tools
 (`_discord_mcp_tools.py`) call into here so bind / test logic lives in
 one place. Pattern mirrors `slack_module/_slack_service.py`.
 """

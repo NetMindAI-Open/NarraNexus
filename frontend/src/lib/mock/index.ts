@@ -36,7 +36,6 @@ import type {
   CreateJobComplexRequest,
   CreateJobComplexResponse,
   LoginResponse,
-  RegisterResponse,
   QuotaMeResponse,
   AgentListResponse,
   CreateUserResponse,
@@ -293,9 +292,6 @@ export const mockApi = {
   /* ─ Auth ─ */
   async login(userId: string, _password?: string): Promise<LoginResponse> {
     return ok({ success: true, user_id: userId || MOCK_USER_ID, token: 'mock.jwt.token', role: 'user' });
-  },
-  async register(userId: string): Promise<RegisterResponse> {
-    return ok({ success: true, user_id: userId || MOCK_USER_ID, token: 'mock.jwt.token' });
   },
   async createUser(userId: string): Promise<CreateUserResponse> {
     return ok({ success: true, user_id: userId || MOCK_USER_ID });

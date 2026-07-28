@@ -14,7 +14,7 @@ from xyz_agent_context.schema import (
     PAUSING_CATEGORIES,
     PausedReason,
 )
-from xyz_agent_context.utils.schema_registry import TABLES
+from xyz_agent_context.utils.db.schema_registry import TABLES
 
 
 def test_enums_values():

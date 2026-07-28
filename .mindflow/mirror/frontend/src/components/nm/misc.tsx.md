@@ -68,4 +68,3 @@ failure isn't actionable for the user.
 
 - `nm/surface.tsx` SunkenWell — CodeBlock visually matches it
 - `nm/identity.tsx` NMSpecies type imported for Chip/Badge species prop
-- Spec: `reference/self_notebook/specs/2026-05-18-nm-design-system-design.md` §5.12

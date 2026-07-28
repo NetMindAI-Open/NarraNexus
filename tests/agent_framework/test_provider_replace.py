@@ -16,7 +16,7 @@ import contextvars
 
 import pytest
 
-from xyz_agent_context.agent_framework.user_provider_service import UserProviderService
+from xyz_agent_context.agent_framework.providers.user_service import UserProviderService
 
 
 class _FakeDB:
@@ -74,7 +74,7 @@ class _FakeDB:
 
 @pytest.fixture(autouse=True)
 def _stub_key_probe(monkeypatch):
-    from xyz_agent_context.agent_framework.provider_registry import provider_registry
+    from xyz_agent_context.agent_framework.providers.registry import provider_registry
 
     async def _ok(provider):
         return True, "Connected successfully"

@@ -16,14 +16,17 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from xyz_agent_context.agent_framework.transcription import url_signer
-from xyz_agent_context.agent_framework.transcription.backends import (
+from xyz_agent_context.agent_framework.llm.transcription import url_signer
+from xyz_agent_context.agent_framework.llm.transcription.backends import (
+    _audio_url as AU,
+)
+from xyz_agent_context.agent_framework.llm.transcription.backends import (
     netmind as N,
 )
-from xyz_agent_context.agent_framework.transcription.backends.netmind import (
+from xyz_agent_context.agent_framework.llm.transcription.backends.netmind import (
     NetMindBackend,
 )
-from xyz_agent_context.agent_framework.transcription.credential import (
+from xyz_agent_context.agent_framework.llm.transcription.credential import (
     TranscriptionBackendKind,
     TranscriptionCredential,
 )
@@ -255,7 +258,7 @@ async def test_webm_triggers_transcode_and_uses_mp3_variant(tmp_path, monkeypatc
         transcode_calls.append((src, dst))
         dst.write_bytes(b"fake-mp3-bytes" * 100)
 
-    monkeypatch.setattr(N, "_ffmpeg_to_mp3", fake_ffmpeg_to_mp3)
+    monkeypatch.setattr(AU, "_ffmpeg_to_mp3", fake_ffmpeg_to_mp3)
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/ffmpeg")
 
     submitted_url = []
@@ -295,7 +298,7 @@ async def test_webm_reuses_cached_mp3(tmp_path, monkeypatch, fast_poll):
     async def fake_ffmpeg_to_mp3(*a):
         pytest.fail("should not have re-transcoded — cache exists")
 
-    monkeypatch.setattr(N, "_ffmpeg_to_mp3", fake_ffmpeg_to_mp3)
+    monkeypatch.setattr(AU, "_ffmpeg_to_mp3", fake_ffmpeg_to_mp3)
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/ffmpeg")
 
     async def post_handler(*a):
@@ -344,7 +347,7 @@ async def test_transcode_failure_cleans_up_partial_cache(tmp_path, monkeypatch):
         dst.write_bytes(b"")
         raise RuntimeError("ffmpeg crashed")
 
-    monkeypatch.setattr(N, "_ffmpeg_to_mp3", fake_ffmpeg_to_mp3)
+    monkeypatch.setattr(AU, "_ffmpeg_to_mp3", fake_ffmpeg_to_mp3)
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/ffmpeg")
 
     async def post_handler(*a):

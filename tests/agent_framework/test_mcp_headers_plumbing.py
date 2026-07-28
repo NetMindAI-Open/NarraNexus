@@ -16,10 +16,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from xyz_agent_context.agent_framework.xyz_claude_agent_sdk import (
+from xyz_agent_context.agent_framework.adapters.claude.sdk import (
     _build_claude_mcp_config,
 )
-from xyz_agent_context.agent_framework.xyz_codex_official_sdk import (
+from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
     _build_codex_config_overrides,
     codex_mcp_bearer_env,
 )
@@ -32,7 +32,7 @@ from xyz_agent_context.agent_framework.api_config import (
     set_user_config,
 )
 
-from backend.routes.agents_mcps import _mask_header_value, _masked_headers
+from backend.routes.agents.mcps import _mask_header_value, _masked_headers
 
 SPECS = {
     "chat_module": {"url": "http://localhost:7804/sse"},

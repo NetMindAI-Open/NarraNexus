@@ -40,7 +40,6 @@ import type {
   CreateJobComplexResponse,
   LoginResponse,
   NetmindLoginResponse,
-  RegisterResponse,
   QuotaMeResponse,
   AgentListResponse,
   CreateUserResponse,
@@ -106,6 +105,21 @@ import type {
 // for resolution order. This export is kept for backwards compatibility.
 export { getApiBaseUrl as getBaseUrl } from '@/stores/runtimeStore';
 import { getApiBaseUrl } from '@/stores/runtimeStore';
+
+/**
+ * Error thrown for non-2xx API responses. Carries the HTTP status so
+ * callers can branch on it (e.g. treat DELETE 404 as already-gone)
+ * instead of string-matching the message.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 /** Sources accepted by POST /api/providers/onboard (one-key setup). */
 export type OnboardProviderType =
@@ -223,7 +237,7 @@ class ApiClient {
       const label = detail
         ? `API error ${response.status}: ${detail}`
         : `API error: ${response.status} ${response.statusText}`;
-      throw new Error(label);
+      throw new ApiError(response.status, label);
     }
 
     return response.json();
@@ -535,22 +549,38 @@ class ApiClient {
     });
   }
 
+  /**
+   * Self-serve signup, step 1: ask NetMind to email a 6-digit code.
+   *
+   * Goes through OUR backend rather than NetMind directly, because the
+   * send-code endpoint sends mail on our behalf and therefore needs a rate
+   * limit — and a limit that lives in the page is not a limit.
+   */
+  async sendSignupCode(email: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/auth/signup/send-code', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  /**
+   * Self-serve signup, step 2: create the account.
+   *
+   * Returns success only — no session. The caller signs in afterwards with the
+   * credentials it already holds, so no token is ever minted by a route that
+   * also accepts an unverified email.
+   */
+  async signup(email: string, password: string, verifyCode: string): Promise<ApiResponse> {
+    return this.request<ApiResponse>('/api/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, verify_code: verifyCode }),
+    });
+  }
+
   async netmindLogin(netmindToken: string, source?: string): Promise<NetmindLoginResponse> {
     return this.request<NetmindLoginResponse>('/api/auth/netmind-login', {
       method: 'POST',
       body: JSON.stringify({ netmind_token: netmindToken, source: source || undefined }),
-    });
-  }
-
-  async register(userId: string, password: string, inviteCode: string, displayName?: string): Promise<RegisterResponse> {
-    return this.request<RegisterResponse>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({
-        user_id: userId,
-        password: password,
-        invite_code: inviteCode,
-        display_name: displayName || undefined,
-      }),
     });
   }
 
@@ -711,7 +741,7 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -795,7 +825,7 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -816,7 +846,7 @@ class ApiClient {
       headers: this.getAuthHeaders(),
     });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.blob();
   }
@@ -834,7 +864,7 @@ class ApiClient {
       headers: this.getAuthHeaders(),
     });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.blob();
   }
@@ -868,7 +898,7 @@ class ApiClient {
     const url = this.workspaceFileRawUrl(agentId, path);
     const response = await fetch(url, { headers: this.getAuthHeaders() });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.blob();
   }
@@ -956,7 +986,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, error.detail || `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -979,7 +1009,7 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, error.detail || `API error: ${response.status} ${response.statusText}`);
     }
 
     return response.json();
@@ -1268,6 +1298,11 @@ class ApiClient {
     data?: {
       agent_id: string;
       slots: Record<string, AgentSlotView>;
+      // While the owner's cloud free tier has budget, runs are pinned to the
+      // fixed system model and per-agent overrides are ignored (see backend
+      // ProviderResolver SYSTEM_OK branch). `active` lets the UI render an
+      // honest read-only model chip; `model` is what actually runs meanwhile.
+      free_tier?: { active: boolean; model: string | null };
     };
   }> {
     return this.request(`/api/agents/${encodeURIComponent(agentId)}/llm-config`);
@@ -1794,7 +1829,7 @@ class ApiClient {
     const url = `${getApiBaseUrl()}/api/teams/${encodeURIComponent(teamId)}/chat/attachments${qs ? `?${qs}` : ''}`;
     const response = await fetch(url, { method: 'POST', body: formData, headers: this.getAuthHeaders() });
     if (!response.ok) {
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
+      throw new ApiError(response.status, `API error: ${response.status} ${response.statusText}`);
     }
     return response.json();
   }

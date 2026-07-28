@@ -168,7 +168,29 @@ export const usePreloadStore = create<PreloadState>()((set, get) => ({
     const { lastUserId, lastAgentId } = get();
     if (lastUserId === userId && lastAgentId === agentId && get().jobs.length > 0) return;
 
+    // Identity changed → drop the previous agent's data SYNCHRONOUSLY.
+    // Every domain here is a single global copy, so without this the new
+    // agent renders the old agent's awareness/jobs/inbox until (and unless)
+    // its own fetch succeeds. For a freshly created agent the awareness
+    // fetch can legitimately fail (module instances are created async,
+    // best-effort), which left the previous agent's persona on screen —
+    // one Edit+Save away from being persisted into the new agent
+    // (bug: "新建 Agent 的 Awareness 默认带上前一个 Agent 的内容").
+    // Same-identity calls keep cached data (stale-while-revalidate).
+    const identityChanged = lastUserId !== userId || lastAgentId !== agentId;
+    const cleared = identityChanged
+      ? {
+          agentInboxRooms: [] as InboxRoom[], agentInboxUnreadCount: 0, _inboxLimit: undefined,
+          jobs: [] as Job[],
+          awareness: null, awarenessCreateTime: null, awarenessUpdateTime: null,
+          socialNetworkList: [] as SocialNetworkEntity[],
+          chatHistoryEvents: [] as ChatHistoryEvent[], chatHistoryNarratives: [] as ChatHistoryNarrative[],
+          costSummary: null,
+        }
+      : {};
+
     set({
+      ...cleared,
       lastUserId: userId,
       lastAgentId: agentId,
       agentInboxLoading: true, jobsLoading: true,

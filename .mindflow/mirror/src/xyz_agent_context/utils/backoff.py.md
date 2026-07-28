@@ -8,7 +8,7 @@ stub: false
 ## 为什么存在
 
 失败冷却的退避公式 `min(base·2^(n-1), cap)` 原本内嵌在 `job_module/job_trigger.py`
-里。实时层 Agent 熔断器（`agent_framework/agent_circuit_breaker.py`）需要同一套退避，
+里。实时层 Agent 熔断器（`agent_framework/loop/circuit_breaker.py`）需要同一套退避，
 为避免两处漂移，把纯公式抽到这里做单一来源。
 
 ## 上下游关系

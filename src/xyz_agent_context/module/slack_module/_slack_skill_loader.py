@@ -4,7 +4,7 @@
 @description: Index `skills/*.md` at startup, serve method docs on demand.
 
 The `skills/` directory is generated at build time from the Slack OpenAPI
-spec (see `scripts/gen_slack_skills.py`). Each Slack Web API method has
+spec (see `scripts/publish/gen_slack_skills.py`). Each Slack Web API method has
 its own ``{method}.md`` file. The loader keeps a filename → path map in
 memory; doc content is read lazily by ``get(method)`` so we don't pay
 for ~700 KB of doc text in every process.

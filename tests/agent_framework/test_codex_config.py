@@ -85,7 +85,7 @@ def test_codex_config_proxy_reads_ctxvar_override():
 
 
 def test_stage_codex_oauth_credentials_copies_auth_json(tmp_path, monkeypatch):
-    from xyz_agent_context.agent_framework.xyz_codex_cli_sdk import (
+    from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import (
         _stage_codex_oauth_credentials,
     )
 

@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 
 import openai
 
-from xyz_agent_context.agent_framework.helper_sdk import get_helper_sdk
+from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.memory.record import MemoryRecord
 from xyz_agent_context.utils.timezone import utc_now
 

@@ -6,7 +6,6 @@
  * Implements Axiom #4 (warm-ink backdrop, paper-raised card, NM bracket
  * corner marks for focus emphasis).
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.10
  */
 
 import { useEffect, type ReactNode } from 'react';

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-07-15
+last_verified: 2026-07-24
 ---
+
+## 2026-07-24 — 透传 body `disallowed_tools` 给 driver（setup-residency B++）
+
+executor 端把 `body.get("disallowed_tools") or None` 传进容器内
+driver.agent_loop kwargs，与本地路径（[[step_3_agent_loop.py]] 直传）对齐——
+remote 路径下未绑定 channel 的工具同样从模型上下文剔除。纯透传，无逻辑。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

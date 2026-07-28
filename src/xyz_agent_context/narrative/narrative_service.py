@@ -38,7 +38,7 @@ from ._narrative_impl import (
 )
 
 if TYPE_CHECKING:
-    from xyz_agent_context.utils.database import AsyncDatabaseClient
+    from xyz_agent_context.utils.db.database import AsyncDatabaseClient
     from xyz_agent_context.schema.module_schema import InstanceStatus
 
 
@@ -197,7 +197,7 @@ class NarrativeService:
                         # actually ended up using inside detector.detect
                         # (resolution happens deep in OpenAIAgentsSDK —
                         # we read it back via the contextvar set there).
-                        from xyz_agent_context.agent_framework.openai_agents_sdk import (
+                        from xyz_agent_context.agent_framework.adapters.openai_agents import (
                             get_last_llm_call_info,
                         )
                         info = get_last_llm_call_info()

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 
-from xyz_agent_context.agent_framework.output_transfer import (
+from xyz_agent_context.agent_framework.loop.output_transfer import (
     _stringify_tool_result_content,
 )
 

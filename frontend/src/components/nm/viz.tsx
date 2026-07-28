@@ -5,7 +5,6 @@
  * @description: Data viz primitives — KPITile, StatStrip, ChartCard.
  * Wrappers that wire NM tokens to data display surfaces.
  *
- * Spec: reference/self_notebook/specs/2026-05-18-nm-design-system-design.md §5.11
  */
 
 import type { ReactNode } from 'react';

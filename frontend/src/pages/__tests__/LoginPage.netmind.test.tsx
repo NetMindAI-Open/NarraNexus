@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, test, vi } from 'vitest';
 
@@ -19,13 +19,25 @@ vi.mock('@/lib/runtimeConfig', () => ({
 import { LoginPage } from '../LoginPage';
 
 describe('LoginPage cloud branch (NetMind)', () => {
-  test('renders email + password + OAuth buttons, Sign-up is an external link', () => {
+  test('renders email + password + OAuth buttons', () => {
     render(<MemoryRouter><LoginPage /></MemoryRouter>);
     expect(screen.getByLabelText(/email/i)).toBeTruthy();
     expect(screen.getByLabelText(/password/i)).toBeTruthy();
     expect(screen.getByRole('button', { name: /google/i })).toBeTruthy();
-    const signup = screen.getByRole('link', { name: /sign up|create account/i }) as HTMLAnchorElement;
-    expect(signup.href).toContain('reg.test');
+  });
+
+  test('sign-up happens in place, not by sending the user to netmind.ai', () => {
+    // It used to be an <a target="_blank"> to registerUrl, which handed the
+    // user off mid-flow. If that link ever comes back, this fails.
+    render(<MemoryRouter><LoginPage /></MemoryRouter>);
+    expect(screen.queryByRole('link', { name: /sign up|create account/i })).toBeNull();
+
+    const trigger = screen.getByRole('button', { name: /sign up|create account/i });
+    fireEvent.click(trigger);
+
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(screen.getByLabelText(/verification code/i)).toBeTruthy();
+    expect(screen.getByLabelText(/confirm password/i)).toBeTruthy();
   });
 
   test('shows the account-migration notice with support contact', () => {

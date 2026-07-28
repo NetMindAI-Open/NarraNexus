@@ -12,7 +12,7 @@ Dashboard 端点每 3s polling，合法用户流量约 0.33 req/s。但恶意用
 不上 `slowapi` / Redis——单进程 in-memory sliding window 对单 worker 部署刚好够。
 
 ## 上下游
-- **上游**：`backend/routes/dashboard.py` 的主路由和每个 lazy 详情路由（job/session/sparkline/retry/pause/resume）都在入口调 `SlidingWindowRateLimiter.allow(viewer_id)`
+- **上游**：`backend/routes/dashboard/routes.py` 的主路由和每个 lazy 详情路由（job/session/sparkline/retry/pause/resume）都在入口调 `SlidingWindowRateLimiter.allow(viewer_id)`
 - **下游**：无（纯内存，无依赖）
 - **测试**：`tests/backend/test_rate_limiter.py` 4 个单测（limit、window 恢复、key 隔离、idle cleanup）
 

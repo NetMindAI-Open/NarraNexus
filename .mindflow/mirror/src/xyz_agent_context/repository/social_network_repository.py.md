@@ -55,7 +55,7 @@ See [[social_network_module.py]] for the caller-side removals
 
 **`update_entity_info()` bypasses base class `update()`**: the base class update uses `id_field = "id"`. Entity updates need to filter by `(entity_id, instance_id)` compound condition. The method builds raw SQL with both conditions. This is the correct and necessary bypass.
 
-**`semantic_search()` imports from `agent_framework/`**: the method imports `cosine_similarity` and `embedding_store_bridge` functions from `agent_framework.llm_api.embedding`. This is a violation of the usual direction (repositories should not import from the framework layer), but it was accepted as a pragmatic coupling to avoid code duplication. The bridge flag determines whether vectors are read from the entity row or from `EmbeddingStoreRepository`.
+**`semantic_search()` imports from `agent_framework/`**: the method historically imported `cosine_similarity` and `embedding_store_bridge` from agent_framework's embedding utilities (that subsystem has since been removed entirely). This is a violation of the usual direction (repositories should not import from the framework layer), but it was accepted as a pragmatic coupling to avoid code duplication. The bridge flag determines whether vectors are read from the entity row or from `EmbeddingStoreRepository`.
 
 **`append_related_job_ids()` uses read-then-write rather than `JSON_ARRAY_APPEND`**: MySQL's `JSON_ARRAY_APPEND` would be the ideal atomic operation, but it does not deduplicate. The code reads existing IDs, computes a set union, and writes back. This introduces a TOCTOU race for concurrent job associations, but in practice job creation is sequential for a given entity.
 

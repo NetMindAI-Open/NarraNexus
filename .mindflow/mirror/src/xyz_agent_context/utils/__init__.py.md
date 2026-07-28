@@ -8,7 +8,7 @@ The `utils` package contains many small modules. Without an `__init__.py` that a
 
 ## Upstream / Downstream
 
-**Re-exports from:** `database.py`, `dataloader.py`, `db_factory.py`, `retry.py`, `text.py`, `timezone.py`, `exceptions.py`, and `agent_framework/llm_api/embedding.py` (embedding is logically a utility but lives in the agent framework layer).
+**Re-exports from:** `database.py`, `dataloader.py`, `db_factory.py`, `retry.py`, `text.py`, `timezone.py`, `exceptions.py`, and `agent_framework/llm/api/embedding.py` (embedding is logically a utility but lives in the agent framework layer).
 
 **Consumed by:** `repository/`, `narrative/`, `module/`, `agent_runtime/`, `backend/routes/` — anything that needs database access, embedding, or utility functions imports from `xyz_agent_context.utils`.
 
@@ -24,6 +24,6 @@ The `utils` package contains many small modules. Without an `__init__.py` that a
 
 **Adding a utility to a submodule without updating `__init__.py` means it is not part of the public API.** Callers can still import directly from the submodule, but the utility will not appear in IDE autocomplete for `from xyz_agent_context.utils import ...`.
 
-**The embedding import crosses layer boundaries.** `agent_framework/llm_api/embedding.py` is re-exported from `utils/__init__.py`. If the embedding module is refactored or renamed, this import will break `utils/__init__.py` even though the change is in a different layer. Be aware of this coupling when moving embedding code.
+**The embedding import crosses layer boundaries.** `agent_framework/llm/api/embedding.py` is re-exported from `utils/__init__.py`. If the embedding module is refactored or renamed, this import will break `utils/__init__.py` even though the change is in a different layer. Be aware of this coupling when moving embedding code.
 
 **New-contributor trap.** `DatabaseClient` and `AsyncDatabaseClient` are the same object. Code that checks `isinstance(obj, DatabaseClient)` and code that checks `isinstance(obj, AsyncDatabaseClient)` are checking against the same class — there is no separate `DatabaseClient` class.

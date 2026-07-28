@@ -25,7 +25,7 @@ live SDK registry on every CI run.
 """
 from __future__ import annotations
 
-from xyz_agent_context.agent_framework.output_transfer import output_transfer
+from xyz_agent_context.agent_framework.loop.output_transfer import output_transfer
 
 
 def _t(message: dict) -> list[dict]:

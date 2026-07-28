@@ -5,7 +5,7 @@
 @description: Bug fix — bootstrap greeting must precede the user's first
 query in the persisted timeline.
 
-Both the chat-history API (`backend/routes/agents_chat_history.py`) and
+Both the chat-history API (`backend/routes/agents/chat_history.py`) and
 the frontend timeline (`frontend/src/components/chat/ChatPanel.tsx`)
 sort messages by `meta_data.timestamp` ascending. Before this fix,
 ChatModule wrote the bootstrap greeting with `utc_now()` (hook-end)

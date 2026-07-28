@@ -21,7 +21,7 @@ import pytest
 
 from xyz_agent_context.narrative.wipe_service import wipe_agent_data
 from xyz_agent_context.narrative.session_service import SessionService
-from xyz_agent_context.utils.schema_registry import MEMORY_KINDS
+from xyz_agent_context.utils.db.schema_registry import MEMORY_KINDS
 
 
 TARGET = "agent_target"

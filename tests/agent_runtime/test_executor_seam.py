@@ -16,7 +16,7 @@ import pytest
 
 # Importing the package registers the local claude_code/codex_cli drivers.
 import xyz_agent_context.agent_framework  # noqa: F401
-from xyz_agent_context.agent_framework.agent_loop_driver import (
+from xyz_agent_context.agent_framework.loop.driver import (
     get_agent_loop_driver,
 )
 from xyz_agent_context.agent_framework.api_config import (
@@ -26,7 +26,7 @@ from xyz_agent_context.agent_framework.api_config import (
     set_user_config,
     snapshot_user_config,
 )
-from xyz_agent_context.agent_framework.remote_agent_loop_driver import (
+from xyz_agent_context.agent_framework.loop.remote_driver import (
     RemoteAgentLoopDriver,
 )
 from xyz_agent_context.agent_runtime.executor_protocol import (
@@ -288,7 +288,7 @@ async def test_remote_driver_raises_when_line_exceeds_max_bytes(monkeypatch):
     ever arrives, buffer grows past ``_MAX_STREAM_BYTES``) must fail
     fast rather than eat memory. We lower the ceiling in this test so
     the assertion doesn't require 50 MB of test data."""
-    from xyz_agent_context.agent_framework import remote_agent_loop_driver as m
+    from xyz_agent_context.agent_framework.loop import remote_driver as m
 
     monkeypatch.setattr(m, "_MAX_STREAM_BYTES", 1024)  # 1 KiB test ceiling
     junk = b"x" * 2000  # 2 KiB, no newline

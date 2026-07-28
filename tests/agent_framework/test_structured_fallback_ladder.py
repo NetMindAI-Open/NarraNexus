@@ -27,8 +27,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel, Field
 
-from xyz_agent_context.agent_framework import openai_agents_sdk as mod
-from xyz_agent_context.agent_framework.openai_agents_sdk import (
+from xyz_agent_context.agent_framework.adapters import openai_agents as mod
+from xyz_agent_context.agent_framework.adapters.openai_agents import (
     OpenAIAgentsSDK,
     _capability_key,
     _is_response_format_unsupported_error,

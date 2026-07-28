@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/schema/decision_schema.py
-last_verified: 2026-04-10
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — PathExecutionResult 加 cache/num_turns 三字段(W1)
+
+`cache_read_tokens`/`cache_creation_tokens`(默认 0)+ `num_turns`(默认 None)。
+只是 ExecutionState → step_4 的搬运位,语义见 execution_state.py.md 同日条目。
+DIRECT_TRIGGER 路径不填,保持默认值。
 
 # decision_schema.py
 

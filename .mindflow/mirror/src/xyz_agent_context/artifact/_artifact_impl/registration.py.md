@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/artifact/_artifact_impl/registration.py
-last_verified: 2026-07-22
+last_verified: 2026-07-23
 stub: false
 ---
+
+## 2026-07-23 — agent-scoped re-register dedup
+
+New-artifact path (no target_artifact_id) with `session_id=None` now checks
+for an existing PINNED row with the same (agent_id, file_path, kind) and, if
+found, updates that row's pointer/title and returns its id instead of
+inserting. Rationale: the LLM tool never knows a session_id, so every
+re-register of the same entry file minted another pinned tab that lived
+forever (prod: 2× "Welcome to NarraNexus"; dev: 3× briefing pages).
+Session-scoped registrations keep the old semantics. Kind mismatch on the
+same path falls through to a new row. Pre-fix rows are cleaned once by
+[[cleanup_duplicate_pinned_artifacts.py]].
 
 ## 2026-07-22 — application/x-url added to ALL_KINDS
 
@@ -99,7 +111,6 @@ stays in the workspace; the backend serves it straight off disk.
 - **2026-05-14-r3 — "must be in subdirectory" hard rule dropped.** With
   `delete_source`/rmtree gone, workspace-root entries became legal; exposure
   is prevented by soft-degrading at the serving layer instead.
-- **2026-05-14 — rewritten for the pointer model.** Spec:
-  `reference/self_notebook/specs/2026-05-14-artifact-pointer-model-design.md`.
+- **2026-05-14 — rewritten for the pointer model.**
   The old copy/version model (create_text_artifact / upload_binary_artifact /
   version rows) collapsed into the single `register_artifact`.

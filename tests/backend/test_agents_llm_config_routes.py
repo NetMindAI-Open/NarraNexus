@@ -19,17 +19,19 @@ ownership (403/404), override view, and the PUT gate/validation branches (the tw
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xyz_agent_context.utils.db_backend_sqlite import SQLiteBackend
-from xyz_agent_context.utils.database import AsyncDatabaseClient
-from xyz_agent_context.utils.schema_registry import auto_migrate
+from xyz_agent_context.utils.db.db_backend_sqlite import SQLiteBackend
+from xyz_agent_context.utils.db.database import AsyncDatabaseClient
+from xyz_agent_context.utils.db.schema_registry import auto_migrate
 
-import backend.routes.agents_llm_config as mod
+import backend.routes.agents.llm_config as mod
 
 
 @pytest_asyncio.fixture
@@ -121,6 +123,23 @@ async def test_get_returns_owner_default_codex_framework(db_client, monkeypatch)
     # Reasoning params from params_json must survive too (were forced to auto).
     assert agent["owner_default"]["thinking"] == "on"
     assert agent["owner_default"]["reasoning_effort"] == "high"
+
+
+# =============================================================================
+# The GET response deliberately carries NO free-tier block any more: the free
+# tier is an ordinary provider card, so a per-agent override is never preempted
+# and the composer chip is always a live control. Shipping a stale `free_tier`
+# key would make the UI render a lock that cannot happen.
+
+
+@pytest.mark.asyncio
+async def test_get_carries_no_free_tier_lock_block(db_client, monkeypatch):
+    await _seed_agent(db_client)
+    client = _build_client(db_client, monkeypatch, viewer_id="u1")
+    r = client.get("/api/agents/ag1/llm-config")
+    assert r.status_code == 200
+    assert "free_tier" not in r.json()["data"]
+
 
 
 @pytest.mark.asyncio

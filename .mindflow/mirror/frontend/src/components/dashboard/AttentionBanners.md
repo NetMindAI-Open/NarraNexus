@@ -14,7 +14,7 @@ stub: false
 - **下游**：
   - `expandState.ts` 的 `useExpanded` 做 dismiss 状态持久化
   - `bannerKey(agentId, kind, message)` 是 `AgentCard` 计算 `useAllBannersDismissed` 用的**同一 key 格式**——两处必须一致
-- **来源**：服务端 `_dashboard_helpers.py::derive_attention_banners(queue, has_slow_response)`
+- **来源**：服务端 `dashboard/_helpers.py::derive_attention_banners(queue, has_slow_response)`
 
 ## 设计决策
 1. **按 severity 排序**（error > warning > info）在服务端已做，前端按数组顺序渲染即可。

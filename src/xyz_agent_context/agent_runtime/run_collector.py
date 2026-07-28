@@ -35,6 +35,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
 
@@ -46,7 +47,7 @@ class RunError:
         error_type: Concrete class name of the underlying exception,
             preserved by AgentRuntime so consumers can branch on it
             (e.g. show a friendlier text for
-            ``SystemDefaultUnavailable`` than for a generic CLI crash).
+            ``LLMConfigNotConfigured`` than for a generic CLI crash).
         error_message: Human-readable explanation. May be surfaced to
             the owner in web chat verbatim, or replaced by a friendlier
             text for IM channels where the sender is not the owner.
@@ -165,7 +166,7 @@ async def collect_run(
                 seen_tool_calls.add(dedup_key)
                 raw_items.append({
                     "item": {
-                        "type": "tool_call_item",
+                        "type": ITEM_TYPE_TOOL_CALL,
                         "tool_name": tool_name,
                         "arguments": arguments,
                     }
