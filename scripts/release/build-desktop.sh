@@ -284,7 +284,12 @@ echo "--- Step 3.6: Installing bundled CLIs (claude-code + lark-cli + narra-cli)
 #   3. Commit both files together.
 # npm ci refuses to run without a lockfile and will error if package.json
 # and the lockfile disagree — that's the reproducibility guard we want.
-BUNDLE_MANIFEST_DIR="$SCRIPT_DIR/desktop-bundle"
+# Anchored to PROJECT_ROOT, not SCRIPT_DIR: desktop-bundle/ lives at
+# scripts/desktop-bundle/ while this script now lives at scripts/release/.
+# When the 2026-07-24 layout cleanup moved the script down a level, this line
+# followed it and started looking for scripts/release/desktop-bundle — which
+# fails at step 3.6, i.e. only in a real release build (v1.12.0's).
+BUNDLE_MANIFEST_DIR="$PROJECT_ROOT/scripts/desktop-bundle"
 if [ ! -f "$BUNDLE_MANIFEST_DIR/package.json" ] \
    || [ ! -f "$BUNDLE_MANIFEST_DIR/package-lock.json" ]; then
     echo "ERROR: missing bundle manifest at $BUNDLE_MANIFEST_DIR"
