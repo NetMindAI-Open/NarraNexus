@@ -227,3 +227,18 @@ async def test_backfill_normalizes_stale_codex_oauth_auth_ref():
 
     second_stats = await backfill_provider_metadata(db)
     assert second_stats["normalized_auth_refs"] == 0
+
+
+def test_codex_curated_models_stay_registered_in_catalog():
+    """CODEX_CURATED_MODELS is hand-verified against the codex CLI's picker
+    (see the constant's comment) — this pin only guards the cheap half: every
+    curated id must stay a registered catalog model so dropdown display names
+    and metadata don't silently rot when either side is edited alone."""
+    from xyz_agent_context.agent_framework.providers.model_catalog import (
+        get_all_known_models,
+    )
+
+    known = get_all_known_models()
+    assert CODEX_CURATED_MODELS, "curated list must never be empty"
+    missing = [m for m in CODEX_CURATED_MODELS if m not in known]
+    assert not missing, f"curated codex models missing from model_catalog: {missing}"

@@ -11,11 +11,20 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { ModelDefaultsSettings } from '../ModelDefaultsSettings';
 import { DESKTOP_RELEASES_URL } from '@/lib/agentFramework';
 
-// i18n: return the inline default string (2nd arg) so assertions read real copy.
+const { mockT } = vi.hoisted(() => {
+  const copy: Record<string, string> = {
+    'pages.settings.modelDefaults.agentMain': 'Agent (main dialogue)',
+  };
+  return {
+    mockT: (key: string, fallback?: unknown) =>
+      copy[key] ?? (typeof fallback === 'string' ? fallback : key),
+  };
+});
+
+// i18n: stable translator identity prevents effect dependencies from changing
+// on every render; selected locale keys resolve to their English test copy.
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_k: string, d?: unknown) => (typeof d === 'string' ? d : _k),
-  }),
+  useTranslation: () => ({ t: mockT }),
 }));
 
 let mockRole = 'user';
@@ -153,23 +162,39 @@ test('cloud non-staff: only NetMind providers are offered + local-version note',
   });
   expect(link).toHaveAttribute('href', DESKTOP_RELEASES_URL);
 
-  // Framework switching is staff-only on cloud (backend 403s it) — the
-  // select stays interactive, but picking a different framework pops the
-  // styled notice dialog (useConfirm alert), snaps back, and never calls
-  // the API.
+  // A CLI-backed framework is staff-only on cloud (backend 403s it: it
+  // would sign in through the image's shared CLI login). The select stays
+  // interactive, but the pick pops the styled notice dialog (useConfirm
+  // alert), snaps back, and never calls the API.
   const select = frameworkSelect();
   expect(select).not.toBeDisabled();
   fireEvent.change(select, { target: { value: 'codex_cli' } });
-  expect(screen.getByText('Desktop version only')).toBeInTheDocument();
+  expect(screen.getByText('Staff only in cloud')).toBeInTheDocument();
   expect(
-    screen.getByText(/Switching the agent framework is available/),
+    screen.getByText(/signs in through a shared CLI login/),
   ).toBeInTheDocument();
   expect(select.value).toBe('claude_code');
   expect(mockSetAgentFramework).not.toHaveBeenCalled();
 
   // OK dismisses the notice.
   fireEvent.click(screen.getByRole('button', { name: 'OK' }));
-  expect(screen.queryByText('Desktop version only')).toBeNull();
+  expect(screen.queryByText('Staff only in cloud')).toBeNull();
+});
+
+test('cloud non-staff CAN select NexusPower — it runs on their own key', async () => {
+  // The gate is about credential riding, not framework variety: NexusPower
+  // drives the provider API with the key of the card bound to the agent
+  // slot and refuses subscription OAuth, so cloud is free to offer it.
+  // This case is why the rule became a shared predicate — the old inlined
+  // `!== 'claude_code'` rejected it here and in AgentLlmConfigPanel.
+  mockForcedCloud = true;
+  await renderLoaded();
+
+  const select = frameworkSelect();
+  fireEvent.change(select, { target: { value: 'nexus_power' } });
+
+  expect(screen.queryByText('Staff only in cloud')).toBeNull();
+  expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power');
 });
 
 test('cloud staff keeps the full provider list and no note', async () => {

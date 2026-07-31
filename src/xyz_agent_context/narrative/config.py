@@ -72,10 +72,32 @@ class NarrativeConfig:
 
     # ==================== Narrative Matching Thresholds (Two-tier threshold + Unified LLM judgment) ====================
 
-    # High confidence threshold: >= this value for direct match without LLM confirmation
-    # Recommended: 0.70 (empirical data: clearly related retrospective queries typically score >= 0.7)
-    # Tuning suggestion: Set a higher threshold to ensure accuracy of high-confidence direct returns
-    NARRATIVE_MATCH_HIGH_THRESHOLD = 0.70
+    # High-confidence gate — see _narrative_impl/routing_gate.py for the full
+    # rationale. Both conditions must hold before BM25 is trusted to route a
+    # turn without LLM arbitration.
+    #
+    # Replaces NARRATIVE_MATCH_HIGH_THRESHOLD = 0.70, which compared the
+    # SQUASHED score s/(s+1) and so meant "raw >= 2.33" — cleared by incidental
+    # CJK character collisions. Measured on 113 real prod turns across 22
+    # agents, that rule short-circuited 86.7% of routing decisions, i.e. the
+    # LLM arbitration tier was effectively dead code.
+    #
+    # RAW_FLOOR is a NOISE filter, deliberately low — NOT a strength test.
+    # Raw BM25 scales with query length (measured median top1: 5.3 for queries
+    # under 40 chars vs 12-15 for over 40), so a high absolute floor
+    # systematically rejects short follow-up turns regardless of whether the
+    # match is right — and short follow-ups are exactly where misrouting hurts.
+    # The MARGIN does the discrimination: within one query all candidates share
+    # an IDF table, so the spread is meaningful even though the absolute value
+    # is not.
+    #
+    # MARGIN_RATIO is set on an asymmetric cost: a false defer costs one helper
+    # LLM call and the LLM usually confirms; a false accept poisons the thread
+    # and gets locked in for several turns by the `continuous` path, which
+    # re-uses session.current_narrative_id with no topic check. Prefer
+    # deferring. At 2.0 the eval set short-circuits 54.9% of turns.
+    NARRATIVE_MATCH_RAW_FLOOR = 3.0
+    NARRATIVE_MATCH_MARGIN_RATIO = 2.0
 
     # Below high threshold: < this value, unified LLM judgment (considering both search results and default Narratives)
     # LLM will determine:

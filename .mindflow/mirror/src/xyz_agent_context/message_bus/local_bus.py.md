@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-07-20
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — send_message persists event_id
+
+`send_message` gained `event_id: Optional[str] = None`; persisted on the
+`bus_messages` row and surfaced by `_row_to_message`. Only the trigger's team
+branch passes it (the turn that produced the reply); every other caller keeps
+the default None.
+
+## 2026-07-28 — batched room pending summary + the poison threshold moves here
+
+`get_room_pending_summary(channel_id, agent_ids)` answers "what is still waiting
+for each of you in THIS room" in three queries, independent of member count.
+[[teams]]'s activity block previously called `get_pending_messages` per member,
+which is one query per member PLUS one `get_failure_count` per pending row — a
+6-member room polled every 3s ran ~30 queries a tick, forever, just to render a
+status chip.
+
+It deliberately re-implements the same notion of pending (past the member's
+cursor, not self-sent, poisoned rows excluded) restricted to one channel and to
+@-addressed messages. The cursor comparison happens in Python via `_as_utc`
+because the backends disagree on the wire type: MySQL returns naive
+`datetime`, SQLite returns the ISO strings `_now_iso` wrote.
+
+`POISON_FAILURE_THRESHOLD` now lives here — `get_pending_messages` is the filter
+that enforces it, and it used to be a bare `3` here with a same-valued constant
+in [[message_bus_trigger]] whose comment asked a human to keep them in sync.
+
 
 ## 2026-07-22 — get_recent_messages (newest N, chat order)
 

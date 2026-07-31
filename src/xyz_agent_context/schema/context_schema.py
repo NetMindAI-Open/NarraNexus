@@ -87,4 +87,8 @@ class ContextRuntimeOutput(BaseModel):
     # not reach the model this turn (setup-residency: unbound channels keep
     # only their bind tool). Merged into the CLI's disallowed_tools.
     disallowed_tools: List[str] = []
+    # Delivery declaration (NexusPower reply contract): fully-qualified
+    # reply tools collected from modules' get_expressive_tools, in module
+    # priority order (first = the turn's default reply tool).
+    expressive_tools: List[str] = []
     ctx_data: ContextData  # ContextData (contains all collected data)

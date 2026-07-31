@@ -51,6 +51,8 @@ from .team_repository import TeamRepository, TeamMemberRepository
 # Subproject 2: Skill Archive
 from .skill_archive_repository import SkillArchiveRepository
 
+# Resumable coding-agent CLI session handles
+
 # Invite code registration gate
 
 # Import entity types from schema (convenient re-export)
@@ -103,5 +105,6 @@ __all__ = [
     "TeamMemberRepository",
     # Skill Archive
     "SkillArchiveRepository",
+    # CLI Session
     # Invite Code
 ]

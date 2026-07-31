@@ -32,6 +32,7 @@ interface SlotInfo {
 const FRAMEWORK_LABELS: Record<string, string> = {
   claude_code: 'Claude Code',
   codex_cli: 'Codex CLI',
+  nexus_power: 'NexusPower-beta',
 };
 
 function SummaryRow({

@@ -1,9 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_credential_manager.py
-last_verified: 2026-07-13
+last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — bot_open_id + update_bot_identity
+
+Added `bot_open_id`, sourced from `/open-apis/bot/v3/info` alongside
+`bot_name`. It exists for [[lark_trigger]]'s group @-mention gate: Lark's
+mention payload carries open_ids, and matching on display name alone is
+wrong the moment a human shares the bot's name.
+
+`update_bot_name` became `update_bot_identity(agent_id, bot_name,
+bot_open_id)` — both fields come from one response, and each is written
+only when non-empty so a partial response can never blank a good stored
+value. All three call sites (`do_bind` in [[_lark_service]],
+`_finalize_setup` in [[_lark_mcp_tools]], and the backend's
+`/api/lark/auth/complete` route) now go through it.
+
+Existing rows keep an empty `bot_open_id` until the next bind — the gate's
+name fallback covers them, which is why that fallback is not dead code.
 ## 2026-07-13 — set_is_active (activation without re-bind)
 
 Added `set_is_active(agent_id, is_active)`, mirroring the other channels' `set_enabled`. Flipping `is_active` → True is what makes the trigger's credential watcher pick up a bundle-imported (inactive) Lark credential and claim the app's single WS slot. Called by `POST /api/lark/set-active`.

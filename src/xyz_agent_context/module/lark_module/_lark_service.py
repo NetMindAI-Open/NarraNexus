@@ -236,7 +236,9 @@ async def do_bind(
             "raw_error": probe_result.raw_error[:300],
         })
 
-    # Fetch bot name via bot-info API (best-effort, non-fatal)
+    # Fetch bot name + own open_id via bot-info API (best-effort, non-fatal).
+    # The open_id is what lets the trigger tell "this group message @-ed me"
+    # from "someone @-ed a person who happens to share my display name".
     bot_user = await _cli._run_with_agent_id(
         ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"],
         agent_id,
@@ -244,8 +246,9 @@ async def do_bind(
     if bot_user.get("success"):
         bdata = bot_user.get("data", {}).get("bot", bot_user.get("data", {}))
         name = bdata.get("app_name", bdata.get("name", ""))
-        if name:
-            await mgr.update_bot_name(agent_id, name)
+        await mgr.update_bot_identity(
+            agent_id, bot_name=name, bot_open_id=bdata.get("open_id", "")
+        )
 
     # Resolve owner identity from email
     owner_open_id = ""

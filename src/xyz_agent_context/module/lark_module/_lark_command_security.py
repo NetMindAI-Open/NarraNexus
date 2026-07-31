@@ -84,6 +84,99 @@ BLOCKED_FLAGS = [
 #   - BLOCKED_PATTERNS (auth login/logout, config init — use dedicated tools)
 #   - BLOCKED_FLAGS (--app-secret-stdin, --profile — secrets / isolation bypass)
 #   - shlex.split + array-arg subprocess (true injection defense)
+#
+# 2026-07-29 — the SAME no-shell fact has a second consequence, in the
+# opposite direction. Because nothing expands them, three shell constructs
+# are not "harmless literal bytes" but silent data loss:
+#
+#   --content "$(cat report.md)"   writes the 16-char string, reports success
+#   --content -                    reads a stdin we never wire → empty payload
+#   --content - <<'EOF'            heredoc is shell syntax; shlex leaves <<EOF
+#
+# Prod 2026-07-29: an agent overwrote a 2746-line Lark doc with the literal
+# text `$(cat /tmp/pm_notes_clean.md)`, got `{"result":"success"}` back, and
+# reported "rewrite complete, 87% smaller". 16 such calls across 5 agents
+# since May. lark-cli's own `--content @file` is the working mechanism, but
+# it is only documented in `--help`, so the model reaches for shell instead.
+#
+# _reject_unexpandable_shell below fires ONLY on these three — it is NOT the
+# old denylist coming back. It never inspects content for stray `$`, `|`,
+# backticks or parens; a substitution is rejected only when it is the
+# argument's ENTIRE value, which no prose ever is.
+
+
+# Flags whose value is a payload the agent authored. These are the ones an
+# agent tries to fill from a file, and therefore the ones worth naming in
+# the `@file` hint.
+_PAYLOAD_FLAGS = frozenset({"--content", "--markdown", "--text", "--data"})
+
+_AT_FILE_HINT = (
+    "Pass the payload with `--content @relative/path.md` instead "
+    "(lark-cli reads the file itself; the path must be RELATIVE to your "
+    "workspace — absolute paths are rejected)."
+)
+
+
+def _is_whole_command_substitution(value: str) -> bool:
+    """True when the value is exactly one `$(...)`, nothing else around it.
+
+    Whole-value is the discriminator that keeps this narrow. Prose that
+    merely mentions a substitution — "$(whoami) is a shell builtin (as is
+    pwd)" — has its matching paren somewhere in the middle, so it is left
+    alone; a payload the agent expected the shell to produce has it at the
+    very end.
+    """
+    v = value.strip()
+    if not v.startswith("$("):
+        return False
+    depth = 0
+    for i, ch in enumerate(v):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i == len(v) - 1
+    return False
+
+
+def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
+    """Catch shell constructs that silently produce wrong content.
+
+    See the NOTE at the top of this file: these three cannot work through
+    execve, and every one of them fails *quietly* — lark-cli returns
+    success with the wrong bytes written.
+    """
+    try:
+        tokens = shlex.split(command.strip())
+    except ValueError:
+        # Unbalanced quotes — sanitize_command raises on this later with a
+        # parse error, which is a clearer message than anything here.
+        return True, ""
+
+    for i, tok in enumerate(tokens):
+        if tok.startswith("<<"):
+            return False, (
+                f"Heredoc ('{tok}') is shell syntax. lark_cli executes the CLI "
+                f"directly (execve), not through a shell, so it is never "
+                f"interpreted. {_AT_FILE_HINT}"
+            )
+        if _is_whole_command_substitution(tok):
+            return False, (
+                f"Command substitution ('{tok[:40]}...') is NOT expanded: "
+                f"lark_cli executes the CLI directly (execve), not through a "
+                f"shell, so this arrives as literal text and would be written "
+                f"verbatim — and the call would still report success. "
+                f"{_AT_FILE_HINT}"
+            )
+        if tok == "-" and i > 0 and tokens[i - 1] in _PAYLOAD_FLAGS:
+            return False, (
+                f"'{tokens[i - 1]} -' means read from stdin, but lark_cli "
+                f"never wires stdin to the CLI, so the payload would arrive "
+                f"empty. {_AT_FILE_HINT}"
+            )
+
+    return True, ""
 
 
 def validate_command(command: str) -> Tuple[bool, str]:
@@ -108,6 +201,11 @@ def validate_command(command: str) -> Tuple[bool, str]:
     for flag in BLOCKED_FLAGS:
         if flag in stripped:
             return False, f"Blocked flag: '{flag}' — secrets must not be passed via CLI args"
+
+    # Shell constructs that cannot survive execve (see the NOTE above).
+    ok, reason = _reject_unexpandable_shell(stripped)
+    if not ok:
+        return False, reason
 
     # Check domain whitelist
     tokens = stripped.split()

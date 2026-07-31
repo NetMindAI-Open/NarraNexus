@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/repository/instance_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — R4d：get_public_instances 补 order_by（此前是唯一没有排序的查询）
+
+`get_public_instances()` 原来是 `self.find(filters=filters)`，**没有 order_by**——
+本文件里其余三个查询（`get_by_agent`、`get_by_agent_and_user`、
+`get_chat_instances_by_user`）全都显式指定了 `created_at DESC`，只有它漏了。
+返回顺序因此是"引擎高兴怎么给就怎么给"，而这个顺序会一路变成 active_instances
+→ system prompt 里的 module 块顺序（[[context_runtime.py]]）。SQLite 恰好回
+rowid 序所以本机看不出问题，**Postgres/MySQL 不承诺任何顺序**，cloud 上一次
+执行计划切换就会重排同优先级的 module 块——等长重排，缓存前缀断裂，字节计数
+诊断无感。
+
+- 现在 `order_by="created_at DESC"`，与同类方法约定一致。
+- **只能给一列**：backend 的 order_by 解析器
+  （`db_backend_sqlite.get` / `db_backend_mysql.get` / `database.get`）只校验
+  **一个标识符 + 一个 ASC/DESC token**，写成 `"created_at DESC, instance_id ASC"`
+  会被静默降级成 `ORDER BY "created_at"`（升序！）——语义悄悄反转。想要多列排序
+  必须先改 backend 解析器，不要在调用点塞逗号。
+- prompt 层的确定性**不依赖**本条：ContextRuntime 用
+  `(priority, module_class)` 全序重排 module 块。这里补 order_by 是为了消除
+  该列表其他消费者（instance_factory 的 agent-level instances 等）的潜在不确定性。
+- 测试：`tests/context_runtime/test_module_block_order.py::
+  test_get_public_instances_issues_an_order_by` +
+  `..._order_by_is_a_single_sortable_column`（用记录型 fake db 断言下发的
+  order_by 参数）。
 
 # instance_repository.py
 

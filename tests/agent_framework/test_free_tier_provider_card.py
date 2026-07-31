@@ -158,3 +158,21 @@ def test_every_dual_card_type_has_a_driver():
         dt = derive_driver_type(card_type, "api_key", "openai")
         assert dt, f"{card_type} derives no driver_type"
         assert get_driver_class(dt) is not None, f"{card_type} has no Driver"
+
+
+def test_build_dual_providers_accepts_per_protocol_model_dict():
+    # The free-tier gate hands per-protocol lists (the gateway's openai and
+    # anthropic sets genuinely differ); each card row must get its own.
+    import json
+
+    from xyz_agent_context.agent_framework.providers.user_service import (
+        _build_dual_providers,
+    )
+
+    rows = _build_dual_providers(
+        "netmind_free", "key", "grp",
+        models={"openai": ["a", "b"], "anthropic": ["a"]},
+    )
+    by_proto = {r["protocol"]: json.loads(r["models"]) for r in rows}
+    assert by_proto["openai"] == ["a", "b"]
+    assert by_proto["anthropic"] == ["a"]

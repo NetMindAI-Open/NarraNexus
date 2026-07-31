@@ -136,12 +136,24 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
         """
         Get all public Instances for an Agent
 
+        Row order is pinned to `created_at DESC` — the same convention as
+        get_by_agent / get_by_agent_and_user / get_chat_instances_by_user.
+        This method used to be the ONLY sibling with no `order_by`, i.e. it
+        returned rows in whatever order the engine chose. That order becomes
+        active_instances, which becomes module block order in the system
+        prompt; SQLite happens to hand back rowid order today, but
+        Postgres/MySQL promise nothing (R4d, 2026-07-28). Prompt-side
+        determinism does not RELY on this — ContextRuntime sorts module
+        blocks by the total (priority, module_class) order — but an
+        unordered query is a latent nondeterminism source for every other
+        consumer of this list, so it is pinned here too.
+
         Args:
             agent_id: Agent ID
             module_class: Optional, filter by Module type
 
         Returns:
-            List of ModuleInstanceRecord
+            List of ModuleInstanceRecord (sorted by created_at descending)
         """
         logger.debug(f"    → InstanceRepository.get_public_instances({agent_id})")
 
@@ -149,7 +161,11 @@ class InstanceRepository(BaseRepository[ModuleInstanceRecord]):
         if module_class:
             filters["module_class"] = module_class
 
-        return await self.find(filters=filters)
+        # Single column + direction only: the backends' order_by parser
+        # (db_backend_sqlite.get / db_backend_mysql.get) validates ONE
+        # identifier and one ASC/DESC token — a comma-separated list would be
+        # silently mangled into `ORDER BY "created_at"` (ascending).
+        return await self.find(filters=filters, order_by="created_at DESC")
 
     async def get_chat_instances_by_user(
         self,

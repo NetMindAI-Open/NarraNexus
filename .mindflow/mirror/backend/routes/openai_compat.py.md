@@ -1,8 +1,12 @@
 ---
 code_file: backend/routes/openai_compat.py
-last_verified: 2026-07-28
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — _resolve_agent_creator 委托 AgentRepository.resolve_owner
+
+包一层保 Optional 契约（'' → None），实现收敛到 repository seam。
 
 ## 2026-07-28 — run-job 控制消息短路
 

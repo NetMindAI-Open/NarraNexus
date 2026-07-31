@@ -19,7 +19,7 @@ import {
   MessageSquarePlus,
   Store,
 } from 'lucide-react';
-import { Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
+import { BetaBadge, Button, ThemeToggle, LanguageToggle, ScrollArea, useConfirm } from '@/components/ui';
 import { FeedbackDialog } from '@/components/ui/FeedbackDialog';
 import { RingAvatar, StatusDot } from '@/components/nm';
 import { useTranslation } from 'react-i18next';
@@ -180,12 +180,13 @@ export function Sidebar() {
       <div className="p-4 border-b border-[var(--rule)]">
         <div className="flex items-center justify-between gap-2">
           {!collapsed && (
-            <div className="flex items-center gap-0 animate-fade-in min-w-0">
+            <div className="flex items-center gap-2 animate-fade-in min-w-0">
               <img
                 src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
                 alt="NarraNexus"
                 className="h-11 w-auto object-contain shrink-0"
               />
+              <BetaBadge className="shrink-0" />
             </div>
           )}
           <Button

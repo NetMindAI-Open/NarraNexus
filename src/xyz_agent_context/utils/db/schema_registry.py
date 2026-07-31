@@ -632,6 +632,18 @@ _register(
     )
 )
 
+# NOTE (2026-07-29): `agent_cli_sessions` was registered here (as #17) — one
+# row per (agent_id, platform_session_id, framework) holding a resumable CLI
+# session handle. The claude adapter now authors the CLI transcript itself
+# every turn and deletes it when the turn ends, so there is no handle to
+# store. The mechanism never shipped beyond its feature branch.
+#
+# `auto_migrate()` only creates and adds — it never drops — so a dev database
+# that already ran the old code keeps an empty orphan table. Left alone
+# deliberately: an unused empty table is harmless, whereas committing a DROP
+# would put a destructive migration in the repo (铁律 #6). Drop it by hand if
+# it bothers you.
+
 
 # 20. bus_channels (text primary key, no auto-increment)
 _register(
@@ -682,6 +694,11 @@ _register(
             # and points into the per-user shared area; markers are built from it
             # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
             Column("attachments", "TEXT", "TEXT", nullable=True),
+            # events row id of the turn that produced this message (agent
+            # replies posted by the trigger). NULL for user messages and for
+            # rows written before the column existed. Powers the per-message
+            # "view reasoning & tools" disclosure in the team transcript.
+            Column("event_id", "TEXT", "VARCHAR(128)", nullable=True),
             Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[
@@ -712,10 +729,14 @@ _register(
 
 # 23b. bus_agent_activity — live "what is this agent doing" for a channel.
 # Written by MessageBusTrigger while it runs a team-room agent so the team
-# chat UI can show running / phase / elapsed. One row per (agent_id,
-# channel_id); state flips to 'idle' when the turn ends. `updated_at` is a
-# heartbeat — a stale 'running' row (process died) is treated as not-running
-# by readers. This is NOT the events pipeline; it's a lightweight status mirror.
+# chat UI can show running / phase / elapsed / steps. One row per (agent_id,
+# channel_id); state flips to 'idle' when the turn ends. This is NOT the events
+# pipeline; it's a lightweight status mirror.
+# `updated_at` is refreshed by a timer for as long as the turn runs, so a stale
+# 'running' row means the writer is gone rather than "the model went quiet".
+# `steps` is a capped JSON list of the CURRENT turn's phase transitions (reset
+# when the turn starts, kept after it ends) so the team chat can render a
+# per-agent step timeline without standing up a second events pipeline.
 _register(
     TableDef(
         name="bus_agent_activity",
@@ -725,6 +746,8 @@ _register(
             Column("state", "TEXT", "VARCHAR(16)", nullable=False, default="'idle'"),
             Column("phase", "TEXT", "VARCHAR(64)"),
             Column("tool_count", "INTEGER", "INT", nullable=False, default="0"),
+            Column("steps", "TEXT", "MEDIUMTEXT"),
+            Column("event_id", "TEXT", "VARCHAR(128)"),
             Column("started_at", "TEXT", "DATETIME(6)"),
             Column("updated_at", "TEXT", "DATETIME(6)"),
         ],
@@ -909,6 +932,11 @@ _register(
             Column("profile_name", "TEXT", "VARCHAR(128)", nullable=False),
             Column("workspace_path", "TEXT", "VARCHAR(512)"),
             Column("bot_name", "TEXT", "VARCHAR(255)"),
+            # The bot's OWN open_id, from /open-apis/bot/v3/info. Needed to
+            # decide whether an inbound group message @-mentions this bot:
+            # the mention list carries open_ids, and name matching alone is
+            # ambiguous when a human shares the bot's display name.
+            Column("bot_open_id", "TEXT", "VARCHAR(64)"),
             Column("owner_open_id", "TEXT", "VARCHAR(64)"),
             Column("owner_name", "TEXT", "VARCHAR(255)"),
             Column("auth_status", "TEXT", "VARCHAR(32)", nullable=False, default="'not_logged_in'"),
@@ -2005,6 +2033,52 @@ _register(
             Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
         ],
         indexes=[Index("idx_ha_bindings_agent", ["agent_id"], unique=True)],
+    )
+)
+
+# Model probe ledger — one row per aggregator source ("netmind" / "openrouter" /
+# "yunwu"). models_json holds that source's per-model probe verdicts (the same
+# {"models": {...}} shape as the committed JSON snapshot's per-source entry).
+# The DB copy is the durable one in cloud: the committed file resets to the
+# release-time snapshot on every deploy, which used to erase all revalidation
+# history between releases.
+_register(
+    TableDef(
+        name="model_probe_ledger",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("source", "TEXT", "VARCHAR(64)", nullable=False, unique=True),
+            Column("models_json", "TEXT", "MEDIUMTEXT"),
+            Column("generated_at", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[Index("idx_mpl_source", ["source"], unique=True)],
+    )
+)
+
+# Runtime model suspects — (source, model_id, protocol) tuples whose LIVE calls
+# hit a definitive model rejection (classify_self_serviceable ->
+# model_not_found). The daily model sync revalidates suspects ahead of the TTL
+# queue and clears them afterwards; the probe verdict stays authoritative, so a
+# false report costs one probe call and nothing else.
+_register(
+    TableDef(
+        name="model_probe_suspects",
+        columns=[
+            Column("id", "INTEGER", "BIGINT UNSIGNED", nullable=False, auto_increment=True, primary_key=True),
+            Column("source", "TEXT", "VARCHAR(64)", nullable=False),
+            Column("model_id", "TEXT", "VARCHAR(255)", nullable=False),
+            Column("protocol", "TEXT", "VARCHAR(32)", nullable=False),
+            Column("reason", "TEXT", "VARCHAR(64)"),
+            Column("occurrences", "INTEGER", "INT", nullable=False, default="1"),
+            Column("last_seen_at", "TEXT", "VARCHAR(64)"),
+            Column("created_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+            Column("updated_at", "TEXT", "DATETIME(6)", nullable=False, default="(datetime('now'))"),
+        ],
+        indexes=[
+            Index("idx_mps_source_model_proto", ["source", "model_id", "protocol"], unique=True),
+        ],
     )
 )
 

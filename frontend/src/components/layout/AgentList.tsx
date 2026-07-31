@@ -16,12 +16,13 @@ import {
   ListChecks,
   Bot,
   Users2,
+  Download,
 } from 'lucide-react';
 import { Button, useConfirm } from '@/components/ui';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { BracketSectionLabel, BracketEmptyState, GroupAvatar } from '@/components/nm';
-import { useConfigStore, useChatStore, useTeamsStore } from '@/stores';
-import { useCreateAgent } from '@/hooks';
+import { useConfigStore, useChatStore, useTeamsStore, useRuntimeStore } from '@/stores';
+import { useCreateAgent, useAgentImported } from '@/hooks';
 import { api } from '@/lib/api';
 import { cn, formatChatTimestamp } from '@/lib/utils';
 import { getLastReadMs, markAgentRead, countUnread, latestMessageMs } from '@/lib/unread';
@@ -32,6 +33,7 @@ import { EditAgentDialog } from './EditAgentDialog';
 import { ClearTeamDataDialog } from '../teams/ClearTeamDataDialog';
 import { AgentsHeaderMenu } from './AgentsHeaderMenu';
 import { CreateMenu } from './CreateMenu';
+import { ImportAgentModal } from './ImportAgentModal';
 import { TeamChatRow } from './TeamChatRow';
 import { TeamManagementModal } from '@/components/teams/TeamManagementModal';
 
@@ -112,6 +114,7 @@ export function AgentList({ collapsed }: AgentListProps) {
   const [clearTeamTarget, setClearTeamTarget] = useState<{ team_id: string; name: string } | null>(null);
   const [clearTeamBusy, setClearTeamBusy] = useState(false);
   const [openMgmt, setOpenMgmt] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [collapsedCreateOpen, setCollapsedCreateOpen] = useState(false);
   // Collapse state for the TEAMS / AGENTS sidebar categories (persisted).
   const [teamsCollapsed, setTeamsCollapsed] = useState(
@@ -267,6 +270,14 @@ export function AgentList({ collapsed }: AgentListProps) {
   const handleCreateAgent = async () => {
     await createAgent();
   };
+
+  // Import-from-other-source is local-only: the scanner reads the user's
+  // filesystem, and detect/scan 503 on cloud (see backend/routes/migrate.py).
+  const isLocalMode = useRuntimeStore((s) => s.mode) === 'local';
+
+  // After a successful migrate/apply: refresh the agent list + select the new
+  // agent. Shared with the guided-flow entry point so they can't drift.
+  const handleImportApplied = useAgentImported();
 
   // #43: create a new agent already assigned to this team, then open the
   // team's group chat so the membership change is immediately visible. The
@@ -551,6 +562,13 @@ export function AgentList({ collapsed }: AgentListProps) {
               label={t('layout.agentList.createTeam')}
               onClick={() => { setCollapsedCreateOpen(false); setOpenMgmt(true); }}
             />
+            {isLocalMode && (
+              <CollapsedCreateItem
+                icon={<Download className="w-3.5 h-3.5" />}
+                label={t('layout.createMenu.importAgent')}
+                onClick={() => { setCollapsedCreateOpen(false); setImportOpen(true); }}
+              />
+            )}
           </PopoverContent>
         </Popover>
 
@@ -673,6 +691,12 @@ export function AgentList({ collapsed }: AgentListProps) {
         />
       )}
       <TeamManagementModal open={openMgmt} onClose={() => setOpenMgmt(false)} />
+      {importOpen && (
+        <ImportAgentModal
+          onClose={() => setImportOpen(false)}
+          onApplied={handleImportApplied}
+        />
+      )}
 
       {/* Header */}
       <div className="sticky top-0 z-10 bg-[color:var(--nm-paper)] px-3 pt-3 pb-2">
@@ -689,6 +713,7 @@ export function AgentList({ collapsed }: AgentListProps) {
               <CreateMenu
                 onCreateAgent={handleCreateAgent}
                 onCreateTeam={() => setOpenMgmt(true)}
+                onImportAgent={isLocalMode ? () => setImportOpen(true) : undefined}
                 disabled={creatingAgent}
               />
             </span>

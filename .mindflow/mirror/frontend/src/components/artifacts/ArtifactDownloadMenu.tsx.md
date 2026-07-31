@@ -1,8 +1,28 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactDownloadMenu.tsx
-last_verified: 2026-06-16
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 原生 alert 换成应用内通知
+
+wry（Tauri webview）**不渲染** `window.alert`，调用直接返回、什么都不发生。所以桌面端
+「图表还没加载完」这条提示彻底消失；而**原文件下载压根没有错误处理** —— 浏览器里是未处理的 promise rejection（静默），桌面端是不可见 alert，两个平台都没有可用的错误路径。现在成功时还会announce `savedPath`（桌面端没有下载条，不说用户就不知道文件去哪了）。改用 [[ConfirmDialog]] 的 `useNotice()`，与仓库既有的 20+ 处 confirm 先例同一条路。
+
+**chrome 不在调用点重复**：标题 / OK 文案 / danger 由 `useNotice` 提供，调用点只写
+message。第一版把这三行在 6 个文件里复制了 9 遍（评审点名），改文案要改 9 处。这同时把
+`useConfirm` 默认值 `'Notice'` / `'OK'` 硬编码英文、不走 i18n 的洞补在一处 ——
+不必去动那个 20+ 调用方共用的原语。共享 key
+`common.{noticeTitle,doneTitle,actionFailedTitle,ok}`，10 语言。
+
+`notifyDone` 与 `notifyPending` 是分开的：`noticeTitle` 的 10 个译法都是「请稍候」语义
+（稍等一下 / 少しお待ちください / Одну секунду），拿它当成功提示的标题会让用户以为还在
+进行中 —— 所以成功走 `doneTitle`。
+
+用一条**仓库级静态契约测试**钉住（`lib/__tests__/no-native-dialogs.test.ts`）：扫描全部
+源文件，禁止任何 `window.alert/confirm/prompt` 调用。这类 bug 前两轮都是靠人读代码发现的
+—— 单元测试反而 stub 掉了 `window.confirm` 因而什么都没证明。grep 是唯一能覆盖「还没被
+写出来的文件」的断言。
 
 # ArtifactDownloadMenu.tsx — Per-artifact download / export dropdown
 

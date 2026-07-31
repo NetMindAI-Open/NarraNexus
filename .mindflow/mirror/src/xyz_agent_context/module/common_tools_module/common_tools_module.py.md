@@ -1,8 +1,28 @@
 ---
 code_file: src/xyz_agent_context/module/common_tools_module/common_tools_module.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — R4b：两个附录搬进 get_turn_context
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+`get_instructions` 原本 = COMMON_TOOLS_INSTRUCTIONS + 本轮附件附录 + live
+artifact registry；后两者每轮/会话中途变（附件随上传、registry 随
+register_artifact，prod 稳定性 14/17）。现拆为：
+
+- `_volatile_sections(ctx_data)` — 两个附录的渲染原样提取（附件经
+  `format_attachments_for_system_prompt`，registry 经
+  `_render_artifact_state_block`，DB 失败返回 "" 的 fail-open 语义不变）。
+- `get_instructions` — flag 开 → 只返回常量 `self.instructions`（轮间字节
+  稳定）；关 → legacy 三段拼接（逐字节一致）。
+- `get_turn_context` — 两个附录（各自带稳定标题："Files attached to the
+  current message" / "Your registered artifacts (live)"）。
+
+附件双渲染（本块 + user message 的 Read marker）保持——flag 开后两处都在
+消息侧。`_render_artifact_state_block` 里原先函数内的 `settings` 局部 import
+删除（模块级已导入，供 flag 读取）。
 
 ## 2026-07-22 — artifact state block points the agent at URL-tab content
 
@@ -145,12 +165,15 @@ The artifact block in `COMMON_TOOLS_INSTRUCTIONS` was rewritten:
 
 ## Design decisions
 
-**`get_instructions` is dynamic, not a static string.** The base
-description is constant, but the per-turn appendix depends on whether
+**Static base + per-turn appendices, split by the R4 relocation flag.**
+The base description is constant; the per-turn appendix depends on whether
 the user uploaded files in this run. We read
 `ctx_data.extra_data["attachments"]` (populated by the trigger layer)
-and append a `## Files attached to the current message` block listing
-absolute paths. The marker in chat history says the same thing again
+and render a `#### Files attached to the current message` block listing
+absolute paths. With the relocation flag ON (default) the appendices are
+emitted via `get_turn_context()` into the current message and
+`get_instructions` stays byte-constant; flag OFF appends them to the
+instruction as before. The marker in chat history says the same thing again
 at the user-message level — double reinforcement so the model can't
 miss it.
 

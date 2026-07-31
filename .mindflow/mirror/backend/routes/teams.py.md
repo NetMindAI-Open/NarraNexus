@@ -1,8 +1,55 @@
 ---
 code_file: backend/routes/teams.py
-last_verified: 2026-07-22
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — idle carries started_at; messages carry event_id
+
+Two serialization fixes for the roster/transcript:
+
+- **idle branch now includes `started_at`.** The roster's "ran Ns" derives
+  from started_at→finished_at; only running/stalled carried the start, so
+  every finished turn rendered as a confident "ran 0s" while the DB held the
+  real value (2026-07-31 issue, Step 3).
+- **each chat message includes `event_id`** (from `BusMessage.event_id`,
+  stamped by the trigger on agent replies) — drives the per-message
+  "view reasoning & tools" disclosure in the transcript. Null for user
+  messages and legacy rows.
+
+## 2026-07-30 — activity payload carries `event_id`
+
+Every branch of `_member_activity` that has an activity row now also
+surfaces `row["event_id"]` — the `events` row of the member's current/most
+recent turn (written by `TurnActivity.note_event_id`). The frontend roster
+uses it to fetch the finished turn's full event_log through the EXISTING
+`/agents/{agent_id}/event-log/{event_id}` endpoint; no new route.
+
+## 2026-07-28 — four-state activity payload, UTC-marked timestamps
+
+`get_team_chat`'s inline activity block became `_member_activity`, and grew the
+state the UI was missing:
+
+- **`stalled`** is now distinct from `queued`. A turn that started and then went
+  quiet used to be reported as queued, so a wedged worker and a busy room looked
+  identical — nobody went looking. Carries `last_signal_at` for "silent for N".
+- **`queued`** carries `queued_count` / `queued_since`, so the UI can say how
+  long and how many instead of showing a bare word.
+- **`idle`** keeps the previous turn's `steps` + `finished_at`, so a room can
+  show what an agent just did.
+- pending detection moved to [[local_bus]]'s batched
+  `get_room_pending_summary` — the per-member loop was ~30 queries per 3s poll.
+- the response carries `lead_agent_id` (the default responder) so the room can
+  name who answers an un-addressed message; `thinking` is gone (the activity
+  list supersedes it — 铁律 #2, no compat shims).
+
+**Every timestamp now goes through `format_for_api`.** The local `_to_iso` was a
+bare `.isoformat()` producing no timezone marker, so the browser parsed stored
+UTC as local time: group-chat messages and the activity bar's elapsed ran an
+hour early for a UTC+1 user, while 1:1 chat (which already used
+`format_for_api`) was correct. `_to_iso` is deleted; this route was the last
+one in the project not using the shared helper.
+
 
 ## 2026-07-22 — PR #141 review hardening (attachments + wipe + layering)
 

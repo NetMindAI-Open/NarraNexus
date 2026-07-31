@@ -1,8 +1,36 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — stopStreaming 存 segments
+
+助手消息落定时除 `timeline` 外再挂 `segments = segmentTurn(currentEvents)`
+——MessageBubble 据此把一轮渲染成 agent 实际说话的 m 次。`content` 仍是
+join('\n\n') 全文：通知、复制、搜索的纯文本载体，也是老消息的兜底。
+
+## 2026-07-30 — pending tool_call 按 tool_call_id 原地替换
+
+工具名先到（参数还在流式生成）时后端发一条 `pending=true` 的
+tool_call；参数齐了再发同 `tool_call_id` 的完整事件。store 在
+`currentEvents` **和** `currentToolCalls` 里都按 `tool_call_id` 找到
+pending 条目原地覆盖（保留原 event id，React 不重挂行）。
+
+替换不是装饰性的：`currentToolCalls` 是 stopStreaming 提取用户可见
+回复的数据源，pending 条目若和完整版并存，会往轮次内容里注入一个
+空回复段——表现为一条凭空的空白消息。
+
+## 2026-07-29 — reply-delta 增长气泡 + plan 原地替换
+
+两条 NexusPower 专属流的落点：
+
+- `agent_reply_delta` 按 `call_id` 聚成**一个**增长中的气泡（同一次表达工具
+  调用的片段属于同一句话）；该次调用完成的 `tool_call` 事件不再另起一条，而是
+  折叠进这个已经开着的气泡——否则用户会看到同一句话出现两遍。
+- `agent_plan` 是整份快照，所以**原地替换**而非追加。
+
+其他框架永不发这两种消息，既有分支逐字未变。
 
 ## 2026-07-23 — stopStreaming fires the desktop completion notification (#44)
 

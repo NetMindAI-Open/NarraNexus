@@ -100,6 +100,7 @@ def is_credential_error(error: Union[str, BaseException, None]) -> bool:
 SELF_SERVICEABLE_REASON_CONTEXT_WINDOW = "context_window"
 SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE = "insufficient_balance"
 SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND = "model_not_found"
+SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS = "invalid_credentials"
 
 # Exact error TYPE (exception class name / SDK enum) → reason. Kept exact to
 # avoid substring traps; broader detection is done via the markers below.
@@ -160,12 +161,46 @@ _MODEL_NOT_FOUND_MARKERS: tuple[Marker, ...] = (
     # exist or you do not have access to it."
     ("model", "does not exist"),
 )
+# The provider REFUSES the credential it was handed (HTTP 403 family) — as
+# opposed to a dead OAuth/CLI login, which ``response_processor._is_auth_failure``
+# already routes to ``auth_expired`` with re-login guidance. The distinction is
+# the remedy, which is why this is its own reason: a user holding a rejected API
+# key must be told to re-paste / rotate the key, not to run `claude setup-token`.
+#
+# 2026-07-29 (reported by Jiaxi): a BYOK NetMind key returned
+# ``403 {"error":{"message":"Invalid api token"}}``. It matched NOTHING — the
+# auth phrases carry "401" and "invalid api key", while this body says 403 and
+# "api token" — so the turn stayed "recoverable" and the helper-LLM fallback
+# wrote a plausible reply over work that never happened.
+#
+# Markers are word/delimiter anchored on purpose: a bare "403" also appears
+# inside token counts ("403 tokens", "<= 4030"), and a false positive here both
+# mislabels the turn fatal AND makes the circuit breaker skip a real fault.
+# Same narrowing discipline as "402 payment" above.
+_INVALID_CREDENTIALS_MARKERS: tuple[Marker, ...] = (
+    "invalid api token",  # NetMind's 403 literal (the incident)
+    "invalid_api_token",
+    "invalid bearer token",
+    "no auth credentials",  # OpenRouter's phrasing
+    # Generic 403 shapes: the status code must co-occur with credential/permission
+    # vocabulary. Pairing "403" with a bare "token" is NOT enough — "generated 403
+    # tokens before the stream ended" satisfies it (caught in test).
+    ("403", "forbidden"),
+    ("403", "invalid token"),
+    ("403", "invalid api"),
+    ("403", "credential"),
+    ("403", "permission denied"),
+)
 
 # (reason, markers) in priority order — checked top-to-bottom.
+# ``invalid_credentials`` sits LAST so every message that classified before this
+# reason existed keeps its previous reason (e.g. a 403 body that also reports a
+# spent balance stays ``insufficient_balance``, whose remedy is the useful one).
 _SELF_SERVICEABLE_MARKERS: tuple[tuple[str, tuple[Marker, ...]], ...] = (
     (SELF_SERVICEABLE_REASON_CONTEXT_WINDOW, _CONTEXT_WINDOW_MARKERS),
     (SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE, _INSUFFICIENT_BALANCE_MARKERS),
     (SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND, _MODEL_NOT_FOUND_MARKERS),
+    (SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS, _INVALID_CREDENTIALS_MARKERS),
 )
 
 
@@ -242,6 +277,15 @@ SELF_SERVICEABLE_USER_MESSAGE: dict[str, str] = {
         "This turn could not run: the configured model id was rejected by the "
         "provider (not found / invalid). Pick a valid model for this Agent "
         "slot in Settings, then send the message again."
+    ),
+    # Deliberately about the KEY, never about re-login: the auth_expired path
+    # owns dead OAuth/CLI sessions and says `claude setup-token` there. Getting
+    # these two mixed up sends a BYOK user chasing a login they never used.
+    SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS: (
+        "This turn could not run: the model provider rejected the credential "
+        "for this Agent slot (403 / invalid token) — a key that was revoked, "
+        "rotated upstream, or pasted incompletely does this. Check or re-paste "
+        "the key in Settings → Providers, then send the message again."
     ),
 }
 

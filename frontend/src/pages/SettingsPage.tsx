@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Package, Upload, Users, RefreshCw, CheckCircle2, AlertCircle, Download, Cpu, FolderArchive, CreditCard, SlidersHorizontal } from 'lucide-react';
 import { ProviderSettings } from '@/components/settings/ProviderSettings';
@@ -41,20 +41,21 @@ function SectionHeader({ label, hint }: { label: string; hint?: string }) {
 
 function BundleContent() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   return (
     <section>
       <SectionHeader
-        label="Bundle · Export / Import"
-        hint="Package your agents (and optionally a team) into a portable .nxbundle file to share, or import a .nxbundle file shared with you."
+        label={t('pages.settings.bundle.label')}
+        hint={t('pages.settings.bundle.hint')}
       />
       <div className="flex gap-3">
         <Button onClick={() => navigate('/app/bundle/export')} className="gap-2">
           <Package className="w-4 h-4" />
-          Export bundle…
+          {t('pages.settings.bundle.exportButton')}
         </Button>
         <Button onClick={() => navigate('/app/bundle/import')} variant="outline" className="gap-2">
           <Upload className="w-4 h-4" />
-          Import bundle…
+          {t('pages.settings.bundle.importButton')}
         </Button>
       </div>
     </section>
@@ -62,11 +63,12 @@ function BundleContent() {
 }
 
 function ArtifactsContent() {
+  const { t } = useTranslation();
   return (
     <section>
       <SectionHeader
-        label="Artifacts"
-        hint="Manage every chart, report, and file your agents have produced for you. Bulk-select to free up your quota when an agent reports it has hit the limit."
+        label={t('pages.settings.artifacts.label')}
+        hint={t('pages.settings.artifacts.hint')}
       />
       <ArtifactsSection />
     </section>
@@ -75,15 +77,16 @@ function ArtifactsContent() {
 
 function ManageAgentsContent() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   return (
     <section>
       <SectionHeader
-        label="Manage agents · batch"
-        hint="Bulk-select agents to delete, or batch-add/remove them from teams. Useful after importing a bundle you don't want to keep — filter by 'From bundles' to find them."
+        label={t('pages.settings.manageAgents.label')}
+        hint={t('pages.settings.manageAgents.hint')}
       />
       <Button onClick={() => navigate('/app/manage-agents')} variant="outline" className="gap-2">
         <Users className="w-4 h-4" />
-        Open batch manager…
+        {t('pages.settings.manageAgents.openButton')}
       </Button>
     </section>
   );
@@ -243,9 +246,10 @@ function UpdatesSection() {
 // separate summary card, and the top-level one-key are gone — all folded into
 // ProviderSettings' ordered sections.)
 function ProvidersSection() {
+  const { t } = useTranslation();
   return (
     <section>
-      <SectionHeader label="LLM Providers" />
+      <SectionHeader label={t('pages.settings.providers.label')} />
       {/* System free-tier quota now lives under Account & Subscription (all
           credits/billing in one place); this section is bring-your-own only. */}
       <ProviderSettings />
@@ -263,7 +267,7 @@ function ProvidersSection() {
 // dual-mode install.
 interface NavItem {
   id: string;
-  label: string;
+  labelKey: string;
   icon: typeof Cpu;
   desktopOnly?: boolean;
   powerOnly?: boolean;
@@ -272,21 +276,35 @@ interface NavItem {
 // Account first for a Power user: their home question is "what are my credits /
 // plan", so billing leads; bring-your-own provider config follows.
 const NAV_ITEMS: NavItem[] = [
-  { id: 'account', label: 'Account & Subscription', icon: CreditCard, powerOnly: true },
-  { id: 'providers', label: 'LLM Providers', icon: Cpu },
-  { id: 'modeldefaults', label: 'Model Defaults', icon: SlidersHorizontal },
-  { id: 'bundle', label: 'Bundle', icon: Package },
-  { id: 'artifacts', label: 'Artifacts', icon: FolderArchive },
-  { id: 'agents', label: 'Manage agents', icon: Users },
-  { id: 'updates', label: 'App updates', icon: Download, desktopOnly: true },
+  { id: 'account', labelKey: 'pages.settings.nav.account', icon: CreditCard, powerOnly: true },
+  { id: 'providers', labelKey: 'pages.settings.nav.providers', icon: Cpu },
+  { id: 'modeldefaults', labelKey: 'pages.settings.nav.modelDefaults', icon: SlidersHorizontal },
+  { id: 'bundle', labelKey: 'pages.settings.nav.bundle', icon: Package },
+  { id: 'artifacts', labelKey: 'pages.settings.nav.artifacts', icon: FolderArchive },
+  { id: 'agents', labelKey: 'pages.settings.nav.manageAgents', icon: Users },
+  { id: 'updates', labelKey: 'pages.settings.nav.updates', icon: Download, desktopOnly: true },
 ];
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const hasPower = !!useConfigStore((s) => s.netmindToken);
   const items = NAV_ITEMS.filter(
     (it) => (!it.desktopOnly || isTauri()) && (!it.powerOnly || hasPower),
   );
-  const [active, setActive] = useState(items[0]?.id ?? 'providers');
+  const [searchParams] = useSearchParams();
+  // `?tab=<nav id>` opens a pane directly. This exists because Stripe returns a
+  // payer to /app/settings?tab=account&status=… after checkout (see
+  // backend/routes/billing.py::_return_urls) — without it they'd land on
+  // whatever pane happens to be first and read that as "my payment went
+  // nowhere". Only the FIRST render honors the URL: afterwards the user's clicks
+  // own the selection, so a stale query param can't fight them. An unknown id,
+  // or one this session cannot see (powerOnly / desktopOnly filtered it out),
+  // falls back to the first visible item rather than opening an empty pane.
+  const [active, setActive] = useState(() => {
+    const requested = searchParams.get('tab');
+    if (requested && items.some((it) => it.id === requested)) return requested;
+    return items[0]?.id ?? 'providers';
+  });
 
   return (
     <div className="h-full flex flex-col">
@@ -295,7 +313,7 @@ export default function SettingsPage() {
           className="text-3xl font-bold tracking-tight"
           style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
         >
-          Settings
+          {t('pages.settings.title')}
         </h1>
       </header>
 
@@ -305,14 +323,14 @@ export default function SettingsPage() {
           className="w-56 shrink-0 overflow-y-auto px-3 py-4 space-y-1 border-r"
           style={{ borderColor: 'var(--nm-line)' }}
         >
-          {items.map((it) => {
-            const Icon = it.icon;
-            const isActive = active === it.id;
+          {items.map((item) => {
+            const Icon = item.icon;
+            const isActive = active === item.id;
             return (
               <button
-                key={it.id}
+                key={item.id}
                 type="button"
-                onClick={() => setActive(it.id)}
+                onClick={() => setActive(item.id)}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
                   isActive
                     ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium'
@@ -320,7 +338,7 @@ export default function SettingsPage() {
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                {it.label}
+                {t(item.labelKey)}
               </button>
             );
           })}
@@ -332,13 +350,16 @@ export default function SettingsPage() {
             {active === 'providers' && <ProvidersSection />}
             {active === 'modeldefaults' && (
               <section>
-                <SectionHeader label="Model Defaults" hint="The framework + model every agent inherits by default. Per-agent overrides live in the chat page." />
+                <SectionHeader
+                  label={t('pages.settings.modelDefaults.label')}
+                  hint={t('pages.settings.modelDefaults.hint')}
+                />
                 <ModelDefaultsSettings onManageProviders={() => setActive('providers')} />
               </section>
             )}
             {active === 'account' && (
               <section>
-                <SectionHeader label="Account & Subscription" />
+                <SectionHeader label={t('pages.settings.nav.account')} />
                 {/* One card owns every "what are my credits / how is usage paid"
                     concern: platform free tier, NetMind.AI Power balance,
                     subscription, and top-up — told as one runway story. Self-gates

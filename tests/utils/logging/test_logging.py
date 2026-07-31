@@ -197,6 +197,32 @@ class TestTimed:
         assert result == [0, 1, 2]
         assert any("asyncgen.fn ok" in c["message"] for c in captured)
 
+    def test_decorator_async_generator_closes_the_wrapped_generator(
+        self, captured: list[dict[str, Any]]
+    ) -> None:
+        """Closing the WRAPPER must close the wrapped generator in the same
+        await, so a wrapped ``finally`` (resource release) is not deferred to
+        asyncgen GC finalization. Regression pin for the resume-handle lease in
+        step_3, which is released in exactly such a ``finally``."""
+        released: list[str] = []
+
+        @timed("asyncgen.cleanup")
+        async def f():
+            try:
+                yield 1
+                yield 2
+            finally:
+                released.append("done")
+
+        async def abort_midstream() -> None:
+            agen = f()
+            assert await agen.__anext__() == 1
+            assert released == []  # still running
+            await agen.aclose()
+            assert released == ["done"]  # NOT deferred to GC
+
+        asyncio.run(abort_midstream())
+
     def test_decorator_sync_generator(
         self, captured: list[dict[str, Any]]
     ) -> None:

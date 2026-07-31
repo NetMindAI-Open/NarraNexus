@@ -355,3 +355,100 @@ A Narrative is a context container for conversations/tasks, used for:
 4. If the narrative contains ambiguities, resolve them through explicit reasoning.
 5. Treat the narrative as persistent memory for this task environment.
 """
+
+# ============================================================================
+# Narrative STABLE system prompt template (R4 turn-context relocation)
+# Used in PromptBuilder.build_main_prompt(include_volatile=False).
+#
+# Byte-for-byte the NARRATIVE_MAIN_PROMPT_TEMPLATE above MINUS the four
+# per-turn volatile lines ("- Created At: {created_at}",
+# "- Updated At: {updated_at}", "- Name: {name}" and
+# "- Current Summary: {current_summary}") — those relocate to the turn
+# context via NARRATIVE_TURN_PROMPT_TEMPLATE below.
+# Name moved out in R4c (experiment E2, 2026-07-25): the narrative updater
+# rewrites narrative_info.name on every LLM update (draft truncated name at
+# creation -> finalized 3-8 word name, and later legal topic-drift renames),
+# so it is LLM-regenerated mutable metadata exactly like current_summary and
+# has no canonical stable form.
+# created_at moved out in R4d (2026-07-28): the VALUE has two independent
+# clock sources, not one. NarrativeRepository._entity_to_row omits
+# created_at, so the INSERT takes the schema default `(datetime('now'))` —
+# the DB clock — while crud.create() builds the in-memory object from
+# `datetime.now(timezone.utc)` captured BEFORE two proxy round-trips and the
+# save. The round that CREATES a narrative therefore renders a different
+# second than every later round that re-reads it. _canonical_timestamp
+# normalizes the FORMAT (23 bytes either way) but cannot reconcile two
+# clocks, so the divergence is a same-length substitution ~1051 bytes into
+# this template — invisible to any byte-count diagnostic and fatal to the
+# prefix. Relocating it removes the LAST timestamp from the stable half, so
+# the clock-source question stops mattering for caching at all (the model
+# still sees creation time every turn, in the turn block).
+# Description and actors stay: the updater never touches description, and
+# actor changes are structural membership events (a legal one-time cache
+# break). Everything left is constant for the lifetime of a CLI session
+# (narrative switch = new session), so this half can live in the cacheable
+# system-prompt prefix.
+# Any edit to the shared wording must be applied to BOTH templates —
+# tests/narrative/test_narrative_prompt_split.py locks the equivalence.
+# ============================================================================
+NARRATIVE_STABLE_PROMPT_TEMPLATE = """
+## Narrative System (Common Knowledge)
+
+### What is a Narrative?
+A Narrative is a context container for conversations/tasks, used for:
+- Organizing related conversation history and task progress
+- Maintaining participant (Actors) relationships
+- Supporting cross-session continuity tracking
+
+### Actor Types
+| Type | Description | Permissions |
+|------|-------------|-------------|
+| **USER** | Creator/Owner of the Narrative | Full access, can create Jobs |
+| **AGENT** | Participating AI Agent | Assists in executing tasks |
+| **PARTICIPANT** | Target user of a Job | Can access this Narrative, but is not the creator |
+
+### System Behavior
+- When a user initiates a conversation, the system automatically matches or creates a Narrative
+- When creating a Job, the target user (related_entity_id) is added as a PARTICIPANT
+- When a PARTICIPANT converses with the Agent, the system loads the associated Narrative context
+
+---
+
+## Current Narrative Info
+
+### Basic Metadata
+- Narrative ID: {narrative_id}
+- Narrative Type: {type_prompt}
+
+### Narrative Details
+- Description: {description}
+
+### Actors (Participants)
+{actor_prompt}
+
+### Context Guidelines
+1. Your reasoning, decisions, and actions must align with the narrative context at all times.
+2. When interpreting user requests, prioritize consistency with the narrative's goals.
+3. Use the narrative to maintain continuity across turns.
+4. If the narrative contains ambiguities, resolve them through explicit reasoning.
+5. Treat the narrative as persistent memory for this task environment.
+"""
+
+# ============================================================================
+# Narrative TURN prompt template (R4 turn-context relocation)
+# Used in PromptBuilder.build_turn_prompt(); rendered into the [Turn context]
+# block of the current user message. Carries exactly the four fields removed
+# from the stable template: updated_at changes every turn, name and
+# current_summary are LLM-regenerated on every narrative update (name added
+# in R4c), created_at has two clock sources so its rendered value can differ
+# between the creating round and every later round (added in R4d — see the
+# stable-template comment above for both).
+# Relocated, not dropped — the model still sees all four every turn.
+# ============================================================================
+NARRATIVE_TURN_PROMPT_TEMPLATE = """## Current narrative state
+
+- Name: {name}
+- Created: {created_at}
+- Last updated: {updated_at}
+- Current summary: {current_summary}
+"""

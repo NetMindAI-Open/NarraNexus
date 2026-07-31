@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-07-17
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — `frameworkAllowedInCloud()`：后端云策略的前端孪生
+
+新增 `CLOUD_ALLOWED_FRAMEWORKS` + `frameworkAllowedInCloud()`，对应后端
+`cloud_policy.CLOUD_ALLOWED_FRAMEWORKS`。两个框架选择器（
+[[ModelDefaultsSettings]] 与 [[AgentLlmConfigPanel]]）此前各自内联了
+`!== 'claude_code'`，NexusPower 变成云端合法之后**两处都还在拒**——所以这里
+导出的是**谓词**而不是常量，与 `isSlotBindableSource` 同样的教训。
+
+## 2026-07-29 — 框架可接受协议从"一个"变成"一组"
+
+新增可选 `protocols` 与 `frameworkAcceptsProtocol()`:CLI 型框架天生只会一种
+协议(claude_code→anthropic、codex_cli→openai,因为底下的 CLI 只会一种),而
+NexusPower 直接驱动 provider API,两种都行,**不能**被过滤成一种。UI 上叫
+`NexusPower-beta`。另有 `isNexusPowerFramework()` 谓词,把散落的
+`=== 'nexus_power'` 收成一处(与既有 `isCodexFramework` 同型)。
 
 ## 2026-07-17 — 新增 cloudNetmindOnly 策略谓词 + DESKTOP_RELEASES_URL
 

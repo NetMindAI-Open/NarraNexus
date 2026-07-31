@@ -6,7 +6,7 @@
 
 Verifies the outcome→breaker mapping in _record_circuit_breaker, including the
 subtle case where a fatal auth/quota error ends the run NATURALLY (state ==
-completed + _had_fatal_error) and must still count as a failure.
+completed + recorder.had_fatal_error) and must still count as a failure.
 """
 
 import pytest
@@ -50,8 +50,8 @@ def spy(monkeypatch):
 async def test_failed_run_records_failure(spy):
     run = _make_run()
     run.state = STATE_FAILED
-    run._last_error_type = "TimeoutError"
-    run._last_error_message = "read timed out"
+    run.recorder.last_error_type = "TimeoutError"
+    run.recorder.last_error_message = "read timed out"
     await run._record_circuit_breaker()
     assert spy["failure"] == [("ag_1", "TimeoutError", "read timed out")]
     assert spy["success"] == []
@@ -63,9 +63,9 @@ async def test_fatal_completed_run_records_failure(spy):
     # error was emitted — must count as a failure, not a success.
     run = _make_run()
     run.state = STATE_COMPLETED
-    run._had_fatal_error = True
-    run._last_error_type = "auth_expired"
-    run._last_error_message = "login expired"
+    run.recorder.had_fatal_error = True
+    run.recorder.last_error_type = "auth_expired"
+    run.recorder.last_error_message = "login expired"
     await run._record_circuit_breaker()
     assert spy["failure"] == [("ag_1", "auth_expired", "login expired")]
     assert spy["success"] == []
@@ -75,7 +75,7 @@ async def test_fatal_completed_run_records_failure(spy):
 async def test_clean_completion_records_success(spy):
     run = _make_run()
     run.state = STATE_COMPLETED
-    run._had_fatal_error = False
+    run.recorder.had_fatal_error = False
     await run._record_circuit_breaker()
     assert spy["success"] == ["ag_1"]
     assert spy["failure"] == []
@@ -100,6 +100,6 @@ async def test_breaker_error_never_propagates(monkeypatch):
 
     run = _make_run()
     run.state = STATE_FAILED
-    run._last_error_message = "x"
+    run.recorder.last_error_message = "x"
     # Must NOT raise — the breaker is an observer.
     await run._record_circuit_breaker()

@@ -1,7 +1,17 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_trigger.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — 成功执行清 last_error（否则恢复消息永久残留）
+
+`_finalize_job_execution` 的成功分支原来只在有 backoff 时清 `consecutive_failure_count`
+/ `cooldown_until` / `paused_reason`,**从不清 `last_error`**。而 `recover_all_running_jobs`
+启动恢复会写 `last_error="Process restarted, auto-recovered"` 但不动 failure 计数——于是
+一个恢复后每周期都成功的健康 job,UI 里会永久显示这条早已解决的错误(事故 2026-07-30,
+用户改间隔后撞见)。修复:成功时**无条件**把 `last_error` 置 None(有 backoff 时再一并清
+那三个字段),且仅在确有可清状态时才写库,避免每次成功多一次 UPDATE。回归测试
+`tests/job_module/test_failure_backoff.py::test_success_clears_stale_last_error_without_backoff`。
 
 ## 2026-07-28 — no-quota 判定的第 1、3 层收缩
 

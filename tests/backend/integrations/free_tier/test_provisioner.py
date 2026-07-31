@@ -161,3 +161,40 @@ async def test_wallet_outage_propagates_so_the_next_login_retries(wiring):
     with pytest.raises(WalletUnavailable):
         await mod.ensure_free_tier_provider("u1")
     assert wiring["onboarded"] == []
+
+
+@pytest.mark.asyncio
+async def test_seed_models_are_gated_by_probe_verdicts(wiring, monkeypatch):
+    # The gateway serves three ids; the ledger says "dead" FAILs everywhere
+    # and "m-b" FAILs anthropic only. The card seed must be per-protocol and
+    # must not offer what the upstream rejects.
+    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+
+    wiring["served_models"] = ["m-a", "m-b", "dead"]
+    ledger = {"generated_at": None, "sources": {"netmind": {"models": {
+        "m-a": {"openai": "pass", "anthropic": "pass"},
+        "m-b": {"openai": "pass", "anthropic": "fail"},
+        "dead": {"openai": "fail", "anthropic": "fail"},
+    }}}}
+    monkeypatch.setattr(
+        model_probe_ledger, "load_ledger_db", AsyncMock(return_value=ledger)
+    )
+
+    assert await mod.ensure_free_tier_provider("u1") is True
+    (_uid, _key, kw), = wiring["onboarded"]
+    assert kw["models"] == {
+        "openai": ["m-a", "m-b"],
+        "anthropic": ["m-a"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_gate_failure_degrades_to_raw_gateway_list(wiring, monkeypatch):
+    from xyz_agent_context.agent_framework.providers import model_probe_ledger
+
+    monkeypatch.setattr(
+        model_probe_ledger, "load_ledger_db", AsyncMock(side_effect=RuntimeError("db down"))
+    )
+    assert await mod.ensure_free_tier_provider("u1") is True
+    (_uid, _key, kw), = wiring["onboarded"]
+    assert kw["models"] == ["m-a", "m-b"]

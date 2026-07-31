@@ -135,6 +135,29 @@ class Settings(BaseSettings):
     llm_stall_probe_after_seconds: int = 600
     llm_stall_probe_timeout_seconds: int = 10
 
+
+
+    # ===== Turn-context relocation (token optimization phase 3, R4) =====
+    # Kill-switch for relocating per-turn volatile content (temporal block,
+    # narrative updated_at / current_summary, recent background activity,
+    # module get_turn_context blocks) out of the system prompt into a
+    # "[Turn context]" block prepended to the CURRENT user message. This
+    # keeps the system prompt byte-stable across turns so provider prefix
+    # caches (Anthropic byte-prefix, DeepSeek/vLLM block-hash) can hit.
+    # Relocation moves bytes, it never drops them — the model still sees
+    # every relocated section each turn. Off = context assembly is
+    # functionally equivalent to the pre-R4 layout — NOT byte-identical, which
+    # earlier wording claimed: the OFF path still applies three unconditional
+    # determinism normalisations (narrative timestamp canonicalisation,
+    # module-block (priority, name) total order, mcp_servers sort). Those move
+    # no content and drop none, but they do change bytes, so "off" restores the
+    # old STRUCTURE, not the old byte stream. Independent from
+    # the synthetic transcript: relocation benefits every framework and
+    # every turn; resume is claude_code-only. This is a fail-open ops gate,
+    # not a backwards-compatibility shim.
+    # Env: PROMPT_TURN_CONTEXT_RELOCATION_ENABLED.
+    prompt_turn_context_relocation_enabled: bool = True
+
     # ===== Helper-LLM one-shot bounds =====
     # The helper_llm slot runs SHORT, tool-free, single-turn structured-output
     # calls (Instance Decision, job analysis, memory consolidation, ...). It is
@@ -205,6 +228,46 @@ class Settings(BaseSettings):
     # isolated dir by _stage_claude_oauth_credentials; the personal settings.json
     # is never copied, so it can't leak. See api_config.ClaudeConfig.to_cli_env.
     claude_oauth_config_path: str = str(Path.home() / ".nexusagent" / "claude_oauth_config")
+
+    # Prefer the version-pinned `claude` on PATH over the binary bundled inside
+    # the claude-agent-sdk wheel. The bundled one wins by default in the SDK
+    # (`_find_cli` checks it first), and SDK 0.1.43 bundles CLI 2.1.56 — a
+    # version that does NOT normalize the request's `tools` array, so the array
+    # permutes every run and voids the whole cache prefix behind it (measured:
+    # experiments E3/E3c). See adapters/claude/cli_binary.py for the mechanism
+    # and the fail-open rules. Turning this off restores the pre-2026-07-29
+    # behavior (always bundled) — an ops gate, not a compatibility shim.
+    # Env: CLAUDE_CLI_PREFER_PINNED.
+    claude_cli_prefer_pinned: bool = True
+
+    # Explicit path to the `claude` binary the agent loop should launch,
+    # outranking both the pin lookup and the SDK's bundled copy. Empty = use
+    # the resolution above. For environments that install the CLI somewhere
+    # off PATH (and as the escape hatch when a pin bump is mid-rollout).
+    # A path that does not exist is IGNORED rather than honoured, so a typo
+    # degrades to the bundled binary instead of failing every turn.
+    # Env: CLAUDE_CLI_PATH.
+    claude_cli_path: str = ""
+
+    # Author the CLI's resume transcript ourselves every turn, instead of
+    # relying on a stored CLI session handle. When on, the adapter writes the
+    # conversation history into
+    # ``<CLAUDE_CONFIG_DIR>/projects/<cwd-slug>/<session_id>.jsonl``, resumes
+    # it, and deletes the file when the turn ends.
+    #
+    # Why it matters: the prompt cache matches a strict byte prefix ordered
+    # tools → system → messages, so history in the system prompt sits INSIDE
+    # the prefix. Handle-based resume already moved history out on RESUME turns,
+    # but a cold turn still carries it, so the two prompts differ and the first
+    # resume turn after any cold turn misses from ``system`` onward (~49K
+    # full-price tokens, measured). Writing the transcript ourselves makes every
+    # turn a resume turn, so the prompt is byte-identical from turn one.
+    #
+    # Fail-open at every step: nothing to resume, or the file cannot be written,
+    # and the turn runs exactly as it does today with history in the prompt.
+    # This is an ops gate, not a compatibility shim.
+    # Env: CLAUDE_SYNTHETIC_TRANSCRIPT_ENABLED.
+    claude_synthetic_transcript_enabled: bool = True
 
 
     # ===== Export Paths =====

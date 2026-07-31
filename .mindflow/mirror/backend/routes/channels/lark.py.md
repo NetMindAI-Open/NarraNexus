@@ -1,9 +1,18 @@
 ---
 code_file: backend/routes/channels/lark.py
 stub: false
-last_verified: 2026-07-13
+last_verified: 2026-07-29
 ---
 
+## 2026-07-29 — auth/complete persists bot_open_id
+
+The route's post-OAuth `/open-apis/bot/v3/info` lookup now stores
+`open_id` next to `bot_name` via `update_bot_identity`
+([[_lark_credential_manager]]), matching the MCP `lark_setup` and
+`lark_bind` paths. Without this, a bot bound through the frontend would
+have been the one entry point left without the identity
+[[lark_trigger]]'s group @-mention gate matches on, silently degrading it
+to name-only matching.
 ## 2026-07-13 — `/set-active` endpoint (activation)
 
 Added `POST /set-active` (flip `is_active` without a re-bind) → **8 endpoints now** (was 7). Primary use: activating a bundle-imported (inactive) Lark credential so the trigger's watcher claims the app's single WS slot. Delegates to `LarkCredentialManager.set_is_active`.

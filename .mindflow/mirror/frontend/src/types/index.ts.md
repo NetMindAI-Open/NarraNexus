@@ -1,8 +1,10 @@
 ---
 code_file: frontend/src/types/index.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — +migration 导出（[[migration]] Agent Migration 类型）
 
 ## 2026-07-22 — +teamMarketplace 导出
 

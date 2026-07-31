@@ -1,9 +1,21 @@
 ---
 code_file: src/xyz_agent_context/repository/__init__.py
-last_verified: 2026-07-13
+last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 — 移除 `CliSessionRepository` 导出
+
+`cli_session_repository.py` 随 T7 删除:它 CRUD 的 `agent_cli_sessions` 表已摘掉
+注册(见 [[schema_registry]]),而句柄机制整体被"每轮自建 transcript"取代
+(见 [[transcript]])。纯转发改动。
+
 # repository/__init__.py — repository 包的集中导出门面
+
+## 2026-07-25 — 导出 CliSessionRepository
+
+新增 re-export `CliSessionRepository`（可 resume 的 CLI 会话句柄数据访问,表
+`agent_cli_sessions`）。纯导出改动,无行为变化。见
+[`cli_session_repository.py`](cli_session_repository.py.md)。
 
 ## 为什么存在
 

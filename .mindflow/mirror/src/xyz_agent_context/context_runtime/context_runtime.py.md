@@ -1,8 +1,170 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-24
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`build_input_for_framework` 在 MCP 收集环里同批收集各模块
+`get_expressive_tools()`(fail-open,姿态同 disallowed),收集后按
+**(priority, module_class) 全序排**(R4d 同源,与 _build_turn_context_block /
+_sorted_module_instructions 完全一致)再去重——**首位即默认回复工具**且会被
+冻进框架稳定前缀,所以顺序必须由优先级驱动、跨回合确定。**不能**依赖
+active_instances 原序:那是 created_at DESC 的公共实例序(review 2026-07-31
+抓出的 bug:后建的 channel 实例会抢走首位,把 lark_cli 写进 constitution
+默认例子,还让新建实例静默打穿全量 cache)。返回值 3 元组 → 4 元组;
+`ContextRuntimeOutput.expressive_tools` 承载。
+
+## 2026-07-29 (二次) — 原生 turn 回放(NexusPower)
+
+`build_input_for_framework` 新增 `_load_native_turn_replays`:框架为
+NATIVE_REPLAY_FRAMEWORKS(现=nexus_power,同 step_3 的 identity 解析同源)时,当前
+narrative 的 assistant 行展开为 [[history_projection]] 从 events.event_log 折回的
+assistant/tool 消息序列(独白+工具调用+配对结果),替代两行拍平摘要。user 行保持拍平
+(时间线 tag 锚定);跨 narrative 行(`memory_type=short_term`)与无可折 log 的行保持
+拍平;窗口外仍由 narrative summary(system prompt Part 2)覆盖——「近期逐字、中期摘要、
+远期检索」。逐层 fail-open:回放是增强,任何失败退回拍平行,绝不炸 turn。
+`pop()` 防重复行二次注入同一工具序列。
+
+## 2026-07-29 — `build_input_for_framework` 不再拼 timeline 阅读指南
+
+`enhanced_system_prompt` 去掉了 `+ CHAT_HISTORY_TIMELINE_PREAMBLE`；该常量已移到
+[[materializer.py]]，与 history 区块同生共死。这里拼的话，argv 预算不够把 30 行
+全驱逐后，system prompt 里仍留着一段"下面是你们最近的对话"，模型会去回忆一个不
+存在的时间线（prod 2026-07-29）。注意本文件 `run()` 里打的
+`System Prompt built: N characters` 是在 preamble / recent-actions 拼接**之前**
+的数字——排查提示词尺寸时别把它当最终值。
+
+## 2026-07-28 — R4d：module 块全序排序 + 诊断改按发射序并加前缀分桶哈希
+
+**(1) module 块排序此前不是全序（等长重排型缓存断点）**
+
+`_build_module_instructions_prompt` 原来是 `sorted(key=lambda x: x.priority)`。
+`sorted` 是稳定排序，**优先级相同的模块只能继承上游顺序**，而上游是
+[[instance_repository.py]] `get_public_instances()`——它此前**没有 order_by**
+（同类的 get_by_agent / get_by_agent_and_user / get_chat_instances_by_user 全都有）。
+现网真实存在的同优先级并列：BasicInfo(2)/GeneralMemory(2)、
+Awareness(3)/SocialNetwork(3)、Lark(6)/Discord(6)/Slack(6)、
+Telegram(7)/WeChat(7)。Awareness↔SocialNetwork 一次对调会搬动约 4018 与 4880
+字节而**总长度不变**——这是「等长重排」，缓存前缀在第一个换位块处断裂，而所有
+按字节数的诊断都报告"没变化"。SQLite 今天恰好返回 rowid 序所以本机没发作；
+Postgres/MySQL 不承诺任何顺序（堆表重读、执行计划切换、index-only scan 都会重排），
+**这是 cloud 上的定时炸弹，不是理论问题**。
+
+修法（两层都修）：
+
+- 新增 `_sorted_module_instructions()` 静态方法，key = `(priority, name)`，
+  成为 module 块顺序的**唯一权威**：发射路径
+  （`_build_module_instructions_prompt`）与两个诊断
+  （`_log_system_prompt_breakdown` / `_maybe_dump_system_prompt`）全部走它，
+  所以**日志打印的顺序 = prompt 拼接的顺序**。`name` 是模块类名，上游已按
+  module_class 去重，故 `(priority, name)` 是真全序。
+- `_build_turn_context_block` 的 module 块排序同步改成
+  `(priority, module_class)` 全序（该块进的是 message 不是前缀，本身不是缓存
+  断点，改它是为了"module 块顺序"在全代码库只有一种含义）。元组从
+  `(priority, block)` 变成 `(priority, module_class, block)`。
+- 数据层：见 [[instance_repository.py]] R4d 条目（`get_public_instances`
+  补 `order_by="created_at DESC"`）。
+
+**(2) `[SYSPROMPT-BREAKDOWN]` 此前会主动隐藏等长重排**
+
+`modules:` 段原来按 instruction 长度**降序**打印——两轮之间发生块重排时，
+这个列表打印结果完全相同，诊断成了共犯。改为按**发射序**打印
+（`_sorted_module_instructions`），重排就表现为 token 换位。
+
+同时新增 `_prefix_bucket_hashes()` + `_PREFIX_BUCKETS`（2000/8000/32000 字符），
+在同一行尾部追加 `pfx2k=<6hex> pfx8k=<6hex> pfx32k=<6hex>`：对被测字符串前 N 字符
+取 sha256 截 6 位。用途是**定位**——整串的 `ctx_sha256` 只能回答"变了没"，
+分桶能回答"变在哪一段"：pfx2k 不同 → 断在前 2K（narrative 元数据区）；
+pfx2k 相同而 pfx8k 不同 → 断在 2K–8K（module 块边界区）；以此类推。
+不再需要抓包或 dump 才能定位一次等长分歧。
+
+兼容性：`_log_system_prompt_breakdown` 新增**可选** kwarg `prompt_text`
+（不传则不输出 pfx 字段，行尾仍以 `ctx_sha256=` 结束），
+`total=` / `parts:` / `narrative:` / `modules:` / `ctx_sha256=` 字段与
+`[SYSPROMPT-BREAKDOWN]` 前缀全部保持原样，现有日志工具与测试照旧可解析。
+调用点在 `build_input_for_framework` 里传 `enhanced_system_prompt`。
+
+**(3) Part 1 注释同步**：narrative 稳定半的字段清单去掉 created_at
+（见 [[prompts.py]] R4d：created_at 有两个时钟源，已迁 turn 块）。
+
+测试：`tests/context_runtime/test_module_block_order.py`（随机 20 次洗牌 →
+拼接结果恒等；Awareness↔SocialNetwork 对调是等长且无害；turn 块反序输入 →
+结果相同；仓储层 order_by 断言）、
+`tests/context_runtime/test_system_prompt_breakdown.py`（发射序、三个分桶哈希、
+分桶定位一次等长替换、无 prompt_text 时行尾形状不变、dump header 同为发射序）。
+
+## 2026-07-28 — R4c：MCP server 字典确定性排序 + 哈希仪器改标 ctx_sha256
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+- `build_input_for_framework` 收集完 mcp_servers 后 `dict(sorted(...))` 按
+  server 名排序（E2 §4：tools 数组跨轮洗牌是第二道缓存断点；本层字典顺序此前
+  跟随 active_instances 迭代序）。逐 server 内部工具序 = FastMCP 注册序（代码
+  序，确定）；**CLI 侧跨 server 并发连接的合并序仍不可控**，见
+  [[adapters/claude/sdk.py]]。codex 两条路径本就 sorted，此改动补齐 claude 路。
+  注意 `pass_mcp_servers` 在 StepContext 层 merge（本方法之后），最终排序由
+  claude 适配器 `_build_claude_mcp_config` 的 sorted 兜底。
+- **仪器校准（E2 §6.3）**：本文件 [SYSPROMPT-BREAKDOWN] 行的哈希改标
+  `ctx_sha256=`——它哈希的是 ContextRuntime 层字符串，**不含** claude 适配器
+  冷启动轮追加的 `=== Chat History ===` 尾段与逐 system-message 拼接换行，
+  不能代表 system[2] 实发字节。权威 `sys_sha256=` 现由 claude 适配器
+  post-`assemble_argv_prompt` 发射（[SYSPROMPT-SHA] 行），`grep sys_sha256`
+  只会命中真实发送字节的哈希。
+
+## 2026-07-28 — R4a turn-context relocation（system prompt 字节稳定，token 优化三期）
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+**目的**：Anthropic/DeepSeek 前缀缓存是字节/块级的，system prompt 里任何每轮易变
+字节（Part 0 temporal 秒级时间戳、Part 1 narrative 的 updated_at/current_summary、
+尾部 recent_actions）都会打穿缓存。R4a 把这些**非模块**易变段整体搬到**当前轮
+user message 前部**的 `[Turn context]` 块（照 2026-07-09 附件 marker 先例：只改
+LLM-facing 的 current_user_content，**绝不动 `ctx_data.input_content`** → 聊天持久
+化/前端/冷启动历史重合成零感知）。只搬不删（铁律 #16）：模型每轮照样看到全部内容。
+
+- 开关 `settings.prompt_turn_context_relocation_enabled`（默认 true；env
+  `PROMPT_TURN_CONTEXT_RELOCATION_ENABLED`）。**关 = 装配与 R4 之前逐字节一致**
+  （temporal/narrative 完整模板/recent_actions 全部回原位）——fail-open 运维闸门。
+- `build_complete_system_prompt`：开关开时跳过 Part 0、Part 1 用稳定版模板
+  （`combine_main_narrative_prompt(include_volatile=False)`，见
+  [[prompt_builder.py]] 模板拆分）。
+- 新增 `_build_turn_context_block(active_instances, ctx_data, narrative_list)`：
+  固定顺序 temporal（块名 "User Temporal Context" 不变，job MCP docstring 引用它）
+  → narrative turn 块 → 模块 `get_turn_context` 块（module_class 去重、priority
+  升序稳定排序，与 `_build_module_instructions_prompt` 同语义）→ recent_actions。
+  逐 part fail-open（warning + 跳过，不打死轮次）。R4a 阶段无模块 override
+  （R4b 才逐模块搬），模块块为空。
+  **所有 part 都为空时返回 `""` 而非只剩 header**，调用点同样跳过包裹 ——
+  否则会给用户原话前缀两个空行加一个"分隔了个寂寞"的 `--- User message ---`，
+  并让模型去找一个不存在的小节。这条路径只在 temporal 失败（唯一常驻 part）
+  且无 narrative / 无模块块 / 无 recent_actions 时可达。
+- `build_input_for_framework` 新增 kw 参数 `narrative_list`（run() 传入；None =
+  无 narrative turn 块）；`[Turn context]` + `--- User message ---` separator 前置
+  拼接在附件 marker 逻辑**之前**。
+- **[SYSPROMPT-BREAKDOWN] 发射点从 build_complete_system_prompt 移到
+  build_input_for_framework**（哈希"最终送适配器的 system prompt 字符串"，度量什么
+  就哈希什么）：行尾追加 `sys_sha256=<sha256(enhanced_system_prompt)[:12]>`，
+  parts 增加 `turn_context=<chars>`；`total=` 语义变为 enhanced（含 preamble）长度。
+  breakdown 输入经 `self._last_part_sizes / _last_module_instructions /
+  _last_narrative_meta` 在两方法间传递（ContextRuntime 每轮一个实例，不跨轮泄漏）。
+  两轮 grep sys_sha256 相同 = 前缀稳定哨兵（R4b 收尾后才翻转为相同——Anthropic
+  all-or-nothing，R4a 单独合入时 BasicInfo 等模块仍易变属预期）。
+- history 与 system prompt 的关系更新：历史仍走 unified timeline role messages
+  （不变）；**当前轮消息现在 = [Turn context] 块 + separator + 用户原话 (+ 附件
+  marker)**，claude/codex 适配器 `messages.pop()` 原样取走，零适配器改动（铁律 #9）。
+
+Plan：`reference/self_notebook/plans/2026-07-25-r4-prompt-stability.plan.md`（R4a）。
+Tests：`tests/context_runtime/test_turn_context_relocation.py`（开关关闭时恢复
+pre-R4 **小节位置** / 装配顺序 / 模块收集 fail-open / sys_sha256 稳定性 /
+空 turn context 不发 header）、`test_temporal_context.py`（建造点迁移）。
+
+**用词更正（2026-07-29，PR #185 review）**：早期注释与文档写的"开关关闭 =
+与 pre-R4 字节相同"是夸大。关闭开关恢复的是**小节位置**，不是字节流 ——
+三条 determinism normalisation（narrative 时间戳规范化、模块块 (priority, name)
+全序、mcp_servers 排序）是无条件生效的，它们不搬运也不丢弃任何内容，但确实改字节。
+module 级的"这段模板没动"仍然是准确的窄声明，只有 assembly 级的说法被改掉。
 
 ## 2026-07-24 — `build_input_for_framework` 新增第三返回值 `disallowed_tools`（B++）
 
@@ -73,9 +235,6 @@ prompt. See the 2026-06-11 entry below for what the now-deleted block did.
 
 build_complete_system_prompt now injects a "Part 0b: User Identity" block via new `_build_user_identity_block(ctx_data)`: states the agent OWNER by display_name (NetMind nickname / local display_name; falls back to user_id, never shown as a name otherwise), and — when the trigger carries `sender_user_id` in extra_data (only chat does) — whether the current sender is the owner or a visitor (resolves their display_name, compares to owner). IM triggers don't set sender_user_id (their own module trust block handles sender), so they get only the owner line; job/bus likewise. Cleanly separates user_id (opaque scoping key) from the human name. Defensive: lookup failure never breaks the prompt.
 
-last_verified: 2026-05-29
-stub: false
----
 
 ## 2026-05-29 — EverMemOS removed
 

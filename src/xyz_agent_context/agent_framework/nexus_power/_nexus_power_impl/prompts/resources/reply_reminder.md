@@ -1,0 +1,1 @@
+Reminder: the user receives ONLY what you pass to a reply tool ({{REPLY_TOOLS}}). Plain text is never delivered — however short the answer, send it through a reply tool. If the incoming message carries its own reply instruction (naming the channel or tool to answer through), that reply instruction outranks this default list — follow it.

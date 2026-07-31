@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/cloud_policy.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 框架门禁改成按「会不会骑共享凭据」判断
+
+新增 `CLOUD_ALLOWED_FRAMEWORKS` + `framework_allowed_in_cloud()`，取代原来
+散在三处的 `framework != "claude_code"`。
+
+**这条规则拦的是凭据骑乘，不是框架多样性**：`claude_code` / `codex_cli` 靠
+CLI 读 HOME 下的凭据文件认证（`~/.claude/.credentials.json`、
+`~/.codex/auth.json`），而云端镜像只有一个 `app` 用户、一个 HOME——那些文件
+是容器全局的、由 staff 登录一次种下。非 staff 切到这类框架就会花 staff 的
+额度、以 staff 身份行动。`claude_code` 之所以仍允许，是因为云端会给每个用户
+发一张 API-key 的 NetMind 卡；真正 staff-only 的是 **OAuth 卡**本身。
+
+NexusPower 从构造上就骑不到：它直接驱动 provider API，用的是 agent slot 上
+所绑卡的 key，并且**显式拒绝** OAuth 凭据。云端非 staff 只能绑 NetMind 容量，
+所以它跑起来就是跑在用户自己账上——正是本策略想要的结果。
+
+往这个集合里加框架是**安全决策**：只有「永远碰不到共享凭据文件」的才配进。
+反过来，未分类的新框架会 fail closed（有测试守）。
 
 ## 2026-07-28 — 可绑定 source 从单值变集合
 

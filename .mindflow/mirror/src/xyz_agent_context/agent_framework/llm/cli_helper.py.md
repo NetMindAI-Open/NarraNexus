@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — Claude CLI cache usage normalization
+
+Claude Code's `ResultMessage.usage` follows Anthropic's split cache shape.
+The helper now uses the shared Anthropic normalizer so cache reads and cache
+writes contribute to the recorded input total. Timeout, retry, credential
+staging, and Codex helper behavior remain unchanged.
 
 ## 2026-07-21 — claude helper 结构化输出加固 + 子进程设界(Lark bug #2)
 

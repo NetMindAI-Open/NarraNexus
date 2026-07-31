@@ -67,6 +67,15 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// Post-payment return: Stripe lands the payer on /app/settings?status=…&flow=…
+// The panel reads those, then strips them so a refresh doesn't re-announce a
+// payment that already settled.
+let mockSearch = '';
+const mockSetSearchParams = vi.fn();
+vi.mock('react-router-dom', () => ({
+  useSearchParams: () => [new URLSearchParams(mockSearch), mockSetSearchParams] as const,
+}));
+
 const mockOpenExternal = vi.fn().mockResolvedValue(undefined);
 vi.mock('@/lib/platform', () => ({
   platform: { openExternal: (...a: unknown[]) => mockOpenExternal(...a) },
@@ -152,6 +161,8 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  mockSearch = '';
+  mockSetSearchParams.mockReset();
   mockNetmindToken = 'tok';
   mockEmail = '';
   mockDisplayName = '';
@@ -374,34 +385,66 @@ test('pro × low: top-up promoted directly (no upsell — already Pro)', async (
   expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
 });
 
-test('S2: cancel via Manage → confirm true → api.cancelSubscription', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
+// Confirmation goes through the in-app dialog (useConfirm), never
+// window.confirm: wry (the Tauri webview) does not render the native dialogs, so
+// a native call resolves falsy and the handler bails out SILENTLY — the DMG user
+// clicks "Cancel subscription" and nothing at all happens. The pre-2026-07-30
+// tests here stubbed window.confirm, which is precisely why that was invisible.
+// `nativeConfirm` therefore asserts absence, not a return value.
+async function openManageDialog() {
+  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
+}
+
+test('S2: cancel via Manage → in-app dialog, confirmed → api.cancelSubscription', async () => {
+  const nativeConfirm = vi.spyOn(window, 'confirm');
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   mockCancel.mockResolvedValue({ success: true, data: { status: 'auto_renew_off' } });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
-  fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
+  await openManageDialog();
+
+  // The dialog must be on screen and nothing may have been called yet.
+  expect(await screen.findByText(/Turn off auto-renew\?/)).toBeTruthy();
+  expect(mockCancel).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Turn off auto-renew$/ }));
   await waitFor(() => expect(mockCancel).toHaveBeenCalled());
+  expect(nativeConfirm).not.toHaveBeenCalled();
 });
 
-test('S2: cancel confirm dismissed → no api call', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(false);
+test('S2: cancel dialog dismissed → no api call', async () => {
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
-  fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
+  await openManageDialog();
+  // "Keep subscription", not a bare "Cancel": next to a subscription-cancelling
+  // action, a button labelled Cancel is genuinely ambiguous.
+  fireEvent.click(await screen.findByRole('button', { name: /Keep subscription/ }));
   expect(mockCancel).not.toHaveBeenCalled();
 });
 
-test('S3: resume button → confirm true → api.reactivateSubscription', async () => {
-  vi.spyOn(window, 'confirm').mockReturnValue(true);
+test('S3: resume → in-app dialog, confirmed → api.reactivateSubscription', async () => {
+  const nativeConfirm = vi.spyOn(window, 'confirm');
   mockGetSubscription.mockResolvedValue(PRO_SUB(false));
   mockReactivate.mockResolvedValue({ success: true, data: { status: 'auto_renew_on' } });
   render(<NetmindAccountPanel />);
   fireEvent.click(await screen.findByRole('button', { name: /Resume auto-renew/ }));
+
+  expect(await screen.findByText(/Resume auto-renew\?/)).toBeTruthy();
+  expect(mockReactivate).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: /^Resume$/ }));
   await waitFor(() => expect(mockReactivate).toHaveBeenCalled());
+  expect(nativeConfirm).not.toHaveBeenCalled();
+});
+
+test('S3: resume dialog dismissed → no api call', async () => {
+  mockGetSubscription.mockResolvedValue(PRO_SUB(false));
+  render(<NetmindAccountPanel />);
+  fireEvent.click(await screen.findByRole('button', { name: /Resume auto-renew/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Not now/ }));
+  expect(mockReactivate).not.toHaveBeenCalled();
 });
 
 // ── runway view: free-tier bar / balance / grant / flow line / toggle ───────
@@ -859,3 +902,128 @@ test('recharge: "Stop waiting" leaves processing and allows immediate retry', as
   fireEvent.click(screen.getByRole('button', { name: /^Recharge$/ }));
   await waitFor(() => expect(mockRecharge).toHaveBeenCalledTimes(2));
 });
+
+// ── post-payment return (2026-07-30 P0) ────────────────────────────────────
+// Stripe now returns the payer to /app/settings?tab=account&status=…&flow=… on
+// deployments with a configured public origin. That tab is a FRESH mount with no
+// poll running, so everything the old in-tab poll did on success has to happen
+// here too — otherwise the payer is told nothing and, for a subscription, the
+// provider link that pollUntilActive fires never happens at all.
+
+test('return with status=success&flow=topup: confirms the top-up', async () => {
+  mockSearch = 'tab=account&status=success&flow=topup';
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/Top-up received/i)).toBeTruthy();
+  // Balance is read from the server, never inferred from the redirect.
+  await waitFor(() => expect(mockGetFeeInfo).toHaveBeenCalled());
+});
+
+test('return does not duplicate the mount fetch, and re-reads once after a settle delay', async () => {
+  // Re-reading immediately would only clone the five requests the mount effect
+  // already fired in the same tick — no fresher, just doubled. What the money
+  // display needs is a LATER read: Stripe redirects the moment IT is done, a
+  // beat before NetMind has credited the account.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockSearch = 'tab=account&status=success&flow=topup';
+    mockGetSubscription.mockResolvedValue(FREE_SUB);
+    render(<NetmindAccountPanel />);
+    await screen.findByText(/Top-up received/i);
+    expect(mockGetFeeInfo.mock.calls.length).toBe(1); // mount only
+    await vi.advanceTimersByTimeAsync(3500); // settle delay elapses
+    expect(mockGetFeeInfo.mock.calls.length).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('a cancelled return never re-reads — nothing changed upstream', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockSearch = 'tab=account&status=cancelled&flow=topup';
+    mockGetSubscription.mockResolvedValue(FREE_SUB);
+    render(<NetmindAccountPanel />);
+    await screen.findByText(/not been charged/i);
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(mockGetFeeInfo.mock.calls.length).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('return with status=success&flow=subscription: starts the bounded poll on the returning tab', async () => {
+  // The plan flips upstream a moment after payment, and the poll is also what
+  // fires the provider auto-link. Before this, that poll only ever ran in the
+  // tab that STARTED the payment — a fresh return tab had neither.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockSearch = 'tab=account&status=success&flow=subscription';
+    mockGetSubscription.mockResolvedValue(FREE_SUB);
+    mockUseSubscription.mockResolvedValue({ success: true });
+    render(<NetmindAccountPanel />);
+    expect(await screen.findByText(/Payment received/i)).toBeTruthy();
+    const afterMount = mockGetSubscription.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(4500); // one poll interval
+    expect(mockGetSubscription.mock.calls.length).toBeGreaterThan(afterMount);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('return with status=success&flow=topup: does NOT start the subscription poll', async () => {
+  // A top-up never changes the plan, so polling /me would be pure noise.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    mockSearch = 'tab=account&status=success&flow=topup';
+    mockGetSubscription.mockResolvedValue(FREE_SUB);
+    render(<NetmindAccountPanel />);
+    await screen.findByText(/Top-up received/i);
+    expect(mockGetSubscription.mock.calls.length).toBe(1); // mount
+    // Over 12s a running poll fires every 4s; the ONE settle refresh is the only
+    // extra read allowed here, so the exact count separates the two.
+    await vi.advanceTimersByTimeAsync(12000);
+    expect(mockGetSubscription.mock.calls.length).toBe(2); // + settle only
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test('return with status=cancelled: says no charge was made, links nothing', async () => {
+  mockSearch = 'tab=account&status=cancelled&flow=subscription';
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  expect(await screen.findByText(/not been charged/i)).toBeTruthy();
+  expect(mockUseSubscription).not.toHaveBeenCalled();
+});
+
+test('return params are stripped, tab is kept — a refresh must not re-announce', async () => {
+  mockSearch = 'tab=account&status=success&flow=topup';
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  await screen.findByText(/Top-up received/i);
+  await waitFor(() => expect(mockSetSearchParams).toHaveBeenCalled());
+  const next = mockSetSearchParams.mock.calls[0][0] as URLSearchParams;
+  expect(next.get('status')).toBeNull();
+  expect(next.get('flow')).toBeNull();
+  expect(next.get('tab')).toBe('account'); // dropping this would bounce the pane
+});
+
+test('no return params: no payment banner at all', async () => {
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  await screen.findByText('NetMind.AI Power');
+  expect(screen.queryByText(/Payment received/i)).toBeNull();
+  expect(screen.queryByText(/Top-up received/i)).toBeNull();
+  expect(mockSetSearchParams).not.toHaveBeenCalled();
+});
+
+test('an unrecognised status value is ignored, not rendered blank', async () => {
+  mockSearch = 'tab=account&status=weird';
+  mockGetSubscription.mockResolvedValue(FREE_SUB);
+  render(<NetmindAccountPanel />);
+  await screen.findByText('NetMind.AI Power');
+  expect(screen.queryByText(/Payment received/i)).toBeNull();
+  expect(screen.queryByText(/not been charged/i)).toBeNull();
+});
+

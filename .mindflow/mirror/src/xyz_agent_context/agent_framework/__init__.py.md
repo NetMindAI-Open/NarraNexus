@@ -1,9 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/__init__.py
-last_verified: 2026-06-17
+last_verified: 2026-07-29
 stub: false
 ---
 # agent_framework/__init__.py — agent-loop driver 注册中心
+
+## 2026-07-29 — 注册第三个 driver:nexus_power
+
+`register_agent_loop_driver("nexus_power", _nexus_power_factory)`——工厂内懒 import
+[[nexus_agent]],注册在包导入期零成本(不像 claude/codex 直接 import 适配器)。
+声明与实现同批(capabilities={event_log} 随实现落地)。
 
 ## 为什么存在
 

@@ -64,6 +64,16 @@ DATA_TYPE_ERROR = "response.error"
 # ResultMessage.usage comes back 0 but the streamed message_delta has real
 # tokens. Accumulated across turns by response_processor.
 DATA_TYPE_USAGE = "response.usage"
+# The user-facing reply, streamed as the model writes it (NexusPower
+# only). Under the monologue/expression contract the reply lives in an
+# expression tool's argument, so the argument text IS the reply — this
+# shape carries it live, ahead of the completed tool_call_item that
+# repeats the same final text. Drivers that do not stream tool
+# arguments simply never emit it, so every existing consumer is
+# unaffected; consumers that do not know it can ignore it safely (the
+# tool_call_item remains the authoritative record).
+DATA_TYPE_REPLY_DELTA = "response.reply.delta"
+
 
 # ---------------------------------------------------------------------------
 # item.type values (run_item_stream_event)
@@ -75,6 +85,9 @@ ITEM_TYPE_TOOL_CALL_OUTPUT = "tool_call_output_item"
 # Non-streaming collection shape only (output_transfer's new_items list);
 # never yielded on the streaming path.
 ITEM_TYPE_MESSAGE_OUTPUT = "message_output_item"
+# The agent's current plan snapshot (NexusPower only): full replace on
+# every update — {"steps": [{"step", "status"}], "note"}.
+ITEM_TYPE_PLAN = "plan_item"
 
 # ---------------------------------------------------------------------------
 # Error taxonomy (claude-agent-sdk vocabulary, adopted platform-wide)

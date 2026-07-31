@@ -1,8 +1,81 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-29
 ---
+
+## 2026-07-29 — bot identity, sensitive-scope guidance, skill list
+
+Three smaller changes landing with the scope work above.
+
+**`_finalize_setup` switched to `/open-apis/bot/v3/info`.** It called
+`contact +get-user --as bot`, which with bot identity returns
+open_id/union_id and NO name (see `LarkCLIClient.get_user`) — so its
+`if name:` guard never fired and every setup-created bot kept an empty
+`bot_name`. The new call matches `do_bind` in [[_lark_service]] and also
+yields `bot_open_id`, which [[lark_trigger]]'s group @-mention gate
+matches on.
+
+**`_MSG_GROUP_SCOPE_GUIDE` / `_group_scope_guide(cred)`** render the one
+step the three-click flow structurally cannot automate: enabling
+`im:message.group_msg` in the console and publishing a version. Returned
+from `lark_enable_receive` (the moment group behaviour starts to matter)
+and from `lark_status` (because "the bot answers off-topic in groups"
+arrives weeks later). Written around READING rather than replying —
+users who read it as "the bot will start answering everything" refuse
+the scope, and the @-mention gate makes that fear unfounded.
+
+**`lark_skill`'s skill roster** was stale against upstream (missing
+lark-vc-agent, lark-note, lark-markdown, lark-apps). Refreshed, plus an
+explicit note that the loader discovers whatever is installed and the
+docstring list is a hint, not the source of truth — upstream adds skills
+on their own cadence and this list will drift again.
+
+## 2026-07-29 — first-time binding requests the full user-scope set
+
+`lark_setup`'s three-click flow used to mint both Click 2 and Click 3 with
+a bare `auth login --domain all --recommend`. `--recommend` filters to
+lark-cli's auto-approve registry (`scope_priorities.json` recommend=="true"
+minus `scope_overrides.json` deny), which drops ~33 scopes the CLI-created
+PersonalAgent app carries on its user side. Agents therefore hit
+`missing_scope` on everyday calendar / mail / search work, and each gap
+cost the owner one mint → click → poll top-up round.
+
+`_EXTRA_LOGIN_SCOPES` (32 entries) now rides on an explicit `--scope`
+argument so the whole set is requested in the SAME approval pair. The
+trade is deliberate: these are precisely the scopes that are NOT
+auto-approve, so on an enterprise tenant Click 2 becomes a real admin
+request covering them — one approval up front instead of a trickle of
+interruptions. Partial approval stays survivable: the CLI's
+`ensureRequestedScopesGranted` reports the ungranted remainder and the
+incremental `auth login --scope X` path (allowed by
+[[_lark_command_security]]) still covers the rest.
+
+**Both clicks mint from one constant (`_LOGIN_MINT_ARGS`) on purpose.**
+The token's scope is whatever CLICK 3 asked for; when the args lived as
+two separate literals, widening only Click 2 would widen the approval
+request and then discard the extra grants at mint time, with no error
+anywhere. `test_login_mint_args.py` pins the two call sites equal.
+
+**Bot-identity scopes are structurally out of reach here and must not be
+added to the list.** `auth login` only ever grants user identity. The one
+that bites: `im:message.group_msg` ("获取群组中所有消息", flagged SENSITIVE
+by Lark) decides whether the bot receives every group message or only
+@-mentions — it is enabled in the developer console, shipped by
+publishing a new app version, and reviewed by the tenant admin. Its
+user-identity twin `im:message.group_msg:get_as_user` is a different
+thing (the agent reading group history as the owner) and already arrives
+via `--recommend`. Requesting the bot-side name here would silently never
+be granted. Same for `im:message:send_as_bot` / `im:resource`.
+`im:message.send_as_user` is excluded on product grounds — the agent
+speaks as the bot, never impersonates the owner.
+
+**CLI floor: lark-cli >= 1.0.31.** Older versions hard-fail with "cannot
+use --scope together with --domain/--recommend" — the flags were mutually
+exclusive until then and only became additive in 1.0.31. The desktop
+bundle pin moved 1.0.18 → 1.0.79 in the same change; cloud already
+tracked latest. A future downgrade below the floor breaks Click 2
+outright (铁律 #7).
 
 ## 2026-07-24 — setup residency (B++): zero-arg setup tools return the guide
 

@@ -1,6 +1,6 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -248,3 +248,8 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 修改 `AUTH_EXEMPT_PATHS` 或 `AUTH_EXEMPT_PREFIXES` 时，漏掉新的公开端点会导致云模式下这些路径突然开始要求登录，表现为前端请求 401，但本地开发时完全正常（本地模式跳过所有鉴权），因此这类 bug 在本地测试时根本发现不了。
 
 `_is_cloud_mode()` 每次调用都重新读 `os.environ`，测试时如果没有设置环境变量，它永远返回 False，云模式代码路径在测试里默认不覆盖。要测试云模式逻辑，需要在测试里 monkeypatch `os.environ["DATABASE_URL"] = "mysql://..."` 或 `os.environ["DB_HOST"] = "some-host"`。
+
+## 2026-07-30 — bypass 名单 +runtime/status
+
+`/api/admin/runtime/status` 进 AUTH_BYPASS（handler 内 X-Admin-Secret 自凭据，
+读-only）——同 migrate-identity 模式，服务 deploy 仓 alert watcher。

@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/resolver.py
-last_verified: 2026-07-26
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 协议无关框架:openai 卡也能进 agent 槽
+
+`nexus_power` 自己驱动 provider API(不外挂 CLI),所以两族 provider 都能用。
+新增 `_is_protocol_agnostic_framework`,`_resolve_slot_target` 对这类框架按卡
+的协议分派:anthropic → `build_claude_config`,openai → `build_codex_config`
+(agent 槽的 openai 载体是 codex,`openai_config` 属于 helper_llm,别混)。
+同时把 `nexus_power` 补进 `_KNOWN_AGENT_FRAMEWORKS`——漏了这一条会**静默
+降级成 claude_code**(实测踩到:槽里写着 nexus_power,跑的却是 claude)。
 
 ## 2026-07-26 — helper 槽分派：`oauth_token` 与 `oauth` 同走 CLI helper
 

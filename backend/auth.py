@@ -265,6 +265,10 @@ AUTH_EXEMPT_PATHS = {
     # inside the handler (admin_secret_key), not a user JWT — the offline batch
     # migrator has no JWT. Same self-credentialed pattern as netmind-login.
     "/api/admin/migrate-identity",
+    # Runtime observability: polled by the deploy-side alert watcher (a
+    # headless container with no user JWT), gated on the same X-Admin-Secret
+    # inside the handler. Read-only.
+    "/api/admin/runtime/status",
     # Marketplace publish: self-credentialed via the X-Publish-Token header
     # (MARKETPLACE_PUBLISH_TOKEN env) — CI/ops publishers have no user JWT.
     # Same pattern as migrate-identity above.

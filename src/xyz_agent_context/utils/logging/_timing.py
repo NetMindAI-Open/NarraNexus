@@ -14,6 +14,12 @@ Behavior:
   - Exception: ``logger.exception(...)`` records the failure with full
     stack, then re-raises so semantics match the un-timed code path.
 
+Async-generator form: the wrapper drains the wrapped generator inside
+``contextlib.aclosing`` so closing the WRAPPER propagates the close to the
+wrapped generator in the same await. Without it the decorator would silently
+defer every wrapped ``finally`` to asyncgen GC finalization — see the comment
+on ``asyncgen_wrapper``.
+
 Each ``with timed(...)`` / ``@timed(...)`` invocation gets its own
 clock — re-using a single returned object across nested or concurrent
 scopes is safe because ``__enter__`` always resets the start time.
@@ -24,6 +30,7 @@ import asyncio
 import functools
 import inspect
 import time
+from contextlib import aclosing
 from typing import Any, Callable
 
 from loguru import logger
@@ -124,9 +131,23 @@ class _Timed:
         if inspect.isasyncgenfunction(fn):
             @functools.wraps(fn)
             async def asyncgen_wrapper(*args: Any, **kwargs: Any) -> Any:
+                # ``aclosing`` is load-bearing, not decoration: ``async for``
+                # does NOT close the iterator it drains, so a plain
+                # ``async for item in fn(...)`` leaves the WRAPPED generator
+                # merely suspended when the CONSUMER closes the wrapper
+                # (aclose / abandonment / cancellation). The wrapped
+                # generator's ``finally`` blocks would then only run whenever
+                # the asyncgen GC finalizer hook got around to it — turning
+                # every "release my resource in finally" contract inside a
+                # @timed async generator into a deferred, unordered promise
+                # (found while making step_3's resume-handle lease release
+                # airtight: the lease survived an explicit aclose()).
+                # aclosing() forwards the close to the wrapped generator
+                # immediately, so its cleanup runs inside the same await.
                 with _Timed(cfg[0], level=cfg[1], slow_threshold_ms=cfg[2]):
-                    async for item in fn(*args, **kwargs):
-                        yield item
+                    async with aclosing(fn(*args, **kwargs)) as agen:
+                        async for item in agen:
+                            yield item
 
             return asyncgen_wrapper
 

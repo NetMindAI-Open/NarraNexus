@@ -1,9 +1,25 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/basic_info_module.py
-last_verified: 2026-07-10
+last_verified: 2026-07-28
 ---
 
-## 2026-07-10 — hook 填入真实 LLM 身份（framework + model）
+## 2026-07-28 — R4b：get_instructions 按 relocation flag 选模板 + get_turn_context
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+新增两个 override（见 [[base.py]] 的 get_turn_context 合约与
+`2026-07-25-r4-prompt-stability.plan.md`）：
+
+- `get_instructions`：读 `settings.prompt_turn_context_relocation_enabled`，
+  开 → `BASIC_INFO_MODULE_INSTRUCTIONS_STABLE`（无 `{current_time}`，轮间字节
+  稳定），关 → legacy 模板（与 R4 前逐字节一致）。模板选好后仍走基类的
+  `format(**model_dump)` 路径（机制不变，只换模板）。flag 在渲染点直接读——
+  narrative 侧的 include_volatile 参数模式无法照搬，因为 get_instructions 签名
+  被基类合约（context_runtime.py:196）钉死。
+- `get_turn_context`：渲染 `BASIC_INFO_REAL_WORLD_TURN_TEMPLATE`（文案与 legacy
+  span 逐字节相同），值来自 `ctx_data.current_time`；hook_data_gathering 填充
+  逻辑一行未动。current_time 缺失 → 返回 ""（fail-open，与旧路径 best-effort
+  语义一致）。
 
 `hook_data_gathering` 新增一段：调 [[providers/model_identity.py]]
 `resolve_agent_model_identity(self.agent_id, self.db)`，把
@@ -46,7 +62,7 @@ in [[prompts.py]] (BASIC_INFO_MODULE_INSTRUCTIONS).
 
 ## 为什么存在
 
-BasicInfoModule 是 Agent 了解自身运行环境的最小化通道。它只做一件事：在 `__init__` 里把 `BASIC_INFO_MODULE_INSTRUCTIONS` 赋给 `self.instructions`，让 `get_instructions()` 在每轮对话时把 agent_id、user_id、当前时间等信息注入系统提示。
+BasicInfoModule 是 Agent 了解自身运行环境的最小化通道。核心职责：`get_instructions()` 在每轮对话时把 agent_id、user_id、身份/沟通模式等信息注入系统提示（模板按 R4 relocation flag 二选一，见上方 2026-07-28 记录）；秒级的当前时间经 `get_turn_context()` 注入当前轮消息（flag 关闭时仍走系统提示的 legacy 模板）。
 
 **实现的 hook**：`hook_data_gathering` 解析身份的人类名（creator_name / current_speaker_name）并基于真实 sender 计算 is_creator（见上方 2026-06-12 记录）。`hook_after_event_execution` 仍使用基类空默认实现。
 

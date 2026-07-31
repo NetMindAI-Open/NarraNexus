@@ -1,9 +1,45 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/output_transfer.py
-last_verified: 2026-07-27
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — tool_call_item 统一构造函数（pending 语义）
+
+三处字面量构造（claude 非流式 new_items / claude 流式 / codex started）
+收敛为 `tool_call_item()`。`arguments=None` = 只知道名字（流式参数没到）
+→ 标 pending，UI 立刻显示「正在用 X」，随后同 tool_call_id 的完整事件
+覆盖。非流式 provider 一次给全、自然只发完整版——这个不对称是 provider
+特性，平台不抹平（铁律 #15）。今天三处调用方 arguments 均非 None（codex
+`_codex_tool_args` 恒返回 dict），pending 恒 False；构造函数是给 SDK
+partial_json 流式路径预留的接缝。
+
+## 2026-07-29 — session_id 降级为纯观测值(T7)
+
+`ResultMessage.session_id` 仍然被抽取、仍然走
+response_processor → ExecutionState → PathExecutionResult 这条链,但**已经没有
+消费者**:step_4 的句柄持久化删了(T5),表也摘了(T7)。它现在只进日志。
+
+保留而不删的理由:它是"这一轮 CLI 报了什么会话"的唯一观测点,排查 resume 行为时
+有用;而且删它要动四层的字段,收益是省一个字符串。注释已改写,免得下一个读者以为
+它还被存进库里。
+
 # output_transfer.py — Claude SDK 消息格式转换为统一事件流
+
+## 2026-07-29 — UserMessage 的 TextBlock 不再当作 agent 输出
+
+`_convert_user_to_stream_events` 过去在「没有 ToolResultBlock」时把 UserMessage 的
+文本当 text delta 发出去。user 角色承载的是工具结果和 **CLI 自己塞进 transcript 的
+东西**，其中最大的一块是 auto-compaction 交接：运行摘要 + CLI session `.jsonl` 的
+绝对路径 + "Please continue the conversation from where we left off"。发成 delta 后
+被 [[response_processor.py]] 判为 AGENT_RESPONSE、被 [[run_collector.py]] 累进
+`events.final_output`，于是 owner 在 Inner Thought 卡片里读到 CLI 的内部记账（还带
+一个他打不开的容器路径）当成 agent 的回答。prod 2026-07-29 近 30 天 11 个 agent 命中
+60+ 次。
+
+agent 说话只走 StreamEvent / AssistantMessage，所以这条路径上**没有 agent 输出可丢**
+——丢掉正是目的。与 [[sdk.py]] 里拦截 `AssistantMessage.error`（避免上游 400 被渲染
+成 agent 自己的话）是同一类修复。
 
 ## 2026-07-27 — 从流式事件抠 token usage(免费额度记账修复)
 
@@ -23,6 +59,13 @@ DONE(真 Anthropic 权威值);两者不会重复计——streamed 值只在 DONE
 （TYPE_RAW_RESPONSE_EVENT 等），值逐字节不变——纯机械替换，行为零变化。
 事件契约自此有唯一事实源，详见 events.py.md。
 
+## 2026-07-25 — session_id 从"只打日志"改为随 data 上抛(resume 化 R1)
+
+W1 留的口子兑现:`data["session_id"] = session_id`(INFO 日志保留),沿 num_turns
+的同一链走 response_processor → ExecutionState → PathExecutionResult,由 step_4
+落 `agent_cli_sessions`。远程 Executor 路径的事件 dict 经 NDJSON 原样穿透,新键
+随 data 自然携带,remote 侧零改动。codex 转换器不产 session_id——该键只在
+Claude 路径出现。
 
 ## 2026-07-23 — ResultMessage 补提取 num_turns + session_id(W1 token 埋点)
 

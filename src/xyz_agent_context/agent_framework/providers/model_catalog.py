@@ -34,6 +34,11 @@ class ModelMeta:
     model_id: str
     display_name: str
     max_output_tokens: Optional[int] = None   # 90% of model limit
+    # The provider's hard `input + max_tokens` limit — the number a
+    # request 400s at, not a budget we choose. Only meaningful for
+    # callers that size output against the room the input leaves;
+    # `None` means unverified, and they fall back to their own budget.
+    context_window: Optional[int] = None
 
 
 # =============================================================================
@@ -67,8 +72,10 @@ _register(
     # how its inference router dispatches; the prefix is part of the
     # model id, not a separate provider. max_output_tokens matches the
     # native Claude limits because NetMind is a transparent proxy here.
-    ModelMeta("anthropic/claude-opus-4-8", "Claude Opus 4.8 (NetMind)", max_output_tokens=115200),
-    ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)", max_output_tokens=115200),
+    ModelMeta("anthropic/claude-opus-4-8", "Claude Opus 4.8 (NetMind)",
+              max_output_tokens=115200, context_window=1_000_000),
+    ModelMeta("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6 (NetMind)",
+              max_output_tokens=115200, context_window=1_000_000),
     ModelMeta("Qwen/Qwen3.6-Plus", "Qwen3.6 Plus"),
     ModelMeta("Qwen/Qwen3.6-Flash", "Qwen3.6 Flash"),
     ModelMeta("Qwen/Qwen3.6-35B-A3B", "Qwen3.6 35B-A3B"),
@@ -78,10 +85,14 @@ _register(
 # max_output_tokens left None for models whose official limits we haven't
 # independently verified; callers fall back to the provider's own cap.
 _register(
-    ModelMeta("claude-opus-4-8", "Claude Opus 4.8", max_output_tokens=115200),
-    ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6", max_output_tokens=115200),
-    ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5"),
-    ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)"),
+    ModelMeta("claude-opus-4-8", "Claude Opus 4.8",
+              max_output_tokens=115200, context_window=1_000_000),
+    ModelMeta("claude-sonnet-4-6", "Claude Sonnet 4.6",
+              max_output_tokens=115200, context_window=1_000_000),
+    ModelMeta("claude-haiku-4-5", "Claude Haiku 4.5",
+              max_output_tokens=57600, context_window=200_000),
+    ModelMeta("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)",
+              max_output_tokens=57600, context_window=200_000),
     # Claude Code CLI family aliases — always resolve to the latest model of
     # each family. Used by the Claude OAuth candidate list so it never goes
     # stale; only valid on the CLI (`claude --model opus`), not the raw API.
@@ -291,9 +302,18 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     # or a source we haven't probed).
     from xyz_agent_context.agent_framework.providers.model_probe_ledger import ledger_models
 
-    # The free-tier card proxies the SAME upstream catalogue as a NetMind card
-    # (our gateway forwards to NetMind), so it reads netmind's ledger entry
-    # instead of maintaining a second list that would silently drift.
+    # The free-tier card is gated by OUR gateway: the daily pass writes the
+    # gateway-∩-verdicts list as the ledger's own netmind_free entry
+    # (model_sync.build_free_tier_entry). Prefer it — the raw netmind passes
+    # include models the gateway cannot route or price.
+    if source == "netmind_free":
+        gated = ledger_models("netmind_free", protocol)
+        if gated:
+            return gated
+
+    # Otherwise the free-tier card proxies the SAME upstream catalogue as a
+    # NetMind card (our gateway forwards to NetMind), so it reads netmind's
+    # ledger entry instead of maintaining a second list that would drift.
     ledger_source = "netmind" if source == "netmind_free" else source
     if ledger_source in ("netmind", "system_pool", "openrouter", "yunwu"):
         synced = ledger_models(ledger_source, protocol)
@@ -315,14 +335,50 @@ def get_default_models(source: str, protocol: str) -> list[str]:
     return []
 
 
+def get_model_meta(model_id: str) -> Optional[ModelMeta]:
+    """
+    Look up a model's metadata, tolerating a routing prefix.
+
+    Platform ids carry the upstream router's prefix ("anthropic/" on
+    NetMind), so an exact miss retries on the bare id. Resolving the
+    WHOLE meta in one call — rather than looking each field up
+    separately — is what keeps a model's numbers coming from a single
+    entry: two independent lookups can each fall back differently and
+    pair one row's ceiling with another row's window.
+
+    The normalization lives here rather than in a caller so every
+    consumer inherits it; a copy per caller is the duplication this
+    catalog exists to prevent.
+    """
+    if not model_id:
+        return None
+    meta = _KNOWN_MODELS.get(model_id)
+    if meta is None and "/" in model_id:
+        meta = _KNOWN_MODELS.get(model_id.split("/", 1)[1])
+    return meta
+
+
 def get_max_output_tokens(model_id: str) -> Optional[int]:
     """
     Look up the max output tokens for a given model ID.
 
     Returns None if the model is not found.
     """
-    meta = _KNOWN_MODELS.get(model_id)
+    meta = get_model_meta(model_id)
     return meta.max_output_tokens if meta else None
+
+
+def get_context_window(model_id: str) -> Optional[int]:
+    """
+    Look up the hard `input + max_tokens` limit for a given model ID.
+
+    Returns None if unverified — callers must fall back to a budget of
+    their own rather than inventing a wall, since a wall of our own
+    invention is wrong in both directions: too short silently shrinks
+    every request near it, too long stops the clamp protecting anything.
+    """
+    meta = get_model_meta(model_id)
+    return meta.context_window if meta else None
 
 
 def get_model_display_name(model_id: str) -> str:
@@ -347,6 +403,7 @@ def get_all_known_models() -> dict[str, dict]:
             "model_id": m.model_id,
             "display_name": m.display_name,
             "max_output_tokens": m.max_output_tokens,
+            "context_window": m.context_window,
         }
         for model_id, m in _KNOWN_MODELS.items()
     }

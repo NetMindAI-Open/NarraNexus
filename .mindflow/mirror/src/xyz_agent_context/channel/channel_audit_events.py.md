@@ -1,9 +1,18 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_audit_events.py
 stub: false
-last_verified: 2026-07-03
+last_verified: 2026-07-29
 ---
 
+## 2026-07-29 — EVENT_INGRESS_DROPPED_NOT_MENTIONED
+
+New ingress-drop reason for group-room messages that did not @-mention
+the bot (first consumer: [[lark_trigger]]). Replying to every group
+message is the most visible way a channel bot can misbehave, so the drop
+is deliberate — but a silent drop would make "the bot ignored me in the
+group" unanswerable, which is exactly the class of unanswerable ticket
+`EVENT_INGRESS_DROPPED_UNPARSED` was added for. Same reasoning, same
+shape.
 ## 2026-07-03 — `EVENT_INGRESS_DROPPED_UNPARSED`
 
 New ingress constant for raw events rejected by parse_event (unsupported

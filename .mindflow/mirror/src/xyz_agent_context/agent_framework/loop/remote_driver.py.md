@@ -1,9 +1,38 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/remote_driver.py
 stub: false
-last_verified: 2026-07-27
+last_verified: 2026-07-31
 ---
 
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`build_agent_loop_request` 调用新增 `agent_id` / `expressive_tools` 转发
+(kwargs 透传)——投递面是 per-run 状态,必须显式过网络边界,否则云端
+NexusPower 退回 mute。
+
+## 2026-07-29 — 不再转发 resume_session_id(T6)
+
+`build_agent_loop_request` 调用里去掉该参数。协议字段本身也已删除,见
+[[executor_protocol]]。remote 路径不受影响:历史随 `messages` 过去,adapter 在
+executor 容器内自己写 transcript。
+
+
+## 2026-07-28 — resume 能力 HMAC：本文件**无需改动**（记录为什么）
+
+[[executor_protocol.py]] 给 `resume_session_id` 加了 per-call HMAC token（同日
+条目）。本 driver 一行都没改，原因值得写下来：它对 wire format **零知识**——
+只调 `build_agent_loop_request` 再把返回的 dict POST 出去，所以 token 和
+`issued_at` 自动随体走。**请保持这个性质**：任何在本模块里手工拼 body 的改法，
+都会让下一个 body 字段的安全属性绕过 protocol 层（token 会漏、canonical string
+会对不上，而症状只是"resume 静默失效"，极难查）。
+
+## 2026-07-28 — 请求体转发 `resume_session_id`（resume 化 R2）
+
+`agent_loop` 把 `kwargs.get("resume_session_id")` 放进 executor 请求体
+（[[executor_protocol.py]] `build_agent_loop_request` 新参），executor 侧由
+[[executor_service.py]] 再传给容器内 driver。与 disallowed_tools 逐字同型的
+纯透传；云端容器重建后 session 文件丢失只导致冷启动（working_path/文件缺失
+自然回落），功能无损。测试：tests/agent_runtime/test_resume_protocol_threading.py。
 
 ## 2026-07-27 — 取消检查统一走 CancellationView（codex v2 死代码修复）
 

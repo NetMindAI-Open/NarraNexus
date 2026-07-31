@@ -1,0 +1,30 @@
+{
+    // Typecheck gate, starter scope (PR #202 review Minor-2).
+    //
+    // The prod incident class this exists to catch is attribute-name typos:
+    // LarkTrigger built its credential manager from `self.db` while the
+    // attribute is `_db`, and the broken circuit breaker went unnoticed for
+    // weeks because nothing in CI can see attribute names (ruff runs E/F
+    // only). Full basic mode has 184 pre-existing errors in module/ alone —
+    // a permanently-red gate is a gate turned off — so only the two
+    // diagnostics that catch the incident class are enabled. Widen the file
+    // scope and diagnostics as the legacy noise below is paid down.
+    "include": ["src/xyz_agent_context/module"],
+    "exclude": [
+        // Legacy dynamic-attribute noise, tracked for paydown — mostly
+        // ContextData dynamic fields and MCP content-union access.
+        "src/xyz_agent_context/module/awareness_module/awareness_module.py",
+        "src/xyz_agent_context/module/job_module/_job_lifecycle.py",
+        "src/xyz_agent_context/module/job_module/job_module.py",
+        "src/xyz_agent_context/module/run_channel_triggers.py",
+        "src/xyz_agent_context/module/slack_module/slack_sdk_client.py",
+        "src/xyz_agent_context/module/social_network_module/social_network_module.py",
+        "src/xyz_agent_context/module/social_network_module/test_persona.py",
+        // Remove after PR #202 merges — its fix removes the very self.db
+        // typo this gate flags (the gate catches the incident bug live).
+        "src/xyz_agent_context/module/lark_module/lark_trigger.py"
+    ],
+    "typeCheckingMode": "off",
+    "reportAttributeAccessIssue": "error",
+    "reportUndefinedVariable": "error"
+}

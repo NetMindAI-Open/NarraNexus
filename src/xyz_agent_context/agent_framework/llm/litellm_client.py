@@ -1,33 +1,32 @@
 """
 @file_name: litellm_client.py
-@author: Bin.Liang
-@date: 2026-07-27
-@description: 全仓唯一的 litellm import 点——大一统 model 适配器的原子封装。
+@author: Bin Liang
+@date: 2026-07-29
+@description: The repo's single litellm import point — an atomic wrapper
+over unified chat completions.
 
-职责边界(铁律 #9 的落地):
-- 本文件只做「一次流式 chat completion 调用」的原子操作: 参数透传、
-  流建立、原始 chunk 产出、连接治理(超时/关闭);
-- 不做: 事件语义翻译(nexus_loop/modeling/model_client.py 的事)、
-  错误分类(session/error_classifier.py 的事)、模型选择(providers 的事);
-- 上层(nexus_loop、未来其他消费方)一律经本类使用 litellm, 其他文件
-  出现 `import litellm` 视为架构违规(grep 可查)。
+Boundary (iron rule #9): this class does connections and passthrough
+only — one streaming chat call, raw chunks out, connection hygiene. It
+does NOT translate event semantics (nexus_power's ModelClient does),
+classify errors (ErrorClassifier does) or choose models (callers do).
+Any other file importing ``litellm`` is an architecture violation
+(greppable).
 
-协议选择: litellm 的 acompletion(stream=True) 统一走 OpenAI
-chat.completions 形状——tools/tool_calls/usage/thinking(reasoning_content)
-均按该词汇透传; per-provider 差异(cache_control 注入等)由调用方按
-ProviderProfile 处理后放进 extra 参数, 本类不理解方言。
+Memory discipline: litellm is imported lazily inside the first call —
+processes that never reach a model (tests, tooling) never pay its
+footprint.
 """
+
+from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
 
 class LitellmClient:
-    """litellm 原子调用的薄封装(无状态, 可全局单例)。"""
+    """Stateless thin wrapper; safe as a module-level singleton."""
 
     def __init__(self, *, default_timeout_s: float = 600.0) -> None:
-        """default_timeout_s: 单次流的默认读超时(Hermes 教训: 流式必须有
-        stale-stream 检测, 90s 无 chunk 视为僵死, 由上层配置覆盖)。"""
-        ...
+        self._timeout = default_timeout_s
 
     async def stream_chat(
         self,
@@ -36,31 +35,64 @@ class LitellmClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         api_key: str | None = None,
-        api_base: str | None = None,
+        base_url: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        """发起一次流式 chat completion, 逐个产出 litellm 原始 chunk(dict 形状)。
+        """One streaming chat completion, yielding raw chunk dicts.
 
-        - chunk 不做任何语义加工, 消费方自行解析 delta/tool_calls/usage;
-        - 流中断/超时抛原始异常, 由消费方的 ErrorClassifier 分类;
-        - extra 全量透传给 litellm.acompletion(cache_control、thinking
-          参数等方言内容在此通道进入, 本类不校验)。
+        Chunks are passed through without semantic processing; stream
+        failures raise the provider's original exception for the
+        caller's classifier. ``extra`` is forwarded verbatim (dialect
+        content such as thinking parameters enters here).
         """
-        ...
+        litellm = self._litellm()
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "timeout": self._timeout,
+            "num_retries": 0,  # retry strategy is the loop's concern
+        }
+        if tools:
+            kwargs["tools"] = tools
+        if api_key:
+            kwargs["api_key"] = api_key
+        if base_url:
+            kwargs["api_base"] = base_url
+        if extra:
+            kwargs.update(extra)
 
-    async def chat(
-        self,
-        *,
-        model: str,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-        api_key: str | None = None,
-        api_base: str | None = None,
-        extra: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        """非流式兜底(Hermes 先例: 流式连续失败时回退), 返回完整 response。"""
-        ...
+        from typing import cast
 
-    async def aclose(self) -> None:
-        """释放底层连接池资源(进程退出/executor 回收时调用)。"""
-        ...
+        response = await litellm.acompletion(**kwargs)
+        async for chunk in response:
+            dump = getattr(chunk, "model_dump", None)
+            data = dump() if callable(dump) else chunk
+            yield cast(
+                dict[str, Any], data if isinstance(data, dict) else vars(data)
+            )
+
+    @classmethod
+    def model_cost_map(cls) -> dict[str, Any]:
+        """litellm's maintained per-model price table, raw.
+
+        Pricing is the other thing callers legitimately need out of
+        litellm, and without this they reach for ``import litellm``
+        themselves — which is exactly what happened to nexus_power's
+        cost estimation and made the "single import point" claim above
+        false (2026-07-29 review). The RAW map is returned on purpose:
+        which key a model id matches, and how the rates combine, is
+        semantics and belongs to the caller. This class stays
+        connections-and-passthrough.
+        """
+        return getattr(cls._litellm(), "model_cost", None) or {}
+
+    @staticmethod
+    def _litellm() -> Any:
+        """Lazy import + one-time quietening (idempotent)."""
+        import litellm
+
+        litellm.drop_params = True          # unknown params never hard-fail a dialect
+        litellm.suppress_debug_info = True
+        return litellm

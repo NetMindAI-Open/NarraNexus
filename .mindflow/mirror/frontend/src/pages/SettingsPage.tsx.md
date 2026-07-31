@@ -1,8 +1,33 @@
 ---
 code_file: frontend/src/pages/SettingsPage.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `?tab=<nav id>` 深链（付款回跳的落点）
+
+`active` 的初值改为读 `useSearchParams().get('tab')`。存在的理由不是"顺手支持
+深链"，而是 Stripe 付款完成后会把用户送到
+`/app/settings?tab=account&status=…`（见 [[billing]] 的 `_return_urls`）——
+没有这一步，付款者会落在恰好排第一的面板上，并把它读成"我的钱付到哪去了"。
+
+三条判断：
+
+- **只有首屏渲染认这个参数**（`useState` 惰性初值，不是 effect 同步）。之后
+  选择权归用户的点击，一个陈旧的 query 不该跟用户抢面板。
+- **未知 id、或本会话看不到的 id（powerOnly/desktopOnly 被过滤掉），回落到第一个
+  可见项**，而不是渲染一个空内容区 —— 非 Power 会话拿着 `tab=account` 进来正是
+  这种情况。
+- URL 里用的是**导航项自己的 id**（`account`），不是工单里随手写的 `billing`；
+  少一张会腐烂的别名映射表。
+
+## 2026-07-21 — settings shell follows the active locale
+
+The page title, master navigation, and every section header/action owned by
+this shell now resolve through `pages.settings` locale keys. Navigation items
+store translation keys rather than display strings, so visibility filtering
+remains language-neutral. Child panels retain responsibility for their own
+copy.
 
 ## 2026-07-13 — Account nav gate: cloudOnly → powerOnly (per-user)
 

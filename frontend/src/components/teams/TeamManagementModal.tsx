@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Plus, X, Trash2, Users, FileText, Loader2, Check } from 'lucide-react';
 import { useTeamsStore, useConfigStore } from '@/stores';
-import { Button, useConfirm } from '@/components/ui';
+import { Button, useNotice } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -33,7 +33,10 @@ export function TeamManagementModal({ open, onClose }: Props) {
   const { t } = useTranslation();
   const { teams, refresh, createTeam, updateTeam, deleteTeam, addMember, removeMember, loading } = useTeamsStore();
   const { agents } = useConfigStore();
-  const { confirm, dialog } = useConfirm();
+  // One instance serves the question AND the failure notices: wry does not
+  // render window.alert, so every catch block below was silent on the DMG, and
+  // none of them has any other feedback (no inline error state).
+  const { confirm, notifyError, dialog } = useNotice();
 
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -78,7 +81,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
       if (tid) setSelectedTeamId(tid);
       setNewTeamName('');
     } catch (e) {
-      window.alert(t('teams.alert.createFailed', { error: e instanceof Error ? e.message : String(e) }));
+      void notifyError(t('teams.alert.createFailed', { error: e instanceof Error ? e.message : String(e) }));
     } finally {
       setCreating(false);
     }
@@ -97,7 +100,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
         lead_agent_id: editLead,
       });
     } catch (e) {
-      window.alert(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
+      void notifyError(t('teams.alert.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
     } finally {
       setSavingMeta(false);
     }
@@ -116,7 +119,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
       await deleteTeam(selected.team.team_id);
       setSelectedTeamId(null);
     } catch (e) {
-      window.alert(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
+      void notifyError(t('teams.alert.deleteFailed', { error: e instanceof Error ? e.message : String(e) }));
     }
   };
 
@@ -137,7 +140,7 @@ export function TeamManagementModal({ open, onClose }: Props) {
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      window.alert(
+      void notifyError(
         inTeam
           ? t('teams.alert.removeFailed', { error: msg })
           : t('teams.alert.addFailed', { error: msg }),

@@ -461,13 +461,12 @@ async def test_attachments_wired_into_trigger_extra_data(monkeypatch, tmp_path):
         def __init__(self, *a, **kw):
             pass
 
+    # The trigger runs through the AgentRuntimeClient seam; patch the
+    # sources its lazy imports resolve — lark_trigger holds no local aliases.
     import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
     import xyz_agent_context.agent_runtime.run_collector as rc_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
-    # Lark imports collect_run at module top, also patch the local symbol.
-    import xyz_agent_context.module.lark_module.lark_trigger as lt_mod
-    monkeypatch.setattr(lt_mod, "collect_run", _capture_collect_run)
 
     # Avoid making real network calls / DB queries in the builder path.
     async def _fake_resolve_owner(self, agent_id):
@@ -576,12 +575,13 @@ async def test_empty_attachments_does_NOT_set_trigger_extra_data_key(
         def __init__(self, *a, **kw):
             pass
 
+    # The trigger now runs through the AgentRuntimeClient seam; patch the
+    # sources its lazy imports resolve (agent_runtime.AgentRuntime and
+    # run_collector.collect_run) — lark_trigger holds no local aliases.
     import xyz_agent_context.agent_runtime.agent_runtime as ar_mod
     import xyz_agent_context.agent_runtime.run_collector as rc_mod
-    import xyz_agent_context.module.lark_module.lark_trigger as lt_mod
     monkeypatch.setattr(ar_mod, "AgentRuntime", _FakeRuntime)
     monkeypatch.setattr(rc_mod, "collect_run", _capture_collect_run)
-    monkeypatch.setattr(lt_mod, "collect_run", _capture_collect_run)
 
     async def _fake_resolve_owner(self, agent_id):
         return "user_test_owner"

@@ -9,4 +9,5 @@ export * from './skills';
 export * from './platform';
 export * from './teams';
 export * from './teamMarketplace';
+export * from './migration';
 export * from './you';

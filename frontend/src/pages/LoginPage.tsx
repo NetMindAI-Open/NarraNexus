@@ -23,6 +23,7 @@ import {
   Chip,
   Divider,
 } from '@/components/nm';
+import { BetaBadge } from '@/components/ui';
 import { isSafeReturnTo } from '@/lib/safe-return';
 import { CreateUserDialog } from './CreateUserDialog';
 import { useNetmindAuth } from '@/lib/netmindAuth/useNetmindAuth';
@@ -416,11 +417,14 @@ export function LoginPage() {
       >
         {/* Brand header — original NarraNexus logo preserved */}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <img
-            src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
-            alt="NarraNexus"
-            className="h-16 w-auto object-contain"
-          />
+          <div className="flex items-center gap-2">
+            <img
+              src={isDark ? '/logo-dark-mode.svg' : '/logo-light-mode.svg'}
+              alt="NarraNexus"
+              className="h-16 w-auto object-contain"
+            />
+            <BetaBadge />
+          </div>
           <div
             className="text-[10px] uppercase tracking-[0.22em]"
             style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink50)' }}

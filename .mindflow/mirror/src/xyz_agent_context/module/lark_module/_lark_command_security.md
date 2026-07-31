@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_command_security.py
 stub: false
-last_verified: 2026-04-23
+last_verified: 2026-07-29
 ---
+
+## 2026-07-29 — 挡三种「不会报错的 shell 构造」（不是 denylist 回归）
+
+2026-04-21 删掉 shell 元字符 denylist 是对的：不过 shell，`| ; & $ ( )` 就是普通
+字节，挡它们只会误伤 "S&P 500" / "$76,000" / markdown 表格，逼 agent 退化成探针式
+发 "test"。`test_command_shell_chars_allowed.py` 钉住了这一点。
+
+但**同一个事实还有反方向的后果**：正因为没人展开它们，有三种构造不是"无害的字面
+量"，而是静默的数据损坏——lark-cli 会写错内容并返回 success：
+
+| 构造 | 实际发生 |
+|---|---|
+| `--content "$(cat report.md)"` | 把那 16 个字符写进文档 |
+| `--content -` | MCP 路径从不接 stdin（`stdin_data` 恒为 ""），payload 空 |
+| `<<'EOF'` | heredoc 是 shell 语法，shlex 只留下一个 `<<EOF` 参数 |
+
+prod 2026-07-29：agent 用第一种把 2746 行 Lark 文档覆盖成一行命令文本，拿到
+`{"result":"success"}`，然后汇报「重构完成，缩减 87%」。5 月以来 5 个 agent 共 16 次。
+
+`_reject_unexpandable_shell` 只挡这三种。关键是**整值判定**
+（`_is_whole_command_substitution`）：只有当整个参数值就是一个 `$(...)`（配对右括号
+落在最后一个字符）才拒——"$(whoami) is a shell builtin (as is pwd)" 这种散文配对括号
+在中间，不受影响。拒绝理由必须带 `@file` 写法，否则 agent 会以为是引号问题、换个引号
+再试一遍。prompt 侧同步见 [[lark_module.py]] 的 `_NO_SHELL_GUIDE`。
 
 ## 2026-04-23 — `auth login` 合法形式扩展（允许 poll 姿势）
 

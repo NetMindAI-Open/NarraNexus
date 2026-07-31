@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/pages/LoginPage.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — Beta badge in the brand header
+
+The logo now sits in a small flex row with [[BetaBadge.tsx]] (shared brand
+beta marker, translated tooltip via `common.betaTooltip`). Purely visual —
+no auth-flow change.
 
 ## 2026-07-14 — recommend Power: default tab + "推荐" badge
 

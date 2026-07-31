@@ -13,6 +13,15 @@
  *       section in the config panel if they want. The confirm dialog spells
  *       this out so there's no surprise.
  *
+ * Width budget (2026-07-30): the per-tab actions used to render on EVERY tab,
+ * which put a ~200px floor under each one. In the artifact column's 320px
+ * minimum — its normal size when the chat keeps most of the room — that meant
+ * a single tab filled the strip and pushed the "+" out of view, reachable
+ * only by horizontally scrolling a row with no visible scrollbar. So: the
+ * actions now render only on the ACTIVE tab or the one under the cursor,
+ * inactive tabs shrink to their (truncated) title, and "+" lives OUTSIDE the
+ * scrolling row so it is always on screen.
+ *
  * Pin/unpin is intentionally NOT exposed: under the current LLM-driven flow
  * every agent-emitted artifact is auto-pinned at creation, and the route
  * refuses to unpin an artifact whose original_session_id is null (prevents
@@ -24,7 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { Minus, Trash2, Maximize2, Plus } from 'lucide-react';
 import { useArtifactStore } from '@/stores';
 import type { Artifact } from '@/types/artifact';
-import { Button, Dialog, DialogContent, DialogFooter } from '@/components/ui';
+import { Button, Dialog, DialogContent, DialogFooter, useNotice } from '@/components/ui';
 import NewTabOmnibox from './NewTabOmnibox';
 
 interface Props {
@@ -35,6 +44,8 @@ interface Props {
 
 export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
   const { t } = useTranslation();
+  // wry does not render window.alert — report in-app (see ui/ConfirmDialog).
+  const { notifyError, dialog: noticeDialog } = useNotice();
   const artifacts = useArtifactStore((s) => s.artifacts);
   const minimizedTabIds = useArtifactStore((s) => s.minimizedTabIds);
   const activeId = useArtifactStore((s) => s.activeArtifactId);
@@ -79,7 +90,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
       await deleteArtifact(agentId, deleteTarget.artifact_id);
       setDeleteTarget(null);
     } catch (e) {
-      window.alert(t('artifacts.tabStrip.deleteFailed', { error: String(e) }));
+      void notifyError(t('artifacts.tabStrip.deleteFailed', { error: String(e) }));
     } finally {
       setSubmitting(false);
     }
@@ -87,18 +98,21 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
 
   return (
     <>
-      <div className="flex flex-row overflow-x-auto border-b border-[var(--border-default)]">
-        {visible.map((a) => (
-          <TabButton
-            key={a.artifact_id}
-            artifact={a}
-            active={a.artifact_id === activeId}
-            onClick={() => setActive(a.artifact_id)}
-            onZoom={() => onZoom(a.artifact_id)}
-            onMinimize={() => minimizeTab(a.artifact_id)}
-            onDelete={() => setDeleteTarget(a)}
-          />
-        ))}
+      {/* "+" sits outside the scrolling row so it never scrolls out of reach. */}
+      <div className="flex flex-row border-b border-[var(--border-default)]">
+        <div className="flex flex-row flex-1 min-w-0 overflow-x-auto">
+          {visible.map((a) => (
+            <TabButton
+              key={a.artifact_id}
+              artifact={a}
+              active={a.artifact_id === activeId}
+              onClick={() => setActive(a.artifact_id)}
+              onZoom={() => onZoom(a.artifact_id)}
+              onMinimize={() => minimizeTab(a.artifact_id)}
+              onDelete={() => setDeleteTarget(a)}
+            />
+          ))}
+        </div>
         {newTabButton}
       </div>
 
@@ -130,6 +144,7 @@ export default function ArtifactTabStrip({ agentId, onZoom }: Props) {
           </Button>
         </DialogFooter>
       </Dialog>
+      {noticeDialog}
     </>
   );
 }
@@ -145,41 +160,58 @@ function TabButton({
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
+  // Actions belong to the tab you're acting on. Rendering them on every tab is
+  // what put a ~200px floor under each one and squeezed the rest of the strip
+  // out of a 320px column. So they only take up space on the active tab, or
+  // while the tab is hovered / holds focus.
+  //
+  // Collapsed via `w-0 opacity-0`, deliberately NOT `hidden`: a
+  // `display: none` subtree cannot be focused, which would make
+  // `group-focus-within` unreachable and lock keyboard users out of zoom /
+  // minimize / delete entirely.
+  const actionsClass = active
+    ? ''
+    : 'w-0 opacity-0 overflow-hidden ' +
+      'group-hover/tab:w-auto group-hover/tab:opacity-100 ' +
+      'group-focus-within/tab:w-auto group-focus-within/tab:opacity-100';
   return (
     <div
       onClick={onClick}
       onDoubleClick={(e) => { e.stopPropagation(); onZoom(); }}
       className={
-        'flex items-center gap-2 px-3 py-2 cursor-pointer border-r border-[var(--border-default)] ' +
+        'group/tab flex items-center gap-1.5 px-3 py-2 cursor-pointer shrink-0 ' +
+        'border-r border-[var(--border-default)] ' +
         (active ? 'bg-[var(--bg-primary)]' : 'opacity-70 hover:opacity-100')
       }
       title={t('artifacts.tabStrip.tabTitle')}
     >
-      <span className="text-sm truncate max-w-[12rem]">{artifact.title}</span>
-      <button
-        onClick={(e) => { e.stopPropagation(); onZoom(); }}
-        title={t('artifacts.tabStrip.zoomTitle')}
-        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
-        aria-label={t('artifacts.zoom')}
-      >
-        <Maximize2 className="w-3.5 h-3.5" />
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onMinimize(); }}
-        title={t('artifacts.tabStrip.minimizeTitle')}
-        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
-        aria-label={t('artifacts.tabStrip.minimizeAria')}
-      >
-        <Minus className="w-3.5 h-3.5" />
-      </button>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        title={t('artifacts.tabStrip.deleteTabTitle')}
-        className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-red-900/40 hover:text-red-400 transition-colors"
-        aria-label={t('artifacts.tabStrip.deleteAria')}
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
+      <span className="text-sm truncate max-w-[9rem]">{artifact.title}</span>
+      <div className={'flex items-center gap-0.5 shrink-0 ' + actionsClass}>
+        <button
+          onClick={(e) => { e.stopPropagation(); onZoom(); }}
+          title={t('artifacts.tabStrip.zoomTitle')}
+          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
+          aria-label={t('artifacts.zoom')}
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onMinimize(); }}
+          title={t('artifacts.tabStrip.minimizeTitle')}
+          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-[var(--bg-secondary)] transition-colors"
+          aria-label={t('artifacts.tabStrip.minimizeAria')}
+        >
+          <Minus className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title={t('artifacts.tabStrip.deleteTabTitle')}
+          className="p-1 rounded opacity-60 hover:opacity-100 hover:bg-red-900/40 hover:text-red-400 transition-colors"
+          aria-label={t('artifacts.tabStrip.deleteAria')}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
   );
 }

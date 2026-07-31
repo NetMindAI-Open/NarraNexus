@@ -1,8 +1,28 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-26
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — sync-defaults 的 netmind_free 分支（PR #204）
+
+`netmind_free` 不再落进 out-of-scope 的「追加目录默认」分支（那正是 review
+点名的第三个失控写入方）：按钮现在从 DB-first ledger 的 netmind_free 条目取
+`passing_models` 按协议**覆写** free 行；条目缺失=门从未在此环境跑过，则不动
+卡（不追加未过门的默认，等夜间 pass）。
+
+## 2026-07-30 — sync-defaults 与 daily runner 共用 ledger 纪律
+
+Update models 按钮改为：DB 优先加载 ledger、带 suspects 调 `sync_source`、
+结束后双写（文件 best-effort + DB）并清已复测 source 的嫌疑——否则按钮一按，
+用户 key 的探测结果只落容器文件，下次部署即蒸发。
+
+## 2026-07-29 — 框架切换门禁改用 cloud_policy 谓词
+
+`POST /agent-framework` 不再自己比较框架名，改问
+`framework_allowed_in_cloud()`。原来那句 `body.framework != "claude_code"`
+是把规则**重新推导**了一遍，NexusPower 上线后它照旧 403——这正是规则必须只
+住在 [[cloud_policy]] 一处的理由。
 
 ## 2026-07-26 — agent-framework 探测 Leg 1 命中 setup-token 卡
 

@@ -109,8 +109,8 @@ class _FakeRuntime:
         self._proceed = proceed
 
     async def run(self, **_kwargs) -> AsyncGenerator:  # type: ignore[return]
-        # Step-0 progress event carries the event_id that drive() extracts
-        # via _try_extract_event_id.
+        # Step-0 progress event carries the event_id the recorder extracts
+        # via run_recorder.try_extract_event_id.
         yield {
             "type": "progress",
             "stage": "step_0_running",

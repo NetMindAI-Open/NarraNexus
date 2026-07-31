@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/types/api.ts
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: true
 ---
+
+## 2026-07-30 — TriggerConfig 字段名对齐后端
+
+`TriggerConfig` 原来声明 `cron_expression` / `trigger_type`,与后端
+`schema/job_schema.py` 的 `TriggerConfig`(透传字段 `run_at` / `cron` /
+`interval_seconds` / `timezone` / `end_condition` / `max_iterations`)不符,导致
+消费方读 cron 一直读到 undefined。改为与后端一字不差,供「编辑执行时间」正确回填。
 
 ## 2026-07-23 — QuotaMeResponse.free_tier
 

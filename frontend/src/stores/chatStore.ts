@@ -16,12 +16,15 @@ import type {
   ProgressMessage,
   AgentTextDelta,
   AgentThinking,
+  AgentReplyDelta,
+  AgentPlanMessage,
   AgentToolCall,
   ErrorMessage,
   TurnEvent,
 } from '@/types';
 import { generateId } from '@/lib/utils';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
+import { segmentTurn } from '@/lib/segmentTurn';
 
 // Pipeline step count is determined dynamically from the steps received
 // during streaming. No hardcoded total — adapts to backend changes.
@@ -373,6 +376,14 @@ export const useChatStore = create<ChatState>((_set, get) => {
           // therefore a normal history bubble from the moment it settles —
           // no separate flat-rendered "last turn" zone.
           timeline: session.currentEvents.length > 0 ? [...session.currentEvents] : undefined,
+          // Cut the same events into segments: MessageBubble renders this
+          // one record as the m things the agent actually said, each with
+          // its own process. content keeps the joined full text —
+          // notifications, copy and search still want one plain-text
+          // carrier, and it is the fallback for older messages.
+          segments: session.currentEvents.length > 0
+            ? segmentTurn(session.currentEvents)
+            : undefined,
         };
 
         // Mark all running steps as completed
@@ -482,34 +493,89 @@ export const useChatStore = create<ChatState>((_set, get) => {
                 tool_name: toolName,
                 tool_input: args,
                 step: progress.step,
+                // Replacement key: the pending and completed forms share one tool_call_id.
+                tool_call_id: (progress.details?.tool_call_id as string | undefined),
               };
-              const exists = session.currentToolCalls.some(
+              // A name-first pending entry must be replaced IN PLACE by the
+              // completed call — never kept as a second row. currentToolCalls
+              // is the reply-extraction source (stopStreaming picks
+              // send_message_to_user_directly content out of it), so a
+              // duplicate with empty arguments would inject an empty reply
+              // segment.
+              const callId = (progress.details?.tool_call_id as string | undefined);
+              const sameCallIdx = callId
+                ? session.currentToolCalls.findIndex(
+                    (t) => (t as AgentToolCall & { tool_call_id?: string }).tool_call_id === callId,
+                  )
+                : -1;
+              const exists = sameCallIdx < 0 && session.currentToolCalls.some(
                 (t) => t.tool_name === toolCall.tool_name && t.timestamp === toolCall.timestamp
               );
+              if (sameCallIdx >= 0) {
+                newToolCalls = [...session.currentToolCalls];
+                newToolCalls[sameCallIdx] = toolCall;
+              }
               if (!exists) {
-                newToolCalls = [...session.currentToolCalls, toolCall];
+                if (sameCallIdx < 0) newToolCalls = [...session.currentToolCalls, toolCall];
 
                 // Inline timeline: a send_message_to_user_directly tool
                 // call carries the agent's actual reply in its content
                 // arg — surface it as a `reply` event so <TurnTimeline>
                 // can render it as the primary user-facing block.
                 if (toolName.includes('send_message_to_user_directly')) {
-                  newEvents.push({
-                    type: 'reply',
-                    id: generateId(),
-                    ts: progress.timestamp,
-                    content: (args.content as string) || '',
-                    reply_via: (progress.details?.reply_via as string | undefined),
-                  });
+                  // NexusPower streams this reply live (agent_reply_delta)
+                  // and the completed call repeats the same final text —
+                  // fold it into the open streaming bubble instead of
+                  // pushing a duplicate. call_id is the join key; when it
+                  // is absent (claude/codex, which never stream args) we
+                  // fall back to the historical "push a new block".
+                  const callId = progress.details?.tool_call_id as string | undefined;
+                  const openIndex = newEvents.findIndex(
+                    (ev) =>
+                      ev.type === 'reply' &&
+                      ev.streaming === true &&
+                      (callId ? ev.call_id === callId : true),
+                  );
+                  if (openIndex >= 0) {
+                    const open = newEvents[openIndex] as Extract<TurnEvent, { type: 'reply' }>;
+                    newEvents[openIndex] = {
+                      ...open,
+                      // The completed arguments are authoritative.
+                      content: (args.content as string) || open.content,
+                      streaming: false,
+                      reply_via: (progress.details?.reply_via as string | undefined),
+                    };
+                  } else {
+                    newEvents.push({
+                      type: 'reply',
+                      id: generateId(),
+                      ts: progress.timestamp,
+                      content: (args.content as string) || '',
+                      reply_via: (progress.details?.reply_via as string | undefined),
+                      call_id: callId,
+                    });
+                  }
                 } else {
-                  newEvents.push({
+                  // One row per call: the pending form lands first and the
+                  // completed form overwrites it by tool_call_id (the event id
+                  // is preserved so React updates the row instead of
+                  // remounting it).
+                  const pendingIdx = callId
+                    ? newEvents.findIndex(
+                        (e) => e.type === 'tool_call' && e.tool_call_id === callId,
+                      )
+                    : -1;
+                  const nextCall: TurnEvent = {
                     type: 'tool_call',
-                    id: generateId(),
+                    id: pendingIdx >= 0 ? newEvents[pendingIdx].id : generateId(),
                     ts: progress.timestamp,
                     tool_name: toolName,
                     tool_input: args,
-                    tool_call_id: (progress.details?.tool_call_id as string | undefined),
-                  });
+                    tool_call_id: callId,
+                    pending: !!progress.details?.pending,
+                  };
+                  if (pendingIdx >= 0) newEvents[pendingIdx] = nextCall;
+                  else newEvents.push(nextCall);
                 }
               }
             } else if (outputStr !== undefined) {
@@ -696,6 +762,75 @@ export const useChatStore = create<ChatState>((_set, get) => {
               };
             }),
           }));
+          break;
+        }
+
+        case 'agent_reply_delta': {
+          // NexusPower only: the reply itself, streaming. Under that
+          // framework's contract the agent's plain text is private
+          // reasoning; the reply lives in an expression tool's argument,
+          // and this stream is that argument being written. We grow ONE
+          // reply bubble keyed by call_id — the completed tool_call
+          // frame later folds into the same block (see 'progress'),
+          // so the user sees one message that filled in live instead of
+          // a duplicate appearing at the end.
+          const replyDelta = message as AgentReplyDelta;
+          if (!replyDelta.delta) break;
+          set((state) => {
+            const session = getSession(state.agentSessions, agentId);
+            const events = [...session.currentEvents];
+            const openIndex = events.findIndex(
+              (ev) =>
+                ev.type === 'reply' &&
+                ev.streaming === true &&
+                ev.call_id === replyDelta.call_id,
+            );
+            if (openIndex >= 0) {
+              const open = events[openIndex] as Extract<TurnEvent, { type: 'reply' }>;
+              events[openIndex] = { ...open, content: open.content + replyDelta.delta };
+            } else {
+              events.push({
+                type: 'reply',
+                id: generateId(),
+                ts: Date.now(),
+                content: replyDelta.delta,
+                call_id: replyDelta.call_id,
+                streaming: true,
+              });
+            }
+            return {
+              agentSessions: updateSession(state.agentSessions, agentId, () => ({
+                currentEvents: events,
+              })),
+            };
+          });
+          break;
+        }
+
+        case 'agent_plan': {
+          // NexusPower only: full plan snapshot, replace-on-write. One
+          // block per turn so the user watches steps flip state rather
+          // than seeing a new plan card per update.
+          const planMsg = message as AgentPlanMessage;
+          set((state) => {
+            const session = getSession(state.agentSessions, agentId);
+            const events = [...session.currentEvents];
+            const existing = events.findIndex((ev) => ev.type === 'plan');
+            const block: TurnEvent = {
+              type: 'plan',
+              id: existing >= 0 ? events[existing].id : generateId(),
+              ts: Date.now(),
+              steps: planMsg.steps || [],
+              note: planMsg.note,
+            };
+            if (existing >= 0) events[existing] = block;
+            else events.push(block);
+            return {
+              agentSessions: updateSession(state.agentSessions, agentId, () => ({
+                currentEvents: events,
+              })),
+            };
+          });
           break;
         }
 

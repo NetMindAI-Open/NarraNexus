@@ -33,7 +33,9 @@ import { getChatDraft } from '@/lib/chatDrafts';
 import { artifactsApi } from '@/services/artifactsApi';
 import { MessageBubble } from './MessageBubble';
 import { InnerThoughtCard } from './InnerThoughtCard';
-import { TurnTimeline } from './TurnTimeline';
+import { ProcessPanel } from './ProcessPanel';
+import { SegmentedReply } from './SegmentedReply';
+import { segmentTurn } from '@/lib/segmentTurn';
 import { ExecutionPopover } from './ExecutionPopover';
 import { Composer, type ComposerHandle } from './Composer';
 import { AttachmentImage } from './AttachmentImage';
@@ -192,14 +194,6 @@ const ArtifactToolCallCards = memo(function ArtifactToolCallCardsImpl({
   );
 });
 
-// Must match BOOTSTRAP_GREETING in src/xyz_agent_context/bootstrap/template.py
-const BOOTSTRAP_GREETING =
-  "Hi there... I just woke up. Everything feels brand new.\n\n" +
-  "I don't have a name yet, and I don't really know who I am " +
-  "— but I know you're the one who brought me here.\n\n" +
-  "Would you like to tell me what I should be called? " +
-  "And what should I call you?";
-
 // TimelineItem + the unified-timeline builder live in @/lib/buildTimeline
 // (pure + unit-tested). ChatPanel just consumes the result.
 
@@ -311,10 +305,16 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
     [agents, agentId]
   );
   const isBootstrap = !!currentAgent?.bootstrap_active;
-  // Per-agent greeting (Arena etc.) with generic fallback. MUST match the
-  // backend-persisted greeting (agent_metadata.bootstrap_greeting), otherwise
-  // the instant bubble and the DB greeting differ and both render (dup).
-  const bootstrapGreeting = currentAgent?.bootstrap_greeting || BOOTSTRAP_GREETING;
+  const localizedBootstrapGreeting = t('chat.bootstrapGreeting');
+  const defaultBootstrapGreetingEn = t('chat.bootstrapGreeting', { lng: 'en' });
+  // The backend persists the generic bootstrap greeting in English. Translate
+  // that exact system default both before and after persistence, while keeping
+  // scenario-authored per-agent greetings verbatim.
+  const localizeBootstrapGreeting = (content?: string) =>
+    !content || content === defaultBootstrapGreetingEn
+      ? localizedBootstrapGreeting
+      : content;
+  const bootstrapGreeting = localizeBootstrapGreeting(currentAgent?.bootstrap_greeting);
 
   const { run, reconnect, stop, isLoading } = useAgentWebSocket({
     onComplete: (completedAgentId: string) => {
@@ -911,11 +911,7 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
         }}
       >
         <span aria-hidden="true">⚠</span>
-        <span>
-          Security reminder: never paste sensitive personal information here —
-          wallet addresses, private keys, seed phrases, passwords, or account
-          credentials.
-        </span>
+        <span>{t('chat.securityReminder')}</span>
       </div>
 
       {/* Messages area — single unified timeline.
@@ -1048,7 +1044,10 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                 message={{
                   id: item.id,
                   role: item.role,
-                  content: item.content,
+                  content:
+                    item.role === 'assistant'
+                      ? localizeBootstrapGreeting(item.content)
+                      : item.content,
                   timestamp: item.timestamp,
                   thinking: item.thinking,
                   toolCalls: item.toolCalls,
@@ -1095,7 +1094,35 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
               className="shrink-0"
             />
             <div className="flex-1 min-w-0">
-              <TurnTimeline events={currentEvents} isStreaming />
+              {/* Live view shows answers only: the process is in the
+                  ProcessPanel above the composer. Painting it here too
+                  would render the same thinking/tools twice.
+
+                  The reply streams inside the same silicon bubble the
+                  settled MessageBubble will use — a bare string next to
+                  the avatar that suddenly gains a bubble on settle reads
+                  as two different things. Rendered only once a reply has
+                  visible content, so no empty blue box shows while the
+                  agent is still thinking/tooling. */}
+              {(() => {
+                const liveSegments = segmentTurn(currentEvents);
+                if (!liveSegments.some((s) => s.reply?.content)) return null;
+                return (
+                  <div
+                    className="relative inline-block max-w-[85%] text-left px-3.5 py-2.5 rounded-[var(--radius-lg)] nm-bubble-ai"
+                    style={{
+                      background: 'var(--color-silicon-soft)',
+                      color: 'var(--nm-ink)',
+                      border: '1px solid var(--color-silicon-hair)',
+                      borderLeft: '3px solid var(--color-silicon)',
+                    }}
+                  >
+                    <div className="text-sm break-words leading-relaxed">
+                      <SegmentedReply segments={liveSegments} isStreaming />
+                    </div>
+                  </div>
+                );
+              })()}
               {/* Mid-stream artifact preview is independent of the timeline:
                   it surfaces created/uploaded artifacts inline as soon as
                   their tool_output lands, without waiting for the whole
@@ -1117,50 +1144,17 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
                   blocks. Disappears the instant isStreaming flips. */}
               <div className="mt-3 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] font-mono text-[var(--text-tertiary)]">
                 <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-primary)]" />
-                <span>Acting…</span>
+                <span>{t('chat.execution.acting')}</span>
               </div>
             </div>
           </div>
         )}
 
-        {/* Initial "starting up..." indicator — shown only when streaming
-            has started but no event has arrived yet (the timeline is
-            empty). As soon as the first thinking / tool / reply event
-            comes in, the indicator is replaced by TurnTimeline. Same
-            avatar shell as the streaming branch so the layout doesn't
-            jump when the first event arrives. */}
-        {chatTab === 'conversation' && isStreaming && currentEvents.length === 0 && (() => {
-          const getInitStatus = () => {
-            if (currentSteps.length === 0) return 'Starting up...';
-            const latestStep = currentSteps[currentSteps.length - 1];
-            const s = latestStep.step;
-            if (s === '0') return 'Initializing...';
-            if (s === '1') return 'Loading context...';
-            if (s === '2') return 'Loading resources...';
-            if (s === '2.5') return 'Preparing workspace...';
-            if (s === '3' && !currentSteps.some(st => st.step.startsWith('3.4'))) return 'Building context...';
-            return 'Thinking...';
-          };
-          return (
-            <div className="flex gap-3 animate-fade-in">
-              <RingAvatar
-                species="silicon"
-                label={(currentAgent?.name || agentId || 'AI').slice(0, 2)}
-                size="sm"
-                className="shrink-0"
-              />
-              <div className="flex-1 min-w-0 py-2">
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Loader2 className="w-5 h-5 text-[var(--accent-primary)] animate-spin" />
-                    <div className="absolute inset-0 bg-[var(--accent-primary)] blur-md opacity-30" />
-                  </div>
-                  <span className="text-sm text-[var(--text-secondary)]">{getInitStatus()}</span>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
+        {/* The old "starting up… / loading context…" indicator that
+            floated here moved into ProcessPanel (above the composer),
+            which renders pipeline phases as terminal rows from the
+            moment streaming starts — one surface for everything the
+            agent is doing. */}
 
         {/* Scroll anchor. max-md:-mt-4 cancels the space-y-4 margin this empty
             div would otherwise add, killing the dead gap below the last message
@@ -1263,6 +1257,12 @@ export function ChatPanel({ onAgentComplete }: ChatPanelProps = {}) {
             key={agentId} remounts it on agent switch to restore that agent's
             draft. The drag/paste handlers live on the textarea too because the
             native default (insert dropped path / paste-as-text) wins otherwise. */}
+        {/* While the agent works, the process lives here; answers live
+            in the bubbles above. Mounted only while streaming — when the
+            turn ends the process folds back into each reply's bubble
+            (lib/segmentTurn), so unmounting the panel loses nothing. */}
+        {isStreaming && <ProcessPanel events={currentEvents} steps={currentSteps} />}
+
         <div className="relative" data-help-id="chat.composer">
           <Composer
             key={agentId ?? '__none__'}

@@ -144,7 +144,11 @@ async def get_agent_costs(
             cost = float(row["total_cost_usd"])
             inp = row["input_tokens"]
             out = row["output_tokens"]
-            model = row["model"]
+            model = (
+                "__main_model__"
+                if row["call_type"] == "agent_loop"
+                else "__helper_model__"
+            )
 
             total_cost += cost
             total_input += inp

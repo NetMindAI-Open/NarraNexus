@@ -72,7 +72,7 @@ _REQUIRED_SLOTS = ("agent", "helper_llm")
 
 # Coding-agent framework names this resolver knows. Must stay in sync
 # with the entries registered in ``agent_framework/__init__.py``.
-_KNOWN_AGENT_FRAMEWORKS = ("claude_code", "codex_cli")
+_KNOWN_AGENT_FRAMEWORKS = ("claude_code", "codex_cli", "nexus_power")
 
 
 def _agent_framework_from_slot(slot: dict | None) -> str:
@@ -88,6 +88,13 @@ def _is_codex_framework(framework: str | None) -> bool:
     instead. Kept as a helper rather than an inline equality check so a
     future v3 framework name lands in one spot."""
     return framework == "codex_cli"
+
+
+def _is_protocol_agnostic_framework(framework: str | None) -> bool:
+    """Frameworks that speak the provider API directly and therefore
+    accept EITHER protocol on the agent slot. CLI-backed frameworks are
+    locked to their CLI's protocol; NexusPower is not."""
+    return framework == "nexus_power"
 
 
 def _slot_reasoning_params(slot: dict | None) -> tuple[str, str]:
@@ -128,6 +135,15 @@ def _resolve_slot_target(
     if slot_name == "agent":
         if _is_codex_framework(agent_framework):
             return "build_codex_config", "codex"
+        if _is_protocol_agnostic_framework(agent_framework):
+            # NexusPower drives the provider API itself instead of
+            # shelling out to a CLI, so an openai-protocol card is a
+            # first-class agent provider for it, not a misconfiguration.
+            # It rides the same carrier codex uses — that field IS "the
+            # agent slot's openai-protocol config"; ``openai`` belongs to
+            # helper_llm and would clobber it.
+            if (card.protocol or "").lower() == "openai":
+                return "build_codex_config", "codex"
         return "build_claude_config", "agent"
     if slot_name == "helper_llm":
         # Subscription cards (host-CLI oauth AND setup-token oauth_token)

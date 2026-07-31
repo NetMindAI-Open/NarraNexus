@@ -32,8 +32,7 @@ from typing import Any, AsyncIterator, Optional
 
 from loguru import logger
 
-from xyz_agent_context.agent_runtime.agent_runtime import AgentRuntime
-from xyz_agent_context.agent_runtime.run_collector import RunError, collect_run
+from xyz_agent_context.agent_runtime.run_collector import RunError
 from xyz_agent_context.channel.channel_audit_events import (
     EVENT_DEDUP_FAIL_OPEN,
     EVENT_INBOX_WRITE_FAILED,
@@ -42,6 +41,7 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_INGRESS_DROPPED_DEDUP,
     EVENT_INGRESS_DROPPED_ECHO,
     EVENT_INGRESS_DROPPED_HISTORIC,
+    EVENT_INGRESS_DROPPED_NOT_MENTIONED,
     EVENT_INGRESS_DROPPED_OVERSIZED,
     EVENT_INGRESS_DROPPED_UNBOUND,
     EVENT_INGRESS_PROCESSED,
@@ -64,7 +64,11 @@ from xyz_agent_context.schema.parsed_message import ParsedMessage
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.timezone import utc_now
 
-from ._lark_credential_manager import LarkCredential, LarkCredentialManager
+from ._lark_credential_manager import (
+    AUTH_STATUS_BRAND_MISMATCH,
+    LarkCredential,
+    LarkCredentialManager,
+)
 from .lark_cli_client import LarkCLIClient
 from .lark_context_builder import LarkContextBuilder
 
@@ -251,6 +255,19 @@ def _compute_next_backoff(
     return min(max(current, base) * 2, max_backoff)
 
 
+def _is_brand_mismatch_error(err_text: str) -> bool:
+    """Does this WS error mean "App ID belongs to the other brand"?
+
+    Error ``1000040351`` = "Incorrect domain name": the binding names one
+    platform (Feishu/Lark) but the App ID is registered on the other. The
+    bot connects to the wrong gateway and never receives a single message.
+
+    Module-level and pure so the detection can be tested without standing
+    up a trigger, same rationale as ``_compute_next_backoff``.
+    """
+    return "1000040351" in err_text or "Incorrect domain" in err_text
+
+
 def format_lark_error_reply(error: RunError) -> str:
     """Render an AgentRuntime failure as a Lark-friendly message.
 
@@ -346,11 +363,11 @@ class LarkTrigger(ChannelTriggerBase):
         One-time, idempotent. Previously lived in the standalone
         ``run_lark_trigger`` entrypoint; moved onto the trigger so the
         consolidated supervisor stays channel-agnostic (rule #4).
-        """
-        from xyz_agent_context.module.lark_module._lark_credential_manager import (
-            LarkCredentialManager,
-        )
 
+        Takes ``db`` as an argument rather than going through
+        ``_credential_manager()``: this runs BEFORE ``start()``, so
+        ``self._db`` is still None.
+        """
         await LarkCredentialManager(db).migrate_legacy_auth_status()
 
     async def start(self, db) -> None:
@@ -907,10 +924,21 @@ class LarkTrigger(ChannelTriggerBase):
             agent_id=agent_id,
         )
 
+    def _credential_manager(self) -> LarkCredentialManager:
+        """The single place this trigger reaches for the credential table.
+
+        Every call site used to hand-write ``LarkCredentialManager(self._db)``.
+        One of them typo'd ``self.db`` (the attribute lives on the base as
+        ``_db``, set in ``start()``; ``db`` is the *manager's* own attribute
+        name) and the brand_mismatch write silently raised AttributeError in
+        prod for weeks. Funnelling through one accessor makes that class of
+        typo impossible rather than merely unlikely.
+        """
+        return LarkCredentialManager(self._db)
+
     async def load_active_credentials(self) -> list[LarkCredential]:
         """Active + logged_in Lark credentials from DB."""
-        mgr = LarkCredentialManager(self._db)
-        return await mgr.get_active_credentials()
+        return await self._credential_manager().get_active_credentials()
 
     # ────────────────────────────────────────────────────────────────────
     # Subscribe loop — Lark's SDK threading does not fit the base's
@@ -941,7 +969,7 @@ class LarkTrigger(ChannelTriggerBase):
 
         while self.running:
             # Refresh the credential from DB each iteration.
-            fresh_cred = await LarkCredentialManager(self._db).get_credential(agent_id)
+            fresh_cred = await self._credential_manager().get_credential(agent_id)
             if not fresh_cred or not fresh_cred.is_active:
                 logger.info(
                     f"LarkTrigger: credential gone or inactive for {agent_id}, "
@@ -1096,58 +1124,18 @@ class LarkTrigger(ChannelTriggerBase):
                     time.monotonic() - ws_start_monotonic
                     if ws_start_monotonic > 0 else 0.0
                 )
-                # Brand-mismatch detection (B.1 in the lark-binding-wizard
-                # work): error code 1000040351 = "Incorrect domain name" =
-                # the user selected one platform (Feishu/Lark) but the
-                # App ID is registered on the other. Re-trying in a hot
-                # loop will just hit the same error every backoff cycle,
-                # so we mark the credential as brand_mismatch (excluded
-                # from AUTH_STATUSES_BOT_ACTIVE → trigger skips it on
-                # next watcher tick) and surface the state to UI + agent.
-                # See _lark_credential_manager for the full state list.
                 err_text = f"{type(e).__name__}: {e}"
-                if "1000040351" in err_text or "Incorrect domain" in err_text:
-                    # LarkCredentialManager is already imported at module level
-                    # (line 60). Re-importing it inside this function makes
-                    # Python treat the name as a *local* throughout the whole
-                    # function scope — so line 580's `await
-                    # LarkCredentialManager(self._db).get_credential(...)` hit
-                    # UnboundLocalError on the very first iteration of the
-                    # subscribe loop (the LarkTrigger crash in 2026-05-27
-                    # dmg + cloud logs). Only AUTH_STATUS_BRAND_MISMATCH is
-                    # the genuinely lazy import here.
-                    from ._lark_credential_manager import AUTH_STATUS_BRAND_MISMATCH
-                    try:
-                        mgr = LarkCredentialManager(self.db)
-                        await mgr.update_auth_status(
-                            cred.agent_id, AUTH_STATUS_BRAND_MISMATCH
-                        )
-                        logger.warning(
-                            f"LarkTrigger: brand mismatch detected for "
-                            f"{cred.profile_name} (agent={cred.agent_id}). "
-                            f"Marked auth_status=brand_mismatch so the watcher "
-                            f"won't restart this subscriber. User must re-bind."
-                        )
-                    except Exception as inner_exc:  # noqa: BLE001
-                        logger.exception(
-                            f"LarkTrigger: failed to persist brand_mismatch "
-                            f"for {cred.profile_name}: {inner_exc}"
-                        )
-                    await self._audit(
-                        EVENT_TRANSPORT_DISCONNECTED,
-                        agent_id=cred.agent_id,
-                        app_id=cred.app_id,
-                        details={
-                            "ran_seconds": ran_seconds,
-                            "error": err_text,
-                            "auth_status_set": "brand_mismatch",
-                            "next_backoff_seconds": 0,
-                        },
-                    )
-                    # Skip backoff/restart — the next watcher tick will
-                    # see auth_status not in AUTH_STATUSES_BOT_ACTIVE and
-                    # leave this credential alone until user re-binds.
-                    return
+                if _is_brand_mismatch_error(err_text):
+                    if await self._handle_brand_mismatch(cred, err_text, ran_seconds):
+                        # Breaker closed (status landed): the next watcher
+                        # tick sees auth_status not in
+                        # AUTH_STATUSES_BOT_ACTIVE and leaves this
+                        # credential alone until the user re-binds.
+                        return
+                    # Write failed → the breaker did NOT trip and the
+                    # watcher WILL restart us. Fall through to the normal
+                    # backoff so the retry loop is never tighter than an
+                    # ordinary disconnect's.
                 backoff = _compute_next_backoff(
                     current=backoff,
                     ran_seconds=ran_seconds,
@@ -1178,6 +1166,75 @@ class LarkTrigger(ChannelTriggerBase):
                 details={"sleep_seconds": backoff},
             )
             await asyncio.sleep(backoff)
+
+    async def _handle_brand_mismatch(
+        self, cred: LarkCredential, err_text: str, ran_seconds: float
+    ) -> bool:
+        """Trip the circuit breaker for a wrong-brand binding.
+
+        Returns whether the breaker actually closed (the status write
+        landed). The caller's skip-backoff shortcut is only sound on True:
+        on a failed write ``auth_status`` is still ``bot_ready``, the
+        watcher WILL restart this subscriber, and skipping backoff would
+        make that retry loop tighter than a normal disconnect's.
+
+        Brand-mismatch detection (B.1 in the lark-binding-wizard work):
+        re-trying a wrong-brand App ID hits the identical error every
+        backoff cycle forever, so instead of reconnecting we mark
+        ``auth_status=brand_mismatch``. That status is excluded from
+        ``AUTH_STATUSES_BOT_ACTIVE``, so ``load_active_credentials`` stops
+        returning this credential and the watcher leaves it alone until the
+        user re-binds. The stored state is also what makes the frontend
+        re-bind card ([[LarkConfig]] State 5) and the agent's own awareness
+        of the state ([[lark_module]] prompt) possible — nothing downstream
+        can see a brand mismatch that was never written down.
+
+        Extracted from the ``_subscribe_loop`` except-branch it used to be
+        inlined into: buried inside a 200-line ``while``, it could not be
+        unit-tested, and the ``self.db`` typo in the manager construction
+        went unnoticed in prod for weeks (Base recvq4sePMnwA4, 8 hits/24h).
+
+        Persistence failure stays non-fatal — a DB hiccup must not kill a
+        subscriber — but the audit row records whether the write landed
+        (``auth_status_set``/``persist_error``). Previously the only trace
+        was a log line, so the broken breaker was invisible to the audit
+        trail every dashboard reads (incident lessons #3/#5).
+        """
+        persist_error = ""
+        try:
+            await self._credential_manager().update_auth_status(
+                cred.agent_id, AUTH_STATUS_BRAND_MISMATCH
+            )
+            logger.warning(
+                f"LarkTrigger: brand mismatch detected for "
+                f"{cred.profile_name} (agent={cred.agent_id}). "
+                f"Marked auth_status={AUTH_STATUS_BRAND_MISMATCH} so the "
+                f"watcher won't restart this subscriber. User must re-bind."
+            )
+        except Exception as inner_exc:  # noqa: BLE001
+            persist_error = f"{type(inner_exc).__name__}: {inner_exc}"
+            logger.exception(
+                f"LarkTrigger: failed to persist brand_mismatch "
+                f"for {cred.profile_name}: {inner_exc}"
+            )
+
+        await self._audit(
+            EVENT_TRANSPORT_DISCONNECTED,
+            agent_id=cred.agent_id,
+            app_id=cred.app_id,
+            details={
+                "ran_seconds": ran_seconds,
+                "error": err_text,
+                # Empty when the write failed — the breaker did NOT trip and
+                # the watcher will keep restarting this subscriber.
+                "auth_status_set": (
+                    "" if persist_error else AUTH_STATUS_BRAND_MISMATCH
+                ),
+                "persist_error": persist_error,
+                "next_backoff_seconds": 0,
+            },
+        )
+        return not persist_error
 
     async def _stop_subscriber(self, key: str) -> None:
         """Override base to clear bot_open_id cache (M-6)."""
@@ -1264,10 +1321,32 @@ class LarkTrigger(ChannelTriggerBase):
                 "content": message.content or "",
                 "message_type": message.message_type or "text",
                 "create_time": message.create_time or "",
+                "mentions": LarkTrigger._extract_mentions(message),
             }
         except Exception as e:
             logger.warning(f"LarkTrigger: failed to convert SDK event: {e}")
             return {}
+
+    @staticmethod
+    def _extract_mentions(message) -> list[dict]:
+        """Flatten the SDK's `message.mentions` into plain dicts.
+
+        Shape kept minimal on purpose — `open_id` is the authoritative
+        match key for the group @-gate, `name` is the display-name
+        fallback for bindings created before `bot_open_id` was stored.
+
+        An absent / empty list is meaningful, not missing data: it means
+        the message @-mentioned nobody.
+        """
+        out: list[dict] = []
+        for m in getattr(message, "mentions", None) or []:
+            mid = getattr(m, "id", None)
+            out.append({
+                "key": getattr(m, "key", "") or "",
+                "name": getattr(m, "name", "") or "",
+                "open_id": (getattr(mid, "open_id", "") or "") if mid else "",
+            })
+        return out
 
     @staticmethod
     def _preview_message_content(raw_content: str, message_type: str) -> str:
@@ -1361,6 +1440,31 @@ class LarkTrigger(ChannelTriggerBase):
             "content_preview": content_preview,
         }
 
+        # Group rooms: only an @-mention wakes the agent. Checked before
+        # dedup so an unaddressed message never burns a dedup slot, and
+        # audited so "why didn't it answer in the group" stays traceable.
+        if not self.is_group_reply_warranted(cred, event_dict):
+            logger.info(
+                "LarkTrigger: agent={agent} skipping group message "
+                "msg_id={msg_id} chat={chat} — bot not @-mentioned",
+                agent=cred.agent_id,
+                msg_id=msg_id or "<unknown>",
+                chat=chat_id or "<unknown>",
+            )
+            await self._audit(
+                EVENT_INGRESS_DROPPED_NOT_MENTIONED,
+                message_id=msg_id,
+                agent_id=cred.agent_id,
+                app_id=cred.app_id,
+                chat_id=chat_id,
+                sender_id=sender_id,
+                details={
+                    "mention_count": len(event_dict.get("mentions") or []),
+                    **ingress_details,
+                },
+            )
+            return
+
         decision = await self._check_and_classify_event(event_dict)
 
         if decision["accept"]:
@@ -1407,6 +1511,62 @@ class LarkTrigger(ChannelTriggerBase):
                 f"LarkTrigger: dedup skipping message_id={msg_id!r} "
                 f"(layer={decision['layer']})"
             )
+
+    @staticmethod
+    def is_group_reply_warranted(cred, event_dict: dict) -> bool:
+        """Should a GROUP-room message wake the agent?
+
+        Only when the bot was @-mentioned. Direct messages never reach
+        here — they are always warranted.
+
+        Why this is a trigger-layer gate and not a prompt instruction:
+        once the app holds `im:message.group_msg` ("获取群组中所有消息",
+        Lark's sensitive scope), the subscriber receives EVERY message in
+        every group the bot sits in. Letting the model decide per message
+        whether it was addressed is probabilistic — it will occasionally
+        barge into unrelated conversation, which is exactly the failure
+        the read scope caused in practice. "Is this addressed to me" is
+        channel semantics, not agent-scenario logic, so it belongs here
+        rather than in Awareness (binding rule #4).
+
+        Reading is unaffected: the message still lands in the room's
+        history, and when the bot IS addressed the context builder tells
+        it to go read what it missed.
+
+        Decision table:
+          - no mentions at all      → False. Nobody was @-ed, so not us.
+          - bot open_id in mentions → True. Authoritative.
+          - bot name in mentions    → True. Fallback for bindings saved
+            before `bot_open_id` existed.
+          - mentions present but bot identity unknown → True (fail-open).
+            Someone was addressed and we cannot rule ourselves out;
+            answering an extra message beats going mute.
+        """
+        if (event_dict.get("chat_type") or "p2p") != "group":
+            return True
+
+        mentions = event_dict.get("mentions") or []
+        if not mentions:
+            return False
+
+        bot_open_id = (getattr(cred, "bot_open_id", "") or "").strip()
+        if bot_open_id:
+            return any(m.get("open_id") == bot_open_id for m in mentions)
+
+        bot_name = (getattr(cred, "bot_name", "") or "").strip()
+        if bot_name:
+            if any((m.get("name") or "").strip() == bot_name for m in mentions):
+                return True
+            # A known name that matched nobody is a real negative.
+            return False
+
+        logger.warning(
+            "LarkTrigger: agent={agent} has neither bot_open_id nor bot_name; "
+            "cannot tell whether a group mention targets this bot — replying "
+            "to be safe. Re-bind to populate bot identity.",
+            agent=getattr(cred, "agent_id", "<unknown>"),
+        )
+        return True
 
     async def _check_and_classify_event(self, event_dict: dict) -> dict:
         """Delegate to the dedup store. Returns same dict shape as before.
@@ -1716,7 +1876,6 @@ class LarkTrigger(ChannelTriggerBase):
         # ProviderResolver can't map to an API key.
         owner_user_id = await self._resolve_agent_owner(agent_id) or agent_id
 
-        runtime = AgentRuntime()
         # Clean retrieval anchor for narrative routing. Graceful: the anchor is
         # a retrieval optimization, so its failure must never break the agent run
         # (narrative falls back to input_content). See 2026-06-01 design.
@@ -1744,8 +1903,11 @@ class LarkTrigger(ChannelTriggerBase):
             trigger_extra_data["attachments"] = [
                 a.model_dump(mode="json") for a in attachments
             ]
-        result = await collect_run(
-            runtime,
+        # Through the client seam like every other trigger — admission
+        # gating + run recording (observability) come with it.
+        from xyz_agent_context.agent_runtime.client import get_agent_runtime_client
+
+        result = await get_agent_runtime_client().run_and_collect(
             agent_id=agent_id,
             user_id=owner_user_id,
             input_content=tagged_prompt,

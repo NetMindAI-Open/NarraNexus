@@ -160,3 +160,6 @@ TODO-unified-memory-overhaul.md
 agent_workspace/
 tauri/src-tauri/resources/nodejs/
 tauri/src-tauri/resources/lark-skills/
+
+# NexusPower per-turn event logs (written next to the agent CWD)
+.nexus_power/

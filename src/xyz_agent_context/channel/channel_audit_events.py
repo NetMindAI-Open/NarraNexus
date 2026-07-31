@@ -28,6 +28,13 @@ EVENT_INGRESS_DROPPED_UNBOUND = "ingress_dropped_unbound"
 # voice on a text-only channel). Was a bare `continue` with zero trace —
 # unanswerable "why didn't the bot reply?" tickets (lessons #3/#5).
 EVENT_INGRESS_DROPPED_UNPARSED = "ingress_dropped_unparsed"
+# A group-room message that did not @-mention this bot. Once a bot holds a
+# read-all-group-messages scope EVERY group message reaches the subscriber,
+# and replying to all of them is the single most visible misbehaviour a
+# channel bot can have. Dropped at ingress rather than left to the model to
+# judge — but audited, because "the bot ignored me in the group" must stay
+# answerable from the trace (lessons #3/#5).
+EVENT_INGRESS_DROPPED_NOT_MENTIONED = "ingress_dropped_not_mentioned"
 EVENT_DEDUP_FAIL_OPEN = "dedup_fail_open"
 EVENT_DEBOUNCE_MERGED = "debounce_merged"
 

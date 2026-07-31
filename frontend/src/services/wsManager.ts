@@ -566,14 +566,20 @@ export const wsManager = new WebSocketManager();
  *       that the live path would have emitted.
  *
  * Frames absorbed (return null):
- *   - run_reconnect, run_ended, reconnect_warning — these are protocol-
- *     level metadata the store doesn't need; we use them only as
- *     lifecycle signals via the onmessage caller.
+ *   - run_reconnect, run_ended — protocol-level metadata the store
+ *     doesn't need; we use them only as lifecycle signals via the
+ *     onmessage caller. (reconnect_warning is gone: the cross-process
+ *     branch tail-follows the DB now instead of apologising.)
+ *
+ * Exported: hooks/useRunObservation consumes the SAME observe endpoint
+ * (any run by run_id — team roster, future dashboard) and must speak
+ * the same frame dialect; one translator keeps the two surfaces from
+ * drifting.
  */
-function translateReconnectFrame(raw: { [key: string]: unknown }): unknown | null {
+export function translateReconnectFrame(raw: { [key: string]: unknown }): unknown | null {
   const t = raw.type as string | undefined;
 
-  if (t === 'run_reconnect' || t === 'run_ended' || t === 'reconnect_warning') {
+  if (t === 'run_reconnect' || t === 'run_ended') {
     return null;
   }
 

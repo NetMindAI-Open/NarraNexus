@@ -1,7 +1,7 @@
 ---
 code_file: src/xyz_agent_context/module/run_worker_supervisor.py
 stub: false
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 ---
 
 ## Why it exists
@@ -83,10 +83,17 @@ Workers card — which reads the latest row via `GET /api/admin/runtime/workers`
 see [[admin/runtime.py]] — has data within a tick of boot and ≤30 s staleness)
 carrying a per-worker liveness snapshot
 (`{name: {state, restart_count, last_error}}`, `state ∈ starting/running/
-restarting/stopped`) to the `service_audit` table. This gives one-row-per-minute
-L2 across all merged workers — and is `message_bus_trigger`'s FIRST L2 signal
-(it never had its own `ServiceAuditor`). Each of poller/jobs keeps its own
-`ServiceAuditor` too, so both granularities coexist. (Incident lesson #4.)
+restarting/stopped`) to the `service_audit` table.
+
+**Read that snapshot as L1, not L2.** `set_state(name, "running")` is written
+ONCE when `_supervise` starts a worker and is never touched again unless the
+worker raises; it proves the asyncio task object exists, not that the worker is
+doing anything. On 2026-07-27 the bus worker's poll loop wedged on an await and
+this snapshot reported `bus: {"state": "running", "restart_count": 0}` every 30 s
+for 33 hours while zero messages moved. Real L2/L3 has to come from each worker's
+own auditor and its work counters — poller, jobs and (since 2026-07-28)
+[[message_bus_trigger]] each keep one. (Incident lesson #4: L1 alone is a back
+door for zombies — this is the door.)
 
 ## Upstream / downstream
 

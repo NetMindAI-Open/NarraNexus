@@ -37,6 +37,7 @@ class MessageBusService(ABC):
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -49,6 +50,8 @@ class MessageBusService(ABC):
             mentions: List of agent_ids to mention, or ["@everyone"].
             attachments: Optional list of bus-attachment dicts (see
                 _bus_attachment_impl); files travel by reference, not bytes.
+            event_id: events row id of the turn that produced this message
+                (agent replies posted by the trigger); None otherwise.
 
         Returns:
             The generated message_id.

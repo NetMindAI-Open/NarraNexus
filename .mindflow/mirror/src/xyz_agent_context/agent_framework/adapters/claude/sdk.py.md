@@ -1,9 +1,195 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 (五次) — code review 修复:重试判据排除凭据失败
+
+`except` 分支的重试条件加上 `is_credential_error(e)` 排除。
+
+上一版把条件从"零输出 **且** stderr 含特定短语"放宽成"零输出",目的是覆盖我方
+transcript 的任何 bug(短语匹配当天差点漏掉 slug bug)。但凭据失败**也**在产出任何
+内容前死掉,所以类型无关的规则会重试它——而那次重试注定同样失败,代价是第二次 CLI
+spawn 和用户看到真实错误前的双倍等待。
+
+**重试存在的目的是覆盖我们自己的 transcript bug;凭据失效不是那类问题,重试多少次
+也不会变成那类问题。**
+
+流内那条分支不需要改:`_is_zero_output_error_event` 只匹配 `error_type == "no_output"`,
+鉴权错误不会命中它。
+
+transcript 的决策/落盘/清理与 git 查询已移出本文件,见 [[transcript]] 同日条目。
+
+## 2026-07-29 (四次) — session id 只有一个来源了(T6)
+
+`resume_session_id` 不再从 `kwargs` 读。上游的两个生产者都已删除:
+[[step_3_agent_loop]] 的句柄决策(T5)与 [[executor_protocol]] 的协议字段(T6)。
+现在它初始化为 `None`,**唯一的赋值点是我们自己写的 transcript**。
+
+直接后果:句柄不可能过期、不可能被并发 run 争用、不可能锚定在中途变更的叙事上——
+这三样正是被删掉的那套机制存在的全部理由。
+
+## 2026-07-29 (三次) — 重试判据不再匹配字符串(T5)
+
+删除 `_RESUME_STALE_STDERR_PHRASE` / `_stderr_reports_stale_resume` /
+`_failure_indicates_stale_resume` / `_resume_failed_marker_event`。同轮冷重试**保留**,
+但判据简化成"产出任何内容之前 CLI 拒绝 resume"。
+
+原来要求 stderr 出现 `No conversation found`,因为句柄来自上一轮、只有**过期**的才
+值得重试。现在句柄是我们几秒前刚写的 transcript,任何拒绝都是我方 bug,冷启动在
+任何情况下都是对的答案 —— 匹配特定短语只会变成"漏掉我们自己的一部分 bug"的机制。
+
+这不是假设:cwd slug 的 bug 当天上线,**能活下来纯粹因为 CLI 恰好说了那句话**。
+
+界限没变:最多一次、且仅在尚未产出内容前;产出之后失败照旧抛出(重跑会重复内容)。
+
+## 2026-07-29 — 每轮自建 resume transcript(T2)
+
+历史不再依赖"CLI 是否还记得某个会话":有历史时,adapter 自己写一份 transcript
+([[transcript]])、用一个**每轮全新的 uuid4** resume 它、turn 结束时删掉。
+`assemble_argv_prompt(base, [])` 于是走的是既有的 resume 分支——**每一轮都变成
+resume 轮**。
+
+**为什么这解决的是句柄式 resume 剩下的那笔成本。** 冷轮把历史放在 system prompt
+里(实测 63,603–66,023 字符)、resume 轮不放(63,244),两个提示词因此不同,所以
+任何冷轮之后的第一个 resume 轮必然从 `system` 开始 miss(约 49K 全价)。而冷启动
+的触发原因全在缓存控制之外:还没句柄、叙事变了、句柄过期。自己写则 system prompt
+从第一轮起就逐字节相同。
+
+**为什么每轮换 id 而不是派生一个稳定的。** 文件在 `finally` 里被删,所以共用
+`CLAUDE_CONFIG_DIR` 里不留任何东西给"无鉴权 `/agent-loop` + 猜句柄"去读;可猜的
+派生 id 会把那个洞重新打开。T0 实测信封字段(含 `sessionId`)不进请求,所以换 id
+不花任何缓存代价。它同时让并发天然无冲突——这正是现有那个进程级 lease 存在的唯一
+理由。
+
+**`try` 开在第一个 run 之前,不是围着每个 run。** 写完文件到启动 CLI 之间若失败,
+文件就会被遗留;而每轮用全新 id,**没有任何后续流程会回来清理它**。删除是**同步
+的**,所以 `aclose` 时 `GeneratorExit` 落在内部 yield 上、`finally` 立刻执行,而不
+是等 GC——与 lease 释放同一条推理。覆盖四条出口:正常完成(含两个 `return`)、
+except、取消、aclose。
+
+**我方 transcript 覆盖上游给的句柄。** 我们的是刚写的、完整的;上游那个可能已过期。
+
+**`_working_git_branch` 带 `lru_cache`。** 每轮 spawn 一次 `git` 是热路径上的真实
+成本,而这个字段只供 CLI 自己显示用。工作区通常根本不是 git 仓库,那时返回空串。
+
+## 2026-07-29 — 显式指定 CLI 二进制(`cli_path`)
+
+`options_kwargs` 新增条件项 `cli_path`,值来自 [[cli_binary]] 的
+`resolve_cli_path()`;`None` 表示没有经校验的候选,保持 SDK 自带的二进制。
+
+不加这一项的后果不是报错而是**静默降级**:SDK 的 `_find_cli()` 先查它 wheel
+里自带的副本(SDK 0.1.43 = CLI 2.1.56),PATH 上再新的版本也永远轮不到。而
+2.1.56 会**每一轮重排请求的 `tools` 数组**,把它后面的整个缓存前缀(含我方
+6 万余字符 system prompt)全部作废——实验 E3/E3c 实测,`--resume` 路径同样如此。
+
+放在 `options_kwargs` 里而不是两个构造点各写一遍:重试路径(`_run_once` 的
+stale-handle 冷重试)复用同一个 dict,所以一处即覆盖两处。
+
+## 2026-07-28 — 优雅关停的两个活性缺口（MEDIUM review findings）
+
+`_graceful_cli_shutdown` 原来只 bound 了 `process.wait()`。两处补齐：
+
+1. **`end_input()` 之前是无界的。** 它只裹在 `with suppress(Exception)` 里，而
+   `suppress` 对**挂死**毫无作用——vendored SDK 的 `end_input()` 要拿
+   `transport._write_lock`，若有并发写卡住持锁，这个 await 永不返回，整个 turn
+   的 generator 就吊死在本该有上限的关停步骤上（比 `_GRACEFUL_CLI_EXIT_SECONDS`
+   更糟：它压根到不了那一步）。现在单独用 `_GRACEFUL_END_INPUT_SECONDS = 2.0`
+   兜住（健康情况下关 stdin 是微秒级 syscall，2s 已是纯余量），超时就落到既有
+   SIGTERM/SIGKILL 拆卸路径。仍是 best-effort，永不抛。
+
+2. **进入优雅等待后不再理会取消。** 取消闸门在调用点只查**一次**；Stop 若在那
+   之后一毫秒按下，用户就得白等最多 10s。现在等待内部把 `process.wait()` 与
+   `cancellation.await_cancelled()` **赛跑**（照抄 receive loop 已有的 race 形
+   状），取消胜出即短路到快速拆卸。函数因此多了 `cancellation` 形参。
+
+**必须守住的不变量**：正常完成（无取消）时**仍然**要等 CLI 自己干净退出——那次
+等待就是 transcript flush，丢掉它就是 2026-07-25 那次"下一轮 --resume 找不到会话"
+的回归。测试里同时钉住三件事：end_input 挂死→有界且 turn 照常完成、优雅等待中
+取消→快速拆卸（断言没有 10s 等待、`returncode is None`）、正常完成→调用序仍是
+`connect/query/end_input/process_wait/disconnect`。
+（tests/agent_framework/test_claude_sdk_resume.py）
+
+## 2026-07-28 — R4c：sys_sha256 权威发射点 + MCP config 排序 + 冷/热结构审计
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。重放适配：老分支的发射点挂在 `_assemble_system_prompt` 调用点，dev 新结构该函数已被 `adapters/materializer.py` 的 `assemble_argv_prompt` 取代，发射点随之挂到两处 `assemble_argv_prompt` 调用点之后。）
+
+E2 实验（`…/specs/2026-07-25-e2-request-capture-findings.md`）后的三处校准：
+
+1. **`_log_sysprompt_sha(system_prompt, resume_session_id)`**（新模块级
+   helper）：在两处 `assemble_argv_prompt` 调用点之后（主路径 + 陈旧句柄
+   冷重试路径）发射 `[SYSPROMPT-SHA] chars=… resume=… sys_sha256=<12hex>`。
+   哈希对象 = 交给 SDK `options.system_prompt` 的**完整字符串** = 请求里的
+   system[2]。此前 context_runtime 的哈希漏掉两类适配器新增字节（冷启动轮
+   Chat History 尾段、逐 system message 的 "\n" 拼接），那边已改标
+   `ctx_sha256`。哨兵读法：连续 resume 轮同值；**紧跟"带历史的冷启动轮"的
+   第一个 resume 轮必然与冷轮不同值**（见下条，预期内）。
+2. **冷/热结构审计结论（无代码改动）**：适配器层 cold vs resume 的 system
+   prompt 唯一结构差 = `=== Chat History ===` 尾段（仅带历史的冷轮出现）；
+   options/tools/env 全同，`options.resume` 不是 prompt 字节。后果：冷轮后的
+   首个 resume 轮支付一次全额 cache 写——有界、by design；把历史折回 resume
+   轮的 system[2] 会使 resume 失去意义，故保持现状。注释写在 Step 0-2 决策块。
+3. **`_build_claude_mcp_config` 按 server 名 sorted**（E2 §4 工具洗牌断点）：
+   本字典序列化进 CLI 的 MCP config，是我们能控制的最后一环（也兜住上游
+   `pass_mcp_servers` merge 序）；codex 两条路径本就 sorted。**残余不可控**：
+   CLI 并发连接各 MCP server、按完成序合并 tools 数组——那是 CLI 内部行为。
+   Tests：`test_sysprompt_sha.py`（哈希覆盖尾段/格式/稳定性）、
+   `test_mcp_headers_plumbing.py`（排序不随插入序）。
+
+
+## 2026-07-28 — resume 注入 + 跳过历史 + 陈旧句柄同轮冷启动重试 + transcript 冲刷（resume 化 R2/R3，dev 新结构重实现）
+
+旧分支 feat/cli-session-capture 的 be9c8ecd + c40f1ad3 在 dev 新结构上的
+重做。E1 已证伪"SDK 不支持多轮"（spec:
+`reference/self_notebook/specs/2026-07-23-e1-resume-feasibility.md`；SDK
+0.1.43 `ClaudeAgentOptions.resume` → CLI `--resume`，跨进程可用、轮间缓
+存真实命中；DeepSeek × NetMind bearer 亦 PASS——**没有**
+`_is_claude_native` 门禁，resume 对 claude_code 框架下所有模型生效）。
+
+**与旧实现的结构差异**（行为等价，接口换了）：
+- 提示组装不再是本文件私有 `_assemble_system_prompt`，而是
+  [[materializer.py]] 的两阶段 `split_for_argv`（pop 恰好一次）+
+  `assemble_argv_prompt`（预算/驱逐/双上限）；resume 轮
+  `assemble_argv_prompt(base, [])`，冷启动轮传全量 entries；
+  `base_system_prompt` + `history_entries` 留在局部供 R3 重试重组。
+- 取消判断统一走 `CancellationView(cancellation).requested()`（graceful
+  跳过判断也是），事件常量走 [[events.py]]（marker 用
+  `DATA_TYPE_RESUME_FAILED`）。
+
+**R2（注入）**：`resume_session_id = kwargs.get("resume_session_id")`
+（TurnInput.driver_kwargs() 只在非 None 时发键，见 [[turn_input.py]]）；
+upstream（step_3）已做四重校验，适配器不再验。`options_kwargs` 加
+`resume=`（None = SDK 缺省 = 冷启动）。Provider config INFO 行追加
+`resume=<sid 前 12 位|cold>`。**system prompt 每轮照传**（模块指令可合法
+变化，变了只损失当轮缓存，E1 T4 证安全）。
+
+**R3（唯一失败兜底）**：Step 2 主体（dev 现行逻辑逐字保留：race-with-
+cancel 接收循环、inline assistant error 三通道、零输出事件、有界
+disconnect+SIGKILL）提为内嵌 `_run_once(run_options)`。外层驱动：冷启动
+= 恰好一跑；resume = 一跑 + **当且仅当**「零内容失败 + 证据含
+`"No conversation found"`（`_RESUME_STALE_STDERR_PHRASE`，E1 T3 实测）」
+→ 同轮冷启动重试恰好一次：yield `response.resume_failed` marker（内部信
+号，绝不转 ErrorMessage，铁律 #16）→ stderr 列表原地 clear 复位 →
+重组带历史 prompt、`resume=None` 再跑。三处 `async for` 都包
+`aclosing(...)`（提前 close 时 in-flight `_run_once` 的 finally 同步执
+行）。判据 `_failure_indicates_stale_resume` 查三通道（str(exc) /
+exc.stderr / 捕获 stderr）；`_drain_stderr_after_failure`（~200ms，仅错
+误路径）补 stderr pump 输给快崩的竞态。
+
+**transcript 冲刷（c40f1ad3 并入）**：`_graceful_cli_shutdown(client)`——
+自然完成（非取消）时 finally 之前执行：`end_input()` 关 stdin → CLI 自
+行冲刷 transcript 并 exit 0 → 有界等待（10s，收尾等待非 loop 上限，铁律
+#14 安全）→ `close()` 见 returncode 已置整个跳过 SIGTERM。根因：SDK
+`transport.close()` 关 stdin 后立即 SIGTERM，CLI 的 transcript 惰性冲
+刷输给竞态（2026-07-25 实测：冷启动轮 JSONL 零条会话记录 → 下轮
+`--resume` 报 "No conversation found"）。取消/异常路径保留今天的同步快
+速清收。
+
+测试：tests/agent_framework/test_claude_sdk_resume.py（stub transport；
+resume 置位/跳历史、冷启动不变、陈旧句柄重试 + marker、短语不符不重试、
+有内容后崩不重试、判据三通道、graceful 时序
+connect→query→end_input→process_wait→disconnect、取消跳过 graceful）。
 
 ## 2026-07-28 — inline 错误再补一路：assistant text
 
@@ -448,7 +634,7 @@ Claude Code CLI 是一个独立的命令行工具，通过 `claude_agent_sdk` Py
 
 ## 设计决策
 
-**多轮对话拼接到 system prompt**：Claude Code CLI 的 `ClaudeAgentOptions` 不支持 messages 数组，只有 `system_prompt` 和单条 `query`。所以所有历史对话都被格式化为文本追加到 system prompt 末尾，超出 60KB 时截断保留最近部分。这是已知限制，等 SDK 支持 multi-turn 后可以去掉。
+**多轮对话拼接到 system prompt**：~~Claude Code CLI 的 `ClaudeAgentOptions` 不支持 messages 数组，只有 `system_prompt` 和单条 `query`。所以所有历史对话都被格式化为文本追加到 system prompt 末尾，超出 60KB 时截断保留最近部分。这是已知限制，等 SDK 支持 multi-turn 后可以去掉。~~ **⚠️ 2026-07-28 起已部分过时**："SDK 不支持多轮"已被 E1 证伪（`ClaudeAgentOptions.resume` 跨进程可用）。现在只有**冷启动轮**（无有效句柄）仍走历史拼接（materializer 的 `assemble_argv_prompt`）；resume 轮历史在 CLI session 文件里，prompt 只带 system 指令。见顶部 2026-07-28 resume 条目。
 
 **`_safe_parse_message` monkey-patch**：已于 2026-06-10 删除（见顶部 L1a 条目）——SDK 0.1.43 原生跳过未知消息类型，patch 在主路径上本就未生效。
 
@@ -485,3 +671,18 @@ ToolSearch 后，非 Claude 模型的 system prompt 常态化到 60-80K chars（
 
 - `this_turn_user_message = (messages.pop())["content"]`：这里假设最后一条消息是 user message。如果调用方构建 messages 时最后一条不是 user message，会产生逻辑错误。代码注释里也标注了这个 TODO。
 - 直接在本地测试时，`claude` CLI 必须已经登录（`claude auth login`），否则会收到 0 条消息且没有明显错误——只有 stderr log 里有认证失败信息。
+
+## 2026-07-29 (二次) — 自建 transcript 时,任何 resume 失败都必须回落
+
+`stale_handle` 的判定原来要求 CLI stderr 出现
+`No conversation found` 这个短语。自建 transcript 时**取消这个要求**:句柄是我们
+刚写的、按构造就是有效的,所以 CLI 拒绝 resume 只能是我方 bug,而冷启动重试在
+任何情况下都是对的答案。
+
+这是被上线首日打出来的。cwd slug 没转换点和下划线,文件落到了隔壁目录,turn
+之所以没死,**纯粹因为 CLI 恰好回的就是这个断言在 grep 的那句话**。换成任何别的
+拒绝理由(记录畸形、CLI 升级换格式),turn 会直接失败并把错误显示给用户——铁律
+#14 和 #16 同时禁止。安全网不该依赖一个为**另一种**故障写的字符串匹配。
+
+界限没变:仍然**最多重试一次**,且仅在尚未产出任何内容时。产出之后的失败照旧抛出
+(重跑会重复已发出的内容)。

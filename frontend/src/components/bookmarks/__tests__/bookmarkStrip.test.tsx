@@ -154,3 +154,57 @@ describe('BookmarkDrawer — close behaviors', () => {
     expect(document.body.querySelector('[data-drawer-backdrop]')).toBeNull();
   });
 });
+
+describe('BookmarkDrawer — the strip is never covered', () => {
+  // Regression: the slide-over used to be `right-0` with a full-page
+  // `inset-0` backdrop, so it sat ON TOP of the 64px bookmark strip AND ate
+  // its clicks. Opening Awareness then meant closing it before any other tab
+  // could be reached. Both the panel and the backdrop must now stop short of
+  // the reserved edge.
+  const RESERVE = 76;
+
+  const renderSlideOver = () =>
+    render(
+      <BookmarkDrawer
+        open
+        pinned={false}
+        onPinnedChange={vi.fn()}
+        onClose={vi.fn()}
+        title="Awareness"
+        edgeReservePx={RESERVE}
+      >
+        <div>content</div>
+      </BookmarkDrawer>,
+    );
+
+  it('insets the backdrop by the reserved edge so strip clicks reach the strip', () => {
+    renderSlideOver();
+    const backdrop = document.body.querySelector('[data-drawer-backdrop]') as HTMLElement;
+    expect(backdrop.style.right).toBe(`${RESERVE}px`);
+  });
+
+  it('insets the panel itself by the reserved edge', () => {
+    renderSlideOver();
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
+    // The panel carries the offset directly — there is no wrapper. It is
+    // `position: fixed` in place rather than portalled, so that toggling pin
+    // doesn't move it in the DOM (which would remount the panel inside).
+    expect(panel.style.right).toBe(`${RESERVE}px`);
+  });
+
+  it('is not aria-modal — the strip beside it stays operable', () => {
+    renderSlideOver();
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement;
+    expect(panel.getAttribute('aria-modal')).toBeNull();
+  });
+
+  it('defaults to reserving nothing when no strip is present', () => {
+    render(
+      <BookmarkDrawer open pinned={false} onPinnedChange={vi.fn()} onClose={vi.fn()} title="Jobs">
+        <div>content</div>
+      </BookmarkDrawer>,
+    );
+    const backdrop = document.body.querySelector('[data-drawer-backdrop]') as HTMLElement;
+    expect(backdrop.style.right).toBe('0px');
+  });
+});

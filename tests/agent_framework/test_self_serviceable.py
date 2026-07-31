@@ -19,6 +19,7 @@ from xyz_agent_context.agent_framework.llm.failure import (
     classify_self_serviceable,
     SELF_SERVICEABLE_REASON_CONTEXT_WINDOW,
     SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS,
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
 )
 
@@ -49,6 +50,24 @@ from xyz_agent_context.agent_framework.llm.failure import (
         # bad / missing model id
         ("unknown", "The model `gpt-nope` does not exist", SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND),
         ("unknown", "model_not_found", SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND),
+        # credential REJECTED by the provider (403 family). Distinct from the
+        # auth-expired path, which covers a dead OAuth/CLI login and tells the
+        # user to re-login: here they hold an API key the provider refuses, and
+        # the fix is to re-paste/rotate it. 2026-07-29 report (Jiaxi): a BYOK
+        # NetMind key returned `403 Invalid api token`, matched NOTHING, and the
+        # turn fell through to a fabricated helper reply — the user saw the
+        # agent promise work it never did.
+        (
+            "invalid_request",
+            'Claude API error: invalid_request\n\nProvider response:\n'
+            'API Error: 403 {"error":{"message":"Invalid api token"}}',
+            SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS,
+        ),
+        ("unknown", "API Error: 403 Invalid api token", SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS),
+        ("unknown", "Error code: 403 - Forbidden", SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS),
+        ("unknown", "403 Forbidden", SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS),
+        ("unknown", "No auth credentials found", SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS),
+        ("unknown", "invalid_api_token", SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS),
     ],
 )
 def test_self_serviceable_is_classified(error_type, error_message, expected):
@@ -76,6 +95,15 @@ def test_self_serviceable_is_classified(error_type, error_message, expected):
         ("unknown", "file does not exist on disk"),
         # - a bare "402" inside token counts, not a payment error
         ("unknown", "sequence length 402 exceeds nothing in particular"),
+        # - digits "403" inside a token count must NOT read as HTTP 403. The
+        #   credential markers require credential/permission vocabulary next to
+        #   the status for exactly this reason: pairing "403" with "token" alone
+        #   matched this line during development.
+        ("unknown", "generated 403 tokens before the stream ended"),
+        ("unknown", "the run produced 4030 tokens across 12 turns"),
+        # - a 401 stays with the dedicated auth path (re-login copy), it must
+        #   not be re-routed to the credential-rejected reason
+        ("unauthorized", "Error code: 401 - unauthorized"),
     ],
 )
 def test_non_self_serviceable_is_not_classified(error_type, error_message):

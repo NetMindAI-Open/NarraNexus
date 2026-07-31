@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-07-22
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — send_message stub carries event_id
+
+Signature kept in sync with the ABC's new `event_id` param (see
+[[message_bus_service]]); still raises NotImplementedError.
 
 ## 2026-07-22 — stub surface re-synced with the ABC
 

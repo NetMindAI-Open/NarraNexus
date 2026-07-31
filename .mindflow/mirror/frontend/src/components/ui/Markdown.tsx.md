@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/ui/Markdown.tsx
-last_verified: 2026-04-10
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — React.memo
+
+remark/rehype 每次 render 都全量重解析，而聊天界面每个 WebSocket delta
+都重渲染——未 memo 时一个 delta 会重解析**所有**可见历史气泡的 markdown，
+主线程饱和表现为「流式卡住→整段一次性蹦出」。props 全是原始值，浅比较
+即可跳过未变内容的重解析。
 
 # Markdown.tsx — react-markdown wrapper with GFM, raw HTML, and external-link handling
 

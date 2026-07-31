@@ -1,9 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_service.py
-last_verified: 2026-05-27
+last_verified: 2026-07-29
 stub: false
 ---
 
+## 2026-07-29 — do_bind stores the bot's open_id
+
+The `/open-apis/bot/v3/info` lookup already ran here for `bot_name`; its
+response also carries `open_id`, which [[lark_trigger]] needs to tell
+"this group message @-ed me" from "someone @-ed a person with my display
+name". Both now persist via `update_bot_identity`. The old `if name:`
+guard is gone — the helper already skips empty fields, and keeping the
+guard would have dropped a good open_id whenever the name came back
+blank.
 # _lark_service.py — shared Lark bind / owner / status helpers
 
 ## Why it exists

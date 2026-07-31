@@ -16,6 +16,7 @@ import pytest
 from xyz_agent_context.utils.url_safety import (
     UnsafeUrlError,
     assert_public_http_url,
+    is_obviously_non_public_host,
 )
 
 
@@ -117,3 +118,44 @@ async def test_resolution_failure_is_hard_reject():
 async def test_empty_resolution_rejected():
     with pytest.raises(UnsafeUrlError):
         await assert_public_http_url("http://void.example/", resolver=_resolver_returning())
+
+
+# --- is_obviously_non_public_host (sync config screen, no DNS) --------------
+#
+# Separate question from the SSRF gate above: that one guards attacker-supplied
+# URLs the SERVER fetches; this one screens a CONFIGURED origin before we hand it
+# to a third-party API. First caller: routes/billing._return_urls, where a
+# loopback/private value earns an HTML 403 from NetMind's edge and would break
+# the user's checkout.
+
+
+@pytest.mark.parametrize("host", [
+    "localhost",
+    "LOCALHOST",           # case-insensitive
+    "foo.localhost",
+    "printer.local",       # mDNS
+    "my-nas",              # single-label name — never publicly resolvable
+    "127.0.0.1",
+    "10.0.0.5",
+    "192.168.1.50",
+    "172.16.0.1",
+    "169.254.169.254",     # cloud metadata
+    "::1",
+    "fe80::1",
+    "0.0.0.0",
+    "",
+    "   ",
+])
+def test_non_public_hosts_are_flagged(host):
+    assert is_obviously_non_public_host(host) is True
+
+
+@pytest.mark.parametrize("host", [
+    "agent.narra.nexus",
+    "example.com",
+    "agent.narra.nexus.",  # trailing root dot is still the same public name
+    "8.8.8.8",
+    "2001:4860:4860::8888",
+])
+def test_public_hosts_pass(host):
+    assert is_obviously_non_public_host(host) is False

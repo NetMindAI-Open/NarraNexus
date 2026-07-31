@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/services/wsManager.ts
-last_verified: 2026-07-13
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — translateReconnectFrame 导出（观察面共用翻译器）
+
+[[useRunObservation]] 消费同一个观察端点（任意 run by run_id），必须
+说同一种帧方言 —— 导出唯一翻译器，聊天重连与观察两个面不会漂移。
+纯可见性变更，逻辑未动。
 
 ## 2026-07-13 — Agent 实时层熔断器接入
 
@@ -123,8 +129,9 @@ WS 是 resumable subscription，而不是请求/响应通道。
    live-activity preview 在 replay 期间就能保持 active 状态
 4. `onmessage` 走 `translateReconnectFrame()`：
    - `heartbeat` → 跳过
-   - `run_reconnect` / `run_ended` / `reconnect_warning` → 协议级
-     metadata，返回 null（不进 store）
+   - `run_reconnect` / `run_ended` → 协议级 metadata，返回 null
+     （不进 store；`reconnect_warning` 已随 2026-07-31 tail-follow
+     删除——后端不再发，翻译器不再认）
    - `thinking_partial_replay` `{content}` → 包装成
      `agent_thinking { thinking_content }`
    - `replay {kind, seq, payload}` → 按 kind 反演成 live 对应的

@@ -268,6 +268,7 @@ class TelegramModule(ChannelModuleBase):
         "tg_unbind",
     )
     setup_tool_names = frozenset({"tg_bind"})
+    reply_tool_names = ("tg_cli",)
 
     @staticmethod
     def get_config() -> ModuleConfig:

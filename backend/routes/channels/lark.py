@@ -183,8 +183,13 @@ async def lark_auth_complete(request: Request, body: AuthCompleteRequest) -> dic
         if bot_info.get("success"):
             bdata = bot_info.get("data", {}).get("bot", bot_info.get("data", {}))
             name = bdata.get("app_name", bdata.get("name", ""))
-            if name:
-                await mgr.update_bot_name(body.agent_id, name)
+            # open_id rides along from the same response — the trigger's
+            # group @-mention gate matches against it.
+            await mgr.update_bot_identity(
+                body.agent_id,
+                bot_name=name,
+                bot_open_id=bdata.get("open_id", ""),
+            )
 
     return result
 

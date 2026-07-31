@@ -1,10 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-06-10
+last_verified: 2026-07-28
 stub: false
 ---
 
-## 2026-06-10 — hook_data_gathering 频道查询修正列名 (created_at)
+## 2026-07-28 — R4b：三个数据列表搬进 get_turn_context
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+`get_instructions` 原本 = 使用规则 + Known Agents / Your Channels / Unread
+Messages 三个列表；unread 每轮消费必变、另两个被 bus 工具会话中途改变
+（prod 稳定性 11/17）。现拆为：
+
+- `_static_instruction_parts()` — 使用规则（仅烘焙 self.agent_id，会话内恒定）。
+- `_volatile_context_parts(ctx_data)` — 三个列表，渲染逻辑（MAX_* 上限、顺序、
+  文案）零改动。
+- `get_instructions` — flag 开 → 只拼 static（轮间字节稳定）；关 → static +
+  volatile 同块拼接（legacy 逐字节一致）。
+- `get_turn_context` — `### MessageBus — Current State` 稳定标题 + 三个列表；
+  三个列表全空 → ""。
+
+"unread messages are already injected into your context automatically"（规则
+段 :182 附近）的表述依然成立——注入位置变了，行为没变。
 
 第 4 步 "Fetch channels" 的查询原本 `ORDER BY c.updated_at DESC`，但
 `bus_channels` 表从来没有 `updated_at` 列（schema_registry 里只有

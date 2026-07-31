@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_5_execute_hooks.py
-last_verified: 2026-07-02
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 透传 interrupted
+
+`build_after_execution_params` 把 `execution_result.interrupted` 填进
+`HookIOData.interrupted`(打断连续性,消费方=ChatModule persist)。
 
 ## 2026-07-02 — `build_after_execution_params` default is CHAT-shape
 

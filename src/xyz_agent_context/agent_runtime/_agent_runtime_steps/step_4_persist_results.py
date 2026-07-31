@@ -515,6 +515,14 @@ async def step_4_persist_results(
         except Exception as e:
             logger.warning(f"Cost recording failed (non-blocking): {e}")
 
+    # NOTE (2026-07-29): step 4.7 used to persist the resumable CLI session
+    # handle here, and its placement after 4.0/4.5 was load-bearing because the
+    # handle was anchored to the post-routing narrative. The claude adapter now
+    # authors the CLI transcript itself every turn with a fresh session id, so
+    # there is no handle to store and no anchor to keep aligned — which is also
+    # why a mid-turn narrative switch can no longer cost a cold start. See
+    # adapters/claude/transcript.py.
+
     # =========================================================================
     # Complete
     # =========================================================================

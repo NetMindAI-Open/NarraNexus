@@ -1,8 +1,12 @@
 ---
 code_file: src/xyz_agent_context/module/slack_module/slack_module.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`reply_tool_names = ("slack_cli",)`(NexusPower 投递面声明;门控随 is_bound)。
 
 ## 2026-07-24 — setup residency (B++): unbound → one-liner + tool suppression
 

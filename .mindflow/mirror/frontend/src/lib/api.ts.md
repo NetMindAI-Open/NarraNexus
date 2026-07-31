@@ -1,8 +1,21 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — updateJobSchedule (编辑执行时间)
+
+新增 `updateJobSchedule(jobId, fields)` → `PUT /api/dashboard/jobs/{id}/schedule`,
+镜像 pauseJob/resumeJob 模式。`fields` 只带被改的字段(run_at/cron/interval_seconds/
+timezone),与后端 exclude_none 对齐。非 2xx 由 `request()` 抛 `ApiError`(400=非法
+调度/不可改状态,403/404),调用方 catch 后用 `err.message` 提示。
+
+## 2026-07-28 — Agent Migration methods
+
+`migrateDetect` / `migrateScan` / `migrateApply` wrap `/api/migrate/*`. All three
+are local-only (503 on cloud — Agent Migration is a desktop feature). Types in
+[[migration]]; consumed by [[ImportAgentModal]].
 
 ## 2026-07-23 — getAgentLlmConfig 返回类型加 `free_tier`
 
@@ -104,7 +117,7 @@ user-level GLOBAL DEFAULT (see [[ProviderSettings]]).
  
 ## 2026-07-05 — recharge / rechargeStatus (Phase 4, module E)
 
-`recharge(amount, currency?, successUrl?, cancelUrl?)` POSTs the top-up and returns
+`recharge(amount, currency?)` POSTs the top-up and returns
 `{checkout_url, session_id}`; `rechargeStatus(sessionId)` GETs by-session. Both forward the
 loginToken via X-Netmind-Token. Types RechargeResponse/RechargeStatusResponse added in
 [[api]] (types). The panel opens checkout_url then polls rechargeStatus.
@@ -174,10 +187,6 @@ origination from the Arena SSO flow.
 
 `NetmindLoginResponse` is defined in `@/types/api.ts` immediately after
 `LoginResponse`.
-
-last_verified: 2026-06-10
-stub: false
----
 
 ## 2026-06-10 — analytics methods: identity from auth header only (review fix)
 

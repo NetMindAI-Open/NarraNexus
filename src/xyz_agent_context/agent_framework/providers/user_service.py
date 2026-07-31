@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
 from loguru import logger
@@ -62,7 +62,11 @@ def _is_cloud_mode() -> bool:
 # codex_oauth-only scoping in ``agentFramework.ts::getModelsForSlot``.
 #
 # Verified 2026-06-02 by running interactive ``codex`` and reading
-# "Select Model and Effort" menu.
+# "Select Model and Effort" menu. This list has NO automatic refresh path
+# (OAuth CLIs are out of model_sync's scope) — re-run that verification
+# whenever OpenAI ships/retires a codex model, and keep every id registered
+# in model_catalog (pinned by
+# test_codex_curated_models_stay_registered_in_catalog).
 CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
 
 
@@ -150,6 +154,18 @@ class UserProviderService:
             # DB migration needed.
             if row.get("source") == "codex_oauth":
                 stored_models = list(CODEX_CURATED_MODELS)
+            elif row.get("source") == "claude_oauth":
+                # Same override for claude_oauth, with the CLI family ALIASES
+                # (the claude CLI resolves opus|sonnet|haiku to the newest of
+                # each family, so this list can never go stale). Legacy cards
+                # stored pinned full ids; once those died upstream they still
+                # looked valid to the slot self-heal, whose membership test
+                # runs against this very list — the override makes self-heal
+                # repair such slots to a live alias on the next resolve.
+                from xyz_agent_context.agent_framework.providers.model_catalog import (
+                    get_default_models,
+                )
+                stored_models = get_default_models("claude_oauth", "anthropic")
             elif row.get("models"):
                 stored_models = json.loads(row["models"])
             else:
@@ -607,7 +623,7 @@ class UserProviderService:
         replace: bool = False,
         inference_base: Optional[str] = None,
         activate: bool = True,
-        models: Optional[list[str]] = None,
+        models: Optional[Union[list[str], dict[str, list[str]]]] = None,
     ) -> tuple[LLMConfig, list[str], dict]:
         """Wire a complete runnable config from a single API key.
 
@@ -843,6 +859,7 @@ class UserProviderService:
     _SUPPORTED_AGENT_FRAMEWORKS: tuple[str, ...] = (
         "claude_code",
         "codex_cli",
+        "nexus_power",
     )
 
     async def get_user_agent_framework(self, user_id: str) -> str:
@@ -1087,7 +1104,7 @@ def _build_dual_providers(
     card_type: str,
     api_key: str,
     group_id: str,
-    models: Optional[list] = None,
+    models: Optional[Union[list, dict]] = None,
     inference_base: Optional[str] = None,
 ) -> list[dict]:
     from xyz_agent_context.agent_framework.providers.free_tier import (
@@ -1098,7 +1115,12 @@ def _build_dual_providers(
     cfg = _DUAL_PROVIDER_CONFIGS[card_type]
     result = []
     for protocol, info in cfg.items():
-        proto_models = models or get_default_models(card_type, protocol)
+        # Per-protocol dict (the free-tier gate produces one — the gateway's
+        # openai and anthropic lists genuinely differ) or one shared list.
+        if isinstance(models, dict):
+            proto_models = models.get(protocol) or get_default_models(card_type, protocol)
+        else:
+            proto_models = models or get_default_models(card_type, protocol)
         # Override the base ONLY for netmind + when a caller opted in
         # (use-subscription). Everything else keeps the hardcoded prod base.
         base_url = info["base_url"]

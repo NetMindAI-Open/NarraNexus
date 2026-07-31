@@ -62,8 +62,16 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Claude Code CLI — hard dependency (claude-agent-sdk spawns it every turn).
-# Pinned for layer cache stability (see docker/Dockerfile.python:30-39).
-RUN npm install -g @anthropic-ai/claude-code@2.1.110 \
+# Pinned for layer cache stability (see docker/Dockerfile.python:30-39) AND,
+# since 2026-07-29, because the version decides request bytes: the agent loop
+# adopts this binary via ClaudeAgentOptions.cli_path only when it matches
+# PINNED_CLI_VERSION in agent_framework/adapters/claude/cli_binary.py. On a
+# mismatch it falls back to the SDK's bundled CLI 2.1.56, which reshuffles the
+# request's `tools` array every run and voids the whole prompt-cache prefix
+# behind it (experiments E3/E3c). The previous 2.1.110 predates the upstream
+# ordering fix. Keep this literal in lockstep with cli_binary.py and run.sh —
+# tests/agent_framework/test_claude_cli_pin.py enforces it.
+RUN npm install -g @anthropic-ai/claude-code@2.1.220 \
  && npm cache clean --force
 
 # Lark CLI — the Lark/Feishu MCP tools spawn `lark-cli` on every call.

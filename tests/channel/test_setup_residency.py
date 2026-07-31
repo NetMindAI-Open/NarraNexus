@@ -218,3 +218,35 @@ async def test_lark_entry_tools_zero_credential_args_return_setup_guide():
     bind_out = await cap.tools["lark_bind"](agent_id="agent_a")
     assert bind_out["success"] is True
     assert len(bind_out["setup_guide"]) > 500
+
+
+# ── 6. Delivery declarations (NexusPower reply contract, 2026-07-31) ────
+# Each channel declares its reply tools; the platform forwards them to
+# the framework as the turn's expressive surface. Gating mirrors
+# setup-residency: an unbound channel declares nothing (its reply tools'
+# schemas are suppressed anyway).
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cls", CHANNEL_MODULES, ids=lambda c: c.__name__)
+async def test_bound_channel_declares_qualified_reply_tools(cls):
+    module = _make_module(cls)
+    module.get_credential = AsyncMock(return_value={"bound": True})
+
+    declared = await module.get_expressive_tools()
+    assert declared, f"{cls.__name__} must declare at least one reply tool"
+    assert declared == [
+        f"mcp__{module.mcp_server_name}__{name}" for name in module.reply_tool_names
+    ]
+    # Drift guard: reply tools must be tools the module actually registers.
+    assert set(module.reply_tool_names) <= set(module.all_tool_names), (
+        f"{cls.__name__}.reply_tool_names drifted from all_tool_names"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cls", CHANNEL_MODULES, ids=lambda c: c.__name__)
+async def test_unbound_channel_declares_no_reply_tools(cls):
+    module = _make_module(cls)
+    module.get_credential = AsyncMock(return_value=None)
+    assert await module.get_expressive_tools() == []

@@ -65,6 +65,22 @@ def test_claude_mcp_config_omits_headers_key_for_internal_servers():
     assert "headers" not in config["chat_module"]
 
 
+def test_claude_mcp_config_is_sorted_by_server_name_regardless_of_input_order():
+    """R4c tool-order determinism: the config dict is serialized into the
+    CLI's MCP config, so its key order must not depend on upstream insertion
+    order (active_instances iteration + pass_mcp_servers merge)."""
+    shuffled = {
+        "zeta": {"url": "http://z/sse"},
+        "alpha": {"url": "http://a/sse"},
+        "mid": {"url": "http://m/sse"},
+    }
+    config = _build_claude_mcp_config(shuffled)
+    assert list(config.keys()) == ["alpha", "mid", "zeta"]
+    # Same input in a different insertion order -> byte-identical result.
+    reordered = {k: shuffled[k] for k in ["mid", "zeta", "alpha"]}
+    assert list(_build_claude_mcp_config(reordered).keys()) == ["alpha", "mid", "zeta"]
+
+
 # ---------------------------------------------------------------------------
 # Codex adapter (bearer-only support)
 # ---------------------------------------------------------------------------

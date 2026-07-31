@@ -63,6 +63,7 @@
       "toolLabel": "[ أداة ]",
       "outputLabel": "[ مُخرَج ]",
       "reply": "رد",
+      "plan": "الخطة",
       "nativeOutput": "مُخرَج أصلي",
       "helperFallback": "↻ احتياطي helper_llm",
       "helperFallbackTip": "لم يرسل الوكيل ردًا صريحًا؛ كتب هذه الرسالة نموذج LLM الاحتياطي اعتمادًا على استدلاله.",
@@ -95,14 +96,58 @@
       "memberCount_other": "{{count}} عضو",
       "teamSettings": "إعدادات الفريق",
       "empty": "لا توجد رسائل بعد.",
-      "emptyHint": "@أشِر إلى زميل لبدء المحادثة — ثم يتناوبون فيما بينهم من هناك.",
+      "emptyHint": "أرسل رسالة للبدء — يتولّاها قائد الفريق، أو استخدم @ لمخاطبة أحدهم مباشرة.",
       "noAgents": "لا يوجد وكلاء في هذا الفريق بعد.",
-      "placeholder": "راسل الفريق — @أشِر لمخاطبة أحدهم…",
+      "placeholder": "راسل الفريق — استخدم @ لمخاطبة أحدهم…",
       "send": "إرسال (Enter)",
       "all": "@all",
       "notifyEveryone": "إشعار الجميع",
       "typing": "{{name}} يكتب الآن",
-      "youTitle": "أنت · {{name}}"
+      "youTitle": "أنت · {{name}}",
+      "activity": {
+        "starting": "قيد البدء",
+        "running": "يعمل",
+        "thinking": "يفكّر",
+        "replying": "يردّ",
+        "tool": "يستخدم {{name}}",
+        "queued": "بانتظار البدء",
+        "stalled": "لا توجد إشارة",
+        "idle": "خامل",
+        "runningHint": "يعالج رسالتك الآن. قد تستغرق المهمة الطويلة دقائق أو ساعات — وتستمر الخطوات أدناه في التحديث طوال ذلك الوقت.",
+        "queuedHint": "تم التسليم، بانتظار فتحة تنفيذ شاغرة. يحدث ذلك عند مخاطبة عدة زملاء دفعة واحدة أو عندما تكون مهمة طويلة أخرى قيد التنفيذ.",
+        "stalledHint": "لم تصل أي إشارة تقدّم من هذا الزميل منذ فترة. قد يكون لا يزال يعمل — فقد يصمت النموذج مدة طويلة — أو قد تكون هناك مشكلة في العملية الخلفية. إذا لم يتعافَ، فتحقّق من حالة الخدمة.",
+        "idleHint": "لا يوجد شيء معلّق حاليًا.",
+        "silentFor": "صامت منذ {{duration}}",
+        "waitingFor": "بالانتظار منذ {{duration}}",
+        "finishedAgo": "انتهى قبل {{duration}}",
+        "startedAt": "بدأ في {{time}}",
+        "stepsDropped": "{{n}} خطوات سابقة غير معروضة",
+        "noSteps": "لم تُسجَّل أي خطوات بعد."
+      },
+      "guide": {
+        "title": "كيف تعمل هذه الغرفة",
+        "plainTitle": "تحدّث مباشرة",
+        "plain": "أرسل رسالة بدون @ — يتولّاها قائد الفريق.",
+        "plainWithLead": "أرسل رسالة بدون @ — يتولّاها {{name}}.",
+        "mentionTitle": "مخاطبة عضو واحد",
+        "mention": "استخدم @ لمخاطبة أحد الزملاء مباشرة.",
+        "broadcastTitle": "بثّ إلى الجميع",
+        "broadcast": "‏@all تخاطب الجميع — وكل عضو ينفّذ دورة كاملة، فاستخدمها باعتدال.",
+        "relay": "يمكن للزملاء مخاطبة بعضهم بـ @ لتمرير العمل؛ وبدون رسالة منك يتوقّف التمرير بعد 4 مرات."
+      },
+      "noProcess": "لا يوجد سجل عملية لهذه الجولة",
+      "detailLoadFailed": "تعذّر تحميل العملية. حاول مرة أخرى.",
+      "roster": {
+        "title": "الأعضاء",
+        "lastRun": "استغرق {{duration}} · قبل {{ago}}",
+        "lastRunAgoOnly": "انتهى قبل {{ago}}",
+        "neverRan": "لم يُشغَّل بعد",
+        "loading": "جارٍ تحميل العملية…",
+        "workingCount": "{{count}} قيد العمل",
+        "process": "العملية"
+      },
+      "emptyHintWithLead": "أرسل رسالة للبدء — يتولّاها {{name}}، أو استخدم @ لمخاطبة شخص آخر مباشرة.",
+      "leadTitle": "{{name}} · يردّ عندما لا يُذكر أحد"
     },
     "execution": {
       "showSteps": "عرض خطوات التنفيذ",
@@ -158,7 +203,15 @@
       }
     },
     "dateToday": "اليوم",
-    "dateYesterday": "أمس"
+    "dateYesterday": "أمس",
+    "segment": {
+      "details": "الاستدلال والأدوات"
+    },
+    "process": {
+      "plan": "الخطة",
+      "title": "الوكيل · العملية",
+      "ops": "عمليات"
+    }
   },
   "awareness": {
     "common": {
@@ -674,7 +727,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "تغيير حجم اللوحات",
-      "title": "اسحب لتغيير حجم المحادثة / المخرجات"
+      "title": "اسحب لتغيير حجم المحادثة / المخرجات",
+      "drawerAriaLabel": "تغيير عرض اللوحة",
+      "drawerTitle": "اسحب لتغيير عرض اللوحة"
     }
   },
   "settings": {
@@ -858,6 +913,17 @@
       "freeTierHowToSwitch": "بطاقة «Free Tier» مرتبطة بالفعل بفتحتَي Agent وHelper. لاستخدام مفتاحك الخاص، أضف مزوّدًا بالأسفل ثم اخترْه لفتحة Agent / Helper في إعدادات النموذج الافتراضية — ويسري ذلك من رسالتك التالية.",
       "freeTierAnytime": "يمكنك التبديل في أي وقت. لا حاجة لاستهلاك الرصيد المجاني أولًا، والتبديل لا يُلغيه — يبقى الرصيد كما هو.",
       "freeTierNoDelete": "لا يمكن حذف بطاقة Free Tier ما دام بها رصيد، فهي المفتاح الوحيد إليه. وبعد نفاده يمكنك إزالتها."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "تم استلام الدفعة — يجري تطبيقها على حسابك الآن.",
+      "returnTopupSuccess": "تم استلام الشحن — يجري تحديث رصيدك.",
+      "returnCancelled": "تم إلغاء الدفع — لم يتم خصم أي مبلغ منك.",
+      "cancelConfirmTitle": "إيقاف التجديد التلقائي؟",
+      "cancelConfirmAction": "إيقاف التجديد التلقائي",
+      "cancelConfirmKeep": "الإبقاء على الاشتراك",
+      "reactivateConfirmTitle": "استئناف التجديد التلقائي؟",
+      "reactivateConfirmAction": "استئناف",
+      "reactivateConfirmDismiss": "ليس الآن"
     }
   },
   "system": {
@@ -1177,6 +1243,10 @@
         "installingDetail": "جارٍ تثبيت {{version}} — على وشك الانتهاء…",
         "readyDetail": "تم التنزيل — أعد التشغيل للإنهاء.",
         "failed": "فشل {{stage}} التحديث."
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "للموظفين فقط في السحابة",
+        "cloudFrameworkLocked": "يستخدم هذا الإطار تسجيل دخول CLI مشتركًا، لذا فهو متاح للموظفين فقط في السحابة. يعمل كل من Claude Code و NexusPower-beta هنا — والبقية متاحة في نسخة سطح المكتب المحلية."
       }
     },
     "system": {
@@ -1716,7 +1786,9 @@
       "resume": "استئناف",
       "resuming": "جارٍ الاستئناف...",
       "cancelJob": "إلغاء المهمة",
-      "cancelling": "جارٍ الإلغاء..."
+      "cancelling": "جارٍ الإلغاء...",
+      "editSchedule": "تعديل الوقت",
+      "savingSchedule": "جارٍ الحفظ..."
     },
     "template": {
       "selectTemplate": "اختر قالبًا",
@@ -1745,6 +1817,26 @@
         "paused": "{{count}} متوقفة مؤقتًا",
         "failed": "{{count}} فاشلة"
       }
+    },
+    "editSchedule": {
+      "title": "تعديل وقت التنفيذ",
+      "hint": "اضبط موعد تشغيل هذه المهمة. تُطبَّق التغييرات عند التشغيل التالي.",
+      "runAt": "التشغيل في",
+      "cron": "تعبير cron",
+      "cronHint": "مثال: 0 8 * * * يعمل يوميًا في 08:00",
+      "intervalSeconds": "الفاصل (ثوانٍ)",
+      "timezone": "المنطقة الزمنية",
+      "save": "حفظ",
+      "cancel": "إلغاء",
+      "invalidRunAt": "الرجاء اختيار تاريخ ووقت صالحين",
+      "invalidCron": "الرجاء إدخال تعبير cron صالح",
+      "invalidInterval": "الرجاء إدخال فاصل أكبر من 0",
+      "pastTimeError": "الوقت المختار في الماضي",
+      "failedTitle": "فشل إعادة الجدولة",
+      "failedMessage": "تعذّر تحديث وقت التنفيذ. حاول مرة أخرى.",
+      "modeLabel": "وضع التشغيل",
+      "modeInterval": "الفاصل",
+      "modeCron": "تعبير cron"
     }
   },
   "artifacts": {
@@ -1820,6 +1912,9 @@
       "zoomInAria": "تكبير",
       "close": "إغلاق (Esc)",
       "closeAria": "إغلاق التكبير"
+    },
+    "url": {
+      "toggleFailed": "تعذّر تغيير الوضع: {{error}}"
     }
   },
   "skills": {
@@ -1936,6 +2031,13 @@
     "livePreview": "معاينة مباشرة"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus في مرحلة تجريبية (بيتا). قد تتغير الميزات وقد تحدث مشكلات عرضية — ملاحظاتكم تساعدنا على التحسين.",
+    "ok": "حسنًا",
+    "noticeTitle": "لحظة واحدة",
+    "actionFailedTitle": "لم تنجح العملية",
+    "savedTo": "تم الحفظ في {{path}}",
+    "downloadFailed": "فشل التنزيل: {{error}}",
+    "doneTitle": "تم"
   }
 }

@@ -23,6 +23,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel
 
+from xyz_agent_context.utils import format_for_api
 from xyz_agent_context.utils.db.db_factory import get_db_client
 from xyz_agent_context.utils.mime_sniff import sniff_mime_type
 from xyz_agent_context.repository import TeamRepository, TeamMemberRepository
@@ -48,14 +49,6 @@ from backend.auth import resolve_current_user_id
 
 
 router = APIRouter()
-
-
-def _to_iso(value) -> str | None:
-    """Normalise a timestamp (datetime / str / None) to an ISO 8601 string."""
-    from datetime import datetime as _dt
-    if value is None:
-        return None
-    return value.isoformat() if isinstance(value, _dt) else str(value)
 
 
 async def _user_id_for_request(request: Request) -> str:
@@ -381,49 +374,103 @@ async def get_team_chat(team_id: str, request: Request, since: str | None = None
             "is_user": is_user,
             "content": m.content,
             "attachments": m.attachments,
-            "created_at": m.created_at,
+            # Turn that produced this reply (None for user messages / legacy
+            # rows) — powers the per-message reasoning disclosure.
+            "event_id": m.event_id,
+            "created_at": format_for_api(m.created_at),
         })
 
-    # Per-member activity for the team status view:
-    #   running — the trigger is actively running it (live phase + elapsed),
-    #             from the bus_agent_activity heartbeat mirror;
-    #   queued  — it has an unprocessed @mention in this room but isn't running
-    #             yet (poll latency / worker-slot / behind its own turn);
-    #   idle    — nothing pending.
-    from xyz_agent_context.message_bus import activity as bus_activity
-
-    act_rows = {r["agent_id"]: r for r in await bus_activity.get_channel_activity(db, channel_id)}
-    activity: list[dict] = []
-    thinking: list[str] = []  # kept for back-compat (running+queued)
-    for aid in members:
-        row = act_rows.get(aid)
-        if bus_activity.is_live(row):
-            activity.append({
-                "agent_id": aid, "status": "running",
-                "phase": row.get("phase"), "tool_count": row.get("tool_count") or 0,
-                "started_at": _to_iso(row.get("started_at")),
-            })
-            thinking.append(aid)
-            continue
-        queued = False
-        try:
-            for pm in await bus.get_pending_messages(aid):
-                ment = pm.mentions or []
-                if pm.channel_id == channel_id and (aid in ment or "@everyone" in ment):
-                    queued = True
-                    break
-        except Exception:  # noqa: BLE001 — best-effort indicator, never fail the GET
-            pass
-        if queued:
-            activity.append({"agent_id": aid, "status": "queued"})
-            thinking.append(aid)
-        else:
-            activity.append({"agent_id": aid, "status": "idle"})
+    activity = await _member_activity(db, bus, channel_id, members)
 
     return {
-        "success": True, "channel_id": channel_id, "messages": out,
-        "thinking": thinking, "activity": activity,
+        "success": True,
+        "channel_id": channel_id,
+        "messages": out,
+        "activity": activity,
+        "lead_agent_id": _resolve_default_responder(team, members),
     }
+
+
+async def _member_activity(db, bus, channel_id: str, members: list[str]) -> list[dict]:
+    """Per-member live status for the team activity console.
+
+    Four states, deliberately distinct — collapsing the last two is what made a
+    wedged bus look identical to a busy one:
+
+    * ``running``  — the trigger is running it and the heartbeat is fresh;
+      carries the live phase, tool count and the turn's step timeline.
+    * ``stalled``  — the row still claims running but no heartbeat has landed
+      within ``ACTIVITY_STALE_SECONDS``. The turn DID start; we stopped hearing
+      from it. Surfaced as its own state so the UI can say so instead of
+      silently showing "queued".
+    * ``queued``   — an unprocessed @mention is waiting in this room but no turn
+      has started (poll latency, a busy worker slot, or the agent's own turn is
+      still ahead of it). Carries how long it has been waiting.
+    * ``idle``     — nothing pending. Still carries the PREVIOUS turn's step
+      timeline plus when it ended, so the room can show what an agent just did.
+    """
+    from xyz_agent_context.message_bus import activity as bus_activity
+
+    act_rows = {
+        r["agent_id"]: r
+        for r in await bus_activity.get_channel_activity(db, channel_id)
+    }
+    try:
+        pending = await bus.get_room_pending_summary(channel_id, members)
+    except Exception as e:  # noqa: BLE001 — best-effort indicator, never fail the GET
+        logger.warning(f"Team chat pending summary failed for {channel_id}: {e}")
+        pending = {}
+
+    out: list[dict] = []
+    for aid in members:
+        row = act_rows.get(aid)
+        steps = bus_activity.parse_steps(row)
+        waiting = pending.get(aid)
+
+        if row is not None and bus_activity.is_live(row):
+            status = "running"
+        elif row is not None and bus_activity.is_stalled(row):
+            status = "stalled"
+        elif waiting:
+            status = "queued"
+        else:
+            status = "idle"
+
+        entry: dict = {"agent_id": aid, "status": status}
+        if status in ("running", "stalled"):
+            entry.update({
+                "phase": row.get("phase"),
+                "tool_count": row.get("tool_count") or 0,
+                "started_at": format_for_api(row.get("started_at")),
+                # The last heartbeat. For `stalled` this is what the UI counts
+                # "no signal for N minutes" from.
+                "last_signal_at": format_for_api(row.get("updated_at")),
+                "steps": steps,
+                # The current turn's events-row id, once note_event_id() has
+                # bound it — lets the frontend fetch the full event_log via
+                # the existing event-log endpoint.
+                "event_id": row.get("event_id"),
+            })
+        elif status == "queued":
+            entry.update({
+                "queued_count": waiting["count"],
+                "queued_since": format_for_api(waiting["oldest_at"]),
+            })
+            if row is not None:
+                entry["event_id"] = row.get("event_id")
+        elif row is not None and steps["items"]:
+            # Idle, but we still hold the trace of the turn it just finished.
+            entry.update({
+                # started_at→finished_at is where the roster's "ran Ns" comes
+                # from; omitting the start made every finished turn read "0s".
+                "started_at": format_for_api(row.get("started_at")),
+                "finished_at": format_for_api(row.get("updated_at")),
+                "steps": steps,
+                "tool_count": row.get("tool_count") or 0,
+                "event_id": row.get("event_id"),
+            })
+        out.append(entry)
+    return out
 
 
 @router.get("", response_model=TeamListResponse)

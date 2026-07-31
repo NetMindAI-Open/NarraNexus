@@ -1,8 +1,66 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 删除 4.7 句柄持久化(T5),−96 行
+
+`_persist_cli_session_handle` 及其调用点删除。
+
+原来那个位置约束(4.7 必须在 4.0 和 4.5 之后)是承重的:句柄锚定在
+`ctx.session.current_narrative_id`,而 4.0 的中途 `switch_narrative` /
+`create_narrative` 和 4.5 的主动投递都可能重新指向它,存"路由后"的叙事才能让锚点
+匹配对话实际延续的那条线。
+
+现在**没有句柄要存、也没有锚点要对齐** —— 见 [[transcript]]。这条约束消失的直接
+后果:中途切叙事不再导致下一轮冷启动。
+
+## 2026-07-28 — [4.7] 存的是 **routing 之后**的 narrative：刻意、fail-open（review FIX 2）
+
+**零行为改动，纯文档 + 回归钉。** review 指出：step_3 用**轮前**的
+`session.current_narrative_id` 校验句柄，而 4.0（agent 中途调
+`switch_narrative` / `create_narrative`）会在 4.7 落库**之前**改写它，因此存进
+`agent_cli_sessions.narrative_id` 的可能不是当初通过校验的那个 narrative。
+
+结论是**接受并写清楚**，不改行为：
+
+- 存储的 `narrative_id` 只被 step_3 校验闸门当等值锚用，不一致时 **fail-open**
+  ——下一轮读到的 `session.current_narrative_id` 已经是被路由到的那个：
+  会话继续留在新线程 → 两边**相等**，resume 正常（这也正是想要的：CLI 会话
+  确实延续进了那个线程的这一轮）；若哪天不等 → 日志
+  `COLD reason=narrative_changed` + 冷启动，代价仅**一次冷启动**，绝不会在
+  未获批准的 narrative 下 resume。
+- 反过来存**routing 之前**的 narrative 只会让每个被路由的轮次都必然错配，
+  即严格更多冷启动、correctness 上零收益。
+- 注释落在 `_persist_cli_session_handle` docstring + 4.7 调用点（后者把
+  "4.7 必须排在 4.5 之后"扩成"**4.0 与 4.5 之后**"）。
+- 钉子：tests/agent_runtime/test_resume_narrative_routing.py —— 用真 SQLite
+  驱动整个 step_4（含 4.0），断言三件事：存的是 routed narrative；下一轮留在
+  routed 线程则 RESUME；下一轮回到原 narrative 则 None +
+  `COLD reason=narrative_changed`。
+
+## 2026-07-28 — [4.7] 抽为 `_persist_cli_session_handle` + resume_failed 删旧写新（resume 化 R3）
+
+4.7 整段抽成模块级 `_persist_cli_session_handle(ctx, execution_result)`
+（可单测；调用点一行）。新语义：`execution_result.resume_failed` 为真 →
+**先 `delete_handle` 删陈旧行**——即使冷启动重试没报新 cli_session_id 也删，
+否则下一轮还会踩同一具尸体——再按新 cli_session_id 正常 upsert（重试产生的
+是**新** session_id，删旧写新一步完成）。守卫拓宽为
+`(cli_session_id or resume_failed) and ctx.session`。清句柄只在
+orchestrator 侧做：适配器跑在 Executor 容器里没有 DB。fire-and-forget 契
+约不变（任何失败仅 warning）。测试：
+tests/agent_runtime/test_step4_cli_handle_persistence.py（真 SQLite schema）。
+
+## 2026-07-25 — 新增 [4.7] CLI 句柄落库(resume 化 R1)
+
+4.6 之后:`execution_result.cli_session_id` 且 `ctx.session` 存在 → upsert
+`agent_cli_sessions`(经 [[cli_session_repository]])。narrative_id 取
+`ctx.session.current_narrative_id`——**4.7 必须排在 4.5 之后**:proactive 分支里
+4.5 会先把 session 锚点重指到 main_narrative,4.7 随后读取天然一致。指纹/
+working_path 由 step_3 随 PathExecutionResult 带出,这里不重算;两者任一缺失
+(step_3 fail-open)→ 跳过并 warning,不落半残行(表列 NOT NULL)。整段
+try/except + warning-only,照 4.6 的 fire-and-forget 风格,永不阻断管线。
 
 ## 2026-07-23 — [4.6] record_cost 透传 cache/num_turns(W1,纯搬运)
 

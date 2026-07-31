@@ -1,8 +1,99 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-22
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — _get_agent_owner 委托 AgentRepository.resolve_owner
+
+行为不变（异常仍回 '' + warn），实现收敛到 repository seam。
+
+## 2026-07-31 — team reply rows are stamped with their turn's event_id
+
+`_invoke_runtime` now returns `(response_text, event_id)` (from
+`RunCollection.event_id`; None if the run died before Step 0 — including the
+error-string path, which still carries whatever id Step 0 produced). The team
+branch passes it to `bus.send_message(event_id=...)` so every posted reply
+row references the turn that produced it — the per-MESSAGE handle behind the
+transcript's reasoning disclosure, complementing `note_event_id`'s
+per-MEMBER latest-turn binding on the activity row.
+
+## 2026-07-30 — 只有 team room 分支对 collect_run 开 `include_monologue`
+
+team room 的 prompt（`_build_team_prompt`）明说「你的明文会自动上墙」，所以
+NexusPower 独白在这条分支并入收集文本（`include_monologue=is_team`）；peer
+DM→收件箱分支的 prompt 让 agent 用 `send_message_to_user_directly` 送达、
+从未承诺明文落库，独白保持私密（否则 owner 会同时收到润色直发 + 一条原始
+独白的收件箱条目）。语义见 [[run_collector]] 同日条目。
+
+## 2026-07-28 — the poll loop stops being a single point of failure, and reports work
+
+Two defects, one incident. Between 2026-07-27 00:17 and 2026-07-28 09:06 the bus
+processed **zero** messages for **every** user — 33 hours — with no exception, no
+restart, and a liveness signal that read healthy throughout. A container restart
+drained the backlog in 0.1 s.
+
+**Why it froze.** `_poll_cycle` did `asyncio.gather` over every agent that was a
+member of any channel (364 on prod) and awaited all of them. Inside,
+`_process_agent` takes one of `MAX_WORKERS` (3) semaphore slots and calls
+`_invoke_runtime`, which by design has no timeout (binding rule #14). So three
+wedged provider connections exhaust the pool, the gather never returns, and the
+loop stops — for everyone, not just those three agents.
+
+The cycle now **dispatches and moves on**: `_dispatch` spawns a supervised task
+per agent (`_InFlight`, paired `add_done_callback` per incident lesson #2) and
+the loop immediately continues. A stuck turn holds its own task and its own slot;
+the loop keeps cycling and can still serve everyone else.
+
+**Why nobody noticed.** This was the only long-running worker without its own
+`ServiceAuditor`. The supervisor's `bus: running` is set once at start and never
+updated — L1, not L2 (see [[run_worker_supervisor]], corrected in the same
+change). Now `ServiceAuditor("message_bus_trigger")` emits started/stopped/error
+plus a heartbeat carrying `liveness_snapshot()`, whose whole job is to make the
+two failure modes distinguishable in SQL:
+
+| symptom in `service_audit` | meaning |
+|---|---|
+| `cycles` frozen | the loop itself is wedged |
+| `cycles` rising, `dispatched_total` frozen, `candidates` > 0 | loop fine, nothing can start |
+| `running == max_workers` and `waiting` > 0, sustained | the worker pool is the bottleneck |
+| `longest_running_agent` / `_s` | *who* is holding a slot |
+
+`longest_running_*` is **diagnostic only**. Nothing here force-stops a turn: a
+multi-hour run is a legitimate workload, and the fault being guarded is our loop
+dying, not an agent taking its time (binding rule #14).
+
+**Scan cost.** `_agents_with_pending()` replaces "every channel member" with one
+query for agents that actually have a message past their cursor. Deliberately
+over-inclusive: it skips the @mention filter because an un-addressed member is
+precisely who must be dispatched so `_process_agent` can ack and advance its
+cursor — filter them here and cursors freeze and the scan never converges.
+
+`stop()` also sets an event so the loop leaves its interval sleep at once instead
+of waiting out up to `POLL_MAX_INTERVAL`, and cancels in-flight dispatches so the
+loop that owns them doesn't leak them.
+
+## 2026-07-30 — team turns bind their event_id onto the activity row
+
+The team branch also hands `act.note_event_id` to `_invoke_runtime` as
+`on_event_id`; `collect_run` fires it once when the Step-0 progress message
+surfaces the turn's events-row id. Non-team invocations pass nothing — the
+parameter defaults to None end to end.
+
+## 2026-07-28 — team activity scoped by `turn()`
+
+The team branch's three-part activity dance (mark_running up front, a bespoke
+throttled `_make_activity_progress` closure, mark_idle in a `finally` wrapped
+around only the runtime call) collapsed into
+`async with _bus_activity.turn(...) as act` over an `AsyncExitStack`, with
+`act.on_progress` handed to the runtime. The scope now covers the whole
+handled batch rather than just `_invoke_runtime`, and the timer heartbeat that
+keeps the row live during a silent stretch belongs to `turn()` — see
+[[_bus_activity]]. `_make_activity_progress` is gone.
+
+`POISON_FAILURE_THRESHOLD` is now imported from [[local_bus]] instead of being
+a hand-synced copy.
+
 
 ## 2026-07-22 — no longer its own OS process; runs under the worker supervisor
 
@@ -15,6 +106,11 @@ pool). Two consequences worth noting: (1) its flag-based sync `stop()` means the
 of its own, so the supervisor's per-worker liveness snapshot (state `bus:
 running/restarting`) is its FIRST L2 signal. The "独立进程" framing below is
 HISTORY; `__main__` is retained as a debug entrypoint.
+
+> **Both numbered points above were superseded on 2026-07-28 — see the entry at
+> the top of this file.** (1) `stop()` now wakes the loop immediately; (2) the
+> supervisor snapshot was never L2 — it is L1, and it is exactly what let a
+> 33-hour outage look healthy.
 
 ## 2026-07-22 — team prompt: "room files are already shared" note
 
@@ -175,10 +271,6 @@ sees the owner's human name, not the opaque NetMind userSystemCode. The
 that hex must stay. The caller resolves `owner_name` via
 `UserRepository(await get_db_client()).get_display_name(owner_user_id)` (see
 [[user_repository.py]]).
-
-last_verified: 2026-06-09
-stub: false
----
 
 ## 2026-06-09 — `_get_channel_info` SQL dialect bug (silent bus-delivery break)
 

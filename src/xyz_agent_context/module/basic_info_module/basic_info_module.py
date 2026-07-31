@@ -37,10 +37,15 @@ from xyz_agent_context.utils.timezone import (
 # Prompts
 from xyz_agent_context.module.basic_info_module.prompts import (
     BASIC_INFO_MODULE_INSTRUCTIONS,
+    BASIC_INFO_MODULE_INSTRUCTIONS_STABLE,
+    BASIC_INFO_REAL_WORLD_TURN_TEMPLATE,
     DEPLOYMENT_CONTEXT_CLOUD,
     DEPLOYMENT_CONTEXT_LOCAL,
 )
 from xyz_agent_context.utils.deployment_mode import get_deployment_mode
+
+# Settings (leaf module, safe to import at module level)
+from xyz_agent_context.settings import settings
 
 
 _WEEKDAY_NAMES = [
@@ -114,7 +119,43 @@ class BasicInfoModule(XYZBaseModule):
             enabled=True,
             description="Provides basic information capabilities"
         )
-        
+
+    # ============================================================================= Instructions
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        """Render the module instruction, selecting the template by the R4
+        relocation flag.
+
+        Flag ON  → stable template ({current_time} span replaced by a static
+                   pointer) so the output is byte-stable across turns; the
+                   volatile span travels via get_turn_context() instead.
+        Flag OFF → untouched legacy template, functionally equivalent to pre-R4.
+
+        Same include_volatile split as the narrative prompt builder
+        (PromptBuilder.build_main_prompt), with the flag read here because
+        the get_instructions signature is fixed by the base-module contract.
+        """
+        self.instructions = (
+            BASIC_INFO_MODULE_INSTRUCTIONS_STABLE
+            if settings.prompt_turn_context_relocation_enabled
+            else BASIC_INFO_MODULE_INSTRUCTIONS
+        )
+        return await super().get_instructions(ctx_data)
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile span: the "Real World Information" section.
+
+        Wording is byte-identical to the legacy in-template section (R4:
+        relocated, never dropped). Empty when hook_data_gathering did not
+        populate current_time — the temporal ground truth is best-effort,
+        same as before.
+        """
+        if not ctx_data.current_time:
+            return ""
+        return BASIC_INFO_REAL_WORLD_TURN_TEMPLATE.format(
+            current_time=ctx_data.current_time
+        )
+
     # ============================================================================= Hooks
 
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:

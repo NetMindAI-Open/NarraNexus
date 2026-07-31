@@ -1,45 +1,34 @@
 /**
  * TurnTimeline — inline block-by-block rendering of a single agent
- * turn's events (thinking · tool_call · tool_output · reply ·
- * native_output), in the order they arrived.
+ * turn's PROCESS events (thinking · tool_call · tool_output), in the
+ * order they arrived.
  *
- * Design — order is chronological (so the user sees the agent's actual
- * rhythm "think → tool → reply"); the *styling* sorts the blocks into
- * two semantic tiers so the eye lands on what the user should read.
+ * Division of labour (2026-07-30): the answer tier moved out. Replies
+ * and native_output render in the bubble via SegmentedReply (cut by
+ * lib/segmentTurn); the live plan renders pinned at the bottom of
+ * ProcessPanel. This component keeps only the skimmable process rail —
+ * rendering reply here again would print the same sentence twice.
  *
- *   Tier ANSWER — content aimed at the user. Marked by a SOLID left rule.
- *   - reply: the authoritative answer (the agent called
- *     send_message_to_user_directly). Peak treatment — thick solid
- *     accent rule, faint accent fill, accent label, body one notch
- *     larger.
- *   - native_output: raw model text aimed at the user but not routed
- *     through the reply tool. Same tier, one notch below — solid
- *     neutral rule, full-strength body, no fill, no accent.
- *
- *   Tier PROCESS — how the agent got there, skimmable. Marked by a
- *   DASHED left rule.
- *   - thinking: internal monologue. Dashed tertiary rule, dimmest tone
- *     throughout — recedes.
- *   - tool_call / tool_output: single-line mono affordances; full
- *     args/output live in the right-side Execution panel.
- *
- * Solid-vs-dashed left rule is the at-a-glance tier signal; colour +
- * size rank within a tier. (2026-05-12 review with Xiong established
- * the chronological-blocks model; 2026-05-14 reworked the styling into
- * these tiers after thinking and native_output proved hard to tell
- * apart — the earlier "make thinking dimmer" pass was a no-op because
- * .markdown-content's explicit color/size overrode the ancestor
- * utility classes; the real hook is the markdown-* variant classes in
- * index.css.)
+ * Blocks are chronological (so the user sees the agent's actual rhythm
+ * "think → tool → think → tool"); thinking recedes (dashed rule, dim
+ * tone), tools are single-line mono affordances whose full args/output
+ * live in the right-side Execution panel. (2026-05-12 review with Xiong
+ * established the chronological-blocks model; the markdown-* variant
+ * classes in index.css are the hook that dims settled thinking —
+ * .markdown-content's explicit color wins over ancestor utilities.)
  *
  * Per-block expand/collapse state is keyed by event.id and lives in
- * this component's local state — fine because the parent ChatPanel
- * keeps the same TurnTimeline mounted across re-renders during a
- * single turn (clears on next user submit).
+ * this component's local state — fine because the parent keeps the
+ * same TurnTimeline mounted across re-renders during a single turn.
  */
 import { memo, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Brain, Wrench, MessageSquare, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  Brain,
+  Wrench,
+  ChevronDown,
+  ChevronRight,
+} from 'lucide-react';
 import type { TurnEvent } from '@/types';
 import { Markdown } from '@/components/ui';
 import { cn } from '@/lib/utils';
@@ -242,173 +231,23 @@ const ToolOutputBlock = memo(function ToolOutputBlock({
   );
 });
 
-type FallbackKind = 'none' | 'no_reply' | 'after_error';
-
-function fallbackKindFromReplyVia(replyVia: string | undefined): FallbackKind {
-  if (replyVia === 'helper_llm_after_error') return 'after_error';
-  if (replyVia === 'helper_llm_no_reply' || replyVia === 'helper_llm_fallback') {
-    // legacy 'helper_llm_fallback' was the pre-rename name for
-    // helper_llm_no_reply; treat it the same so old persisted rows
-    // still show the info badge instead of nothing.
-    return 'no_reply';
-  }
-  return 'none';
-}
-
-const ReplyBlock = memo(function ReplyBlock({
-  content,
-  isStreaming,
-  fallbackKind,
-}: {
-  content: string;
-  isStreaming: boolean;
-  fallbackKind: FallbackKind;
-}) {
-  const { t } = useTranslation();
-  // Tier: ANSWER (peak). Reply is the agent's authoritative, user-facing
-  // speech — the one block the user should land on first.
-  // NM tier: ANSWER (peak). Reply is the agent's authoritative reply —
-  // the user should land on it first. Rendered as a paper-warm bubble
-  // with a Silicon-colored bracket-edge top-left. Body uses the
-  // `markdown-reply` variant, sized to match the chat bubble body
-  // (0.95rem) — it used to be bumped to 1.05rem but that read larger
-  // than the bubbles. No accent-fill or thick left rule — those broke
-  // the species-color discipline (Axiom #1 says accent can't double as
-  // "this is a reply").
-  return (
-    <div
-      className={cn(
-        'relative px-4 py-3 rounded-[var(--radius-lg)]',
-        isStreaming && 'animate-fade-in',
-      )}
-      style={{
-        background: 'var(--nm-paper-warm)',
-        border: '1px solid var(--nm-hairline)',
-        color: 'var(--nm-ink)',
-      }}
-    >
-      {/* Silicon bracket-edge tl — species marker for "AI reply" */}
-      <span
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          top: -1,
-          left: -1,
-          width: 10,
-          height: 10,
-          borderTop: '1.5px solid var(--color-silicon)',
-          borderLeft: '1.5px solid var(--color-silicon)',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] mb-2"
-        style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-silicon)' }}
-      >
-        <MessageSquare className="w-3 h-3" />
-        <span>{t('chat.timeline.reply')}</span>
-        {fallbackKind === 'no_reply' && (
-          // Soft / informational: the agent finished thinking but didn't
-          // call the reply tool; helper_llm wrote what it should have.
-          // Nothing broke — surface the recovery via a muted accent.
-          <span
-            className="ml-auto"
-            style={{ color: 'var(--color-silicon)' }}
-            title={t('chat.timeline.helperFallbackTip')}
-          >
-            {t('chat.timeline.helperFallback')}
-          </span>
-        )}
-        {fallbackKind === 'after_error' && (
-          // Warning: a step in this turn actually failed. helper_llm
-          // wrote a recovery reply from what completed. Tooltip carries
-          // the operational story; raw error_type stays in logs.
-          <span
-            className="ml-auto"
-            style={{ color: 'var(--color-warning)' }}
-            title={t('chat.timeline.recoveredAfterErrorTip')}
-          >
-            {t('chat.timeline.recoveredAfterError')}
-          </span>
-        )}
-      </div>
-      <div className="leading-relaxed">
-        {isStreaming ? (
-          <div className="whitespace-pre-wrap text-[0.95rem]">{content}</div>
-        ) : (
-          <Markdown content={content} className="markdown-reply" />
-        )}
-      </div>
-    </div>
-  );
-});
-
-const NativeOutputBlock = memo(function NativeOutputBlock({
-  content,
-  isStreaming,
-}: {
-  content: string;
-  isStreaming: boolean;
-}) {
-  const { t } = useTranslation();
-  // Tier: ANSWER (secondary). native_output IS speech aimed at the user
-  // — the model just didn't route it through send_message_to_user_-
-  // directly. So it belongs in the same tier as Reply, one notch below:
-  // a *solid* left rule (content, not process) and a full-strength body,
-  // but in a neutral secondary tone instead of Reply's accent, and with
-  // no accent fill. Previously it shared Thinking's dashed-tertiary +
-  // opacity-80 treatment, which made the two indistinguishable.
-  //
-  // native_output never goes through <Markdown> (always plain pre-wrap),
-  // so the body colour is governed directly — full strength via
-  // `.message-assistant`'s text-primary, no dimming.
-  // NM tier: ANSWER (secondary). native_output is speech meant for the
-  // user but not routed through send_message_to_user_directly. Same
-  // visual family as Reply (paper-warm + silicon edge) but the label
-  // reads [ NATIVE ] in ink-70 instead of silicon-colored.
-  return (
-    <div
-      className={cn(
-        'relative px-4 py-3 rounded-[var(--radius-lg)]',
-        isStreaming && 'animate-fade-in',
-      )}
-      style={{
-        background: 'var(--nm-paper-warm)',
-        border: '1px solid var(--nm-hairline)',
-        color: 'var(--nm-ink)',
-      }}
-    >
-      <span
-        aria-hidden="true"
-        style={{
-          position: 'absolute',
-          top: -1,
-          left: -1,
-          width: 10,
-          height: 10,
-          borderTop: '1.5px solid var(--color-silicon)',
-          borderLeft: '1.5px solid var(--color-silicon)',
-          pointerEvents: 'none',
-        }}
-      />
-      <div
-        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.14em] mb-1.5"
-        style={{ fontFamily: 'var(--font-mono)', color: 'var(--nm-ink70)' }}
-      >
-        <MessageSquare className="w-3 h-3" />
-        <span>{t('chat.timeline.nativeOutput')}</span>
-      </div>
-      <div className="text-[0.95rem] leading-relaxed whitespace-pre-wrap">{content}</div>
-    </div>
-  );
-});
-
 export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps) {
-  if (events.length === 0) return null;
+  // Division of labour: process belongs to the timeline, answers to the
+  // bubble (SegmentedReply, cut by segmentTurn). The answer tier is
+  // filtered out here — keeping it would print the same sentence in both
+  // the bubble and the collapsed region. Plans don't render here either:
+  // they live in ProcessPanel's pinned footer.
+  const processEvents = useMemo(
+    () => events.filter(
+      (e) => e.type === 'thinking' || e.type === 'tool_call' || e.type === 'tool_output',
+    ),
+    [events],
+  );
+  if (processEvents.length === 0) return null;
 
-  // NM "one turn = one shared rail" rule: every sub-block (thinking /
-  // tool / output / reply / native) sits under a single 1px ink-30
-  // vertical line on the left, marking the whole stack as one turn.
+  // NM "one turn = one shared rail" rule: every process block (thinking /
+  // tool / output) sits under a single 1px ink-30 vertical line on the
+  // left, marking the whole stack as one turn.
   return (
     <div
       className="space-y-3 relative pl-3"
@@ -416,7 +255,7 @@ export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps)
         borderLeft: '1px solid var(--nm-ink30)',
       }}
     >
-      {events.map((event) => {
+      {processEvents.map((event) => {
         switch (event.type) {
           case 'thinking':
             return (
@@ -441,23 +280,6 @@ export function TurnTimeline({ events, isStreaming = false }: TurnTimelineProps)
                 key={event.id}
                 toolName={event.tool_name}
                 output={event.output}
-                isStreaming={isStreaming}
-              />
-            );
-          case 'reply':
-            return (
-              <ReplyBlock
-                key={event.id}
-                content={event.content}
-                isStreaming={isStreaming}
-                fallbackKind={fallbackKindFromReplyVia(event.reply_via)}
-              />
-            );
-          case 'native_output':
-            return (
-              <NativeOutputBlock
-                key={event.id}
-                content={event.content}
                 isStreaming={isStreaming}
               />
             );

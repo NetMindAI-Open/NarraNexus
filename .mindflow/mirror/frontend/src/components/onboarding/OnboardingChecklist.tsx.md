@@ -1,10 +1,17 @@
 ---
 code_file: frontend/src/components/onboarding/OnboardingChecklist.tsx
-last_verified: 2026-06-16
+last_verified: 2026-07-21
 stub: false
 ---
 
 # OnboardingChecklist.tsx — new-user "getting started" card
+
+## 2026-07-20 — first-run copy follows the active locale
+
+All checklist labels, hints, actions, and accessibility text now come from the
+shared i18n dictionaries. The checklist behavior and persisted progress model
+are unchanged; switching to Chinese no longer leaves this cloud-only card in
+English.
 
 ## 2026-06-10 — "Meet your bookmark strip" step
 

@@ -35,6 +35,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+from loguru import logger
+
 from xyz_agent_context.agent_framework.loop.events import ITEM_TYPE_TOOL_CALL
 from xyz_agent_context.schema.runtime_message import MessageType
 
@@ -62,7 +64,10 @@ class RunCollection:
     """Result of consuming one ``AgentRuntime.run()`` invocation."""
 
     output_text: str = ""
-    """Concatenation of every ``AGENT_RESPONSE.delta`` in arrival order."""
+    """What the agent said, in arrival order: every ``AGENT_RESPONSE.delta``,
+    plus — only when the caller opted in via ``include_monologue`` — every
+    ``AGENT_THINKING.monologue`` segment (NexusPower's assistant plain text,
+    which streams as thinking under the monologue contract)."""
 
     tool_calls: list[str] = field(default_factory=list)
     """Names of tools invoked by the agent, in arrival order."""
@@ -77,6 +82,12 @@ class RunCollection:
     yielded one or more ``ERROR`` messages. If multiple errors arrived
     the last one wins (callers get the most specific failure)."""
 
+    event_id: Optional[str] = None
+    """``events`` row id of this turn, captured from the Step-0 progress
+    message (``details.event_id``). None if the run died before Step 0
+    completed. Lets bus consumers link the turn to its persisted
+    event_log without touching the runtime."""
+
     @property
     def is_error(self) -> bool:
         return self.error is not None
@@ -90,6 +101,8 @@ async def collect_run(
     input_content: str,
     working_source,
     on_progress: Optional[Callable[[str, Optional[str]], Awaitable[None]]] = None,
+    on_event_id: Optional[Callable[[str], Awaitable[None]]] = None,
+    include_monologue: bool = False,
     **extra_kwargs,
 ) -> RunCollection:
     """Drive ``runtime.run(...)`` to completion and group its output.
@@ -104,11 +117,27 @@ async def collect_run(
     (``tool_name`` set only for "tool"). Used to mirror a live "what is this
     agent doing" status (e.g. the team-chat activity view). It must never raise;
     any exception is swallowed so status reporting can't break the run.
+
+    ``on_event_id(event_id)`` — optional, opt-in — is awaited at most once, as
+    soon as the Step-0 progress message's ``details.event_id`` is observed.
+    Used to bind the turn's events-row id onto a live status row (e.g.
+    ``TurnActivity.note_event_id``) as soon as it's known, rather than waiting
+    for the whole run to finish. Like ``on_progress``, it must never raise;
+    any exception is swallowed so status reporting can't break the run.
+
+    ``include_monologue`` — opt-in — folds NexusPower monologue segments
+    (``AGENT_THINKING.monologue``) into ``output_text``. ONLY for callers
+    whose prompt tells the agent its plain text is delivered (today: bus
+    team rooms, whose replies auto-post to the shared room). Everywhere
+    else the monologue contract promises the agent its plain text is
+    private; relaying it to an inbox or an A2A response would leak
+    deliberation the agent never addressed to anyone.
     """
     text_parts: list[str] = []
     tool_calls: list[str] = []
     raw_items: list[Any] = []
     error: Optional[RunError] = None
+    event_id: Optional[str] = None
     # Dedup synthesized tool_call_items by (tool_name, arguments_json). With
     # include_partial_messages=True the same ToolUseBlock can surface across
     # multiple AssistantMessage frames — the SDK dedups by tool_call_id, but
@@ -125,10 +154,23 @@ async def collect_run(
         **extra_kwargs,
     ):
         mt = getattr(msg, "message_type", None)
+        # NexusPower: the agent's plain text streams as thinking with the
+        # ``monologue`` subset set — the assistant text the claude driver
+        # would emit as AGENT_RESPONSE. Only meaningful when the caller
+        # opted in (see include_monologue docstring); provider CoT arrives
+        # with monologue="" and never counts.
+        monologue = (
+            getattr(msg, "monologue", "")
+            if include_monologue and mt == MessageType.AGENT_THINKING
+            else ""
+        )
         if mt == MessageType.AGENT_RESPONSE:
             delta = getattr(msg, "delta", None)
             if delta:
                 text_parts.append(delta)
+        elif mt == MessageType.AGENT_THINKING:
+            if monologue:
+                text_parts.append(monologue)
         elif mt == MessageType.TOOL_CALL:
             name = getattr(msg, "tool_name", None)
             if name:
@@ -182,10 +224,17 @@ async def collect_run(
                 _d = getattr(msg, "details", None)
                 if isinstance(_d, dict):
                     _tool = _d.get("tool_name")
+            # A monologue-carrying thinking frame is the agent SPEAKING —
+            # but only on opted-in surfaces, where that text really is
+            # delivered (``monologue`` is already "" otherwise). Report it
+            # as "response" so activity views don't show "thinking" while
+            # the room reply is being written.
             kind = (
                 "tool" if _tool
+                else "response" if (
+                    mt == MessageType.AGENT_RESPONSE or monologue
+                )
                 else "thinking" if mt == MessageType.AGENT_THINKING
-                else "response" if mt == MessageType.AGENT_RESPONSE
                 else "error" if mt == MessageType.ERROR
                 else None
             )
@@ -195,9 +244,24 @@ async def collect_run(
                 except Exception:  # noqa: BLE001 — status must never break the run
                     pass
 
+        # Step-0 event_id capture (opt-in via on_event_id). Fires at most once —
+        # the first Step-0 completion wins, and it's the only place this id
+        # is ever surfaced.
+        if event_id is None:
+            details = getattr(msg, "details", None)
+            candidate = details.get("event_id") if isinstance(details, dict) else None
+            if candidate:
+                event_id = str(candidate)
+                if on_event_id is not None:
+                    try:
+                        await on_event_id(event_id)
+                    except Exception:  # noqa: BLE001 — status must never break the run
+                        logger.opt(exception=True).warning("on_event_id callback failed")
+
     return RunCollection(
         output_text="".join(text_parts),
         tool_calls=tool_calls,
         raw_items=raw_items,
         error=error,
+        event_id=event_id,
     )

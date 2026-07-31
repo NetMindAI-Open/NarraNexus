@@ -1422,14 +1422,13 @@ class ChannelTriggerBase(ABC):
 
     async def _resolve_agent_owner(self, agent_id: str) -> str:
         """Look up the agent's owner user_id from the agents table.
-        Returns empty string on miss; caller falls back to agent_id."""
+        Returns empty string on miss; caller falls back to agent_id.
+        Delegates to the shared AgentRepository.resolve_owner seam so
+        ownership semantics have one home."""
         if self._db is None or not agent_id:
             return ""
-        try:
-            row = await self._db.get_one("agents", {"agent_id": agent_id})
-            return (row or {}).get("created_by", "") or ""
-        except Exception:  # noqa: BLE001
-            return ""
+        from xyz_agent_context.repository.agent_repository import AgentRepository
+        return await AgentRepository(self._db).resolve_owner(agent_id)
 
     def format_error_reply(self, error: "RunError") -> str:
         """

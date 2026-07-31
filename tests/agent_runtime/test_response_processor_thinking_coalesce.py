@@ -148,3 +148,55 @@ def test_flush_pending_idempotent_when_buffer_empty():
     list(processor.process(_thinking_event("x" * 600), state))  # forces flush
     # Now empty
     assert list(processor.flush_pending(state)) == []
+
+
+def _monologue_event(content: str) -> dict:
+    """A NexusPower text delta: rendered as thinking, flagged monologue."""
+    return {
+        "type": "run_item_stream_event",
+        "item": {"type": "thinking_item", "content": content, "monologue": True},
+    }
+
+
+def test_flushed_message_carries_monologue_subset():
+    """The AgentThinking MESSAGE (not just the state update) must carry
+    the monologue subset of its batch — collect_run consumers only see
+    messages, and triggers relay output_text built from them. A batch
+    mixing provider CoT with monologue yields only the monologue part."""
+    processor = ResponseProcessor()
+    state = ExecutionState()
+
+    emitted: list[AgentThinking] = []
+    for event in (
+        _thinking_event("cot-"),
+        _monologue_event("reply says hi"),
+        _thinking_event("-more cot"),
+    ):
+        for result in processor.process(event, state):
+            state = processor.apply_state_update(state, result)
+            if result.type == ResponseType.THINKING:
+                emitted.append(result.message)
+    for result in processor.flush_pending(state):
+        state = processor.apply_state_update(state, result)
+        if result.type == ResponseType.THINKING:
+            emitted.append(result.message)
+
+    assert "".join(m.thinking_content for m in emitted) == "cot-reply says hi-more cot"
+    assert "".join(m.monologue for m in emitted) == "reply says hi"
+    # State-side parity is untouched: final_output accumulates the same subset.
+    assert state.final_output == "reply says hi"
+
+
+def test_pure_cot_batches_carry_empty_monologue():
+    processor = ResponseProcessor()
+    state = ExecutionState()
+
+    emitted: list[AgentThinking] = []
+    for result in processor.process(_thinking_event("x" * 600), state):
+        state = processor.apply_state_update(state, result)
+        if result.type == ResponseType.THINKING:
+            emitted.append(result.message)
+
+    assert len(emitted) == 1
+    assert emitted[0].monologue == ""
+    assert state.final_output == ""

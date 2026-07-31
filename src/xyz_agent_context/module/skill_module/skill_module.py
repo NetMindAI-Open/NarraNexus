@@ -404,7 +404,10 @@ class SkillModule(XYZBaseModule):
             return
 
         disabled_dir = self.skills_dir / ".disabled"
-        for src in BUILTIN_SKILLS_DIR.iterdir():
+        # sorted(): every directory walk in this module is name-ordered (R4d).
+        # See _scan_skills() for why — readdir order is filesystem-defined and
+        # reaches the system prompt.
+        for src in sorted(BUILTIN_SKILLS_DIR.iterdir(), key=lambda p: p.name):
             if not src.is_dir() or src.name.startswith("."):
                 continue
             name = src.name
@@ -455,12 +458,26 @@ class SkillModule(XYZBaseModule):
     # =========================================================================
 
     def _scan_skills(self) -> List[SkillInfo]:
-        """Scan skills directory, including directories without SKILL.md (e.g., skills auto-configured by agent)"""
+        """Scan skills directory, including directories without SKILL.md (e.g., skills auto-configured by agent)
+
+        Iteration is name-sorted, NOT raw readdir order (R4d, 2026-07-28).
+        This list becomes the skills table in the system prompt
+        (hook_data_gathering -> ctx_data.extra_data["skills_table"] ->
+        get_instructions), and ``Path.iterdir()`` yields whatever order the
+        filesystem hands back — APFS returns creation-ish order, not
+        alphabetical (verified: a live workspace listed as officecli,
+        home-assistant-setup, netmind-transcribe, netmind-vision). Because
+        _materialize_builtin_skills() runs every round and the agent can
+        create/remove skill directories mid-conversation, any such change
+        reshuffles the whole table at IDENTICAL total length — a same-length
+        reorder that no byte-count diagnostic can see and that punctures the
+        cacheable system-prompt prefix at the first transposed row.
+        """
         if not self.skills_dir or not self.skills_dir.exists():
             return []
 
         skills = []
-        for skill_path in self.skills_dir.iterdir():
+        for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
             if skill_path.is_dir() and not skill_path.name.startswith("."):
                 skill_md = skill_path / "SKILL.md"
                 if skill_md.exists():
@@ -783,8 +800,12 @@ class SkillModule(XYZBaseModule):
         direct = self.skills_dir / skill_name
         if direct.exists() and direct.is_dir():
             return direct
-        # Scan and match by parsed name from SKILL.md
-        for skill_path in self.skills_dir.iterdir():
+        # Scan and match by parsed name from SKILL.md. Name-sorted (R4d) so
+        # that when two directories declare the same frontmatter name the
+        # winner is deterministic instead of readdir-order dependent — the
+        # resolved dir decides which .skill_meta.json (env config, study
+        # status) is read and written.
+        for skill_path in sorted(self.skills_dir.iterdir(), key=lambda p: p.name):
             if skill_path.is_dir() and not skill_path.name.startswith("."):
                 skill_md = skill_path / "SKILL.md"
                 if skill_md.exists():
@@ -960,7 +981,9 @@ class SkillModule(XYZBaseModule):
         if include_disabled and self.skills_dir:
             disabled_dir = self.skills_dir / ".disabled"
             if disabled_dir.exists():
-                for skill_path in disabled_dir.iterdir():
+                # Name-sorted (R4d): this list is API/UI-facing, and the
+                # enabled half above is already deterministic.
+                for skill_path in sorted(disabled_dir.iterdir(), key=lambda p: p.name):
                     if skill_path.is_dir():
                         skill_md = skill_path / "SKILL.md"
                         if skill_md.exists():
@@ -1054,11 +1077,16 @@ class SkillModule(XYZBaseModule):
         return info
 
     def _find_skill_root(self, extract_dir: Path) -> Optional[Path]:
-        """Find the directory containing SKILL.md in the extracted directory"""
+        """Find the directory containing SKILL.md in the extracted directory
+
+        Name-sorted (R4d): an archive with several candidate subdirectories
+        must resolve to the same root on every machine, not to whatever
+        readdir happened to yield first.
+        """
         if (extract_dir / "SKILL.md").exists():
             return extract_dir
 
-        for subdir in extract_dir.iterdir():
+        for subdir in sorted(extract_dir.iterdir(), key=lambda p: p.name):
             if subdir.is_dir() and (subdir / "SKILL.md").exists():
                 return subdir
 

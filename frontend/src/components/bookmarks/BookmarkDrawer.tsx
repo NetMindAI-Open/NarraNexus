@@ -4,14 +4,40 @@
  * @description: Slide-over shell for bookmark panel content.
  *
  * Two modes:
- *   Slide-over (pinned=false): right-anchored overlay 440px wide.
+ *   Slide-over (pinned=false): overlay 440px wide, anchored `edgeReservePx`
+ *     from the right edge so it stops SHORT of the bookmark strip.
  *     - bg: var(--nm-paper)
  *     - left-edge shadow: -2px 0 var(--nm-elev-edge)
- *     - transparent backdrop; click backdrop or Esc → onClose
- *     - role="dialog" aria-modal
- *   Pinned (pinned=true): static column frame, no backdrop, no aria-modal.
+ *     - transparent backdrop (also stops short of the strip); click backdrop
+ *       or Esc → onClose
+ *     - role="dialog", NOT aria-modal — the strip stays operable
+ *   Pinned (pinned=true): static column, laid out in the flex row by the
+ *     parent. Owns its own frame + width; no portal, no backdrop.
  *
  * Header: mono uppercase title + Pin/PinOff toggle + X close.
+ *
+ * Toggling pin must not remount the panel (2026-07-30)
+ * ----------------------------------------------------
+ * React has no reparent primitive: moving a subtree to a different DOM parent
+ * always unmounts and remounts it, discarding its state. So the ONLY way the
+ * pin toggle can preserve what the user set up inside the panel (job filter,
+ * view mode, expanded rows, scroll) is for the panel's DOM position to never
+ * move at all. Two consequences, both load-bearing:
+ *
+ *   1. **No portal.** The slide-over is `position: fixed` (out of flow, so it
+ *      consumes no layout space) rendered right where the pinned column would
+ *      be. Wrapping in `createPortal` for one mode and not the other is itself
+ *      a tree-shape change and remounts just the same — that was the first
+ *      attempted fix, and the test suite caught it.
+ *   2. **One element, stable slot.** Both modes are the SAME `<div>` with
+ *      different classes/styles, in a fragment whose child positions don't
+ *      shift. Don't "clean this up" into `if (pinned) return …` — two returns
+ *      with different shapes remount the children.
+ *
+ * The no-portal choice does move the overlay into `<main>`'s stacking context
+ * (`relative z-10`), so it no longer paints over the fixed sidebar (z-40).
+ * They only overlap on mobile with the off-canvas nav open, where the nav
+ * covering content is the expected behaviour anyway.
  *
  * The slide-in animation uses CSS via animate-slide-in-right (already
  * defined in the project's Tailwind/CSS config).  Pin state persistence
@@ -19,9 +45,8 @@
  * parent).
  */
 
-import { type ReactNode, useEffect, useCallback } from 'react';
+import { type ReactNode, type Ref, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { createPortal } from 'react-dom';
 import { X, Pin, PinOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -35,6 +60,21 @@ interface BookmarkDrawerProps {
   onPinnedChange: (pinned: boolean) => void;
   onClose: () => void;
   title: string;
+  /**
+   * Width of the right edge the slide-over must NOT cover — the bookmark
+   * strip plus the layout gutter (see MainLayout). Both the panel and the
+   * click-capturing backdrop are inset by this much, which is what makes
+   * "click another tab" switch panels in ONE click instead of requiring the
+   * user to close this one first. Ignored in pinned mode. Default 0.
+   */
+  edgeReservePx?: number;
+  /** Column width in px, pinned mode only. Ignored by the slide-over. */
+  pinnedWidth?: number;
+  /**
+   * Handle on the pinned column, so the parent's ResizableDivider can write
+   * `width` straight to the DOM during a drag. Null in slide-over mode.
+   */
+  columnRef?: Ref<HTMLDivElement>;
   children: ReactNode;
 }
 
@@ -48,6 +88,9 @@ export function BookmarkDrawer({
   onPinnedChange,
   onClose,
   title,
+  edgeReservePx = 0,
+  pinnedWidth = 400,
+  columnRef,
   children,
 }: BookmarkDrawerProps) {
   // Keyboard Esc handler — only for slide-over mode (not pinned)
@@ -71,50 +114,53 @@ export function BookmarkDrawer({
 
   if (!open) return null;
 
-  // Pinned mode: static column frame that FILLS its parent — the parent
-  // owns width / border / rounding so the pinned column matches the
-  // surrounding card language (no portal, no backdrop).
-  if (pinned) {
-    return (
-      <div
-        className="flex flex-col w-full h-full overflow-hidden"
-        style={{ background: 'var(--nm-paper)' }}
-      >
-        <DrawerHeader
-          title={title}
-          pinned={pinned}
-          onPinnedChange={onPinnedChange}
-          onClose={onClose}
+  const overlay = !pinned;
+
+  return (
+    <>
+      {/* Transparent backdrop — slide-over only. It captures outside clicks
+          but leaves the reserved edge alone, so strip clicks reach the strip.
+          When pinned this renders as `false`, which is fine: the panel below
+          keeps a stable slot in this fragment either way. */}
+      {overlay && (
+        <div
+          className="fixed inset-y-0 left-0 z-[200]"
+          style={{ right: edgeReservePx }}
+          data-drawer-backdrop=""
+          onClick={onClose}
         />
-        <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
-      </div>
-    );
-  }
+      )}
 
-  // Slide-over mode: portal overlay
-  return createPortal(
-    <div className="fixed inset-y-0 right-0 z-[200] flex pointer-events-none">
-      {/* Transparent backdrop — covers the page to capture outside clicks */}
+      {/* The panel. ONE element for both modes — only its positioning changes.
+          Slide-over is `position: fixed` (out of flow, so it consumes no layout
+          space) rather than a portal; pinned is an in-flow flex column.
+          NOT aria-modal in overlay mode: the bookmark strip beside it is a live
+          switcher and aria-modal would hide it from screen readers. */}
       <div
-        className="fixed inset-0 pointer-events-auto"
-        data-drawer-backdrop=""
-        onClick={onClose}
-      />
-
-      {/* Drawer panel */}
-      <div
-        role="dialog"
-        aria-modal={true}
-        aria-label={title}
+        ref={columnRef}
+        role={overlay ? 'dialog' : undefined}
+        aria-label={overlay ? title : undefined}
         className={cn(
-          'relative flex flex-col w-full max-w-[440px] h-full pointer-events-auto',
-          'animate-slide-in-right',
+          'flex flex-col overflow-hidden',
+          overlay
+            ? 'fixed inset-y-0 z-[200] animate-slide-in-right'
+            : 'shrink-0 rounded-[var(--radius-md)]',
         )}
-        style={{
-          background: 'var(--nm-paper)',
-          boxShadow: '-2px 0 var(--nm-elev-edge)',
-        }}
-        onClick={(e) => e.stopPropagation()}
+        style={
+          overlay
+            ? {
+                right: edgeReservePx,
+                width: `min(440px, 100vw - ${edgeReservePx}px)`,
+                background: 'var(--nm-paper)',
+                boxShadow: '-2px 0 var(--nm-elev-edge)',
+              }
+            : {
+                width: pinnedWidth,
+                background: 'var(--nm-paper)',
+                border: '1px solid var(--nm-hairline)',
+              }
+        }
+        onClick={overlay ? (e) => e.stopPropagation() : undefined}
       >
         <DrawerHeader
           title={title}
@@ -124,8 +170,7 @@ export function BookmarkDrawer({
         />
         <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
       </div>
-    </div>,
-    document.body,
+    </>
   );
 }
 
@@ -161,6 +206,9 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
           <button
             type="button"
             aria-label={t('bookmarks.drawer.unpin')}
+            // The label was already written; it just wasn't
+            // reachable by a mouse. Hovering explained nothing.
+            title={t('bookmarks.drawer.unpin')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded-sm',
               'transition-colors duration-100 cursor-pointer',
@@ -178,6 +226,9 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
           <button
             type="button"
             aria-label={t('bookmarks.drawer.pin')}
+            // The label was already written; it just wasn't
+            // reachable by a mouse. Hovering explained nothing.
+            title={t('bookmarks.drawer.pin')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded-sm',
               'transition-colors duration-100 cursor-pointer',
@@ -197,6 +248,9 @@ function DrawerHeader({ title, pinned, onPinnedChange, onClose }: DrawerHeaderPr
         <button
           type="button"
           aria-label={t('bookmarks.drawer.close')}
+            // The label was already written; it just wasn't
+            // reachable by a mouse. Hovering explained nothing.
+            title={t('bookmarks.drawer.close')}
           className={cn(
             'flex items-center justify-center w-6 h-6 rounded-sm',
             'transition-colors duration-100 cursor-pointer',

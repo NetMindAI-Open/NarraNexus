@@ -1,7 +1,7 @@
 ---
 code_file: backend/routes/admin/runtime.py
 stub: false
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 ---
 
 ## 2026-07-22 — added GET /api/admin/runtime/workers (Workers card liveness)
@@ -34,3 +34,11 @@ is exactly (and only) where the Workers card renders.
 
 注入接缝:`get_db_client`(db_factory)、`get_admission_controller` 都是模块级名,
 测试可 monkeypatch。本轮未加鉴权(管理端点,部署侧应在网关/反代限制访问 —— 待办)。
+
+## 2026-07-30 — X-Admin-Secret 自凭据（watcher 401 修复）
+
+deploy 仓 alert watcher 是无 JWT 的机器客户端；端点照 migrate-identity 先例
+改为 auth 中间件放行 + handler 内 `X-Admin-Secret`（`settings.admin_secret_key`）
+校验。未配置 secret = 503 拒绝（配置缺失不是敞门）。历史：watcher 设计时
+（2026-06-18）此端点无鉴权，后来全局 JWT 上线把它 401 掉，而 watcher 一直没
+部署所以静默失联了一个多月。

@@ -4,6 +4,10 @@
  */
 
 import type {
+  MigrationFramework,
+  MigrationDetectResponse,
+  StandardizedAgentImport,
+  MigrationApplyResult,
   BusAttachment,
   JobListResponse,
   JobDetailResponse,
@@ -1380,6 +1384,19 @@ class ApiClient {
     return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
   }
 
+  /** Edit a job's execution time (schedule rule). Only send the changed fields;
+   *  omitted fields keep their existing trigger_config value. Throws ApiError
+   *  on 400 (invalid schedule / non-editable status) / 403 / 404. */
+  async updateJobSchedule(
+    jobId: string,
+    fields: { run_at?: string; cron?: string; interval_seconds?: number; timezone?: string },
+  ): Promise<{ success: boolean; job_id: string; next_run_at?: string; next_run_timezone?: string }> {
+    return this.request(`/api/dashboard/jobs/${encodeURIComponent(jobId)}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify(fields),
+    });
+  }
+
   // Lark / Feishu Integration API
   async getLarkCredential(agentId: string): Promise<LarkCredentialResponse> {
     return this.request<LarkCredentialResponse>(`/api/lark/credential?agent_id=${encodeURIComponent(agentId)}`);
@@ -1981,6 +1998,37 @@ class ApiClient {
     });
     if (!resp.ok) throw new Error(`Upload archive failed: ${resp.status}`);
     return resp.json();
+  }
+
+  // ── Agent Migration (import from other frameworks) ─────────────────────
+  // All three are LOCAL ONLY (503 on cloud) — Agent Migration reads the user's
+  // filesystem, which cloud doesn't have.
+
+  /** List every known framework found in the standard home locations. */
+  async migrateDetect(): Promise<MigrationDetectResponse> {
+    return this.request<MigrationDetectResponse>('/api/migrate/detect');
+  }
+
+  /** Scan one source into the standardized JSON (detect + extract, no write). */
+  async migrateScan(
+    path?: string,
+    framework?: MigrationFramework,
+  ): Promise<StandardizedAgentImport> {
+    return this.request<StandardizedAgentImport>('/api/migrate/scan', {
+      method: 'POST',
+      body: JSON.stringify({ path, framework }),
+    });
+  }
+
+  /** Execute the migration: create/populate an agent from the scanned JSON. */
+  async migrateApply(
+    importData: StandardizedAgentImport,
+    agentId?: string,
+  ): Promise<MigrationApplyResult> {
+    return this.request<MigrationApplyResult>('/api/migrate/apply', {
+      method: 'POST',
+      body: JSON.stringify({ import_data: importData, agent_id: agentId }),
+    });
   }
 }
 

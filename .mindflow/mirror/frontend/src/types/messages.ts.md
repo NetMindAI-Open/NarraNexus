@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — Segment 型别落户 types + `ToolCallEvent.pending` + `ChatMessage.segments`
+
+- `ChatMessage.segments`：stopStreaming 把切好的段挂在消息上，气泡按段
+  渲染；老消息 undefined 回落 content 单段。content 保留 join 全文
+  （通知/复制/搜索的纯文本载体）。
+- `Segment` / `SegmentReply` / `ProcessEvent` 定义在这里而不是
+  `lib/segmentTurn.ts`：types 不能反向依赖 lib，切段函数从 types 导入。
+  `Segment` 是「一轮的一个用户可见片段」——process（导致它的思考/工具）
+  + reply（可为 null：整轮零回复时过程不丢）。
+- `ToolCallEvent.pending`：工具名已到、参数还在流式生成中。名字一到就
+  发 `pending=true` 的事件，参数齐了发同 `tool_call_id` 的完整事件覆盖。
+  不支持名字先行的框架只发一次完整事件（缺省即假），消费端无需分支。
+
+## 2026-07-29 — NexusPower 专属的两个消息型别
+
+`agent_reply_delta`(表达工具参数流=真正的"agent 在说话")与 `agent_plan`
+(整份快照)写进 `MessageType` 联合。只有一个框架发的形状照样要进联合——
+否则每个消费点都得写 cast。其他框架永不发这两种,消费端按存在与否分支即可。
 
 ## 2026-07-22 — action_reason/actionReason 补 executor-infra reasons
 

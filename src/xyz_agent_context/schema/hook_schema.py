@@ -202,9 +202,12 @@ class HookIOData:
     Attributes:
         input_content: User/system input content
         final_output: Agent's final text output
+        interrupted: True when the user stopped the run mid-turn — the
+            output above is partial-but-real (interrupt continuity)
     """
     input_content: str
     final_output: str
+    interrupted: bool = False
 
 
 @dataclass

@@ -12,16 +12,17 @@
  *      streaming renderer plugs in.
  */
 import { describe, expect, test, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import type { UrlArtifactDoc } from '@/types/artifact';
 
 let currentDoc: UrlArtifactDoc;
 
+const mockSetEmbedMode = vi.fn(async () => ({}));
 vi.mock('@/services/artifactsApi', () => ({
   artifactsApi: {
     getRawUrl: vi.fn(async () => '/api/public/artifacts/raw/FAKE/'),
-    setEmbedMode: vi.fn(async () => ({})),
+    setEmbedMode: (...a: unknown[]) => mockSetEmbedMode(...(a as [])),
   },
   fetchArtifactText: vi.fn(async () => JSON.stringify(currentDoc)),
 }));
@@ -97,5 +98,24 @@ describe('UrlRenderer', () => {
       if (!container.querySelector('iframe')) throw new Error('iframe not rendered');
     });
     expect(container.querySelector('iframe')?.getAttribute('src')).toBe('https://github.com');
+  });
+  test('mode switch failure reports in-app, never through window.alert', async () => {
+    // wry does not render window.alert, so the native one was invisible on the
+    // DMG: the toggle silently refused to change and said nothing.
+    const nativeAlert = vi.spyOn(window, 'alert');
+    mockSetEmbedMode.mockRejectedValueOnce(new Error('boom'));
+    currentDoc = {
+      schema_version: 1,
+      url: 'https://example.com',
+      title: 'Example',
+      embed: { recommended: 'stream', reason: 'x-frame-options', probe_status: 'ok', user_override: null },
+    };
+    render(<UrlRenderer artifact={artifact} />);
+
+    fireEvent.click(await screen.findByText(/Try embedding anyway/i));
+
+    expect(await screen.findByText(/Could not change mode/i)).toBeTruthy();
+    expect(nativeAlert).not.toHaveBeenCalled();
+    nativeAlert.mockRestore();
   });
 });

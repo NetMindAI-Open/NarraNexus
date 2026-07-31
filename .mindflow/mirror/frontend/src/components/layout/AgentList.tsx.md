@@ -1,8 +1,18 @@
 ---
 code_file: frontend/src/components/layout/AgentList.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — hosts the Agent Migration entry point ([[ImportAgentModal]])
+
+Owns `importOpen` + `handleImportApplied`. Passes `onImportAgent` into
+[[CreateMenu]] (and the collapsed-rail popover) **only when
+`useRuntimeStore.mode === 'local'`** — the migration scanner reads the
+filesystem and 503s on cloud, so the import item is hidden off-desktop. On a
+successful apply, `handleImportApplied` calls `refreshAgents()` then
+`setAgentId` / `setActiveAgent` + navigates to `/app/chat` — the same store
+wiring as `useCreateAgent`, so imported agents land selected like created ones.
 
 ## 2026-07-23 — 承载 EditAgentDialog(编辑名称 + 描述)
 

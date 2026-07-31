@@ -1,8 +1,67 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-27
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — bus_messages.event_id (additive)
+
+The `events` row id of the turn that produced an agent reply, stamped by the
+trigger's team branch at post time. NULL for user messages and legacy rows.
+Powers the transcript's per-message "view reasoning & tools" disclosure —
+unlike `bus_agent_activity.event_id` (one row per member, latest turn only),
+this one gives every historical message its own handle.
+
+## 2026-07-30 — bus_agent_activity.event_id (additive)
+
+Binds the activity mirror row to the `events` row of its current/most
+recent turn, so the team-room UI can fetch the finished turn's full
+event_log through the existing event-log endpoint. Written by
+`TurnActivity.note_event_id`, reset on `start()`, kept after `finish()`
+— see [[_bus_activity]] for the full lifecycle reasoning.
+
+## 2026-07-30 — 新表 model_probe_ledger / model_probe_suspects
+
+探测 ledger 落 DB（一行一 source，models_json 与 committed 快照 per-source 同
+形）+ 运行时模型嫌疑表（(source, model_id, protocol) 唯一，occurrences 计数）。
+背景见 [[model_probe_ledger]] 与 [[model_health]]。
+
+## 2026-07-29 — 摘掉 agent_cli_sessions 注册(T7)
+
+`# 17. agent_cli_sessions` 的 `_register(TableDef(...))` 整块删除。表的用途是存
+可 resume 的 CLI 会话句柄,而 [[transcript]] 让 adapter 每轮自己写 transcript、
+用完即删,没有句柄要存。该机制**从未上线到 feature branch 之外**。
+
+**没有写 DROP,是刻意的。** `auto_migrate()` 只建表/加列/加索引,从不删——所以摘掉
+注册之后,新库不再创建,而跑过旧代码的开发库会留一张空的孤儿表。留着:一张空的
+无用表无害,而把 `DROP TABLE` 提交进仓库就是往仓库里放破坏性迁移(铁律 #6)。
+需要的话手工删。
+
+## 2026-07-29 — lark_credentials.bot_open_id
+
+Additive column holding the bot's own Lark open_id. Consumed by
+[[lark_trigger]]'s group @-mention gate; written by
+[[_lark_credential_manager]] `update_bot_identity` from the same
+`/open-apis/bot/v3/info` response that already supplied `bot_name`.
+`auto_migrate()` adds it in place; existing rows read back empty and the
+gate falls back to display-name matching for them.
+
+## 2026-07-28 — agent_cli_sessions.narrative_id 加宽到 VARCHAR(128)
+
+原为 `VARCHAR(64)`，与规范宽度（`narratives.narrative_id` = `VARCHAR(128)`，
+`events` / `instance_narrative_links` / 报表表也都是 128）不一致。纯加宽，
+`auto_migrate` 幂等改列，不触碰铁律 #6（没有收窄、没有语义变更）。
+不修的后果不是报错而是**静默失效**：MySQL 侧一旦 id 超过 64 字符就截断写入，
+之后每一次比对都不相等，于是 resume 永远命中不了、只会一直冷启动——而这条路径
+本来就设计成"任何存疑即回落冷启动"，所以不会有任何告警。列注释已写明这个理由。
+
+## 2026-07-28 — `bus_agent_activity.steps`
+
+Added a nullable `TEXT` / `MEDIUMTEXT` column holding the CURRENT turn's phase
+transitions as `{"items": [{phase, at}], "dropped": n}`, reset on
+`mark_running` and kept after the turn ends. It backs the team chat's per-agent
+step timeline without standing up a second events pipeline; `auto_migrate` adds
+it in place, and no existing column changes type or meaning.
 
 ## 2026-07-27 — instance_gateway_session_keys.metered_at
 
@@ -23,6 +82,17 @@ on revoke (and by the executor-reaper hook for crash orphans of idle users).
 Security-critical: a leak of this table cannot be replayed against the gateway
 (no usable secret at rest). See
 [[gateway_key_service]] / [[gateway_session_key_repository]].
+
+## 2026-07-25 — 新表 agent_cli_sessions(resume 化 R1:句柄持久化)
+
+runtime 归属的新表(**不带 instance_ 前缀**——那是模块私有表约定),一行 =
+一个可 `--resume` 的 CLI 会话句柄,唯一键 `(agent_id, platform_session_id,
+framework)`。载荷:`cli_session_id`(ResultMessage.session_id)+ 三个有效性锚
+(`narrative_id` / `config_fingerprint` / `working_path`,任一不符 → 冷启动)。
+纯 additive;cli_session_id **不进 cost_records**(一期 T1.1 GOTCHA 维持)。
+读写方:[[cli_session_repository]];计划:
+`reference/self_notebook/plans/2026-07-25-agent-loop-resume.plan.md`(R1 只捕获
+不 resume,零行为变化)。
 
 ## 2026-07-23 — cost_records 加 prompt-cache 埋点三列(W1)
 

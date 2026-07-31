@@ -33,6 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Download } from 'lucide-react';
 import type { Artifact } from '@/types/artifact';
+import { useNotice } from '@/components/ui';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useArtifactRawUrl } from '@/hooks/useArtifactRawUrl';
 import { downloadFile } from '@/lib/download';
@@ -67,6 +68,9 @@ interface Props {
 
 export default function ArtifactDownloadMenu({ artifact }: Props) {
   const { t } = useTranslation();
+  // In-app notices only: wry does not render window.alert, so a native one is
+  // invisible on the DMG (see ui/ConfirmDialog).
+  const { notifyPending, notifyDone, notifyError, dialog: noticeDialog } = useNotice();
   const isChart = artifact.kind === 'application/vnd.echarts+json';
   const { url } = useArtifactRawUrl(
     artifact.agent_id,
@@ -121,7 +125,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
   const exportChartImage = (type: 'png' | 'jpeg') => {
     const instance = useArtifactStore.getState().chartInstances[artifact.artifact_id];
     if (!instance) {
-      window.alert(t('artifacts.download.chartLoading'));
+      void notifyPending(t('artifacts.download.chartLoading'));
       return;
     }
     const dataUrl = instance.getDataURL({
@@ -182,7 +186,25 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
               <button
                 onClick={() => {
                   setOpen(false);
-                  downloadFile({ url, filename: safeFilename(artifact.title, ext) });
+                  void downloadFile({ url, filename: safeFilename(artifact.title, ext) })
+                    .then((savedPath) => {
+                      // Desktop has no download shelf — without this the save is
+                      // indistinguishable from nothing happening.
+                      if (savedPath) {
+                        void notifyDone(
+                          t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
+                        );
+                      }
+                    })
+                    .catch((e) => {
+                      // Previously absent entirely: an unhandled rejection in the
+                      // browser, an invisible alert on the DMG.
+                      void notifyError(
+                        t('common.downloadFailed', 'Download failed: {{error}}', {
+                          error: String(e),
+                        }),
+                      );
+                    });
                 }}
                 className="block w-full text-left px-3 py-1.5 hover:bg-[var(--bg-secondary)]"
                 role="menuitem"
@@ -195,6 +217,7 @@ export default function ArtifactDownloadMenu({ artifact }: Props) {
           </div>,
           document.body,
         )}
+      {noticeDialog}
     </>
   );
 }

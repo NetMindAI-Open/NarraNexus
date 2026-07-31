@@ -1,9 +1,51 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/execution_state.py
-last_verified: 2026-07-27
+last_verified: 2026-07-29
 stub: false
 ---
+## 2026-07-29 (三次) — record_thinking 增加 monologue 参数
+
+NexusPower 的独白(框架的 assistant text)以 thinking_item 形态展示,此前从不进
+`final_output`——于是 `meta_data.reasoning` 持久化、`<my_reasoning>` 回填、helper
+fallback 判定在 nexus turn 上全部静默失效。现在 `record_thinking` 的 `monologue`
+参数把独白子集追加进 `final_output`(与 claude 驱动 assistant text 走 append_text
+同义),CoT 与其他驱动传空串,行为不变。展示流一个字节不动(铁律 #16)。
+
+同时独白段以 `monologue` 字段存进 thinking step dict——events.event_log 因此按
+时序携带定位的独白,是 [[history_projection]] 原生回放能重建 assistant 消息的前提
+(累计的 final_output 丢失了位置信息,做不到)。
+
+## 2026-07-29 (二次) — 删除 resume_failed / mark_resume_failed(T5)
+
+它们的唯一用途是让 adapter 通知 step_4"这个句柄过期了,删掉那行"。
+[[step_4_persist_results]] 的句柄持久化已删除,没有行可删,整条链失去意义。
+
+`cli_session_id` 字段保留:它是从 `ResultMessage.session_id` 读到的观测值,仍进
+日志与 `PathExecutionResult`,只是不再有人拿它去查库。
+
+## 2026-07-29 — tool_output 记录配对 id
+
+`record_tool_output` 新增 `tool_call_id` 参数,写进 step。无 id 时存**空字符串
+而非伪造**——消费方要能区分"没有 id"和"id 已知",只在必须时才回落到位置配对。
+
+为什么需要:每轮交给 CLI 的 transcript([[transcript]])要从 `events.event_log`
+重建 `tool_use` / `tool_result` 配对,而该格式**严格按 id 配对**。而
+**并行工具调用**时所有 call 先到达、output 按完成顺序返回,所以"第 N 个 output
+对应第 N 个 call"这条假设本身就是错的。错配的 `tool_result` 不是降级,是后续每
+一轮 API 400。
+
+顺带修掉一个既有展示 bug:[[response_processor]] 查找工具名也是纯位置配对,
+并行调用时前端会显示错的工具名。现在优先按 id、位置降为回落。
+
 # execution_state.py — Agent Loop 执行过程的不可变状态追踪器
+
+## 2026-07-28 — resume_failed 字段 + mark_resume_failed()（resume 化 R3）
+
+新增 `resume_failed: bool = False` 与 `mark_resume_failed()`（不可变模式，
+replace 返回新对象）。语义：**置位后粘住**（sticky）——后续任何事件（冷启
+动重试的 response.done 等）都不能把它抹回 False。内部信号，不进用户视野；
+终点是 PathExecutionResult → step_4 删陈旧句柄。测试：
+tests/agent_runtime/test_resume_failed_threading.py。
 
 ## 2026-07-27 — streamed_* 兜底 token + finalize() 提升
 
@@ -14,6 +56,11 @@ stub: false
 代理的非 Anthropic 模型就是这样)且 streamed 有值时,把 streamed 提升为权威值。
 真 Anthropic(DONE 带 usage)时是 no-op,故不会重复计。修免费额度不扣 agent token
 的 bug;`finalize()` 的早返回改为「有提升或有 final_output 才 replace」。
+## 2026-07-25 — cli_session_id 字段(resume 化 R1)
+
+新增 `cli_session_id: Optional[str] = None` + accumulate_usage 扩参。合并语义
+与 num_turns 完全同规:**latest-non-None-wins,绝不累加**——它是单次运行的
+标识符不是增量;None 事件不得抹掉已上报的值。None = 框架没报(非 Claude 路径)。
 
 ## 2026-07-23 — cache/num_turns 字段 + 全面改用 dataclasses.replace(W1)
 

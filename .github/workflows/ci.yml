@@ -1,10 +1,16 @@
 name: CI
 
+# `dev` is included deliberately. The release workflow in CLAUDE.md (step 2)
+# already promises "feature-branch CI", but with main-only triggers a PR into
+# dev — which is every feature PR — ran none of this. The only checks such a PR
+# got were the PR-title lint, the mirror-md sync check and the welcome bot, so
+# every "tests green / tsc clean" claim rested on the author's local run with no
+# way for a reviewer to re-check it. Cost is CI minutes per dev PR.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   push:
-    branches: [main]
+    branches: [main, dev]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -58,6 +64,13 @@ jobs:
 
       - name: ESLint
         run: npm run lint || echo "::warning::ESLint has pre-existing issues — not blocking CI yet"
+
+      - name: Unit tests
+        # Nothing in CI ran vitest before 2026-07-30, which made the
+        # `no-native-dialogs` contract test (added the same day) enforceable only
+        # by whoever remembered to run it locally. A ban nobody executes is a
+        # comment.
+        run: npm test
 
       - name: Build
         run: npm run build

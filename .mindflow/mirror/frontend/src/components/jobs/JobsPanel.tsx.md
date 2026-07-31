@@ -1,7 +1,31 @@
 ---
 code_file: frontend/src/components/jobs/JobsPanel.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — status filter chips wrap instead of scrolling invisibly
+
+Owner report: "任务列表里筛选 全部/进行中/已暂停 没显示全，只显示了 6-7 个".
+
+The 11 chips were one `whitespace-nowrap` row inside
+`<ScrollArea horizontal hideScrollbar>`. In zh they measure ~660px; this panel
+normally lives in a 300–440px bookmark drawer, so the row clipped after ~7
+chips — with the scrollbar suppressed by `hideScrollbar` and no edge fade,
+there was nothing on screen suggesting the other four existed. (Trackpad users
+could scroll it by accident; mouse users could not reach them at all.)
+
+Now a plain `flex flex-wrap` row: two or three lines, a few px of height, and
+nothing hidden. Guarded by `jobs/__tests__/jobsFilterRow.test.tsx`, which
+asserts both that every chip renders and that the row is no longer inside a
+scroll viewport.
+
+## 2026-07-30 — reschedule (编辑执行时间) 接线
+
+新增 `canEdit(status)`(= 非 running/completed/cancelled/failed)、`editingJob` /
+`savingSchedule` 状态、`handleEditSchedule`(打开弹窗)、`handleSaveSchedule`(调
+`api.updateJobSchedule`,成功 refreshJobs,失败走 `alert()` 显示 ApiError.message)。
+渲染 `JobScheduleEditDialog`(放在 `inner` fragment 顶部,embedded/非 embedded 都生效)。
+canEdit/onEdit 透传给 `JobExpandedDetail`。
 
 # JobsPanel.tsx — Root orchestrator for the Jobs panel
 

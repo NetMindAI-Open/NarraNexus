@@ -40,6 +40,7 @@ class CloudMessageBus(MessageBusService):
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         raise NotImplementedError("Cloud MessageBus not yet implemented")
 

@@ -14,7 +14,7 @@
  * a fullscreen modal (ArtifactZoomModal) with a blurred backdrop.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, Maximize2, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -40,9 +40,30 @@ interface Props {
    * sliver ⇄ expanded behaviour.
    */
   forceExpanded?: boolean;
+  /**
+   * Handle on the expanded `<aside>`, so the parent's ResizableDivider can
+   * write `flex-grow` straight to the DOM during a drag (live-follow with
+   * zero React renders). Only attached in expanded mode — the sliver has no
+   * divider next to it.
+   */
+  columnRef?: Ref<HTMLElement>;
+  /**
+   * True while the user is dragging the divider next to this column. The
+   * content area then keeps the pixel width it had when the drag started
+   * (the `<aside>` shrinks around it and clips), so a sandboxed HTML
+   * artifact's `<iframe>` is NOT reflowed 60×/s. Cleared on release →
+   * exactly one reflow, at the final width.
+   */
+  contentFrozen?: boolean;
 }
 
-export default function ArtifactColumn({ agentId, flexGrow, forceExpanded = false }: Props) {
+export default function ArtifactColumn({
+  agentId,
+  flexGrow,
+  forceExpanded = false,
+  columnRef,
+  contentFrozen = false,
+}: Props) {
   const { t } = useTranslation();
   // All hooks must run in the same order on every render — no conditional hook
   // calls. Selectors first, then early returns.
@@ -98,6 +119,15 @@ export default function ArtifactColumn({ agentId, flexGrow, forceExpanded = fals
     }
     prevLengthRef.current = artifacts.length;
   }, [artifacts.length, collapsed, setCollapsed]);
+
+  // Drag freeze (see `contentFrozen`). Measured in a LAYOUT effect so the
+  // width is read before the browser paints the first dragged frame —
+  // a passive `useEffect` could sample a width the drag had already changed.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [frozenContentPx, setFrozenContentPx] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    setFrozenContentPx(contentFrozen ? (contentRef.current?.offsetWidth ?? null) : null);
+  }, [contentFrozen]);
 
   // Sliver form: shown when the user collapsed the column OR when no
   // artifacts exist yet. The empty-state sliver advertises the panel's
@@ -190,7 +220,12 @@ export default function ArtifactColumn({ agentId, flexGrow, forceExpanded = fals
       : 'chat-frosted flex flex-col min-w-[320px] flex-[2] overflow-hidden';
 
   return (
-    <aside className={expandedClass} style={expandedStyle} data-help-id="layout.artifacts">
+    <aside
+      ref={columnRef}
+      className={expandedClass}
+      style={expandedStyle}
+      data-help-id="layout.artifacts"
+    >
       {/* Minimized strip — only renders when something is minimized.
           Click a chip to restore the tab. */}
       {minimized.length > 0 && (
@@ -248,7 +283,24 @@ export default function ArtifactColumn({ agentId, flexGrow, forceExpanded = fals
           </button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden relative">
+      <div
+        ref={contentRef}
+        className="flex-1 min-h-0 overflow-hidden relative"
+        // `max(100%, frozen)` — a floor, not a fixed width:
+        //   shrinking → holds at the pre-drag width and the <aside> clips it,
+        //     so the artifact <iframe> is never reflowed while narrowing (the
+        //     expensive, visibly janky direction);
+        //   widening  → tracks the column, because a fixed width would leave a
+        //     blank strip down the right of the pane for the whole drag, and
+        //     the user reads that gap as the panel having broken.
+        // Explicit width also overrides the column's `align-items: stretch`.
+        // Vertical flex behaviour (flex-1 / min-h-0) is deliberately untouched.
+        style={
+          frozenContentPx !== null
+            ? { width: `max(100%, ${frozenContentPx}px)` }
+            : undefined
+        }
+      >
         {/* Live LRU pool for echarts artifacts: every id in chartLruOrder
             stays mounted (display:none when not active) so clicking back to
             a recent chart is instant — no re-fetch, no re-init. Oldest id

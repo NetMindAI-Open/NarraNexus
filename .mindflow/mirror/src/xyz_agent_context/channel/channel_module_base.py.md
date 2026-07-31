@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_module_base.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+新类属性 `reply_tool_names`(短名,⊆ all_tool_names,cross-channel 测试钉住);
+`get_expressive_tools()`:bound → 全限定 reply 工具,unbound → 空(与
+setup-residency 同门控——未绑定时这些 schema 本来就被压掉)。测试:
+tests/channel/test_setup_residency.py 第 6 节。
 
 ## 2026-07-24 — setup residency (B++): unbound channels go quiet
 

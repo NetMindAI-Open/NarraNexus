@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 框架门禁改问谓词，NexusPower 云端放行
+
+与 [[ModelDefaultsSettings]] 同一处改动：拦截条件改成
+`!frameworkAllowedInCloud(e.target.value, role)`。**下面 2026-07-18 那段的
+`e.target.value !== 'claude_code'` 判据已被取代**——它把 NexusPower 一起拒了。
+
+两个选择器必须同口径且都问 [[agentFramework]] 的同一个谓词：规则此前在这里、
+在 [[ModelDefaultsSettings]]、在后端路由各自内联了一遍，NexusPower 变成云端
+合法之后三处都还在拒。文案同步改为「Staff only in cloud」。
+
+## 2026-07-29 — provider 过滤改问「框架收不收这个协议」
+
+原来按 `framework.protocol` 单值过滤 provider 下拉。NexusPower 直接驱动
+provider API，anthropic / openai 两族都能用，被单值过滤会砍掉一半合法选项。
+改走 [[agentFramework]] 的 `frameworkAcceptsProtocol()`——CLI 型框架依旧只认
+自己 CLI 的那一种，行为不变。
 
 ## 2026-07-23 — 免费额度生效诚实 banner
 
@@ -19,6 +36,14 @@ stub: false
 同 [[ModelDefaultsSettings]]:弹窗条件从"任何切换都拦"改为只在切到非 claude_code 时拦
 (`e.target.value !== 'claude_code'`),切回 claude_code 放行——让被锁的老 codex 用户能在
 聊天页 UI 自救。与后端 403 方向化一致。
+
+## 2026-07-21 — complete model-panel localization
+
+All user-visible panel copy now reuses the Model Defaults i18n namespace:
+headings, inheritance state, framework/provider/model selectors, reasoning
+controls, helper recommendation, validation errors, reset actions, and footer
+buttons. This keeps the per-agent override editor aligned with the global
+editor in every locale without changing any stored configuration values.
 
 ## 2026-07-18 — 云端锁定 per-agent 框架（禁用 → alert → useConfirm，三改定稿）
 

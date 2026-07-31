@@ -13,18 +13,21 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Bot, Users2 } from 'lucide-react';
+import { Plus, Bot, Users2, Download } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
 export interface CreateMenuProps {
   onCreateAgent: () => void;
   onCreateTeam: () => void;
+  /** "Create Agent (from other source)" — import from another framework.
+   *  Only wired in local/desktop mode (the scanner reads the filesystem). */
+  onImportAgent?: () => void;
   /** Disables the trigger while an agent is being created. */
   disabled?: boolean;
 }
 
-export function CreateMenu({ onCreateAgent, onCreateTeam, disabled }: CreateMenuProps) {
+export function CreateMenu({ onCreateAgent, onCreateTeam, onImportAgent, disabled }: CreateMenuProps) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
 
@@ -72,6 +75,13 @@ export function CreateMenu({ onCreateAgent, onCreateTeam, disabled }: CreateMenu
               label={t('layout.createMenu.createTeam')}
               onClick={handleItem(onCreateTeam)}
             />
+            {onImportAgent && (
+              <MenuItem
+                icon={<Download className="w-3 h-3" />}
+                label={t('layout.createMenu.importAgent')}
+                onClick={handleItem(onImportAgent)}
+              />
+            )}
           </div>
         </>
       )}

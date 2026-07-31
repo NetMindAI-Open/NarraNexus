@@ -8,6 +8,11 @@ export type MessageType =
   | 'progress'
   | 'agent_response'
   | 'agent_thinking'
+  // NexusPower-only streams. Every framework's messages share this union,
+  // so a shape only one framework emits still has to be declared here —
+  // the alternative is a cast at every consumer.
+  | 'agent_reply_delta'
+  | 'agent_plan'
   | 'tool_call'
   | 'error'
   | 'complete'
@@ -47,12 +52,36 @@ export interface AgentThinking extends BaseMessage {
   thinking_content: string;
 }
 
+// NexusPower: the user-facing reply, streamed as the model writes it.
+// Under that framework's contract plain text is private reasoning and
+// the reply lives in an expression tool's argument — so this is the
+// only stream that is truly "the agent speaking". Other frameworks
+// never send it.
+export interface AgentReplyDelta extends BaseMessage {
+  type: 'agent_reply_delta';
+  delta: string;
+  call_id: string;
+  tool_name: string;
+}
+
+// NexusPower: the agent's live plan (full snapshot per update).
+export interface AgentPlanMessage extends BaseMessage {
+  type: 'agent_plan';
+  steps: Array<{ step: string; status: string }>;
+  note: string;
+}
+
 // Tool/function call
 export interface AgentToolCall extends BaseMessage {
   type: 'tool_call';
   tool_name: string;
   tool_input: Record<string, unknown>;
   tool_output?: string;
+  /** Stable per-call key — how a pending call and its completed form are
+   *  recognised as the same call rather than two. */
+  tool_call_id?: string;
+  /** Name known, arguments still streaming (see ToolCallEvent.pending). */
+  pending?: boolean;
   // Backend tags the originating progress message with a step like
   // "3.4.{N}"; the matching tool_output progress shares the same step.
   // chatStore uses it to backfill tool_output onto the right call when
@@ -130,6 +159,8 @@ export type RuntimeMessage =
   | ProgressMessage
   | AgentTextDelta
   | AgentThinking
+  | AgentReplyDelta
+  | AgentPlanMessage
   | AgentToolCall
   | ErrorMessage
   | CompleteMessage
@@ -228,6 +259,16 @@ export interface ChatMessage {
   // Reply events are kept here for fidelity; MessageBubble skips them
   // when rendering because message.content already shows the reply.
   timeline?: TurnEvent[];
+  /**
+   * This turn's user-facing segments (each with its own process), cut
+   * by segmentTurn and attached at stopStreaming. The backend still
+   * stores one record per turn — this just renders that one record as
+   * the m things the agent actually said. Older messages are undefined
+   * and fall back to single-blob content rendering; content itself
+   * keeps the join('\n\n') full text, which notifications, copy and
+   * search still consume.
+   */
+  segments?: Segment[];
 }
 
 // Step for display in StepsPanel
@@ -283,6 +324,18 @@ export interface ToolCallEvent {
   tool_input: Record<string, unknown>;
   tool_call_id?: string;
   reply_via?: string;
+  /**
+   * The tool's name has arrived; its arguments are still streaming.
+   *
+   * Arguments stream, so the name is known well before the call
+   * completes. A pending=true event ships as soon as the name lands;
+   * the complete event with the same tool_call_id then replaces it —
+   * so the UI can show "using bash" during argument generation instead
+   * of sitting blank. Frameworks that cannot report the name early
+   * just send the complete event once (pending defaults to false), so
+   * consumers need no branch.
+   */
+  pending?: boolean;
 }
 
 export interface ToolOutputEvent {
@@ -300,6 +353,27 @@ export interface ReplyEvent {
   ts: number;
   content: string;
   reply_via?: string;
+  /**
+   * NexusPower: the reply arrived as a live stream (argument deltas of
+   * the expression tool) and may still be growing. `call_id` keys the
+   * growing bubble so the completed tool_call folds into the SAME block
+   * instead of duplicating it; `streaming` drives the caret/pulse.
+   */
+  call_id?: string;
+  streaming?: boolean;
+}
+
+/**
+ * PlanEvent — NexusPower's live plan (full snapshot, replace-on-write).
+ * One block per turn: later updates replace the steps in place, so the
+ * user watches items flip pending → in_progress → completed.
+ */
+export interface PlanEvent {
+  type: 'plan';
+  id: string;
+  ts: number;
+  steps: Array<{ step: string; status: string }>;
+  note?: string;
 }
 
 export interface NativeOutputEvent {
@@ -309,9 +383,39 @@ export interface NativeOutputEvent {
   content: string;
 }
 
+/**
+ * A process event — belongs to the panel / the bubble's collapsed
+ * region, not the answer the user reads.
+ */
+export type ProcessEvent = ThinkingEvent | ToolCallEvent | ToolOutputEvent;
+
+export interface SegmentReply {
+  content: string;
+  /** Which expression tool delivered it; undefined for native model text. */
+  via?: string;
+  /** The segment is still growing (drives the cursor animation). */
+  streaming?: boolean;
+}
+
+/**
+ * Segment — one "user-facing fragment + the process that led to it"
+ * within a turn.
+ *
+ * The backend still stores one record per turn; the frontend renders
+ * that record as the number of times the agent actually spoke, each
+ * segment carrying the thinking and tool calls before it. The cut is
+ * made by lib/segmentTurn.
+ */
+export interface Segment {
+  process: ProcessEvent[];
+  /** null = the turn produced no user-facing reply (process is kept). */
+  reply: SegmentReply | null;
+}
+
 export type TurnEvent =
   | ThinkingEvent
   | ToolCallEvent
   | ToolOutputEvent
   | ReplyEvent
+  | PlanEvent
   | NativeOutputEvent;

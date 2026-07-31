@@ -1,8 +1,51 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/executor_service.py
 stub: false
-last_verified: 2026-07-24
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
+
+`/agent-loop` 处理器把 body 的 `agent_id` / `expressive_tools` 转发给本地
+driver(此前只转 4 个 kwargs,声明会在云端被丢弃)。
+
+## 2026-07-29 — 不再授权 resume 句柄(T6)
+
+删掉 `authorize_resume_session_id(body)` 这一步及传给 driver 的
+`resume_session_id=` 参数。理由见 [[executor_protocol]] 同日条目。
+
+值得记一笔的是**为什么 executor 侧不需要任何新增**:这里传的是
+`messages=body["messages"]`,历史本来就在里面;容器内起的是**本地 driver**(即同一个
+claude adapter),它自己 `split_for_argv` 拿到 history_entries、自己在容器文件系统里
+写 transcript。原计划(T3)以为要新加 `transcript_turns` 协议字段,查证后不需要。
+
+关键是这不是巧合:transcript 路径的 slug 与 CLI 的 `options.cwd` **派生自同一个变量**
+(`self.working_path`),所以两者在任何环境下自动一致。
+
+## 2026-07-28 — resume 句柄改为经 HMAC 校验后才采信（HIGH review finding）
+
+`/agent-loop` 里 `resume_session_id` 不再直接透传，改为
+`authorize_resume_session_id(body)`（见 [[executor_protocol.py]] 同日条目）。
+原因：本端点**无鉴权是刻意设计**，但这只在"body 每个字段只描述本次请求"时成立；
+resume 句柄指向的是**全租户共用** `CLAUDE_CONFIG_DIR` 里的 CLI transcript，配上
+可猜的 `working_path`（`{base}/{user_id}/{agent_id}`），直连本端点即可读回别人的
+对话。现在 orchestrator（真正做过 per-user 校验的一侧）签名，本端常量时间校验。
+
+关键行为：**校验失败一律降级为冷启动，绝不 4xx**。resume 是优化，冷启动永远正确；
+把签名/时钟/部署问题变成 turn 失败才是真的坏。端点整体仍然是无鉴权的内网信任面
+——这里鉴权的是**一个能力**，不是整个请求。
+
+**云端部署依赖**：`EXECUTOR_RESUME_HMAC_SECRET` 必须注入本容器 env（容器不读平台
+.env，所以只能走容器 env），且与 orchestrator 同值；未配置 = 本容器忽略所有
+resume 句柄并打一次性 WARNING。
+
+## 2026-07-28 — 透传 body `resume_session_id` 给 driver（resume 化 R2）
+
+`/agent-loop` 把 `body.get("resume_session_id") or None` 传进容器内
+driver.agent_loop kwargs，与本地路径（[[step_3_agent_loop.py]] 经 TurnInput
+直传）对齐——两条运行模式一起通（铁律 #7），代码不区分本地/云端。纯透传，
+无逻辑；executor 容器内没有 DB，resume 失败后的句柄清除在 orchestrator 侧
+step_4 做。
 
 ## 2026-07-24 — 透传 body `disallowed_tools` 给 driver（setup-residency B++）
 

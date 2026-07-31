@@ -22,7 +22,6 @@ from loguru import logger
 
 from xyz_agent_context.utils.logging import setup_logging
 from xyz_agent_context.utils.db.db_factory import get_db_client, close_db_client
-from xyz_agent_context.utils.timezone import utc_now
 from backend.config import settings
 from backend.auth import _is_cloud_mode
 
@@ -132,36 +131,39 @@ async def lifespan(app: FastAPI):
     await backfill_provider_metadata(db)
 
     # Agent Runtime Lifecycle (Phase C) — initialize the in-memory
-    # active_runs registry and reconcile stale rows.
+    # active_runs registry and settle stale 'running' rows.
     #
-    # On every process start the registry is empty by definition; any
-    # `events.state = 'running'` row must therefore reference a
-    # BackgroundRun whose task died with the previous process. Flip
-    # those to `failed` so the UI doesn't claim "still running" for
-    # an agent that no longer exists in memory.
-    #
+    # The registry is empty on every process start, but that does NOT
+    # mean every running row is stale: trigger runs (lark / team / job)
+    # are recorded from OTHER processes and stay alive across a backend
+    # restart. Liveness is therefore judged by heartbeat freshness
+    # (run_recorder.sweep_stale_runs / run_is_live — the one shared
+    # rule), and the sweep repeats periodically so a run orphaned
+    # mid-flight in ANY process settles within ~90s + one interval,
+    # not only when the backend happens to restart.
+    import asyncio as _asyncio
+
+    from xyz_agent_context.agent_runtime.run_recorder import (
+        HEARTBEAT_INTERVAL_S,
+        sweep_stale_runs,
+    )
+
     app.state.active_runs = {}
-    try:
-        running_rows = await db.get("events", {"state": "running"})
-        stale_count = 0
-        for row in running_rows or []:
-            try:
-                await db.update(
-                    "events",
-                    {"event_id": row["event_id"]},
-                    {
-                        "state": "failed",
-                        "error_message": "backend restarted, run lost",
-                        "finished_at": utc_now(),
-                    },
-                )
-                stale_count += 1
-            except Exception as e:  # noqa: BLE001
-                logger.warning(f"[reconcile] failed to mark stale run {row.get('event_id')!r}: {e}")
-        if stale_count:
-            logger.info(f"[reconcile] flipped {stale_count} stale 'running' rows to 'failed' on startup")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[reconcile] sweep failed: {e}")
+    await sweep_stale_runs(db)
+
+    async def _stale_run_sweeper() -> None:
+        while True:
+            await _asyncio.sleep(HEARTBEAT_INTERVAL_S * 2)
+            await sweep_stale_runs(db)
+
+    app.state.stale_run_sweep_task = _asyncio.create_task(_stale_run_sweeper())
+    app.state.stale_run_sweep_task.add_done_callback(
+        lambda t: (
+            logger.warning(f"[run-sweep] loop exited: {t.exception()}")
+            if not t.cancelled() and t.exception() is not None
+            else None
+        )
+    )
 
     # One-shot data migrations (idempotent; run after schema migration)
     from xyz_agent_context.utils.one_shot_migrations import (
@@ -247,8 +249,6 @@ async def lifespan(app: FastAPI):
     if app.state.executor_reaper_task is not None:
         logger.info("Executor idle-cull reaper started")
 
-    import asyncio as _asyncio
-
     # Marketplace seeds — populate this registry host's catalog + store.
     # OFF the startup critical path: the team seed fetches over the network
     # (narra.nexus, up to ~minutes if slow) and both seeds do S3 I/O, so
@@ -314,6 +314,9 @@ async def lifespan(app: FastAPI):
     skill_sync_task = getattr(app.state, "skill_sync_task", None)
     if skill_sync_task is not None:
         skill_sync_task.cancel()
+    sweep_task = getattr(app.state, "stale_run_sweep_task", None)
+    if sweep_task is not None:
+        sweep_task.cancel()
     seed_task = getattr(app.state, "marketplace_seed_task", None)
     if seed_task is not None:
         seed_task.cancel()
@@ -410,6 +413,7 @@ from backend.routes.office_watch.proxy import (
 )
 from backend.routes.teams import router as teams_router
 from backend.routes.bundle import router as bundle_router
+from backend.routes.migrate import router as migrate_router
 from backend.routes.arena import router as arena_router
 from backend.routes.me import router as me_router
 from backend.routes.billing import router as billing_router
@@ -436,6 +440,7 @@ app.include_router(home_assistant_router, prefix="/api/home-assistant", tags=["H
 app.include_router(providers_router, prefix="/api/providers", tags=["Providers"])
 app.include_router(teams_router, prefix="/api/teams", tags=["Teams"])
 app.include_router(bundle_router, prefix="/api/bundle", tags=["Bundle"])
+app.include_router(migrate_router, prefix="/api/migrate", tags=["Migration"])
 app.include_router(me_router, prefix="/api/me", tags=["Me"])
 app.include_router(billing_router, prefix="/api/billing", tags=["Billing"])
 app.include_router(feedback_router, prefix="/api", tags=["Feedback"])

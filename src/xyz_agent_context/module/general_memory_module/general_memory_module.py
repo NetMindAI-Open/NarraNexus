@@ -30,6 +30,7 @@ from xyz_agent_context.module.base import XYZBaseModule, mcp_host
 from xyz_agent_context.schema.context_schema import ContextData
 from xyz_agent_context.schema.hook_schema import HookAfterExecutionParams
 from xyz_agent_context.schema.module_schema import ModuleConfig, MCPServerConfig
+from xyz_agent_context.settings import settings
 
 # MCP port for the remember / grep_memory tools. Registered in
 # module_runner CORE_MODULE_PORTS. 7809 = next free after BasicInfo(7808).
@@ -38,6 +39,18 @@ _MCP_PORT = 7809
 _RECALL_LIMIT = 8
 _RECALL_TOKENS = 800
 _VALID_SUBTYPES = {"world", "experience"}
+
+# R4 turn-context relocation (2026-07-25): with the flag ON, get_instructions
+# returns this CONSTANT header (same bytes whether or not anything was
+# recalled — the old ""-when-empty behavior made the module's system-prompt
+# section flap between 0 and non-0 bytes) and the recalled list travels via
+# get_turn_context() in the current message instead.
+GENERAL_MEMORY_STATIC_INSTRUCTIONS = (
+    "## What you remember\n"
+    "Things you have learned are recalled fresh every turn and provided "
+    'under "What you remember" in the turn context block of the current '
+    "message.\n"
+)
 
 
 def _recalled_at(record: MemoryRecord) -> str:
@@ -109,7 +122,13 @@ class GeneralMemoryModule(XYZBaseModule):
             logger.warning(f"GeneralMemoryModule.hook_data_gathering: recall failed: {e}")
         return ctx_data
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
+    def _render_recalled_memories(self, ctx_data: ContextData) -> str:
+        """Render the recalled-memories block (legacy get_instructions body).
+
+        Wording is unchanged from the pre-R4 in-prompt rendering — with the
+        relocation flag ON the same bytes are emitted via get_turn_context()
+        instead of the system prompt (relocated, never dropped).
+        """
         memories = ctx_data.extra_data.get("relevant_memories") or []
         if not memories:
             return ""
@@ -121,6 +140,17 @@ class GeneralMemoryModule(XYZBaseModule):
             "disagree, trust the most recent one.\n"
             f"{body}\n"
         )
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        if not settings.prompt_turn_context_relocation_enabled:
+            return self._render_recalled_memories(ctx_data)
+        # Byte-stable across turns: the volatile recall list lives in the
+        # turn context; this header is the same constant every turn.
+        return GENERAL_MEMORY_STATIC_INSTRUCTIONS
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile span: the full recalled-memories list."""
+        return self._render_recalled_memories(ctx_data)
 
     # ── write: distil this turn into observations (background-heavy hook) ────
     async def hook_after_event_execution(self, params: HookAfterExecutionParams) -> None:

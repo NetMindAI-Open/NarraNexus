@@ -63,6 +63,7 @@
       "toolLabel": "[ 도구 ]",
       "outputLabel": "[ 출력 ]",
       "reply": "답변",
+      "plan": "플랜",
       "nativeOutput": "네이티브 출력",
       "helperFallback": "↻ helper_llm 폴백",
       "helperFallbackTip": "에이전트가 명시적으로 답변을 보내지 않았습니다. 이 메시지는 폴백 LLM이 추론을 바탕으로 작성했습니다.",
@@ -91,14 +92,58 @@
       "memberCount_other": "멤버 {{count}}명",
       "teamSettings": "팀 설정",
       "empty": "아직 메시지가 없습니다.",
-      "emptyHint": "@멘션으로 팀원을 불러 대화를 시작하세요 — 이후 팀원들이 서로 인계합니다.",
+      "emptyHint": "메시지를 보내면 시작됩니다. 기본적으로 팀 리드가 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
       "noAgents": "이 팀에는 아직 에이전트가 없습니다.",
-      "placeholder": "팀에 메시지 — @멘션으로 상대를 지정하세요…",
+      "placeholder": "팀에 메시지 — @ 로 상대를 지정하세요…",
       "send": "보내기 (Enter)",
       "all": "@all",
       "notifyEveryone": "모두에게 알림",
       "typing": "{{name}}이(가) 입력 중",
-      "youTitle": "나 · {{name}}"
+      "youTitle": "나 · {{name}}",
+      "activity": {
+        "starting": "시작 중",
+        "running": "작업 중",
+        "thinking": "생각 중",
+        "replying": "응답 중",
+        "tool": "{{name}} 사용 중",
+        "queued": "시작 대기 중",
+        "stalled": "신호 없음",
+        "idle": "대기",
+        "runningHint": "메시지를 처리하고 있습니다. 긴 작업은 몇 분에서 몇 시간까지 걸릴 수 있으며, 그동안 아래 단계가 계속 갱신됩니다.",
+        "queuedHint": "전달되었고 빈 실행 슬롯을 기다리는 중입니다. 여러 팀원을 한 번에 호출했거나 다른 긴 작업이 실행 중일 때 발생합니다.",
+        "stalledHint": "이 팀원으로부터 한동안 진행 신호가 오지 않았습니다. 아직 실행 중일 수도 있고(모델이 오랫동안 조용할 수 있습니다) 백그라운드 작업에 문제가 있을 수도 있습니다. 복구되지 않으면 서비스 상태를 확인하세요.",
+        "idleHint": "현재 대기 중인 작업이 없습니다.",
+        "silentFor": "{{duration}} 동안 무응답",
+        "waitingFor": "{{duration}} 대기",
+        "finishedAgo": "{{duration}} 전 완료",
+        "startedAt": "{{time}}에 시작",
+        "stepsDropped": "이전 {{n}}개 단계는 표시되지 않음",
+        "noSteps": "아직 기록된 단계가 없습니다."
+      },
+      "guide": {
+        "title": "이 방을 쓰는 방법",
+        "plainTitle": "그냥 말하기",
+        "plain": "@ 없이 메시지를 보내면 팀 리드가 처리합니다.",
+        "plainWithLead": "@ 없이 메시지를 보내면 {{name}}이(가) 처리합니다.",
+        "mentionTitle": "팀원 한 명 지목",
+        "mention": "@ 로 팀원을 지목하면 그 팀원이 직접 처리합니다.",
+        "broadcastTitle": "전원에게 전달",
+        "broadcast": "@all 은 전원에게 전달됩니다. 각 팀원이 한 턴을 모두 실행하므로 신중히 사용하세요.",
+        "relay": "팀원끼리 @ 로 작업을 넘길 수 있으며, 사용자의 메시지가 없으면 4번 이후 중단됩니다."
+      },
+      "noProcess": "이 턴의 처리 기록이 없습니다",
+      "detailLoadFailed": "프로세스를 불러오지 못했습니다. 다시 시도해 주세요.",
+      "roster": {
+        "title": "멤버",
+        "lastRun": "{{duration}} 실행 · {{ago}} 전",
+        "lastRunAgoOnly": "{{ago}} 전 완료",
+        "neverRan": "아직 실행한 적 없음",
+        "loading": "처리 과정 불러오는 중…",
+        "workingCount": "{{count}}개 작업 중",
+        "process": "프로세스"
+      },
+      "emptyHintWithLead": "메시지를 보내면 시작됩니다. 기본적으로 {{name}}이(가) 처리하며, @ 로 다른 팀원을 지목할 수도 있습니다.",
+      "leadTitle": "{{name}} · 아무도 @ 하지 않았을 때 처리"
     },
     "execution": {
       "showSteps": "실행 단계 표시",
@@ -154,7 +199,15 @@
       }
     },
     "dateToday": "오늘",
-    "dateYesterday": "어제"
+    "dateYesterday": "어제",
+    "segment": {
+      "details": "추론 및 도구"
+    },
+    "process": {
+      "plan": "플랜",
+      "title": "에이전트 · 프로세스",
+      "ops": "회 작업"
+    }
   },
   "awareness": {
     "common": {
@@ -665,7 +718,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "패널 크기 조정",
-      "title": "드래그하여 채팅 / 아티팩트 크기 조정"
+      "title": "드래그하여 채팅 / 아티팩트 크기 조정",
+      "drawerAriaLabel": "패널 너비 조정",
+      "drawerTitle": "드래그하여 패널 너비 조정"
     }
   },
   "settings": {
@@ -849,6 +904,17 @@
       "freeTierHowToSwitch": "‘Free Tier’ 카드는 이미 Agent·Helper 슬롯에 연결되어 있습니다. 직접 만든 키를 쓰려면 아래에서 제공자를 추가한 뒤 ‘모델 기본값’에서 해당 슬롯에 지정하세요. 다음 메시지부터 적용됩니다.",
       "freeTierAnytime": "언제든 바꿀 수 있습니다. 무료 크레딧을 먼저 다 쓸 필요는 없고, 바꿔도 잔액은 남아 있어 되돌릴 수 있습니다.",
       "freeTierNoDelete": "잔액이 남아 있는 동안에는 Free Tier 카드를 삭제할 수 없습니다. 이 카드가 잔액에 접근하는 유일한 키이기 때문입니다. 다 쓰면 삭제할 수 있습니다."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "결제가 확인되었습니다 — 계정에 적용하는 중입니다.",
+      "returnTopupSuccess": "충전이 확인되었습니다 — 잔액을 갱신하고 있습니다.",
+      "returnCancelled": "결제가 취소되었습니다 — 요금이 청구되지 않았습니다.",
+      "cancelConfirmTitle": "자동 갱신을 끌까요?",
+      "cancelConfirmAction": "자동 갱신 끄기",
+      "cancelConfirmKeep": "구독 유지",
+      "reactivateConfirmTitle": "자동 갱신을 재개할까요?",
+      "reactivateConfirmAction": "재개",
+      "reactivateConfirmDismiss": "나중에"
     }
   },
   "system": {
@@ -1168,6 +1234,10 @@
         "installingDetail": "{{version}} 설치 중 — 거의 완료…",
         "readyDetail": "다운로드 완료 — 재시작하여 마무리하세요.",
         "failed": "업데이트 {{stage}} 실패."
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
+        "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
       }
     },
     "system": {
@@ -1707,7 +1777,9 @@
       "resume": "재개",
       "resuming": "재개 중...",
       "cancelJob": "작업 취소",
-      "cancelling": "취소 중..."
+      "cancelling": "취소 중...",
+      "editSchedule": "시간 변경",
+      "savingSchedule": "저장 중..."
     },
     "template": {
       "selectTemplate": "템플릿 선택",
@@ -1736,6 +1808,26 @@
         "paused": "일시중지 {{count}}개",
         "failed": "실패 {{count}}개"
       }
+    },
+    "editSchedule": {
+      "title": "실행 시간 변경",
+      "hint": "이 작업의 실행 시점을 조정합니다. 변경 사항은 다음 실행부터 적용됩니다.",
+      "runAt": "실행 시간",
+      "cron": "Cron 표현식",
+      "cronHint": "예: 0 8 * * * 는 매일 08:00에 실행",
+      "intervalSeconds": "간격(초)",
+      "timezone": "시간대",
+      "save": "저장",
+      "cancel": "취소",
+      "invalidRunAt": "유효한 날짜와 시간을 선택하세요",
+      "invalidCron": "유효한 Cron 표현식을 입력하세요",
+      "invalidInterval": "0보다 큰 간격을 입력하세요",
+      "pastTimeError": "선택한 시간이 과거입니다",
+      "failedTitle": "변경 실패",
+      "failedMessage": "실행 시간을 업데이트하지 못했습니다. 다시 시도하세요.",
+      "modeLabel": "트리거 방식",
+      "modeInterval": "간격",
+      "modeCron": "Cron 표현식"
     }
   },
   "artifacts": {
@@ -1811,6 +1903,9 @@
       "zoomInAria": "확대",
       "close": "닫기 (Esc)",
       "closeAria": "확대 닫기"
+    },
+    "url": {
+      "toggleFailed": "모드를 변경할 수 없습니다: {{error}}"
     }
   },
   "skills": {
@@ -1927,6 +2022,13 @@
     "livePreview": "실시간 미리보기"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus는 현재 베타 버전입니다. 기능이 변경될 수 있고 간헐적으로 문제가 발생할 수 있습니다. 피드백을 환영합니다.",
+    "ok": "확인",
+    "noticeTitle": "잠시만요",
+    "actionFailedTitle": "실행되지 않았습니다",
+    "savedTo": "{{path}} 에 저장했습니다",
+    "downloadFailed": "다운로드 실패: {{error}}",
+    "doneTitle": "완료"
   }
 }

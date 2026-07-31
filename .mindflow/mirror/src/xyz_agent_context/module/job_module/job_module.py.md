@@ -1,7 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_module.py
-last_verified: 2026-06-05
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — R4b："Current Job Status" 表搬进 get_turn_context
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+- 指令模板从 `__init__` 内联字符串**逐字节**上提为模块级常量
+  `JOB_MODULE_INSTRUCTIONS`（提交时用 git-show 比对过字节一致）；
+  `JOB_MODULE_INSTRUCTIONS_STABLE` 由两个 `.replace()` 推导：
+  ① `{jobs_information}` 小节 → 静态指引句（jobs 表在本轮消息 turn context
+  块里）；② "If there are jobs listed above:" → "listed in the turn
+  context:"（方位词修正，非功能变更）。曾经内联在 __init__ 里的死代码
+  `agent_id_note`（其 replace 早已注释掉）随上提一并移除。
+- `get_instructions` override：按 relocation flag 选模板再走基类 format 路径；
+  关 = legacy 逐字节一致。
+- `get_turn_context`：`##### Current Job Status\n\n` +
+  `ctx_data.jobs_information`（hook_data_gathering 填充逻辑不动；
+  "*No jobs for this conversation.*" 空态行也随迁——搬迁不裁剪）。
+  字段缺失 → ""（fail-open）。
+- 动机：job 创建/完成/状态迁移使 `{jobs_information}` 会话中途变化
+  （prod 稳定性 10/17），打穿 system prompt 前缀缓存。
 
 # job_module.py — JobModule 实现
 
@@ -30,7 +50,7 @@ JobModule 是 AgentRuntime 侧的 Job 管理入口。它做三件事：在数据
 
 **hook_after_event_execution 的双路径**：JOB 触发 → `handle_job_execution_result` LLM 分析；CHAT 触发且有活跃 Job 实例 → `update_ongoing_jobs_from_chat` 检查 ONGOING 任务进度。两条路径互不干扰。
 
-**`jobs_information` 占位符**：系统提示模板里有 `{jobs_information}` 占位符，由 `hook_data_gathering` 填充后通过 `get_instructions()` 格式化进入系统提示。这是 JobModule 与 prompt 集成的唯一通道。
+**`jobs_information` 的注入通道**：`hook_data_gathering` 填充 `ctx_data.jobs_information` 后，relocation flag 关闭时经 legacy 模板的 `{jobs_information}` 占位符进系统提示；开启时（默认）经 `get_turn_context()` 进当前轮消息的 turn context 块（见上方 2026-07-28 记录）。这是 JobModule 与 prompt 集成的唯一数据源。
 
 ## Gotcha / 边界情况
 

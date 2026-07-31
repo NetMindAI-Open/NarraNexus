@@ -176,11 +176,19 @@ must be in this list. Expand the lists as new adapters are added.
 AGENT_FRAMEWORK_REQUIRED_PROTOCOLS: dict[str, list[ProviderProtocol]] = {
     "claude_code": [ProviderProtocol.ANTHROPIC],
     "codex_cli": [ProviderProtocol.OPENAI],
+    "nexus_power": [ProviderProtocol.ANTHROPIC, ProviderProtocol.OPENAI],
 }
 """
 Agent slot protocol requirements vary by coding-agent framework.
-Claude Code consumes Anthropic-protocol providers; Codex CLI consumes
-OpenAI-protocol providers through its config.toml model_provider path.
+
+A CLI-backed framework speaks exactly ONE protocol because its CLI does:
+Claude Code consumes Anthropic-protocol providers, Codex CLI consumes
+OpenAI-protocol ones through its config.toml model_provider path.
+
+NexusPower drives the provider API itself, so it accepts EITHER — and it
+must be listed, not left to the fallback below: an absent framework falls
+back to claude_code's requirement, which silently rejected every
+openai-protocol card at bind time while the resolver handled them fine.
 """
 
 

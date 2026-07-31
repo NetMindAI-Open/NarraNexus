@@ -1,8 +1,86 @@
 ---
 code_file: frontend/src/components/layout/MainLayout.tsx
-last_verified: 2026-07-10
+last_verified: 2026-07-30
 stub: false
 ---
+
+> 2026-07-30: mounts [[MigrationGuide]] beside [[OnboardingChecklist]] above the
+> chat panel — the local-only, once-per-user "import your other agents" guided
+> flow (welcome modal → import, or a coach-mark pointing at the sidebar "+").
+> Superseded the earlier MigrationNudge banner.
+
+## 2026-07-30 (2) — one drawer element, not two
+
+The pinned column and the slide-over used to be two separate
+`<BookmarkDrawer>` elements in different tree positions, which remounted the
+panel (and dropped the user's in-panel state) on every pin toggle — see
+[[BookmarkDrawer]]'s entry for the full diagnosis and why the obvious
+"one element, keep the portal" fix does NOT work.
+
+Now: a single `<BookmarkDrawer>` at the pinned column's slot, always rendered
+when there's an agent, with `open`/`pinned`/`pinnedWidth`/`columnRef` as props.
+It positions itself `fixed` when unpinned, so occupying that slot in the flex
+row costs nothing in slide-over mode. The styled wrapper div that used to frame
+the pinned column moved INTO the component — a wrapper on one branch only is
+itself a positional difference, i.e. another remount.
+
+**Do not re-split this on the grounds that "the two modes look unrelated".**
+They are one element on purpose, and `drawerPinToggle.test.tsx` fails
+immediately if they aren't.
+
+## 2026-07-30 — right-side UX pass: strip never covered, everything drags
+
+Owner report, three symptoms, one theme — the right side behaved as if each
+panel owned the whole edge:
+
+**1. The strip got buried.** Opening a tab covered the [[BookmarkStrip]] and
+its backdrop ate the strip's clicks, so a second panel required closing the
+first. Fixed in [[BookmarkDrawer]] via `edgeReservePx`; this file computes it
+as `STRIP_WIDTH_PX + RAIL_GUTTER_PX` (0 on mobile, where no strip renders).
+`RAIL_GUTTER_PX = 12` is `<main>`'s `md:p-3` — the strip is desktop-only, so
+`p-2` can never be the value in play. **If that padding changes, this constant
+must change with it**; nothing links them automatically.
+
+**2. The pinned drawer was a hardcoded `w-[400px]`.** Now `drawerWidth` state
+(300–720px, persisted under `bookmark_drawer_width_v1`) with its own
+[[ResizableDivider]] to its left. Width grows leftward from the drawer's right
+edge, which the strip pins in place — so the edge is a stable reference during
+the drag and the chat+artifact group absorbs the change.
+
+**3. Dragging "felt broken"** because iteration 2 (below) deliberately did not
+move the panes — only a thin ghost line tracked the cursor and the panes
+jumped on release. Correct for perf, unreadable as an interaction.
+
+### Resize, iteration 3: live-follow with neither cost
+
+The ghost line is gone; the panes track the cursor. Both costs that iterations
+1 and 2 traded against each other are now paid off separately:
+
+- **React renders** — `handleResize` writes `flexGrow` directly to
+  `chatColRef` / `artifactColRef` (and `width` to `drawerColRef`). Zero
+  renders during the drag; one on release, which re-asserts through React the
+  same values already written imperatively, so there is no visible snap.
+- **iframe reflow** — the reason iteration 1 was rejected. Handled at the
+  other end: `onResizeStart` sets `dragging`, which passes `contentFrozen` to
+  [[ArtifactColumn]]; that column pins its content width for the drag, so the
+  sandboxed artifact `<iframe>` is not reflowed 60×/s. Release unfreezes →
+  exactly one reflow, at the chosen width.
+
+**Ordering gotcha**: `dragging` must be set from `onResizeStart` (pointerdown),
+NOT from the first `onResize`. Setting it on first move re-renders *after* the
+imperative `flexGrow` write and clobbers it — the pane visibly snaps back on
+the first pixel of movement.
+
+**`pendingSplitRef` still matters**: `onResizeEnd` receives the release
+`clientX`, but a pointer released outside the clamp range must commit the last
+clamped value, not the raw one.
+
+## 2026-07-28 — TeamChatPanel import follows the package move
+
+`TeamChatPanel` now lives in `@/components/chat/team` (the group-chat surface
+grew a console and a guide, so it became a package — 铁律 #23). Import path
+only; `TeamChatView` is unchanged.
+
 
 ## 2026-07-10 (2) — FeedbackButton 提到顶层
 

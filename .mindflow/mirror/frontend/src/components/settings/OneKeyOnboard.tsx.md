@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/settings/OneKeyOnboard.tsx
-last_verified: 2026-07-17
+last_verified: 2026-07-21
 stub: false
 ---
+## 2026-07-21 — one-key setup follows the active locale
+
+All instructional, validation, confirmation, progress, and success copy now
+resolves through `settings.provider` i18n keys. Provider product names remain
+verbatim, while official/proxy descriptions and key-mismatch guidance follow
+the selected language. Setup behavior and provider selection are unchanged.
+
 ## 2026-07-18 (PR review) — register-only 文案接 i18n
 
 register-only 分支的标题/正文改走 `settings.provider.oneKeySaved` /

@@ -2,11 +2,17 @@
  * Message Bubble component - Bioluminescent Terminal style
  * Distinctive message bubbles with dramatic visual effects
  *
- * History display now matches the live streaming UX: thinking +
- * tool_call + tool_output are rendered inline through TurnTimeline in
- * their original chronological order, not grouped into "Reasoning" /
- * "Tool calls" sections that lost time information and forced double
- * scrolling. Data sources, in preference order:
+ * Assistant turns render segment-by-segment (2026-07-30): a turn is
+ * still one backend record, but the agent may have spoken m times in
+ * it. When the message carries `segments` (cut by lib/segmentTurn at
+ * stopStreaming, or computed here after an event-log fetch), each
+ * user-facing reply renders with its own collapsible process region —
+ * the same segmentation the live view showed, so live and settled
+ * views agree by construction.
+ *
+ * Fallback (older messages / no reply in the turn): message.content
+ * renders as one Markdown block, with the process behind the legacy
+ * "View reasoning & tools" toggle. Data sources, in preference order:
  *   1. eventLogTimeline (new /event-log endpoint, time-ordered)
  *   2. message.thinking + message.toolCalls (live stream just finished)
  *   3. eventLogThinking + eventLogToolCalls (older backend; grouped)
@@ -16,16 +22,18 @@ import { Sparkles, AlertTriangle, AlertCircle, Copy, Download, Check, Loader2, F
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { Attachment, ChatMessage, TurnEvent } from '@/types';
+import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatDate, formatTime } from '@/lib/utils';
 import { Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
+import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
 import { useConfigStore } from '@/stores';
 import { AttachmentImage } from './AttachmentImage';
 import { VoiceTranscript } from './VoiceTranscript';
 import { TurnTimeline } from './TurnTimeline';
+import { SegmentedReply } from './SegmentedReply';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -131,6 +139,25 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
     }
     return events;
   }, [isUser, message.timeline, eventLogTimeline, message.thinking, message.toolCalls, eventLogThinking, eventLogToolCalls]);
+
+  // Segment-mode: the turn renders as the m things the agent actually
+  // said, each with its own process region. Only when at least one
+  // segment has a reply — a zero-reply turn keeps the legacy path
+  // (content is "(Agent decided no response needed)", process behind
+  // the global toggle), per the design's "don't special-case" rule.
+  const segmentsForRender: Segment[] | null = useMemo(() => {
+    if (isUser || message.isError) return null;
+    if (message.segments?.some((s) => s.reply)) return message.segments;
+    // Historical message: the event-log fetch (triggered by the toggle
+    // below) hands us the persisted timeline; the same segmentTurn cut
+    // then upgrades the bubble from one joined blob to per-segment
+    // rendering — one fetch serves all m segments.
+    if (eventLogTimeline && eventLogTimeline.length > 0) {
+      const segs = segmentTurn(timelineToEvents(eventLogTimeline));
+      if (segs.some((s) => s.reply)) return segs;
+    }
+    return null;
+  }, [isUser, message.isError, message.segments, eventLogTimeline]);
 
   const hasRealTimeData = !!(message.thinking || message.toolCalls?.length);
   const canLoadEventLog = !isUser && !hasRealTimeData && !!eventId && !!agentId;
@@ -349,7 +376,7 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               matching the live streaming UX. No inner ScrollArea —
               long content pushes the bubble taller and scrolls with
               the main message list (no double-scroll). */}
-          {(inlineEvents.length > 0 || canLoadEventLog) && (
+          {segmentsForRender === null && (inlineEvents.length > 0 || canLoadEventLog) && (
             <div className="mb-3 pb-2 border-b border-[var(--border-subtle)]">
               <button
                 onClick={handleToggleDetails}
@@ -450,7 +477,20 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
               an empty red box (the message text vanishes). Let it inherit
               the container's white. */}
           <div className="text-sm break-words leading-relaxed">
-            {isUser ? (
+            {segmentsForRender ? (
+              // Segment mode: the m things the agent said, each with its
+              // own collapsible process. Replaces the single content blob
+              // — rendering both would print every sentence twice.
+              // defaultOpen when the segments came from the event-log
+              // fetch: the user already clicked "View reasoning" once to
+              // get here, so the process shows immediately instead of
+              // behind a second toggle.
+              <SegmentedReply
+                segments={segmentsForRender}
+                showProcess
+                defaultOpen={!message.segments?.some((s) => s.reply)}
+              />
+            ) : isUser ? (
               // Match the Agent reply's font size: the Markdown wrapper
               // (.markdown-content) renders at 0.95rem, but a plain user span
               // would inherit the parent .text-sm (0.85rem) and look smaller.

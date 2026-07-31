@@ -69,6 +69,25 @@ def _safe_business_message(msg: str) -> str:
         return ""
     return msg
 
+
+def _redirect_fields(
+    success_url: Optional[str], cancel_url: Optional[str]
+) -> dict[str, Any]:
+    """Only the post-payment redirect fields the caller actually resolved.
+
+    Absent rather than null: upstream types both as ``Optional[str]`` and does
+    accept explicit nulls (probed dev+prod 2026-07-30), but "omitted" is the
+    body shape that has shipped for months, so an unconfigured deployment keeps
+    byte-identical behavior.
+    """
+    fields: dict[str, Any] = {}
+    if success_url:
+        fields["success_url"] = success_url
+    if cancel_url:
+        fields["cancel_url"] = cancel_url
+    return fields
+
+
 DEFAULT_BASE_URL_ENV = "BILLING_API_BASE"
 DEFAULT_TIMEOUT_ENV = "BILLING_API_TIMEOUT_SECONDS"
 _FALLBACK_TIMEOUT_SECONDS = 10.0
@@ -180,13 +199,29 @@ class NetmindBillingClient:
             "GET", "/v1/finance/records", login_token=login_token, params=params
         )
 
-    async def subscribe(self, login_token: str) -> Any:
+    async def subscribe(
+        self,
+        login_token: str,
+        success_url: Optional[str] = None,
+        cancel_url: Optional[str] = None,
+    ) -> Any:
         """Start a Pro subscription. Returns ``{session_id, checkout_url}``.
+
+        ``success_url``/``cancel_url`` are where Stripe sends the payer once the
+        Checkout Session ends. NetMind creates that session, so these two fields
+        are our only lever over it; omitted, the payer lands on NetMind's own
+        result page (a different domain — the 2026-07-30 P0 report). The caller
+        resolves them from deploy config, NEVER from client input; see
+        ``routes.billing._return_urls``.
 
         Raises BillingBusinessError on 400 (e.g. "Already subscribed to Pro.").
         """
+        body = _redirect_fields(success_url, cancel_url)
         return await self._request(
-            "POST", "/v1/power-subscription/subscribe", login_token=login_token
+            "POST",
+            "/v1/power-subscription/subscribe",
+            login_token=login_token,
+            json_body=body or None,
         )
 
     async def cancel(self, login_token: str) -> Any:
@@ -214,22 +249,33 @@ class NetmindBillingClient:
         login_token: str,
         amount: float,
         currency: str = "USD",
+        success_url: Optional[str] = None,
+        cancel_url: Optional[str] = None,
     ) -> Any:
         """Create a Stripe HOSTED Checkout for an account top-up (finance 4.2).
 
         Uses the hosted-checkout endpoint (returns a redirectable
         ``checkout_url``), NOT the embedded-SDK endpoint (which returns a
         ``client_secret``) — hosted matches our openExternal flow (same as
-        subscribe). We omit ``success_url``/``cancel_url`` so NetMind uses its
-        own result page and we poll by-session regardless; they are intentionally
-        NOT forwarded from client input (an unvalidated redirect target into a
-        payment session is attack surface with no current use — re-add with an
-        allowlist when a concrete web-redirect UX needs it).
+        subscribe).
+
+        ``success_url``/``cancel_url`` decide where Stripe drops the payer
+        afterwards. Upstream really does forward them to Stripe (verified on dev
+        2026-07-30: an illegal value answers 500 "Failed to create Stripe
+        checkout session"), which also means junk here costs the user the
+        ability to pay — the caller must resolve them from deploy config and
+        omit them when it cannot. They are still never taken from client input:
+        an unvalidated redirect target inside a payment session is attack
+        surface. See ``routes.billing._return_urls``.
 
         Returns the wrapped body ``{success, data: {recharge_id, session_id,
         checkout_url, status}}``.
         """
-        body: dict[str, Any] = {"amount": amount, "currency": currency or "USD"}
+        body: dict[str, Any] = {
+            "amount": amount,
+            "currency": currency or "USD",
+            **_redirect_fields(success_url, cancel_url),
+        }
         return await self._request(
             "POST",
             "/v1/finance/recharge/stripe/checkout",

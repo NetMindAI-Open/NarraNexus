@@ -106,6 +106,29 @@ async def test_success_resets_failure_count(db_client):
     assert row["status"] == JobStatus.ACTIVE.value  # scheduled → rescheduled normally
 
 
+@pytest.mark.asyncio
+async def test_success_clears_stale_last_error_without_backoff(db_client):
+    """Regression 2026-07-30: recover_all_running_jobs writes a transient
+    `last_error` (e.g. "Process restarted, auto-recovered") WITHOUT touching the
+    failure counter. A later successful run must still clear it, or the UI keeps
+    surfacing a long-resolved error on a perfectly healthy job."""
+    repo = JobRepository(db_client)
+    await _insert_job(db_client, "job_le", failure_count=0)
+    await db_client.update(
+        "instance_jobs", {"job_id": "job_le"},
+        {"last_error": "Process restarted, auto-recovered at 2026-07-30"},
+    )
+    trigger = JobTrigger(database_client=db_client)
+    job = await repo.get_job("job_le")
+    assert job.last_error  # precondition: error present before the successful run
+
+    await trigger._finalize_job_execution(job, {"success": True, "event_id": None, "content": "ok"})
+
+    row = await db_client.get_one("instance_jobs", {"job_id": "job_le"})
+    assert row["status"] == JobStatus.ACTIVE.value
+    assert row["last_error"] is None
+
+
 # ── cooling re-arm (time-based recovery) ─────────────────────────────────────
 
 @pytest.mark.asyncio

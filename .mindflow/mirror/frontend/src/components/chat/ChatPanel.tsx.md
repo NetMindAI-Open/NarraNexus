@@ -1,8 +1,27 @@
 ---
 code_file: frontend/src/components/chat/ChatPanel.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 (r2) — 直播回复套 silicon 气泡
+
+直播中的回复原来是头像旁的裸文本，落定瞬间才「长出」蓝底气泡——同一个
+东西两副面孔（Owner 反馈）。现在直播回复渲染在与落定后 MessageBubble
+完全同款的 silicon 气泡里（silicon-soft 底 + hair 边 + 左 3px silicon
+条 + nm-bubble-ai）。仅当已有可见回复内容才渲染气泡壳——只在思考/调工具
+阶段不出空蓝框。
+
+## 2026-07-30 — 过程面板挂载 + 直播答案按段渲染
+
+两处改动，同一个分工（过程/答案分离）：
+
+- **composer 上方挂 `ProcessPanel`**（仅 `isStreaming` 时）：Agent 干活
+  时过程在面板里滚动，结束即卸载——过程按回复切段折叠回各自气泡
+  （`lib/segmentTurn`），所以卸载不丢任何东西。
+- **直播中的当前轮**：原来渲染完整 `TurnTimeline`（过程+答案混排），
+  现在改为 `SegmentedReply(segmentTurn(currentEvents))` 只出答案。
+  过程若也在这里画，会和面板重复一遍。
 
 ## 2026-07-23 — day separators in the timeline
 
@@ -21,6 +40,30 @@ successful register_artifact always brings the doc to front, even when a
 list refresh raced ahead and already inserted it (see [[artifactStore.ts]]
 2026-07-23). Dedup via the module-scope seen-Set is unchanged, so history
 re-renders don't re-steal focus.
+
+## 2026-07-22 — localized persistent security reminder
+
+The non-dismissible warning above the conversation now resolves through
+`chat.securityReminder` instead of embedding English in JSX. Its persistence,
+warning styling, and security meaning are unchanged; only locale selection now
+controls the displayed copy.
+
+## 2026-07-21 — localized live execution status
+
+The pre-event streaming indicator no longer hard-codes English for startup,
+context/resource loading, workspace preparation, context building, or
+thinking. It resolves the whole state-to-copy mapping through
+`chat.execution.*`, including the inter-event `Acting…` indicator, so changing
+the interface language updates the complete live execution sequence without
+altering step identifiers or streaming behavior.
+
+## 2026-07-21 — localized generic bootstrap greeting survives persistence
+
+The generic greeting resolves through `chat.bootstrapGreeting`. Because the
+backend persists its generic default in English on the first turn, ChatPanel
+recognizes that exact system text in both agent metadata and history and
+renders the active-locale version. Scenario-authored `bootstrap_greeting`
+metadata remains verbatim, so Arena and other custom greetings are untouched.
 
 ## 2026-07-18 — 语音不可用弹窗：free_tier_opted_out → free_tier_not_granted
 
@@ -360,7 +403,12 @@ The primary user-facing interface. All agent interaction goes through here. Merg
 
 **IME handling**: The send button is gated by `isComposing` and a 100ms grace period after `compositionend`. Without this, CJK input methods would fire Enter before the character is committed.
 
-**Bootstrap greeting**: If `bootstrap_active` is true and there are no messages, the panel renders a hard-coded bootstrap greeting. The greeting content is kept in sync with `src/xyz_agent_context/bootstrap/template.py` — comment in the code flags this dependency.
+**Bootstrap greeting**: If `bootstrap_active` is true and there are no messages,
+the panel renders the localized generic `chat.bootstrapGreeting` when metadata
+contains the backend's exact generic English default. Any genuinely authored
+custom greeting is rendered verbatim. The same normalization is applied to
+persisted assistant history so the greeting does not switch back to English
+after the first turn.
 
 **`send_message_to_user_directly` filtering**: Tool calls with this name are filtered out of the streaming step preview — they produce the main message content, not a tool activity row.
 
@@ -381,7 +429,9 @@ The `shouldAutoScrollRef` is the gating mechanism for scroll behavior. User scro
 
 ## 新人易踩的坑
 
-`BOOTSTRAP_GREETING` must be kept in sync with the Python backend constant. It's a frontend-only rendering shortcut — the greeting is never actually stored as a chat message until the user replies.
+Custom `bootstrap_greeting` metadata must remain verbatim. Only content equal
+to the exact English generic locale value may be localized; the backend stores
+that generic greeting as a chat message after the user's first reply.
 
 **Artifact preview placement**: the `ArtifactToolCallCards` render is gated by `hasArtifactTools`, which checks `item.role === 'assistant'`, `agentId` being truthy, and at least one qualifying tool call. This prevents the component from mounting on user messages or when `agentId` is not yet set. The `allArtifacts` dependency means the cards re-render when the store updates (e.g., after `ensureArtifactLoaded` upserts the fetched artifact), replacing the placeholder with the real card automatically.
 

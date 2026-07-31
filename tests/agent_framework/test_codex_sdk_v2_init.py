@@ -35,6 +35,7 @@ from xyz_agent_context.agent_framework.adapters.codex.cli_sdk import CodexSDK
 from xyz_agent_context.agent_framework.adapters.codex.official_sdk import (
     CodexSDKv2,
     _build_codex_config_overrides,
+    _prepare_codex_notification,
 )
 
 
@@ -476,6 +477,101 @@ def test_method_constants_match_sdk_notification_registry():
         + "\n".join(f"  {n} = {v!r}" for n, v in misaligned.items())
         + f"\n\nActual SDK methods (sample): {sorted(sdk_methods)[:10]}..."
     )
+
+
+def test_token_usage_update_is_attached_to_turn_completion():
+    """Keep the latest per-turn usage snapshot for cost tracking."""
+    _, usage = _prepare_codex_notification(
+        {
+            "method": "thread/tokenUsage/updated",
+            "payload": {
+                "token_usage": {
+                    "last": {
+                        "input_tokens": 120,
+                        "cached_input_tokens": 80,
+                        "output_tokens": 30,
+                    },
+                    "total": {
+                        "input_tokens": 999,
+                        "cached_input_tokens": 500,
+                        "output_tokens": 400,
+                    },
+                },
+            },
+        },
+        None,
+    )
+
+    prepared, usage = _prepare_codex_notification(
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed"}},
+        },
+        usage,
+    )
+
+    assert prepared["payload"]["turn"]["usage"] == {
+        "input_tokens": 120,
+        "cached_input_tokens": 80,
+        "output_tokens": 30,
+    }
+
+
+def test_latest_token_usage_snapshot_replaces_earlier_updates():
+    """Usage notifications are cumulative snapshots, not deltas."""
+    usage = None
+    for input_tokens, output_tokens in ((10, 2), (25, 7)):
+        _, usage = _prepare_codex_notification(
+            {
+                "method": "thread/tokenUsage/updated",
+                "payload": {
+                    "token_usage": {
+                        "last": {
+                            "input_tokens": input_tokens,
+                            "cached_input_tokens": 0,
+                            "output_tokens": output_tokens,
+                        },
+                    },
+                },
+            },
+            usage,
+        )
+
+    prepared, _ = _prepare_codex_notification(
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed"}},
+        },
+        usage,
+    )
+
+    assert prepared["payload"]["turn"]["usage"]["input_tokens"] == 25
+    assert prepared["payload"]["turn"]["usage"]["output_tokens"] == 7
+
+
+def test_turn_completion_usage_takes_precedence_over_snapshot():
+    """Native completion usage remains authoritative when present."""
+    prepared, _ = _prepare_codex_notification(
+        {
+            "method": "turn/completed",
+            "payload": {
+                "turn": {
+                    "status": "completed",
+                    "usage": {"input_tokens": 40, "output_tokens": 9},
+                },
+            },
+        },
+        {
+            "input_tokens": 25,
+            "cached_input_tokens": 5,
+            "output_tokens": 7,
+        },
+    )
+
+    assert prepared["payload"]["turn"]["usage"] == {
+        "input_tokens": 40,
+        "output_tokens": 9,
+    }
 
 
 def test_turn_is_coroutine_function():

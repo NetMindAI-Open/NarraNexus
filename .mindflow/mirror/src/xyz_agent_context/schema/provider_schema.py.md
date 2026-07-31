@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/schema/provider_schema.py
-last_verified: 2026-07-26
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — `nexus_power` 进 `AGENT_FRAMEWORK_REQUIRED_PROTOCOLS`
+
+值是 `[ANTHROPIC, OPENAI]`：CLI 型框架只会一种协议是因为**它的 CLI 只会一种**，
+而 NexusPower 自己驱动 provider API，两种都收。
+
+**必须显式列出，不能靠 fallback**：表里查不到的框架会回落到 `claude_code` 的
+「只收 anthropic」，于是 resolver 明明支持 openai、实测也跑通了，用户给 agent
+slot 绑一张 openai 卡却会在**保存时**被拒。双协议在这一层原本是假的。
 
 ## 2026-07-26 — AuthType 增加 `oauth_token`
 

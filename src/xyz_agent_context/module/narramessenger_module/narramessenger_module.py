@@ -220,6 +220,7 @@ class NarramessengerModule(ChannelModuleBase):
         "narra_guide",
     )
     setup_tool_names = frozenset({"narra_bind"})
+    reply_tool_names = ("narra_reply", "narra_send")
 
     @staticmethod
     def get_config() -> ModuleConfig:

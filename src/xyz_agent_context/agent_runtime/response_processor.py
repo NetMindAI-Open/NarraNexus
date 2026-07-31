@@ -20,6 +20,8 @@ from loguru import logger
 from xyz_agent_context.schema import (
     ProgressMessage,
     ProgressStatus,
+    AgentPlan,
+    AgentReplyDelta,
     AgentTextDelta,
     AgentThinking,
     AgentToolCall,
@@ -30,8 +32,10 @@ from xyz_agent_context.schema import (
 from xyz_agent_context.agent_framework.loop.events import (
     DATA_TYPE_DONE,
     DATA_TYPE_ERROR,
+    DATA_TYPE_REPLY_DELTA,
     DATA_TYPE_TEXT_DELTA,
     DATA_TYPE_USAGE,
+    ITEM_TYPE_PLAN,
     ITEM_TYPE_THINKING,
     ITEM_TYPE_TOOL_CALL,
     ITEM_TYPE_TOOL_CALL_OUTPUT,
@@ -171,6 +175,8 @@ class ResponseType(str, Enum):
     TOOL_CALL = "tool_call"
     TOOL_OUTPUT = "tool_output"
     THINKING = "thinking"
+    REPLY_DELTA = "reply_delta"   # NexusPower: the reply, streaming
+    PLAN = "plan"                 # NexusPower: live plan snapshot
     DONE = "done"
     ERROR = "error"
     OTHER = "other"
@@ -226,6 +232,18 @@ class ResponseProcessor:
 
     def __init__(self) -> None:
         self._thinking_batcher = _ThinkingBatcher()
+        # Monologue chunks (NexusPower text deltas displayed as thinking)
+        # buffered since the last batcher flush. Kept OUTSIDE the batcher:
+        # the batcher coalesces the display stream (monologue + CoT mixed,
+        # iron rule #16 verbatim), while final_output must receive the
+        # monologue subset only. Drained into record_thinking's
+        # ``monologue`` arg at every flush site.
+        self._pending_monologue: list[str] = []
+
+    def _take_pending_monologue(self) -> str:
+        text = "".join(self._pending_monologue)
+        self._pending_monologue = []
+        return text
 
     def process(
         self,
@@ -296,14 +314,19 @@ class ResponseProcessor:
         if not residual:
             return
         thinking_display = format_thinking_for_display(residual)
+        # Drained ONCE per flush; the message and the state update carry
+        # the same subset (message: for collect_run consumers relaying
+        # output_text; state: for final_output / reasoning persistence).
+        monologue = self._take_pending_monologue()
         yield ProcessedResponse(
             type=ResponseType.THINKING,
-            message=AgentThinking(thinking_content=residual),
+            message=AgentThinking(thinking_content=residual, monologue=monologue),
             state_update={
                 "method": "record_thinking",
                 "args": {
                     "content": residual,
                     "display": thinking_display,
+                    "monologue": monologue,
                 },
             },
         )
@@ -358,6 +381,24 @@ class ResponseProcessor:
                 type=ResponseType.TEXT_DELTA,
                 message=AgentTextDelta(delta=delta),
                 state_update={"method": "append_text", "args": {"text": delta}}
+            )
+
+        if data_type == DATA_TYPE_REPLY_DELTA:
+            # NexusPower only: the user-facing reply, streamed as the
+            # model writes the expression tool's argument. It is NOT
+            # appended to final_output — the completed tool call remains
+            # the authoritative record (this is a presentation stream,
+            # so double-counting it would duplicate the reply).
+            delta = data.get("delta", "")
+            if not delta:
+                return ProcessedResponse(type=ResponseType.OTHER, message=None)
+            return ProcessedResponse(
+                type=ResponseType.REPLY_DELTA,
+                message=AgentReplyDelta(
+                    delta=delta,
+                    call_id=str(data.get("call_id", "")),
+                    tool_name=str(data.get("tool_name", "")),
+                ),
             )
 
         if data_type == DATA_TYPE_ERROR:
@@ -475,6 +516,9 @@ class ResponseProcessor:
             )
             cache_creation_tokens = usage.get("cache_creation_input_tokens", 0)
             num_turns = data.get("num_turns")  # None when the framework doesn't report it
+            # Resumable CLI session handle. None when the framework doesn't
+            # report one (only Claude Code's ResultMessage carries it).
+            cli_session_id = data.get("session_id")
             model = data.get("model", "")
             total_cost_usd = data.get("total_cost_usd")  # SDK-calculated cost
             stop_reason = data.get("stop_reason", "unknown")
@@ -498,6 +542,7 @@ class ResponseProcessor:
                         "cache_read_tokens": cache_read_tokens,
                         "cache_creation_tokens": cache_creation_tokens,
                         "num_turns": num_turns,
+                        "cli_session_id": cli_session_id,
                     },
                 },
             )
@@ -530,19 +575,26 @@ class ResponseProcessor:
             # an emission this round. The DB-tier (per-segment) flush
             # is added in Phase C alongside event_stream persistence.
             thinking_content = item.get("content", "")
+            if item.get("monologue"):
+                self._pending_monologue.append(thinking_content)
             coalesced = self._thinking_batcher.append_thinking(thinking_content)
             if coalesced is None:
                 return  # still buffering
             thinking_display = format_thinking_for_display(coalesced)
             logger.info(f"  💭 Thinking flush: {len(coalesced)} chars (coalesced)")
+            # Same single-drain discipline as _flush_thinking_residual.
+            monologue = self._take_pending_monologue()
             yield ProcessedResponse(
                 type=ResponseType.THINKING,
-                message=AgentThinking(thinking_content=coalesced),
+                message=AgentThinking(
+                    thinking_content=coalesced, monologue=monologue
+                ),
                 state_update={
                     "method": "record_thinking",
                     "args": {
                         "content": coalesced,
                         "display": thinking_display,
+                        "monologue": monologue,
                     },
                 },
             )
@@ -552,12 +604,32 @@ class ResponseProcessor:
         # user sees thinking → tool_call in the correct order.
         yield from self._flush_thinking_residual(state)
 
+        if item_type == ITEM_TYPE_PLAN:
+            # NexusPower only: full plan snapshot (replace-on-write).
+            yield ProcessedResponse(
+                type=ResponseType.PLAN,
+                message=AgentPlan(
+                    steps=list(item.get("steps") or []),
+                    note=str(item.get("note", "")),
+                ),
+            )
+            return
+
         if item_type == ITEM_TYPE_TOOL_CALL:
             # Tool call - use ProgressMessage to display in the step panel
             # Step numbering uses 3.4.x format (sub-steps of Step 3.4 Agent Loop)
             tool_name = item.get("tool_name", "unknown")
             tool_call_id = item.get("tool_call_id", "")
             arguments = item.get("arguments", {})
+            # Name-first frame: the tool's name arrived before its
+            # arguments finished streaming. Ship it so the UI can show
+            # "using X" immediately — but for a user-reply tool drop it:
+            # that reply already streams live via reply deltas, and an
+            # empty-argument reply frame would inject a stray empty
+            # bubble into the turn's content.
+            pending = bool(item.get("pending"))
+            if pending and _looks_like_user_reply_tool(tool_name):
+                return
             # Strip OpenAI Responses-API citation tokens from reply
             # tools' content args. This is the LIVE-STREAMING path —
             # the cleaned arguments end up in the ProgressMessage we
@@ -587,10 +659,18 @@ class ResponseProcessor:
                     details={
                         "display": tool_display,
                         "tool_name": tool_name,
-                        "arguments": arguments
+                        "arguments": arguments,
+                        # The frontend replaces a pending row in place when
+                        # the completed call lands, keyed by tool_call_id —
+                        # so both frames must carry it.
+                        "tool_call_id": tool_call_id,
+                        "pending": pending,
                     }
                 ),
-                state_update={
+                # Only the completed call records: the pending frame is a
+                # display-only preview, and recording both would double
+                # the step count and the persisted timeline.
+                state_update=None if pending else {
                     "method": "record_tool_call",
                     "args": {
                         "tool_name": tool_name,
@@ -607,21 +687,34 @@ class ResponseProcessor:
             # 不能用 tool_call_count，因为并行工具调用时所有 call 先到达，
             # tool_call_count 已经递增到最终值，与第一个 output 的序号不匹配。
             output = item.get("output", "")
+            tool_call_id = str(item.get("tool_call_id") or "")
             tool_output_num = state.tool_output_count + 1
             logger.info(f"Tool output #{tool_output_num} received: {len(output)} chars")
 
-            # 查找对应的 tool_call 信息用于展示
-            # tool_output 按顺序到达，第 N 个 output 对应第 N 个 call
+            # Find the tool_call this output answers, for the display row.
+            # Prefer the id when the driver reported one: the positional rule
+            # below ("Nth output belongs to the Nth call") is wrong for PARALLEL
+            # calls, where every call arrives before any output and the outputs
+            # come back in completion order. Positional stays as the fallback
+            # for drivers that report no id.
             matching_tool_name = ""
             matching_arguments = {}
-            tool_calls_seen = 0
-            for step in state.all_steps:
-                if step.get("type") == "tool_call":
-                    tool_calls_seen += 1
-                    if tool_calls_seen == tool_output_num:
+            if tool_call_id:
+                for step in state.all_steps:
+                    if (step.get("type") == "tool_call"
+                            and step.get("tool_call_id") == tool_call_id):
                         matching_tool_name = step.get("tool_name", "")
                         matching_arguments = step.get("arguments", {})
                         break
+            if not matching_tool_name:
+                tool_calls_seen = 0
+                for step in state.all_steps:
+                    if step.get("type") == "tool_call":
+                        tool_calls_seen += 1
+                        if tool_calls_seen == tool_output_num:
+                            matching_tool_name = step.get("tool_name", "")
+                            matching_arguments = step.get("arguments", {})
+                            break
 
             # User-friendly display
             tool_display = format_tool_call_for_display(
@@ -645,7 +738,7 @@ class ResponseProcessor:
                 ),
                 state_update={
                     "method": "record_tool_output",
-                    "args": {"output": output}
+                    "args": {"output": output, "tool_call_id": tool_call_id}
                 }
             )
             return

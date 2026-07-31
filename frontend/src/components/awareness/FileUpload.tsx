@@ -22,7 +22,7 @@ import {
   Eye,
   Plus,
 } from 'lucide-react';
-import { Button, Badge, ScrollArea, useConfirm, Dialog } from '@/components/ui';
+import { Button, Badge, ScrollArea, useConfirm, useNotice, Dialog } from '@/components/ui';
 import { useConfigStore, useArtifactStore } from '@/stores';
 import { api } from '@/lib/api';
 import { artifactsApi } from '@/services/artifactsApi';
@@ -92,6 +92,11 @@ export function TreeNode({
   userId,
 }: TreeNodeProps) {
   const { t } = useTranslation();
+  // Own instance: the download button and its URL live here, and wry does not
+  // render window.alert, so the outcome has to be reported in-app. Threading a
+  // callback up through the recursion would buy nothing — an idle dialog is a
+  // useState plus a null render.
+  const { notifyDone, notifyError, dialog: noticeDialog } = useNotice();
   // Default ALL folders to expanded. Pre-fix this was `depth < 1`, which
   // auto-expanded only top-level folders; sub-folders showed their name
   // but nothing inside, easily misread as "sub-folders are ignored". The
@@ -153,7 +158,23 @@ export function TreeNode({
                     // Workspace files are auth-gated (X-User-Id / JWT); a plain
                     // <a download> can't carry those headers — see lib/download.ts.
                     authHeaders: api.getAuthHeaders(),
-                  }).catch((e) => window.alert(`Download failed: ${String(e)}`))
+                  })
+                    .then((savedPath) => {
+                      // Desktop saves to ~/Downloads with no download shelf, so
+                      // without this a successful save looks like a no-op.
+                      if (savedPath) {
+                        void notifyDone(
+                          t('common.savedTo', 'Saved to {{path}}', { path: savedPath }),
+                        );
+                      }
+                    })
+                    .catch((e) =>
+                      notifyError(
+                        t('common.downloadFailed', 'Download failed: {{error}}', {
+                          error: String(e),
+                        }),
+                      ),
+                    )
                 }
                 className="w-6 h-6 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
                 title={t('awareness.workspace.download')}
@@ -205,6 +226,7 @@ export function TreeNode({
           ))}
         </div>
       )}
+      {noticeDialog}
     </div>
   );
 }
@@ -288,13 +310,18 @@ function PreviewModal({ agentId, userId, node, onClose }: PreviewModalProps) {
   if (!node) return null;
 
   return (
-    <Dialog isOpen onClose={onClose} title={node.path} size="lg">
-      <div className="max-h-[70vh] overflow-auto">
+    // `5xl` (1024px), not the form-sized `lg` (512px) it used to be: this shows
+    // file contents — source, logs, data. The <pre> below soft-wraps, and at
+    // 512px almost every line wrapped, which loses the leading indentation on
+    // every continuation and makes structured text hard to read. Wider than the
+    // awareness editor (4xl) on purpose: code wants the columns, prose doesn't.
+    <Dialog isOpen onClose={onClose} title={node.path} size="5xl">
+      <div className="max-h-[78vh] overflow-auto">
         {error && <div className="p-4 text-red-400 text-sm">{t('awareness.workspace.previewFailed', { error })}</div>}
         {!content && !error && <div className="p-4 opacity-60">{t('awareness.workspace.loadingEllipsis')}</div>}
         {content?.type === 'image' && (
           <div className="flex items-center justify-center bg-[var(--bg-deep)] p-4">
-            <img src={content.src} alt={node.name} className="max-w-full max-h-[60vh] object-contain" />
+            <img src={content.src} alt={node.name} className="max-w-full max-h-[68vh] object-contain" />
           </div>
         )}
         {content?.type === 'text' && (

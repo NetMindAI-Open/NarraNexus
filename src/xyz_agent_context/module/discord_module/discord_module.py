@@ -202,6 +202,7 @@ class DiscordModule(ChannelModuleBase):
         "discord_unbind",
     )
     setup_tool_names = frozenset({"discord_bind"})
+    reply_tool_names = ("discord_send", "discord_reply", "discord_dm")
 
     @staticmethod
     def get_config() -> ModuleConfig:

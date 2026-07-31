@@ -1,8 +1,42 @@
 ---
 code_file: backend/routes/websocket.py
-last_verified: 2026-07-15
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 (三次) — 可见性判定改「agent 属主」（review R2 Critical #1）
+
+`events.user_id` 是**触发方 key** 不是属主列：team run 写的是发送方
+（`usr_<uid>`，agent→agent 中继则是 agent_id），channel run 在 owner
+解析失败时退化为 agent_id。拿请求者与它相等比对会把所有可观察 team
+run 判 Forbidden——恰好是 run 观察的旗舰面。改为：相等走快路径
+（chat 型 run），否则 `AgentRepository.resolve_owner(agent_id)` 反查
+属主比对；无法证明属主即不可见（fail-closed，覆盖上一轮的「无主行」
+分支）。local（requesting 为空）行为不变。测试：
+tests/backend/test_reconnect_visibility.py（5 条：usr_ 前缀/中继
+agent/非属主拒/幽灵 agent 拒/chat 快路径）。
+
+## 2026-07-31 (二次) — review 扫尾：归属收紧 + 状态检查降频
+
+- 归属校验补「cloud 模式下 events.user_id 为空即拒」：event_stream
+  现在装着全量 thinking/tool trace，无主行 fail-open 等于对全体已认证
+  用户可见（旧形状本 PR 放大了影响面，review Minor #7）。
+- tail-follow 的 events 终态/心跳检查降频到每 3 拍一次
+  （_TAIL_FOLLOW_STATE_CHECK_TICKS）——它只负责结束 follow，迟几秒
+  不可见，稳态查询量降约 1/3（每拍 2 次 → 1⅓ 次）。
+
+## 2026-07-31 — 跨进程 run 的观察：replay-only 分支升级为 DB tail-follow
+
+`_handle_reconnect` 遇到「running 但本进程无 BackgroundRun」（= run 活
+在 trigger 容器 / 别的 backend 实例）不再 reconnect_warning+close，而是
+`_follow_run_from_db`：记住回放末 seq，每 `_TAIL_FOLLOW_POLL_S`（1s）
+增量拉 `event_stream WHERE seq > last` 下发（帧型仍是 `replay`，前端
+无感知），终态发 `run_ended`，心跳停跳按既有规则报 run_ended(failed)
+（只读，不改行 —— 周期清扫负责落账）。挂起的 `websocket.receive()`
+兼作断线信号（观察路径客户端不发应用帧），asyncio.wait 的 timeout 就是
+轮询节拍。低延迟需求出现时，这个循环内部就是换 Redis pub/sub 的 seam，
+帧契约不动（铁律 #20）。这是 team roster / 未来 dashboard 观察 trigger
+run 的读侧通道。测试：tests/backend/test_reconnect_tail_follow.py。
 
 ## 2026-07-15 — 用户 MCP 装配为 spec 形状（headers 随行）
 
@@ -17,10 +51,6 @@ fresh-run 路径加熔断器 `should_skip` 闸门：paused/cooling 时发一帧�
 ## 2026-06-11 — pass sender_user_id into trigger_extra_data
 
 The chat WS now puts `sender_user_id = request.user_id` (the logged-in sender, JWT-validated) into trigger_extra_data, so the context builder can name the sender + derive is-owner (agent_runtime overrides ctx_data.user_id to the owner, dropping the original sender otherwise).
-
-last_verified: 2026-06-10
-stub: false
----
 
 ## 2026-06-10 — reconnect 对「僵尸 running 行」回 run_ended 而不是 warning
 
@@ -118,8 +148,10 @@ Fresh run 模式不再 `async for message in runtime.run(...)`，改成：
 4. state != running → 推 `{type: run_ended, final_output}` 关闭 WS
 5. state == running + active_runs 有该 run → subscribe broadcaster + 
    forward live events
-6. state == running 但本进程 active_runs 没有（在另一台 backend
-   instance）→ 推 `reconnect_warning`、关 WS
+6. state == running 但本进程 active_runs 没有（run 活在 trigger 容器 /
+   另一台 backend instance）→ `_follow_run_from_db` tail-follow：
+   增量推 `replay` 帧直到终态（2026-07-31 起；心跳停跳则
+   run_ended(failed)）
 
 **协议变化**
 
@@ -129,8 +161,9 @@ Fresh run 模式不再 `async for message in runtime.run(...)`，改成：
 - `run_reconnect` —— reconnect 模式入口
 - `replay` —— history 回放
 - `run_ended` —— terminal state + final_output
-- `reconnect_warning` —— run 在其他 backend 实例上活着，本连接拿不到 live stream
 - 之前已有：`stopping`, `cancelled`, `error`, `heartbeat`, `complete`, ...
+- （`reconnect_warning` 已删除，2026-07-31：跨进程分支改 tail-follow，
+  不再有「拿不到 live stream」的道歉帧）
 
 ## 2026-05-13 — Stop 三段 ACK 协议（Phase A C3）
 

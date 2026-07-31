@@ -21,10 +21,13 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -33,7 +36,11 @@ from xyz_agent_context.agent_framework.llm.failure import (
     is_credential_error,
     redact_secrets,
 )
-from xyz_agent_context.message_bus.local_bus import LocalMessageBus
+from xyz_agent_context.services.service_audit import ServiceAuditor
+from xyz_agent_context.message_bus.local_bus import (
+    POISON_FAILURE_THRESHOLD as _POISON_FAILURE_THRESHOLD,
+    LocalMessageBus,
+)
 from xyz_agent_context.message_bus.schemas import BusMessage
 
 # Poll interval in seconds (initial; adaptive bounds below)
@@ -76,12 +83,12 @@ MAX_TEAM_AGENT_HOPS = 4
 # bound the per-turn token cost.
 TEAM_HISTORY_LIMIT = 20
 
-# Kept in sync with LocalMessageBus.get_pending_messages' inline
-# `failure_count < 3` poison-message filter (local_bus.py). Once a message's
-# failure_count reaches this, it is permanently dropped from the pending
-# queue with no further retries — see `_notify_permanent_failure` below,
-# which is the only signal the owner gets when that happens.
-POISON_FAILURE_THRESHOLD = 3
+# Owned by local_bus (whose `get_pending_messages` enforces the filter) and
+# imported here so the two can't drift. Once a message's failure_count reaches
+# it, the message is permanently dropped from the pending queue with no further
+# retries — see `_notify_permanent_failure` below, which is the only signal the
+# owner gets when that happens.
+POISON_FAILURE_THRESHOLD = _POISON_FAILURE_THRESHOLD
 
 # De-dup window for permanent-failure inbox notices, keyed per
 # (agent_id, error_category). Same window as the rate limiter — a batch of
@@ -138,12 +145,24 @@ def build_bus_anchor(messages: List[BusMessage]) -> str:
     )
 
 
+@dataclass
+class _InFlight:
+    """One dispatched agent turn the poll loop is deliberately not awaiting."""
+
+    task: asyncio.Task
+    started_at: float
+    # Flipped once the turn actually holds a worker slot. A dispatch that is
+    # still False is queued behind `_semaphore`, and the gap between the two
+    # counts is exactly the slot-starvation signal the heartbeat reports.
+    running: bool = False
+
+
 class MessageBusTrigger:
     """
     Background poller that processes pending MessageBus messages.
 
-    Cycles through all registered agents, finds unprocessed messages,
-    and triggers AgentRuntime to handle them.
+    Finds agents with unprocessed messages and triggers AgentRuntime to
+    handle them.
 
     Args:
         bus: A MessageBusService instance (typically LocalMessageBus).
@@ -178,19 +197,45 @@ class MessageBusTrigger:
         # written for a given "agent_id:error_category" key. See
         # `_notify_permanent_failure`.
         self._failure_notify_cooldown: Dict[str, float] = {}
+        # In-flight dispatches, agent_id -> _InFlight. The poll loop spawns
+        # these and does NOT await them (see `_poll_cycle`), so this is both
+        # the "don't dispatch the same agent twice" guard and the raw material
+        # for the audit heartbeat.
+        self._in_flight: Dict[str, _InFlight] = {}
+        # Wakes the poll loop out of its interval sleep on stop().
+        self._stop_event = asyncio.Event()
+        # L2/L3 observability. This trigger was the only long-running worker
+        # without its own auditor: the supervisor's aggregate liveness only
+        # proves the asyncio task object still exists, so when the poll loop
+        # wedged on 2026-07-27 it reported "running" for 33 hours while zero
+        # messages moved. The counters below are what make a wedge visible —
+        # a frozen `cycles` means the loop is stuck, a frozen
+        # `dispatched_total` alongside a non-zero `candidates` means messages
+        # are piling up unserved.
+        self.audit = ServiceAuditor("message_bus_trigger")
+        self._cycles = 0
+        self._dispatched_total = 0
+        self._handled_total = 0
+        self._last_candidates = 0
+        self._last_dispatch_at: Optional[str] = None
 
     async def start(self) -> None:
         """Start the polling loop with adaptive interval."""
         self._running = True
+        self._stop_event.clear()
         logger.info(
             f"MessageBusTrigger started (poll_interval={self._poll_interval}s, "
             f"max_workers={self._max_workers})"
         )
+        await self.audit.started({
+            "poll_interval": self._poll_interval,
+            "max_workers": self._max_workers,
+        })
 
         while self._running:
             try:
-                had_messages = await self._poll_cycle()
-                if had_messages:
+                dispatched = await self._poll_cycle()
+                if dispatched:
                     self._current_interval = POLL_MIN_INTERVAL
                 else:
                     self._current_interval = min(
@@ -199,35 +244,161 @@ class MessageBusTrigger:
                     )
             except Exception as e:
                 logger.exception(f"MessageBusTrigger poll cycle error: {e}")
+                await self.audit.error({"stage": "poll_cycle", "error": repr(e)})
 
-            await asyncio.sleep(self._current_interval)
+            # Throttled inside ServiceAuditor (60s), so this is cheap per cycle.
+            await self.audit.heartbeat(self.liveness_snapshot())
+            # Sleep the interval, but wake immediately on stop() — otherwise a
+            # SIGTERM waits out up to POLL_MAX_INTERVAL before the loop notices.
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=self._current_interval
+                )
+            except asyncio.TimeoutError:
+                pass
+
+        await self.audit.stopped(self.liveness_snapshot())
 
     def stop(self) -> None:
-        """Signal the polling loop to stop."""
+        """Signal the polling loop to stop and drop any in-flight dispatches.
+
+        Cancelling here is shutdown, not a policy on run length: the process is
+        going away either way, and leaving the tasks would just leak them past
+        the loop that owns them.
+        """
         self._running = False
+        self._stop_event.set()
+        for agent_id, flight in list(self._in_flight.items()):
+            flight.task.cancel()
+            logger.info(f"MessageBusTrigger: cancelling in-flight turn for {agent_id}")
         logger.info("MessageBusTrigger stopping")
 
-    async def _poll_cycle(self) -> bool:
-        """Run one poll cycle. Returns True if any messages were found."""
-        # Get all agents that are members of any channel (not just registered ones)
+    def liveness_snapshot(self) -> Dict[str, Any]:
+        """Work counters for the audit heartbeat (L2 + L3).
+
+        Read this, not "is the process up", to tell a wedged bus from an idle
+        one: `cycles` advances whenever the loop is alive, `dispatched_total`
+        advances whenever work actually starts, and `candidates` says whether
+        there was anything to do. Frozen `cycles` = the loop is stuck. Advancing
+        `cycles` with a frozen `dispatched_total` and non-zero `candidates` =
+        the loop is fine but nothing can start.
+
+        `running` vs `waiting` is the slot-starvation signal: sustained
+        `running == max_workers` with `waiting > 0` means the worker pool, not
+        the agents, is the bottleneck.
+
+        `longest_running_s` / `longest_running_agent` are DIAGNOSTIC ONLY —
+        they name who is holding a slot so a human can look. Nothing here ever
+        force-stops a turn; a multi-hour run is a legitimate workload
+        (binding rule #14), and the failure mode this guards against is our own
+        loop dying, not an agent taking its time.
+        """
+        now = time.monotonic()
+        running = sum(1 for f in self._in_flight.values() if f.running)
+        longest_agent, longest_s = None, 0
+        for agent_id, flight in self._in_flight.items():
+            if not flight.running:
+                continue
+            elapsed = int(now - flight.started_at)
+            # `is None` first: a turn that started this second has elapsed 0 and
+            # must still be named, or a freshly-wedged slot reports as nobody.
+            if longest_agent is None or elapsed > longest_s:
+                longest_agent, longest_s = agent_id, elapsed
+        return {
+            "cycles": self._cycles,
+            "candidates": self._last_candidates,
+            "dispatched_total": self._dispatched_total,
+            "handled_total": self._handled_total,
+            "running": running,
+            "waiting": len(self._in_flight) - running,
+            "max_workers": self._max_workers,
+            "longest_running_s": longest_s,
+            "longest_running_agent": longest_agent,
+            "last_dispatch_at": self._last_dispatch_at,
+        }
+
+    async def _agents_with_pending(self) -> List[str]:
+        """Agents that have at least one message past their cursor.
+
+        One query replacing "every agent that is a member of any channel" —
+        364 of them on prod, each of which then ran its own
+        ``get_pending_messages`` (plus a poison lookup per row) every few
+        seconds just to conclude it had nothing to do.
+
+        Deliberately a CANDIDATE set: it mirrors ``get_pending_messages``'
+        cursor + not-self-sent predicate but skips the poison and @mention
+        filters, which stay in ``_process_agent`` where the real decision is
+        made. Over-including is free; under-including would drop a message.
+        """
         rows = await self._bus._db.execute(
-            "SELECT DISTINCT agent_id FROM bus_channel_members", ()
+            "SELECT DISTINCT cm.agent_id AS agent_id "
+            "FROM bus_channel_members cm "
+            "JOIN bus_messages m ON m.channel_id = cm.channel_id "
+            "WHERE m.created_at > COALESCE(cm.last_processed_at, '1970-01-01') "
+            "AND m.from_agent != cm.agent_id",
+            (),
         )
-        agent_ids = [r["agent_id"] for r in rows] if rows else []
-        if not agent_ids:
-            return False
+        return [r["agent_id"] for r in rows] if rows else []
 
-        had_messages = False
-        tasks = []
-        for aid in agent_ids:
-            tasks.append(self._process_agent(aid))
+    def _dispatch(self, agent_id: str) -> None:
+        """Spawn a supervised turn for one agent and return immediately."""
+        task = asyncio.create_task(self._run_dispatch(agent_id))
+        self._in_flight[agent_id] = _InFlight(task=task, started_at=time.monotonic())
+        # Paired done-callback: an unawaited task's exception would otherwise
+        # surface only as a GC warning (incident lesson #2).
+        task.add_done_callback(lambda t, a=agent_id: self._on_dispatch_done(a, t))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for r in results:
-            if r is True:
-                had_messages = True
+    async def _run_dispatch(self, agent_id: str) -> None:
+        handled = await self._process_agent(agent_id)
+        if handled:
+            self._handled_total += 1
 
-        return had_messages
+    def _on_dispatch_done(self, agent_id: str, task: asyncio.Task) -> None:
+        self._in_flight.pop(agent_id, None)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.exception(
+                f"MessageBusTrigger: dispatch for {agent_id} died: {exc!r}",
+                exc_info=exc,
+            )
+
+    async def _poll_cycle(self) -> int:
+        """Run one poll cycle. Returns how many turns it dispatched.
+
+        The cycle **does not await the work it starts**. It used to
+        ``asyncio.gather`` every agent and wait for all of them, which meant a
+        single coroutine that never returned — an LLM connection wedged with no
+        timeout, holding one of the ``max_workers`` slots — froze the entire
+        loop. That is exactly what happened on prod 2026-07-27: 33 hours with
+        zero messages processed for anyone, no exception, no restart, while
+        liveness still read "running".
+
+        Now a stuck turn holds its own task and its own slot; the loop keeps
+        cycling, the heartbeat keeps reporting, and `_in_flight` names the
+        agent that is stuck.
+        """
+        candidates = await self._agents_with_pending()
+        self._cycles += 1
+        self._last_candidates = len(candidates)
+        if not candidates:
+            return 0
+
+        dispatched = 0
+        for agent_id in candidates:
+            # Its previous turn is still going; the per-agent lock would make a
+            # second dispatch wait, but not spawning it at all is cheaper and
+            # keeps `_in_flight` meaning one entry per agent.
+            if agent_id in self._in_flight:
+                continue
+            self._dispatch(agent_id)
+            dispatched += 1
+
+        if dispatched:
+            self._dispatched_total += dispatched
+            self._last_dispatch_at = datetime.now(timezone.utc).isoformat()
+        return dispatched
 
     def _should_process_message(
         self, msg: BusMessage, agent_id: str, channel_type: str, channel_owner: str,
@@ -314,6 +485,13 @@ class MessageBusTrigger:
 
         lock = self._agent_locks.setdefault(agent_id, asyncio.Lock())
         async with lock, self._semaphore:
+            # Slot acquired — from here the turn counts as `running` rather
+            # than `waiting` in the heartbeat. Absent when `_process_agent` is
+            # called directly (tests), which is why this is a lookup, not an
+            # assumption.
+            flight = self._in_flight.get(agent_id)
+            if flight is not None:
+                flight.running = True
             try:
                 pending = await self._bus.get_pending_messages(agent_id)
                 if not pending:
@@ -372,12 +550,12 @@ class MessageBusTrigger:
                 return False
 
     async def _get_agent_owner(self, agent_id: str) -> str:
-        """Look up the owner user_id for an agent. Returns "" if unknown."""
+        """Look up the owner user_id for an agent. Returns "" if unknown.
+        Delegates to the shared AgentRepository.resolve_owner seam."""
         try:
+            from xyz_agent_context.repository.agent_repository import AgentRepository
             from xyz_agent_context.utils.db.db_factory import get_db_client
-            db = await get_db_client()
-            row = await db.get_one("agents", {"agent_id": agent_id})
-            return (row or {}).get("created_by", "") or ""
+            return await AgentRepository(await get_db_client()).resolve_owner(agent_id)
         except Exception as e:
             logger.warning(f"_get_agent_owner({agent_id}) failed: {e}")
             return ""
@@ -444,21 +622,25 @@ class MessageBusTrigger:
 
             # Team rooms mirror live "what is this agent doing" into
             # bus_agent_activity so the team-chat UI can show running/phase/
-            # elapsed (the bus path has no WS stream). Only for team channels.
-            activity_db = None
-            on_progress = None
-            if is_team:
-                from xyz_agent_context.utils.db.db_factory import get_db_client
-                from xyz_agent_context.message_bus import _bus_activity
-                activity_db = await get_db_client()
-                await _bus_activity.mark_running(activity_db, agent_id, channel_id)
-                on_progress = self._make_activity_progress(activity_db, agent_id, channel_id)
+            # elapsed/steps (the bus path has no WS stream). Only for team
+            # channels. `turn()` owns the start row, the timer heartbeat and
+            # the idle flip, whichever way the body exits.
+            async with contextlib.AsyncExitStack() as stack:
+                on_progress = None
+                on_event_id = None
+                if is_team:
+                    from xyz_agent_context.utils.db.db_factory import get_db_client
+                    from xyz_agent_context.message_bus import _bus_activity
+                    act = await stack.enter_async_context(
+                        _bus_activity.turn(await get_db_client(), agent_id, channel_id)
+                    )
+                    on_progress = act.on_progress
+                    on_event_id = act.note_event_id
 
-            # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
-            # only, no Owner-Relay boilerplate) for narrative routing — the
-            # execution `prompt` is far noisier. See 2026-06-01 design.
-            try:
-                response_text = await self._invoke_runtime(
+                # Call AgentRuntime. Pass a clean retrieval anchor (peer bodies
+                # only, no Owner-Relay boilerplate) for narrative routing — the
+                # execution `prompt` is far noisier. See 2026-06-01 design.
+                response_text, turn_event_id = await self._invoke_runtime(
                     agent_id=agent_id,
                     sender_agent_id=trigger_message.from_agent,
                     prompt=prompt,
@@ -466,14 +648,14 @@ class MessageBusTrigger:
                     trigger_message_id=trigger_message.message_id,
                     retrieval_anchor=build_bus_anchor(messages),
                     on_progress=on_progress,
+                    on_event_id=on_event_id,
+                    # Team rooms are the one surface whose prompt tells the
+                    # agent its plain text IS the delivered reply (auto-posted
+                    # to the room), so NexusPower monologue joins the collected
+                    # text. The peer-DM/inbox branch keeps the monologue
+                    # private — its prompt makes no such promise.
+                    include_monologue=is_team,
                 )
-            finally:
-                if activity_db is not None:
-                    from xyz_agent_context.message_bus import _bus_activity
-                    try:
-                        await _bus_activity.mark_idle(activity_db, agent_id, channel_id)
-                    except Exception:  # noqa: BLE001 — status write must never break delivery
-                        pass
 
             # On success: advance cursor
             await self._bus.ack_processed(
@@ -509,6 +691,9 @@ class MessageBusTrigger:
                         to_channel=channel_id,
                         content=response_text,
                         mentions=mentions or None,
+                        # Stamp the reply with the turn that produced it, so
+                        # the transcript can open this turn's full event_log.
+                        event_id=turn_event_id,
                     )
                 else:
                     # Write response to inbox
@@ -900,32 +1085,6 @@ class MessageBusTrigger:
 
         return "\n".join(lines)
 
-    def _make_activity_progress(self, db, agent_id: str, channel_id: str):
-        """Build a throttled ``on_progress(kind, tool_name)`` for a team run —
-        mirrors the current phase into ``bus_agent_activity`` on phase change or
-        at most every ~2s (heartbeat), so per-delta calls stay cheap."""
-        from xyz_agent_context.message_bus import _bus_activity
-
-        state = {"phase": None, "tools": 0, "last": 0.0}
-
-        async def on_progress(kind: str, tool_name=None) -> None:
-            if kind == "tool":
-                state["tools"] += 1
-                phase = f"tool:{tool_name}" if tool_name else "tool"
-            elif kind == "thinking":
-                phase = "thinking"
-            elif kind == "response":
-                phase = "replying"
-            else:
-                return
-            now = time.monotonic()
-            if phase != state["phase"] or (now - state["last"]) > 2.0:
-                state["phase"] = phase
-                state["last"] = now
-                await _bus_activity.update_phase(db, agent_id, channel_id, phase, state["tools"])
-
-        return on_progress
-
     async def _invoke_runtime(
         self,
         agent_id: str,
@@ -935,11 +1094,20 @@ class MessageBusTrigger:
         trigger_message_id: str = "",
         retrieval_anchor: str = "",
         on_progress=None,
-    ) -> str:
+        on_event_id=None,
+        include_monologue: bool = False,
+    ) -> tuple[str, Optional[str]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
 
-        Returns the collected agent response text.
+        Returns ``(response_text, event_id)`` — the collected agent response
+        text plus the turn's events-row id (None if the run died before
+        Step 0). The team branch stamps the id onto the reply it posts back
+        into the room, so the transcript can open that turn's event_log.
+
+        `on_event_id`, when provided (team branch only), is forwarded to
+        `collect_run` so the turn's events-row id gets bound onto the
+        activity row for the team UI.
 
         Raises:
             RuntimeError: If AgentRuntime cannot be imported or execution fails.
@@ -960,6 +1128,8 @@ class MessageBusTrigger:
             input_content=prompt,
             working_source=WorkingSource.MESSAGE_BUS,
             on_progress=on_progress,
+            on_event_id=on_event_id,
+            include_monologue=include_monologue,
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
@@ -984,10 +1154,11 @@ class MessageBusTrigger:
             )
             return (
                 f"⚠️ I couldn't process your message right now "
-                f"({collection.error.error_type}). {collection.error.error_message}"
+                f"({collection.error.error_type}). {collection.error.error_message}",
+                collection.event_id,
             )
 
-        return collection.output_text
+        return collection.output_text, collection.event_id
 
     async def _write_to_inbox(
         self, agent_id: str, channel_id: str,

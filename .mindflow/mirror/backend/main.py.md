@@ -1,8 +1,19 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-28
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 无条件 reconcile → 心跳判活清扫（启动 + 周期）
+
+原「backend 启动把所有 state='running' 行翻 failed」在 trigger run 也被
+记录后是误杀器（trigger run 活在别的容器，backend 重启不代表它死了）。
+换成 [[run_recorder]] 的 `sweep_stale_runs`：只翻心跳停跳 ≥3 拍的行，
+启动跑一次 + 每 60s（HEARTBEAT_INTERVAL_S*2）周期跑 —— 任何进程里
+孤儿化的 run 都会在 ~90s+一个周期内落账，不再依赖「恰好 backend 重启」
+这个偶然时机。周期 task 带 done-callback（lesson #2），shutdown 时
+cancel（stale_run_sweep_task）。代价：backend 自己带走的 run 最多晚
+~90s 才翻 failed —— 读侧 run_is_live 已经把它当死的，UI 无感。
 
 ## 2026-07-28 — manyfold sync router + config-change webhook middleware
 
@@ -108,10 +119,6 @@ teardown 时 `cancel()`。云端+broker 才真正起,本地/桌面 no-op(返回 
 ## 2026-06-11 — invite routers unwired
 
 invite_router / admin_invite_router imports and include_router calls removed alongside the route modules' deletion (invite-code mechanism retired).
-
-last_verified: 2026-06-09
-stub: false
----
 
 ## 2026-06-09 — versioned migration runner wired into lifespan
 
@@ -295,3 +302,7 @@ FastAPI/Starlette 的中间件以 LIFO（后进先出）顺序执行，即最后
 ## 2026-07-13 — office-watch 路由
 
 注册了 office 实时预览的两个 router:`office_watch_router`(挂 `/api`,authed:`/office-watch/open`)和 `office_watch_public_router`(挂 `/api/public`,token 鉴权:`/office-watch-proxy/{token}/{port}/{path}`)。见 `backend/routes/office_watch/proxy.py.md`。
+
+## 2026-07-30 — Agent Migration 路由
+
+注册了 `migrate_router`(挂 `/api/migrate`,tags=["Migration"]):`/detect` `/scan` `/apply`,导入其他框架的 agent(Claude Code/Codex/OpenClaw/Hermes)进 NarraNexus。**local/desktop only** —— 三个端点都经 `_require_local_or_raise()` 在 cloud 返回 503(cloud 无用户文件系统)。见 `backend/routes/migrate.py.md`。

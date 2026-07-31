@@ -1070,14 +1070,22 @@ The task was executed but produced no text output.
                 )
                 return
 
-            # Success: clear any prior transient-failure backoff state before the
-            # normal complete/reschedule branching below.
-            if (job.consecutive_failure_count or 0) > 0 or job.cooldown_until is not None:
-                await repo.update_job(job.job_id, {
-                    "consecutive_failure_count": 0,
-                    "cooldown_until": None,
-                    "paused_reason": None,
-                })
+            # Success: clear any prior transient error / backoff state before the
+            # normal complete/reschedule branching below. `last_error` is cleared
+            # on EVERY success — not only when backoff was set — because it can
+            # also be left behind by `recover_all_running_jobs` startup recovery,
+            # which writes `last_error` ("Process restarted, auto-recovered")
+            # WITHOUT touching the failure counter. Otherwise a job that recovered
+            # and has been succeeding every interval keeps surfacing a long-
+            # resolved error in the UI (incident 2026-07-30).
+            has_backoff = (job.consecutive_failure_count or 0) > 0 or job.cooldown_until is not None
+            if job.last_error or has_backoff:
+                reset: dict = {"last_error": None}
+                if has_backoff:
+                    reset["consecutive_failure_count"] = 0
+                    reset["cooldown_until"] = None
+                    reset["paused_reason"] = None
+                await repo.update_job(job.job_id, reset)
 
             # Handle based on job type
             if job.job_type == JobType.ONE_OFF:

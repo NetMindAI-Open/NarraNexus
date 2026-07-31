@@ -157,20 +157,35 @@ async def _handle_reconnect(
             await websocket.close()
         return
 
-    # Visibility check — user must own this run (cloud mode). Local mode
-    # may have requesting_user_id missing; we still enforce match when
-    # the row has a user_id.
+    # Visibility check — the requester must OWN THE AGENT that ran this
+    # run. ``events.user_id`` is NOT an ownership column: it stores the
+    # run's triggering key — the requester itself on chat/manyfold runs,
+    # but the SENDER on team-bus runs (``usr_<uid>``, or a relaying
+    # agent_id on agent→agent turns), and a channel run can degrade to
+    # the agent_id when owner resolution failed at trigger time.
+    # Comparing the requester against it verbatim would Forbid every
+    # observable team run — the exact surface run observation exists
+    # for. So: fast-path on equality (chat-style runs), otherwise
+    # resolve the agent's owner and compare. No provable ownership → no
+    # visibility (event_stream carries the full thinking/tool trace).
+    # Local mode may have requesting_user_id missing → unchanged, allow.
     row_user_id = events_row.get("user_id")
-    if requesting_user_id and row_user_id and requesting_user_id != row_user_id:
-        with suppress(Exception):
-            await websocket.send_json({
-                "type": "error",
-                "error_message": "Run does not belong to this user",
-                "error_type": "Forbidden",
-            })
-        with suppress(Exception):
-            await websocket.close()
-        return
+    if requesting_user_id and requesting_user_id != row_user_id:
+        from xyz_agent_context.repository.agent_repository import AgentRepository
+
+        owner = await AgentRepository(db).resolve_owner(
+            events_row.get("agent_id") or ""
+        )
+        if not owner or owner != requesting_user_id:
+            with suppress(Exception):
+                await websocket.send_json({
+                    "type": "error",
+                    "error_message": "Run does not belong to this user",
+                    "error_type": "Forbidden",
+                })
+            with suppress(Exception):
+                await websocket.close()
+            return
 
     # Extract the user's original input + the canonical timestamp that
     # ChatModule will later use when persisting this turn into
@@ -252,20 +267,21 @@ async def _handle_reconnect(
         return
 
     # Run is still running — try to subscribe to the live broadcaster.
-    # On a different backend process from the one that started the run
-    # the active_runs registry won't contain run_id. In that case all
-    # the user gets is the replay above. They can keep polling /api/
-    # agents/list to see when state transitions to terminal.
+    # When the run lives in a DIFFERENT process (a trigger container, or
+    # another backend instance) the active_runs registry won't contain
+    # run_id — there is no broadcaster to subscribe to, but the recorder
+    # in that process keeps appending event_stream rows, so we follow
+    # the DB instead. Same frames, ~1s freshness.
     bg = websocket.app.state.active_runs.get(run_id)
     if bg is None:
-        # Distinguish "alive on another process" from "dead without
-        # _finalize" using the shared heartbeat-freshness rule (same one
+        # Distinguish "alive in another process" from "dead without
+        # finalize" using the shared heartbeat-freshness rule (same one
         # the agents listing applies). A stale heartbeat means no process
         # anywhere is driving this run — its task died before writing the
         # terminal row (killed mid-run / failed terminal write). Without
-        # this branch the client gets reconnect_warning + close, treats
-        # it as a passive disconnect, and reconnect-loops forever with a
-        # spinner that only a page refresh clears.
+        # this branch the client gets a dead-run close, treats it as a
+        # passive disconnect, and reconnect-loops forever with a spinner
+        # that only a page refresh clears.
         if not run_is_live(events_row):
             logger.warning(
                 f"[reconnect] run_id={run_id} state=running but heartbeat "
@@ -284,16 +300,16 @@ async def _handle_reconnect(
                 await websocket.close()
             return
 
-        logger.warning(
-            f"[reconnect] run_id={run_id} state=running but no in-memory "
-            f"BackgroundRun on this process — replay-only, no live subscription"
+        last_seq = max(
+            (row.get("seq") or 0 for row in stream_rows), default=0,
         )
-        with suppress(Exception):
-            await websocket.send_json({
-                "type": "reconnect_warning",
-                "message": "Run is alive on a different backend instance; "
-                           "live streaming not available from this connection.",
-            })
+        logger.info(
+            f"[reconnect] run_id={run_id} alive in another process — "
+            f"tail-following event_stream from seq {last_seq}"
+        )
+        await _follow_run_from_db(
+            websocket, db=db, run_id=run_id, last_seq=last_seq,
+        )
         with suppress(Exception):
             await websocket.close()
         return
@@ -313,6 +329,128 @@ async def _handle_reconnect(
         logger.info("[reconnect] WS disconnected.")
     finally:
         bg.broadcaster.unsubscribe(ws_session_id)
+
+
+# How often the cross-process observer polls event_stream for new rows.
+# 1s keeps the observed view near-live without meaningful DB load (one
+# indexed SELECT per open observer per second). If lower latency is ever
+# needed, this loop is the seam to swap for a pub/sub transport — the
+# frame contract stays the same.
+_TAIL_FOLLOW_POLL_S = 1.0
+
+# The events-row terminal/heartbeat check runs every Nth poll tick: it
+# exists only to END the follow, so a few seconds of lag is invisible,
+# and skipping it on the other ticks cuts this path's steady-state
+# query load by about a third (2 queries/tick → 1⅓).
+_TAIL_FOLLOW_STATE_CHECK_TICKS = 3
+
+
+async def _follow_run_from_db(
+    websocket: WebSocket,
+    *,
+    db: Any,
+    run_id: str,
+    last_seq: int,
+) -> None:
+    """Cross-process live observation: forward new event_stream rows as
+    ``replay`` frames until the run reaches a terminal state.
+
+    The run is alive in ANOTHER process (trigger container / other
+    backend instance), so there is no in-memory Broadcaster here — but
+    its RunRecorder keeps appending event_stream rows, and those are the
+    same rows the initial replay used. The client cannot tell the two
+    live transports apart except by latency (~1s vs 0).
+
+    Exits when: the events row turns terminal (→ ``run_ended`` frame),
+    the heartbeat dies (→ ``run_ended(failed)``), or the client
+    disconnects. Read-only — never mutates the run (铁律 #14).
+    """
+    # The client never sends application frames on the observe path, so a
+    # pending receive() doubles as the disconnect signal: it resolves
+    # (with a websocket.disconnect message) the moment the peer goes
+    # away, letting the poll loop double as the disconnect wait.
+    disconnect_task = asyncio.create_task(websocket.receive())
+    tick = 0
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                {disconnect_task}, timeout=_TAIL_FOLLOW_POLL_S,
+            )
+            if disconnect_task in done:
+                logger.info(
+                    f"[reconnect] observer of run_id={run_id} left "
+                    f"(tail-follow); run continues."
+                )
+                return
+
+            try:
+                rows = await db.execute(
+                    """
+                    SELECT seq, kind, payload FROM event_stream
+                    WHERE event_id = %s AND seq > %s
+                    ORDER BY seq ASC
+                    """,
+                    (run_id, last_seq),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[reconnect] tail-follow poll failed for {run_id!r}: {e}"
+                )
+                rows = []
+
+            try:
+                for row in rows or []:
+                    last_seq = max(last_seq, row.get("seq") or 0)
+                    await websocket.send_json({
+                        "type": "replay",
+                        "kind": row.get("kind"),
+                        "seq": row.get("seq"),
+                        "payload": row.get("payload"),
+                    })
+            except (WebSocketDisconnect, RuntimeError):
+                logger.info(
+                    f"[reconnect] observer WS of run_id={run_id} closed "
+                    f"mid-send; run continues."
+                )
+                return
+
+            tick += 1
+            if tick % _TAIL_FOLLOW_STATE_CHECK_TICKS:
+                continue
+
+            try:
+                events_row = await db.get_one("events", {"event_id": run_id})
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[reconnect] tail-follow state check failed for "
+                    f"{run_id!r}: {e}"
+                )
+                continue
+            if not events_row:
+                return
+            state = events_row.get("state") or "unknown"
+            if state != "running":
+                with suppress(Exception):
+                    await websocket.send_json({
+                        "type": "run_ended",
+                        "state": state,
+                        "final_output": events_row.get("final_output") or "",
+                        "error_message": events_row.get("error_message"),
+                    })
+                return
+            if not run_is_live(events_row):
+                with suppress(Exception):
+                    await websocket.send_json({
+                        "type": "run_ended",
+                        "state": "failed",
+                        "final_output": events_row.get("final_output") or "",
+                        "error_message": "Run lost (process died mid-run)",
+                    })
+                return
+    finally:
+        disconnect_task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await disconnect_task
 
 
 def _format_dt(value: Any) -> Optional[str]:

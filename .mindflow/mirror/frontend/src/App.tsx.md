@@ -56,10 +56,6 @@ close-X). Entered from the sidebar user avatar ([[Sidebar]]).
 
 Added a one-shot bootstrap useEffect: on app init it calls `takeInboundToken(window.location)` (lib/netmindAuth/tokenInbound) — when the page is opened with `?token=<NetMind loginToken>` (a link from netmind.ai or Arena), it strips the token from the URL immediately and exchanges it for our session via api.netmindLogin, then writes configStore (login + setNetmindToken). `?source=` is stashed in sessionStorage('nx-entry-source') for Phase 2 provisioning. Already-logged-in users are skipped. Also removed the RegisterPage lazy import and the `/register` route — cloud sign-up now links out to NetMind's registration page (see LoginPage). RegisterPage.tsx deleted.
 
-last_verified: 2026-06-02
-stub: false
----
-
 ## 2026-06-02 — cloud skips first-login provider setup
 
 `RootRedirect`'s setup gate is now `needsSetup && mode === 'local'` (was

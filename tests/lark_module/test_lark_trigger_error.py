@@ -112,7 +112,7 @@ async def test_build_and_run_agent_sends_friendly_error_reply(monkeypatch):
 
     # 1) Stub out AgentRuntime so we don't need a real DB / LLM / MCP.
     monkeypatch.setattr(
-        lt_mod, "AgentRuntime",
+        "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
         lambda **_kw: _ErrorRuntime(
             err_type="NoProviderConfiguredError",
             err_msg="quota exhausted",
@@ -158,7 +158,7 @@ async def test_build_and_run_agent_swallows_lark_send_failure(monkeypatch):
     from xyz_agent_context.module.lark_module import lark_trigger as lt_mod
 
     monkeypatch.setattr(
-        lt_mod, "AgentRuntime",
+        "xyz_agent_context.agent_runtime.agent_runtime.AgentRuntime",
         lambda **_kw: _ErrorRuntime(
             err_type="LLMConfigNotConfigured",
             err_msg="'agent' slot missing",

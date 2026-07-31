@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/anthropic_helper.py
-last_verified: 2026-07-21
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — provider-neutral Anthropic input totals
+
+Both structured attempts and streaming completions normalize Messages API
+usage before recording cost. Anthropic exposes uncached input, cache creation,
+and cache reads as separate top-level counters, so the provider-neutral input
+total includes all three. Every JSON repair attempt remains independently
+recorded; only the per-attempt extraction changed.
 
 ## 2026-07-21 — 结构化输出加 JSON 修复重试(Lark bug #2)
 

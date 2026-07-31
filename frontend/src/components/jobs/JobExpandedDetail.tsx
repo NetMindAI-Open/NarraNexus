@@ -18,6 +18,7 @@ import {
   ChevronUp,
   Play,
   Pause,
+  CalendarClock,
 } from 'lucide-react';
 import { Button, Badge, ScrollArea } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/utils';
@@ -43,6 +44,10 @@ interface JobExpandedDetailProps {
   isPausing?: boolean;
   /** 暂停 Job 回调 */
   onPause?: (e: React.MouseEvent, jobId: string) => void;
+  /** Whether this status allows editing the execution time (non-running, non-terminal) */
+  canEdit?: boolean;
+  /** Edit-execution-time callback */
+  onEdit?: (e: React.MouseEvent, job: Job) => void;
 }
 
 /** 点击复制文本，显示短暂的勾号反馈 */
@@ -96,6 +101,8 @@ export function JobExpandedDetail({
   canPause = false,
   isPausing = false,
   onPause,
+  canEdit = false,
+  onEdit,
 }: JobExpandedDetailProps) {
   const { t } = useTranslation();
   const [payloadExpanded, setPayloadExpanded] = useState(false);
@@ -144,16 +151,10 @@ export function JobExpandedDetail({
             <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.type')} </span>
             <span className="text-[var(--accent-primary)]">{job.job_type}</span>
           </div>
-          {triggerConfig?.trigger_type && (
-            <div>
-              <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.trigger')} </span>
-              <span className="text-[var(--accent-secondary)]">{triggerConfig.trigger_type}</span>
-            </div>
-          )}
-          {triggerConfig?.cron_expression && (
+          {triggerConfig?.cron && (
             <div>
               <span className="text-[var(--text-tertiary)]">{t('jobs.expanded.cron')} </span>
-              <span className="text-[var(--text-secondary)]">{triggerConfig.cron_expression as string}</span>
+              <span className="text-[var(--text-secondary)]">{triggerConfig.cron as string}</span>
             </div>
           )}
           {triggerConfig?.interval_seconds && (
@@ -322,8 +323,19 @@ export function JobExpandedDetail({
       )}
 
       {/* 9. Actions */}
-      {(canCancel || canResume || canPause) && (
+      {(canCancel || canResume || canPause || canEdit) && (
         <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center gap-2">
+          {canEdit && onEdit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => onEdit(e, job)}
+              className="text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
+            >
+              <CalendarClock className="w-3 h-3 mr-1.5" />
+              {t('jobs.action.editSchedule')}
+            </Button>
+          )}
           {canPause && onPause && (
             <Button
               variant="ghost"

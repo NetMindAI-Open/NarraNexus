@@ -7,7 +7,7 @@
  *   (one lazy panel per tab), tabs registry.
  */
 
-export { BookmarkStrip } from './BookmarkStrip';
+export { BookmarkStrip, STRIP_WIDTH_PX } from './BookmarkStrip';
 export type { BookmarkStripProps } from './BookmarkStrip';
 
 export { BookmarkDrawer } from './BookmarkDrawer';

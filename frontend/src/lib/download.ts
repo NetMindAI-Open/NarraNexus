@@ -45,29 +45,27 @@ export interface DownloadFileOptions {
  * Download a file from the backend, handling both Tauri (mixed-content /
  * cross-origin) and browser (cross-origin / auth-header) surfaces correctly.
  *
- * Does not return a value — side effects only (save to disk / trigger
- * browser save dialog). Throws on unrecoverable errors; callers should
- * wrap in try/catch if they need to surface a UI error.
+ * @returns the absolute path the file was saved to, on the Tauri surface only.
+ *   The browser surface hands off to the download manager and has no path to
+ *   report, so it returns null — as does Tauri if `isTauri()` flipped between
+ *   the check and the call (a mount race; that button isn't visible then).
+ *   A caller that wants to tell the user WHERE the file went must announce this
+ *   value: the desktop app has no download shelf, so without it a successful
+ *   save looks identical to nothing happening.
+ * @throws on any failure, on BOTH surfaces. This symmetry is the point: the
+ *   Tauri branch used to swallow its error and show a native alert instead,
+ *   which wry does not render — so on the DMG a failed download was silent AND
+ *   the caller's own `.catch()` was dead code, while the same `.catch()` worked
+ *   in the browser. Reporting is the caller's job now (see useConfirm), and it
+ *   is the same job on both surfaces.
  */
-export async function downloadFile(opts: DownloadFileOptions): Promise<void> {
+export async function downloadFile(opts: DownloadFileOptions): Promise<string | null> {
   const { url, filename, authHeaders } = opts;
 
   if (isTauri()) {
-    // Rust path: saves to ~/Downloads, returns the absolute path.
-    let savedPath: string | null;
-    try {
-      savedPath = await downloadFileViaTauri(url, filename, authHeaders);
-    } catch (e) {
-      window.alert(`Download failed: ${String(e)}`);
-      return;
-    }
-    if (savedPath) {
-      window.alert(`Saved to: ${savedPath}`);
-    }
-    // savedPath === null means isTauri() returned false after the initial check
-    // (race condition on mount) — fall through silently; the button won't be
-    // visible in that case anyway.
-    return;
+    // Rust path: saves to ~/Downloads, returns the absolute path. Errors
+    // propagate — see @throws above for why this is not caught here.
+    return await downloadFileViaTauri(url, filename, authHeaders);
   }
 
   // Browser path: fetch with auth headers → Blob → object URL → click.
@@ -86,4 +84,5 @@ export async function downloadFile(opts: DownloadFileOptions): Promise<void> {
   a.click();
   a.remove();
   URL.revokeObjectURL(objUrl);
+  return null; // the download manager owns the file now; no path to report
 }

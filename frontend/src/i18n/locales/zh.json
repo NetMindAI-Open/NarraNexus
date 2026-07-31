@@ -24,9 +24,11 @@
     "cloud": "云端",
     "localMode": "本地模式",
     "cloudMode": "云端模式",
-    "marketplace": "技能市场"
+    "marketplace": "市场"
   },
   "chat": {
+    "bootstrapGreeting": "你好……我刚刚醒来，一切都感觉很新鲜。\n\n我还没有名字，也不太清楚自己是谁——但我知道，是你把我带到了这里。\n\n你愿意告诉我，我应该叫什么吗？我又该怎么称呼你？",
+    "securityReminder": "安全提醒：请勿在此粘贴敏感个人信息——钱包地址、私钥、助记词、密码或账户凭据。",
     "conversation": "对话",
     "innerThoughts": "内心活动",
     "interaction": "交互",
@@ -85,6 +87,7 @@
       "toolLabel": "[ 工具 ]",
       "outputLabel": "[ 输出 ]",
       "reply": "回复",
+      "plan": "计划",
       "nativeOutput": "原生输出",
       "helperFallback": "↻ helper_llm 兜底",
       "helperFallbackTip": "智能体没有显式发送回复；这条消息由兜底 LLM 根据其推理生成。",
@@ -113,9 +116,9 @@
       "memberCount_other": "{{count}} 名成员",
       "teamSettings": "团队设置",
       "empty": "还没有消息。",
-      "emptyHint": "@提及一位队友开始对话——之后他们会彼此交接。",
+      "emptyHint": "发条消息就能开始——默认由团队负责人接手，也可以 @ 某位队友点名。",
       "noAgents": "这个团队还没有智能体。",
-      "placeholder": "向团队发消息 — @提及以指定某人…",
+      "placeholder": "向团队发消息 — @ 可点名某位队友…",
       "send": "发送（回车）",
       "attach": "添加附件",
       "uploading": "上传中…",
@@ -131,12 +134,49 @@
       "typing": "{{name}} 正在输入",
       "youTitle": "你 · {{name}}",
       "activity": {
-        "running": "运行中",
+        "starting": "启动中",
+        "running": "工作中",
         "thinking": "思考中",
         "replying": "回复中",
         "tool": "调用 {{name}}",
-        "queued": "排队中"
-      }
+        "queued": "等待开始",
+        "stalled": "无信号",
+        "idle": "空闲",
+        "runningHint": "正在处理你的消息。长任务可能持续数分钟到数小时，期间下方的步骤会持续更新。",
+        "queuedHint": "消息已送达，正在等待空闲的执行槽位。同时点名了多位队友、或有其它长任务在跑时会出现排队。",
+        "stalledHint": "已经有一段时间没有收到这位队友的进度信号。它可能仍在运行（模型可能长时间静默），也可能是后台任务出了问题。若长时间不恢复，请检查服务状态。",
+        "idleHint": "当前没有待办。",
+        "silentFor": "已静默 {{duration}}",
+        "waitingFor": "已等待 {{duration}}",
+        "finishedAgo": "{{duration}} 前完成",
+        "startedAt": "开始于 {{time}}",
+        "stepsDropped": "更早的 {{n}} 个步骤未显示",
+        "noSteps": "暂无步骤记录。"
+      },
+      "guide": {
+        "title": "这个群怎么用",
+        "plainTitle": "直接说",
+        "plain": "直接发消息（不 @ 任何人）——由团队负责人接手。",
+        "plainWithLead": "直接发消息（不 @ 任何人）——由 {{name}} 接手。",
+        "mentionTitle": "@指定成员",
+        "mention": "@ 某位队友，点名让 TA 处理。",
+        "broadcastTitle": "@all 全员广播",
+        "broadcast": "@all 会通知全体——每位成员都会完整跑一轮，请谨慎使用。",
+        "relay": "队友之间可以互相 @ 接力；在你不发言的情况下，最多接力 4 次后自动停止。"
+      },
+      "noProcess": "该轮次没有过程记录",
+      "detailLoadFailed": "过程记录加载失败，请重试。",
+      "roster": {
+        "title": "成员",
+        "lastRun": "上次运行 {{duration}} · {{ago}}前",
+        "lastRunAgoOnly": "{{ago}} 前完成",
+        "neverRan": "还没运行过",
+        "loading": "过程加载中…",
+        "workingCount": "{{count}} 个在忙",
+        "process": "过程"
+      },
+      "emptyHintWithLead": "发条消息就能开始——默认由 {{name}} 接手，也可以 @ 其他队友点名。",
+      "leadTitle": "{{name}} · 未 @ 任何人时由 TA 接手"
     },
     "execution": {
       "showSteps": "显示执行步骤",
@@ -146,7 +186,15 @@
       "statusCompleted": "已完成",
       "statusRunning": "运行中",
       "statusFailed": "失败",
-      "statusPending": "待处理"
+      "statusPending": "待处理",
+      "startingUp": "正在启动…",
+      "initializing": "正在初始化…",
+      "loadingContext": "正在加载上下文…",
+      "loadingResources": "正在加载资源…",
+      "preparingWorkspace": "正在准备工作区…",
+      "buildingContext": "正在构建上下文…",
+      "thinking": "正在思考…",
+      "acting": "正在处理…"
     },
     "inner": {
       "viewLoop": "查看这轮做了什么",
@@ -195,7 +243,15 @@
       "downloadTitle": "下载 {{name}}"
     },
     "dateToday": "今天",
-    "dateYesterday": "昨天"
+    "dateYesterday": "昨天",
+    "segment": {
+      "details": "推理与工具"
+    },
+    "process": {
+      "plan": "计划",
+      "title": "智能体 · 过程",
+      "ops": "次操作"
+    }
   },
   "awareness": {
     "common": {
@@ -687,7 +743,8 @@
       "create": "创建",
       "createAgentOrTeam": "创建智能体或团队",
       "createAgent": "创建智能体",
-      "createTeam": "创建团队"
+      "createTeam": "创建团队",
+      "importAgent": "创建 Agent(从其他来源导入)"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — 群聊",
@@ -733,7 +790,50 @@
     },
     "resizableDivider": {
       "ariaLabel": "调整面板大小",
-      "title": "拖动以调整对话／制品大小"
+      "title": "拖动以调整对话／制品大小",
+      "drawerAriaLabel": "调整面板宽度",
+      "drawerTitle": "拖动以调整面板宽度"
+    },
+    "importAgent": {
+      "title": "导入 Agent",
+      "previewTitle": "导入前确认",
+      "doneTitle": "导入完成",
+      "detecting": "正在扫描本机…",
+      "noneFound": "在标准位置未找到其他框架的 Agent。可在下方输入路径扫描指定文件夹。",
+      "manualPathLabel": "或扫描指定文件夹",
+      "scan": "扫描",
+      "unnamed": "未命名 Agent",
+      "skills": "技能",
+      "memories": "记忆",
+      "mcpServers": "MCP 服务",
+      "willCopy": "将复制",
+      "willMatch": "来自市场",
+      "deferred": "暂未导入",
+      "secretWarning": "部分 MCP 服务携带明文凭证,导入前请确认。",
+      "narrative": "叙事",
+      "notes": "说明",
+      "credentialNote": "以下凭证未导入(请在设置中重新填写):{{keys}}",
+      "unmappedNote": "有 {{count}} 个文件被识别但未映射。",
+      "confirmImport": "导入",
+      "openAgent": "打开 Agent",
+      "awareness": "认知(Awareness)",
+      "skillsCopied": "已复制技能",
+      "skillsInstalled": "已安装技能",
+      "mcpAdded": "已添加 MCP 服务",
+      "doneMsg": "Agent 已创建并填充完成。",
+      "skillsUnmatchedNote": "无本地来源且市场无匹配的技能:{{names}}",
+      "stdioSkippedNote": "已捕获但暂未接入的本地(stdio)MCP 服务:{{names}}",
+      "sourceTitle": "选择来源",
+      "frameworkHint": "在本机检测到以下框架的 agent。选择一个,或直接扫描某个文件夹。",
+      "sourceHint": "选择要导入的 {{framework}} 来源。",
+      "countProjects": "{{count}} 个 project",
+      "countSources": "{{count}} 个来源",
+      "defaultSkills": "默认技能",
+      "sessionsHint": "{{count}} 个会话将各自成为一条 Narrative(导入时总结),其对话轮作为记忆保留。",
+      "narrativesCreated": "叙事",
+      "turnsRetained": "记忆轮次",
+      "untitledSession": "未命名会话",
+      "turnCount": "{{count}} 轮"
     }
   },
   "settings": {
@@ -826,7 +926,16 @@
       "netAvailable": "你的 NetMind.AI Power 账户已接入但未启用——当前由你自己的服务商驱动。可在“全局默认”一节切换。",
       "linkNow": "立即接入",
       "linkFailed": "接入失败：",
-      "freeTierCreditLeft": "剩余 ${{remaining}}"
+      "freeTierCreditLeft": "剩余 ${{remaining}}",
+      "returnSubscribeSuccess": "已收到付款 —— 正在为你的账户生效。",
+      "returnTopupSuccess": "充值已收到 —— 正在更新余额。",
+      "returnCancelled": "支付已取消 —— 未向你收取任何费用。",
+      "cancelConfirmTitle": "关闭自动续费？",
+      "cancelConfirmAction": "关闭自动续费",
+      "cancelConfirmKeep": "保留订阅",
+      "reactivateConfirmTitle": "恢复自动续费？",
+      "reactivateConfirmAction": "恢复",
+      "reactivateConfirmDismiss": "暂不"
     },
     "modal": {
       "title": "设置",
@@ -852,7 +961,37 @@
       "lockedUseDesc": "阻止电脑进入休眠，让后台自动化持续运行。仅在 NarraNexus 打开期间生效。"
     },
     "provider": {
+      "oneKeyTitle": "一把密钥即可开始",
+      "oneKeyDescription": "选择服务商并粘贴 API 密钥，系统会自动配置 Agent、模型和端点。",
+      "officialAnthropic": "Anthropic（官方）",
+      "officialOpenai": "OpenAI（官方）",
+      "officialAnthropicDesc": "Anthropic 官方 API 密钥（sk-ant-...），Agent 和 Helper 都使用 Claude。",
+      "officialOpenaiDesc": "OpenAI 官方 API 密钥，Agent 使用 Codex CLI（gpt-5.5）。",
+      "netmindDesc": "一把密钥同时覆盖 Anthropic 和 OpenAI 端点。",
+      "proxyDesc": "代理官方 Claude 和 OpenAI API。",
+      "getProviderKey": "获取 {{provider}} API 密钥",
+      "looksLikeKey": "看起来像 {{provider}} 密钥，要切换吗？",
+      "replaceKeyTitle": "替换现有密钥？",
+      "replaceKeyMessage": "你已经配置了 {{provider}} 密钥（{{masked}}）。要替换为新密钥吗？Agent 和 Helper 会立即切换到新密钥。",
+      "replaceKey": "替换密钥",
+      "keepCurrentKey": "保留当前密钥",
+      "setupFailed": "设置失败",
+      "settingUp": "设置中...",
+      "startUsing": "开始使用 NarraNexus",
+      "allSet": "设置完成",
+      "agentSummary": "Agent：{{model}}",
+      "helperSummary": "Helper：{{model}}",
+      "unverifiedKey": "密钥已保存，但无法验证（{{reason}}）。如果首次对话失败，请再次检查密钥。",
       "oneKeySaved": "Key 已保存",
+      "claudeLoginTitle": "Claude Code 登录",
+      "codexLoginTitle": "Codex CLI 登录",
+      "codexOauthDesc": "通过 Codex CLI 使用 ChatGPT 账号登录，无需 API 密钥。用量由你的 ChatGPT Plus 或 Pro 订阅覆盖。",
+      "codexTerminalHint": "在终端运行 \"codex login\" 或 \"codex logout\"，然后刷新此页面。",
+      "codexInstallHint": "请先安装 Codex CLI（在 Agent 框架中选择 Codex CLI 时会自动安装），然后在终端运行 \"codex login\"。",
+      "codexAddedAsProvider": "已添加为 NarraNexus 服务商，可在“模型默认值”中分配。",
+      "codexLoginToAdd": "请先在上方登录，再将 Codex CLI 添加为服务商。",
+      "endpointLabel": "端点",
+      "netmindAccountLabel": "NetMind 账户",
       "oneKeyRegisterOnly": "云端版本将继续使用你的 NetMind 账户运行——这把 key 未在此激活。想用自己的 key 运行模型，请使用本地桌面版。",
       "presetNetmindDesc": "一个密钥同时覆盖 Anthropic 和 OpenAI 端点",
       "presetProxyDesc": "代理官方 Claude 和 OpenAI API",
@@ -1183,6 +1322,8 @@
   "cost": {
     "popover": {
       "triggerTitle": "Token 用量——点击查看详情",
+      "modelUsage": "模型用量",
+      "helperUsage": "Helper 模型用量",
       "inOut": "输入 {{in}} / 输出 {{out}}",
       "byModel": "按模型",
       "daily": "每日",
@@ -1248,6 +1389,34 @@
       "seen": "见于 {{date}}"
     }
   },
+  "onboarding": {
+    "checklist": {
+      "gettingStarted": "开始使用",
+      "dismissAria": "关闭新手引导清单",
+      "providerLabel": "配置 LLM 服务商",
+      "providerHint": "可一键使用 NetMind Power，也可以添加你自己的 API 密钥。",
+      "openSettings": "打开设置",
+      "agentLabel": "创建你的第一个 Agent",
+      "agentHint": "从空白 Agent 开始，通过聊天逐步塑造它。",
+      "creating": "创建中…",
+      "createAgent": "创建 Agent",
+      "templateLabel": "或从模板开始",
+      "templateHint": "在模板市场浏览可直接使用的 Agent 团队。",
+      "browseTemplates": "浏览模板",
+      "bookmarksLabel": "认识侧边书签栏",
+      "bookmarksHint": "任务、收件箱和 Agent 资料都在右侧边缘的书签中；有变化时书签会亮起。"
+    },
+    "migrationGuide": {
+      "title": "导入已有的 agent",
+      "body": "在本机检测到 {{count}} 个其他工具的 agent。导入到 NarraNexus？",
+      "import": "导入",
+      "later": "以后再说"
+    },
+    "migrationCoachmark": {
+      "text": "想导入的话，点“+” → {{action}}。",
+      "gotIt": "知道了"
+    }
+  },
   "pages": {
     "login": {
       "changeMode": "切换模式",
@@ -1308,6 +1477,9 @@
       "connectionFailed": "连接失败，请重试。"
     },
     "setup": {
+      "oneKeyLabel": "设置 · 一键开始",
+      "welcome": "欢迎使用 NarraNexus",
+      "advancedSetup": "高级设置 — OAuth、自定义端点、各槽位模型",
       "sectionLabel": "设置 · 配置 LLM 服务商",
       "title": "配置 LLM 服务商",
       "subtitle": "设置你的 API 密钥，让 NarraNexus 能够连接语言模型。",
@@ -1318,6 +1490,15 @@
     "settings": {
       "title": "设置",
       "headerSections": "服务商 · 捆绑包 · 制品 · 智能体",
+      "nav": {
+        "account": "账户与订阅",
+        "providers": "LLM 服务商",
+        "modelDefaults": "模型默认值",
+        "bundle": "捆绑包",
+        "artifacts": "制品",
+        "manageAgents": "管理 Agent",
+        "updates": "应用更新"
+      },
       "providers": {
         "label": "LLM 服务商"
       },
@@ -1337,10 +1518,55 @@
         "openButton": "打开批量管理器…"
       },
       "modelDefaults": {
+        "label": "模型默认值",
+        "hint": "所有 Agent 默认继承的框架和模型。每个 Agent 的单独配置可在对话页面中修改。",
+        "thinking": "思考",
+        "autoDefault": "自动（默认）",
+        "on": "开启",
+        "off": "关闭",
+        "reasoningEffort": "推理强度",
+        "low": "低",
+        "medium": "中",
+        "high": "高",
+        "max": "最高",
+        "panelTitle": "Agent 模型与框架",
+        "loading": "加载中…",
+        "agentOnlyDescription": "这些设置仅应用于 {{agentId}}。保留继承默认设置时，将沿用全局配置（设置 › 模型默认值）。修改会在 Agent 下次运行时生效。",
+        "inheritingDefault": "继承默认设置",
+        "customForAgent": "此 Agent 的自定义设置",
+        "agentMain": "Agent（主对话）",
+        "framework": "框架",
+        "provider": "服务商",
+        "selectProvider": "选择服务商…",
+        "model": "模型",
+        "selectModel": "选择模型…",
+        "resetSlot": "恢复为全局默认设置",
+        "helperTitle": "Helper LLM（后台任务）",
+        "helperRecommendation": "推荐：{{model}} —— 适合摘要、去重和记忆的小型快速模型。这里也支持 OAuth（CLI 登录）服务商，因此同一个订阅可以覆盖两个模型槽位。",
+        "manageProviders": "管理服务商 →",
+        "close": "关闭",
+        "save": "保存",
+        "saving": "保存中…",
+        "saveDefaults": "保存默认设置",
+        "saved": "已保存",
+        "defaultsDescription": "所有 Agent 默认继承的框架和模型。如需为某个 Agent 单独指定模型，请在该 Agent 的对话页面中修改。",
+        "noProvidersBefore": "尚未添加服务商，请先前往",
+        "noProvidersAfter": "添加服务商，然后在这里设置默认模型。",
+        "providersSection": "LLM 服务商",
+        "authReady": "认证可用",
+        "authMissing": "未认证",
+        "verifyingCodex": "正在验证 Codex CLI…",
+        "codexUnavailable": "Codex 程序不可用：{{reason}}",
+        "loadFailed": "加载配置失败",
+        "frameworkSwitchFailed": "切换框架失败",
+        "saveFailed": "保存失败",
+        "resetFailed": "恢复默认设置失败",
+        "pickAgentModel": "请为 Agent 模型槽位选择服务商和模型。",
+        "pickHelperModel": "请为 Helper 模型槽位选择服务商和模型。",
         "cloudNetmindOnlyNote": "当前云端版本使用你的 NetMind 账户运行——这里不能使用你自己 API key 的模型。",
         "cloudNetmindOnlyLink": "想体验请下载本地桌面版 →",
-        "cloudFrameworkLocked": "切换智能体框架仅本地桌面版可用。",
-        "cloudFrameworkLockedTitle": "仅本地桌面版可用"
+        "cloudFrameworkLocked": "该框架通过共享的 CLI 登录认证，因此云端仅管理员可用。Claude Code 与 NexusPower-beta 在云端均可正常使用，其余框架请使用本地桌面版。",
+        "cloudFrameworkLockedTitle": "云端为管理员专用"
       },
       "updates": {
         "label": "应用更新",
@@ -1908,7 +2134,9 @@
       "resume": "恢复",
       "resuming": "正在恢复…",
       "cancelJob": "取消任务",
-      "cancelling": "正在取消…"
+      "cancelling": "正在取消…",
+      "editSchedule": "改时间",
+      "savingSchedule": "保存中..."
     },
     "template": {
       "selectTemplate": "选择模板",
@@ -1937,6 +2165,26 @@
         "paused": "{{count}} 个已暂停",
         "failed": "{{count}} 个已失败"
       }
+    },
+    "editSchedule": {
+      "title": "修改执行时间",
+      "hint": "调整该任务的执行时间，修改在下次运行时生效。",
+      "runAt": "执行时间",
+      "cron": "Cron 表达式",
+      "cronHint": "例如 0 8 * * * 表示每天 08:00 执行",
+      "intervalSeconds": "间隔（秒）",
+      "timezone": "时区",
+      "save": "保存",
+      "cancel": "取消",
+      "invalidRunAt": "请选择有效的日期和时间",
+      "invalidCron": "请输入有效的 Cron 表达式",
+      "invalidInterval": "请输入大于 0 的间隔",
+      "pastTimeError": "所选时间已过去",
+      "failedTitle": "修改失败",
+      "failedMessage": "无法更新执行时间，请重试。",
+      "modeLabel": "触发方式",
+      "modeInterval": "间隔",
+      "modeCron": "Cron 表达式"
     }
   },
   "artifacts": {
@@ -2012,6 +2260,9 @@
       "zoomInAria": "放大",
       "close": "关闭（Esc）",
       "closeAria": "关闭放大"
+    },
+    "url": {
+      "toggleFailed": "切换模式失败：{{error}}"
     }
   },
   "skills": {
@@ -2021,7 +2272,7 @@
       "github": "GitHub",
       "zip": "Zip",
       "showDisabled": "显示已禁用",
-      "marketplace": "技能市场"
+      "marketplace": "市场"
     },
     "error": {
       "title": "错误",
@@ -2119,10 +2370,10 @@
       }
     },
     "marketplace": {
-      "title": "技能市场",
+      "title": "市场",
       "searchPlaceholder": "搜索技能…",
       "empty": "没有找到技能",
-      "unavailable": "技能市场暂时不可用，请检查网络后重试。",
+      "unavailable": "市场暂时不可用，请检查网络后重试。",
       "install": "安装",
       "installed": "已安装",
       "updateAvailable": "可更新",
@@ -2185,6 +2436,15 @@
     "agentCount_one": "{{count}} 个智能体"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "cancel": "取消",
+    "back": "返回",
+    "betaTooltip": "NarraNexus 目前处于 Beta 测试阶段，功能可能调整，偶尔可能出现问题——欢迎反馈帮助我们改进。",
+    "ok": "好",
+    "noticeTitle": "稍等一下",
+    "actionFailedTitle": "没成功",
+    "savedTo": "已保存到 {{path}}",
+    "downloadFailed": "下载失败：{{error}}",
+    "doneTitle": "已完成"
   }
 }

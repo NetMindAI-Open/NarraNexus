@@ -53,6 +53,10 @@ class MessageType(str, Enum):
     AGENT_THINKING = "agent_thinking"
     TOOL_CALL = "tool_call"
     ERROR = "error"
+    # NexusPower-only surfaces (other frameworks never emit these, so
+    # existing consumers are untouched):
+    AGENT_REPLY_DELTA = "agent_reply_delta"  # the reply itself, streaming
+    AGENT_PLAN = "agent_plan"                # the agent's live plan
 
 
 class ProgressStatus(str, Enum):
@@ -184,9 +188,57 @@ class AgentThinking(BaseRuntimeMessage):
 
     Attributes:
         thinking_content: The thinking/reasoning text
+        monologue: The subset of ``thinking_content`` that is NexusPower
+            monologue — the framework's assistant plain text, displayed
+            as thinking under the monologue/expression contract. Empty
+            for provider chain-of-thought and for every non-NexusPower
+            driver. Consumers that relay "what the agent said" (e.g.
+            ``collect_run.output_text``) read this field; the WS path
+            ignores it.
     """
     message_type: Literal[MessageType.AGENT_THINKING] = MessageType.AGENT_THINKING
     thinking_content: str
+    monologue: str = ""
+
+
+class AgentReplyDelta(BaseRuntimeMessage):
+    """
+    A chunk of the agent's user-facing reply, streamed as it is written.
+
+    NexusPower-only. Under the monologue/expression contract the agent's
+    plain text is private thinking; the reply exists only as the argument
+    of an expression tool. NexusPower streams that argument field as the
+    model types it, so the user reads the answer live instead of waiting
+    for the completed tool call. Frontends append deltas of the same
+    ``call_id`` into one growing reply bubble; the eventual tool_call
+    event carries the identical final text (idempotent by call_id).
+
+    Attributes:
+        delta: text chunk to append
+        call_id: the expression tool call this reply belongs to
+        tool_name: which expression tool is speaking
+    """
+    message_type: Literal[MessageType.AGENT_REPLY_DELTA] = MessageType.AGENT_REPLY_DELTA
+    delta: str
+    call_id: str
+    tool_name: str
+
+
+class AgentPlan(BaseRuntimeMessage):
+    """
+    The agent's current plan (full snapshot, replace-on-write).
+
+    NexusPower-only. Steps carry ``step``/``status`` and the whole list
+    is replaced on every update (no incremental patch protocol — the
+    simplest semantics models handle reliably).
+
+    Attributes:
+        steps: ordered steps, each {"step": str, "status": str}
+        note: optional one-line rationale for the update
+    """
+    message_type: Literal[MessageType.AGENT_PLAN] = MessageType.AGENT_PLAN
+    steps: List[Dict[str, Any]] = Field(default_factory=list)
+    note: str = ""
 
 
 class AgentToolCall(BaseRuntimeMessage):

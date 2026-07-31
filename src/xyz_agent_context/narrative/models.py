@@ -30,13 +30,31 @@ from xyz_agent_context.schema.module_schema import ModuleInstance
 
 class TriggerType(Enum):
     """
-    Trigger type
+    Trigger type of an Event — WHAT kind of surface started this run.
+
+    Since 2026-07-31 the members mirror ``schema.hook_schema.WorkingSource``
+    values 1:1 (step 0 maps ``ctx.working_source`` straight through), so
+    ``events.trigger`` is an honest per-source label instead of "everything
+    is chat". Read-sides rely on it: the sidebar preview excludes
+    MESSAGE_BUS, the chat panel's active-run auto-attach accepts only
+    CHAT/MANYFOLD, dashboards group by it.
     """
     CHAT = "chat"   # Chat trigger
     TASK = "task"   # Task trigger
     API = "api"     # API trigger
     TOOL = "tool"   # Agent proactively invokes a tool trigger
     MESSAGE_BUS = "message_bus"  # Team group-chat (message bus) reply
+    JOB = "job"     # Scheduled job (JobTrigger)
+    A2A = "a2a"     # Agent-to-Agent call
+    CALLBACK = "callback"  # Dependency-chain callback after Job completion
+    SKILL_STUDY = "skill_study"  # Skill study run
+    LARK = "lark"   # Lark/Feishu message
+    SLACK = "slack"  # Slack message
+    TELEGRAM = "telegram"  # Telegram message
+    WECHAT = "wechat"  # WeChat (iLink) message
+    NARRAMESSENGER = "narramessenger"  # NarraMessenger (Matrix) message
+    DISCORD = "discord"  # Discord message
+    MANYFOLD = "manyfold"  # Manyfold platform via the OpenAI-compat endpoint
     OTHER = "other"
 
 
@@ -259,8 +277,15 @@ class NarrativeSearchResult(BaseModel):
     Used to return retrieved Narratives with their relevance scores
     """
     narrative_id: str  # Narrative ID
-    similarity_score: float  # Similarity score (0-1)
+    similarity_score: float  # Squashed score s/(s+1), for display / LLM prompt
     rank: int  # Rank (1 = most relevant)
+    # Un-squashed BM25 score. The high-confidence gate reads THIS: s/(s+1) is
+    # monotonic but compresses the spread between candidates, which is the only
+    # comparable signal we have (IDF is computed per candidate set, so absolute
+    # values carry no cross-agent meaning). Participant narratives, which enter
+    # the pool with a synthetic neutral similarity and never had a BM25 score,
+    # keep 0.0 here so they cannot trip the gate.
+    raw_score: float = 0.0
 
 
 class NarrativeSelectionResult(BaseModel):

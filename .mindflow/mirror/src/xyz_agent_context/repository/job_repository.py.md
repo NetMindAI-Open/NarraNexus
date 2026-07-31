@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/repository/job_repository.py
-last_verified: 2026-07-13
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — update_job_fields trigger_config 序列化对齐 mode='json'
+
+`update_job_fields` 的 `trigger_config` 分支原来用 `json.dumps(value.model_dump())`,
+对含 `run_at`(datetime)的 TriggerConfig 会抛 "not JSON serializable"——一次性任务改
+执行时间时必然触发。改为 `model_dump(mode='json')`(dict 分支加 `default=str`),与
+`create_job` / `update_job`(`_entity_to_row`、line 443)本来就用的写法一致。这是潜在
+bug 的根因修复,不只是绕过 reschedule 场景。
 
 ## 2026-07-13 — 恢复字段进白名单 + 未调度僵尸查询
 

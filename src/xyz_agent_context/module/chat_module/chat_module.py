@@ -264,6 +264,15 @@ class ChatModule(XYZBaseModule):
             type="sse"
         )
 
+    async def get_expressive_tools(self) -> list[str]:
+        """The owner-chat delivery tool. ChatModule is priority 1, so the
+        (priority, module_class)-sorted collection puts this first and it
+        becomes the turn's DEFAULT reply tool (the one the framework's
+        constitution names as its example). Derived from get_mcp_config's
+        server_name — a rename must not silently mute the agent."""
+        config = await self.get_mcp_config()
+        return [f"mcp__{config.server_name}__send_message_to_user_directly"]
+
     def create_mcp_server(self) -> Optional[Any]:
         """
         Create MCP Server
@@ -1151,9 +1160,20 @@ class ChatModule(XYZBaseModule):
                 params.agent_loop_response, working_source
             )
         )
+        # Interrupt continuity (2026-07-30): a user-stopped turn persists
+        # its partial work; the placeholder must say "cut short by the
+        # user", never "chose not to answer" — the next turn's model reads
+        # this row and the two mean opposite things.
+        turn_interrupted = bool(getattr(params.io_data, "interrupted", False))
         if not assistant_content:
-            assistant_content = "(Agent decided no response needed)"
+            assistant_content = (
+                "(Interrupted by user)"
+                if turn_interrupted
+                else "(Agent decided no response needed)"
+            )
         is_no_response = assistant_content == "(Agent decided no response needed)"
+        if turn_interrupted:
+            assistant_meta["interrupted"] = True
 
         # NOTE (2026-05-12): the previous "use io_data.final_output as
         # reply" fallback was removed — it violated the thinking-vs-

@@ -78,6 +78,26 @@ def test_bad_model_id_becomes_fatal_config_actionable():
     assert msg.action_reason == "model_not_found"
 
 
+def test_rejected_credential_becomes_fatal_config_actionable():
+    """2026-07-29 report: a BYOK NetMind key answered `403 Invalid api token`.
+    That matched neither the auth path (which keys on 401 / "api key") nor any
+    self-serviceable reason, so the turn stayed "recoverable" and the helper
+    fallback wrote a reply for work that never ran. It must be fatal, and the
+    guidance must point at the KEY (re-paste / rotate), not at a re-login."""
+    msg = _process(_error_event(
+        'Claude API error: invalid_request\n\nProvider response:\n'
+        'API Error: 403 {"error":{"message":"Invalid api token"}}',
+        "invalid_request",
+    ))
+    assert msg.error_type == SELF_SERVICEABLE_ERROR_TYPE
+    assert msg.severity == "fatal"
+    assert msg.action_reason == "invalid_credentials"
+    lowered = msg.error_message.lower()
+    assert "settings" in lowered and "provider" in lowered
+    # Must NOT mis-advise a CLI re-login — this user holds an API key.
+    assert "setup-token" not in lowered
+
+
 def test_transient_error_stays_recoverable():
     """A rate-limit blip is neither auth nor self-serviceable — stays
     recoverable so the loop keeps assembling its reply."""

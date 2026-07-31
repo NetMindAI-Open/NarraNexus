@@ -44,6 +44,27 @@ class AgentRepository(BaseRepository[Agent]):
         logger.debug(f"    → AgentRepository.get_agent({agent_id})")
         return await self.find_one({"agent_id": agent_id})
 
+    async def resolve_owner(self, agent_id: str) -> str:
+        """The agent's owner (``agents.created_by``); empty string when
+        the agent is unknown or the lookup fails.
+
+        The ONE answer to "who owns this agent". Visibility checks (the
+        run observe endpoint), channel triggers and the OpenAI-compat
+        route all resolve through here — the pattern used to live as
+        three private copies, which is exactly how ownership semantics
+        drift apart. NOTE this is deliberately NOT ``events.user_id``:
+        that column stores the run's TRIGGERING key (a team run stores
+        the sender, ``usr_<uid>`` or a relaying agent_id), not ownership.
+        """
+        if not agent_id:
+            return ""
+        try:
+            row = await self._db.get_one(self.table_name, {"agent_id": agent_id})
+            return (row or {}).get("created_by", "") or ""
+        except Exception as e:  # noqa: BLE001 — resolution failure = no owner
+            logger.warning(f"AgentRepository.resolve_owner({agent_id}) failed: {e}")
+            return ""
+
     async def add_agent(
         self,
         agent_id: str,

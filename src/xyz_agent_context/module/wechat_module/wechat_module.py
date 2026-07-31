@@ -112,6 +112,7 @@ class WeChatModule(ChannelModuleBase):
         "wechat_unbind",
     )
     setup_tool_names = frozenset()
+    reply_tool_names = ("wechat_send",)
 
     @staticmethod
     def get_config() -> ModuleConfig:

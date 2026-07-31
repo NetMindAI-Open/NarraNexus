@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/dashboard/routes.py
-last_verified: 2026-07-24
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -19,6 +19,7 @@ v1 已推倒重写（归档在 `.mindflow/state/archive/2026-04-13-dashboard-v1/
 - `POST /api/dashboard/jobs/{id}/retry` — failed/blocked/cancelled → pending
 - `POST /api/dashboard/jobs/{id}/pause` — active/pending → paused
 - `POST /api/dashboard/jobs/{id}/resume` — paused → pending
+- `PUT  /api/dashboard/jobs/{id}/schedule` — 改执行时间（trigger_config）；委托 `job_recovery.reschedule_job`，重算 next_run，status 不变；非运行且非终态可改
 
 ## 上下游
 - **上游**：前端 `lib/api.ts` 的 7 个方法一一对应

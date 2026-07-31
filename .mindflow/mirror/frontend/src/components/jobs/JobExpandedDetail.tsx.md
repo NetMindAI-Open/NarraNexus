@@ -1,7 +1,15 @@
 ---
 code_file: frontend/src/components/jobs/JobExpandedDetail.tsx
-last_verified: 2026-04-21
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — 「编辑时间」按钮 + cron 显示死代码修复
+
+Actions 区新增「编辑时间」按钮（`canEdit` / `onEdit` props；非运行非终态可见），
+点击把 job 上抛给 `JobsPanel` 打开 `JobScheduleEditDialog`。同时修了 configuration
+区的 cron 显示：原来读 `trigger_config.cron_expression` 和 `trigger_type`，而后端
+`GET /api/jobs` 透传的是 `cron`（无 `trigger_type`），所以那两段一直是死代码——
+改为读 `trigger_config.cron`，删掉 `trigger_type` 分支。
 
 # JobExpandedDetail.tsx — Full field inspector for a list-view job row
 

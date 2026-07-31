@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-07-22
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — event_id in the send contract
+
+`send_message` abstract method gained `event_id: str | None` (the turn that
+produced the message; see [[schemas]]). Same one-batch pattern as the earlier
+`attachments` addition: [[local_bus]] persists it, the [[cloud_bus]] stub
+carries the param and still raises.
 
 ## 2026-07-22 — get_recent_messages joins the ABC
 

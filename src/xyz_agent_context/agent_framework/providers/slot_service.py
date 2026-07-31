@@ -30,7 +30,7 @@ from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
     ensure_slot_provider_allowed,
-    netmind_slots_only,
+    framework_allowed_in_cloud,
 )
 from xyz_agent_context.agent_framework.providers.user_service import (
     validate_slot_binding,
@@ -87,8 +87,8 @@ class AgentSlotService:
 
         ``actor_is_staff`` (required keyword): the caller's role for the
         cloud netmind-only policy (see cloud_policy) — a non-staff cloud
-        caller may only bind NetMind-source providers and may not pin a
-        framework that differs from the owner default. A trusted internal
+        caller may only bind NetMind-source providers and may only pin a
+        framework that cannot reach a shared CLI credential file. A trusted internal
         caller must write ``actor_is_staff=None`` EXPLICITLY (deliberately
         no default — a bypass has to be visible at the call site). Raises
         ``CloudPolicyViolation`` (→ 403 at the route) on a violation.
@@ -135,14 +135,24 @@ class AgentSlotService:
                 (owner_agent_slot or {}).get("agent_framework") or "claude_code"
             )
             eff_framework = agent_framework or owner_framework
-            # Framework changes are staff-only on cloud (the user-level
-            # switch is gated in providers.py); a per-agent pin to a
-            # DIFFERENT framework would be the same change through the
-            # side door, so it follows the same policy.
+            # A per-agent pin is the same choice as the user-level switch,
+            # so it asks cloud_policy rather than re-deriving a rule. Two
+            # conditions, and both matter:
+            #
+            #   * the TARGET framework must be one cloud permits — keying
+            #     off "differs from the owner's" instead locked a cloud
+            #     user out of every framework the policy actually allows;
+            #   * unless they ALREADY run it. A legacy user whose owner
+            #     default is codex_cli gains no new exposure by pinning
+            #     codex_cli again, and refusing it would block every
+            #     agent-slot edit they make — a model change answered with
+            #     a message about frameworks — while closing nothing. The
+            #     way out of that state is the user-level switch back to
+            #     claude_code, which providers.py deliberately allows.
             if (
                 actor_is_staff is not None
+                and not framework_allowed_in_cloud(eff_framework, actor_is_staff)
                 and eff_framework != owner_framework
-                and netmind_slots_only(actor_is_staff)
             ):
                 raise CloudPolicyViolation(FRAMEWORK_LOCKED_DETAIL)
         validate_slot_binding(prov, slot_name, eff_framework)

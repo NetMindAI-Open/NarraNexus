@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-22
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — _resolve_agent_owner 委托 AgentRepository.resolve_owner
+
+行为不变（miss/异常仍回 ''），实现收敛到 repository seam——属主语义
+从此一个家（PR #219 review 收敛三份拷贝）。
 
 ## 2026-07-22 — _sniff_mime delegates to the shared utils helper
 

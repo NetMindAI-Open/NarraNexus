@@ -1,8 +1,44 @@
 ---
 code_file: src/xyz_agent_context/schema/decision_schema.py
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `PathExecutionResult.interrupted`
+
+打断连续性的载体字段:用户 Stop 的 turn 不再被丢弃,部分结果照常持久化,消费方
+(hook 参数、ChatModule persist)靠它区分「被掐断」与「自然结束」。
+
+## 2026-07-29 (二次) — 删掉三个句柄校验伴随字段
+
+`cli_framework` / `cli_config_fingerprint` / `cli_working_path` 删除。它们唯一的
+用途是校验一个**存下来的**句柄(框架要匹配、配置指纹要匹配、工作路径要匹配),
+而句柄机制整体已删。
+
+`cli_session_id` **保留但降级为纯观测值**:仍从 `ResultMessage.session_id` 采集、
+仍进日志,但没有任何消费者。留着是因为它是"某一轮 CLI 报了哪个会话"的唯一记录,
+排查 resume 行为时有用。注释已改写,免得下一个读者以为它还会被写进库。
+
+## 2026-07-29 — 删除 PathExecutionResult.resume_failed(T5)
+
+随 [[execution_state]] 同名字段一起删:它只用于把"句柄过期"从 step_3 传到 step_4,
+而 step_4 的句柄持久化已不存在。
+
+## 2026-07-28 — PathExecutionResult 加 resume_failed（resume 化 R3）
+
+`resume_failed: bool = False`——step_3 从 state 无条件透传（即便重试没报新
+cli_session_id 也要透传，step_4 靠它删陈旧句柄）。内部信号，永不面向用户。
+计划里提过的 `resumed` 观测字段**没有加**：观测走 cost_records 的 cache 两列
+推断（V-j），不占 schema。
+
+## 2026-07-25 — PathExecutionResult 加 CLI 句柄四字段(resume 化 R1)
+
+`cli_session_id` / `cli_framework` / `cli_config_fingerprint` / `cli_working_path`
+(全部默认 None)。step_3 只在 state.cli_session_id 非空时填伴随三项(指纹
+fail-open 可为 None);step_4 据此 upsert `agent_cli_sessions`。`cli_framework`
+之所以在这里搭车:step_4 拿不到 step_3 的 framework_name 局部(ctx 不携带),
+per-run 数据走 PathExecutionResult 是既定通道。DIRECT_TRIGGER / 非 Claude 路径
+保持默认 None。
 
 ## 2026-07-23 — PathExecutionResult 加 cache/num_turns 三字段(W1)
 

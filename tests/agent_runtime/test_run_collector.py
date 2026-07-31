@@ -22,7 +22,7 @@ from xyz_agent_context.agent_runtime.run_collector import (
     RunError,
     collect_run,
 )
-from xyz_agent_context.schema.runtime_message import MessageType
+from xyz_agent_context.schema.runtime_message import AgentThinking, MessageType
 
 
 class _FakeRuntime:
@@ -242,6 +242,125 @@ async def test_progress_message_without_tool_name_is_not_a_tool_call():
     )
     assert result.raw_items == []
     assert result.tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_nexus_monologue_reaches_output_text():
+    """NexusPower parity: the agent's plain text streams as AGENT_THINKING
+    (monologue) — never as AGENT_RESPONSE. Triggers that relay
+    ``output_text`` (bus team rooms, IM inbox relays) must receive it,
+    exactly as they receive the claude driver's assistant text.
+
+    Regression: a team-room @mention produced a perfect reply in
+    final_output, but output_text stayed empty and the room got nothing
+    (dev evt_238abc4b0b0c4dca, 2026-07-30)."""
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="Reply part one. ",
+                      monologue="Reply part one. "),
+        AgentThinking(thinking_content="Reply part two.",
+                      monologue="Reply part two."),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+        include_monologue=True,
+    )
+    assert result.output_text == "Reply part one. Reply part two."
+
+
+@pytest.mark.asyncio
+async def test_monologue_excluded_unless_opted_in():
+    """Privacy guard: only surfaces whose PROMPT told the agent "your
+    plain text is delivered" (team rooms) may opt in. Everywhere else
+    the constitution's promise — plain text is private — must hold, or
+    a peer-DM inbox / A2A response would expose internal deliberation
+    the agent believed nobody would read."""
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="private deliberation",
+                      monologue="private deliberation"),
+        _delta("polished reply"),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+    )
+    assert result.output_text == "polished reply"
+
+
+@pytest.mark.asyncio
+async def test_provider_cot_thinking_stays_out_of_output_text():
+    """Provider chain-of-thought (claude thinking blocks, DeepSeek CoT)
+    arrives as AGENT_THINKING with an empty ``monologue`` — it must NOT
+    leak into output_text, or IM relays would post raw reasoning."""
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="Let me reason about this..."),
+        _delta("The answer."),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="lark",
+    )
+    assert result.output_text == "The answer."
+
+
+@pytest.mark.asyncio
+async def test_monologue_and_response_deltas_interleave_in_order():
+    """A coalesced batch can mix monologue with AGENT_RESPONSE deltas
+    (e.g. a mid-run expressive reply); arrival order must be preserved."""
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="First. ", monologue="First. "),
+        _delta("Second. "),
+        AgentThinking(thinking_content="Third.", monologue="Third."),
+    ])
+    result = await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+        include_monologue=True,
+    )
+    assert result.output_text == "First. Second. Third."
+
+
+@pytest.mark.asyncio
+async def test_monologue_frame_reports_response_progress_kind():
+    """The team activity view mirrors on_progress; a monologue frame is
+    the agent SPEAKING (its text is about to be posted to the room), so
+    it must read as "response", not "thinking"."""
+    seen: list[str] = []
+
+    async def on_progress(kind: str, _tool) -> None:
+        seen.append(kind)
+
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="cot only"),
+        AgentThinking(thinking_content="the reply", monologue="the reply"),
+    ])
+    await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+        include_monologue=True, on_progress=on_progress,
+    )
+    assert seen == ["thinking", "response"]
+
+
+@pytest.mark.asyncio
+async def test_monologue_frame_stays_thinking_without_opt_in():
+    """On surfaces where monologue is private (no opt-in), nobody receives
+    that text — reporting "response" would show 'replying' in an activity
+    view while nothing ever lands. It stays "thinking"."""
+    seen: list[str] = []
+
+    async def on_progress(kind: str, _tool) -> None:
+        seen.append(kind)
+
+    runtime = _FakeRuntime([
+        AgentThinking(thinking_content="the reply", monologue="the reply"),
+    ])
+    await collect_run(
+        runtime, agent_id="a", user_id="u",
+        input_content="hi", working_source="message_bus",
+        on_progress=on_progress,
+    )
+    assert seen == ["thinking"]
 
 
 @pytest.mark.asyncio

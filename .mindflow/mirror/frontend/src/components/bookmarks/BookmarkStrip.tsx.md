@@ -1,8 +1,16 @@
 ---
 code_file: frontend/src/components/bookmarks/BookmarkStrip.tsx
-last_verified: 2026-06-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `STRIP_WIDTH_PX` exported
+
+The 64px width is now also a named export, because [[BookmarkDrawer]] has to
+reserve exactly that much of the right edge to avoid covering the strip (see
+that file's `edgeReservePx` entry). **It must stay in sync with the `w-16`
+class on the root** — there is no mechanism enforcing that, so change both or
+neither.
 
 ## 2026-06-23 — agent identity header + quick switcher (`AgentRailHeader`)
 

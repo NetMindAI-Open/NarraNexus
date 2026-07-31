@@ -65,7 +65,10 @@ lint-frontend:
 typecheck: typecheck-backend typecheck-frontend
 
 typecheck-backend:
-	uv run pyright src/ backend/
+	# Config-driven on purpose: pyrightconfig.json scopes the gate (starter:
+	# attribute/undefined checks on module/) — explicit CLI paths would
+	# override the include list and flood with legacy noise.
+	uv run pyright
 
 typecheck-frontend:
 	cd frontend && npx tsc --noEmit

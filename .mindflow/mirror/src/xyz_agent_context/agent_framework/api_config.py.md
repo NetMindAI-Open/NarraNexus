@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/api_config.py
-last_verified: 2026-07-28
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 (二次) — 删除 resume_fingerprint()
+
+它算的是"这份配置解析到哪个 CLI 会话存储"的身份(`auth_type|base_url|config_dir|model`
+的 sha256 前 16 位),用来判断存下来的句柄在配置变化后还能不能安全 resume。句柄机制
+删除后没有调用方。
+
+`cli_config_dir` property 保留 —— 它现在的消费者是 [[transcript]](要知道
+per-project transcript 落在哪个目录)和 `to_cli_env`。
+
+## 2026-07-29 — 提取 `cli_config_dir` property
+
+`CLAUDE_CONFIG_DIR` 的分派(oauth → `claude_oauth_config_path`,其余 →
+`claude_cli_config_path`)原来在 `to_cli_env` 和 `resume_fingerprint` 里各写一遍,
+两处 docstring 都在叮嘱读者"手工保持分支一致"。现在收成一个 property,两个旧调用
+点都改为引用它。
+
+触发点是第三个调用方:[[transcript]] 要知道 CLI 会用哪个 config dir,因为
+per-project transcript 就住在 `<dir>/projects/<cwd-slug>/<session_id>.jsonl`。
+第三次要抄同一段分派,就该提取而不是再抄一份——"靠注释提醒人工同步"本身就是待
+发生的 bug。
 
 ## 2026-07-28 — 免费额度分支移除后的收口
 
@@ -26,6 +47,15 @@ auth 类型显式空串，防父进程残留经 `{**os.environ, **env}` 泄入�
 Keychain 命名空间条目正是 token 路径要逃离的 2026-07-23 macOS 故障点。
 
 ## 2026-07-18 — 决策梯子文案随"免费额度优先=平台行为"更新
+
+## 2026-07-25 — ClaudeConfig.resume_fingerprint()(resume 化 R1/R2 共用)
+
+`sha256(auth_type|base_url|config_dir|model)[:16]`——CLI session 存储的身份指纹,
+任一分量变化意味着存下的句柄可能不存在/不安全,调用方必须冷启动。**config_dir
+分派与 `to_cli_env()` 的 CLAUDE_CONFIG_DIR 分支条件必须逐字一致**(oauth →
+claude_oauth_config_path,其余 → claude_cli_config_path)——放同一个类里就是为了
+改一处两处不漂移。api_key 刻意**不进**指纹:同 provider 换 key 不该作废句柄。
+step_3 在组装 PathExecutionResult 时经 ambient `claude_config` 代理调用(fail-open)。
 
 `get_user_llm_configs` docstring 的四级梯子改写：不再按
 `prefer_system_override` True/False 分流——有 quota 行且有余量 → system；

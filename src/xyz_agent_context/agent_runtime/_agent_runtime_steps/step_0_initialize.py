@@ -96,15 +96,19 @@ async def step_0_initialize(
     # =========================================================================
     # 0.3 Create Event record
     # =========================================================================
-    # Tag message-bus (team group chat) runs so they can be told apart from 1:1
-    # chat downstream — e.g. the sidebar preview excludes group-chat replies.
+    # Tag the run with its honest source (working_source → TriggerType 1:1)
+    # so read-sides can tell surfaces apart: the sidebar preview excludes
+    # group-chat replies, the chat panel auto-attaches only to chat runs,
+    # dashboards group per source. Unknown sources degrade to CHAT rather
+    # than fail — an unlabelled run is better than no run.
     from xyz_agent_context.narrative.models import TriggerType
 
     ws = getattr(ctx, "working_source", None)
     ws_str = ws.value if hasattr(ws, "value") else (str(ws) if ws else "")
-    trigger_type = (
-        TriggerType.MESSAGE_BUS if ws_str == "message_bus" else TriggerType.CHAT
-    )
+    try:
+        trigger_type = TriggerType(ws_str) if ws_str else TriggerType.CHAT
+    except ValueError:
+        trigger_type = TriggerType.CHAT
     event = await event_service.create_event(
         ctx.agent_id, ctx.user_id, ctx.input_content,
         retrieval_anchor=ctx.trigger_extra_data.get("retrieval_anchor"),

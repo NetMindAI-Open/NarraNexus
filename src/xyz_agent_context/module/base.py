@@ -193,6 +193,28 @@ MCPs: {mcp_tools}
         instruction = self.instructions.format(**local_ctx_data)
         return instruction
 
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile context for the CURRENT user message.
+
+        Content that changes every turn (retrieved data, live counters,
+        timestamps, dynamic lists) belongs here, NOT in get_instructions —
+        get_instructions must stay byte-stable across turns so the system
+        prompt stays cacheable (provider prefix caches are byte/blockwise
+        and any per-turn byte breaks them). The runtime collects these
+        blocks (deduplicated by module class, priority ascending) into a
+        "[Turn context]" block prepended to the current user message; a
+        module failure here is logged and skipped, never fatal to the turn.
+        Default: no per-turn context.
+
+        Args:
+            ctx_data: Context data for the current turn
+
+        Returns:
+            Markdown block to include in the current turn's context,
+            or "" when the module has nothing volatile to contribute.
+        """
+        return ""
+
     @abstractmethod
     def get_config(self) -> ModuleConfig:
         """
@@ -313,6 +335,17 @@ MCPs: {mcp_tools}
             MCPServerConfig or None
         """
         pass
+
+    async def get_expressive_tools(self) -> list[str]:
+        """Fully-qualified reply/delivery tools this module contributes.
+
+        The platform forwards the collected list to the agent framework
+        as the turn's expressive surface (NexusPower's monologue
+        contract: only these tools' content reaches a human). Most
+        modules deliver nothing themselves — default is empty; chat and
+        IM channel modules override.
+        """
+        return []
 
     async def get_disallowed_tools(self) -> list[str]:
         """

@@ -1,7 +1,19 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/prompts.py
-last_verified: 2026-07-23
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — R4b：新增 SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+legacy 模板一字未动；stable 版由 `.replace()` 把 §5 的
+`{social_network_current_entity}` 占位符换成静态指引句（实体卡在本轮消息
+turn context 块的 "Current User Information" 小节里）推导得出。§5 标题保留
+（§1-6 编号不断档），§1-4/§6 规则字节不变。动机：实体卡的
+interaction_count / last_interaction_time 每轮递增，打穿 system prompt 前缀
+缓存。replace 锚点 = `"##### 5. Current User Information\n{social_network_current_entity}\n"`
+——改 §5 措辞时锚点必须同步，`tests/module/test_turn_context_split.py` 兜底。
 
 ## 2026-07-23 — extraction prompt: Confidence section
 

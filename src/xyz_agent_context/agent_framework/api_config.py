@@ -25,6 +25,7 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Optional
@@ -62,6 +63,28 @@ class ClaudeConfig:
     # (_resolve_reasoning_options), not here.
     thinking: str = ""
     reasoning_effort: str = ""
+
+    @property
+    def cli_config_dir(self) -> str:
+        """``CLAUDE_CONFIG_DIR`` the CLI subprocess will run with.
+
+        Single source for a dispatch that used to be written out separately in
+        :meth:`to_cli_env` and a since-removed ``resume_fingerprint``, with a
+        comment on each asking the reader to keep them branch-identical by hand.
+        The dir decides where the CLI's per-project transcripts live
+        (``<dir>/projects/<cwd-slug>/<session_id>.jsonl``), which is why the
+        transcript writer needed it too — a third caller was reason to extract
+        rather than copy again.
+
+        See :meth:`to_cli_env` for why the two dirs are separate at all.
+        """
+        from xyz_agent_context.settings import settings
+
+        return (
+            settings.claude_oauth_config_path
+            if self.auth_type == "oauth"
+            else settings.claude_cli_config_path
+        )
 
     def to_cli_env(self) -> dict[str, str]:
         """Build env vars dict for the Claude Code CLI subprocess.
@@ -145,10 +168,7 @@ class ClaudeConfig:
         # Always set the key (never omit) so a stray inherited
         # ``CLAUDE_CONFIG_DIR`` can't leak in via the SDK's
         # ``{**os.environ, **options.env}`` merge.
-        if self.auth_type == "oauth":
-            env["CLAUDE_CONFIG_DIR"] = _settings.claude_oauth_config_path
-        else:
-            env["CLAUDE_CONFIG_DIR"] = _settings.claude_cli_config_path
+        env["CLAUDE_CONFIG_DIR"] = self.cli_config_dir
 
         # Redirect Claude Code's *internal* LLM calls (WebFetch summarizer,
         # subagent task dispatch, alias-to-model resolution) to the same

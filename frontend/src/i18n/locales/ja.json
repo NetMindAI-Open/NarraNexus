@@ -63,6 +63,7 @@
       "toolLabel": "[ ツール ]",
       "outputLabel": "[ 出力 ]",
       "reply": "返信",
+      "plan": "プラン",
       "nativeOutput": "ネイティブ出力",
       "helperFallback": "↻ helper_llm フォールバック",
       "helperFallbackTip": "エージェントは明示的に返信を送信しませんでした。このメッセージはフォールバック LLM がその推論から生成しました。",
@@ -91,14 +92,58 @@
       "memberCount_other": "メンバー {{count}} 人",
       "teamSettings": "チーム設定",
       "empty": "まだメッセージはありません。",
-      "emptyHint": "@メンションでメンバーを呼んで会話を始めましょう — そこからメンバー同士が引き継ぎます。",
+      "emptyHint": "メッセージを送れば始まります。既定ではチームリードが対応し、@ で他のメンバーを指名することもできます。",
       "noAgents": "このチームにはまだエージェントがいません。",
-      "placeholder": "チームにメッセージ — @メンションで相手を指定…",
+      "placeholder": "チームにメッセージ — @ で相手を指定…",
       "send": "送信（Enter）",
       "all": "@all",
       "notifyEveryone": "全員に通知",
       "typing": "{{name}} が入力中",
-      "youTitle": "あなた · {{name}}"
+      "youTitle": "あなた · {{name}}",
+      "activity": {
+        "starting": "起動中",
+        "running": "作業中",
+        "thinking": "思考中",
+        "replying": "返信中",
+        "tool": "{{name}} を実行中",
+        "queued": "開始待ち",
+        "stalled": "応答なし",
+        "idle": "待機中",
+        "runningHint": "メッセージを処理しています。長いタスクは数分から数時間かかることがあります。その間も下のステップは更新され続けます。",
+        "queuedHint": "配信済みで、空いている実行枠を待っています。複数のメンバーを同時に指名した場合や、別の長いタスクが実行中の場合に発生します。",
+        "stalledHint": "このメンバーからしばらく進捗の信号が届いていません。まだ実行中の可能性もあります（モデルが長時間沈黙することがあります）が、バックグラウンド処理に問題がある可能性もあります。回復しない場合はサービスの状態を確認してください。",
+        "idleHint": "現在、保留中の作業はありません。",
+        "silentFor": "{{duration}} 沈黙",
+        "waitingFor": "{{duration}} 待機",
+        "finishedAgo": "{{duration}} 前に完了",
+        "startedAt": "{{time}} に開始",
+        "stepsDropped": "それ以前の {{n}} ステップは非表示",
+        "noSteps": "まだステップの記録がありません。"
+      },
+      "guide": {
+        "title": "このルームの使い方",
+        "plainTitle": "そのまま話す",
+        "plain": "@ を付けずに送信すると、チームリードが対応します。",
+        "plainWithLead": "@ を付けずに送信すると、{{name}} が対応します。",
+        "mentionTitle": "メンバーを指名する",
+        "mention": "@ でメンバーを指名すると、その相手が直接対応します。",
+        "broadcastTitle": "全員に一斉送信",
+        "broadcast": "@all は全員に届きます。各メンバーが 1 ターンずつ実行するため、控えめに使ってください。",
+        "relay": "メンバー同士も @ で作業を引き継げます。あなたの発言がない場合、引き継ぎは 4 回で停止します。"
+      },
+      "noProcess": "このターンの処理記録はありません",
+      "detailLoadFailed": "プロセスの読み込みに失敗しました。もう一度お試しください。",
+      "roster": {
+        "title": "メンバー",
+        "lastRun": "{{duration}} 実行 · {{ago}} 前",
+        "lastRunAgoOnly": "{{ago}}前に完了",
+        "neverRan": "まだ実行していません",
+        "loading": "処理を読み込み中…",
+        "workingCount": "{{count}} 件実行中",
+        "process": "プロセス"
+      },
+      "emptyHintWithLead": "メッセージを送れば始まります。既定では {{name}} が対応し、@ で他のメンバーを指名することもできます。",
+      "leadTitle": "{{name}} · 誰も @ されていないときに対応"
     },
     "execution": {
       "showSteps": "実行ステップを表示",
@@ -154,7 +199,15 @@
       }
     },
     "dateToday": "今日",
-    "dateYesterday": "昨日"
+    "dateYesterday": "昨日",
+    "segment": {
+      "details": "推論とツール"
+    },
+    "process": {
+      "plan": "プラン",
+      "title": "エージェント · プロセス",
+      "ops": "回の操作"
+    }
   },
   "awareness": {
     "common": {
@@ -665,7 +718,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "パネルのサイズを変更",
-      "title": "ドラッグしてチャット / 成果物のサイズを変更"
+      "title": "ドラッグしてチャット / 成果物のサイズを変更",
+      "drawerAriaLabel": "パネルの幅を変更",
+      "drawerTitle": "ドラッグしてパネルの幅を変更"
     }
   },
   "settings": {
@@ -849,6 +904,17 @@
       "freeTierHowToSwitch": "「Free Tier」カードは Agent と Helper のスロットに設定済みです。自分のキーを使うには、下でプロバイダーを追加し、「モデル既定値」で Agent / Helper スロットに指定してください。次のメッセージから有効になります。",
       "freeTierAnytime": "いつでも切り替えられます。無料クレジットを使い切る必要はなく、切り替えても残高は消えません。戻すこともできます。",
       "freeTierNoDelete": "残高がある間、Free Tier カードは削除できません（その残高への唯一の鍵だからです）。使い切れば削除できます。"
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "お支払いを受け付けました — アカウントに反映しています。",
+      "returnTopupSuccess": "チャージを受け付けました — 残高を更新しています。",
+      "returnCancelled": "支払いはキャンセルされました — 請求は発生していません。",
+      "cancelConfirmTitle": "自動更新をオフにしますか？",
+      "cancelConfirmAction": "自動更新をオフにする",
+      "cancelConfirmKeep": "サブスクを継続",
+      "reactivateConfirmTitle": "自動更新を再開しますか？",
+      "reactivateConfirmAction": "再開する",
+      "reactivateConfirmDismiss": "後で"
     }
   },
   "system": {
@@ -1168,6 +1234,10 @@
         "installingDetail": "{{version}} をインストール中 — もうすぐ完了します…",
         "readyDetail": "ダウンロード完了 — 再起動して終了します。",
         "failed": "更新の {{stage}} に失敗しました。"
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
+        "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
       }
     },
     "system": {
@@ -1707,7 +1777,9 @@
       "resume": "再開",
       "resuming": "再開中...",
       "cancelJob": "ジョブをキャンセル",
-      "cancelling": "キャンセル中..."
+      "cancelling": "キャンセル中...",
+      "editSchedule": "時刻変更",
+      "savingSchedule": "保存中..."
     },
     "template": {
       "selectTemplate": "テンプレートを選択",
@@ -1736,6 +1808,26 @@
         "paused": "一時停止 {{count}} 件",
         "failed": "失敗 {{count}} 件"
       }
+    },
+    "editSchedule": {
+      "title": "実行時刻の変更",
+      "hint": "このジョブの実行タイミングを調整します。変更は次回実行時に反映されます。",
+      "runAt": "実行時刻",
+      "cron": "Cron 式",
+      "cronHint": "例: 0 8 * * * は毎日 08:00 に実行",
+      "intervalSeconds": "間隔（秒）",
+      "timezone": "タイムゾーン",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "invalidRunAt": "有効な日時を選択してください",
+      "invalidCron": "有効な Cron 式を入力してください",
+      "invalidInterval": "0 より大きい間隔を入力してください",
+      "pastTimeError": "選択した時刻は過去です",
+      "failedTitle": "変更に失敗しました",
+      "failedMessage": "実行時刻を更新できませんでした。もう一度お試しください。",
+      "modeLabel": "トリガー方式",
+      "modeInterval": "間隔",
+      "modeCron": "Cron 式"
     }
   },
   "artifacts": {
@@ -1811,6 +1903,9 @@
       "zoomInAria": "拡大",
       "close": "閉じる（Esc）",
       "closeAria": "ズームを閉じる"
+    },
+    "url": {
+      "toggleFailed": "モードを変更できませんでした: {{error}}"
     }
   },
   "skills": {
@@ -1927,6 +2022,13 @@
     "livePreview": "ライブプレビュー"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus は現在ベータ版です。機能は変更される可能性があり、不具合が発生する場合があります。フィードバックをお待ちしています。",
+    "ok": "OK",
+    "noticeTitle": "少しお待ちください",
+    "actionFailedTitle": "うまくいきませんでした",
+    "savedTo": "{{path}} に保存しました",
+    "downloadFailed": "ダウンロードに失敗しました: {{error}}",
+    "doneTitle": "完了"
   }
 }

@@ -1,8 +1,14 @@
 ---
 code_file: frontend/src/components/layout/Sidebar.tsx
-last_verified: 2026-07-21
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — Beta 徽章挂到 logo 旁
+
+展开态 logo 旁新增 [[BetaBadge.tsx]](wrapper `gap-0`→`gap-2`),向用户声明
+产品处于 Beta 阶段;悬停出多语言预期管理说明。收起态 logo 本就隐藏,徽章
+随之不渲染。
 
 ## 2026-07-21 — Marketplace 一级入口
 

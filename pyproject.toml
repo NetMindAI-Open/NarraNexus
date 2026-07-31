@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "xyz-agent-context"
-version = "1.12.0"
+version = "1.13.0"
 description = "XYZ Agent Context Framework for multi-agent systems"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -13,7 +13,7 @@ dependencies = [
     "anthropic>=0.72.0",
     "claude-agent-sdk~=0.1.43",
     "openai>=2.7.1",
-    "openai-agents>=0.5.0",
+    "openai-agents>=0.19.1",
     # Official OpenAI Codex SDK — drives CodexSDKv2 (the v2 agent-loop
     # driver registered under `codex_cli_v2`). Pinned to 0.1.x because
     # the package is beta — accept patch/beta bumps inside 0.1, but
@@ -57,23 +57,35 @@ dependencies = [
     "websockets>=15.0.1",
     "tiktoken>=0.13.0",
     "posthog>=7.18.0",
+    # Floor at the newest STABLE release rather than an ancient one: with
+    # a low floor the resolver is free to wander onto a pre-release above
+    # it, which is how 1.95.0.dev3 got locked.
+    "litellm>=1.94.0,<2",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/xyz_agent_context", "backend"]
 
 [tool.uv]
-# Allow pre-release versions during resolution. Currently REQUIRED so
-# ``openai-codex`` 0.1.0b3 + its transitive ``openai-codex-cli-bin``
-# 0.137.0a4 (the wheel that ships the codex binary) resolve cleanly.
-# Once those packages reach stable (1.0), tighten this back.
-prerelease = "allow"
+# Pre-release policy. ``openai-codex`` 0.1.0b3 + its transitive
+# ``openai-codex-cli-bin`` 0.137.0a4 (the wheel that ships the codex
+# binary) have no stable release, so SOME pre-release allowance is
+# REQUIRED. It used to be a blanket "allow", which quietly dragged
+# packages that DO ship stable builds onto pre-releases with them:
+# ``litellm`` locked to 1.95.0.dev3 while 1.94.0 sat on PyPI, putting a
+# yankable dev build on the `uv sync --frozen` path of every image
+# (2026-07-29 review). This narrower mode grants pre-releases only where
+# a requirement asks for one or nothing stable exists — which is exactly
+# the codex case and nothing else. Drop it entirely once those packages
+# reach 1.0.
+prerelease = "if-necessary-or-explicit"
 
 [dependency-groups]
 dev = [
     "hatchling>=1.27.0",
     "pillow>=12.2.0",
     "psutil>=7.2.2",
+    "pyright>=1.1.390",
     "pytest>=9.0.1",
     "pytest-asyncio>=1.3.0",
     "ruff>=0.8.0",

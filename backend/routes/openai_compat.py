@@ -156,13 +156,13 @@ def _done_sentinel() -> str:
 
 async def _resolve_agent_creator(agent_id: str) -> Optional[str]:
     """Look up agents.created_by for the agent. Returns None if not found.
-    Same pattern as channel_trigger_base._resolve_agent_owner; we don't
-    import that here to avoid pulling the entire ChannelTriggerBase ABC."""
-    db = await get_db_client()
-    row = await db.get_one("agents", {"agent_id": agent_id})
-    if not row:
-        return None
-    return row.get("created_by")
+    Delegates to the shared AgentRepository.resolve_owner seam (one home
+    for ownership semantics); this wrapper only keeps the Optional
+    contract its callers branch on."""
+    from xyz_agent_context.repository.agent_repository import AgentRepository
+
+    owner = await AgentRepository(await get_db_client()).resolve_owner(agent_id)
+    return owner or None
 
 
 def _extract_user_input(messages: list[ChatMessage]) -> str:

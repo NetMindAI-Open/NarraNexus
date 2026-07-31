@@ -195,3 +195,35 @@ def test_render_order_preserved():
         "thinking_A", "call_B", "output_C", "text_D", "error_E",
     ]]
     assert positions == sorted(positions)
+
+
+# ---------- native-replay rows in the helper payload -------------------
+
+
+def test_helper_payload_skips_tool_rows_and_null_content():
+    """Native turn replay puts role:"tool" rows and calls-only assistant
+    rows (content None) into context_messages. The helper transcript is
+    prose: neither may leak in — str(None) once rendered a literal
+    "[assistant] None" line."""
+    from xyz_agent_context.agent_runtime._agent_runtime_steps.step_3_agent_loop import (
+        _build_helper_user_input,
+    )
+
+    payload = _build_helper_user_input(
+        mode="no_reply",
+        context_messages=[
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "c1"}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "raw tool output"},
+            {"role": "assistant", "content": "the reply"},
+        ],
+        agent_loop_response=[],
+        final_output="",
+        user_input="next",
+        error_info=None,
+    )
+    assert "None" not in payload
+    assert "raw tool output" not in payload
+    assert "[assistant] the reply" in payload
+    assert "[user] question" in payload

@@ -25,6 +25,7 @@ from xyz_agent_context.schema import (
     MCPServerConfig,
     ContextData,
 )
+from xyz_agent_context.settings import settings
 from xyz_agent_context.utils import DatabaseClient
 
 
@@ -215,25 +216,28 @@ class CommonToolsModule(XYZBaseModule):
     async def hook_data_gathering(self, ctx_data: ContextData) -> ContextData:
         return ctx_data
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
-        """Return the static base instruction plus two dynamic blocks:
+    async def _volatile_sections(self, ctx_data: ContextData) -> List[str]:
+        """The two per-turn dynamic blocks (R4: relocated, never dropped):
 
         1. *Attached files* for this turn — built from
            `ctx_data.extra_data["attachments"]`, populated by the trigger
            layer (WebSocket / Lark / Job / ...). Resolution lives in
-           `utils/attachment_storage`.
+           `utils/attachment_storage`. (The attachment double-rendering —
+           this block plus the Read marker on the user message — is kept
+           as-is; with the relocation flag on both live on the message side.)
         2. *Registered artifacts* the agent has live RIGHT NOW — pulled
            fresh from `ArtifactRepository.list_pinned(agent_id)` so the
            agent always sees the current set (id, kind, title, workspace
            path) and can decide whether to re-register an existing one
            vs. create a new one. This is the data-gathering surface for
-           the artifact registry.
+           the artifact registry. Changed mid-session by register_artifact,
+           hence per-turn volatile.
         """
         from xyz_agent_context.utils.attachment_storage import (
             format_attachments_for_system_prompt,
         )
 
-        sections = [self.instructions]
+        sections: List[str] = []
 
         # ── attachments for this turn ────────────────────────────────────
         attachments = []
@@ -255,6 +259,28 @@ class CommonToolsModule(XYZBaseModule):
         if artifact_block:
             sections.append(artifact_block)
 
+        return sections
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        """Static base instruction, plus (flag OFF only) the two dynamic
+        appendices.
+
+        With the R4 relocation flag ON the output is the constant
+        COMMON_TOOLS_INSTRUCTIONS (byte-stable across turns) and the
+        appendices travel via get_turn_context(); flag OFF keeps the legacy
+        single-block rendering, functionally equivalent to pre-R4.
+        """
+        sections = [self.instructions]
+        if not settings.prompt_turn_context_relocation_enabled:
+            sections.extend(await self._volatile_sections(ctx_data))
+        return "\n\n".join(sections)
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile span: the attachments appendix and the live
+        artifact registry (each block carries its own stable heading)."""
+        sections = await self._volatile_sections(ctx_data)
+        if not sections:
+            return ""
         return "\n\n".join(sections)
 
     async def _render_artifact_state_block(self) -> str:
@@ -296,7 +322,6 @@ class CommonToolsModule(XYZBaseModule):
             URL_ARTIFACT_KIND,
             URL_TAB_CONTENT_FILENAME,
         )
-        from xyz_agent_context.settings import settings
         from xyz_agent_context.utils.workspace_paths import agent_workspace_relpath
 
         # Strip whichever workspace prefix the stored path carries (current

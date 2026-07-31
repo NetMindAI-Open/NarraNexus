@@ -367,9 +367,22 @@ class NarrativeService:
     # Prompt Generation
     # =========================================================================
 
-    async def combine_main_narrative_prompt(self, narrative: Narrative) -> str:
-        """Generate the main Prompt for a Narrative"""
-        return await PromptBuilder.build_main_prompt(narrative)
+    async def combine_main_narrative_prompt(
+        self,
+        narrative: Narrative,
+        include_volatile: bool = True,
+    ) -> str:
+        """Generate the main Prompt for a Narrative.
+
+        include_volatile=False renders the byte-stable half only (R4
+        turn-context relocation); the volatile fields then travel via
+        combine_narrative_turn_prompt().
+        """
+        return await PromptBuilder.build_main_prompt(narrative, include_volatile=include_volatile)
+
+    async def combine_narrative_turn_prompt(self, narrative: Narrative) -> str:
+        """Generate the per-turn volatile Narrative block (R4 relocation)."""
+        return await PromptBuilder.build_turn_prompt(narrative)
 
     # =========================================================================
     # Internal Methods

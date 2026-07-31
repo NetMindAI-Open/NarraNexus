@@ -28,6 +28,7 @@
  * BundleImportPage) — only this card is gated.
  */
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Check, X, Sparkles, ArrowRight } from 'lucide-react';
 import { useConfigStore, useRuntimeStore } from '@/stores';
@@ -52,6 +53,7 @@ interface StepRow {
 }
 
 export function OnboardingChecklist() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const mode = useRuntimeStore((s) => s.mode);
   const isCloud = mode === 'cloud-web';
@@ -125,32 +127,36 @@ export function OnboardingChecklist() {
   const steps: StepRow[] = [
     {
       key: 'provider',
-      label: 'Configure an LLM provider',
-      hint: 'NetMind Power is the one-key default — or bring your own API key.',
+      label: t('onboarding.checklist.providerLabel'),
+      hint: t('onboarding.checklist.providerHint'),
       done: providerDone,
-      cta: providerDone ? undefined : 'Open Settings',
+      cta: providerDone ? undefined : t('onboarding.checklist.openSettings'),
       onAction: () => navigate('/app/settings'),
     },
     {
       key: 'agent',
-      label: 'Create your first agent',
-      hint: 'Start a blank agent and chat to shape who it is.',
+      label: t('onboarding.checklist.agentLabel'),
+      hint: t('onboarding.checklist.agentHint'),
       done: agentDone,
-      cta: agentDone ? undefined : creating ? 'Creating…' : 'Create agent',
+      cta: agentDone
+        ? undefined
+        : creating
+          ? t('onboarding.checklist.creating')
+          : t('onboarding.checklist.createAgent'),
       onAction: handleCreateAgent,
     },
     {
       key: 'template',
-      label: 'Or start from a template',
-      hint: 'Browse ready-made agent teams on the templates marketplace.',
+      label: t('onboarding.checklist.templateLabel'),
+      hint: t('onboarding.checklist.templateHint'),
       done: templateDone,
-      cta: templateDone ? undefined : 'Browse templates',
+      cta: templateDone ? undefined : t('onboarding.checklist.browseTemplates'),
       onAction: openTemplates,
     },
     {
       key: 'bookmarks',
-      label: 'Meet your bookmark strip',
-      hint: 'Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes.',
+      label: t('onboarding.checklist.bookmarksLabel'),
+      hint: t('onboarding.checklist.bookmarksHint'),
       // Done once the user has opened the drawer at least once
       // (ChatView writes the flag on first open). Read per render —
       // the checklist re-renders on every navigation anyway.
@@ -181,7 +187,7 @@ export function OnboardingChecklist() {
               className="text-sm font-medium"
               style={{ color: 'var(--text-primary)' }}
             >
-              Getting started
+              {t('onboarding.checklist.gettingStarted')}
             </span>
             <span
               className="text-xs font-mono"
@@ -193,7 +199,7 @@ export function OnboardingChecklist() {
           <button
             type="button"
             onClick={dismiss}
-            aria-label="Dismiss getting-started checklist"
+            aria-label={t('onboarding.checklist.dismissAria')}
             className="p-1 -m-1 transition-colors"
             style={{ color: 'var(--text-tertiary)' }}
           >

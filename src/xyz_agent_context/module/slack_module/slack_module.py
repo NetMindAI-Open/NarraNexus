@@ -369,6 +369,7 @@ class SlackModule(ChannelModuleBase):
         "slack_unbind",
     )
     setup_tool_names = frozenset({"slack_bind"})
+    reply_tool_names = ("slack_cli",)
 
     @staticmethod
     def get_config() -> ModuleConfig:

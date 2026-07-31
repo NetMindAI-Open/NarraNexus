@@ -123,36 +123,25 @@ recent dialogue is recent dialogue regardless of channel.
 ### Recent Dialogue
 """
 
-# 2026-05-20 (Fix #2): the chat history is now ONE time-sorted timeline
-# (current narrative + cross-narrative), each line tagged [time · topic · nar_id].
-# This preamble teaches the agent how to read it. Replaces SHORT_TERM_MEMORY_HEADER
-# (which wrongly told the model short replies usually continue OTHER threads).
-CHAT_HISTORY_TIMELINE_PREAMBLE = """
-## How to read the conversation history below
+# 2026-07-29: CHAT_HISTORY_TIMELINE_PREAMBLE moved to
+# agent_framework/adapters/materializer.py. It describes the history
+# block, and only the materializer knows whether that block survives
+# the prompt budget — emitting the guide from here meant the model
+# could be told how to read a timeline that had just been evicted.
 
-The messages that follow are your recent conversation history with this user,
-assembled as a SINGLE timeline ordered by real time. It is built from:
-- ALL of the current conversation thread (the narrative you are in now), plus
-- the most recent messages from this user's OTHER threads with you,
-merged by timestamp and trimmed to roughly the latest 30 lines. Trimmed older
-lines are NOT lost — they still live in their narrative (you can pull a full
-thread with your narrative tools).
+# ============================================================================
+# Turn-context block (R4 turn-context relocation, 2026-07-25)
+# Per-turn volatile content (temporal block, narrative volatile state, module
+# get_turn_context blocks, recent background activity) is prepended to the
+# CURRENT user message under this header, keeping the system prompt
+# byte-stable across turns so provider prefix caches can hit. The header
+# labels the block as background data — it deliberately does NOT instruct the
+# model to quote or restate it. USER_MESSAGE_SEPARATOR makes "everything
+# below is the user's own words" unambiguous.
+# ============================================================================
+TURN_CONTEXT_HEADER = "[Turn context — regenerated every turn; not part of the user's words]"
 
-Each line is prefixed:  [<time> · <topic> · <narrative_id>]
-- <time>: when it was said. Use it to judge what the user is replying to — a
-  short reply ("好" / "ok" / "yes" / "继续") almost always answers the MOST
-  RECENT line, i.e. the one just above the current input — NOT an older line
-  from a different thread.
-- <topic>: a human-readable name of that conversation thread.
-- <narrative_id>: the stable id of that thread. Different ids = different
-  topics. The current input belongs, by default, to the most recent thread; if
-  it really belongs to another thread (or to a brand-new topic), use your
-  narrative tools to switch / create.
-
-Visibility: in each past turn the user only saw the message you SENT to them
-(the <reply_to_user> part). Your <my_reasoning> was private — do not assume the
-user knows anything that only appeared in your reasoning.
-"""
+USER_MESSAGE_SEPARATOR = "--- User message ---"
 
 # 2026-05-20 (Fix #2 P2): recent background-activity records (the centered
 # small-text items in the chat UI) — surfaced as a compact list, separate from

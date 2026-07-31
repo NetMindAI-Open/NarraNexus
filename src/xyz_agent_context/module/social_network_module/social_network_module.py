@@ -37,8 +37,14 @@ from xyz_agent_context.utils import DatabaseClient
 from xyz_agent_context.repository import SocialNetworkRepository, SocialNetworkEntity, InstanceRepository
 
 # Prompts
-from xyz_agent_context.module.social_network_module.prompts import SOCIAL_NETWORK_MODULE_INSTRUCTIONS
+from xyz_agent_context.module.social_network_module.prompts import (
+    SOCIAL_NETWORK_MODULE_INSTRUCTIONS,
+    SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE,
+)
 from xyz_agent_context.module.social_network_module._social_mcp_tools import create_social_network_mcp_server
+
+# Settings (leaf module, safe to import at module level)
+from xyz_agent_context.settings import settings
 
 # Entity update pipeline (LLM-powered)
 from xyz_agent_context.module.social_network_module._entity_updater import (
@@ -79,8 +85,13 @@ class SocialNetworkModule(XYZBaseModule):
         # Initialize repository (lazy initialization, since db may only be available at call time)
         self._social_repo: Optional[SocialNetworkRepository] = None
 
-        # Build instructions, dynamically insert agent_id
-        self.instructions = SOCIAL_NETWORK_MODULE_INSTRUCTIONS.replace("{agent_id}", agent_id)
+        # Build instructions, dynamically insert agent_id (via .replace, not
+        # .format — the template contains other literal braces).
+        # Legacy vs stable: get_instructions() picks per the R4 relocation
+        # flag; agent_id is baked into both once here.
+        self._instructions_legacy = SOCIAL_NETWORK_MODULE_INSTRUCTIONS.replace("{agent_id}", agent_id)
+        self._instructions_stable = SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE.replace("{agent_id}", agent_id)
+        self.instructions = self._instructions_legacy
 
     def _get_repo(self) -> SocialNetworkRepository:
         """Get or create SocialNetworkRepository instance"""
@@ -123,6 +134,38 @@ class SocialNetworkModule(XYZBaseModule):
             enabled=True,
             description="Provides social network recording and search capabilities"
         )
+
+    # ============================================================================= Instructions
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        """Render the module instruction, selecting the template by the R4
+        relocation flag.
+
+        Flag ON  → stable template (§5 entity card replaced by a static
+                   pointer) so the output is byte-stable across turns; the
+                   card travels via get_turn_context() instead.
+        Flag OFF → untouched legacy template, byte-identical to pre-R4.
+        """
+        self.instructions = (
+            self._instructions_stable
+            if settings.prompt_turn_context_relocation_enabled
+            else self._instructions_legacy
+        )
+        return await super().get_instructions(ctx_data)
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile span: the current-entity card (§5).
+
+        Carries ctx_data.social_network_current_entity exactly as
+        hook_data_gathering rendered it — known-entity card, first-meeting /
+        no-user-context / load-error fallbacks alike (R4: relocated, never
+        dropped; the error text with its exception string is precisely the
+        kind of volatile content that must stay out of the system prompt).
+        """
+        entity = getattr(ctx_data, "social_network_current_entity", None)
+        if not entity:
+            return ""
+        return f"##### Current User Information\n{entity}"
 
     # ============================================================================= Hooks
 

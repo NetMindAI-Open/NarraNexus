@@ -27,6 +27,8 @@
     "marketplace": "Marketplace"
   },
   "chat": {
+    "bootstrapGreeting": "Hi there... I just woke up. Everything feels brand new.\n\nI don't have a name yet, and I don't really know who I am — but I know you're the one who brought me here.\n\nWould you like to tell me what I should be called? And what should I call you?",
+    "securityReminder": "Security reminder: never paste sensitive personal information here — wallet addresses, private keys, seed phrases, passwords, or account credentials.",
     "conversation": "Conversation",
     "innerThoughts": "Inner Thoughts",
     "interaction": "Interaction",
@@ -85,6 +87,7 @@
       "toolLabel": "[ tool ]",
       "outputLabel": "[ output ]",
       "reply": "Reply",
+      "plan": "Plan",
       "nativeOutput": "Native output",
       "helperFallback": "↻ helper_llm fallback",
       "helperFallbackTip": "The agent didn't explicitly send a reply; this message was written by the fallback LLM from its reasoning.",
@@ -113,9 +116,9 @@
       "memberCount_other": "{{count}} members",
       "teamSettings": "Team settings",
       "empty": "No messages yet.",
-      "emptyHint": "@mention a teammate to start the conversation — they hand off to each other from there.",
+      "emptyHint": "Send a message to get started — the team lead picks it up, or @ someone to address them directly.",
       "noAgents": "No agents in this team yet.",
-      "placeholder": "Message the team — @mention to address someone…",
+      "placeholder": "Message the team — @ to address someone…",
       "send": "Send (Enter)",
       "attach": "Attach a file",
       "uploading": "Uploading…",
@@ -131,12 +134,49 @@
       "typing": "{{name}} is typing",
       "youTitle": "You · {{name}}",
       "activity": {
+        "starting": "starting up",
         "running": "working",
         "thinking": "thinking",
         "replying": "replying",
         "tool": "using {{name}}",
-        "queued": "queued"
-      }
+        "queued": "waiting to start",
+        "stalled": "no signal",
+        "idle": "idle",
+        "runningHint": "Working on your message. A long task can run for minutes or hours — the steps below keep updating while it does.",
+        "queuedHint": "Delivered, waiting for a free execution slot. This happens when several teammates were addressed at once, or another long task is still running.",
+        "stalledHint": "No progress signal from this teammate for a while. It may still be running — a model can stay silent for a long stretch — or the background worker may have a problem. If it does not recover, check the service status.",
+        "idleHint": "Nothing pending right now.",
+        "silentFor": "silent {{duration}}",
+        "waitingFor": "waiting {{duration}}",
+        "finishedAgo": "done {{duration}} ago",
+        "startedAt": "started at {{time}}",
+        "stepsDropped": "{{n}} earlier steps not shown",
+        "noSteps": "No steps recorded yet."
+      },
+      "guide": {
+        "title": "How this room works",
+        "plainTitle": "Just talk",
+        "plain": "Send a message with no @ — the team lead picks it up.",
+        "plainWithLead": "Send a message with no @ — {{name}} picks it up.",
+        "mentionTitle": "Address one agent",
+        "mention": "@ a teammate to address them directly.",
+        "broadcastTitle": "Broadcast to all",
+        "broadcast": "@all addresses everyone — each member runs a full turn, so use it sparingly.",
+        "relay": "Teammates can @ each other to hand work off; the relay stops after 4 hops without a message from you."
+      },
+      "noProcess": "No process record for this turn",
+      "detailLoadFailed": "Couldn't load the process. Try again.",
+      "roster": {
+        "title": "Members",
+        "lastRun": "ran {{duration}} · {{ago}} ago",
+        "lastRunAgoOnly": "finished {{ago}} ago",
+        "neverRan": "no runs yet",
+        "loading": "Loading process…",
+        "workingCount": "{{count}} working",
+        "process": "process"
+      },
+      "emptyHintWithLead": "Send a message to get started — {{name}} picks it up, or @ someone else to address them directly.",
+      "leadTitle": "{{name}} · answers when no one is @mentioned"
     },
     "execution": {
       "showSteps": "Show execution steps",
@@ -146,7 +186,15 @@
       "statusCompleted": "completed",
       "statusRunning": "running",
       "statusFailed": "failed",
-      "statusPending": "pending"
+      "statusPending": "pending",
+      "startingUp": "Starting up…",
+      "initializing": "Initializing…",
+      "loadingContext": "Loading context…",
+      "loadingResources": "Loading resources…",
+      "preparingWorkspace": "Preparing workspace…",
+      "buildingContext": "Building context…",
+      "thinking": "Thinking…",
+      "acting": "Acting…"
     },
     "inner": {
       "viewLoop": "view what it did",
@@ -195,7 +243,15 @@
       "downloadTitle": "Download {{name}}"
     },
     "dateToday": "Today",
-    "dateYesterday": "Yesterday"
+    "dateYesterday": "Yesterday",
+    "segment": {
+      "details": "Reasoning & tools"
+    },
+    "process": {
+      "plan": "Plan",
+      "title": "agent · process",
+      "ops": "ops"
+    }
   },
   "awareness": {
     "common": {
@@ -687,7 +743,8 @@
       "create": "Create",
       "createAgentOrTeam": "Create agent or team",
       "createAgent": "Create Agent",
-      "createTeam": "Create Team"
+      "createTeam": "Create Team",
+      "importAgent": "Create Agent (from other source)"
     },
     "teamChatRow": {
       "groupChatTitle": "{{name}} — group chat",
@@ -733,7 +790,50 @@
     },
     "resizableDivider": {
       "ariaLabel": "Resize panels",
-      "title": "Drag to resize chat / artifacts"
+      "title": "Drag to resize chat / artifacts",
+      "drawerAriaLabel": "Resize panel",
+      "drawerTitle": "Drag to resize the panel"
+    },
+    "importAgent": {
+      "title": "Import an Agent",
+      "previewTitle": "Review before importing",
+      "doneTitle": "Import complete",
+      "detecting": "Scanning your machine…",
+      "noneFound": "No other-framework agents found in the standard locations. Enter a path below to scan a specific folder.",
+      "manualPathLabel": "Or scan a specific folder",
+      "scan": "Scan",
+      "unnamed": "Untitled agent",
+      "skills": "Skills",
+      "memories": "Memories",
+      "mcpServers": "MCP servers",
+      "willCopy": "will copy",
+      "willMatch": "from marketplace",
+      "deferred": "not yet imported",
+      "secretWarning": "Some MCP servers carry credentials shown in plaintext. Review them before importing.",
+      "narrative": "Narrative",
+      "notes": "Notes",
+      "credentialNote": "Credential keys not imported (re-enter in Settings): {{keys}}",
+      "unmappedNote": "{{count}} file(s) were recognized but not mapped.",
+      "confirmImport": "Import",
+      "openAgent": "Open agent",
+      "awareness": "Awareness",
+      "skillsCopied": "Skills copied",
+      "skillsInstalled": "Skills installed",
+      "mcpAdded": "MCP servers added",
+      "doneMsg": "The agent was created and populated.",
+      "skillsUnmatchedNote": "Skills with no local source or marketplace match: {{names}}",
+      "stdioSkippedNote": "Local (stdio) MCP servers captured but not wired yet: {{names}}",
+      "sourceTitle": "Choose a source",
+      "frameworkHint": "We found agents from these frameworks on this machine. Pick one, or scan a folder directly.",
+      "sourceHint": "Pick which {{framework}} source to import.",
+      "countProjects": "{{count}} project(s)",
+      "countSources": "{{count}} source(s)",
+      "defaultSkills": "Default skills",
+      "sessionsHint": "{{count}} session(s) will each become a Narrative (summarized on import), with their turns kept as memory.",
+      "narrativesCreated": "Narratives",
+      "turnsRetained": "Memory turns",
+      "untitledSession": "Untitled session",
+      "turnCount": "{{count}} turns"
     }
   },
   "settings": {
@@ -826,7 +926,16 @@
       "netAvailable": "Your NetMind.AI Power account is linked but idle — you’re running on your own provider. Switch in Model Defaults.",
       "linkNow": "Link it now",
       "linkFailed": "Linking failed:",
-      "freeTierCreditLeft": "${{remaining}} left"
+      "freeTierCreditLeft": "${{remaining}} left",
+      "returnSubscribeSuccess": "Payment received — applying it to your account now.",
+      "returnTopupSuccess": "Top-up received — updating your balance.",
+      "returnCancelled": "Payment cancelled — you have not been charged.",
+      "cancelConfirmTitle": "Turn off auto-renew?",
+      "cancelConfirmAction": "Turn off auto-renew",
+      "cancelConfirmKeep": "Keep subscription",
+      "reactivateConfirmTitle": "Resume auto-renew?",
+      "reactivateConfirmAction": "Resume",
+      "reactivateConfirmDismiss": "Not now"
     },
     "modal": {
       "title": "Settings",
@@ -852,7 +961,37 @@
       "lockedUseDesc": "Prevents this computer from going to sleep so background automations keep running. Held only while NarraNexus is open."
     },
     "provider": {
+      "oneKeyTitle": "One key to start",
+      "oneKeyDescription": "Pick a provider and paste its API key — the agent, models, and endpoints are configured for you.",
+      "officialAnthropic": "Anthropic (official)",
+      "officialOpenai": "OpenAI (official)",
+      "officialAnthropicDesc": "Official Anthropic API key (sk-ant-...). Agent and helper both run on Claude.",
+      "officialOpenaiDesc": "Official OpenAI API key. The agent runs on Codex CLI (gpt-5.5).",
+      "netmindDesc": "One key covers both Anthropic and OpenAI endpoints.",
+      "proxyDesc": "Proxies the official Claude and OpenAI APIs.",
+      "getProviderKey": "Get your {{provider}} API key",
+      "looksLikeKey": "Looks like a {{provider}} key — switch?",
+      "replaceKeyTitle": "Replace your existing key?",
+      "replaceKeyMessage": "You already have a {{provider}} key ({{masked}}) set up. Replace it with the new key? Your agent and helper will switch to the new key right away.",
+      "replaceKey": "Replace key",
+      "keepCurrentKey": "Keep current",
+      "setupFailed": "Setup failed",
+      "settingUp": "Setting up...",
+      "startUsing": "Start using NarraNexus",
+      "allSet": "You’re all set",
+      "agentSummary": "Agent: {{model}}",
+      "helperSummary": "Helper: {{model}}",
+      "unverifiedKey": "Key saved but could not be verified ({{reason}}) — if the first chat fails, double-check the key.",
       "oneKeySaved": "Key saved",
+      "claudeLoginTitle": "Claude Code Login",
+      "codexLoginTitle": "Codex CLI Login",
+      "codexOauthDesc": "OAuth login via Codex CLI (Sign in with ChatGPT). No API key is needed. Usage is covered by your ChatGPT Plus or Pro subscription.",
+      "codexTerminalHint": "Run \"codex login\" or \"codex logout\" in your terminal, then refresh this page.",
+      "codexInstallHint": "Install Codex CLI first (it is installed automatically when you select Codex CLI as the Agent Framework), then run \"codex login\" in your terminal.",
+      "codexAddedAsProvider": "Added as a NarraNexus provider — assignable in Model Defaults.",
+      "codexLoginToAdd": "Log in above to add Codex CLI as a provider.",
+      "endpointLabel": "Endpoint",
+      "netmindAccountLabel": "NetMind account",
       "oneKeyRegisterOnly": "The cloud version keeps running on your NetMind account — this key wasn't activated here. To run models on your own keys, use the local desktop version.",
       "presetNetmindDesc": "One key covers both Anthropic & OpenAI endpoints",
       "presetProxyDesc": "Proxies official Claude & OpenAI APIs",
@@ -1183,6 +1322,8 @@
   "cost": {
     "popover": {
       "triggerTitle": "Token usage — click for details",
+      "modelUsage": "Model usage",
+      "helperUsage": "Helper Model Usage",
       "inOut": "{{in}} in / {{out}} out",
       "byModel": "By Model",
       "daily": "Daily",
@@ -1248,6 +1389,34 @@
       "seen": "seen {{date}}"
     }
   },
+  "onboarding": {
+    "checklist": {
+      "gettingStarted": "Getting started",
+      "dismissAria": "Dismiss getting-started checklist",
+      "providerLabel": "Configure an LLM provider",
+      "providerHint": "NetMind Power is the one-key default — or bring your own API key.",
+      "openSettings": "Open Settings",
+      "agentLabel": "Create your first agent",
+      "agentHint": "Start a blank agent and chat to shape who it is.",
+      "creating": "Creating…",
+      "createAgent": "Create agent",
+      "templateLabel": "Or start from a template",
+      "templateHint": "Browse ready-made agent teams on the templates marketplace.",
+      "browseTemplates": "Browse templates",
+      "bookmarksLabel": "Meet your bookmark strip",
+      "bookmarksHint": "Jobs, inbox and your agent’s profile live behind the edge bookmarks on the right — they light up when something changes."
+    },
+    "migrationGuide": {
+      "title": "Import an existing agent",
+      "body": "Found {{count}} agent(s) from other tools on this machine. Import them into NarraNexus?",
+      "import": "Import",
+      "later": "Later"
+    },
+    "migrationCoachmark": {
+      "text": "Want to import later? Use the “+” → {{action}}.",
+      "gotIt": "Got it"
+    }
+  },
   "pages": {
     "login": {
       "changeMode": "Change mode",
@@ -1308,6 +1477,9 @@
       "connectionFailed": "Connection failed. Please try again."
     },
     "setup": {
+      "oneKeyLabel": "Setup · One Key to Start",
+      "welcome": "Welcome to NarraNexus",
+      "advancedSetup": "Advanced setup — OAuth, custom endpoints, per-slot models",
       "sectionLabel": "Setup · Configure LLM Providers",
       "title": "Configure LLM Providers",
       "subtitle": "Set up your API keys so NarraNexus can connect to language models.",
@@ -1318,6 +1490,15 @@
     "settings": {
       "title": "Settings",
       "headerSections": "Providers · Bundle · Artifacts · Agents",
+      "nav": {
+        "account": "Account & Subscription",
+        "providers": "LLM Providers",
+        "modelDefaults": "Model Defaults",
+        "bundle": "Bundle",
+        "artifacts": "Artifacts",
+        "manageAgents": "Manage agents",
+        "updates": "App updates"
+      },
       "providers": {
         "label": "LLM Providers"
       },
@@ -1337,10 +1518,55 @@
         "openButton": "Open batch manager…"
       },
       "modelDefaults": {
+        "label": "Model Defaults",
+        "hint": "The framework and model every agent inherits by default. Per-agent overrides live in the chat page.",
+        "thinking": "Thinking",
+        "autoDefault": "Auto (default)",
+        "on": "On",
+        "off": "Off",
+        "reasoningEffort": "Reasoning effort",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "max": "Max",
+        "panelTitle": "Agent model & framework",
+        "loading": "Loading…",
+        "agentOnlyDescription": "These settings apply to {{agentId}} only. Leave a slot as the inherited default to follow your global setting (Settings › Model Defaults). Changes take effect on the agent's next run.",
+        "inheritingDefault": "inheriting default",
+        "customForAgent": "custom for this agent",
+        "agentMain": "Agent (main dialogue)",
+        "framework": "Framework",
+        "provider": "Provider",
+        "selectProvider": "Select provider…",
+        "model": "Model",
+        "selectModel": "Select model…",
+        "resetSlot": "Reset this slot to the global default",
+        "helperTitle": "Helper LLM (background tasks)",
+        "helperRecommendation": "Recommended: {{model}} — a small, fast model for summaries, deduplication, and memory. OAuth (CLI sign-in) providers also work here, so one subscription can cover both slots.",
+        "manageProviders": "Manage providers →",
+        "close": "Close",
+        "save": "Save",
+        "saving": "Saving…",
+        "saveDefaults": "Save defaults",
+        "saved": "Saved",
+        "defaultsDescription": "The framework and model every agent inherits by default. To give one agent its own model, change it from that agent's chat.",
+        "noProvidersBefore": "No providers yet — add one under",
+        "noProvidersAfter": "first, then set the default model here.",
+        "providersSection": "LLM Providers",
+        "authReady": "auth ready",
+        "authMissing": "auth missing",
+        "verifyingCodex": "Verifying Codex CLI…",
+        "codexUnavailable": "Codex binary unavailable: {{reason}}",
+        "loadFailed": "Failed to load configuration",
+        "frameworkSwitchFailed": "Failed to switch framework",
+        "saveFailed": "Save failed",
+        "resetFailed": "Reset failed",
+        "pickAgentModel": "Pick a provider and model for the agent slot.",
+        "pickHelperModel": "Pick a provider and model for the helper slot.",
         "cloudNetmindOnlyNote": "The cloud version runs on your NetMind account — models from your own API keys are not available here.",
         "cloudNetmindOnlyLink": "Download the local desktop version to use your own keys →",
-        "cloudFrameworkLocked": "Switching the agent framework is available in the local desktop version only.",
-        "cloudFrameworkLockedTitle": "Desktop version only"
+        "cloudFrameworkLocked": "This framework signs in through a shared CLI login, so it is staff-only in cloud. Claude Code and NexusPower-beta both work here — the others are available in the local desktop version.",
+        "cloudFrameworkLockedTitle": "Staff only in cloud"
       },
       "updates": {
         "label": "App updates",
@@ -1908,7 +2134,9 @@
       "resume": "Resume",
       "resuming": "Resuming...",
       "cancelJob": "Cancel Job",
-      "cancelling": "Cancelling..."
+      "cancelling": "Cancelling...",
+      "editSchedule": "Edit Time",
+      "savingSchedule": "Saving..."
     },
     "template": {
       "selectTemplate": "Select Template",
@@ -1937,6 +2165,26 @@
         "paused": "{{count}} paused",
         "failed": "{{count}} failed"
       }
+    },
+    "editSchedule": {
+      "title": "Edit Execution Time",
+      "hint": "Adjust when this job runs. Changes take effect on the next run.",
+      "runAt": "Run at",
+      "cron": "Cron expression",
+      "cronHint": "e.g. 0 8 * * * runs daily at 08:00",
+      "intervalSeconds": "Interval (seconds)",
+      "timezone": "Timezone",
+      "save": "Save",
+      "cancel": "Cancel",
+      "invalidRunAt": "Please pick a valid date and time",
+      "invalidCron": "Please enter a valid cron expression",
+      "invalidInterval": "Please enter an interval greater than 0",
+      "pastTimeError": "The chosen time is in the past",
+      "failedTitle": "Reschedule failed",
+      "failedMessage": "Could not update the execution time. Please try again.",
+      "modeLabel": "Trigger mode",
+      "modeInterval": "Interval",
+      "modeCron": "Cron expression"
     }
   },
   "artifacts": {
@@ -2012,6 +2260,9 @@
       "zoomInAria": "Zoom in",
       "close": "Close (Esc)",
       "closeAria": "Close zoom"
+    },
+    "url": {
+      "toggleFailed": "Could not change mode: {{error}}"
     }
   },
   "skills": {
@@ -2185,6 +2436,15 @@
     "agentCount_one": "{{count}} agent"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "cancel": "Cancel",
+    "back": "Back",
+    "betaTooltip": "NarraNexus is in beta. Features may change and occasional issues can occur — your feedback helps us improve.",
+    "ok": "OK",
+    "noticeTitle": "Just a moment",
+    "actionFailedTitle": "That didn’t work",
+    "savedTo": "Saved to {{path}}",
+    "downloadFailed": "Download failed: {{error}}",
+    "doneTitle": "Done"
   }
 }

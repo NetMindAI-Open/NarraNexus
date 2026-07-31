@@ -21,6 +21,7 @@ from ..models import (
     NarrativeType,
 )
 from .crud import NarrativeCRUD
+from .routing_gate import evaluate_gate
 from .default_narratives import (
     DEFAULT_NARRATIVES_CONFIG,
     ensure_default_narratives,
@@ -161,11 +162,19 @@ class NarrativeRetrieval:
         best_score = search_results[0].similarity_score if search_results else None
         all_scores = {r.narrative_id: r.similarity_score for r in search_results}
 
-        # First tier: High confidence - Return Top-K directly
-        # P0-4 improvement: If user has PARTICIPANT Narratives, still go through LLM judgment even with high confidence
-        # Reason: High confidence may match user's own Narrative, but should actually match the PARTICIPANT-associated task
-        if best_score and best_score >= config.NARRATIVE_MATCH_HIGH_THRESHOLD and not has_participant_narratives:
-            logger.info(f"High confidence match (score={best_score:.2f}), returning Top-{top_k} directly")
+        # First tier: high confidence - return Top-K directly.
+        # The gate reads RAW BM25, not the squashed similarity — see
+        # routing_gate.evaluate_gate for why. Participant narratives still
+        # force LLM judgment regardless: they carry a synthetic neutral score,
+        # and a high BM25 hit on the user's OWN narrative should not win over
+        # the task they were invited into (P0-4).
+        gate = evaluate_gate(
+            [r.raw_score for r in search_results],
+            raw_floor=config.NARRATIVE_MATCH_RAW_FLOOR,
+            margin_ratio=config.NARRATIVE_MATCH_MARGIN_RATIO,
+        )
+        if gate.short_circuit and not has_participant_narratives:
+            logger.info(f"[NarrativeSelect] high confidence — {gate.reason}")
             narratives = []
             for result in search_results[:top_k]:
                 narrative = await self._crud.load_by_id(result.narrative_id)
@@ -174,7 +183,7 @@ class NarrativeRetrieval:
 
             return NarrativeSelectionResult(
                 narratives=narratives,
-                selection_reason=f"High confidence match, BM25 score {best_score:.2f} >= {config.NARRATIVE_MATCH_HIGH_THRESHOLD}",
+                selection_reason=f"High confidence match: {gate.reason}",
                 selection_method="high_confidence",
                 is_new=False,
                 best_score=best_score,
@@ -182,6 +191,9 @@ class NarrativeRetrieval:
                 retrieval_method=retrieval_method,
                 # evermemos_memories removed — EverMemOS decoupled from narrative selection
             )
+
+        if search_results:
+            logger.info(f"[NarrativeSelect] deferring to LLM — {gate.reason}")
 
         # P0-4: If user has PARTICIPANT Narratives, force LLM judgment
         if has_participant_narratives:
@@ -327,7 +339,12 @@ class NarrativeRetrieval:
         scores = bm25_rank(query, items)
         ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)[:top_k]
         return [
-            NarrativeSearchResult(narrative_id=nid, similarity_score=s / (s + 1.0), rank=i + 1)
+            NarrativeSearchResult(
+                narrative_id=nid,
+                similarity_score=s / (s + 1.0),
+                rank=i + 1,
+                raw_score=s,
+            )
             for i, (nid, s) in enumerate(ranked)
         ]
 

@@ -38,6 +38,30 @@ class LarkContextBuilder(ChannelContextBuilderBase):
         self.cli = cli
         self.agent_id = agent_id
 
+    # Appended to reply_instruction for group rooms only.
+    #
+    # The trigger only wakes the agent when it was @-mentioned
+    # (`LarkTrigger.is_group_reply_warranted`), so by the time this runs
+    # someone deliberately addressed the bot — mid-conversation, with
+    # context the agent never saw. The pre-fetched history window is
+    # capped, and the interesting part is often the exchange just above
+    # the mention. Tell the agent to go widen its own view before
+    # answering rather than replying to an isolated sentence.
+    _GROUP_ROOM_INSTRUCTION = (
+        "\n\nThis is a GROUP room and you were @-mentioned — you are only "
+        "woken for group messages that mention you, so the conversation "
+        "above almost certainly carries context you have not seen. BEFORE "
+        "replying, make a genuine effort to read the recent history: call "
+        '`lark_cli(agent_id="{agent_id}", command="im +chat-messages-list '
+        '--chat-id {chat_id} --page-size 50")`, and widen with '
+        "`im +messages-search` (needs `--as user`) when the thread points "
+        "further back or to another room. Read what people actually said, "
+        "who asked what, and whether the question was already answered — "
+        "then reply once, addressing the person who mentioned you. If a "
+        "history call fails on permissions, say what you could not read "
+        "instead of guessing at the missing context."
+    )
+
     async def get_message_info(self) -> Dict[str, Any]:
         brand_display = "Lark" if self.credential.brand == "lark" else "Feishu"
         chat_type = self.event.get("chat_type", "p2p")
@@ -63,6 +87,7 @@ class LarkContextBuilder(ChannelContextBuilderBase):
                 "(the CLI converts it to Lark post format automatically). "
                 "Use `--text` only when the reply must keep exact verbatim "
                 "layout — e.g. code blocks where spacing matters or ASCII art."
+                + (self._GROUP_ROOM_INSTRUCTION if chat_type == "group" else "")
             ).format(agent_id=self.agent_id, chat_id=self.event.get("chat_id", "")),
         }
 

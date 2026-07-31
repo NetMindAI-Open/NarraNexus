@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
@@ -35,6 +35,7 @@ from pydantic import BaseModel, Field
 
 from backend.auth import resolve_current_user_id
 from xyz_agent_context.settings import settings
+from xyz_agent_context.utils.url_safety import is_obviously_non_public_host
 from xyz_agent_context.utils.deployment_mode import (
     is_cloud_mode,
     is_power_login_enabled,
@@ -171,6 +172,90 @@ def _validate_checkout_url(url: object) -> None:
         )
 
 
+# Where the payer comes back to. `/app/settings` + `tab=account` is the Account
+# & Subscription panel (SettingsPage reads `tab`; the panel consumes `status` and
+# `flow`, then strips them so a refresh doesn't re-announce the payment).
+_RETURN_PATH = "/app/settings"
+
+
+def _return_urls(flow: Literal["subscription", "topup"]) -> dict[str, str]:
+    """Post-payment redirect targets, or ``{}`` when this deployment has none.
+
+    Stripe sends the payer to the URLs stored on the Checkout Session, and
+    NetMind — not us — creates that session, so handing these two fields
+    upstream is the only lever we have. Without them the payer lands on
+    NetMind's own result page, on a domain they have never seen (the 2026-07-30
+    P0: "paid on NarraNexus, ended up on a stranger's site").
+
+    The origin comes ONLY from deploy config (``settings.public_base_url``),
+    never from request headers. A payment session's redirect target must not be
+    influenceable by anything a caller can set, and the deploy value is already
+    trusted — which also makes an allowlist redundant rather than a second line
+    of defence. Consequence: an install without ``PUBLIC_BASE_URL`` (self-hosted,
+    and the desktop app, whose front-end origin is ``tauri://localhost`` and
+    therefore unreachable for Stripe anyway) keeps exactly today's behavior.
+
+    Anything the upstream would choke on yields ``{}`` instead of a broken
+    checkout. This is the load-bearing rule, and it is built on measurements
+    (dev, 2026-07-30) rather than assumption, because guessing wrong here costs
+    the user the ability to pay at all — never worth a cosmetic redirect:
+
+    - A malformed URL makes the upstream answer 500 "Failed to create Stripe
+      checkout session".
+    - A loopback / private host is rejected by the upstream's EDGE with an HTML
+      403 — for any scheme, `https://localhost` and `http://192.168.x.x` alike.
+      Our client maps a 403 to BillingAuthError, which this route reports as
+      401 "NetMind token invalid or expired", so sending one would break payment
+      AND blame the user's login for it. Hence the host screen below; it also
+      means a `bash run.sh` install cannot receive the redirect no matter what
+      we send — that block is upstream, not ours.
+    """
+    # Parsing AND validation live in one try. Both steps raise ValueError on a
+    # malformed deploy value, and an uncaught one would 500 both payment endpoints
+    # — the exact outcome this function exists to prevent:
+    #   - `urlparse` itself raises on a netloc that NFKC-normalizes to something
+    #     else (a FULL-WIDTH colon, `：` — the likeliest slip when this value is
+    #     typed into an EC2 .env by hand) and on unbalanced IPv6 brackets.
+    #   - `.port` is a property that parses, so it raises on `:99999` / `:abc`
+    #     where `.scheme`/`.hostname` happily do not.
+    # Same shape as `url_artifact._origin_tuple`, which already guards `.port`
+    # for this very setting (its own `urlparse` call is unguarded — tracked).
+    try:
+        parsed = urlparse((settings.public_base_url or "").strip())
+        # https only. NOT because the upstream refuses plain http — it accepts it
+        # (probed: http://example.com → 200). Stripe's live-mode behavior with a
+        # plain-http return URL is what we have not verified, and the cost of being
+        # wrong is asymmetric: refusing http merely denies an http self-hoster the
+        # redirect, while sending something Stripe rejects breaks their checkout.
+        if parsed.scheme != "https" or not parsed.hostname:
+            return {}
+        # Private / loopback / single-label hosts: see the 403 note above.
+        if is_obviously_non_public_host(parsed.hostname):
+            return {}
+        _ = parsed.port  # read for VALIDATION only — the value is unused
+    except ValueError:
+        return {}
+    # A netloc that survives parsing can still be unusable: an ASCII space or a
+    # zero-width character passes both urlparse and the host screen, then reaches
+    # Stripe as a malformed URL and earns a 500 — the same paste/IME family as
+    # above, just failing upstream instead of here. An operator on an
+    # internationalised domain must configure its punycode form, which is ASCII.
+    if not parsed.netloc.isascii() or any(c.isspace() for c in parsed.netloc):
+        return {}
+    # Take host+port from netloc, minus the userinfo. netloc is the only form that
+    # keeps IPv6 brackets intact (`.hostname` strips them, and re-adding a port
+    # would then produce `https://2001:db8::1:8443` — a malformed URL). The
+    # userinfo MUST go: a `user:pass@` base URL would otherwise leak basic-auth
+    # credentials to NetMind and into a stored Stripe session.
+    origin = f"https://{parsed.netloc.rpartition('@')[2]}"
+
+    def _url(status: str) -> str:
+        query = urlencode({"tab": "account", "status": status, "flow": flow})
+        return f"{origin}{_RETURN_PATH}?{query}"
+
+    return {"success_url": _url("success"), "cancel_url": _url("cancelled")}
+
+
 @router.get("/fee-info")
 async def get_fee_info(request: Request):
     """User balance + eligibility (module B). Requires the NetMind loginToken.
@@ -216,10 +301,19 @@ async def get_records(request: Request, direction: str | None = None):
     }
 
 
-async def _write_action(request: Request, action: Literal["subscribe", "cancel", "reactivate"]):
+async def _write_action(
+    request: Request,
+    action: Literal["subscribe", "cancel", "reactivate"],
+    extra: dict[str, str] | None = None,
+):
     """Shared harness for the subscription write routes (subscribe / cancel /
     reactivate): Power-account gate + NetMind token, then dispatch to the client
     method, mapping the three error kinds consistently.
+
+    ``extra`` carries per-action keyword arguments — today only subscribe's
+    return URLs. cancel/reactivate open no Stripe checkout, so they must never
+    receive them; keeping this a parameter rather than resolving it inside the
+    harness is what keeps that true.
 
     BillingBusinessError -> 400 (surface the user-safe message, e.g. "Already
     subscribed"); BillingAuthError -> 401; BillingUpstreamError -> 502.
@@ -228,7 +322,7 @@ async def _write_action(request: Request, action: Literal["subscribe", "cancel",
     token = _require_netmind_token(request)
     method = getattr(_client(), action)
     try:
-        data = await method(token)
+        data = await method(token, **(extra or {}))
     except BillingAuthError:
         raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
     except BillingBusinessError as exc:
@@ -243,7 +337,7 @@ async def _write_action(request: Request, action: Literal["subscribe", "cancel",
 @router.post("/subscribe")
 async def subscribe(request: Request):
     """Start a Pro subscription — returns Stripe {session_id, checkout_url}."""
-    result = await _write_action(request, "subscribe")
+    result = await _write_action(request, "subscribe", _return_urls("subscription"))
     _validate_checkout_url((result.get("data") or {}).get("checkout_url"))
     return result
 
@@ -293,7 +387,9 @@ async def recharge(req: RechargeRequest, request: Request):
     await _require_power_account(request)
     token = _require_netmind_token(request)
     try:
-        body = await _client().recharge(token, req.amount, req.currency)
+        body = await _client().recharge(
+            token, req.amount, req.currency, **_return_urls("topup")
+        )
     except BillingAuthError:
         raise HTTPException(status_code=401, detail="NetMind token invalid or expired")
     except BillingBusinessError as exc:

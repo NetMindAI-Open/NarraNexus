@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/narrative/config.py
-last_verified: 2026-07-24
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 高置信判据换成 RAW_FLOOR + MARGIN_RATIO
+
+删除 `NARRATIVE_MATCH_HIGH_THRESHOLD = 0.70`。它比的是 squash 后的
+`s/(s+1)`，等价于原始分 2.33，在中文单字 unigram 下几乎恒真——273 条真实
+prod 轮次实测短路 87.5%。换成 `NARRATIVE_MATCH_RAW_FLOOR = 3.0` +
+`NARRATIVE_MATCH_MARGIN_RATIO = 2.0`，同一批数据短路率降到 48.0%。
+
+**RAW_FLOOR 是噪声过滤不是强度测试，别调高**——原始分随 query 长度涨，高
+floor 会毙掉短追问。定值依据和取舍全写在 [[routing_gate.py]]。改这两个常量
+会让 `tests/narrative/fixtures/routing_cases.json` 的期望值失效，必须一起重算。
 
 > 2026-05-29：删除全部 `EVERMEMOS_*` 常量（EverMemOS 整体移除）。Narrative
 > 检索现在无条件走本地 VectorStore，没有外部检索后端开关。

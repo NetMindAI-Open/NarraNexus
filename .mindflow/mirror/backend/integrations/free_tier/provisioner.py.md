@@ -1,8 +1,17 @@
 ---
 code_file: backend/integrations/free_tier/provisioner.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 新卡种子过 free 门（PR #204）
+
+seed 不再直接用 `served_models()` 裸网关列表：先 `load_ledger_db`（文件回落）
+再 `model_sync.apply_free_tier_gate` 在内存里过门，按协议 dict 传进
+`onboard_one_key`——新 free 卡从出生起就不含上游整协议拒绝的 id（裸列表曾带
+19 个 anthropic FAIL）。门在内存 mutate 不落盘：持久化 netmind_free 条目是
+每日 pass 的职责，provisioning 不与之竞写。门自身出错（DB 不可达等）降级回
+裸网关列表——宁可下拉框全量也不阻断开户，夜间 pass 会收敛。
 
 # provisioner.py — 首次登录时把钱包变成一张普通 provider 卡
 

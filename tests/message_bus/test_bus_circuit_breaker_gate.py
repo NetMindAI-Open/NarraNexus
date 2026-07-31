@@ -31,6 +31,10 @@ def _trigger(bus):
     t = MessageBusTrigger.__new__(MessageBusTrigger)
     t._semaphore = asyncio.Semaphore(10)
     t._agent_locks = {}
+    # `_process_agent` marks its dispatch as slot-holding for the heartbeat;
+    # called directly there is no dispatch, so an empty registry is the
+    # accurate state, not a stub.
+    t._in_flight = {}
     t._bus = bus
     return t
 

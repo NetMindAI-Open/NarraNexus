@@ -132,6 +132,42 @@ _MSG_AUTHORIZED_EXPIRED = (
     "刚才那个授权链接过期了，新的给你：{fresh_url}。点完告诉我「我授权了」。"
 )
 _MSG_AVAILABILITY_OK = "✅ 可见度已记录。"
+
+# The one step the three-click flow structurally cannot automate.
+#
+# `im:message.group_msg` is a BOT-identity scope flagged sensitive by Lark:
+# `auth login` only ever grants user identity, and the
+# `/open-apis/application/v6/scopes/apply` self-service API rejects
+# high-sensitivity scopes with 212001. Console + version publish is the
+# only path, so the least we can do is hand over the exact link and the
+# exact steps instead of "go enable it somewhere".
+#
+# Framed around READING on purpose: the bot already replies correctly
+# without this scope (the trigger wakes the agent only on @-mentions
+# either way). What the scope buys is the agent seeing the conversation
+# it was pulled into. Users who think it means "the bot will start
+# replying to everything" refuse it — that fear is what the last line
+# answers.
+_MSG_GROUP_SCOPE_GUIDE = (
+    "📖 还有一个可选步骤，只有你能做（开放平台不允许程序代办）：\n\n"
+    "默认情况下 bot 在群里**只能看到 @ 它的那一条消息**，看不到群里的上下文，"
+    "所以它回答群里的问题时容易答非所问。想让它能读到群聊上下文：\n\n"
+    "1. 打开 {console_url}/permission\n"
+    "2. 添加权限 `im:message.group_msg`（获取群组中所有消息）\n"
+    "3. 点「创建版本并发布」——**这一步不做权限不会生效**\n"
+    "4. 企业租户还需要管理员批准这个版本\n\n"
+    "这是飞书标记的敏感权限，必须走后台 + 发版，没有 API 可以代申请。\n\n"
+    "放心：**开了也不会让 bot 变得多话。**它在群里依然只在被 @ 时才回复，"
+    "这条规则由 NarraNexus 自己把关，和这个权限无关。这个权限只影响它"
+    "「能读到多少」，不影响它「什么时候开口」。"
+)
+
+
+def _group_scope_guide(cred) -> str:
+    """Render the sensitive-scope walkthrough for this agent's app."""
+    return _MSG_GROUP_SCOPE_GUIDE.format(
+        console_url=_dev_console_url(cred.brand, cred.app_id)
+    )
 _MSG_ALREADY_COMPLETED = (
     "已完成三次点击授权，Matrix 第 2 行应显示 ✅ completed。无需重复操作。"
 )
@@ -151,6 +187,102 @@ _RECOMMENDED_BOT_SCOPES = [
     "sheets:spreadsheet", "sheets:spreadsheet:readonly",
     "wiki:wiki:readonly",
     "task:task",
+]
+
+
+# ── User-identity scopes requested on top of `--recommend` ────────────────
+# `auth login --domain all --recommend` only asks for scopes lark-cli's
+# registry marks auto-approve (`scope_priorities.json` recommend=="true",
+# minus `scope_overrides.json` deny). That filter drops ~33 scopes the
+# CLI-created PersonalAgent app actually carries on its user side —
+# calendar, mail, minutes, cross-conversation search — so agents hit
+# `missing_scope` on everyday work and the owner has to walk the
+# mint/click/poll top-up dance once per capability.
+#
+# We append them explicitly so the whole set is requested in the SAME
+# Click 2 / Click 3 pair. They are NOT auto-approve, so on enterprise
+# tenants Click 2 becomes a real admin-approval request covering these
+# too — that is the intended trade: one approval up front instead of a
+# trickle of interruptions later. A tenant admin may approve only part of
+# the set; `ensureRequestedScopesGranted` surfaces the ungranted remainder
+# and the incremental `auth login --scope X` path still covers the rest.
+#
+# Deliberately NOT included:
+#   - `im:message.send_as_user` — lark-cli denies it from auto-approve on
+#     purpose, and the agent should speak as the bot, never impersonate
+#     the owner.
+#
+# CANNOT be included (bot-identity scopes; `auth login` only ever grants
+# user identity — see the module prompt's incremental-auth guide):
+#   - `im:message.group_msg` — "获取群组中所有消息", flagged SENSITIVE by
+#     Lark. It decides whether the bot receives every group message or
+#     only @-mentions, and it is enabled in the developer console +
+#     published as a new app version + admin/platform reviewed. No amount
+#     of `auth login` reaches it. The `:get_as_user` twin below is the
+#     user-identity read path and is already in the `--recommend` set.
+_EXTRA_LOGIN_SCOPES = [
+    # calendar — scheduling is a top agent use case; the whole domain sits
+    # outside auto-approve.
+    "calendar:calendar.event:create",
+    "calendar:calendar.event:delete",
+    "calendar:calendar.event:read",
+    "calendar:calendar.event:reply",
+    "calendar:calendar.event:update",
+    "calendar:calendar.free_busy:read",
+    "calendar:calendar:create",
+    "calendar:calendar:delete",
+    "calendar:calendar:read",
+    "calendar:calendar:update",
+    # contact — richer profile than the auto-approved `user.base:readonly`.
+    "contact:user.basic_profile:readonly",
+    # drive — full drive access (the auto-approved set only covers
+    # per-file upload/download plus metadata).
+    "drive:drive",
+    # im — recall a message the agent itself sent.
+    "im:message:recall",
+    # mail — the lark-mail skill is unusable without these. Widest
+    # approval surface in this list; if a tenant's admin balks, dropping
+    # this block is the first thing to try.
+    "mail:event",
+    "mail:user_mailbox.event.mail_address:read",
+    "mail:user_mailbox.folder:read",
+    "mail:user_mailbox.folder:write",
+    "mail:user_mailbox.mail_contact:read",
+    "mail:user_mailbox.mail_contact:write",
+    "mail:user_mailbox.message.address:read",
+    "mail:user_mailbox.message.body:read",
+    "mail:user_mailbox.message.subject:read",
+    "mail:user_mailbox.message:readonly",
+    "mail:user_mailbox.message:send",
+    "mail:user_mailbox.rule:read",
+    "mail:user_mailbox.rule:write",
+    # minutes — meeting recaps.
+    "minutes:minutes.basic:read",
+    "minutes:minutes.media:export",
+    "minutes:minutes:readonly",
+    # search — cross-conversation history lookup, the single most useful
+    # scope for an agent reconstructing context.
+    "search:docs:read",
+    "search:message",
+    # space — resolve a doc token to its node.
+    "space:document:retrieve",
+]
+
+# The exact `auth login` invocation both Click 2 and Click 3 mint with.
+# They MUST stay identical: Click 2 submits the approval request, Click 3
+# mints the token, and the token's scope is whatever CLICK 3 asked for —
+# a narrower Click 3 silently discards everything Click 2 got approved.
+#
+# `--scope` combining additively with `--domain`/`--recommend` requires
+# lark-cli >= 1.0.31; 1.0.30 and older hard-fail with "cannot use --scope
+# together with --domain/--recommend". Both run modes must ship a CLI at
+# or above that floor (铁律 #7) — see scripts/desktop-bundle/package.json.
+_LOGIN_MINT_ARGS = [
+    "auth", "login",
+    "--domain", "all",
+    "--recommend",
+    "--scope", " ".join(_EXTRA_LOGIN_SCOPES),
+    "--json", "--no-wait",
 ]
 
 
@@ -253,18 +385,28 @@ async def _finalize_setup(
             f"profile={profile_name}"
         )
 
-        # Step 5: best-effort bot_name + owner resolution (non-blocking failure)
+        # Step 5: best-effort bot identity + owner resolution (non-blocking).
+        # Uses the same `/open-apis/bot/v3/info` call as the `lark_bind` path
+        # (_lark_service.do_bind) so both entry points populate bot_name AND
+        # bot_open_id identically. `contact +get-user --as bot` was the old
+        # call here and is the wrong shape: with bot identity it yields
+        # open_id/union_id and NO name (see LarkCLIClient.get_user), so the
+        # `if name:` guard silently never fired and setup-created bots kept
+        # an empty bot_name. bot_open_id is what the trigger's group-message
+        # @-mention gate matches against.
         try:
             bot_info = await _cli._run_with_agent_id(
-                ["contact", "+get-user", "--as", "bot"], agent_id
+                ["api", "GET", "/open-apis/bot/v3/info", "--as", "bot"], agent_id
             )
             if bot_info.get("success"):
                 data = bot_info.get("data", {})
-                name = data.get("name") or data.get("en_name") or ""
-                if name:
-                    await mgr.update_bot_name(agent_id, name)
+                bdata = data.get("bot", data)
+                name = bdata.get("app_name") or bdata.get("name") or ""
+                await mgr.update_bot_identity(
+                    agent_id, bot_name=name, bot_open_id=bdata.get("open_id", "")
+                )
         except Exception as e:
-            logger.warning(f"lark_setup: {agent_id} bot_name lookup failed: {e}")
+            logger.warning(f"lark_setup: {agent_id} bot identity lookup failed: {e}")
 
     except Exception as e:
         logger.exception(f"lark_setup: {agent_id} _finalize_setup unexpected error: {e}")
@@ -300,7 +442,7 @@ async def _advance_start(agent_id: str, cred) -> dict:
         }
 
     result = await _cli._run_with_agent_id(
-        ["auth", "login", "--domain", "all", "--recommend", "--json", "--no-wait"],
+        _LOGIN_MINT_ARGS,
         agent_id,
         timeout=60.0,
     )
@@ -351,8 +493,9 @@ async def _advance_admin_approved(agent_id: str, cred) -> dict:
     # The Click 2 device_code was bound to the submit-to-admin phase and
     # is useless for minting a token. We must run auth login again to get
     # a fresh pair, regardless of whether the first one is expired.
+    # Same args as Click 2 by construction — see `_LOGIN_MINT_ARGS`.
     result = await _cli._run_with_agent_id(
-        ["auth", "login", "--domain", "all", "--recommend", "--json", "--no-wait"],
+        _LOGIN_MINT_ARGS,
         agent_id,
         timeout=60.0,
     )
@@ -467,8 +610,11 @@ async def _advance_user_authorized(agent_id: str, cred) -> dict:
         "restart the device",
     ))
     if is_stale:
+        # Same args as Click 2 / Click 3 — a re-mint that asked for less
+        # than the approved set would quietly downgrade every user whose
+        # first link expired. See `_LOGIN_MINT_ARGS`.
         regen = await _cli._run_with_agent_id(
-            ["auth", "login", "--domain", "all", "--recommend", "--json", "--no-wait"],
+            _LOGIN_MINT_ARGS,
             agent_id,
             timeout=60.0,
         )
@@ -1015,6 +1161,11 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                     "lark_status after that to verify."
                 ),
                 "profile_name": cred.profile_name,
+                # Receiving is exactly when group behaviour starts to
+                # matter, so this is where the one remaining manual step
+                # belongs. Send it verbatim — it is the only gap the
+                # three-click flow cannot close for the user.
+                "group_scope_guide": _group_scope_guide(cred),
             },
         }
 
@@ -1084,6 +1235,12 @@ def register_lark_mcp_tools(mcp: Any) -> None:
                 "profile_name": cred.profile_name,
                 "app_id": cred.app_id,
                 "brand": cred.brand,
+                # Surfaced on every status read so the walkthrough stays
+                # reachable long after binding — "the bot answers off-topic
+                # in groups" is a complaint that arrives weeks later, and
+                # this is its fix. Send verbatim when it applies; do not
+                # push it at a user who never mentioned groups.
+                "group_scope_guide": _group_scope_guide(cred),
             },
         }
 
@@ -1120,11 +1277,18 @@ def register_lark_mcp_tools(mcp: Any) -> None:
 
         Available skills: lark-shared (read first), lark-im, lark-contact,
         lark-calendar, lark-doc, lark-sheets, lark-drive, lark-mail,
-        lark-task, lark-wiki, lark-vc, lark-minutes, lark-base, lark-event,
-        lark-whiteboard, lark-slides, lark-okr, lark-approval,
-        lark-attendance, lark-workflow-meeting-summary,
+        lark-task, lark-wiki, lark-vc, lark-vc-agent, lark-minutes,
+        lark-note, lark-base, lark-event, lark-whiteboard, lark-slides,
+        lark-markdown, lark-okr, lark-approval, lark-attendance,
+        lark-apps, lark-workflow-meeting-summary,
         lark-workflow-standup-report, lark-openapi-explorer,
         lark-skill-maker.
+
+        This list tracks what upstream ships and drifts as they add
+        skills; it is a hint, not the source of truth. The loader
+        discovers whatever is installed, so call
+        `lark_skill(agent_id, "<name>")` for anything named here and read
+        the error if it is absent rather than assuming the set is fixed.
 
         Args:
             agent_id: Kept for API consistency; skill content is

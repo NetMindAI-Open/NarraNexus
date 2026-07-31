@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/pages/SetupPage.tsx
-last_verified: 2026-06-11
+last_verified: 2026-07-28
 stub: false
 ---
+## 2026-07-28 — Beta badge in the header
+
+The header logo now sits in a flex row with [[BetaBadge.tsx]] (shared brand
+beta marker). Purely visual — no funnel/provider logic change.
+
+## 2026-07-20 — localized first-run shell
+
+The setup eyebrow, welcome heading, advanced disclosure, and completion CTA
+now follow the active locale. Provider probing, funnel events, and navigation
+semantics are unchanged.
+
 ## 2026-06-11 — merge: funnel events wired into the redesigned page
 
 The dev-branch funnel instrumentation and the one-key redesign merged.

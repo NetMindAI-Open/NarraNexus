@@ -1,8 +1,24 @@
 ---
 code_file: frontend/src/components/chat/MessageBubble.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 助手轮按段渲染（SegmentedReply）
+
+一轮后端仍是一条记录，但 agent 可能说了 m 次话。消息带 `segments`
+（stopStreaming 切好）或 event-log fetch 后由同一个 `segmentTurn` 现切
+时，走 segment 模式：每次「说话」带自己的可折叠过程区，替代 content
+整块渲染——两者都画会把每句话打印两遍。
+
+- **fetch 已是轮次级**：一条消息一次 `getEventLog`，切段后服务段内
+  全部 m 个片段；历史气泡点开「View reasoning」后从单块升级为按段。
+  fetch 路径传 `defaultOpen`（2026-07-30 r2）：用户已经点过一次，过程
+  直接展开，不落在第二层折叠入口上。
+- **零回复轮次不特殊处理**（design §3）：segments 里没有任何 reply
+  就回落 legacy 路径——content 是 "(Agent decided no response
+  needed)"，过程在全局 toggle 后面。isError 消息同样不走段模式。
+- content 保留 join 全文：通知/复制/下载/搜索仍用它，老消息兜底。
 
 ## 2026-07-23 — full date on time hover
 

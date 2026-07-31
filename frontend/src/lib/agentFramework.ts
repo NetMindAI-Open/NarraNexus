@@ -34,9 +34,27 @@ export interface KnownModelMeta {
 
 export interface AgentFramework {
   id: string
-  label: string
+  /** Primary protocol — the one a picker shows and defaults to. */
   protocol: string
+  /**
+   * Every protocol this framework can drive. CLI-backed frameworks speak
+   * exactly one (claude_code → anthropic, codex_cli → openai) because
+   * their CLI does; NexusPower drives the provider API itself and works
+   * with either, so it must not be filtered down to one.
+   */
+  protocols?: string[]
+  label: string
   desc: string
+}
+
+/** Whether a provider's protocol can back this framework. */
+export function frameworkAcceptsProtocol(
+  framework: AgentFramework | undefined,
+  protocol: string | undefined,
+): boolean {
+  if (!framework || !protocol) return true
+  const accepted = framework.protocols ?? [framework.protocol]
+  return accepted.includes(protocol)
 }
 
 // ---- constants -----------------------------------------------------------
@@ -46,7 +64,20 @@ export interface AgentFramework {
 export const AGENT_FRAMEWORKS: AgentFramework[] = [
   { id: 'claude_code', label: 'Claude Code', protocol: 'anthropic', desc: 'Claude Agent SDK via Claude Code CLI' },
   { id: 'codex_cli', label: 'Codex CLI', protocol: 'openai', desc: 'Official openai-codex SDK — streaming reasoning + RPC interrupt' },
+  {
+    id: 'nexus_power',
+    label: 'NexusPower-beta',
+    protocol: 'anthropic',
+    protocols: ['anthropic', 'openai'],
+    desc: 'Our own loop — replies stream as they are written, live plan, on-demand capabilities',
+  },
 ]
+
+// NexusPower predicate — the surfaces that render its exclusive streams
+// (reply deltas, plan cards) branch on this instead of scattered
+// ``=== 'nexus_power'`` comparisons.
+export const isNexusPowerFramework = (framework: string | null | undefined): boolean =>
+  framework === 'nexus_power'
 
 // Codex-framework predicate — kept as a helper so a future v3 framework id
 // lands in one spot instead of scattered ``=== 'codex_cli'`` comparisons.
@@ -86,6 +117,31 @@ export function cloudNetmindOnly(role: string | undefined): boolean {
  */
 export function isSlotBindableSource(source: string | undefined): boolean {
   return source === 'netmind' || source === 'netmind_free'
+}
+
+/**
+ * Frameworks a cloud non-staff user may select — the frontend twin of
+ * backend ``cloud_policy.CLOUD_ALLOWED_FRAMEWORKS``.
+ *
+ * The gate is about CREDENTIAL RIDING, not framework variety: the
+ * CLI-backed frameworks authenticate through a credential file in a HOME
+ * the cloud image shares between users, so a non-staff user selecting one
+ * would run on staff's login. NexusPower drives the provider API with the
+ * key of the card bound to the agent slot and refuses subscription OAuth
+ * outright, so it carries no such risk.
+ *
+ * Exported as a PREDICATE for the same reason `isSlotBindableSource` is:
+ * the rule was previously inlined as `!== 'claude_code'` in two pickers,
+ * and when NexusPower became cloud-legal both kept rejecting it.
+ */
+export const CLOUD_ALLOWED_FRAMEWORKS = ['claude_code', 'nexus_power']
+
+export function frameworkAllowedInCloud(
+  framework: string,
+  role: string | undefined,
+): boolean {
+  if (!cloudNetmindOnly(role)) return true
+  return CLOUD_ALLOWED_FRAMEWORKS.includes(framework)
 }
 
 // What the helper_llm "Default (recommended)" resolves to per protocol.

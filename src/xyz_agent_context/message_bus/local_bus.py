@@ -35,6 +35,30 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Once a (message, agent) pair reaches this many delivery failures the message
+# is permanently dropped from the pending queue with no further retries. Owned
+# here because ``get_pending_messages`` is the filter that enforces it;
+# ``MessageBusTrigger`` imports it for the owner-facing "permanently dropped"
+# notice so the two can never drift apart.
+POISON_FAILURE_THRESHOLD = 3
+
+
+def _as_utc(value) -> Optional[datetime]:
+    """Normalise a stored timestamp to an aware UTC datetime, or None.
+
+    Backends disagree on the wire type: MySQL hands back naive ``datetime``
+    objects, SQLite hands back the ISO strings ``_now_iso`` wrote. Anything
+    comparing two timestamps in Python must go through here first.
+    """
+    if value is None:
+        return None
+    try:
+        dt = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
 class LocalMessageBus(MessageBusService):
     """
     SQLite-backed MessageBus implementation.
@@ -66,6 +90,7 @@ class LocalMessageBus(MessageBusService):
             msg_type=row.get("msg_type", "text"),
             mentions=mentions,
             attachments=attachments,
+            event_id=row.get("event_id"),
             created_at=row.get("created_at"),
         )
 
@@ -79,6 +104,7 @@ class LocalMessageBus(MessageBusService):
         msg_type: str = "text",
         mentions: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
+        event_id: Optional[str] = None,
     ) -> str:
         """Send a message to a channel and return the generated message_id."""
         msg_id = _generate_id("msg")
@@ -94,6 +120,7 @@ class LocalMessageBus(MessageBusService):
             "msg_type": msg_type,
             "mentions": json.dumps(mentions) if mentions else None,
             "attachments": json.dumps(attachments) if attachments else None,
+            "event_id": event_id,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
@@ -410,13 +437,108 @@ class LocalMessageBus(MessageBusService):
             (agent_id, agent_id),
         )
 
-        # Filter out poison messages (failure_count >= 3)
+        # Filter out poison messages (see POISON_FAILURE_THRESHOLD)
         result = []
         for row in rows:
             failure_count = await self.get_failure_count(row["message_id"], agent_id)
-            if failure_count < 3:
+            if failure_count < POISON_FAILURE_THRESHOLD:
                 result.append(self._row_to_message(row))
         return result
+
+    async def get_room_pending_summary(
+        self,
+        channel_id: str,
+        agent_ids: List[str],
+        limit: int = 200,
+    ) -> dict:
+        """Per-agent "what is still waiting for you in THIS room" summary.
+
+        Returns ``{agent_id: {"count": int, "oldest_at": datetime}}``, with an
+        entry only for agents that actually have something pending. "Pending"
+        matches ``get_pending_messages`` semantics restricted to one channel and
+        to @-addressed messages: past the agent's cursor, not self-sent, the
+        agent (or ``@everyone``) is mentioned, and not poisoned.
+
+        Exists because the team-chat GET polls every few seconds for every
+        member: doing this through ``get_pending_messages`` cost one query per
+        member plus one ``get_failure_count`` per pending row (a 6-member room
+        polled at 3s ran ~30 queries per tick). This is three queries total,
+        independent of member count.
+        """
+        if not agent_ids:
+            return {}
+        ph = self._db.placeholder
+
+        member_rows = await self._db.execute(
+            f"SELECT agent_id, last_processed_at FROM bus_channel_members "
+            f"WHERE channel_id = {ph}",
+            (channel_id,),
+        ) or []
+        cursors = {
+            r["agent_id"]: _as_utc(r.get("last_processed_at"))
+            for r in member_rows
+            if r["agent_id"] in set(agent_ids)
+        }
+        if not cursors:
+            return {}
+
+        # One scan from the EARLIEST member cursor covers every member; the
+        # per-agent cutoff is then applied in Python. A member that has never
+        # processed anything (None cursor) pulls the window back to the start.
+        floor = None if any(c is None for c in cursors.values()) else min(cursors.values())
+        params: tuple = (channel_id,) if floor is None else (channel_id, floor.isoformat())
+        where_ts = "" if floor is None else f"AND m.created_at > {ph} "
+        rows = await self._db.execute(
+            f"SELECT m.message_id, m.from_agent, m.mentions, m.created_at "
+            f"FROM bus_messages m WHERE m.channel_id = {ph} {where_ts}"
+            f"ORDER BY m.created_at ASC LIMIT {int(limit)}",
+            params,
+        ) or []
+        if not rows:
+            return {}
+
+        # Poison lookup for the whole candidate set in one statement. Bare
+        # identifiers + generated placeholders keep it dialect-portable.
+        ids = [r["message_id"] for r in rows]
+        placeholders = ", ".join([ph] * len(ids))
+        failure_rows = await self._db.execute(
+            f"SELECT message_id, agent_id, retry_count FROM bus_message_failures "
+            f"WHERE message_id IN ({placeholders})",
+            tuple(ids),
+        ) or []
+        poisoned = {
+            (r["message_id"], r["agent_id"])
+            for r in failure_rows
+            if (r.get("retry_count") or 0) >= POISON_FAILURE_THRESHOLD
+        }
+
+        summary: dict = {}
+        for row in rows:
+            created = _as_utc(row.get("created_at"))
+            if created is None:
+                continue
+            mentions_raw = row.get("mentions")
+            try:
+                mentions = json.loads(mentions_raw) if mentions_raw else []
+            except (ValueError, TypeError):
+                mentions = []
+            if not mentions:
+                continue
+            broadcast = "@everyone" in mentions
+            for agent_id, cursor in cursors.items():
+                if row["from_agent"] == agent_id:
+                    continue
+                if cursor is not None and created <= cursor:
+                    continue
+                if not broadcast and agent_id not in mentions:
+                    continue
+                if (row["message_id"], agent_id) in poisoned:
+                    continue
+                entry = summary.setdefault(agent_id, {"count": 0, "oldest_at": created})
+                entry["count"] += 1
+                if created < entry["oldest_at"]:
+                    entry["oldest_at"] = created
+        return summary
 
     async def ack_processed(
         self,

@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/narrative/models.py
-last_verified: 2026-06-23
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — TriggerType 与 WorkingSource 1:1 对齐
+
+新增 JOB/A2A/CALLBACK/SKILL_STUDY/LARK/SLACK/TELEGRAM/WECHAT/
+NARRAMESSENGER/DISCORD/MANYFOLD 成员：step 0 现在把 working_source
+直接映射进 `events.trigger`（原来除 message_bus 外一律记 chat，lark/job
+run 全被标成"聊天"）。读侧依赖这个诚实标签：侧栏预览滤 MESSAGE_BUS
+（不变）、**聊天页 active_run 自动接管只认 chat/manyfold**（否则 trigger
+run 变 running 后会被单聊页面劫持，见 [[auth]]）、dashboard 按来源分组。
+repository/crud 的 `TriggerType(row["trigger"])` 回读要求新值必须是合法
+成员 —— 这是扩枚举而非直接存字符串的原因。
+
+## 2026-07-29 — `NarrativeSearchResult.raw_score`
+
+新增字段，承载未 squash 的 BM25 原始分。`similarity_score` 保留给展示和 LLM
+prompt，但**判据不能用它**：`s/(s+1)` 压缩了候选之间的间距，而间距是这里唯一
+可比的信号（IDF 按候选集现算，绝对值无跨 agent 意义）。见 [[routing_gate.py]]。
+参与者 narrative 走合成中性分、无 BM25 分，`raw_score` 保持 0.0。
 
 > 2026-06-23：`TriggerType` 新增 `MESSAGE_BUS = "message_bus"`，用于把团队群聊
 > (message bus) 的 Event 与 1:1 聊天区分开（侧栏预览据此过滤；见 [[event_service]]

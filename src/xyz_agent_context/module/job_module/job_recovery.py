@@ -21,9 +21,10 @@ from __future__ import annotations
 import asyncio
 
 from loguru import logger
+from pydantic import ValidationError
 
 from xyz_agent_context.repository import JobRepository
-from xyz_agent_context.schema.job_schema import JobStatus
+from xyz_agent_context.schema.job_schema import JobStatus, JobType, TriggerConfig
 from xyz_agent_context.agent_framework.providers.readiness import ProviderReadiness
 from xyz_agent_context.module.job_module._job_scheduling import compute_next_run
 from xyz_agent_context.utils import utc_now
@@ -129,6 +130,89 @@ async def resume_job(job_id: str, db) -> tuple[bool, str]:
         "consecutive_failure_count": 0,
     })
     return True, job.status.value
+
+
+# A reschedule may touch any editable job EXCEPT one that is mid-execution
+# (running) or already terminal (completed/cancelled/failed). Everything else —
+# active / pending / paused / paused_no_quota / cooling / blocked_failed — is
+# a legitimate edit target; the status is left untouched (a paused job stays
+# paused, and its later resume re-derives next_run from the new rule anyway).
+_NON_EDITABLE_STATUSES = (
+    JobStatus.RUNNING,
+    JobStatus.COMPLETED, JobStatus.CANCELLED, JobStatus.FAILED,
+)
+# Only the time-bearing trigger fields are user-editable via reschedule; the
+# ONGOING semantics fields (end_condition / max_iterations) are out of scope.
+_TIME_FIELDS = ("run_at", "cron", "interval_seconds", "timezone")
+
+
+async def reschedule_job(job_id: str, new_fields: dict, db) -> tuple[bool, str]:
+    """User-initiated reschedule ("edit execution time").
+
+    Merges the provided time fields into the job's existing trigger_config,
+    revalidates through TriggerConfig (naive run_at / IANA timezone / tz-required
+    / interval clamp), recomputes next_run from now, and persists the new
+    trigger_config followed by next_run (two writes: update_job_fields, then the
+    mandatory update_next_run for the alpha+beta pair — NOT a single transaction).
+    The job's status is intentionally left unchanged.
+
+    Portable (repository only; no backend-specific SQL). Callers keep auth.
+
+    Args:
+        job_id: target job.
+        new_fields: subset of {run_at, cron, interval_seconds, timezone}. A key
+            present with value None clears that field (defense-in-depth; the
+            route strips None so the UI never nulls a field).
+        db: AsyncDatabaseClient.
+
+    Returns:
+        (ok, detail). detail is "ok" on success, else a human-readable reason.
+    """
+    repo = JobRepository(db)
+    job = await repo.get_job(job_id)
+    if not job:
+        return False, "job not found"
+    if job.status in _NON_EDITABLE_STATUSES:
+        return False, f"cannot reschedule from status={job.status.value}"
+
+    merged = job.trigger_config.model_dump()
+    for k in _TIME_FIELDS:
+        if k in new_fields:
+            merged[k] = new_fields[k]
+
+    # cron and interval_seconds are mutually exclusive triggering modes for a
+    # scheduled/ongoing job. Switching between them (e.g. interval → cron) must
+    # clear the sibling, or the stale field lingers in trigger_config and future
+    # edits/reads get ambiguous input. compute_next_run prefers cron, so a
+    # lingering interval would also be silently shadowed. Whichever mode the
+    # caller just set wins; the other is cleared.
+    if new_fields.get("cron"):
+        merged["interval_seconds"] = None
+    elif new_fields.get("interval_seconds"):
+        merged["cron"] = None
+
+    try:
+        new_cfg = TriggerConfig(**merged)
+    except ValidationError as e:
+        return False, f"invalid schedule: {e}"
+
+    # Guard: the job must still carry a fireable time field for its type, or it
+    # would silently never fire again.
+    if job.job_type == JobType.ONE_OFF and new_cfg.run_at is None:
+        return False, "one_off job requires run_at"
+    if job.job_type in (JobType.SCHEDULED, JobType.ONGOING) \
+            and not new_cfg.cron and not new_cfg.interval_seconds:
+        return False, "scheduled job requires cron or interval_seconds"
+
+    next_run = compute_next_run(
+        job_type=job.job_type,
+        trigger_config=new_cfg,
+        last_run_utc=utc_now(),
+    )
+    await repo.update_job_fields(job_id, {"trigger_config": new_cfg})
+    if next_run:
+        await repo.update_next_run(job_id, next_run)
+    return True, "ok"
 
 
 # Keep references to in-flight background tasks so they aren't garbage-collected

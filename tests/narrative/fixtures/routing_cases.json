@@ -1,0 +1,540 @@
+{
+  "_README": "Desensitized routing-gate regression set. Derived from 273 real prod turns across 34 agents (2026-07-29) by keeping ONLY the BM25 score shapes - no queries, narrative names, summaries or ids. expect_short_circuit encodes the INTENDED decision for each shape, not merely today's output: see `note` for why. Tuning FLOOR/MARGIN must keep these green.",
+  "policy": {
+    "raw_floor": 3.0,
+    "margin_ratio": 2.0
+  },
+  "cases": [
+    {
+      "case": "crowded_siblings_01",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        8.5,
+        6.36
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_02",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        15.14,
+        14.39
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_03",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        11.98,
+        9.46,
+        6.51,
+        4.49
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_04",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        6.85,
+        6.44,
+        1.91
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_05",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        1.83,
+        1.75,
+        1.06
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_06",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        12.14,
+        12.04,
+        4.86
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_07",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        9.91,
+        9.21
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_08",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        1.2,
+        1.08
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_09",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        2.31,
+        1.83,
+        1.75
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_10",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        15.08,
+        11.41
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_11",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        5.88,
+        4.71,
+        2.72,
+        2.09
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_12",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        7.36,
+        6.81,
+        3.07
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_13",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        16.06,
+        13.18,
+        9.09,
+        3.07
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_14",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        2.12,
+        1.59
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "crowded_siblings_15",
+      "bucket": "crowded_siblings",
+      "raw_scores": [
+        12.48,
+        11.42,
+        6.43
+      ],
+      "expect_short_circuit": false,
+      "note": "Sibling narratives within one topic family score within ~35% of each other. BM25 cannot tell them apart; the LLM tier must pick. Real shapes: two 'holdings scan' narratives, two 'MathFRAYT bug' narratives, two 'ESG analysis' narratives."
+    },
+    {
+      "case": "decisive_leader_01",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        14.88,
+        4.56,
+        2.54
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_02",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        9.02,
+        0.73,
+        0.6,
+        0.55
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_03",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        7.88,
+        1.48
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_04",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        13.58,
+        1.38,
+        1.25,
+        0.73
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_05",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        19.31,
+        2.91
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_06",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        11.51,
+        3.82,
+        3.03
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_07",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        16.94,
+        3.57,
+        3.38,
+        0.47
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_08",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        23.53,
+        3.94
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_09",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        10.09,
+        1.89
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_10",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        51.44,
+        12.85,
+        11.94,
+        10.58
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_11",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        19.21,
+        4.73,
+        3.02
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_12",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        6.81,
+        1.25,
+        1.22,
+        0.73
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "decisive_leader_13",
+      "bucket": "decisive_leader",
+      "raw_scores": [
+        20.59,
+        3.29
+      ],
+      "expect_short_circuit": true,
+      "note": "One candidate pulls clearly away from the field. BM25 has earned the routing decision; short-circuiting saves an LLM call."
+    },
+    {
+      "case": "short_query_low_raw_01",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        5.3,
+        1.15
+      ],
+      "expect_short_circuit": true,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_02",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        2.23,
+        0.69,
+        0.68,
+        0.32
+      ],
+      "expect_short_circuit": false,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_03",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        5.28,
+        0.9
+      ],
+      "expect_short_circuit": true,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_04",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        2.24,
+        0.55
+      ],
+      "expect_short_circuit": false,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_05",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        1.74,
+        0.46
+      ],
+      "expect_short_circuit": false,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_06",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        1.98,
+        0.36,
+        0.27
+      ],
+      "expect_short_circuit": false,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_07",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        5.14,
+        0.46
+      ],
+      "expect_short_circuit": true,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_08",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        5.45,
+        2.07
+      ],
+      "expect_short_circuit": true,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "short_query_low_raw_09",
+      "bucket": "short_query_low_raw",
+      "raw_scores": [
+        4.0,
+        1.44,
+        0.99
+      ],
+      "expect_short_circuit": true,
+      "note": "Short follow-up turns ('draw me a chart', 'give me a download link') produce low raw BM25 no matter how right the match is - measured median top1 raw is 5.3 for queries under 40 chars vs 12-15 above. A high absolute floor would reject these wrongly, so the floor stays a noise filter and the MARGIN decides."
+    },
+    {
+      "case": "sole_candidate_01",
+      "bucket": "sole_candidate",
+      "raw_scores": [
+        7.59
+      ],
+      "expect_short_circuit": true,
+      "note": "Only one candidate scored at all. There is no spread to measure, so the floor is the only evidence: strong enough to accept, otherwise defer so the LLM can also choose 'none of these, create new'."
+    },
+    {
+      "case": "sole_candidate_02",
+      "bucket": "sole_candidate",
+      "raw_scores": [
+        27.93
+      ],
+      "expect_short_circuit": true,
+      "note": "Only one candidate scored at all. There is no spread to measure, so the floor is the only evidence: strong enough to accept, otherwise defer so the LLM can also choose 'none of these, create new'."
+    },
+    {
+      "case": "sole_candidate_03",
+      "bucket": "sole_candidate",
+      "raw_scores": [
+        18.41
+      ],
+      "expect_short_circuit": true,
+      "note": "Only one candidate scored at all. There is no spread to measure, so the floor is the only evidence: strong enough to accept, otherwise defer so the LLM can also choose 'none of these, create new'."
+    },
+    {
+      "case": "sole_candidate_04",
+      "bucket": "sole_candidate",
+      "raw_scores": [
+        2.69
+      ],
+      "expect_short_circuit": false,
+      "note": "Only one candidate scored at all. There is no spread to measure, so the floor is the only evidence: strong enough to accept, otherwise defer so the LLM can also choose 'none of these, create new'."
+    },
+    {
+      "case": "sole_candidate_05",
+      "bucket": "sole_candidate",
+      "raw_scores": [
+        7.56
+      ],
+      "expect_short_circuit": true,
+      "note": "Only one candidate scored at all. There is no spread to measure, so the floor is the only evidence: strong enough to accept, otherwise defer so the LLM can also choose 'none of these, create new'."
+    },
+    {
+      "case": "sole_candidate_06",
+      "bucket": "sole_candidate",
+      "raw_scores": [
+        5.33
+      ],
+      "expect_short_circuit": true,
+      "note": "Only one candidate scored at all. There is no spread to measure, so the floor is the only evidence: strong enough to accept, otherwise defer so the LLM can also choose 'none of these, create new'."
+    },
+    {
+      "case": "near_boundary_01",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        2.32,
+        1.27,
+        0.77
+      ],
+      "expect_short_circuit": false,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    },
+    {
+      "case": "near_boundary_02",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        10.05,
+        4.47,
+        4.46,
+        4.05
+      ],
+      "expect_short_circuit": true,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    },
+    {
+      "case": "near_boundary_03",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        8.8,
+        3.87,
+        2.27
+      ],
+      "expect_short_circuit": true,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    },
+    {
+      "case": "near_boundary_04",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        16.1,
+        7.96,
+        6.85,
+        3.68
+      ],
+      "expect_short_circuit": true,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    },
+    {
+      "case": "near_boundary_05",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        67.98,
+        29.64,
+        1.58
+      ],
+      "expect_short_circuit": true,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    },
+    {
+      "case": "near_boundary_06",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        8.18,
+        4.28,
+        0.56
+      ],
+      "expect_short_circuit": false,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    },
+    {
+      "case": "near_boundary_07",
+      "bucket": "near_boundary",
+      "raw_scores": [
+        10.48,
+        5.55
+      ],
+      "expect_short_circuit": false,
+      "note": "Margin sits either side of the threshold. These pin the boundary so a future retune cannot drift it silently."
+    }
+  ]
+}

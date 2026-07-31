@@ -1,8 +1,35 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/failure.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 第四个 self-serviceable reason：`invalid_credentials`（凭据被拒 ≠ 登录过期）
+
+新增 `SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS` + `_INVALID_CREDENTIALS_MARKERS`
++ 对应文案，排在 marker 表**最后**（既有分类一律保持原 reason，例如同时提到
+403 和余额耗尽的报文仍归 `insufficient_balance`——那个补救措施才是有用的那个）。
+
+**为什么不复用已有的两条 auth 路径**：语义是「补救措施」而不是「哪个 HTTP 码」。
+`response_processor._is_auth_failure` 管的是 **OAuth/CLI 登录死了** → 文案叫用户
+`claude setup-token` 重新登录；这里管的是 **provider 拒绝了一把 API key** → 文案
+必须叫用户去 Settings → Providers 重贴/换 key。把后者塞进前者，等于让一个从来
+没登录过的 BYOK 用户去找一个不存在的登录。
+
+触发事件（2026-07-29 Jiaxi 报障）：用户自己的 NetMind key 返回
+`403 {"error":{"message":"Invalid api token"}}`，**三个分类器全部漏掉**——auth 短语
+表里有 `401` 没有 `403`，有 `invalid api key` 而报文写的是 `api token`；
+`classify_self_serviceable` 也没有对应 reason。于是这一轮被判 `recoverable`，
+helper-LLM 兜底编了一条像样的回复，用户看到 agent 承诺干活却什么都没发生。
+注意 [[circuit_breaker.py]] 早就通过 `is_credential_error` 的 `" 403"/"(403"` +
+`forbidden` 把 403 归到 AUTH 了——漏的只有**面向用户那条消息**的路径。
+
+marker 收窄纪律（和 `"402 payment"` 同源，但这次是被测试抓住的）：一开始写成
+`("403", "token")` 的 AND 组，被
+`"generated 403 tokens before the stream ended"` 命中——token 计数里天然有 403。
+现在要求 403 必须与凭据/权限词共现（`forbidden` / `invalid token` / `invalid api`
+/ `credential` / `permission denied`）。这里假阳性代价是双份的：既把这一轮误判
+fatal，又让熔断器跳过一次真实故障。
 
 ## 2026-07-28 — 认识「网关钱包花光」的样子
 

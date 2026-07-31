@@ -63,6 +63,7 @@
       "toolLabel": "[ herramienta ]",
       "outputLabel": "[ salida ]",
       "reply": "Respuesta",
+      "plan": "Plan",
       "nativeOutput": "Salida nativa",
       "helperFallback": "↻ respaldo de helper_llm",
       "helperFallbackTip": "El agente no envió una respuesta explícita; este mensaje lo escribió el LLM de respaldo a partir de su razonamiento.",
@@ -91,14 +92,58 @@
       "memberCount_other": "{{count}} miembros",
       "teamSettings": "Ajustes del equipo",
       "empty": "Aún no hay mensajes.",
-      "emptyHint": "@menciona a un compañero para iniciar la conversación — a partir de ahí se pasan el relevo entre ellos.",
+      "emptyHint": "Envía un mensaje para empezar — lo atiende el responsable del equipo, o menciona a alguien con @ para dirigirte a él.",
       "noAgents": "Aún no hay agentes en este equipo.",
-      "placeholder": "Escribe al equipo — @menciona para dirigirte a alguien…",
+      "placeholder": "Escribe al equipo — @ para dirigirte a alguien…",
       "send": "Enviar (Intro)",
       "all": "@all",
       "notifyEveryone": "Notificar a todos",
       "typing": "{{name}} está escribiendo",
-      "youTitle": "Tú · {{name}}"
+      "youTitle": "Tú · {{name}}",
+      "activity": {
+        "starting": "iniciando",
+        "running": "trabajando",
+        "thinking": "pensando",
+        "replying": "respondiendo",
+        "tool": "usando {{name}}",
+        "queued": "esperando para empezar",
+        "stalled": "sin señal",
+        "idle": "inactivo",
+        "runningHint": "Procesando tu mensaje. Una tarea larga puede durar minutos u horas; los pasos de abajo se siguen actualizando mientras tanto.",
+        "queuedHint": "Entregado, esperando un espacio de ejecución libre. Ocurre cuando se menciona a varios compañeros a la vez o cuando otra tarea larga sigue en marcha.",
+        "stalledHint": "Hace un rato que no llega ninguna señal de progreso de este compañero. Puede seguir ejecutándose — un modelo puede quedarse callado mucho tiempo — o el proceso en segundo plano puede tener un problema. Si no se recupera, revisa el estado del servicio.",
+        "idleHint": "Nada pendiente ahora mismo.",
+        "silentFor": "en silencio {{duration}}",
+        "waitingFor": "esperando {{duration}}",
+        "finishedAgo": "terminado hace {{duration}}",
+        "startedAt": "iniciado a las {{time}}",
+        "stepsDropped": "{{n}} pasos anteriores no mostrados",
+        "noSteps": "Aún no hay pasos registrados."
+      },
+      "guide": {
+        "title": "Cómo funciona esta sala",
+        "plainTitle": "Escribe sin más",
+        "plain": "Envía un mensaje sin @ — lo atiende el responsable del equipo.",
+        "plainWithLead": "Envía un mensaje sin @ — lo atiende {{name}}.",
+        "mentionTitle": "Dirígete a un agente",
+        "mention": "@ a un compañero para dirigirte a él directamente.",
+        "broadcastTitle": "Difunde a todos",
+        "broadcast": "@all se dirige a todos — cada miembro ejecuta un turno completo, así que úsalo con moderación.",
+        "relay": "Los compañeros pueden mencionarse entre sí para pasarse el trabajo; sin un mensaje tuyo, el relevo se detiene tras 4 saltos."
+      },
+      "noProcess": "No hay registro de proceso para este turno",
+      "detailLoadFailed": "No se pudo cargar el proceso. Inténtalo de nuevo.",
+      "roster": {
+        "title": "Miembros",
+        "lastRun": "duró {{duration}} · hace {{ago}}",
+        "lastRunAgoOnly": "terminó hace {{ago}}",
+        "neverRan": "aún sin ejecuciones",
+        "loading": "Cargando proceso…",
+        "workingCount": "{{count}} trabajando",
+        "process": "proceso"
+      },
+      "emptyHintWithLead": "Envía un mensaje para empezar — lo atiende {{name}}, o menciona a otra persona con @ para dirigirte a ella.",
+      "leadTitle": "{{name}} · responde cuando no se menciona a nadie"
     },
     "execution": {
       "showSteps": "Mostrar pasos de ejecución",
@@ -154,7 +199,15 @@
       }
     },
     "dateToday": "Hoy",
-    "dateYesterday": "Ayer"
+    "dateYesterday": "Ayer",
+    "segment": {
+      "details": "Razonamiento y herramientas"
+    },
+    "process": {
+      "plan": "Plan",
+      "title": "agente · proceso",
+      "ops": "ops"
+    }
   },
   "awareness": {
     "common": {
@@ -666,7 +719,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Redimensionar paneles",
-      "title": "Arrastra para redimensionar chat / artefactos"
+      "title": "Arrastra para redimensionar chat / artefactos",
+      "drawerAriaLabel": "Redimensionar el panel",
+      "drawerTitle": "Arrastra para redimensionar el panel"
     }
   },
   "settings": {
@@ -850,6 +905,17 @@
       "freeTierHowToSwitch": "La tarjeta «Free Tier» ya está conectada a tus ranuras de Agent y Helper. Para usar tu propia clave, añade un proveedor abajo y selecciónalo para la ranura Agent / Helper en Modelos predeterminados: surte efecto en tu siguiente mensaje.",
       "freeTierAnytime": "Puedes cambiar cuando quieras. No hace falta gastar antes el crédito gratuito, y cambiar no lo pierde: el saldo se conserva.",
       "freeTierNoDelete": "La tarjeta Free Tier no se puede eliminar mientras quede saldo: guarda la única clave de ese crédito. Cuando se agote, podrás quitarla."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "Pago recibido: lo estamos aplicando a tu cuenta.",
+      "returnTopupSuccess": "Recarga recibida: estamos actualizando tu saldo.",
+      "returnCancelled": "Pago cancelado: no se te ha cobrado nada.",
+      "cancelConfirmTitle": "¿Desactivar la renovación automática?",
+      "cancelConfirmAction": "Desactivar la renovación",
+      "cancelConfirmKeep": "Mantener la suscripción",
+      "reactivateConfirmTitle": "¿Reanudar la renovación automática?",
+      "reactivateConfirmAction": "Reanudar",
+      "reactivateConfirmDismiss": "Ahora no"
     }
   },
   "system": {
@@ -1169,6 +1235,10 @@
         "installingDetail": "Instalando {{version}} — casi listo…",
         "readyDetail": "descargado — reinicia para finalizar.",
         "failed": "Error en {{stage}} de la actualización."
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "Solo para staff en la nube",
+        "cloudFrameworkLocked": "Este framework se autentica mediante un inicio de sesión CLI compartido, por lo que en la nube es solo para staff. Claude Code y NexusPower-beta funcionan aquí; los demás están disponibles en la versión de escritorio local."
       }
     },
     "system": {
@@ -1708,7 +1778,9 @@
       "resume": "Reanudar",
       "resuming": "Reanudando...",
       "cancelJob": "Cancelar trabajo",
-      "cancelling": "Cancelando..."
+      "cancelling": "Cancelando...",
+      "editSchedule": "Editar hora",
+      "savingSchedule": "Guardando..."
     },
     "template": {
       "selectTemplate": "Seleccionar plantilla",
@@ -1737,6 +1809,26 @@
         "paused": "{{count}} pausados",
         "failed": "{{count}} fallidos"
       }
+    },
+    "editSchedule": {
+      "title": "Editar hora de ejecución",
+      "hint": "Ajusta cuándo se ejecuta esta tarea. Los cambios se aplican en la próxima ejecución.",
+      "runAt": "Ejecutar a las",
+      "cron": "Expresión cron",
+      "cronHint": "p. ej. 0 8 * * * se ejecuta a diario a las 08:00",
+      "intervalSeconds": "Intervalo (segundos)",
+      "timezone": "Zona horaria",
+      "save": "Guardar",
+      "cancel": "Cancelar",
+      "invalidRunAt": "Elige una fecha y hora válidas",
+      "invalidCron": "Introduce una expresión cron válida",
+      "invalidInterval": "Introduce un intervalo mayor que 0",
+      "pastTimeError": "La hora elegida ya pasó",
+      "failedTitle": "Error al reprogramar",
+      "failedMessage": "No se pudo actualizar la hora de ejecución. Inténtalo de nuevo.",
+      "modeLabel": "Modo de activación",
+      "modeInterval": "Intervalo",
+      "modeCron": "Expresión cron"
     }
   },
   "artifacts": {
@@ -1812,6 +1904,9 @@
       "zoomInAria": "Ampliar",
       "close": "Cerrar (Esc)",
       "closeAria": "Cerrar zoom"
+    },
+    "url": {
+      "toggleFailed": "No se pudo cambiar de modo: {{error}}"
     }
   },
   "skills": {
@@ -1928,6 +2023,13 @@
     "livePreview": "Vista previa en vivo"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus está en fase beta. Las funciones pueden cambiar y pueden producirse errores ocasionales; tus comentarios nos ayudan a mejorar.",
+    "ok": "Aceptar",
+    "noticeTitle": "Un momento",
+    "actionFailedTitle": "No se pudo completar",
+    "savedTo": "Guardado en {{path}}",
+    "downloadFailed": "Error al descargar: {{error}}",
+    "doneTitle": "Listo"
   }
 }

@@ -32,6 +32,7 @@ from xyz_agent_context.schema import (
     HookAfterExecutionParams,
     WorkingSource,
 )
+from xyz_agent_context.settings import settings
 
 
 # MCP server port for MessageBus tools
@@ -107,8 +108,11 @@ class MessageBusModule(XYZBaseModule):
     # Instructions — natural language guidance for the agent
     # =========================================================================
 
-    async def get_instructions(self, ctx_data: ContextData) -> str:
-        parts = [
+    def _static_instruction_parts(self) -> list:
+        """The usage-rules half of the instruction — constant for a given
+        agent (only self.agent_id is baked in), so it can live in the
+        byte-stable system prompt (R4 turn-context relocation)."""
+        return [
             "## MessageBus — Agent-to-Agent Communication",
             "",
             "MessageBus is your **inter-agent messaging channel**. Use it to collaborate with other Agents, "
@@ -184,6 +188,15 @@ class MessageBusModule(XYZBaseModule):
             "- **Do NOT call `bus_get_messages`** for channels whose history you already have in context.",
         ]
 
+    def _volatile_context_parts(self, ctx_data: ContextData) -> list:
+        """The three live data lists (Known Agents / Your Channels / Unread
+        Messages) — changed mid-session by bus tools and consumed unreads,
+        so they are per-turn volatile. Rendering (caps, order, wording) is
+        unchanged from the pre-R4 in-instruction rendering; only the
+        destination differs by the relocation flag (R4: relocated, never
+        dropped)."""
+        parts = []
+
         # Known agents (capped + filtered)
         known = ctx_data.extra_data.get("bus_known_agents", [])
         if known:
@@ -223,7 +236,27 @@ class MessageBusModule(XYZBaseModule):
                 content = (m.get("content") or "")[:200]
                 parts.append(f"- `[MessageBus · {from_agent} · {channel}]` {content}")
 
+        return parts
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        """Usage rules, plus (flag OFF only) the live data lists.
+
+        With the R4 relocation flag ON the output is byte-stable across
+        turns and the lists travel via get_turn_context(); flag OFF keeps
+        the legacy single-block rendering, byte-identical to pre-R4.
+        """
+        parts = self._static_instruction_parts()
+        if not settings.prompt_turn_context_relocation_enabled:
+            parts = parts + self._volatile_context_parts(ctx_data)
         return "\n".join(parts)
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile span: the Known Agents / Your Channels /
+        Unread Messages lists, under a stable heading."""
+        volatile = self._volatile_context_parts(ctx_data)
+        if not volatile:
+            return ""
+        return "\n".join(["### MessageBus — Current State", *volatile])
 
     # =========================================================================
     # Hooks

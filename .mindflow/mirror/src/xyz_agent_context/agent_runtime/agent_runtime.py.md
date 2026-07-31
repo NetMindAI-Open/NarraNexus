@@ -1,8 +1,20 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/agent_runtime.py
-last_verified: 2026-07-15
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 打断连续性:先持久化、再让位(interrupt continuity)
+
+两处配套改动。(1) Step-3 消费不再「取消即 break」——那正是被打断 turn 从历史里消失
+的原因:驱动响应取消后会自终止并吐出收尾(合成配对/turn_done/PathExecutionResult),
+break 恰好把这段尾流扔掉。改为 `_stream_step3_with_interrupt_drain`:未取消时把
+「下一条消息」与 `await_cancelled()` 竞速(取消可能落在无界 await 期间——不竞速就是
+挂死洞,同时刻只允许一个 anext task 在飞),取消后有界排空(INTERRUPT_DRAIN_BUDGET_S,
+超时 aclose 放弃,Stop 永远能完成)。(2) `raise_if_cancelled` 从 Step 4 之前移到
+4.6 之后:被打断 turn 照常走 step_4(event_log)+hook_persist_turn(聊天行),带
+`execution_result.interrupted=True`;尾流没到就按 silent 先例伪造最小结果保住
+user 行。Step 5/6 后台钩子仍被跳过,BackgroundRun 的 CANCELLED 终态路径不变。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

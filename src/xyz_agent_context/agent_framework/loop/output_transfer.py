@@ -2,10 +2,12 @@
 @file_name: output_transfer.py
 @author: NetMind.AI
 @date: 2025-11-15
-@description: 将不同 Agent SDK 的输出转换为统一的 OpenAI Agents SDK 格式。
+@description: Convert each Agent SDK's output into one unified OpenAI Agents
+              SDK shape.
 
-返回值为 List[Dict]，因为一条 SDK 消息可能包含多个内容块（如多个 ToolUseBlock），
-每个块对应一个独立事件。
+Every function returns List[Dict], not a single dict: one SDK message can carry
+several content blocks (e.g. several ToolUseBlocks from a parallel tool call),
+and each block has to become its own event.
 """
 
 import json
@@ -25,6 +27,28 @@ from xyz_agent_context.agent_framework.loop.events import (
     TYPE_RAW_RESPONSE_EVENT,
     TYPE_RUN_ITEM_STREAM_EVENT,
 )
+
+
+def tool_call_item(
+    *, tool_call_id: str, tool_name: str, arguments: Dict[str, Any] | None
+) -> Dict[str, Any]:
+    """One legacy tool_call item.
+
+    ``arguments=None`` means only the name is known (the streamed
+    arguments haven't finished) — the item is marked pending so the UI
+    can show "using X" immediately; the completed call then replaces it
+    in place, keyed by tool_call_id. A non-streaming provider hands
+    over name and arguments together and simply never produces a
+    pending item — that asymmetry is a provider characteristic the
+    platform does not paper over (binding rule #15).
+    """
+    return {
+        "type": ITEM_TYPE_TOOL_CALL,
+        "tool_call_id": tool_call_id,
+        "tool_name": tool_name,
+        "arguments": arguments or {},
+        "pending": arguments is None,
+    }
 
 
 def _stringify_tool_result_content(content: Any) -> str:
@@ -72,17 +96,18 @@ def output_transfer(
     streaming: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    将 Agent SDK 输出转换为 OpenAI Agents SDK 格式。
+    Convert an Agent SDK output into the OpenAI Agents SDK format.
 
-    返回事件列表（一条 SDK 消息可能产生多个事件，如并行工具调用）。
+    Returns a LIST of events: one SDK message can produce several, e.g. a
+    parallel tool call.
 
     Args:
-        message: Agent SDK 消息对象
-        transfer_type: 转换类型
-        streaming: 是否流式输出
+        message: the Agent SDK message object
+        transfer_type: which source SDK's format to convert from
+        streaming: whether this run is streaming
 
     Returns:
-        事件字典列表
+        List of event dicts
     """
     if transfer_type == "claude_agent_sdk":
         return _claude_to_openai_agents(message, streaming=streaming)
@@ -96,10 +121,11 @@ def output_transfer(
 
 def _claude_to_openai_agents(message: Any, streaming: bool = True) -> List[Dict[str, Any]]:
     """
-    将 Claude Agent SDK 消息转换为 OpenAI Agents SDK 格式。
+    Convert a Claude Agent SDK message into the OpenAI Agents SDK format.
 
-    返回事件列表。大多数消息产生一个事件，但 AssistantMessage（多个 ToolUseBlock）
-    和 UserMessage（多个 ToolResultBlock）可产生多个事件。
+    Returns a list of events. Most messages yield exactly one, but an
+    AssistantMessage (several ToolUseBlocks) and a UserMessage (several
+    ToolResultBlocks) can each yield many.
     """
     message_type = type(message).__name__
 
@@ -110,7 +136,7 @@ def _claude_to_openai_agents(message: Any, streaming: bool = True) -> List[Dict[
 
 
 def _convert_to_streaming_events(message: Any, message_type: str) -> List[Dict[str, Any]]:
-    """将 Claude 消息转换为流式事件列表。"""
+    """Convert a Claude message into a list of streaming events."""
 
     if message_type == "AssistantMessage":
         return _convert_assistant_to_stream_events(message)
@@ -165,12 +191,11 @@ def _convert_to_non_streaming_result(message: Any, message_type: str) -> Dict[st
                     })
                 elif block_type == "ToolUseBlock":
                     if hasattr(block, 'id') and hasattr(block, 'name') and hasattr(block, 'input'):
-                        tool_call = {
-                            "type": ITEM_TYPE_TOOL_CALL,
-                            "tool_call_id": block.id,
-                            "tool_name": block.name,
-                            "arguments": block.input
-                        }
+                        tool_call = tool_call_item(
+                            tool_call_id=block.id,
+                            tool_name=block.name,
+                            arguments=block.input,
+                        )
                         tool_calls.append(tool_call)
                         result["new_items"].append(tool_call)
 
@@ -199,15 +224,16 @@ def _convert_to_non_streaming_result(message: Any, message_type: str) -> Dict[st
 
 
 def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
-    """将 Claude AssistantMessage 转换为流式事件列表。
+    """Convert a Claude AssistantMessage into a list of streaming events.
 
-    include_partial_messages=True 时，文本和思考内容会到达两次：
-    先通过 StreamEvent（逐 token），再通过完整 AssistantMessage。
-    因此这里跳过 TextBlock 和 ThinkingBlock（已经流式过了），
-    只提取所有 ToolUseBlock 事件（用于 Steps 面板）。
+    With include_partial_messages=True, text and thinking arrive TWICE: first
+    token-by-token via StreamEvent, then again inside the complete
+    AssistantMessage. So TextBlock and ThinkingBlock are skipped here (already
+    streamed) and only the ToolUseBlocks are extracted, for the Steps panel.
 
-    注意：partial AssistantMessage 也会携带 ToolUseBlock，导致同一个 tool_call_id
-    出现多次。去重逻辑在 adapters/claude/sdk.py 的 agent_loop 中处理。
+    Note: partial AssistantMessages carry ToolUseBlocks too, so the same
+    tool_call_id shows up more than once. Dedup lives in agent_loop in
+    adapters/claude/sdk.py.
     """
 
     # Check AssistantMessage.error field (auth failure, quota exhaustion, rate limit, etc.)
@@ -238,7 +264,7 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
     if not hasattr(message, 'content') or not message.content:
         return [_empty_delta()]
 
-    # 提取所有 ToolUseBlock，每个生成一个 tool_call_item 事件
+    # Extract every ToolUseBlock; each becomes one tool_call_item event.
     events: List[Dict[str, Any]] = []
     for block in message.content:
         block_type = type(block).__name__
@@ -247,16 +273,15 @@ def _convert_assistant_to_stream_events(message: Any) -> List[Dict[str, Any]]:
             if hasattr(block, 'id') and hasattr(block, 'name') and hasattr(block, 'input'):
                 events.append({
                     "type": TYPE_RUN_ITEM_STREAM_EVENT,
-                    "item": {
-                        "type": ITEM_TYPE_TOOL_CALL,
-                        "tool_call_id": block.id,
-                        "tool_name": block.name,
-                        "arguments": block.input
-                    }
+                    "item": tool_call_item(
+                        tool_call_id=block.id,
+                        tool_name=block.name,
+                        arguments=block.input,
+                    ),
                 })
-        # TextBlock, ThinkingBlock → 跳过（已通过 StreamEvent 流式传输）
+        # TextBlock, ThinkingBlock → skip (already streamed via StreamEvent)
 
-    # 没有 ToolUseBlock 时返回空 delta（内容已通过 StreamEvent 流式传输）
+    # No ToolUseBlock → return an empty delta (content already streamed).
     return events if events else [_empty_delta()]
 
 
@@ -414,10 +439,14 @@ def _convert_result_to_stream_event(message: Any) -> Dict[str, Any]:
     if isinstance(num_turns, int):
         data["num_turns"] = num_turns
 
-    # session_id is logged (not persisted) as groundwork for the --resume
-    # feasibility experiment: it proves the CLI hands us a resumable handle.
+    # CLI session id the run reported (ResultMessage.session_id). Travels the
+    # same chain as num_turns (response_processor → ExecutionState →
+    # PathExecutionResult) but is now OBSERVATIONAL only: it is logged, and
+    # nothing looks it up. The adapter resumes a transcript it wrote itself, so
+    # there is no stored handle for this value to become (2026-07-29).
     session_id = getattr(message, 'session_id', None)
     if session_id:
+        data["session_id"] = session_id
         logger.info(f"Agent loop CLI session_id={session_id} num_turns={num_turns}")
 
     # Add stop reason
@@ -447,22 +476,35 @@ def _convert_system_to_stream_event(message: Any) -> Dict[str, Any]:
 
 
 def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
-    """将 Claude UserMessage 转换为流式事件列表。
+    """Convert a Claude UserMessage into a list of streaming events.
 
-    一条 UserMessage 可能包含多个 ToolResultBlock（并行工具调用的结果），
-    每个 ToolResultBlock 生成一个独立的 tool_call_output_item 事件。
+    One UserMessage can carry several ToolResultBlocks — the results of a
+    parallel tool call — and each becomes its own tool_call_output_item event.
+
+    TextBlock content on a UserMessage is CLI plumbing, NEVER agent speech —
+    the agent only ever talks through StreamEvent / AssistantMessage. The
+    user role carries tool results plus whatever the CLI injects into the
+    transcript on its own behalf, and the biggest of those is the auto-
+    compaction hand-off: a summary of the run so far, the absolute path of
+    the CLI session `.jsonl`, and "Please continue the conversation from
+    where we left off". Emitting that as a text delta made
+    response_processor classify it AGENT_RESPONSE and run_collector fold it
+    into `events.final_output`, so the owner read the CLI's own bookkeeping
+    — including a container path they cannot open — as the agent's answer
+    (prod 2026-07-29, agent_94360f6c4b98; same class of leak as the
+    `AssistantMessage.error` interception in adapters/claude/sdk.py).
+
+    Dropping the text is therefore the whole point, not a lossy shortcut:
+    there is no agent output on this path to lose.
     """
 
     events: List[Dict[str, Any]] = []
-    text_parts: list[str] = []
 
     if hasattr(message, 'content') and message.content:
         for block in message.content:
             block_type = type(block).__name__
 
-            if block_type == "TextBlock" and hasattr(block, 'text'):
-                text_parts.append(block.text)
-            elif block_type == "ToolResultBlock" and hasattr(block, 'content'):
+            if block_type == "ToolResultBlock" and hasattr(block, 'content'):
                 events.append({
                     "type": TYPE_RUN_ITEM_STREAM_EVENT,
                     "item": {
@@ -471,23 +513,11 @@ def _convert_user_to_stream_events(message: Any) -> List[Dict[str, Any]]:
                     }
                 })
 
-    # 如果有 ToolResultBlock 事件，直接返回（文本内容通常是内部消息，不需要展示）
-    if events:
-        return events
-
-    # 没有 ToolResultBlock 时，返回文本内容
-    content = "\n".join(text_parts) if text_parts else ""
-    return [{
-        "type": TYPE_RAW_RESPONSE_EVENT,
-        "data": {
-            "type": DATA_TYPE_TEXT_DELTA,
-            "delta": content
-        }
-    }]
+    return events
 
 
 def _empty_delta() -> Dict[str, Any]:
-    """返回空的 text delta 事件"""
+    """Return an empty text delta event."""
     return {
         "type": TYPE_RAW_RESPONSE_EVENT,
         "data": {
@@ -659,12 +689,11 @@ def _translate_codex_item(
             # filters / hides them after the run completes.
             return [{
                 "type": TYPE_RUN_ITEM_STREAM_EVENT,
-                "item": {
-                    "type": ITEM_TYPE_TOOL_CALL,
-                    "tool_call_id": item_id,
-                    "tool_name": _codex_tool_name(item),
-                    "arguments": _codex_tool_args(item),
-                },
+                "item": tool_call_item(
+                    tool_call_id=item_id,
+                    tool_name=_codex_tool_name(item),
+                    arguments=_codex_tool_args(item),
+                ),
             }]
         # Completed: emit tool_call_output_item (deduped on
         # tool_call_id by the wrapper's seen_tool_call_ids set). The

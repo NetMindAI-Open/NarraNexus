@@ -1,8 +1,33 @@
 ---
 code_file: backend/integrations/netmind/netmind_billing_client.py
-last_verified: 2026-07-06
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — subscribe/recharge 接受 success_url / cancel_url
+
+两个开 Stripe checkout 的方法各加一对可选跳转参数，调用方（[[billing]] 的
+`_return_urls`）从部署配置算出来后传入；**依旧绝不接受客户端输入** —— 下方
+2026-07-05 条目反对的是"从 body 透传未校验的跳转目标"，那条判断没有被推翻。
+
+`_redirect_fields()` 只放**调用方真的解析出来的**字段：缺省时是 **omitted 而非
+null**。上游两个字段都是 `Optional[str]`、也确实接受显式 null（dev+prod 探测），
+但"不带这个 key"才是已经跑了几个月的 body 形状 —— 没配 `PUBLIC_BASE_URL` 的
+部署因此逐字节保持修复前的行为。subscribe 无字段时连 body 都不发（`json_body=None`）。
+
+**上游行为实测（2026-07-30，dev）**：
+
+- recharge：合法 URL → 200 建新 session；非法 URL（`"not-a-url"`）→ 500
+  `Failed to create Stripe checkout session`。**证明字段真的转交给了 Stripe**，
+  同时也说明传垃圾进去会毁掉付款本身，不只是跳转 —— 校验必须在我们这侧做完。
+- 上游**不校验 URL 格式**，只当 str 收下，所以别指望它替我们兜底。
+- subscribe：**同样已证实转交**（dev 11:47 真实走完一次 test-mode 订阅付款，
+  浏览器落回 `agent.narra.nexus`，账号从 free 变 ACTIVE Pro）。NetMind 自己的
+  默认落地页是别的域名，所以落回我们的域名只可能来自我们传的 `success_url`。
+- **pending session 幂等窗口**（探测中一度以为是长期问题，实测不是）：11:19–11:22
+  三次不同 body（空 / 合法 URL / 非法 URL）返回同一个 `cs_test_…`，所以那三次都
+  没走到 Stripe；11:47 再调就建了带新 URL 的 session。窗口在 3–25 分钟之间，
+  **不是「一直卡着旧 session」**。影响：连续快速重试期间参数改动不生效，仅此而已。
 
 ## 2026-07-06 — tighter business-message scrub (pre-push review)
 

@@ -1,8 +1,37 @@
 ---
 code_file: frontend/src/lib/download.ts
-last_verified: 2026-06-16
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 两个平台的错误契约统一：一律 throw，成功返回保存路径
+
+签名 `Promise<void>` → `Promise<string | null>`，Tauri 分支不再自己 catch。
+
+**改前两个平台的契约是不一致的**，而且这个不一致本身就是 bug：
+
+| 分支 | 失败时 |
+|---|---|
+| Tauri | 内部 catch → `window.alert` → `return`（正常 resolve） |
+| 浏览器 | `throw` |
+
+wry 不渲染 `window.alert`，所以桌面端失败**完全无声**；更隐蔽的是，因为它 resolve 而
+不是 reject，**调用方自己写的 `.catch()` 在桌面端是死代码**，而同一个 `.catch()` 在浏览器
+里工作正常。[[FileUpload]] 正是这种情况。而 [[ArtifactDownloadMenu]] 压根没有 `.catch()`
+—— 浏览器里是未处理的 promise rejection（静默），桌面端是不可见 alert，**两个平台都没有
+可用的错误路径**。
+
+**返回值不是顺手加的**：桌面端保存到 `~/Downloads` 且**没有浏览器的下载条**，
+`savedPath` 是用户得知文件去哪儿的唯一途径。所以这不是「丢了一条错误提示」，而是在唯一
+需要它的平台上丢掉了成功反馈 —— 下载成功看起来跟什么都没发生一样。浏览器分支返回 null
+（文件已交给下载管理器，没有路径可报）。
+
+报告职责移交给调用方（两个，都是组件，都用 `useConfirm().alert`）。这也顺带修掉了原先
+那两条**裸英文、未 i18n** 的字符串（`Download failed:` / `Saved to:`），现在是
+`common.downloadFailed` / `common.savedTo`，10 语言齐平。
+
+契约由 `lib/__tests__/download.test.ts` 钉住：两个平台各自「失败必 throw 且不碰
+window.alert」、桌面端返回路径、`isTauri()` 中途翻转时返回 null 而不编造路径。
 
 # download.ts — Cross-surface file download utility
 

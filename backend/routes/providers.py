@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     FRAMEWORK_LOCKED_DETAIL,
     CloudPolicyViolation,
+    framework_allowed_in_cloud,
     netmind_slots_only,
 )
 from xyz_agent_context.agent_framework.providers.model_catalog import (
@@ -599,11 +600,23 @@ async def sync_default_models(request: Request):
     Out-of-scope sources (claude_oauth / codex_oauth) keep the catalog defaults;
     `source="user"` (hand-picked custom providers) is left untouched.
     """
-    from xyz_agent_context.agent_framework.providers import model_sync
+    from xyz_agent_context.agent_framework.providers import model_health, model_sync
+    from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+        load_ledger,
+        load_ledger_db,
+        save_ledger,
+        save_ledger_db,
+    )
 
     uid = _get_user_id(request)
     service = await _get_service()
     config = await service.get_user_config(uid)
+
+    # Same ledger discipline as the daily runner: the DB copy is durable, the
+    # container file is just the shipped seed and may be stale/read-only.
+    ledger = await load_ledger_db(service.db) or load_ledger()
+    suspects = await model_health.load_suspects(service.db)
+    synced_sources: list[str] = []
 
     # Group this user's provider rows by source so we probe each backend once.
     by_source: dict[str, list] = {}
@@ -630,6 +643,26 @@ async def sync_default_models(request: Request):
         if source == "user":
             continue  # hand-picked custom provider — never auto-touch
 
+        if source == "netmind_free":
+            # Free cards follow the GATEWAY's gated list, not the upstream
+            # catalog: overwrite from the ledger's netmind_free entry (written
+            # by the daily pass's gate). Entry absent = the gate has never run
+            # here — leave the card alone rather than append ungated defaults.
+            from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+                passing_models,
+            )
+
+            free_led = (
+                ledger.get("sources", {}).get("netmind_free", {}).get("models", {})
+            )
+            if not free_led:
+                continue
+            for prov_id, prov in rows:
+                await _apply(
+                    prov_id, prov, passing_models(free_led, prov.protocol.value)
+                )
+            continue
+
         if source in model_sync.SUPPORTED_SOURCES and source != "system_pool":
             # Probe with the user's own key (same key works for both protocols
             # on these aggregators). OVERWRITE each row from the result.
@@ -637,10 +670,14 @@ async def sync_default_models(request: Request):
             keys = {"openai": anykey, "anthropic": anykey}
             yunwu_key = anykey if source == "yunwu" else None
             try:
-                res = await model_sync.sync_source(source, keys=keys, yunwu_key=yunwu_key)
+                res = await model_sync.sync_source(
+                    source, keys=keys, yunwu_key=yunwu_key,
+                    ledger=ledger, suspects=suspects.get(source),
+                )
             except Exception as e:  # noqa: BLE001 — catalog/probe failure shouldn't 500 the button
                 logger.warning(f"sync-defaults: {source} probe failed: {e}")
                 continue
+            synced_sources.append(source)
             for prov_id, prov in rows:
                 await _apply(prov_id, prov, list(res.lists.get(prov.protocol.value, [])))
         else:
@@ -653,6 +690,13 @@ async def sync_default_models(request: Request):
                 missing = [m for m in defaults if m not in existing]
                 if missing:
                     await _apply(prov_id, prov, existing + missing)
+
+    if synced_sources:
+        ledger["generated_at"] = model_sync._now()
+        save_ledger(ledger)  # best-effort file copy
+        await save_ledger_db(service.db, ledger)
+        for source in synced_sources:
+            await model_health.clear_suspects(service.db, source)
 
     return {
         "success": True,
@@ -967,11 +1011,12 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
     ``claude`` binary is installed at run.sh boot.
     """
     uid = _get_user_id(request)
-    # Direction-aware gate: a non-staff cloud user may ALWAYS switch back TO
-    # claude_code (the only cloud-supported framework) — blocking that direction
-    # dead-locked old codex_cli users who couldn't self-recover. Only switching
-    # to a NON-claude_code framework is staff-only.
-    if _is_cloud() and not _is_staff(request) and body.framework != "claude_code":
+    # Cloud non-staff: only frameworks that cannot reach a shared CLI
+    # credential file. The rule (and why NexusPower qualifies while the
+    # CLI-backed ones do not) lives in cloud_policy — never re-derive it
+    # here as a framework-name comparison; that is what kept NexusPower
+    # locked out of cloud after it shipped.
+    if not framework_allowed_in_cloud(body.framework, _is_staff(request)):
         raise HTTPException(status_code=403, detail=FRAMEWORK_LOCKED_DETAIL)
     if body.framework not in _SUPPORTED_AGENT_FRAMEWORKS:
         raise HTTPException(

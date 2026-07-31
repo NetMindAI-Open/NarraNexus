@@ -32,6 +32,7 @@ from xyz_agent_context.context_runtime import ContextRuntime
 from xyz_agent_context.agent_framework import get_agent_loop_driver
 from xyz_agent_context.agent_framework.loop.turn_input import TurnInput
 from xyz_agent_context.agent_framework.llm.failure import (
+    SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND,
     classify_self_serviceable,
     self_serviceable_user_message,
     classify_executor_infra_failure,
@@ -94,6 +95,13 @@ async def _resolve_agent_framework_name(agent_id: str, db_client: Any) -> str:
 
     return (await resolve_agent_model_identity(agent_id, db_client)).framework
 
+
+# NOTE (2026-07-29): the in-process concurrent-resume guard, the four-fold
+# handle validation and `_resolve_resume_session_id` used to live here. The
+# claude adapter now authors the CLI transcript itself every turn with a
+# fresh session id, so there is no stored handle to validate, nothing that
+# can go stale, and no shared handle two runs could both claim — which is
+# what the lease existed to prevent. See adapters/claude/transcript.py.
 
 def _truncate(text: str, limit: int) -> str:
     """Tail-truncate ``text`` to ``limit`` bytes, appending a clear
@@ -344,6 +352,19 @@ _FALLBACK_NO_REPLY_INSTRUCTIONS = (
     "- Address the user directly, in first person as the agent.\n"
     "- Do NOT mention tools, send_message_to_user_directly, helper_llm, "
     "this fallback path, or any internal state.\n"
+    # The 2026-07-29 report: the agent's reasoning was pure intent ("let me
+    # try the image again"), the fallback voiced it, and the user was left
+    # waiting for a document nothing was producing. The turn ENDS when this
+    # message is sent, so a promise here can never come true.
+    "- Never promise or imply work in progress or about to start (\"I'll "
+    "do X\", \"let me try Y\", \"working on it\", \"one moment\"). This "
+    "turn ends the moment your message is sent, so nothing continues "
+    "afterwards. Describe only what already happened.\n"
+    "- If `<this_turn_activity>` shows the agent produced only intent and "
+    "no actual result, say plainly that it did not get the work done, and "
+    "give the user one concrete way forward (re-send, narrow the request, "
+    "supply what was missing). An honest \"this didn't happen\" is always "
+    "better than a confident-sounding reply about work that does not exist.\n"
     "- Keep it natural, useful, and proportional to the question."
 )
 
@@ -370,6 +391,21 @@ _FALLBACK_AFTER_ERROR_INSTRUCTIONS = (
     "language.\n"
     "- Keep it short — one paragraph plus optional next-step bullet."
 )
+
+
+def _fallback_instructions_for_mode(mode: str) -> str:
+    """The helper-LLM system prompt for a fallback ``mode``.
+
+    A named seam rather than an inline conditional: these two prompts are the
+    only text the platform itself puts in the user's mouth, so their contract
+    (no promises about work that isn't happening — see the no_reply rules) is
+    worth pinning in tests without constructing a stream.
+    """
+    return (
+        _FALLBACK_AFTER_ERROR_INSTRUCTIONS
+        if mode == "after_error"
+        else _FALLBACK_NO_REPLY_INSTRUCTIONS
+    )
 
 
 def _build_helper_user_input(
@@ -407,7 +443,12 @@ def _build_helper_user_input(
 
     history_msgs = [
         m for m in context_messages
-        if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+        if isinstance(m, dict)
+        and m.get("role") in ("user", "assistant")
+        # Native-replay rows can be calls-only (content None) and tool
+        # rows carry role "tool" — neither belongs in a prose transcript
+        # (str(None) would literally render "[assistant] None").
+        and str(m.get("content") or "").strip()
     ]
     # Drop the trailing user message if it duplicates `user_input` (the
     # current turn's user input is shown verbatim in its own section).
@@ -509,11 +550,7 @@ async def _generate_fallback_reply_stream(
     set_cost_context(agent_id, db)
     try:
         sdk = get_helper_sdk()
-        instructions = (
-            _FALLBACK_AFTER_ERROR_INSTRUCTIONS
-            if mode == "after_error"
-            else _FALLBACK_NO_REPLY_INSTRUCTIONS
-        )
+        instructions = _fallback_instructions_for_mode(mode)
         user_input_for_helper = _build_helper_user_input(
             mode=mode,
             context_messages=context_messages,
@@ -830,17 +867,6 @@ async def step_3_agent_loop(
     if context.ctx_data and context.ctx_data.extra_data:
         skill_env_vars = context.ctx_data.extra_data.get("skill_env_vars", {})
 
-    # The materialized turn bundle — one explicit object instead of four
-    # loose locals, so every driver demonstrably eats the same thing.
-    # driver_kwargs() reproduces the historical call shape exactly
-    # (including empty→None normalization); cancellation stays separate.
-    turn_input = TurnInput(
-        messages=messages,
-        mcp_servers=ctx.mcp_servers,
-        disallowed_tools=tuple(extra_disallowed_tools),
-        extra_env=skill_env_vars,
-    )
-
     # `captured_error` defers the ErrorMessage yield until AFTER the
     # recovery phase, so frontend renders the recovered reply FIRST and
     # the warning badge SECOND. Yielding ErrorMessage immediately on
@@ -859,21 +885,40 @@ async def step_3_agent_loop(
         f"[step_3] agent_loop framework: {framework_name!r} "
         f"(agent={ctx.agent_id}, trigger_user={ctx.user_id})"
     )
-    # Per-user executor routing (cloud): ask the broker to ensure this
-    # user's Executor container and use its URL. Returns None when no
-    # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
-    # so get_agent_loop_driver falls back. This is the cold-start point.
-    from xyz_agent_context.agent_framework.loop.broker_client import (
-        ensure_executor,
-        wait_until_ready,
-    )
-
-    # Executor ensure/warm is INSIDE the try so a cold-start failure
+    # Executor ensure/warm is INSIDE this try so a cold-start failure
     # (ExecutorUnreachableError from ensure_executor / wait_until_ready — broker
     # down or the container never boots) lands in the same except as a mid-run
     # drop, and is surfaced as an actionable ``infra_transient`` error rather
     # than escaping step_3 as a raw exception (issue ②'s bare-ClientConnectorError).
+    #
+    # Resume is no longer decided here (2026-07-29). The claude adapter authors
+    # the CLI transcript itself every turn, so step_3 has nothing to look up,
+    # validate or lease — see adapters/claude/transcript.py.
     try:
+        # The materialized turn bundle — one explicit object instead of loose
+        # locals, so every driver demonstrably eats the same thing.
+        # driver_kwargs() reproduces the historical call shape exactly
+        # (including empty→None normalization); cancellation stays separate.
+        turn_input = TurnInput(
+            messages=messages,
+            mcp_servers=ctx.mcp_servers,
+            disallowed_tools=tuple(extra_disallowed_tools),
+            extra_env=skill_env_vars,
+            agent_id=ctx.agent_id,
+            # The turn's delivery surface, declared by the modules
+            # (context 3.2). NexusPower's monologue contract routes every
+            # user-visible reply through these; CLI drivers ignore them.
+            expressive_tools=tuple(context.expressive_tools),
+        )
+        # Per-user executor routing (cloud): ask the broker to ensure this
+        # user's Executor container and use its URL. Returns None when no
+        # broker is configured (local/desktop, or static AGENT_EXECUTOR_URL),
+        # so get_agent_loop_driver falls back. This is the cold-start point.
+        from xyz_agent_context.agent_framework.loop.broker_client import (
+            ensure_executor,
+            wait_until_ready,
+        )
+
         ensured = await ensure_executor(ctx.user_id)
         executor_url = ensured.url if ensured else None
         if ensured is not None and ensured.cold_started:
@@ -999,6 +1044,34 @@ async def step_3_agent_loop(
         agent_loop_response, captured_error
     )
 
+    # Runtime model-health feedback: a classified model_not_found means the
+    # bound model was definitively rejected by its endpoint. Report the acting
+    # slot's (source, model, protocol) as a probe suspect so the next model
+    # sync revalidates it ahead of the TTL queue and dead entries leave the
+    # dropdowns (providers/model_health). Best-effort by contract.
+    _mnf = SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND
+    model_rejected = (
+        skip_kind == "raw_exception"
+        and skip_target_type == SELF_SERVICEABLE_ERROR_TYPE
+        and skip_reason_detail == _mnf
+    ) or (
+        skip_kind == "inline"
+        and any(
+            isinstance(m, ErrorMessage)
+            and getattr(m, "error_type", "") == SELF_SERVICEABLE_ERROR_TYPE
+            and getattr(m, "action_reason", None) == _mnf
+            for m in agent_loop_response
+        )
+    )
+    if model_rejected:
+        from xyz_agent_context.agent_framework.providers.model_health import (
+            report_agent_slot_suspect,
+        )
+
+        await report_agent_slot_suspect(
+            db_client, user_id=ctx.user_id, agent_id=ctx.agent_id, reason=_mnf
+        )
+
     if skip_kind == "inline":
         logger.warning(
             "[FALLBACK] skipped: turn failed a user-fixable way (auth / "
@@ -1114,6 +1187,15 @@ async def step_3_agent_loop(
         substeps=substeps
     )
 
+    # CLI session handle companions — only filled when the run reported a
+    # resumable session id (Claude Code's ResultMessage only, in v1). The
+    # canonical framework name and the config fingerprint were computed up
+    # front by the resume-decision block (before 3.4), in the scope where the
+    # ambient per-task claude_config ContextVar is guaranteed live — step_4
+    # never recomputes. Fail-open there means the fingerprint may be None,
+    # in which case step_4 skips persistence — resume capture must never
+    # hurt a turn.
+
     # Return unified execution result
     yield PathExecutionResult(
         final_output=state.final_output,
@@ -1126,6 +1208,9 @@ async def step_3_agent_loop(
         cache_read_tokens=state.cache_read_tokens,
         cache_creation_tokens=state.cache_creation_tokens,
         num_turns=state.num_turns,
+        cli_session_id=state.cli_session_id,
+        # Propagated even without a new session id: step_4 must delete the
+        # stale handle regardless of whether the cold retry reported one.
         agent_loop_response=agent_loop_response,
         ctx_data=context.ctx_data,
     )

@@ -8,4 +8,5 @@ export { useTimezoneSync } from './useTimezoneSync';
 export { useAutoRefresh } from './useAutoRefresh';
 export { useAttachmentBlobUrl } from './useAttachmentBlobUrl';
 export { useCreateAgent } from './useCreateAgent';
+export { useAgentImported } from './useAgentImported';
 export { useBookmarkSignals } from './useBookmarkSignals';

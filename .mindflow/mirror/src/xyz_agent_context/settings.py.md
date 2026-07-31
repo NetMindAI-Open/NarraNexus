@@ -1,8 +1,84 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-24
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 (二次) — 删除 executor_resume_hmac_secret 与 agent_loop_resume_enabled(T6)
+
+两个都成了死配置:
+
+- `executor_resume_hmac_secret` —— 它保护的能力(跨 executor 边界携带 CLI 会话句柄)
+  已不存在,见 [[executor_protocol]]。**云端部署要同步移除这个环境变量**。
+- `agent_loop_resume_enabled` —— 它门控的 `_resolve_resume_session_id`
+  (句柄式 resume 的决策入口)已随 T5 删除。现在的开关是
+  `claude_synthetic_transcript_enabled`。
+
+## 2026-07-29 — claude_synthetic_transcript_enabled
+
+`claude_synthetic_transcript_enabled: bool = True`(env
+`CLAUDE_SYNTHETIC_TRANSCRIPT_ENABLED`)—— 是否每轮自己写 CLI 的 resume transcript,
+而不是依赖存下来的会话句柄。机制与理由见 [[transcript]] 与 [[sdk]] 同日条目。
+
+关掉即回到句柄式 resume。**运维闸门,不是兼容层**:每一步都 fail-open(没有可续的
+历史、或文件写不进去,turn 就照今天的样子跑、历史留在提示词里),所以这个开关只是
+给"想整体停掉这个优化"留一个入口。
+
+## 2026-07-29 — claude_cli_prefer_pinned / claude_cli_path
+
+两个字段服务 [[cli_binary]] 的二进制选择:
+
+- `claude_cli_prefer_pinned: bool = True`(env `CLAUDE_CLI_PREFER_PINNED`)——
+  是否优先用 PATH 上经版本校验的 `claude`,而不是 SDK wheel 自带的那个。关掉
+  就回到 2026-07-29 之前的行为(永远用捆绑的)。这是**运维闸门,不是兼容层**。
+- `claude_cli_path: str = ""`(env `CLAUDE_CLI_PATH`)—— 显式路径,优先级高于
+  pin 查找。**路径不存在时被忽略而非照传**:照传会变成每轮 `CLINotFoundError`,
+  远比回落到捆绑二进制糟糕。
+
+为什么需要它们:SDK `_find_cli()` 先查捆绑副本,所以"装了新 CLI"不等于"用上了
+新 CLI"。而 SDK 0.1.43 捆绑的 2.1.56 不对 `tools` 数组做归一化,每轮换序、
+打穿整个缓存前缀(实验 E3/E3c)。详细机制与 fail-open 规则见 [[cli_binary]]。
+
+## 2026-07-28 — executor_resume_hmac_secret（HIGH review finding）
+
+新增 `executor_resume_hmac_secret: str = ""`（env `EXECUTOR_RESUME_HMAC_SECRET`）。
+用途见 [[executor_protocol.py]] 同日条目：给跨 orchestrator→executor 边界的
+`resume_session_id` 签名，因为 `/agent-loop` **无鉴权是刻意设计**，而 resume 句柄
+指向的 CLI transcript 落在**全租户共用**的 `CLAUDE_CONFIG_DIR`（就是本文件
+`claude_cli_config_path` / `claude_oauth_config_path` 那两个目录，不按用户分），
+配上可猜的 `working_path`，就是一条跨租户读别人对话的路。
+
+**默认空 = resume 整体失效（冷启动），而不是"不校验"**——这是刻意的失败方向：
+本地/桌面零配置照常工作（它们不跨 executor 边界），云端在密钥没发下来之前只是
+少一个优化。**云端部署依赖（NarraNexus-deploy）**：同一个值必须同时注入
+orchestrator env 与**每一个** executor 容器 env（容器不读平台 .env）。不配置不会
+报错、不会失败，只会静默丢掉 resume——所以这条得写在部署清单里，而不是靠日志发现
+（executor 侧确实会打一次性 WARNING，但那是容器日志）。
+
+与 `agent_loop_resume_enabled` 正交：那是"要不要 resume"的运维闸门，这是"resume
+跨网络时凭什么被采信"的凭据。
+
+## 2026-07-28 — prompt_turn_context_relocation_enabled 开关(R4a,新 dev 结构重放)
+
+新增 `prompt_turn_context_relocation_enabled: bool = True`(env
+`PROMPT_TURN_CONTEXT_RELOCATION_ENABLED`)。turn-context relocation 的
+kill-switch:开 = 每轮易变内容(temporal / narrative updated_at+current_summary /
+recent_actions / 模块 get_turn_context)搬进当前轮 user message 的 [Turn context]
+块,system prompt 轮间字节恒定可缓存;关 = context 装配与 R4 之前**逐字节一致**。
+与 `agent_loop_resume_enabled` **相互独立**(relocation 惠及所有框架所有轮次,
+resume 仅 claude_code;并成一个开关会让"排查 resume 关开关"连带回滚 prompt 结构、
+再次全网打穿缓存)。四象限(开开/开关/关开/关关)都是合法状态。同 R2 哲学:
+fail-open 运维闸门,非兼容 shim。消费方:[[context_runtime.py]]。
+(本条为 R4 系列在新 dev 结构上的重放;原始实现日期 2026-07-25,原分支
+feat/cli-session-capture,该历史不在本分支 mirror 中。)
+
+## 2026-07-28 — agent_loop_resume_enabled 开关（resume 化 R2/R3）
+
+新增 `agent_loop_resume_enabled: bool = True`（env `AGENT_LOOP_RESUME_ENABLED`）。
+这是 agent-loop resume 的 kill-switch：关 = 完全回到今天的行为（每轮全量历史冷
+启动）。**不是向后兼容 shim，是 fail-open 优化的运维闸门**——step_3 的 resume 决策
+（[[step_3_agent_loop.py]]）在任何存疑情形都回落冷启动，开关只是把这条回落变成无
+条件。默认 true、无新必填 env，部署无影响。
 
 ## 2026-07-24 — free-tier gateway passthrough + deploy env
 

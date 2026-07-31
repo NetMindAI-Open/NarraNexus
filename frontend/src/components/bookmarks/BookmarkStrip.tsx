@@ -39,6 +39,15 @@ import {
 } from './tabs';
 import { cn } from '@/lib/utils';
 
+/**
+ * Rendered width of the strip in px — MUST stay in sync with the `w-16` class
+ * on the root below. An open drawer reserves exactly this much of the right
+ * edge (BookmarkDrawer's `edgeReservePx`) so the strip is never covered: it
+ * is a persistent switcher, not something the user has to close a panel to
+ * get back to.
+ */
+export const STRIP_WIDTH_PX = 64;
+
 export interface BookmarkStripProps {
   agentId: string;
   activeTab: AtomicTabId | null;

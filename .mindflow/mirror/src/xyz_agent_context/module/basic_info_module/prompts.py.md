@@ -1,7 +1,27 @@
 ---
 code_file: src/xyz_agent_context/module/basic_info_module/prompts.py
-last_verified: 2026-07-21
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — R4b：{current_time} 段搬迁出模板（turn-context relocation）
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+`BASIC_INFO_MODULE_INSTRUCTIONS`（legacy，一字未动）之外新增三个常量：
+
+- `BASIC_INFO_REAL_WORLD_TURN_TEMPLATE` — "Real World Information" 小节
+  （含 `{current_time}` 与 ground-truth 反幻觉指引），**必须与 legacy 模板内
+  对应 span 逐字节相同**（stable 版靠 `.replace()` 用它做锚点推导；
+  `tests/module/test_turn_context_split.py` 锁定锚点存在性）。
+- `_REAL_WORLD_STABLE_SECTION` — 静态指引句（时间在本轮消息 turn context 块里）。
+- `BASIC_INFO_MODULE_INSTRUCTIONS_STABLE` — legacy 模板 replace 推导出的
+  字节稳定版，供 relocation flag 开启时使用。
+
+动机：`{current_time}` 秒级易变是 BasicInfo 在 prod SYSPROMPT-BREAKDOWN 中
+0/17 稳定的根因；搬到 turn context 后 system prompt 前缀可缓存。speaker 相关
+占位符（current_speaker_name/is_creator/user_role）**留在两个模板里**——换人
+打穿一次是合法语义。修改这个小节的措辞时必须同步改 legacy 模板与 turn
+template 两处，否则 replace 静默失效（有测试兜底）。
 
 ## 2026-07-10 — Product Feedback Duty 段
 

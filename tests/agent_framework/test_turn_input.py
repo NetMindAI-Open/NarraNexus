@@ -32,6 +32,8 @@ def test_driver_kwargs_matches_legacy_call_shape():
     ti = _mk(
         disallowed_tools=("WebSearch",),
         extra_env={"TAVILY_API_KEY": "k"},
+        agent_id="agent_x",
+        expressive_tools=("mcp__chat_module__send_message_to_user_directly",),
     )
     kwargs = ti.driver_kwargs()
     assert kwargs == {
@@ -39,6 +41,8 @@ def test_driver_kwargs_matches_legacy_call_shape():
         "mcp_servers": ti.mcp_servers,
         "extra_env": {"TAVILY_API_KEY": "k"},
         "disallowed_tools": ["WebSearch"],
+        "agent_id": "agent_x",
+        "expressive_tools": ["mcp__chat_module__send_message_to_user_directly"],
     }
     # messages / mcp_servers ride through by reference — no copies that
     # would break the mutate-then-call pattern in step_3.3.
@@ -55,6 +59,15 @@ def test_empty_collections_normalize_to_none():
     assert kwargs["disallowed_tools"] is None
 
 
+def test_expressive_tools_key_absent_when_empty_agent_id_always_present():
+    """A mute turn emits no expressive_tools key (driver defaults engage);
+    agent_id always rides along — NexusPower stamps it into ToolContext
+    and every driver accepts it via **kwargs."""
+    kwargs = _mk().driver_kwargs()
+    assert "expressive_tools" not in kwargs
+    assert kwargs["agent_id"] == "agent"
+
+
 def test_refs_reserved_and_default_none():
     """Schema honesty: refs is declared for the §8.2 reference layer but
     no driver consumes it yet — it must default to None and TurnInput
@@ -66,6 +79,14 @@ def test_turn_input_is_frozen():
     ti = _mk()
     with pytest.raises(dataclasses.FrozenInstanceError):
         ti.messages = []  # type: ignore[misc]
+
+
+def test_driver_kwargs_carries_no_resume_key():
+    """The field is gone (2026-07-29): the claude adapter authors its own
+    transcript, so no session id crosses this bundle. Asserted rather than
+    simply dropped — re-introducing the key would silently start spamming
+    CodexSDKv2's ignored-kwargs WARNING once per turn again."""
+    assert "resume_session_id" not in _mk().driver_kwargs()
 
 
 def test_driver_kwargs_excludes_cancellation_and_streaming():

@@ -26,47 +26,47 @@ import { api, type OnboardProviderType } from '@/lib/api';
 
 interface OneKeyProvider {
   id: OnboardProviderType;
-  label: string;
+  labelKey: string;
   /** Short vendor name for the "Get your X API key" link. */
   keyName: string;
-  desc: string;
+  descKey: string;
   getKeyUrl: string;
 }
 
 const ONE_KEY_PROVIDERS: OneKeyProvider[] = [
   {
     id: 'anthropic',
-    label: 'Anthropic (official)',
+    labelKey: 'settings.provider.officialAnthropic',
     keyName: 'Anthropic',
-    desc: 'Official Anthropic API key (sk-ant-...). Agent + helper both run on Claude.',
+    descKey: 'settings.provider.officialAnthropicDesc',
     getKeyUrl: 'https://console.anthropic.com/settings/keys',
   },
   {
     id: 'openai',
-    label: 'OpenAI (official)',
+    labelKey: 'settings.provider.officialOpenai',
     keyName: 'OpenAI',
-    desc: 'Official OpenAI API key. Agent runs on Codex CLI (gpt-5.5).',
+    descKey: 'settings.provider.officialOpenaiDesc',
     getKeyUrl: 'https://platform.openai.com/api-keys',
   },
   {
     id: 'netmind',
-    label: 'NetMind.AI Power',
+    labelKey: 'NetMind.AI Power',
     keyName: 'NetMind',
-    desc: 'One key covers both Anthropic & OpenAI endpoints.',
+    descKey: 'settings.provider.netmindDesc',
     getKeyUrl: 'https://www.netmind.ai/user/dashboard',
   },
   {
     id: 'yunwu',
-    label: 'Yunwu',
+    labelKey: 'Yunwu',
     keyName: 'Yunwu',
-    desc: 'Proxies official Claude & OpenAI APIs.',
+    descKey: 'settings.provider.proxyDesc',
     getKeyUrl: 'https://yunwu.ai',
   },
   {
     id: 'openrouter',
-    label: 'OpenRouter',
+    labelKey: 'OpenRouter',
     keyName: 'OpenRouter',
-    desc: 'Proxies official Claude & OpenAI APIs.',
+    descKey: 'settings.provider.proxyDesc',
     getKeyUrl: 'https://openrouter.ai/keys',
   },
 ];
@@ -129,7 +129,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
   const handleStart = async () => {
     const key = apiKey.trim();
     if (!key) {
-      setError('Please paste your API key');
+      setError(t('settings.provider.enterApiKey'));
       return;
     }
     setSubmitting(true);
@@ -142,10 +142,13 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
       // both slots to the new key (no manual delete-then-add dance).
       if (res.needs_replace) {
         const ok = await confirm({
-          title: 'Replace your existing key?',
-          message: `You already have a ${selected.keyName} key (${res.existing_masked ?? '***'}) set up. Replace it with the new key? Your agent and helper will switch to the new key right away.`,
-          confirmText: 'Replace key',
-          cancelText: 'Keep current',
+          title: t('settings.provider.replaceKeyTitle'),
+          message: t('settings.provider.replaceKeyMessage', {
+            provider: selected.keyName,
+            masked: res.existing_masked ?? '***',
+          }),
+          confirmText: t('settings.provider.replaceKey'),
+          cancelText: t('settings.provider.keepCurrentKey'),
         });
         if (!ok) {
           setSubmitting(false);
@@ -156,10 +159,10 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
       if (res.success) {
         finishSuccess(res);
       } else {
-        setError(res.detail || 'Setup failed');
+        setError(res.detail || t('settings.provider.setupFailed'));
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Network error');
+      setError(err instanceof Error ? err.message : t('settings.provider.networkError'));
     }
     setSubmitting(false);
   };
@@ -172,15 +175,14 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
             className="text-lg font-bold"
             style={{ color: 'var(--nm-ink)', fontFamily: 'var(--font-display)' }}
           >
-            One key to start
+            {t('settings.provider.oneKeyTitle')}
           </h2>
           <p className="text-sm mt-1" style={{ color: 'var(--nm-ink70)' }}>
-            Pick a provider and paste its API key — agent, models, and
-            endpoints are wired up for you.
+            {t('settings.provider.oneKeyDescription')}
           </p>
         </div>
 
-        <FormField label="Provider">
+        <FormField label={t('settings.provider.providerLabel')}>
           <div>
             <select
               value={providerType}
@@ -197,22 +199,22 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
             >
               {ONE_KEY_PROVIDERS.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label}
+                  {p.labelKey.startsWith('settings.') ? t(p.labelKey) : p.labelKey}
                 </option>
               ))}
             </select>
             <p className="text-xs mt-1.5" style={{ color: 'var(--nm-ink50)' }}>
-              {selected.desc}
+              {t(selected.descKey)}
             </p>
           </div>
         </FormField>
 
-        <FormField label="API key" error={error || undefined}>
+        <FormField label={t('settings.provider.apiKeyLabel')} error={error || undefined}>
           <div>
             <TextInput
               type="password"
               value={apiKey}
-              placeholder="Paste your API key"
+              placeholder={t('settings.provider.pasteApiKey')}
               autoComplete="off"
               onChange={(e) => {
                 setApiKey(e.target.value);
@@ -232,7 +234,7 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
                 style={{ color: 'var(--nm-ink70)' }}
               >
                 <ExternalLink className="w-3 h-3" />
-                Get your {selected.keyName} API key
+                {t('settings.provider.getProviderKey', { provider: selected.keyName })}
               </a>
               {mismatch && detected && (
                 <button
@@ -242,7 +244,9 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
                   onClick={() => setProviderType(detected)}
                 >
                   <KeyRound className="w-3 h-3" />
-                  Looks like {detected === 'anthropic' ? 'a Claude' : 'an OpenAI'} key — switch?
+                  {t('settings.provider.looksLikeKey', {
+                    provider: detected === 'anthropic' ? 'Claude' : 'OpenAI',
+                  })}
                 </button>
               )}
             </div>
@@ -259,11 +263,11 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
           {submitting ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Setting up...
+              {t('settings.provider.settingUp')}
             </>
           ) : (
             <>
-              Start using NarraNexus
+              {t('settings.provider.startUsing')}
               <ArrowRight className="w-4 h-4 ml-2" />
             </>
           )}
@@ -286,14 +290,14 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
             <div>
               <div className="font-medium">
                 {done.activated
-                  ? 'You’re all set'
+                  ? t('settings.provider.allSet')
                   : t('settings.provider.oneKeySaved', 'Key saved')}
               </div>
               {done.activated ? (
                 <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
-                  Agent: {done.agentModel}
+                  {t('settings.provider.agentSummary', { model: done.agentModel })}
                   {done.framework ? ` (${done.framework === 'codex_cli' ? 'Codex CLI' : 'Claude Code'})` : ''}
-                  {' · '}Helper: {done.helperModel}
+                  {' · '}{t('settings.provider.helperSummary', { model: done.helperModel })}
                 </div>
               ) : (
                 <div className="text-xs mt-0.5" style={{ color: 'var(--nm-ink70)' }}>
@@ -305,8 +309,9 @@ export function OneKeyOnboard({ onComplete }: OneKeyOnboardProps) {
               )}
               {done.keyCheck.startsWith('unverified') && (
                 <div className="text-xs mt-1" style={{ color: 'var(--color-warning, #b45309)' }}>
-                  Key saved but could not be verified ({done.keyCheck.replace(/^unverified \(|\)$/g, '')}) —
-                  if the first chat fails, double-check the key.
+                  {t('settings.provider.unverifiedKey', {
+                    reason: done.keyCheck.replace(/^unverified \(|\)$/g, ''),
+                  })}
                 </div>
               )}
             </div>

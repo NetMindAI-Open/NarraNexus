@@ -1,8 +1,48 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactColumn.tsx
-last_verified: 2026-05-19
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 (2) — the freeze is a floor, not a fixed width
+
+`contentFrozen` first pinned the content box to an exact px width. Correct for
+the shrink direction it was designed for, wrong while WIDENING: the content
+stayed put as the column grew, leaving a blank strip down the right of the pane
+for the whole drag — which reads as "the panel broke", not as "the panel is
+being resized" (and is exactly what the Owner's bug screenshot showed, there
+amplified by a drag that never ended — see [[ResizableDivider]]).
+
+Now `width: max(100%, <frozen>px)`:
+- **shrinking** → holds at the pre-drag width, the `<aside>` clips it, the
+  `<iframe>` is not reflowed. This is the direction that was measurably janky.
+- **widening** → tracks the column. Reflowing while growing costs less, and a
+  visible blank gap is a user-perceived regression that CLAUDE.md 铁律 #16
+  rules out anyway.
+
+## 2026-07-30 — `columnRef` + `contentFrozen` (live-follow divider drag)
+
+Both props exist to serve [[MainLayout]]'s divider, and only in expanded mode:
+
+- **`columnRef`** — a handle on the `<aside>`, so the drag can write
+  `flex-grow` straight to the DOM (no React render per frame). This is the
+  ref that the 2026-05-14 "iteration 2" removed; it's back because the panes
+  move live again.
+- **`contentFrozen`** — the reason live-follow is now affordable. While true,
+  the content area keeps the pixel width it had at drag start: the `<aside>`
+  resizes around it and clips (it already has `overflow-hidden`), so a
+  sandboxed HTML artifact's `<iframe>` is never reflowed mid-drag. On release
+  the freeze lifts → exactly one reflow, at the final width.
+
+**Gotcha**: the frozen width is applied as an explicit `width` on the content
+box, which overrides the flex column's `align-items: stretch`. Do NOT also
+set `flex-shrink: 0` there — the main axis here is *vertical*, so that would
+break the `flex-1` / `min-h-0` height chain instead of doing anything useful
+horizontally.
+
+**Gotcha**: measured in a `useLayoutEffect`, not `useEffect`. A passive effect
+runs after paint, by which point the drag may already have changed the width
+we were trying to capture.
 
 ## 2026-05-19 — Live ECharts LRU pool
 

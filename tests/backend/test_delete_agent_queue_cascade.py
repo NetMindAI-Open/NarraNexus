@@ -5,11 +5,12 @@
 @description: DELETE /api/auth/agents/{agent_id} must cascade the
 memory_consolidation_queue.
 
-Why: agent deletion cleaned memory_* tables but left the agent's queue
+Why (queue): agent deletion cleaned memory_* tables but left the agent's queue
 rows behind. The consolidation worker's idle trigger then reprocessed
 those scopes on every poll, each pass logging
 "[background-llm] agent ... has no owner row" — the prod 1,880-warnings/14d
 orphan-agent noise (bug tracker: "Agent 无 owner 记录").
+
 """
 from __future__ import annotations
 

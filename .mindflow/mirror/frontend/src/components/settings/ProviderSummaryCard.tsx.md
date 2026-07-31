@@ -1,9 +1,15 @@
 ---
 code_file: frontend/src/components/settings/ProviderSummaryCard.tsx
-last_verified: 2026-06-10
+last_verified: 2026-07-29
 stub: false
 ---
+
 # ProviderSummaryCard.tsx — at-a-glance LLM wiring summary
+
+## 2026-07-29 — 框架标签显示 NexusPower-beta
+
+卡片上的框架名从 [[agentFramework]] 的 `label` 取，于是自动显示
+`NexusPower-beta`（beta 后缀是产品决定，写在框架表里，不在这儿硬编码）。
 
 ## Why it exists
 

@@ -328,3 +328,47 @@ feedback unless the user asked you to.
 {deployment_context}
 
 """
+
+# ============================================================================
+# R4 turn-context relocation (2026-07-25)
+#
+# The "Real World Information" section carries {current_time} — a
+# second-resolution value that changes every turn, which used to make the
+# whole module instruction (and therefore the system prompt prefix) differ
+# byte-wise between turns, defeating provider prefix caches.
+#
+# With the relocation flag ON (settings.prompt_turn_context_relocation_enabled)
+# the module renders BASIC_INFO_MODULE_INSTRUCTIONS_STABLE into the system
+# prompt (the section becomes a static pointer) and emits the original
+# section — wording preserved verbatim — through get_turn_context() into the
+# "[Turn context]" block of the current user message. Flag OFF renders the
+# untouched legacy template above, functionally equivalent to the pre-R4 layout.
+#
+# BASIC_INFO_REAL_WORLD_TURN_TEMPLATE must stay byte-identical to the span
+# inside BASIC_INFO_MODULE_INSTRUCTIONS — the stable template is derived by
+# replacing that exact span (tests lock the anchor).
+# ============================================================================
+
+BASIC_INFO_REAL_WORLD_TURN_TEMPLATE = """##### Real World Information
+- Current date and time: {current_time}
+
+  This is the **ground truth** for "now". It is the user's local wall-clock
+  time with an explicit UTC offset and weekday (e.g. `2026-04-21 17:45:08
+  +08:00 (Tuesday, Asia/Shanghai)`). Use it as the reference whenever you
+  interpret time references from tool outputs, search results, or user input:
+  - A result timestamp **later** than this is in the FUTURE (hasn't happened).
+  - A result timestamp **earlier** than this is in the PAST (already happened).
+  - When a search returns results that disagree with your requested range,
+    trust this current time — do NOT rationalize the mismatch as "server
+    relative time" or similar. Flag it, filter the out-of-range entries,
+    and tell the user what you excluded."""
+
+_REAL_WORLD_STABLE_SECTION = """##### Real World Information
+- Current date and time: provided fresh every turn in the "Real World
+  Information" section of the turn context block at the top of the current
+  message (alongside the "User Temporal Context" block). Treat that value
+  as the ground truth for "now"."""
+
+BASIC_INFO_MODULE_INSTRUCTIONS_STABLE = BASIC_INFO_MODULE_INSTRUCTIONS.replace(
+    BASIC_INFO_REAL_WORLD_TURN_TEMPLATE, _REAL_WORLD_STABLE_SECTION
+)

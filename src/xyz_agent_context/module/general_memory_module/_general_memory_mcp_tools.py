@@ -17,7 +17,12 @@ from typing import Any, Dict, List
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
-from xyz_agent_context.memory import MemoryCoordinator, MemoryEngine
+from xyz_agent_context.memory import (
+    MemoryCoordinator,
+    MemoryEngine,
+    MemoryRecord,
+    SCOPE_AGENT,
+)
 from xyz_agent_context.module.base import XYZBaseModule
 
 
@@ -83,5 +88,35 @@ def create_general_memory_mcp_server(port: int) -> FastMCP:
             logger.warning(f"[memory.grep_memory] failed: {e}")
             return {"success": False, "error": str(e), "matches": []}
 
-    logger.info(f"GeneralMemory MCP: remember + grep_memory registered on port {port}")
+    @mcp.tool(
+        description=(
+            "Explicitly write ONE durable fact into your long-term General Memory. "
+            "Use when you learn something worth keeping that the automatic per-turn "
+            "extraction would miss — e.g. importing a fact from another agent, or a "
+            "user preference they asked you to remember verbatim. `content` is the "
+            "fact in natural language; `source` optionally notes where it came from "
+            "(e.g. 'imported from MEMORY.md'). Facts are deduplicated by meaning."
+        )
+    )
+    async def memory_retain(agent_id: str, content: str, source: str = "") -> dict:
+        try:
+            if not content or not content.strip():
+                return {"success": False, "error": "content is empty"}
+            db = await XYZBaseModule.get_mcp_db_client()
+            engine = MemoryEngine(db, agent_id)
+            tags = ["imported"] if source else []
+            rec = await engine.retain(MemoryRecord(
+                agent_id=agent_id, scope_type=SCOPE_AGENT, kind="observation",
+                subtype="world", content_text=content.strip(),
+                tags=tags, proof_count=1,
+                source_ref={"kind": "import", "id": source} if source else None,
+            ))
+            return {"success": True, "record_id": rec.record_id}
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[memory.memory_retain] failed: {e}")
+            return {"success": False, "error": str(e)}
+
+    logger.info(
+        f"GeneralMemory MCP: remember + grep_memory + memory_retain registered on port {port}"
+    )
     return mcp

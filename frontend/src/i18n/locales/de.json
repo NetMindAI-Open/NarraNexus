@@ -63,6 +63,7 @@
       "toolLabel": "[ Tool ]",
       "outputLabel": "[ Ausgabe ]",
       "reply": "Antwort",
+      "plan": "Plan",
       "nativeOutput": "Native Ausgabe",
       "helperFallback": "↻ helper_llm-Fallback",
       "helperFallbackTip": "Der Agent hat keine explizite Antwort gesendet; diese Nachricht wurde vom Fallback-LLM aus seiner Begründung verfasst.",
@@ -91,14 +92,58 @@
       "memberCount_other": "{{count}} Mitglieder",
       "teamSettings": "Team-Einstellungen",
       "empty": "Noch keine Nachrichten.",
-      "emptyHint": "@erwähne ein Teammitglied, um die Unterhaltung zu starten — danach übergeben sie untereinander.",
+      "emptyHint": "Sende eine Nachricht, um zu starten — die Teamleitung übernimmt, oder sprich jemanden per @ direkt an.",
       "noAgents": "Noch keine Agenten in diesem Team.",
-      "placeholder": "Nachricht an das Team — @erwähne, um jemanden anzusprechen…",
+      "placeholder": "Nachricht an das Team — @ um jemanden anzusprechen…",
       "send": "Senden (Enter)",
       "all": "@all",
       "notifyEveryone": "Alle benachrichtigen",
       "typing": "{{name}} schreibt gerade",
-      "youTitle": "Du · {{name}}"
+      "youTitle": "Du · {{name}}",
+      "activity": {
+        "starting": "startet",
+        "running": "arbeitet",
+        "thinking": "denkt nach",
+        "replying": "antwortet",
+        "tool": "nutzt {{name}}",
+        "queued": "wartet auf Start",
+        "stalled": "kein Signal",
+        "idle": "inaktiv",
+        "runningHint": "Bearbeitet deine Nachricht. Eine lange Aufgabe kann Minuten bis Stunden laufen — die Schritte unten werden währenddessen laufend aktualisiert.",
+        "queuedHint": "Zugestellt, wartet auf einen freien Ausführungsplatz. Das passiert, wenn mehrere Teammitglieder gleichzeitig angesprochen wurden oder eine andere lange Aufgabe noch läuft.",
+        "stalledHint": "Seit einer Weile kein Fortschrittssignal von diesem Teammitglied. Es kann noch laufen — ein Modell kann lange schweigen — oder der Hintergrundprozess hat ein Problem. Prüfe den Dienststatus, falls es sich nicht erholt.",
+        "idleHint": "Derzeit nichts ausstehend.",
+        "silentFor": "{{duration}} still",
+        "waitingFor": "{{duration}} wartend",
+        "finishedAgo": "vor {{duration}} fertig",
+        "startedAt": "gestartet um {{time}}",
+        "stepsDropped": "{{n}} frühere Schritte nicht angezeigt",
+        "noSteps": "Noch keine Schritte aufgezeichnet."
+      },
+      "guide": {
+        "title": "So funktioniert dieser Raum",
+        "plainTitle": "Einfach schreiben",
+        "plain": "Nachricht ohne @ senden — die Teamleitung übernimmt.",
+        "plainWithLead": "Nachricht ohne @ senden — {{name}} übernimmt.",
+        "mentionTitle": "Ein Mitglied ansprechen",
+        "mention": "@ ein Teammitglied, um es direkt anzusprechen.",
+        "broadcastTitle": "An alle senden",
+        "broadcast": "@all spricht alle an — jedes Mitglied führt einen vollen Durchlauf aus, also sparsam einsetzen.",
+        "relay": "Teammitglieder können sich gegenseitig @ nennen, um Arbeit zu übergeben; ohne Nachricht von dir stoppt die Staffel nach 4 Übergaben."
+      },
+      "noProcess": "Kein Prozessprotokoll für diese Runde",
+      "detailLoadFailed": "Der Prozess konnte nicht geladen werden. Bitte erneut versuchen.",
+      "roster": {
+        "title": "Mitglieder",
+        "lastRun": "lief {{duration}} · vor {{ago}}",
+        "lastRunAgoOnly": "vor {{ago}} beendet",
+        "neverRan": "noch nie gelaufen",
+        "loading": "Prozess wird geladen…",
+        "workingCount": "{{count}} aktiv",
+        "process": "Prozess"
+      },
+      "emptyHintWithLead": "Sende eine Nachricht, um zu starten — {{name}} übernimmt, oder sprich jemand anderen per @ direkt an.",
+      "leadTitle": "{{name}} · antwortet, wenn niemand per @ genannt wird"
     },
     "execution": {
       "showSteps": "Ausführungsschritte anzeigen",
@@ -154,7 +199,15 @@
       }
     },
     "dateToday": "Heute",
-    "dateYesterday": "Gestern"
+    "dateYesterday": "Gestern",
+    "segment": {
+      "details": "Denkprozess & Tools"
+    },
+    "process": {
+      "plan": "Plan",
+      "title": "Agent · Prozess",
+      "ops": "Ops"
+    }
   },
   "awareness": {
     "common": {
@@ -666,7 +719,9 @@
     },
     "resizableDivider": {
       "ariaLabel": "Panels anpassen",
-      "title": "Ziehen, um Chat / Artefakte anzupassen"
+      "title": "Ziehen, um Chat / Artefakte anzupassen",
+      "drawerAriaLabel": "Panelbreite anpassen",
+      "drawerTitle": "Ziehen, um die Panelbreite anzupassen"
     }
   },
   "settings": {
@@ -850,6 +905,17 @@
       "freeTierHowToSwitch": "Die Karte „Free Tier“ ist bereits mit deinen Agent- und Helper-Slots verbunden. Um deinen eigenen Schlüssel zu nutzen, füge unten einen Anbieter hinzu und wähle ihn in den Modell-Standards für den Agent-/Helper-Slot — wirksam ab der nächsten Nachricht.",
       "freeTierAnytime": "Du kannst jederzeit wechseln. Du musst das Gratis-Guthaben nicht zuerst aufbrauchen, und beim Wechsel verfällt es nicht — das Guthaben bleibt erhalten.",
       "freeTierNoDelete": "Solange Guthaben vorhanden ist, lässt sich die Free-Tier-Karte nicht löschen: Sie hält den einzigen Schlüssel dazu. Ist es aufgebraucht, kannst du sie entfernen."
+    },
+    "netmind": {
+      "returnSubscribeSuccess": "Zahlung erhalten – wird jetzt auf dein Konto angewendet.",
+      "returnTopupSuccess": "Aufladung erhalten – dein Guthaben wird aktualisiert.",
+      "returnCancelled": "Zahlung abgebrochen – dir wurde nichts berechnet.",
+      "cancelConfirmTitle": "Automatische Verlängerung deaktivieren?",
+      "cancelConfirmAction": "Verlängerung deaktivieren",
+      "cancelConfirmKeep": "Abo behalten",
+      "reactivateConfirmTitle": "Automatische Verlängerung fortsetzen?",
+      "reactivateConfirmAction": "Fortsetzen",
+      "reactivateConfirmDismiss": "Jetzt nicht"
     }
   },
   "system": {
@@ -1169,6 +1235,10 @@
         "installingDetail": "{{version}} wird installiert – fast fertig…",
         "readyDetail": "heruntergeladen – Neustart zum Abschließen.",
         "failed": "Update-{{stage}} fehlgeschlagen."
+      },
+      "modelDefaults": {
+        "cloudFrameworkLockedTitle": "In der Cloud nur für Staff",
+        "cloudFrameworkLocked": "Dieses Framework authentifiziert sich über einen gemeinsamen CLI-Login und ist in der Cloud daher Staff-exklusiv. Claude Code und NexusPower-beta funktionieren hier beide — die übrigen stehen in der lokalen Desktop-Version bereit."
       }
     },
     "system": {
@@ -1708,7 +1778,9 @@
       "resume": "Fortsetzen",
       "resuming": "Wird fortgesetzt...",
       "cancelJob": "Job abbrechen",
-      "cancelling": "Wird abgebrochen..."
+      "cancelling": "Wird abgebrochen...",
+      "editSchedule": "Zeit ändern",
+      "savingSchedule": "Speichern..."
     },
     "template": {
       "selectTemplate": "Vorlage auswählen",
@@ -1737,6 +1809,26 @@
         "paused": "{{count}} pausiert",
         "failed": "{{count}} fehlgeschlagen"
       }
+    },
+    "editSchedule": {
+      "title": "Ausführungszeit ändern",
+      "hint": "Passen Sie an, wann dieser Job läuft. Änderungen gelten ab der nächsten Ausführung.",
+      "runAt": "Ausführen am",
+      "cron": "Cron-Ausdruck",
+      "cronHint": "z. B. 0 8 * * * läuft täglich um 08:00",
+      "intervalSeconds": "Intervall (Sekunden)",
+      "timezone": "Zeitzone",
+      "save": "Speichern",
+      "cancel": "Abbrechen",
+      "invalidRunAt": "Bitte ein gültiges Datum und eine gültige Uhrzeit wählen",
+      "invalidCron": "Bitte einen gültigen Cron-Ausdruck eingeben",
+      "invalidInterval": "Bitte ein Intervall größer als 0 eingeben",
+      "pastTimeError": "Die gewählte Zeit liegt in der Vergangenheit",
+      "failedTitle": "Änderung fehlgeschlagen",
+      "failedMessage": "Die Ausführungszeit konnte nicht aktualisiert werden. Bitte erneut versuchen.",
+      "modeLabel": "Auslösemodus",
+      "modeInterval": "Intervall",
+      "modeCron": "Cron-Ausdruck"
     }
   },
   "artifacts": {
@@ -1812,6 +1904,9 @@
       "zoomInAria": "Vergrößern",
       "close": "Schließen (Esc)",
       "closeAria": "Zoom schließen"
+    },
+    "url": {
+      "toggleFailed": "Modus konnte nicht gewechselt werden: {{error}}"
     }
   },
   "skills": {
@@ -1928,6 +2023,13 @@
     "livePreview": "Live-Vorschau"
   },
   "common": {
-    "close": "Close"
+    "close": "Close",
+    "betaTooltip": "NarraNexus befindet sich in der Beta-Phase. Funktionen können sich ändern und gelegentlich können Fehler auftreten — Ihr Feedback hilft uns, besser zu werden.",
+    "ok": "OK",
+    "noticeTitle": "Einen Moment",
+    "actionFailedTitle": "Das hat nicht funktioniert",
+    "savedTo": "Gespeichert unter {{path}}",
+    "downloadFailed": "Download fehlgeschlagen: {{error}}",
+    "doneTitle": "Fertig"
   }
 }

@@ -21,7 +21,13 @@
  * Chat ↔ Artifacts split is user-resizable via the ResizableDivider; ratio
  * persisted to localStorage. Divider hidden when the artifact column is in
  * sliver mode (no artifacts yet, or user-collapsed) because resizing a
- * 36-px sliver is meaningless.
+ * 36-px sliver is meaningless. The pinned bookmark drawer gets its own
+ * divider and its own persisted width — every column on the right resizes
+ * the same way.
+ *
+ * The bookmark strip is never covered: an open slide-over reserves
+ * STRIP_WIDTH_PX + RAIL_GUTTER_PX of the right edge for it, backdrop
+ * included, so switching panels is one click rather than close-then-click.
  *
  * Signal source: artifact_id signals arrive via the chat WebSocket stream
  * (tool_output frames parsed in ChatPanel.tsx). loadPinned is called on mount /
@@ -41,6 +47,7 @@ import {
   BookmarkDrawer,
   BookmarkPanelHost,
   tabLabelKey,
+  STRIP_WIDTH_PX,
 } from '@/components/bookmarks';
 import type { AtomicTabId } from '@/components/bookmarks';
 import { HelpButton, CHAT_VIEW_PAGES } from '@/components/help';
@@ -48,9 +55,10 @@ import { FeedbackButton } from '@/components/ui/FeedbackButton';
 import { useBookmarkSignals } from '@/hooks/useBookmarkSignals';
 import { ChatPanel } from '@/components/chat';
 import { WakingOverlay } from '@/components/chat/WakingOverlay';
-import { TeamChatPanel } from '@/components/chat/TeamChatPanel';
+import { TeamChatPanel } from '@/components/chat/team';
 import { CostPopover } from '@/components/cost/CostPopover';
 import { OnboardingChecklist } from '@/components/onboarding/OnboardingChecklist';
+import { MigrationGuide } from '@/components/onboarding/MigrationGuide';
 import { AgentCompletionToast } from '@/components/ui/AgentCompletionToast';
 import { ArtifactColumn } from '@/components/artifacts';
 import { useConfigStore, usePreloadStore, useArtifactStore, useUIStore } from '@/stores';
@@ -61,11 +69,25 @@ import { useAutoRefresh } from '@/hooks';
 const SPLIT_STORAGE_KEY = 'chat_artifact_split_v1';
 const DRAWER_PINNED_KEY = 'bookmark_drawer_pinned_v1';
 const DRAWER_OPENED_ONCE_KEY = 'bookmark_drawer_opened_v1';
+const DRAWER_WIDTH_KEY = 'bookmark_drawer_width_v1';
 const DEFAULT_SPLIT = 0.6; // 60 % chat, 40 % artifacts — matches the legacy 3:2 flex shares.
 const MIN_CHAT_PX = 400;
 const MIN_ARTIFACT_PX = 320;
 const SPLIT_HARD_MIN = 0.1;
 const SPLIT_HARD_MAX = 0.9;
+// Pinned bookmark drawer: user-resizable like the chat ↔ artifacts split, so
+// every column on the right side follows the same "grab the rule and drag"
+// rule instead of one of them being a hardcoded width.
+const DEFAULT_DRAWER_PX = 400;
+const MIN_DRAWER_PX = 300;
+const MAX_DRAWER_PX = 720;
+/**
+ * Gutter between the bookmark strip and the viewport edge — `<main>`'s
+ * `md:p-3`. The strip only renders on desktop (≥ md), so 12 is the only
+ * value that can apply; the open slide-over reserves strip + gutter so it
+ * never lands on top of the strip.
+ */
+const RAIL_GUTTER_PX = 12;
 
 function readInitialSplit(): number {
   if (typeof window === 'undefined') return DEFAULT_SPLIT;
@@ -74,6 +96,15 @@ function readInitialSplit(): number {
   const parsed = parseFloat(raw);
   if (!Number.isFinite(parsed)) return DEFAULT_SPLIT;
   return Math.min(SPLIT_HARD_MAX, Math.max(SPLIT_HARD_MIN, parsed));
+}
+
+function readInitialDrawerWidth(): number {
+  if (typeof window === 'undefined') return DEFAULT_DRAWER_PX;
+  const raw = window.localStorage.getItem(DRAWER_WIDTH_KEY);
+  if (!raw) return DEFAULT_DRAWER_PX;
+  const parsed = parseFloat(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_DRAWER_PX;
+  return Math.min(MAX_DRAWER_PX, Math.max(MIN_DRAWER_PX, parsed));
 }
 
 /** Default chat view with context panel */
@@ -134,16 +165,21 @@ export function ChatView() {
 
   // Chat ↔ Artifacts split (fraction of joint width occupied by chat).
   //
-  // Perf: dragging the divider does NOT resize the panes in real time —
-  // resizing the artifact pane reflows whatever it hosts (an HTML
-  // artifact is a sandboxed iframe; reflowing it every frame, especially
-  // shrinking, is visibly janky). Instead, during the drag only a thin
-  // "ghost" preview line moves (positioned imperatively, zero React
-  // renders). On release `handleResizeEnd` commits the final ratio to
-  // `chatSplit` state — exactly one re-render → one reflow per drag.
+  // The panes track the cursor live, but WITHOUT paying either of the two
+  // costs that made earlier cuts of this janky:
+  //   - React renders: `handleResize` writes `flex-grow` straight to the two
+  //     column DOM nodes. Zero renders during the drag; one on release.
+  //   - iframe reflow: an HTML artifact is a sandboxed <iframe>, and
+  //     reflowing it 60×/s while shrinking is visibly janky. So the artifact
+  //     column freezes its CONTENT at the pre-drag width for the duration of
+  //     the drag (`contentFrozen`) — the column resizes and clips, the iframe
+  //     doesn't move. Release unfreezes → exactly one reflow, at the final
+  //     width.
   const [chatSplit, setChatSplit] = useState<number>(() => readInitialSplit());
+  const [dragging, setDragging] = useState(false);
   const groupRef = useRef<HTMLDivElement | null>(null);
-  const ghostLineRef = useRef<HTMLDivElement | null>(null);
+  const chatColRef = useRef<HTMLDivElement | null>(null);
+  const artifactColRef = useRef<HTMLElement | null>(null);
   const pendingSplitRef = useRef<number>(chatSplit);
 
   // Persist on every committed change so refreshes preserve the layout.
@@ -151,6 +187,18 @@ export function ChatView() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem(SPLIT_STORAGE_KEY, String(chatSplit));
   }, [chatSplit]);
+
+  // Pinned-drawer width — same two-phase drag as the split above (imperative
+  // during, committed + persisted on release). No iframe lives in the drawer,
+  // so there is nothing to freeze here.
+  const [drawerWidth, setDrawerWidth] = useState<number>(() => readInitialDrawerWidth());
+  const drawerColRef = useRef<HTMLDivElement | null>(null);
+  const pendingDrawerWidthRef = useRef<number>(drawerWidth);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(DRAWER_WIDTH_KEY, String(drawerWidth));
+  }, [drawerWidth]);
 
   // Translate a raw pointer clientX into a clamped split fraction relative
   // to the joint chat+artifact area. Clamp tight against per-pane min
@@ -169,29 +217,50 @@ export function ChatView() {
     return Math.min(hi, Math.max(lo, rawRatio));
   }, []);
 
-  // During drag (≤ once per frame): move the ghost preview line only. The
-  // real columns stay put — no flex change, no iframe reflow.
+  // During drag (≤ once per frame): move the real columns by writing flex-grow
+  // straight to the DOM. No setState → no re-render; the artifact content is
+  // frozen for the duration, so no iframe reflow either.
   const handleResize = useCallback((clientX: number) => {
-    const el = groupRef.current;
-    const ghost = ghostLineRef.current;
-    if (!el || !ghost) return;
     const split = computeSplit(clientX);
     if (split === null) return;
     pendingSplitRef.current = split;
-    // Position the ghost at the *clamped* split so it previews exactly
-    // where the panes will snap to on release.
-    ghost.style.left = `${split * el.getBoundingClientRect().width}px`;
-    ghost.style.display = 'block';
+    if (chatColRef.current) chatColRef.current.style.flexGrow = String(split);
+    if (artifactColRef.current) artifactColRef.current.style.flexGrow = String(1 - split);
   }, [computeSplit]);
 
-  // On release: hide the ghost, commit the final ratio to state (one
-  // re-render → the columns resize and their content reflows once).
+  // On release: commit the final ratio (one re-render → React re-asserts the
+  // same flex-grow values it was just handed imperatively) and unfreeze the
+  // artifact content so it reflows once, at the width the user chose.
   const handleResizeEnd = useCallback((clientX: number) => {
-    if (ghostLineRef.current) ghostLineRef.current.style.display = 'none';
     const split = computeSplit(clientX);
     if (split !== null) pendingSplitRef.current = split;
     setChatSplit(pendingSplitRef.current);
+    setDragging(false);
   }, [computeSplit]);
+
+  // Pinned-drawer drag. Width grows leftward from the drawer's own right edge,
+  // which is pinned by the bookmark strip beside it — so the edge stays put
+  // while the chat+artifact group absorbs the change.
+  const computeDrawerWidth = useCallback((clientX: number): number | null => {
+    const el = drawerColRef.current;
+    if (!el) return null;
+    const right = el.getBoundingClientRect().right;
+    return Math.min(MAX_DRAWER_PX, Math.max(MIN_DRAWER_PX, right - clientX));
+  }, []);
+
+  const handleDrawerResize = useCallback((clientX: number) => {
+    const el = drawerColRef.current;
+    const width = computeDrawerWidth(clientX);
+    if (!el || width === null) return;
+    pendingDrawerWidthRef.current = width;
+    el.style.width = `${width}px`;
+  }, [computeDrawerWidth]);
+
+  const handleDrawerResizeEnd = useCallback((clientX: number) => {
+    const width = computeDrawerWidth(clientX);
+    if (width !== null) pendingDrawerWidthRef.current = width;
+    setDrawerWidth(pendingDrawerWidthRef.current);
+  }, [computeDrawerWidth]);
 
   // Load pinned artifacts whenever agentId changes.
   // Note: chatStore does not expose a per-agent session ID, so loadForSession
@@ -212,9 +281,7 @@ export function ChatView() {
 
   return (
     <main className="flex-1 flex min-w-0 p-2 gap-2 md:p-3 md:gap-3 overflow-hidden relative z-10">
-      {/* Chat + Artifact group — owns the resizable divider + ghost line.
-          `relative` so the ghost preview line can absolutely-position
-          itself against this box. */}
+      {/* Chat + Artifact group — owns the resizable divider. */}
       <div
         ref={groupRef}
         className="relative flex-1 min-w-0 flex flex-col md:flex-row overflow-hidden"
@@ -261,6 +328,7 @@ export function ChatView() {
             flex-col so the (cloud-only, self-hiding) onboarding checklist
             can sit above the chat without ChatPanel losing its height. */}
         <div
+          ref={chatColRef}
           className={cn(
             'min-w-0 lg:min-w-[400px] animate-fade-in overflow-hidden rounded-[var(--radius-md)] flex flex-col',
             isMobile && mobileTab === 'artifacts' && 'hidden',
@@ -274,6 +342,7 @@ export function ChatView() {
           }}
         >
           <OnboardingChecklist />
+          <MigrationGuide />
           <div className="relative flex-1 min-h-0">
             <ChatPanel onAgentComplete={refreshAll} />
             <WakingOverlay />
@@ -283,7 +352,11 @@ export function ChatView() {
         {/* Resizable divider (chat ↔ artifacts) — desktop only. Hidden in
             sliver mode; on mobile the views are tabbed, not split. */}
         {!isMobile && artifactExpanded && (
-          <ResizableDivider onResize={handleResize} onResizeEnd={handleResizeEnd} />
+          <ResizableDivider
+            onResizeStart={() => setDragging(true)}
+            onResize={handleResize}
+            onResizeEnd={handleResizeEnd}
+          />
         )}
 
         {/* Artifact column. Desktop: side column (auto-hides to a sliver when
@@ -298,41 +371,45 @@ export function ChatView() {
                 <ArtifactColumn
                   agentId={agentId}
                   flexGrow={artifactExpanded ? 1 - chatSplit : undefined}
+                  columnRef={artifactColRef}
+                  contentFrozen={dragging}
                 />
               ))}
-
-        {/* Drag preview line — desktop only, alongside the divider. */}
-        {!isMobile && artifactExpanded && (
-          <div
-            ref={ghostLineRef}
-            className="absolute top-0 bottom-0 w-0.5 bg-[var(--text-primary)] pointer-events-none z-20 hidden"
-            aria-hidden
-          />
-        )}
       </div>
 
-      {/* Pinned drawer — a static paper-warm column, only when the user
-          explicitly pinned the bookmark drawer. The default experience is
-          the slide-over (rendered below via portal) so chat keeps the
-          space (spec §6). */}
-      {drawerPinned && drawerTab && agentId && (
-        <div
-          className="w-[400px] shrink-0 flex flex-col rounded-[var(--radius-md)] overflow-hidden"
-          style={{
-            background: 'var(--nm-paper-warm)',
-            border: '1px solid var(--nm-hairline)',
-          }}
+      {/* Drag handle for the pinned drawer's width. `-mx-2` cancels most of
+          <main>'s own `md:gap-3`, which lands on both sides of the handle and
+          would otherwise add up to a ~30px blank strip. */}
+      {drawerPinned && drawerTab && agentId && !isMobile && (
+        <ResizableDivider
+          onResize={handleDrawerResize}
+          onResizeEnd={handleDrawerResizeEnd}
+          label={tr('layout.resizableDivider.drawerAriaLabel')}
+          title={tr('layout.resizableDivider.drawerTitle')}
+          marginClassName="-mx-2"
+        />
+      )}
+
+      {/* The bookmark drawer — ONE element for both modes, deliberately.
+          Pinned it renders here as a static column; unpinned it portals out to
+          body as a slide-over. Keeping it a single element at a single position
+          in the React tree is what stops a pin/unpin toggle from unmounting the
+          panel and silently discarding everything the user had set up inside it
+          (filters, view mode, expanded rows). Do NOT split this back into two
+          conditional <BookmarkDrawer> elements. */}
+      {agentId && (
+        <BookmarkDrawer
+          open={drawerTab !== null}
+          pinned={drawerPinned}
+          onPinnedChange={handlePinnedChange}
+          onClose={handleDrawerClose}
+          title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
+          edgeReservePx={isMobile ? 0 : STRIP_WIDTH_PX + RAIL_GUTTER_PX}
+          pinnedWidth={drawerWidth}
+          columnRef={drawerColRef}
         >
-          <BookmarkDrawer
-            open
-            pinned
-            onPinnedChange={handlePinnedChange}
-            onClose={handleDrawerClose}
-            title={tr(tabLabelKey(drawerTab))}
-          >
-            <BookmarkPanelHost tab={drawerTab} agentId={agentId} />
-          </BookmarkDrawer>
-        </div>
+          {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
+        </BookmarkDrawer>
       )}
 
       {/* Bookmark strip — the paper edge. ~36px (spec §2). Desktop only; on
@@ -351,18 +428,6 @@ export function ChatView() {
           is reserved for content and the page guide isn't tuned for touch. */}
       {!isMobile && <HelpButton pages={CHAT_VIEW_PAGES} />}
 
-      {/* Slide-over drawer (default, unpinned) */}
-      {!drawerPinned && agentId && (
-        <BookmarkDrawer
-          open={drawerTab !== null}
-          pinned={false}
-          onPinnedChange={handlePinnedChange}
-          onClose={handleDrawerClose}
-          title={drawerTab ? tr(tabLabelKey(drawerTab)) : ''}
-        >
-          {drawerTab && <BookmarkPanelHost tab={drawerTab} agentId={agentId} />}
-        </BookmarkDrawer>
-      )}
     </main>
   );
 }

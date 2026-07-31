@@ -56,11 +56,48 @@ NETMIND_ONLY_DETAIL = (
     "local (desktop) version only."
 )
 
+# Frameworks a cloud non-staff user may select.
+#
+# The hazard this gate exists for is CREDENTIAL RIDING, not framework
+# variety: `claude_code` and `codex_cli` authenticate through a CLI that
+# reads a credential FILE from HOME (~/.claude/.credentials.json,
+# ~/.codex/auth.json), and the cloud image runs one `app` user with one
+# HOME — so those files are container-global and staged by a staff login.
+# A non-staff user switching to such a framework would consume staff's
+# quota under staff's identity. `claude_code` is nonetheless allowed
+# because cloud provisions each user an API-key NetMind card for it; it is
+# the OAuth CARD that stays staff-only (see `_OAUTH_CARD_TYPES` in
+# backend/routes/providers.py).
+#
+# NexusPower cannot ride those files by construction: it drives the
+# provider API directly with the key of the card bound to the agent slot,
+# and REFUSES subscription OAuth credentials outright (see
+# `adapters/nexus/nexus_agent._resolve_provider`). A cloud non-staff user
+# can only bind NetMind capacity (CLOUD_BINDABLE_SOURCES), so running it
+# means running on their own account — exactly what this policy wants.
+#
+# Adding a framework here is a security decision: it belongs only if the
+# framework can NEVER reach a shared credential file.
+CLOUD_ALLOWED_FRAMEWORKS = frozenset({"claude_code", "nexus_power"})
+
 FRAMEWORK_LOCKED_DETAIL = (
-    "Switching the agent framework is staff-only in cloud mode — the cloud "
-    "version runs on your NetMind account. Framework switching is available "
+    "This agent framework is staff-only in cloud mode: it authenticates "
+    "through a shared CLI login rather than your own provider key. Cloud "
+    "accounts can use Claude Code or NexusPower; the others are available "
     "in the local (desktop) version."
 )
+
+
+def framework_allowed_in_cloud(framework: str, actor_is_staff: bool) -> bool:
+    """May this actor select ``framework``?
+
+    Staff keeps full choice; local deployments are never gated. For a
+    cloud non-staff actor the answer is membership of
+    :data:`CLOUD_ALLOWED_FRAMEWORKS` — see the rationale there.
+    """
+    if not netmind_slots_only(actor_is_staff):
+        return True
+    return framework in CLOUD_ALLOWED_FRAMEWORKS
 
 
 class CloudPolicyViolation(Exception):

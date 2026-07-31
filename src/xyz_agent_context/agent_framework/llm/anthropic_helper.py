@@ -26,6 +26,9 @@ from pydantic import BaseModel, TypeAdapter
 from anthropic import AsyncAnthropic
 
 from xyz_agent_context.agent_framework.api_config import anthropic_helper_config
+from xyz_agent_context.agent_framework.anthropic_usage import (
+    normalize_anthropic_usage,
+)
 from xyz_agent_context.agent_framework.adapters.openai_agents import (
     _SimpleResult,
     _ParsedResult,
@@ -175,9 +178,9 @@ class AnthropicHelperSDK:
             raw = "".join(
                 b.text for b in msg.content if getattr(b, "type", "") == "text"
             )
-            usage = getattr(msg, "usage", None)
-            in_tok = getattr(usage, "input_tokens", 0) or 0
-            out_tok = getattr(usage, "output_tokens", 0) or 0
+            usage = normalize_anthropic_usage(getattr(msg, "usage", None))
+            in_tok = usage["input_tokens"]
+            out_tok = usage["output_tokens"]
             if _agent_id and _db:
                 if in_tok > 0 or out_tok > 0:
                     try:
@@ -286,9 +289,9 @@ class AnthropicHelperSDK:
                     char_count += len(delta)
                     yield delta
             final = await stream.get_final_message()
-            usage = getattr(final, "usage", None)
-            input_tokens = getattr(usage, "input_tokens", 0) or 0
-            output_tokens = getattr(usage, "output_tokens", 0) or 0
+            usage = normalize_anthropic_usage(getattr(final, "usage", None))
+            input_tokens = usage["input_tokens"]
+            output_tokens = usage["output_tokens"]
 
         logger.info(
             f"[AnthropicHelper-Stream] completed: model={model_name} "

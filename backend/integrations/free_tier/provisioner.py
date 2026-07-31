@@ -103,15 +103,37 @@ async def ensure_free_tier_provider(
 
         svc = UserProviderService(db)
         agent_model, helper_model = free_tier_default_models()
-        # Seed the card with what the GATEWAY serves, not the upstream
-        # catalogue the netmind card would inherit — see served_models(). A
-        # lookup failure is not fatal: fall back to the inherited list rather
-        # than block provisioning over a dropdown.
+        # Seed the card with what the GATEWAY serves — gated by the probe
+        # verdicts so a brand-new card never offers a model the gateway lists
+        # but the upstream rejects (the raw catalogue carries ids that FAIL a
+        # whole protocol). Same gate as the daily refresh; the DB ledger is
+        # the durable verdict carrier (the container file is another
+        # process's snapshot). A lookup failure is not fatal: fall back to
+        # the inherited list rather than block provisioning over a dropdown.
+        models: dict[str, list[str]] | list[str] | None = None
         try:
-            models = await client.served_models() or None
+            served = list(await client.served_models() or [])
         except WalletError as e:  # noqa: BLE001 — cosmetic, never fatal
             logger.warning(f"[free-tier] model list lookup failed for {user_id}: {e!r}")
-            models = None
+            served = []
+        if served:
+            models = served
+            try:
+                from xyz_agent_context.agent_framework.providers import model_sync
+                from xyz_agent_context.agent_framework.providers.model_probe_ledger import (
+                    load_ledger,
+                    load_ledger_db,
+                )
+
+                ledger = await load_ledger_db(db) or load_ledger()
+                # Gates in memory only — persisting the entry is the daily
+                # pass's job; a provisioning call must not race it.
+                models = model_sync.apply_free_tier_gate(ledger, served)
+            except Exception as e:  # noqa: BLE001 — gate trouble degrades to the raw list
+                logger.warning(
+                    f"[free-tier] model gate unavailable for {user_id}, "
+                    f"seeding the raw gateway list: {e!r}"
+                )
         # Activate (bind slots) only when the user has nothing usable yet. A
         # user who already configured their own provider is never hijacked —
         # the free card is merely made available to switch to.

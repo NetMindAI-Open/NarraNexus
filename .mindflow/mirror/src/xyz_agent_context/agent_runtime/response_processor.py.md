@@ -1,8 +1,69 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/response_processor.py
-last_verified: 2026-07-27
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 独白子集同时上到 AgentThinking 消息本体
+
+两个 flush 点（batcher 阈值 flush + 残余 flush）把 `_take_pending_monologue()`
+改为**每次 flush 只 drain 一次**，同一份子集同时交给 `record_thinking`（state
+侧，进 final_output）和 `AgentThinking.monologue`（消息侧，供 [[run_collector]]
+拼 output_text）。此前独白只进 state，消息流上不可见——bus/IM 触发器只消费
+消息流，群聊回复因此丢失。展示流（thinking_content）逐字节不变（铁律 #16）。
+
+## 2026-07-30 — pending tool_call 帧的三条纪律
+
+1. details 增带 `tool_call_id` + `pending`——前端按 tool_call_id 把 pending
+   行原地替换成完整版，两帧都要带键。
+2. pending 帧 `state_update=None`：只有完整调用 record_tool_call，两帧都记
+   会翻倍步数和持久化 timeline。
+3. 用户回复工具（`_looks_like_user_reply_tool`）的 pending 帧整帧丢弃：
+   回复已经走 reply-delta 直播，空参数回复帧会往轮次内容里注入一个空气泡。
+
+## 2026-07-29 (三次) — thinking_item 的 monologue 路由
+
+带 `monologue: true` 的 thinking_item(只有 NexusPower 的 LegacyEventAdapter 会打
+这个标)在进 batcher 之外单独累积 `_pending_monologue`,两个 flush 点(batcher 阈值
+flush + 残余 flush)把它作为 `record_thinking` 的 `monologue` 参数交给
+[[execution_state]] 进 `final_output`。独白与 CoT 的展示流仍由 batcher 逐字节合帧,
+用户所见不变;分开积累是因为 batcher 合帧后monologue/CoT 已不可拆。
+
+## 2026-07-29 (二次) — 删除 DATA_TYPE_RESUME_FAILED 分支(T5)
+
+随 [[execution_state]] 的 `mark_resume_failed` 一起删。该分支的唯一作用是把 adapter
+的内部 marker 转成一次 state 更新,好让 step_4 清理过期句柄行——那张表的写入路径
+已不存在。
+
+## 2026-07-29 — tool_output 优先按 id 配对
+
+`ITEM_TYPE_TOOL_CALL_OUTPUT` 分支:从事件里取 `tool_call_id` 透传给
+`record_tool_output`([[execution_state]] 同日条目),并且**展示用的 tool_call
+查找也改成优先按 id**,位置配对降为回落(驱动没报 id 时才用)。
+
+修的是本文件注释自己就点明过的问题:并行工具调用时所有 call 先到达、output 按
+完成顺序返回,于是"第 N 个 output 对应第 N 个 call"不成立,前端会显示错的工具名。
+
+## 2026-07-29 — REPLY_DELTA / PLAN 两条分支
+
+新增 `ResponseType.REPLY_DELTA` / `PLAN` 及其处理分支，产出
+`AgentReplyDelta` / `AgentPlan`。两条**只**在 NexusPower 独有的事件形状上触发，
+别的 driver 的流一个字节都不受影响。
+
+计费口径没变、也不许变：reply-delta **不计入** `final_output`——它是表达工具
+参数的投影，真正的 final_output 仍来自工具调用本身。两边都算就是双计，只算
+delta 就会在非流式路径上丢内容。
+
+## 2026-07-28 — `DATA_TYPE_RESUME_FAILED` marker → mark_resume_failed（resume 化 R3）
+
+`_handle_raw_response_event` 新增分支（**DATA_TYPE_ERROR 之前**）：适配器的
+`response.resume_failed` marker（常量来自 [[events.py]]；陈旧句柄 → 同轮冷
+启动重试已跑）→ `ProcessedResponse(message=None,
+state_update={"method": "mark_resume_failed"})` + 一条
+`[AGENT-LOOP-RESUME] resume failed …` warning。**刻意不产出 ErrorMessage**
+——重试已把这轮补成正常轮，用户不感知（铁律 #16）；信号只推
+ExecutionState.resume_failed，由 step_4 删陈旧句柄行。测试：
+tests/agent_runtime/test_resume_failed_threading.py。
 
 ## 2026-07-27 — DATA_TYPE_USAGE 累加进 streamed_* 兜底
 
@@ -18,6 +79,12 @@ stub: false
 首选恢复路径（标注 most reliable）：2026-07-23 macOS 事故里「重新
 `claude login`」对隔离 CONFIG_DIR 的 Keychain 死条目无效，旧文案会把
 用户引进死胡同。
+
+## 2026-07-25 — response.done 透传 cli_session_id(resume 化 R1,纯搬运)
+
+accumulate_usage args 新增 `"cli_session_id": data.get("session_id")`。None =
+框架没报(只有 Claude Code 的 ResultMessage 带);合并语义在 ExecutionState
+(latest-non-None-wins,见 execution_state.py.md 同日条目)。
 
 ## 2026-07-23 — response.done 折算 cache 用量,归一化两套 provider 词汇(W1)
 

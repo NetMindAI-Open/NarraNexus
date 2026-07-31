@@ -75,6 +75,10 @@ class LarkCredential:
     profile_name: str  # CLI profile name, e.g. "agent_{agent_id}"
     workspace_path: str = ""  # HOME-based workspace directory
     bot_name: str = ""
+    # The bot's own Lark open_id (from /open-apis/bot/v3/info). Drives the
+    # group-message @-mention gate in lark_trigger: without it we can only
+    # fall back to display-name matching, which a same-named human breaks.
+    bot_open_id: str = ""
     app_secret_encoded: str = ""  # Base64-encoded secret for SDK use (NOT encrypted)
     owner_open_id: str = ""  # Lark open_id of the agent's owner
     owner_name: str = ""  # Display name of the owner
@@ -166,6 +170,7 @@ class LarkCredentialManager:
             profile_name=row.get("profile_name", ""),
             workspace_path=row.get("workspace_path", ""),
             bot_name=row.get("bot_name", ""),
+            bot_open_id=row.get("bot_open_id", ""),
             app_secret_encoded=row.get("app_secret_encrypted", ""),
             owner_open_id=row.get("owner_open_id", ""),
             owner_name=row.get("owner_name", ""),
@@ -231,6 +236,7 @@ class LarkCredentialManager:
             "profile_name": cred.profile_name,
             "workspace_path": cred.workspace_path,
             "bot_name": cred.bot_name,
+            "bot_open_id": cred.bot_open_id,
             "owner_open_id": cred.owner_open_id,
             "owner_name": cred.owner_name,
             "auth_status": cred.auth_status,
@@ -286,13 +292,23 @@ class LarkCredentialManager:
         )
         return True
 
-    async def update_bot_name(self, agent_id: str, bot_name: str) -> None:
-        """Update bot display name (after successful auth)."""
-        await self.db.update(
-            self.TABLE,
-            {"agent_id": agent_id},
-            {"bot_name": bot_name},
-        )
+    async def update_bot_identity(
+        self, agent_id: str, bot_name: str = "", bot_open_id: str = ""
+    ) -> None:
+        """Persist whatever the bot-info lookup resolved (after auth).
+
+        Both fields come from the same `/open-apis/bot/v3/info` call, but
+        either can come back empty on a partial response — write only what
+        we actually got so a blank never overwrites a good stored value.
+        """
+        data = {}
+        if bot_name:
+            data["bot_name"] = bot_name
+        if bot_open_id:
+            data["bot_open_id"] = bot_open_id
+        if not data:
+            return
+        await self.db.update(self.TABLE, {"agent_id": agent_id}, data)
 
     async def update_owner(self, agent_id: str, open_id: str, name: str) -> None:
         """Update owner Lark identity."""

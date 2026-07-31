@@ -1,9 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_context_builder.py
 stub: false
-last_verified: 2026-04-19
+last_verified: 2026-07-29
 ---
 
+## 2026-07-29 — group rooms get a read-the-history instruction
+
+`_GROUP_ROOM_INSTRUCTION` is appended to `reply_instruction` when
+`chat_type == "group"`. By the time this runs, [[lark_trigger]] has
+already established the bot was @-mentioned — so someone deliberately
+pulled it into a conversation mid-flight, and the pre-fetched history
+window is both capped and frequently missing the exchange that prompted
+the mention. The instruction tells the agent to widen its own view
+(`im +chat-messages-list`, then `im +messages-search` when the thread
+points further back) BEFORE answering, and to say what it could not read
+rather than guess when a history call fails on permissions.
+
+Direct messages deliberately do not get this — there is no third-party
+context to reconstruct, and the extra text would only dilute the prompt.
 ## Why it exists
 
 Builds execution context for Lark-triggered messages by implementing

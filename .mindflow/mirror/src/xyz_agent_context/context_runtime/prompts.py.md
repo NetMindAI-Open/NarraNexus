@@ -1,8 +1,26 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/prompts.py
-last_verified: 2026-06-17
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — `CHAT_HISTORY_TIMELINE_PREAMBLE` 移出本文件
+
+常量搬到 [[materializer.py]]。它描述 history 区块的读法，而区块是否存活由
+materializer 的驱逐逻辑决定；留在这里就等于把指南和它描述的内容拆到两层，预算
+不够时两者会不一致（指南在、行没了）。这是本文件"只放静态词汇"原则的一个例外
+面：**当一段文案的正确性取决于另一层的运行期决策时，它就该跟那层走。**
+
+## 2026-07-28 — R4a：新增 `TURN_CONTEXT_HEADER` / `USER_MESSAGE_SEPARATOR`
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+Turn-context relocation（见 [[context_runtime.py]] 2026-07-28 条目）的两个结构
+常量：header 标记当前轮 user message 前部的 `[Turn context]` 块（明示 "not part
+of the user's words"，**刻意不指示模型引用/复述它**——它是背景数据不是指令）；
+separator（`--- User message ---`）让"以下才是用户原话"无歧义。
+`USER_TEMPORAL_CONTEXT` / `RECENT_ACTIONS_HEADER` 文案原样复用——搬位置不改字节
+（铁律 #16/#18），"User Temporal Context" 块名有下游消费者（job MCP docstring）。
 
 ## 2026-06-17 — 新增 `SECURITY_IRON_RULES`(平台级安全铁律)
 

@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/narrative/narrative_service.py
-last_verified: 2026-06-04
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — R4a：prompt 生成面扩为稳定/易变两半
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+`combine_main_narrative_prompt` 新增 `include_volatile: bool = True`（False =
+稳定版模板，relocation 开启时 context_runtime 用它建 system prompt Part 1）；
+新增 `combine_narrative_turn_prompt(narrative)`（每轮易变的
+updated_at/current_summary 块，进当前轮消息的 [Turn context]）。均为
+[[prompt_builder.py]] 的纯透传（与原 combine_main_narrative_prompt 同型）。
 
 ## 2026-06-01 — embed a clean retrieval anchor, not the execution prompt
 

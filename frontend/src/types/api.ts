@@ -14,11 +14,16 @@ export interface ApiResponse {
 export type JobStatus = 'pending' | 'active' | 'running' | 'paused' | 'paused_no_quota' | 'cooling' | 'blocked' | 'blocked_failed' | 'completed' | 'failed' | 'cancelled';
 export type JobType = 'one_off' | 'scheduled' | 'ongoing';
 
+// Mirrors backend TriggerConfig (schema/job_schema.py); the list endpoint
+// passes trigger_config through verbatim, so field names must match exactly:
+// run_at (one_off) / cron / interval_seconds (scheduled) + timezone.
 export interface TriggerConfig {
-  trigger_type?: string;
+  run_at?: string;              // naive ISO, e.g. "2026-08-01T09:00:00"
+  cron?: string;               // cron expression, e.g. "0 8 * * *"
   interval_seconds?: number;
-  cron_expression?: string;
-  timezone?: string;
+  timezone?: string;           // IANA name, e.g. "Asia/Shanghai"
+  end_condition?: string;      // ongoing jobs
+  max_iterations?: number;     // ongoing jobs
   [key: string]: unknown;
 }
 

@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-07-20
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — BusMessage.event_id
+
+`BusMessage` gained `event_id: Optional[str]` — the `events` row of the turn
+that produced this message (set by the trigger on agent replies posted into
+team rooms). None for user messages and legacy rows.
 
 ## 2026-07-20 — BusMessage.attachments
 

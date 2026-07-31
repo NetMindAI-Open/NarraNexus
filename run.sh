@@ -191,11 +191,26 @@ check_deps() {
   # gracefully — we exit.
   _CLAUDE_CLI_TIMEOUT=180
 
+  # PINNED, deliberately. This used to be an unpinned `npm install -g`, which
+  # meant the version depended on when the machine was provisioned. Two
+  # consequences, both found 2026-07-29:
+  #   1. This binary is what the agent loop launches (via
+  #      ClaudeAgentOptions.cli_path — see adapters/claude/cli_binary.py), and
+  #      the CLI's `tools`-array ordering is version-dependent. Unpinned means
+  #      the request bytes — hence prompt-cache hit rate — drift silently.
+  #   2. It is ALSO the binary the desktop OAuth flow shells out to
+  #      (tauri/src-tauri/src/commands/auth.rs: `claude auth login/status`), so
+  #      an uncontrolled version moves credential handling too.
+  # Must equal PINNED_CLI_VERSION in cli_binary.py — a mismatch means the
+  # resolver rejects this install and falls back to the SDK's bundled 2.1.56.
+  # tests/agent_framework/test_claude_cli_pin.py enforces the agreement.
+  _CLAUDE_CLI_VERSION="2.1.220"
+
   _try_install_claude_cli() {
     local action="$1"
-    echo -e "${Y}${action} @anthropic-ai/claude-code (timeout ${_CLAUDE_CLI_TIMEOUT}s)...${R}"
+    echo -e "${Y}${action} @anthropic-ai/claude-code@${_CLAUDE_CLI_VERSION} (timeout ${_CLAUDE_CLI_TIMEOUT}s)...${R}"
     _run_with_timeout "$_CLAUDE_CLI_TIMEOUT" "npm install claude-code" \
-      npm install -g @anthropic-ai/claude-code
+      npm install -g "@anthropic-ai/claude-code@${_CLAUDE_CLI_VERSION}"
   }
 
   if ! command -v claude &>/dev/null; then
@@ -209,7 +224,7 @@ check_deps() {
       echo "    • Slow registry (China): npm config set registry https://registry.npmmirror.com"
       echo "    • Permission denied: use nvm (https://github.com/nvm-sh/nvm) or sudo"
       echo "    • Network blocked: check connection to registry.npmjs.org"
-      echo "  Then retry: npm install -g @anthropic-ai/claude-code"
+      echo "  Then retry: npm install -g @anthropic-ai/claude-code@${_CLAUDE_CLI_VERSION}"
       echo ""
       exit 1
     fi
@@ -224,6 +239,23 @@ check_deps() {
       fi
       echo -e "${RED}claude install reported success but binary is nowhere to be found.${R}"
       exit 1
+    fi
+  else
+    # Already present — but at which version? An install-if-absent check alone
+    # would leave an old CLI in place forever, and the agent loop only adopts
+    # this binary when it matches the pin (otherwise it silently falls back to
+    # the SDK's bundled 2.1.56, losing the tools-ordering fix). Same
+    # pin-and-reinstall shape as lark-cli / narra-cli below.
+    _claude_ver=$(claude --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || echo "0.0.0")
+    if [ "$_claude_ver" != "$_CLAUDE_CLI_VERSION" ]; then
+      echo -e "${Y}claude is v${_claude_ver}, pin is v${_CLAUDE_CLI_VERSION} — reinstalling.${R}"
+      if ! _try_install_claude_cli "Reinstalling"; then
+        # NOT fatal: an existing CLI still runs the desktop OAuth flow, and the
+        # agent loop keeps working on the SDK's bundled binary (铁律 #14 — a
+        # version mismatch must not block agent runs).
+        echo -e "${Y}Reinstall failed; keeping v${_claude_ver}. The agent loop will"
+        echo -e "  use the SDK's bundled CLI instead (see [CLAUDE-CLI] in logs).${R}"
+      fi
     fi
   fi
 

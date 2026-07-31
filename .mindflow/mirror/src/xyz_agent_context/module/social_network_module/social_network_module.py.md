@@ -1,9 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/social_network_module.py
-last_verified: 2026-06-08
+last_verified: 2026-07-28
 ---
 
-## 2026-06-08 — entity 折进统一记忆引擎（overhaul task 1）
+## 2026-07-28 — R4b：实体卡（§5）搬进 get_turn_context
+
+（本条为 R4 系列在新 dev 结构上的重放；原始实现 2026-07-25 于 feat/cli-session-capture 分支，该历史不在本分支 mirror 中，条目自含。）
+
+- `__init__` 现在把 agent_id 同时烘焙进 legacy 与 stable 两个模板
+  （`self._instructions_legacy` / `self._instructions_stable`；
+  `self.instructions` 初始化为 legacy 供 functional_information 用）。
+- `get_instructions` override：按
+  `settings.prompt_turn_context_relocation_enabled` 选模板后走基类 format
+  路径（`{{...}}` 转义行为两条路径一致）。关 = legacy 逐字节一致。
+- `get_turn_context`：返回 `##### Current User Information\n` +
+  `ctx_data.social_network_current_entity`。hook 的三种 fallback 文案
+  （首次见面 / 无 user 上下文 / 加载失败）与错误文案（含异常串——正是最
+  不能进 system prompt 的易变内容）都走这条通道；hook 本身一行未动。
+  字段缺失 → ""（fail-open）。
 
 删了 `_feed_entity_to_engine` 及其调用点。原来实体写两处（`instance_social_entities`
 真身 + `memory_entity` 镜像），镜像只喂"当前对话对象"、漏了被提及的第三方

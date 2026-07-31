@@ -140,16 +140,18 @@ def _make_app(db_client, monkeypatch, ctrl: AgentAdmissionController):
 
     monkeypatch.setattr(mod, "get_db_client", _fake_db)
     monkeypatch.setattr(mod, "get_admission_controller", lambda: ctrl)
+    monkeypatch.setattr(mod.settings, "admin_secret_key", "test-admin-secret")
 
     app = FastAPI()
     app.include_router(mod.router)
     return app
 
 
-async def _get_status(app) -> httpx.Response:
+async def _get_status(app, secret: str | None = "test-admin-secret") -> httpx.Response:
     transport = ASGITransport(app=app)
+    headers = {"X-Admin-Secret": secret} if secret is not None else {}
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
-        return await ac.get("/api/admin/runtime/status")
+        return await ac.get("/api/admin/runtime/status", headers=headers)
 
 
 @pytest.mark.asyncio
@@ -238,6 +240,7 @@ async def test_status_resilient_when_broker_raises(db_client, monkeypatch):
 
         monkeypatch.setattr(mod, "get_db_client", _fake_db)
         monkeypatch.setattr(mod, "get_admission_controller", lambda: ctrl)
+        monkeypatch.setattr(mod.settings, "admin_secret_key", "test-admin-secret")
         # Patch the broker_url check so it raises
         monkeypatch.setattr(mod, "_get_executor_list", _bad_broker_url)
 
@@ -344,3 +347,32 @@ async def test_workers_resilient_when_db_raises(db_client, monkeypatch):
     resp = await _get_workers(app)
     assert resp.status_code == 200
     assert resp.json()["available"] is False
+
+
+
+@pytest.mark.asyncio
+async def test_status_rejects_wrong_or_missing_secret(db_client, monkeypatch):
+    # The watcher is a headless machine client: the route is JWT-bypassed and
+    # self-credentialed on X-Admin-Secret (same pattern as migrate-identity).
+    ctrl = _ctrl()
+    reset_admission_controller_for_test(ctrl)
+    try:
+        app = _make_app(db_client, monkeypatch, ctrl)
+        assert (await _get_status(app, secret=None)).status_code == 403
+        assert (await _get_status(app, secret="wrong")).status_code == 403
+    finally:
+        reset_admission_controller_for_test(None)
+
+
+@pytest.mark.asyncio
+async def test_status_refuses_when_secret_unconfigured(db_client, monkeypatch):
+    # No configured secret is a misconfiguration, not an open door.
+    ctrl = _ctrl()
+    reset_admission_controller_for_test(ctrl)
+    try:
+        app = _make_app(db_client, monkeypatch, ctrl)
+        import backend.routes.admin.runtime as mod
+        monkeypatch.setattr(mod.settings, "admin_secret_key", "")
+        assert (await _get_status(app)).status_code == 503
+    finally:
+        reset_admission_controller_for_test(None)

@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-07-15
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 持久化半身抽出为 RunRecorder（组合，行为不变）
+
+run 可观察性升级为平台属性（Owner 拍板：trigger run 也要能像聊天一样
+被观察）。event_stream 写入、events 状态机、心跳、终态落账、事件规范化
+helper 全部移入 [[run_recorder]]；BackgroundRun 退化为传输组合：
+RunRecorder + Broadcaster + 自有 task + active_runs 注册。`emit()` =
+`recorder.record()` + `broadcaster.publish()`；run_id late-binding 由
+recorder 侦测 Step-0 帧、`_on_run_id_assigned` 只做传输半身（broadcaster
+tag / active_runs / ready_event）。`_had_fatal_error`/`_last_error_*`/
+`final_output_buffer` 都住进 recorder（funnel 和熔断器读
+`recorder.had_fatal_error` 等）。文末「backend 重启 reconcile」段落作废：
+清扫改为心跳判活的 `sweep_stale_runs`（见 run_recorder.py.md / main.py.md）
+—— 「backend 启动 ⇒ 所有 running 行皆孤儿」的单进程假设在 trigger run
+被记录后不再成立。
 
 ## 2026-07-15 — MCP 管道改名 `mcp_urls`/`mcp_server_urls` → `mcp_servers`
 

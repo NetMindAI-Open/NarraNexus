@@ -636,11 +636,14 @@ class JobRepository(BaseRepository[JobModel]):
                 # Datetime field
                 update_data[key] = value
             elif key == 'trigger_config':
-                # JSON field: TriggerConfig object or dict
+                # JSON field: TriggerConfig object or dict. Must use mode='json'
+                # so time-bearing fields (run_at: datetime) serialize to ISO
+                # strings — plain model_dump() leaves datetimes that json.dumps
+                # cannot encode. Matches create_job / update_job serialization.
                 if hasattr(value, 'model_dump'):
-                    update_data[key] = json.dumps(value.model_dump())
+                    update_data[key] = json.dumps(value.model_dump(mode='json'), ensure_ascii=False)
                 elif isinstance(value, dict):
-                    update_data[key] = json.dumps(value)
+                    update_data[key] = json.dumps(value, ensure_ascii=False, default=str)
                 else:
                     update_data[key] = value
             else:

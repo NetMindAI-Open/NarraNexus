@@ -457,24 +457,32 @@ export function AwarenessPanel({ embedded = false, section }: AwarenessPanelProp
         </CardContent>
       </CardShell>
 
-      {/* Edit Awareness Modal */}
+      {/* Edit Awareness Modal.
+          `4xl` (896px), not the form-sized `lg` (512px) it used to be: this is
+          the authoring surface for the agent's entire awareness text, so it is
+          a writing window, not a field. 4xl rather than 5xl/6xl because the
+          content is monospace prose — past ~900px the lines get too long to
+          scan comfortably. */}
       <Dialog
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
         title={t('awareness.panel.editModalTitle')}
-        size="lg"
+        size="4xl"
       >
         <DialogContent>
           <div className="space-y-3">
             <p className="text-xs text-[var(--text-tertiary)]">
               {t('awareness.panel.editModalDesc')}
             </p>
+            {/* Height in vh, not `rows`: Textarea auto-grows to its content and
+                caps at its own max-height, so these two bounds ARE the sizing
+                contract. A fixed row count gave a short box on a tall screen
+                and overflowed a short one. */}
             <Textarea
               value={editedAwareness}
               onChange={(e) => setEditedAwareness(e.target.value)}
               placeholder={t('awareness.panel.editModalPlaceholder')}
-              rows={12}
-              className="font-mono text-sm resize-none"
+              className="font-mono text-sm min-h-[42vh] max-h-[60vh]"
             />
             {saveError && (
               <div

@@ -37,28 +37,64 @@ export interface TeamChatMessage {
   is_user: boolean;
   content: string;
   attachments?: BusAttachment[] | null;
+  /** `events` row id of the turn that produced this reply — drives the
+   *  per-message reasoning disclosure. Null for user messages / legacy rows. */
+  event_id?: string | null;
   created_at: string;
 }
 
-/** One team member's live activity in the room. */
+/** One phase transition inside a turn: 'starting'|'thinking'|'replying'|'tool:<name>'. */
+export interface TeamActivityStep {
+  phase: string;
+  /** ISO timestamp of the transition. */
+  at: string;
+}
+
+/** The turn's step timeline, with a count of entries dropped past the cap. */
+export interface TeamActivitySteps {
+  items: TeamActivityStep[];
+  dropped: number;
+}
+
+/**
+ * One team member's live status in the room.
+ *
+ * `stalled` is deliberately separate from `queued`: the turn DID start, we
+ * just stopped receiving heartbeats from it. Showing both as "queued" is what
+ * made a wedged worker indistinguishable from a busy one.
+ */
+export type TeamMemberStatus = 'running' | 'stalled' | 'queued' | 'idle';
+
 export interface TeamMemberActivity {
   agent_id: string;
-  status: 'running' | 'queued' | 'idle';
-  /** running only: 'starting'|'thinking'|'replying'|'tool:<name>'. */
+  status: TeamMemberStatus;
+  /** running / stalled: 'starting'|'thinking'|'replying'|'tool:<name>'. */
   phase?: string | null;
   tool_count?: number;
-  /** running only: ISO start time, for elapsed display. */
+  /** running / stalled: ISO start time, for elapsed display. */
   started_at?: string | null;
+  /** running / stalled: ISO time of the last heartbeat. */
+  last_signal_at?: string | null;
+  /** idle: ISO time the previous turn ended. */
+  finished_at?: string | null;
+  /** queued: how many @mentions are waiting, and since when. */
+  queued_count?: number;
+  queued_since?: string | null;
+  /** running / stalled, and idle when a previous turn's trace survives. */
+  steps?: TeamActivitySteps | null;
+  /** `events` row id of the member's current/last turn — fetch the full
+   *  event_log detail through the existing event-log endpoint. */
+  event_id?: string | null;
 }
 
 export interface TeamChatHistoryResponse {
   success: boolean;
   channel_id: string;
   messages: TeamChatMessage[];
-  /** Member agent_ids the trigger is currently processing → "…" indicator. */
-  thinking?: string[];
-  /** Per-member activity (running/queued/idle) for the status view. */
+  /** Per-member live status for the activity console. */
   activity?: TeamMemberActivity[];
+  /** Who answers a message with no @mention (lead, else earliest-joined). */
+  lead_agent_id?: string | null;
 }
 
 export interface TeamChatSendResponse {

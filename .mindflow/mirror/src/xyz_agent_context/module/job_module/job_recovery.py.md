@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_recovery.py
-last_verified: 2026-06-01
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — reschedule_job (edit execution time)
+
+`reschedule_job(job_id, new_fields, db)` is the portable core behind the
+"修改执行时间" feature, called by `PUT /api/dashboard/jobs/{id}/schedule`. It
+sits beside pause/resume as the third user-initiated lifecycle mutation. It
+merges the caller's time fields (`run_at` / `cron` / `interval_seconds` /
+`timezone`) into the job's existing `trigger_config`, revalidates through
+`TriggerConfig` (reusing its naive-run_at / IANA-tz / tz-required / interval
+validators), recomputes `next_run` via `compute_next_run`, then persists the new
+trigger_config followed by next_run — 两次写入(`update_job_fields` 再 `update_next_run`,
+后者是 α+β 强制专用方法),**不是单事务原子**。Editable set = anything EXCEPT
+`_NON_EDITABLE_STATUSES` (running + the three terminals); a `paused` job stays
+paused (its later resume re-derives next_run anyway). A guard rejects clearing
+the last fireable field for the job's type so a job can't silently go dark.
+Unit + route tests: `tests/backend/test_job_reschedule.py`.
+
+**cron ↔ interval 互斥（Tier 1 类型切换）**: cron 和 interval_seconds 是
+scheduled/ongoing 的两种互斥触发方式。切换时(如 interval→cron)必须清掉另一个,
+否则脏字段残留、且 compute_next_run 偏好 cron 会静默屏蔽残留的 interval。
+`reschedule_job` 在 merge 后：设了 cron 就把 interval_seconds 置 None,反之亦然。
+前端弹窗对非 one_off 任务提供「间隔 / Cron」模式切换,只回传新模式那个字段。
+one_off↔scheduled↔ongoing 的真正 job_type 互转不在此范围(牵出 run_at↔周期数据
+缺口、end_condition 无法代填、终态复活,需单独设计)。
 
 # Intent
 

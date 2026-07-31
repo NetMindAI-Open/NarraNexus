@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/activity.py
-last_verified: 2026-07-22
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — `is_stalled` / `parse_steps` join the read surface
+
+The write side is now `TurnActivity` / `turn()` rather than the three loose
+`mark_*` functions, and it stays private for the same reason as before. Two
+readers were added: `is_stalled` (running row, dead heartbeat) so a route can
+tell "started then went quiet" from "never started", and `parse_steps` so the
+`steps` blob is normalised in ONE place — a route must never hand a raw JSON
+column to a serialiser.
+
 
 # activity.py — public read surface for team-room live activity
 

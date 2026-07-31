@@ -139,6 +139,29 @@ One simple role: `engineer`, `researcher`, `student`, `manager`, `designer`, `ar
 """
 
 # ============================================================================
+# R4 turn-context relocation (2026-07-25)
+#
+# §5 "Current User Information" carries {social_network_current_entity} —
+# its interaction_count / last_interaction_time change every turn, which
+# used to break the system prompt's byte stability (provider prefix caches).
+#
+# With settings.prompt_turn_context_relocation_enabled ON the module renders
+# this STABLE template (§5 becomes a static pointer) and the entity card —
+# all hook fallback texts included — travels via get_turn_context() into the
+# "[Turn context]" block of the current message. Flag OFF renders the
+# untouched legacy template above, byte-identical to pre-R4.
+#
+# Derived by replacing the exact §5 span (tests lock the anchor).
+# ============================================================================
+SOCIAL_NETWORK_MODULE_INSTRUCTIONS_STABLE = SOCIAL_NETWORK_MODULE_INSTRUCTIONS.replace(
+    "##### 5. Current User Information\n{social_network_current_entity}\n",
+    "##### 5. Current User Information\n"
+    "What you already know about the user you are talking to is provided "
+    'fresh every turn in the "Current User Information" section of the '
+    "turn context block of the current message.\n",
+)
+
+# ============================================================================
 # Entity info summary LLM instructions
 # Used as instructions when _summarize_new_entity_info() calls the LLM
 # ============================================================================

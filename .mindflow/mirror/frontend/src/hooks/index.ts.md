@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/hooks/index.ts
-last_verified: 2026-06-10
+last_verified: 2026-07-30
 stub: false
 ---
 
@@ -17,3 +17,8 @@ Provides a single import path `@/hooks` for the four hooks used across multiple 
 ## 2026-06-10
 
 Added `useBookmarkSignals` export ([[useBookmarkSignals]]).
+
+## 2026-07-30
+
+Added `useAgentImported` export ([[useAgentImported]]) — the shared post-import
+side effect used by [[AgentList]] and [[MigrationGuide]].

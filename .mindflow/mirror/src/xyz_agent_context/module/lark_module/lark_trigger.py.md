@@ -1,9 +1,97 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-07-10
+last_verified: 2026-07-31
 ---
 
+## 2026-07-31 — 遗留直调 collect_run 并入 AgentRuntimeClient seam
+
+`_build_and_run_agent` 里最后一处 `AgentRuntime()` + `collect_run(...)`
+直调改走 `get_agent_runtime_client().run_and_collect(...)` —— 与所有
+channel 一致，顺带获得 admission 闸门（此路径原先漏了）与 run 记录
+（可观察性）。模块顶的 AgentRuntime / collect_run import 删除；测试
+stub 改 patch 源模块（agent_runtime.AgentRuntime /
+run_collector.collect_run），lark_trigger 命名空间不再有这两个别名。
+
+## 2026-07-30 — the brand_mismatch breaker never actually tripped
+
+The 2026-05-27 entry below describes intent that **was never true in
+practice**. `_subscribe_loop` constructed its manager as
+`LarkCredentialManager(self.db)`, but the DB handle lives on the base as
+`_db` (`db` is the *manager's* own attribute name — that naming
+mismatch is what made the wrong spelling look right). So every
+detection raised AttributeError inside a `except Exception` that only
+logged: `auth_status` stayed `bot_ready`, `get_active_credentials` kept
+returning the dead credential, the watcher kept restarting a subscriber
+that could never receive a message, and both the frontend re-bind card
+([[LarkConfig]] State 5) and the agent's awareness of the state
+([[lark_module]]) were unreachable because the state was never written.
+Prod `narranexus-channels`, ~8 hits/24h, Base recvq4sePMnwA4.
+
+Three structural changes, because a one-character fix leaves the next
+typo just as likely:
+
+- **`_credential_manager()` is the only way this trigger reaches the
+  credential table.** The handle used to be hand-spelled at each call
+  site; three were right and the fourth was not. `pre_start` still
+  takes `db` as a parameter — it runs before `start()`, so `_db` is
+  still None there.
+- **`_handle_brand_mismatch` is a method, not an inlined except-branch.**
+  Buried in a 200-line `while` it was physically untestable, which is
+  why `test_error_translator` (error *text* only) was the closest thing
+  to coverage. Detection also split out as the pure module-level
+  `_is_brand_mismatch_error`, same rationale as `_compute_next_backoff`.
+- **The audit row now says whether the write landed** (`auth_status_set`
+  / `persist_error`). Persistence failure stays non-fatal — a DB hiccup
+  must not kill a subscriber — but previously a failed breaker looked
+  identical to a tripped one in the audit trail, with the truth only in
+  a log line nobody greps (incident lessons #3/#5).
+- **Skip-backoff is conditional on the write landing** (review round):
+  the handler returns whether the breaker actually closed. On a failed
+  write `auth_status` is still `bot_ready`, the watcher WILL restart the
+  subscriber on its next 10s tick — so the loop falls through to normal
+  backoff instead of returning, otherwise the "already tripped" shortcut
+  makes the retry loop TIGHTER than an ordinary disconnect's (the exact
+  hot-restart shape of the original incident, gated on write failure).
+
+Deliberately NOT done: re-raising programming errors from that `except`.
+Tests catch them before prod, audit rows catch them in prod; making a
+live subscriber more fragile buys nothing.
+
+No migration or data repair. An affected credential is corrected the
+next time its subscriber hits 1000040351 — the state does not
+retroactively appear, and a user who already re-bound has no such row.
+
+## 2026-07-29 — group rooms reply only when @-mentioned
+
+`is_group_reply_warranted(cred, event_dict)` gates group-room messages
+before dedup; direct messages are untouched. Once an app holds
+`im:message.group_msg` (Lark's sensitive read-all-group-messages scope)
+the subscriber receives EVERY message in every group the bot sits in, and
+without a gate each one wakes an `agent_loop` — the bot barges into
+conversations it was never addressed in. That was first patched by asking
+the model to judge "was this for me" inside Awareness; that is
+probabilistic and the wrong layer. "Is this addressed to me" is channel
+semantics, not agent-scenario logic (binding rule #4), so it is a
+deterministic trigger-layer decision here.
+
+Matching is by `bot_open_id` (see [[_lark_credential_manager]]), with
+display-name fallback for bindings saved before that field existed.
+Deliberate asymmetry in the ambiguity handling: **no mentions at all → do
+not reply** (nobody was @-ed, so certainly not us), but **mentions present
+and bot identity unknown → reply** (fail-open; one extra answer is
+recoverable, a bot gone mute in a group reads as broken and generates a
+support ticket). Drops emit `EVENT_INGRESS_DROPPED_NOT_MENTIONED` so
+"the bot ignored me" stays answerable from the audit trail rather than
+vanishing into a silent `return` (incident lessons #3/#5).
+
+`_extract_mentions` flattens the SDK's mention objects into the event
+dict. An empty list is DATA, not missing data — the gate depends on being
+able to distinguish "nobody was mentioned" from "mentions unavailable".
+
+Reading is unaffected by the gate: skipped messages still land in the
+room's history, and when the bot IS addressed [[lark_context_builder]]
+tells it to go read what it missed.
 ## 2026-07-10 — inject "ack early" prefix into tagged_prompt
 
 Lark fully overrides `_build_and_run_agent`, so it prepends
@@ -37,6 +125,9 @@ main loop polling `t.is_alive()` via `await asyncio.sleep(1)`, callbacks via
 event loop — it never blocks the loop, so consolidation needs no change to it.
 
 ## 2026-05-27 — capture brand_mismatch (WS error 1000040351) at runtime
+
+> Design intent only — this did not actually work until 2026-07-30
+> (see the top entry). The mechanism described below is now real.
 
 The SDK WebSocket subscriber loop now checks every caught exception
 for `1000040351` / `"Incorrect domain name"`. On match we mark the

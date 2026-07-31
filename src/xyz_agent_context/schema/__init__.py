@@ -45,6 +45,8 @@ from .runtime_message import (
     ProgressStatus,
     # Messages
     ProgressMessage,
+    AgentPlan,
+    AgentReplyDelta,
     AgentTextDelta,
     AgentThinking,
     AgentToolCall,
@@ -71,6 +73,8 @@ from .agent_circuit_breaker_schema import (
     PAUSING_CATEGORIES,
     AgentCircuitBreaker,
 )
+
+# ===== CLI Session Schema (resumable coding-agent CLI handles) =====
 
 # ===== Inbox Schema (belongs to ChatModule) =====
 from .inbox_schema import (
@@ -250,8 +254,37 @@ from .artifact_schema import (
     UrlArtifactDoc,
 )
 
+# ===== Agent Migration Schema (import agent → NarraNexus) =====
+from .migration_schema import (
+    SCHEMA_VERSION as MIGRATION_SCHEMA_VERSION,
+    StandardizedAgentImport,
+    MigrationSource,
+    MigrationAgent,
+    MigrationSkill,
+    MigrationMemory,
+    MigrationMcpServer,
+    MigrationCustom,
+    MigrationTurn,
+    MigrationSession,
+    FrameworkDetection,
+    AWARENESS_IMPORT_CHAR_LIMIT,
+)
+
 # ===== Export All =====
 __all__ = [
+    # Agent Migration
+    "MIGRATION_SCHEMA_VERSION",
+    "StandardizedAgentImport",
+    "MigrationSource",
+    "MigrationAgent",
+    "MigrationSkill",
+    "MigrationMemory",
+    "MigrationMcpServer",
+    "MigrationCustom",
+    "MigrationTurn",
+    "MigrationSession",
+    "FrameworkDetection",
+    "AWARENESS_IMPORT_CHAR_LIMIT",
     # Module Schema
     "ModuleConfig",
     "MCPServerConfig",
@@ -272,6 +305,8 @@ __all__ = [
     "MessageType",
     "ProgressStatus",
     "ProgressMessage",
+    "AgentPlan",
+    "AgentReplyDelta",
     "AgentTextDelta",
     "AgentThinking",
     "AgentToolCall",
@@ -314,6 +349,8 @@ __all__ = [
     "ErrorCategory",
     "PAUSING_CATEGORIES",
     "AgentCircuitBreaker",
+
+    # CLI Session Schema
 
     # Inbox Schema (belongs to ChatModule)
     "InboxMessageType",

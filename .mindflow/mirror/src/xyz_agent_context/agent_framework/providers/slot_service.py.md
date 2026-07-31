@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/slot_service.py
-last_verified: 2026-07-18
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — per-agent pin 与用户级切换问同一个问题
+
+原来的判据是「eff_framework != owner_framework」——差异即拒。那个形状把云端
+用户**挡在了策略本来允许的每一个框架之外**（他 owner 默认是 claude_code，
+于是任何 pin 都算「差异」）。现在改成问 [[cloud_policy]] 的
+`framework_allowed_in_cloud(eff_framework, actor_is_staff)`：门禁的对象是
+**目标框架的凭据骑乘风险**，与「和 owner 是否相同」无关。
 
 ## 2026-07-18 — `actor_is_staff` 参数：netmind-only + 框架钉选双门禁
 

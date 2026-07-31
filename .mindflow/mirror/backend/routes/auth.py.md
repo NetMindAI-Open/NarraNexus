@@ -1,8 +1,41 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-28
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — active_run 富集只认 chat/manyfold 来源
+
+`/api/auth/agents` 的 running 行 SELECT 加 `` `trigger` IN
+('chat','manyfold') ``：trigger run（lark/team/job）现在也是
+state='running'（run 可观察性），不滤的话 ChatPanel 的 auto-reconnect
+会把网页聊天接到一条 Lark turn 上。chat/manyfold 恰好是 BackgroundRun
+的两个面 —— 本富集从来描述的就是它们；其余 run 走 WS 观察端点
+（tail-follow）看，不进聊天页。依赖 step 0 的诚实 trigger 标签
+（[[step_0_initialize]]）。
+
+## 2026-07-29 — 删除 agent_cli_sessions 的级联清理(T7)
+
+删 agent 时的 5b 步(`DELETE FROM agent_cli_sessions WHERE agent_id = %s`)移除。
+
+它当初补上的理由值得记住(2026-07-28):那张表加进来时**漏了级联**,于是句柄比
+agent 和它的工作区都活得久,一个被回收的 `agent_id` 会继承一个指向已死 transcript
+的句柄,而且行只增不减没人清理。
+
+现在表本身已摘掉注册([[schema_registry]]),这段 `DELETE` **留着反而会报错**。
+根因也不复存在:没有任何按 agent_id 存的持久物——transcript 每轮写、每轮删。
+
+## 2026-07-28 — delete_agent 级联补 agent_cli_sessions
+
+`agent_cli_sessions`（resume 句柄表，见 [[schema_registry.py]]）加表时漏了级联，
+`delete_agent` 的 leaf-first 扫除里没有它。按既有形状补在 `instance_jobs` 之后
+（同为 agent_id 直接键的运行期表）：显式 DELETE + 计数进 `deleted_counts`，
+零行时不入 stats（沿用本函数惯例）。
+
+漏扫的后果有两层：句柄行**比 agent 和它的 workspace 活得更久**，agent_id 若被回收
+就会继承一个指向已删 transcript 的句柄；而且没有任何别的机制会清它们，只会无限
+累积。测试：tests/backend/test_delete_agent_queue_cascade.py（含"别的 agent 的句柄
+必须存活"与"零行不进 stats"两条）。
 
 ## 2026-07-28 — 两个 provisioner 串行，免费额度必须先落地
 
@@ -139,9 +172,6 @@ The last three routes that trusted a client-supplied user id now derive identity
 
 New cloud-only login endpoint: verifies a NetMind loginToken via `NetmindAuthClient` (one network call to NetMind's /user/balance), lazily upserts the local user (`UserRepository.upsert_netmind_user`, user_id = NetMind userSystemCode), seeds the free-tier quota on FIRST login (registration no longer exists — first login is registration; invite codes are gone per 2026-06-10 decision), then issues NarraNexus's own JWT. Error mapping: bad token -> 401, NetMind unreachable/contract drift -> 502 (never disguised as a credential failure). `_get_netmind_auth_client()` is module-level for test monkeypatching. The legacy /login (cloud password branch) and /register are slated for removal in the same feature branch.
 
-last_verified: 2026-06-10
-stub: false
----
 
 ## 2026-06-10 — run-liveness helper moved to background_run.py (shared)
 

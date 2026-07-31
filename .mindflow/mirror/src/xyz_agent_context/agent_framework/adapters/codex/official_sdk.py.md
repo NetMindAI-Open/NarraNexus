@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/codex/official_sdk.py
 stub: false
-last_verified: 2026-07-27
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — carry latest per-turn Codex usage to completion
+
+The app-server reports token counts through cumulative
+`thread/tokenUsage/updated` snapshots, while `turn/completed` can omit usage.
+The notification pump retains only the latest `last` snapshot for the current
+turn and attaches it to a completion that lacks native usage. Thread-wide
+`total` is deliberately ignored to avoid charging earlier turns again, and a
+future native completion value always wins over the fallback snapshot.
 
 
 ## 2026-07-27 — 改从 materializer 导入 flatten_for_file

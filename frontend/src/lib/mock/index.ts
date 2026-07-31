@@ -147,7 +147,7 @@ export const mockApi = {
       title: 'New job (mock)',
       description: 'Created via createJobComplex in mock mode.',
       status: 'pending',
-      trigger_config: { trigger_type: 'manual' },
+      trigger_config: { timezone: 'Asia/Shanghai' },
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };

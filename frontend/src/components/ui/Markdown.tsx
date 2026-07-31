@@ -3,6 +3,7 @@
  * Renders markdown content with syntax highlighting and GFM support
  */
 
+import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -14,7 +15,11 @@ interface MarkdownProps {
   compact?: boolean;
 }
 
-export function Markdown({ content, className, compact = false }: MarkdownProps) {
+// memo matters here: remark/rehype re-parse the whole string on every
+// render, and chat surfaces re-render on every WebSocket delta. All props
+// are primitives, so shallow equality skips the re-parse for content that
+// didn't change (e.g. earlier segments while the last one streams).
+export const Markdown = memo(function Markdown({ content, className, compact = false }: MarkdownProps) {
   return (
     <div className={cn(
       'markdown-content',
@@ -72,7 +77,7 @@ export function Markdown({ content, className, compact = false }: MarkdownProps)
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 // Compact version for message previews
 export function MarkdownPreview({ content, maxLength = 200 }: { content: string; maxLength?: number }) {

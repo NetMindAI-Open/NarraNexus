@@ -37,6 +37,7 @@ import { JobDependencyGraph } from './JobDependencyGraph';
 import { JobExecutionTimeline } from './JobExecutionTimeline';
 import { JobDetailPanel } from './JobDetailPanel';
 import { JobExpandedDetail } from './JobExpandedDetail';
+import { JobScheduleEditDialog } from './JobScheduleEditDialog';
 import { StatusDistributionBar } from './StatusDistributionBar';
 import type { JobNode, JobNodeStatus } from '@/types/jobComplex';
 import type { Job } from '@/types/api';
@@ -115,6 +116,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
   const [resumingJobId, setResumingJobId] = useState<string | null>(null);
   const [pausingJobId, setPausingJobId] = useState<string | null>(null);
+  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [savingSchedule, setSavingSchedule] = useState(false);
   const [failedExpanded, setFailedExpanded] = useState(false);
   const { confirm, alert, dialog: confirmDialog } = useConfirm();
 
@@ -207,6 +210,38 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
     return ['active', 'pending'].includes(status);
   };
 
+  // Execution time is editable for any non-running, non-terminal job — mirrors
+  // the backend reschedule_job guard (_NON_EDITABLE_STATUSES).
+  const canEdit = (status: string) => {
+    return !['running', 'completed', 'cancelled', 'failed'].includes(status);
+  };
+
+  const handleEditSchedule = (e: React.MouseEvent, job: Job) => {
+    e.stopPropagation();
+    setEditingJob(job);
+  };
+
+  const handleSaveSchedule = async (
+    fields: { run_at?: string; cron?: string; interval_seconds?: number; timezone?: string },
+  ) => {
+    if (!editingJob) return;
+    setSavingSchedule(true);
+    try {
+      await api.updateJobSchedule(editingJob.job_id, fields);
+      setEditingJob(null);
+      refreshJobs(agentId, userId);
+    } catch (err) {
+      console.error('Reschedule job error:', err);
+      await alert({
+        title: t('jobs.editSchedule.failedTitle'),
+        message: err instanceof Error ? err.message : t('jobs.editSchedule.failedMessage'),
+        danger: true,
+      });
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   const handlePauseJob = async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
     setPausingJobId(jobId);
@@ -255,6 +290,15 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
   const inner = (
     <>
       {confirmDialog}
+      {editingJob && (
+        <JobScheduleEditDialog
+          job={editingJob}
+          isOpen={!!editingJob}
+          saving={savingSchedule}
+          onClose={() => setEditingJob(null)}
+          onSave={handleSaveSchedule}
+        />
+      )}
       {/* Embedded mode drops the duplicate title (the host section already
           names the panel) but keeps the functional actions. */}
       <CardHeader className={cn(embedded && 'justify-end py-1')}>
@@ -321,12 +365,15 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
         </div>
       </div>
 
-      {/* Status filter — thin filter row, only in list view.
-          Horizontal overflow uses ScrollArea (hideScrollbar) so the row
-          stays scrollable on narrow widths without showing a track. */}
+      {/* Status filter — only in list view.
+          The chips WRAP (they used to be one nowrap row inside a
+          hideScrollbar ScrollArea). All 11 statuses come to ~660px in zh,
+          and the panel's usual home is a 300–440px drawer, so the row cut
+          off after ~7 chips with no scrollbar and no overflow hint — the
+          remaining filters were simply undiscoverable. Two or three wrapped
+          lines cost a few px of height and hide nothing. */}
       {viewMode === 'list' && (
-        <ScrollArea horizontal hideScrollbar className="border-t border-[var(--rule)]">
-        <div className="px-5 py-2 flex gap-1">
+        <div className="px-5 py-2 flex flex-wrap gap-1 border-t border-[var(--rule)]">
           {(['all', 'active', 'running', 'paused', 'paused_no_quota', 'cooling', 'blocked_failed', 'pending', 'completed', 'failed', 'cancelled'] as const).map((status) => {
             const config = status !== 'all' ? statusConfig[status] : null;
             const isActive = statusFilter === status;
@@ -347,7 +394,6 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
             );
           })}
         </div>
-        </ScrollArea>
       )}
 
       <CardContent className="flex-1 overflow-hidden min-h-0">
@@ -455,6 +501,8 @@ export function JobsPanel({ embedded = false, onJobResolved }: JobsPanelProps = 
                               canPause={canPause(job.status)}
                               isPausing={pausingJobId === job.job_id}
                               onPause={handlePauseJob}
+                              canEdit={canEdit(job.status)}
+                              onEdit={handleEditSchedule}
                             />
                           )}
                         </div>

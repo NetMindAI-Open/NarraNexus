@@ -51,6 +51,9 @@ from xyz_agent_context.agent_framework.api_config import (
     ClaudeConfig,
     cli_helper_config,
 )
+from xyz_agent_context.agent_framework.anthropic_usage import (
+    normalize_anthropic_usage,
+)
 from xyz_agent_context.agent_framework.adapters.openai_agents import (
     _ParsedResult,
     _SimpleResult,
@@ -195,8 +198,9 @@ class CliHelperSDK:
                     result_text = msg.result or ""
                     raw_usage = getattr(msg, "usage", None)
                     if isinstance(raw_usage, dict):
-                        in_tok = int(raw_usage.get("input_tokens", 0) or 0)
-                        out_tok = int(raw_usage.get("output_tokens", 0) or 0)
+                        usage = normalize_anthropic_usage(raw_usage)
+                        in_tok = usage["input_tokens"]
+                        out_tok = usage["output_tokens"]
             return ("".join(text_parts) or result_text), in_tok, out_tok
 
         # Wall-clock bound for the whole one-shot (all internal CLI retries). On

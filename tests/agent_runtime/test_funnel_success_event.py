@@ -70,16 +70,21 @@ async def _make_bg(db, event_id):
         agent_id="a_funnel", user_id="u_funnel", input_preview="",
         db=db, active_runs={},
     )
-    await bg._on_run_id_assigned(event_id)
+    # Bind run_id the production way: the recorder spots Step 0.
+    await bg.emit({
+        "type": "progress", "step": "0", "status": "completed",
+        "details": {"event_id": event_id},
+    })
     return bg
 
 
 async def _cleanup(bg):
     import asyncio
-    if bg._heartbeat_task:
-        bg._heartbeat_task.cancel()
+    hb = bg.recorder._heartbeat_task
+    if hb:
+        hb.cancel()
         try:
-            await bg._heartbeat_task
+            await hb
         except asyncio.CancelledError:
             pass
 
@@ -87,13 +92,13 @@ async def _cleanup(bg):
 @pytest.mark.asyncio
 async def test_fatal_error_event_marks_run_not_successful(db_client):
     bg = await _make_bg(db_client, "evt_fatal")
-    assert bg._had_fatal_error is False
+    assert bg.recorder.had_fatal_error is False
     await bg.emit({
         "type": "error", "severity": "fatal",
         "error_message": "No provider configured",
         "error_type": "NoProviderConfiguredError",
     })
-    assert bg._had_fatal_error is True
+    assert bg.recorder.had_fatal_error is True
     await _cleanup(bg)
 
 
@@ -105,5 +110,5 @@ async def test_recovered_error_event_keeps_run_successful(db_client):
         "error_message": "fatal-class error but fallback produced a reply",
         "error_type": "api_error",
     })
-    assert bg._had_fatal_error is False
+    assert bg.recorder.had_fatal_error is False
     await _cleanup(bg)

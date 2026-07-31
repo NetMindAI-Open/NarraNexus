@@ -158,6 +158,15 @@ class PathExecutionResult(BaseModel):
         description="Final output content of the execution"
     )
 
+    # True when the user stopped the run mid-turn (interrupt continuity,
+    # 2026-07-30): the partial results above are real and get persisted;
+    # consumers (ChatModule persist) mark the turn as interrupted so the
+    # next turn reads "cut short by the user", not "chose not to answer".
+    interrupted: bool = Field(
+        default=False,
+        description="Whether the user interrupted this execution mid-turn"
+    )
+
     # ========== Execution Tracking ==========
     # Execution step list (for generating event_log_entries)
     # AGENT_LOOP: From state.get_all_steps_as_list()
@@ -209,6 +218,18 @@ class PathExecutionResult(BaseModel):
     num_turns: Optional[int] = Field(
         default=None,
         description="Model calls the framework made during this run (None = not reported)"
+    )
+
+    # OBSERVATIONAL only: the session id the CLI reported for this run. Nothing
+    # looks it up — the adapter resumes a transcript it wrote itself, so there is
+    # no handle store for this to become. Kept because it is the one record of
+    # what session a turn actually ran under, which is worth having when
+    # debugging resume behaviour. Its three former companions
+    # (cli_framework / cli_config_fingerprint / cli_working_path) existed solely
+    # to validate a STORED handle and went with it (2026-07-29).
+    cli_session_id: Optional[str] = Field(
+        default=None,
+        description="CLI session id the run reported (ResultMessage.session_id; None = not reported)"
     )
 
     # ========== Context Data ==========

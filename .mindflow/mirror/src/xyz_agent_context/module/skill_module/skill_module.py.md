@@ -1,7 +1,37 @@
 ---
 code_file: src/xyz_agent_context/module/skill_module/skill_module.py
-last_verified: 2026-07-21
+last_verified: 2026-07-28
 ---
+
+## 2026-07-28 — R4d：所有目录遍历改为按名排序（等长重排型缓存断点）
+
+`_scan_skills()` 的结果 → `hook_data_gathering` 拼出的 skills 表格 →
+`ctx_data.extra_data["skills_table"]` → `get_instructions()` → **system prompt
+可缓存前缀**。而 `Path.iterdir()` 给的是文件系统 readdir 顺序，**APFS 不是字母序**：
+一个真实 workspace 实测返回 `officecli, home-assistant-setup,
+netmind-transcribe, netmind-vision`。`_materialize_builtin_skills()` 每轮都跑，
+agent 也可能在会话中途新建/删除技能目录，任何一次增删改名都会重排 readdir 顺序 →
+**整张表格在总长度完全不变的情况下换位**。这是"等长重排"，
+`[SYSPROMPT-BREAKDOWN]` 的字节计数看不见，缓存前缀在第一个换位行处断裂。
+
+五处 `iterdir()` 全部加 `sorted(..., key=lambda p: p.name)`：
+
+| 位置 | 为什么要排 |
+|------|-----------|
+| `_scan_skills()` | **主因**：直接决定 prompt 里表格行序 |
+| `_materialize_builtin_skills()` | 内置技能物化顺序确定化（每轮都跑） |
+| `_resolve_skill_dir()` | 两个目录 frontmatter 同名时，胜者不能取决于 readdir——它决定读写哪个 `.skill_meta.json`（env 配置 / study 状态） |
+| `list_skills()` 的 `.disabled` 分支 | API/UI 面，enabled 半边已确定化 |
+| `_find_skill_root()` | 压缩包内多个候选子目录时，解析出的 skill root 必须跨机器一致 |
+
+本模块内其余可能进 prompt 的聚合都已确定：`_extract_env_vars_from_text` /
+`update_requirements` 返回 `sorted(set(...))`，`requires_env` / `requires_bins`
+在 `_parse_skill_md` 里也是 `sorted(set(...))`。`get_all_skill_env_vars` 的 dict
+只进运行时环境变量注入，不进 prompt 文本。
+
+测试：`tests/module/test_skill_scan_order.py`——monkeypatch `Path.iterdir`
+返回置换后的列表，两种不同置换渲染出的 instructions 必须**字节相同**（且长度
+相同，证明这确实是等长重排）；中途新增技能只能追加行、不得打乱既有行序。
 
 ## 2026-07-21(晚)— frontmatter requires 抑制 body 扫描 + platform_env_available
 

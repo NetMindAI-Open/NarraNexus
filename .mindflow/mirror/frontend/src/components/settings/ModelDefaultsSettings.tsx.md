@@ -1,8 +1,30 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-29
 stub: false
 ---
+
+## 2026-07-29 — 框架门禁改问谓词，NexusPower 云端放行
+
+选择器的拦截条件从 `netmindOnly && e.target.value !== 'claude_code'` 改成
+`!frameworkAllowedInCloud(e.target.value, role)`。**下面 2026-07-18 那段
+「只在切到非 claude_code 时提示」的判据已被本次改动取代**——那个形状把
+NexusPower 一起拒了。
+
+真正被拦的是**会骑用共享 CLI 凭据**的框架（云端镜像单 HOME，`~/.claude` /
+`~/.codex` 容器全局、由 staff 登录种下）。NexusPower 直接驱动 provider API、
+用所绑卡的 key 且拒绝 OAuth，所以云端放行；`codex_cli` 仍拦。规则只住
+[[agentFramework]] 的谓词里，不在这里重新推导——它此前在三处各推导一遍，
+NexusPower 上线后三处都还在拒。
+
+弹窗文案随之从「Desktop version only」改为「Staff only in cloud」（10 个语言
+包同步）：云端可用的框架不止一个了，旧文案不再是事实。
+
+## 2026-07-29 — 同步走 `frameworkAcceptsProtocol()`
+
+与 [[AgentLlmConfigPanel]] 同一处改动：槽位 provider 过滤从「框架的那一个协议」
+变成「框架接受的协议集合」。两个槽位编辑器必须同口径，否则同一个 provider 在
+两处一个可选一个不可选。
 
 ## 2026-07-23 — 免费额度生效诚实 banner
 
@@ -23,6 +45,14 @@ i18n 键，插值系统模型名）：说明免费额度生效中、当前实际
 包括切回 claude_code,前端也把老 codex 用户锁死。改为 `e.target.value !== 'claude_code'`:
 切回 claude_code 放行,只在切到非 claude_code 时提示。与后端 providers.py 403 方向化一致
 ([[AgentLlmConfigPanel]] 同款)。
+
+## 2026-07-21 — complete model-defaults localization
+
+All user-visible copy in the global default editor now resolves through the
+same i18n namespace as the per-agent editor: empty/loading states, explanatory
+copy, framework status, provider/model selectors, reasoning controls, helper
+recommendation, validation errors, and save feedback. Stored option values
+remain unchanged; only their presentation follows the active locale.
 
 ## 2026-07-18 — 云端框架锁：禁用 → alert → useConfirm 样式弹窗（三改定稿）
 

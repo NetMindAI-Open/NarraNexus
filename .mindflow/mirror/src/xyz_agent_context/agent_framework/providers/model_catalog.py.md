@@ -1,8 +1,48 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/model_catalog.py
-last_verified: 2026-07-26
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — ModelMeta 增 context_window;nexus_power 也接进来了
+
+新增可选 `context_window` + `get_context_window(model_id)`:provider 的**硬墙**
+(`input + max_tokens` 超了就 400),不是我们自选的预算。只有「按输入剩余空间决定输出
+上限」的调用方才需要它;`None`=未核实,调用方必须回落到自己的预算——**编一堵比真实墙
+矮的墙,会把靠近它的每个请求悄悄压小**(nexus_power 就这么把免费档默认模型自己压到
+1_024 过)。
+
+同批填上:Claude 三行的 context_window(opus/sonnet 1M、haiku 200K),以及 haiku 一直
+空着的 `max_output_tokens=57600`(=90% × 64_000)。dev 网关实测:
+opus-4-8 吃下 144_065 input + 128_000 max_tokens 仍 200;haiku@64000→200、
+haiku@128000→**400**。
+
+新增 `get_model_meta(model_id)`:**带路由前缀回退的唯一入口**,`get_max_output_tokens` /
+`get_context_window` 都改走它。前缀归一化必须在这里而不是调用方——写在调用方就是每家抄
+一份(nexus_power 先这么干过,结果 anthropic_helper 拿平台 id 仍查不到);而且需要两个字段
+的调用方应当**一次解析 meta**,否则两次独立查找各自回退,可能把 A 行的 ceiling 配上 B 行
+的 window。`get_all_known_models()` 同步带上 `context_window`,否则前端从
+`/api/providers/catalog` 拿不到新字段。
+
+**回退下沉的副作用要一起记住,不是只有收益**:`get_max_output_tokens` 自带回退之后,
+另外两个消费方的取值跟着变了。catalog 里「裸名且有 ceiling」的只有四条 Claude
+(`claude-opus-4-8`/`claude-sonnet-4-6`=115_200、`claude-haiku-4-5(-20251001)`=57_600),
+所以实际影响面是 `yunwu/claude-*`、`openrouter/claude-*` 这类聚合商路由 id 在
+`llm/anthropic_helper` 里从 `_DEFAULT_MAX_TOKENS=4096` 跳到 115_200/57_600。方向是对的
+(那是 Anthropic 真实上限),但**这两个消费方没有 profiles 那套「抬高需实测 window」的
+护栏**,它们直接拿 ceiling 当 max_tokens 用。万一某个聚合商对 claude 的 max_tokens
+卡得比原厂低,原先稳过的 4096 请求会变 400。影响面限于 helper 类原子调用(不在
+agent_loop 上),暂不加护栏,但下次聚合商报 400 先想到这里。
+
+消费方从两个变成三个:`adapters/openai_agents`、`llm/anthropic_helper`,加上
+`nexus_power/_nexus_power_impl/modeling/profiles.py`。**新增/修改模型上限只改这里**,
+别在框架侧再建表(2026-07-31 有过一次,当场和本表的 115_200 对不上)。
+
+## 2026-07-30 — `get_default_models("netmind_free")` 先读网关门后的条目
+
+每日 pass 把「网关∩判定」写成 ledger 的 netmind_free 条目后，新 free 卡的
+种子从它取——裸 netmind 通过名单含网关不路由/不计价的模型（sonnet-5 曾借此
+混进 free 下拉）。条目缺失（首次 pass 前的新装）才回落 netmind 映射。
 
 ## 2026-07-26 — `resolve_cli_alias` 把 `oauth_token` 并入 CLI 侧
 

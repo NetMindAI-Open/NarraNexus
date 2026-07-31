@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_0_initialize.py
-last_verified: 2026-06-23
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — trigger_type 全量映射（不再只认 message_bus）
+
+0.3 建 Event 时 `TriggerType(ws_str)` 直映（TriggerType 已与
+WorkingSource 1:1，见 [[models]]），未知值兜底 CHAT（宁可标签缺失也不
+能挡 run）。动机：run 可观察性让 trigger run 也写 state='running'，
+读侧必须能分辨 run 来自哪个面（聊天页自动接管只认 chat/manyfold）。
 
 > 2026-06-23：0.3 建 Event 时按 `ctx.working_source` 给 `trigger_type` 赋值——
 > `working_source == "message_bus"` → `TriggerType.MESSAGE_BUS`，否则 `CHAT`。

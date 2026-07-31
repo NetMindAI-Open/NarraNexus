@@ -9,7 +9,7 @@ run_item_stream_event × {thinking_item, tool_call_item,
 tool_call_output_item}) are consumed by ResponseProcessor, the frontend
 tool-pairing logic, the billing chain (response.done usage) and the
 helper-LLM fallback. These tests pin the exact string values so that any
-producer (output_transfer, claude sdk synthesizers, a future nexus_loop
+producer (output_transfer, claude sdk synthesizers, a future nexus_power
 LegacyEventAdapter) and any consumer reference one shared definition.
 """
 from __future__ import annotations

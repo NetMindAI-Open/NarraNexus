@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-06-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `HookIOData.interrupted`
+
+从 `PathExecutionResult.interrupted` 透传(build_after_execution_params 填),
+让 hook 消费方知道本 turn 是用户打断的——ChatModule persist 据此写
+「(Interrupted by user)」占位而非「(Agent decided no response needed)」,
+两者对下一轮模型是相反的语义。
 
 ## 2026-06-22 — `WorkingSource.NARRAMESSENGER` 加入
 

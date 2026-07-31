@@ -93,6 +93,13 @@ class ChannelModuleBase(XYZBaseModule):
     all_tool_names: tuple[str, ...] = ()
     setup_tool_names: frozenset[str] = frozenset()
 
+    # ── Delivery declaration (NexusPower reply contract, 2026-07-31) ──────
+    # The tools whose calls DELIVER content to humans on this channel
+    # (short names; must be a subset of ``all_tool_names`` — pinned by a
+    # cross-channel test). Forwarded fully-qualified to the framework as
+    # the turn's expressive surface via ``get_expressive_tools``.
+    reply_tool_names: tuple[str, ...] = ()
+
     # ── Class-level guard so multi-instance instantiation doesn't double-register ──
     # Maps channel_name -> True once that channel's sender has been registered.
     # Class-level so it survives across all subclass instances within a process.
@@ -309,6 +316,16 @@ class ChannelModuleBase(XYZBaseModule):
             f"mcp__{self.mcp_server_name}__{name}"
             for name in self.all_tool_names
             if name not in self.setup_tool_names
+        ]
+
+    async def get_expressive_tools(self) -> list[str]:
+        """Bound → this channel's reply tools, fully qualified. Unbound
+        contributes nothing (those schemas are suppressed above anyway)."""
+        if not await self.is_bound():
+            return []
+        return [
+            f"mcp__{self.mcp_server_name}__{name}"
+            for name in self.reply_tool_names
         ]
 
     def unbound_setup_line(self) -> str:

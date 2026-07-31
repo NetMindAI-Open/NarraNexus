@@ -21,12 +21,14 @@ import { useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
+  frameworkAcceptsProtocol,
   isCodexFramework,
   getModelsForSlot,
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
   defaultHelperModel,
   cloudNetmindOnly,
+  frameworkAllowedInCloud,
   isSlotBindableSource,
   DESKTOP_RELEASES_URL,
   type ProviderSummary,
@@ -57,7 +59,8 @@ interface Props {
 
 export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const { t } = useTranslation();
-  const netmindOnly = cloudNetmindOnly(useConfigStore((s) => s.role));
+  const role = useConfigStore((s) => s.role);
+  const netmindOnly = cloudNetmindOnly(role);
   // Styled alert (same Dialog shell as the add-provider modal) — Tauri's
   // wry webview doesn't render window.alert, so never use the native one.
   const { alert: showNotice, dialog: noticeDialog } = useConfirm();
@@ -106,11 +109,11 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
         setProbe(fwRes.data.probe);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
+      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -127,7 +130,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const agentProviders = providerList.filter((p) => {
     if (netmindOnly && !isSlotBindableSource(p.source)) return false;
     const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
-    if (fw && p.protocol !== fw.protocol) return false;
+    if (!frameworkAcceptsProtocol(fw, p.protocol)) return false;
     return true;
   });
   // Helper accepts OAuth (claude_oauth / codex_oauth) too: the backend routes an
@@ -165,7 +168,11 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
         setInstall(resp.data.install);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to switch framework');
+      setError(
+        e instanceof Error
+          ? e.message
+          : t('pages.settings.modelDefaults.frameworkSwitchFailed'),
+      );
     } finally {
       setFrameworkSaving(false);
     }
@@ -174,11 +181,11 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const apply = async () => {
     if (!isDirty || applying) return;
     if (agentChanged && (!agentDraft.provider_id || !agentDraft.model)) {
-      setError('Pick a provider and model for the agent slot.');
+      setError(t('pages.settings.modelDefaults.pickAgentModel'));
       return;
     }
     if (helperChanged && (!helperDraft.provider_id || !helperDraft.model)) {
-      setError('Pick a provider and model for the helper slot.');
+      setError(t('pages.settings.modelDefaults.pickHelperModel'));
       return;
     }
     setApplying(true);
@@ -191,20 +198,20 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
           thinking: agentDraft.thinking,
           reasoning_effort: agentDraft.reasoning_effort,
         });
-        if (!r.success) { setError(r.detail || 'Save failed'); return; }
+        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
       }
       if (helperChanged) {
         const r = await api.setProviderSlot('helper_llm', {
           provider_id: helperDraft.provider_id,
           model: helperDraft.model,
         });
-        if (!r.success) { setError(r.detail || 'Save failed'); return; }
+        if (!r.success) { setError(r.detail || t('pages.settings.modelDefaults.saveFailed')); return; }
       }
       await load();
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Save failed');
+      setError(e instanceof Error ? e.message : t('pages.settings.modelDefaults.saveFailed'));
     } finally {
       setApplying(false);
     }
@@ -220,21 +227,27 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
     RECOMMENDED_HELPER_MODEL_BY_PROTOCOL[providers[helperDraft.provider_id]?.protocol || 'openai'] || 'gpt-5.4-mini';
 
   if (loading) {
-    return <p className="text-sm text-[var(--text-tertiary)]">Loading…</p>;
+    return (
+      <p className="text-sm text-[var(--text-tertiary)]">
+        {t('pages.settings.modelDefaults.loading')}
+      </p>
+    );
   }
 
   if (!hasProviders) {
     return (
       <p className="text-sm text-[var(--text-tertiary)]">
-        No providers yet — add one under{' '}
+        {t('pages.settings.modelDefaults.noProvidersBefore')}{' '}
         {onManageProviders ? (
           <button type="button" onClick={onManageProviders} className="font-medium text-[var(--accent-primary)] underline underline-offset-2 hover:opacity-80">
-            LLM Providers
+            {t('pages.settings.modelDefaults.providersSection')}
           </button>
         ) : (
-          <span className="font-medium">LLM Providers</span>
+          <span className="font-medium">
+            {t('pages.settings.modelDefaults.providersSection')}
+          </span>
         )}{' '}
-        first, then set the default model here.
+        {t('pages.settings.modelDefaults.noProvidersAfter')}
       </p>
     );
   }
@@ -243,9 +256,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
     <div className="space-y-6 max-w-2xl">
       <div className="flex items-start justify-between gap-3">
         <p className="text-sm text-[var(--text-tertiary)]">
-          The framework + model every agent inherits by default. To give one agent
-          its own model, change it in that agent's chat (the model chip next to the
-          composer).
+          {t('pages.settings.modelDefaults.defaultsDescription')}
         </p>
         {onManageProviders && (
           <button
@@ -253,51 +264,53 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
             onClick={onManageProviders}
             className="shrink-0 text-xs text-[var(--accent-primary)] hover:opacity-80 whitespace-nowrap"
           >
-            Manage providers →
+            {t('pages.settings.modelDefaults.manageProviders')}
           </button>
         )}
       </div>
 
       {/* ---- Agent slot ---- */}
       <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">Agent (main dialogue)</div>
+        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
+          {t('pages.settings.modelDefaults.agentMain')}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className={labelCls}>
-              Framework
+              {t('pages.settings.modelDefaults.framework')}
               {probe && (
                 <span
                   className={cn('ml-2 text-xs', probe.ok ? 'text-[var(--color-success)]' : 'text-[var(--color-error)]')}
                   title={probe.detail}
                 >
-                  {probe.ok ? '✓ auth ready' : '✗ auth missing'}
+                  {probe.ok
+                    ? `✓ ${t('pages.settings.modelDefaults.authReady')}`
+                    : `✗ ${t('pages.settings.modelDefaults.authMissing')}`}
                 </span>
               )}
             </label>
-            {/* Cloud non-staff: switching TO a non-claude_code framework is
-                staff-only (backend 403s it); switching back to claude_code is
-                always allowed. The select stays interactive — picking a
-                non-claude_code framework pops an explanation and snaps back,
+            {/* Cloud non-staff: the CLI-backed frameworks are staff-only
+                (backend 403s them — they would run on the image's shared CLI
+                login); claude_code and NexusPower are allowed. The select stays
+                interactive — a blocked pick pops an explanation and snaps back,
                 which reads friendlier than a greyed-out control. */}
             <select
               className={selectCls}
               value={framework}
               disabled={frameworkSaving}
               onChange={(e) => {
-                // Direction-aware: a cloud netmind-only user may always switch
-                // back TO claude_code (recovers old codex_cli users); only
-                // switching to a NON-claude_code framework shows the notice.
-                if (netmindOnly && e.target.value !== 'claude_code') {
+                // Ask the shared predicate rather than re-deriving the rule.
+                if (!frameworkAllowedInCloud(e.target.value, role)) {
                   void showNotice({
                     title: t(
                       'pages.settings.modelDefaults.cloudFrameworkLockedTitle',
-                      'Desktop version only',
+                      'Staff only in cloud',
                     ),
                     message: (
                       <>
                         {t(
                           'pages.settings.modelDefaults.cloudFrameworkLocked',
-                          'Switching the agent framework is available in the local desktop version only.',
+                          'This framework signs in through a shared CLI login, so it is staff-only in cloud. Claude Code and NexusPower-beta both work here.',
                         )}{' '}
                         <a
                           href={DESKTOP_RELEASES_URL}
@@ -326,10 +339,14 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
               ))}
             </select>
             {frameworkSaving && isCodexFramework(framework) && (
-              <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">Verifying Codex CLI…</div>
+              <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
+                {t('pages.settings.modelDefaults.verifyingCodex')}
+              </div>
             )}
             {install && install.action === 'install_failed' && (
-              <div className="text-xs text-[var(--color-error)] mt-1">Codex binary unavailable: {install.reason}</div>
+              <div className="text-xs text-[var(--color-error)] mt-1">
+                {t('pages.settings.modelDefaults.codexUnavailable', { reason: install.reason })}
+              </div>
             )}
             {probe && !probe.ok && !(install && install.action === 'install_failed') && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1">{probe.detail}</div>
@@ -337,7 +354,7 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
           </div>
 
           <div>
-            <label className={labelCls}>Provider</label>
+            <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
               className={selectCls}
               value={agentDraft.provider_id}
@@ -348,20 +365,20 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 setAgentDraft((d) => ({ ...d, provider_id: pid, model: models[0]?.model_id || '' }));
               }}
             >
-              <option value="">Select provider…</option>
+              <option value="">{t('pages.settings.modelDefaults.selectProvider')}</option>
               {agentProviders.map((p) => (<option key={p.provider_id} value={p.provider_id}>{p.name}</option>))}
             </select>
           </div>
 
           <div>
-            <label className={labelCls}>Model</label>
+            <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
               className={selectCls}
               value={agentDraft.model}
               disabled={!agentDraft.provider_id}
               onChange={(e) => setAgentDraft((d) => ({ ...d, model: e.target.value }))}
             >
-              <option value="">Select model…</option>
+              <option value="">{t('pages.settings.modelDefaults.selectModel')}</option>
               {(providers[agentDraft.provider_id]
                 ? getModelsForSlot(providers[agentDraft.provider_id], 'agent', framework, {})
                 : []
@@ -370,24 +387,24 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
           </div>
 
           <div>
-            <label className={labelCls}>Thinking</label>
+            <label className={labelCls}>{t('pages.settings.modelDefaults.thinking')}</label>
             <select className={selectCls} value={agentDraft.thinking}
               onChange={(e) => setAgentDraft((d) => ({ ...d, thinking: e.target.value }))}>
-              <option value="">Auto (default)</option>
-              <option value="on">On</option>
-              <option value="off">Off</option>
+              <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
+              <option value="on">{t('pages.settings.modelDefaults.on')}</option>
+              <option value="off">{t('pages.settings.modelDefaults.off')}</option>
             </select>
           </div>
 
           <div>
-            <label className={labelCls}>Reasoning effort</label>
+            <label className={labelCls}>{t('pages.settings.modelDefaults.reasoningEffort')}</label>
             <select className={selectCls} value={agentDraft.reasoning_effort}
               onChange={(e) => setAgentDraft((d) => ({ ...d, reasoning_effort: e.target.value }))}>
-              <option value="">Auto (default)</option>
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="max">Max</option>
+              <option value="">{t('pages.settings.modelDefaults.autoDefault')}</option>
+              <option value="low">{t('pages.settings.modelDefaults.low')}</option>
+              <option value="medium">{t('pages.settings.modelDefaults.medium')}</option>
+              <option value="high">{t('pages.settings.modelDefaults.high')}</option>
+              <option value="max">{t('pages.settings.modelDefaults.max')}</option>
             </select>
           </div>
         </div>
@@ -395,10 +412,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
 
       {/* ---- Helper slot ---- */}
       <div className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]">
-        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">Helper LLM (background tasks)</div>
+        <div className="text-sm font-medium text-[var(--text-primary)] mb-3">
+          {t('pages.settings.modelDefaults.helperTitle')}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelCls}>Provider</label>
+            <label className={labelCls}>{t('pages.settings.modelDefaults.provider')}</label>
             <select
               className={selectCls}
               value={helperDraft.provider_id}
@@ -410,19 +429,19 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 setHelperDraft({ provider_id: pid, model });
               }}
             >
-              <option value="">Select provider…</option>
+              <option value="">{t('pages.settings.modelDefaults.selectProvider')}</option>
               {helperProviders.map((p) => (<option key={p.provider_id} value={p.provider_id}>{p.name}</option>))}
             </select>
           </div>
           <div>
-            <label className={labelCls}>Model</label>
+            <label className={labelCls}>{t('pages.settings.modelDefaults.model')}</label>
             <select
               className={selectCls}
               value={helperDraft.model}
               disabled={!helperDraft.provider_id}
               onChange={(e) => setHelperDraft((d) => ({ ...d, model: e.target.value }))}
             >
-              <option value="">Select model…</option>
+              <option value="">{t('pages.settings.modelDefaults.selectModel')}</option>
               {(providers[helperDraft.provider_id]
                 ? getModelsForSlot(providers[helperDraft.provider_id], 'helper_llm', null, {})
                 : []
@@ -431,9 +450,9 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
           </div>
         </div>
         <p className="text-xs text-[var(--text-tertiary)] mt-2">
-          Recommended: {prettifyModel(helperRecModel)} — small/fast model for summaries,
-          dedup, memory. OAuth (CLI sign-in) providers also work here — routed one-shot
-          through the same CLI, so one subscription covers both slots.
+          {t('pages.settings.modelDefaults.helperRecommendation', {
+            model: prettifyModel(helperRecModel),
+          })}
         </p>
       </div>
 
@@ -441,10 +460,14 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
 
       <div className="flex items-center gap-3">
         <button className={btnPrimary} disabled={!isDirty || applying} onClick={apply}>
-          {applying ? 'Saving…' : 'Save defaults'}
+          {applying
+            ? t('pages.settings.modelDefaults.saving')
+            : t('pages.settings.modelDefaults.saveDefaults')}
         </button>
         {saved && !isDirty && (
-          <span className="text-sm text-[var(--color-success)]">✓ Saved</span>
+          <span className="text-sm text-[var(--color-success)]">
+            ✓ {t('pages.settings.modelDefaults.saved')}
+          </span>
         )}
       </div>
 

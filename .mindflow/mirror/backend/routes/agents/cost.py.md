@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/agents/cost.py
-last_verified: 2026-05-13
+last_verified: 2026-07-28
 stub: false
 ---
+
+## 2026-07-28 — aggregate by usage role, not provider name
+
+The popover answers which share came from the agent's main loop versus helper
+work. Provider or concrete model names are not stable identifiers for that
+distinction: users can assign the same provider to both slots, and can replace
+either provider independently. Aggregation therefore maps `call_type ==
+"agent_loop"` to `__main_model__` and every helper call type to
+`__helper_model__`. These are API-only semantic keys; the frontend localizes
+them into neutral user-facing labels.
 
 ## 2026-05-13 — local 多用户隔离修复
 

@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-29 — 移除 `AgentCliSession` 导出
+
+`cli_session.py` 随 T7 删除(表已摘掉注册,见 [[schema_registry]]),门面同步去掉
+re-export 与 `__all__` 条目。纯转发改动。
+
+## 2026-07-29 — 导出 `AgentPlan` / `AgentReplyDelta`
+
+跟着 [[runtime_message]] 新增的两个 NexusPower 专属型别一起进公共导出面——
+消费方（[[response_processor]]、路由层）从 `schema` 顶层取，不去 reach 进
+子模块。
+
+## 2026-07-25 — 导出 `AgentCliSession`
+
+门面新增 re-export `AgentCliSession`（[[cli_session]]，可 resume 的 CLI 会话
+句柄模型），供 step_4 / repository 从 `schema` 顶层引用。纯转发。
 
 ## 2026-07-22 — export URL-tab models
 
@@ -57,3 +73,10 @@ fallback。但若把常量留在 `response_processor` 里定义，就会闭合�
 门面的统一导出（加进 `from .runtime_message import (...)` 块）。注意 `__all__` 里这条
 常量目前未列出（与 `ErrorMessage` 同样未列），但已可经包级 import 取用——纯导出改动，
 无 schema 形状变化。
+
+## 2026-07-30 — Agent Migration 导出
+
+新增 `from .migration_schema import (...)` 块,导出 `StandardizedAgentImport`、
+`MigrationSource/Agent/Skill/Memory/McpServer/Custom/Turn/Session`、`FrameworkDetection`、
+`MIGRATION_SCHEMA_VERSION`、`AWARENESS_IMPORT_CHAR_LIMIT`,并列进 `__all__`。纯导出,
+无 schema 形状变化。见 [[migration_schema]]。

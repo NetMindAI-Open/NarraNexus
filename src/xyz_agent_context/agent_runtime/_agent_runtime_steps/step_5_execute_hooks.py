@@ -118,6 +118,7 @@ def build_after_execution_params(ctx: "RunContext") -> HookAfterExecutionParams:
         io_data=HookIOData(
             input_content=ctx.input_content,
             final_output=execution_result.final_output,
+            interrupted=execution_result.interrupted,
         ),
         trace=HookExecutionTrace(
             event_log=ctx.event_log_entries,

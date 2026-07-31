@@ -32,7 +32,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui';
+import { Button, useConfirm } from '@/components/ui';
 import { api } from '@/lib/api';
 import { platform } from '@/lib/platform';
 import type {
@@ -55,6 +55,8 @@ import {
 import { NetmindRunwayView } from './NetmindRunwayView';
 import { NetmindActionZone } from './NetmindActionZone';
 import { NetmindTopUpControls, type RechargeState } from './NetmindTopUpControls';
+import { NetmindReturnNotice } from './NetmindReturnNotice';
+import { useNetmindPaymentReturn } from './useNetmindPaymentReturn';
 
 type PanelState = 'loading' | 'error' | 'free' | 'pro_active' | 'pro_cancelled';
 
@@ -96,6 +98,11 @@ export function NetmindAccountPanel() {
   // deployment mode, so it shows for a Power user on a local dual-mode install
   // and stays hidden for a pure-local username user.
   const isPowerUser = !!useConfigStore((s) => s.netmindToken);
+  // In-app confirmation. NEVER window.confirm: wry (the Tauri webview) does not
+  // render the native dialogs, so the call resolves falsy and the handler bails
+  // out silently — on the DMG the button would simply do nothing (rule #7: the
+  // two run modes must behave identically). See ui/ConfirmDialog.
+  const { confirm, dialog: confirmDialog } = useConfirm();
   // Account identity (the "Account" half of the page title) — NetMind nickname
   // + email, so the user can see WHICH account they're logged into.
   const displayName = useConfigStore((s) => s.displayName);
@@ -237,10 +244,18 @@ export function NetmindAccountPanel() {
 
   const handleCancel = useCallback(async () => {
     if (busyRef.current) return;
-    if (!window.confirm(t('settings.netmind.cancelConfirm',
-      'Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?'))) {
-      return;
-    }
+    // Labels spell out the two outcomes instead of Confirm/Cancel: next to a
+    // subscription-CANCELLING action, a button labelled "Cancel" is genuinely
+    // ambiguous about which cancel it means.
+    const ok = await confirm({
+      title: t('settings.netmind.cancelConfirmTitle', 'Turn off auto-renew?'),
+      message: t('settings.netmind.cancelConfirm',
+        'Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?'),
+      confirmText: t('settings.netmind.cancelConfirmAction', 'Turn off auto-renew'),
+      cancelText: t('settings.netmind.cancelConfirmKeep', 'Keep subscription'),
+      danger: true,
+    });
+    if (!ok) return;
     busyRef.current = true;
     setBusy(true);
     setActionError(null);
@@ -253,16 +268,20 @@ export function NetmindAccountPanel() {
       busyRef.current = false;
       if (mounted.current) setBusy(false);
     }
-  }, [t, load]);
+  }, [t, load, confirm]);
 
   const handleReactivate = useCallback(async () => {
     if (busyRef.current) return;
     // reactivate re-enables auto-renew (may trigger a charge) — confirm, since
     // its exact billing semantics are still pending NetMind confirmation.
-    if (!window.confirm(t('settings.netmind.reactivateConfirm',
-      'Resume auto-renew for your NetMind.AI Power Pro subscription?'))) {
-      return;
-    }
+    const ok = await confirm({
+      title: t('settings.netmind.reactivateConfirmTitle', 'Resume auto-renew?'),
+      message: t('settings.netmind.reactivateConfirm',
+        'Resume auto-renew for your NetMind.AI Power Pro subscription?'),
+      confirmText: t('settings.netmind.reactivateConfirmAction', 'Resume'),
+      cancelText: t('settings.netmind.reactivateConfirmDismiss', 'Not now'),
+    });
+    if (!ok) return;
     busyRef.current = true;
     setBusy(true);
     setActionError(null);
@@ -275,7 +294,7 @@ export function NetmindAccountPanel() {
       busyRef.current = false;
       if (mounted.current) setBusy(false);
     }
-  }, [t, load]);
+  }, [t, load, confirm]);
 
   // Read-only status: does a NetMind-source provider exist? The backend
   // auto-registers it on login, so there is nothing to click here — we just
@@ -351,6 +370,12 @@ export function NetmindAccountPanel() {
       mounted.current = false;
     };
   }, [isPowerUser, load, refreshNetStatus]);
+
+  // Post-payment return: consume Stripe's query params, then let the hook drive
+  // the delayed money re-read and (for a subscription) the bounded plan-flip
+  // poll. Both callbacks must stay referentially stable — see the hook's
+  // docstring for why. Declared after them so neither is read before init.
+  const returnNotice = useNetmindPaymentReturn(isPowerUser, load, pollUntilActive);
 
   // Poll a recharge by Stripe session id until succeeded/failed (bounded). On
   // success, reload so the balance + activity reflect the new credit. `gen`
@@ -716,6 +741,10 @@ export function NetmindAccountPanel() {
         </p>
       </div>
 
+      {/* Answers the question the payer arrived with, so it sits above the
+          loading/error branches — see NetmindReturnNotice. */}
+      {returnNotice && <NetmindReturnNotice notice={returnNotice} />}
+
       {state === 'loading' && (
         <p className="px-4 py-4 text-sm text-[var(--text-secondary)]">
           {t('settings.netmind.loading', 'Loading…')}
@@ -787,7 +816,10 @@ export function NetmindAccountPanel() {
             onCancel={handleCancel}
             onReactivate={handleReactivate}
           />
-          {polling && (
+          {/* Suppressed on a successful return: the payer is standing here
+              having already paid, and "waiting for payment to complete" would
+              contradict the notice above. The poll is still running. */}
+          {polling && returnNotice?.status !== 'success' && (
             <p className="text-xs text-[var(--text-tertiary)]">
               {t('settings.netmind.awaitingPayment',
                 'Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.')}
@@ -850,6 +882,11 @@ export function NetmindAccountPanel() {
             'The NarraNexus sandbox itself is free for now (no sandbox-service charge); billing will start later, with notice.')}
         </div>
       </div>
+
+      {/* Must be mounted for `confirm()` to ever resolve — without it the
+          promise hangs and the action button does nothing. Dialog portals to
+          body, so its position here is not a layout concern. */}
+      {confirmDialog}
     </div>
   );
 }

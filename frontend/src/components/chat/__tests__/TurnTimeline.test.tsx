@@ -4,6 +4,11 @@
  * exact pixels — instead pin the visible text and block ordering so a
  * future refactor that drops a block type or re-orders events fails
  * the build instead of silently changing UX.
+ *
+ * Since 2026-07-30 the answer tier (reply / native_output) renders in
+ * the bubble via SegmentedReply — see SegmentedReply.test.tsx for those
+ * assertions and turnTimeline.process.test.tsx for the process-only
+ * contract. This file pins the process blocks themselves.
  */
 import { describe, expect, test } from 'vitest';
 import { render, screen } from '@testing-library/react';
@@ -64,68 +69,7 @@ describe('TurnTimeline', () => {
     expect(screen.queryByText(/mcp__chat_module__/, { exact: false })).toBeNull();
   });
 
-  test('renders reply block as user-facing speech', () => {
-    render(
-      <TurnTimeline
-        events={[ev('r1', 1, 'reply', { content: 'Hello user, here is the answer.' })]}
-      />
-    );
-    expect(screen.getByText(/Hello user, here is the answer/)).not.toBeNull();
-  });
-
-  test('marks helper_llm no_reply mode with the info badge', () => {
-    render(
-      <TurnTimeline
-        events={[ev('r2', 1, 'reply', {
-          content: 'Recovered reply',
-          reply_via: 'helper_llm_no_reply',
-        })]}
-      />
-    );
-    expect(screen.getByText(/helper_llm fallback/i)).not.toBeNull();
-  });
-
-  test('marks helper_llm after_error mode with the warning badge', () => {
-    render(
-      <TurnTimeline
-        events={[ev('r2a', 1, 'reply', {
-          content: 'I started but hit a snag — here is what I found.',
-          reply_via: 'helper_llm_after_error',
-        })]}
-      />
-    );
-    // Distinct text (warning) from the info badge.
-    expect(screen.getByText(/recovered after error/i)).not.toBeNull();
-    // The info badge must NOT be present for after_error replies.
-    expect(screen.queryByText(/helper_llm fallback/i)).toBeNull();
-  });
-
-  test('legacy helper_llm_fallback tag still renders the info badge', () => {
-    // Persisted rows from before the 2026-05-25 rename carry the old
-    // tag name; the UI must keep rendering them so historical replies
-    // still surface as recovered.
-    render(
-      <TurnTimeline
-        events={[ev('r2legacy', 1, 'reply', {
-          content: 'Legacy recovered reply',
-          reply_via: 'helper_llm_fallback',
-        })]}
-      />
-    );
-    expect(screen.getByText(/helper_llm fallback/i)).not.toBeNull();
-  });
-
-  test('renders native_output with its own label, distinct from reply', () => {
-    render(
-      <TurnTimeline
-        events={[ev('n1', 1, 'native_output', { content: 'just an aside' })]}
-      />
-    );
-    expect(screen.getByText(/Native output/i)).not.toBeNull();
-    expect(screen.getByText(/just an aside/)).not.toBeNull();
-  });
-
-  test('renders mixed sequence in given order', () => {
+  test('renders process blocks in given order, answer tier filtered out', () => {
     const events: TurnEvent[] = [
       ev('e1', 1, 'thinking', { content: 'first thought' }),
       ev('e2', 2, 'tool_call', { tool_name: 'mcp__x__search_memory' }),
@@ -133,12 +77,12 @@ describe('TurnTimeline', () => {
       ev('e4', 4, 'thinking', { content: 'follow up reasoning' }),
     ];
     const { container } = render(<TurnTimeline events={events} />);
-    // Each block produces visible text; verify each is present once.
     expect(screen.getByText(/first thought/)).not.toBeNull();
     expect(screen.getByText(/search_memory/)).not.toBeNull();
-    expect(screen.getByText(/and here is the answer/)).not.toBeNull();
     expect(screen.getByText(/follow up reasoning/)).not.toBeNull();
-    // Sanity check on block count.
-    expect(container.querySelectorAll(':scope > div > *').length).toBe(4);
+    // The reply belongs to the bubble (SegmentedReply), not the timeline.
+    expect(screen.queryByText(/and here is the answer/)).toBeNull();
+    // Sanity check on block count: 3 process blocks, reply filtered.
+    expect(container.querySelectorAll(':scope > div > *').length).toBe(3);
   });
 });

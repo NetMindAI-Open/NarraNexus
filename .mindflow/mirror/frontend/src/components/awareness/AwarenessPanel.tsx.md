@@ -1,8 +1,23 @@
 ---
 code_file: frontend/src/components/awareness/AwarenessPanel.tsx
-last_verified: 2026-07-13
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — the edit modal is a writing window, not a field
+
+Owner: "认知里有个编辑会弹出一个框修改,这个太窄了不好看". It was `size="lg"`
+(512px) with `rows={12}` — the default for a *form*, applied to the authoring
+surface for an agent's entire awareness text.
+
+- `size="4xl"` (896px). Not 5xl/6xl: the content is monospace prose, and past
+  roughly 900px the lines get too long to scan. Contrast the workspace file
+  preview ([[FileUpload]]), which went to 5xl because code wants the columns.
+- Height moved from `rows={12}` to `min-h-[42vh] max-h-[60vh]`. [[Textarea]]
+  auto-grows to its content and caps at its own computed max-height, so those
+  two bounds — not `rows` — are what actually decide the size. A fixed row
+  count meant a stubby box on a tall display and an overflowing one on a short
+  display.
 
 ## 2026-07-13 — awareness profile fills the embedded panel (drop the inner cap)
 

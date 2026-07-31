@@ -802,7 +802,9 @@ export function ProviderSettings() {
             */}
           <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-medium text-[var(--text-primary)]">Claude Code Login</h4>
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">
+                {t('settings.provider.claudeLoginTitle')}
+              </h4>
             </div>
             <p className="text-sm text-[var(--text-tertiary)] mb-3">{t('settings.provider.claudeOauthDesc')}</p>
 
@@ -966,15 +968,18 @@ export function ProviderSettings() {
             */}
           <div className="p-4 rounded-xl border border-[var(--accent-primary)]/20 bg-[var(--accent-primary)]/5">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-medium text-[var(--text-primary)]">Codex CLI Login</h4>
+              <h4 className="text-sm font-medium text-[var(--text-primary)]">
+                {t('settings.provider.codexLoginTitle')}
+              </h4>
             </div>
             <p className="text-sm text-[var(--text-tertiary)] mb-3">
-              OAuth login via Codex CLI (Sign in with ChatGPT). No API key needed.
-              Usage covered by your ChatGPT Plus / Pro subscription.
+              {t('settings.provider.codexOauthDesc')}
             </p>
 
             {!codexStatus && (
-              <p className="text-sm text-[var(--text-tertiary)]">Checking status...</p>
+              <p className="text-sm text-[var(--text-tertiary)]">
+                {t('settings.provider.checkingStatus')}
+              </p>
             )}
 
             {codexStatus && (
@@ -988,12 +993,14 @@ export function ProviderSettings() {
                     )} />
                     <span className="text-sm text-[var(--text-secondary)]">
                       {codexStatus.logged_in
-                        ? <>Logged in{codexStatus.email ? <> as <span className="font-mono">{codexStatus.email}</span></> : null}</>
-                        : codexStatus.cli_installed ? 'Not logged in' : 'CLI not installed'}
+                        ? <>{t('settings.provider.loggedIn')}{codexStatus.email ? <> {t('settings.provider.loggedInAs')} <span className="font-mono">{codexStatus.email}</span></> : null}</>
+                        : codexStatus.cli_installed
+                          ? t('settings.provider.notLoggedIn')
+                          : t('settings.provider.cliNotInstalled')}
                     </span>
                     {codexStatus.logged_in && codexStatus.expires_at && (
                       <span className="text-xs text-[var(--text-tertiary)]">
-                        {'·'} expires {formatExpiresAt(codexStatus.expires_at)}
+                        {t('settings.provider.expires', { date: formatExpiresAt(codexStatus.expires_at) })}
                       </span>
                     )}
                   </div>
@@ -1003,8 +1010,8 @@ export function ProviderSettings() {
                     * shell out via Tauri yet (unlike claude). */}
                   <p className="text-sm text-[var(--text-tertiary)]">
                     {codexStatus.cli_installed
-                      ? 'Run "codex login" / "codex logout" in your terminal, then refresh this page.'
-                      : 'Install Codex CLI first (auto-installs when you pick "Codex CLI" in the Agent Framework dropdown below), then run "codex login" in your terminal.'}
+                      ? t('settings.provider.codexTerminalHint')
+                      : t('settings.provider.codexInstallHint')}
                   </p>
                 </div>
 
@@ -1013,16 +1020,16 @@ export function ProviderSettings() {
                   {hasCodex ? (
                     <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
                       <span>{'✓'}</span>
-                      <span>Added as a NarraNexus provider {'—'} assignable in Step 2 below.</span>
+                      <span>{t('settings.provider.codexAddedAsProvider')}</span>
                     </div>
                   ) : codexStatus.logged_in ? (
                     <button onClick={handleAddCodexOAuth}
                       className="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--text-primary)] text-[var(--text-inverse)] hover:opacity-90 transition-colors">
-                      Add as Provider
+                      {t('settings.provider.addAsProvider')}
                     </button>
                   ) : (
                     <p className="text-sm text-[var(--text-tertiary)]">
-                      Log in above to add Codex CLI as a provider.
+                      {t('settings.provider.codexLoginToAdd')}
                     </p>
                   )}
                 </div>
@@ -1137,17 +1144,23 @@ export function ProviderSettings() {
                 </div>
                 {prov.base_url && (
                   <div>
-                    <span className="text-[var(--text-tertiary)]">Endpoint: </span>
+                    <span className="text-[var(--text-tertiary)]">
+                      {t('settings.provider.endpointLabel')}:{' '}
+                    </span>
                     <span className="font-mono text-xs break-all">{prov.base_url}</span>
                   </div>
                 )}
                 <div>
-                  <span className="text-[var(--text-tertiary)]">API key: </span>
+                  <span className="text-[var(--text-tertiary)]">
+                    {t('settings.provider.apiKeyLabel')}:{' '}
+                  </span>
                   <span className="font-mono text-xs">{prov.api_key_masked || '—'}</span>
                 </div>
                 {prov.netmind_account_email && (
                   <div>
-                    <span className="text-[var(--text-tertiary)]">NetMind account: </span>
+                    <span className="text-[var(--text-tertiary)]">
+                      {t('settings.provider.netmindAccountLabel')}:{' '}
+                    </span>
                     <span className="font-mono text-xs break-all">{prov.netmind_account_email}</span>
                   </div>
                 )}
@@ -1171,10 +1184,16 @@ export function ProviderSettings() {
                 className="px-4 py-2 text-sm rounded-lg text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/5 disabled:opacity-40 transition-colors">
                 {testing === prov.provider_id ? '...' : t('settings.provider.test')}
               </button>
-              <button onClick={() => openEditModels(prov)}
-                className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
-                {t('settings.provider.edit')}
-              </button>
+              {/* OAuth cards' model lists are code-owned (codex: curated
+                  constant; claude: CLI family aliases) — the backend overrides
+                  the stored column at read time, so editing here would be a
+                  silent no-op. */}
+              {prov.source !== 'claude_oauth' && prov.source !== 'codex_oauth' && (
+                <button onClick={() => openEditModels(prov)}
+                  className="px-4 py-2 text-sm rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+                  {t('settings.provider.edit')}
+                </button>
+              )}
               <button onClick={() => { handleDelete(prov.provider_id); setDetailProviderId(null) }}
                 className="px-4 py-2 text-sm rounded-lg text-[var(--color-error)] hover:bg-[var(--color-error)]/5 transition-colors">
                 {t('settings.provider.delete')}

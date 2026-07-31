@@ -53,6 +53,38 @@ def _is_public_ip(ip_str: str) -> bool:
     )
 
 
+def is_obviously_non_public_host(host: str) -> bool:
+    """True when `host` cannot be a public internet name, decided WITHOUT DNS.
+
+    A cheap synchronous screen for CONFIG values — NOT a security boundary. The
+    SSRF gate for attacker-supplied URLs we fetch ourselves is
+    `assert_public_http_url`; this answers a different question: "is it safe to
+    hand this configured origin to a third party?"
+
+    Catches what an operator actually types: a literal private/loopback/
+    link-local IP, `localhost`, an mDNS `.local` name, and single-label
+    hostnames like `my-nas` — none of which exist on the public internet.
+
+    Deliberately no DNS: the caller decides whether to send a URL to an external
+    API, and a DNS hiccup must not flip that decision. So a False result means
+    "not obviously private", never "verified public".
+    """
+    host = host.strip().lower().rstrip(".")
+    if not host:
+        return True
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass  # a hostname, screened below
+    else:
+        return not _is_public_ip(host)
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    if host.endswith(".local"):  # mDNS / Bonjour
+        return True
+    return "." not in host  # single-label name is never publicly resolvable
+
+
 async def _default_resolver(host: str, port: int) -> List[str]:
     loop = asyncio.get_event_loop()
     infos = await loop.getaddrinfo(host, port, proto=0)

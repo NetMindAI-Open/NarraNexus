@@ -480,6 +480,65 @@ async def _thread_start_gated(codex, *, sandbox_enum, is_cloud: bool):
     return AsyncThread(codex, started.thread.id)
 
 
+def _prepare_codex_notification(
+    dump: dict[str, Any],
+    latest_turn_usage: dict[str, int] | None,
+) -> tuple[dict[str, Any], dict[str, int] | None]:
+    """Carry Codex's latest per-turn usage into ``turn/completed``.
+
+    Codex reports token counts on ``thread/tokenUsage/updated``. Its ``last``
+    field is the current turn's cumulative snapshot, while ``total`` covers
+    the whole thread. Retaining only the latest ``last`` snapshot prevents
+    repeated updates and earlier turns from being double counted.
+    """
+    method = dump.get("method")
+    payload = dump.get("payload")
+    if not isinstance(payload, dict):
+        return dump, latest_turn_usage
+
+    if method == "thread/tokenUsage/updated":
+        token_usage = payload.get("token_usage") or payload.get("tokenUsage")
+        if not isinstance(token_usage, dict):
+            return dump, latest_turn_usage
+        last = token_usage.get("last")
+        if not isinstance(last, dict):
+            return dump, latest_turn_usage
+
+        def _token_value(snake_case: str, camel_case: str) -> int:
+            value = last.get(snake_case, last.get(camel_case, 0))
+            try:
+                return int(value or 0)
+            except (TypeError, ValueError):
+                return 0
+
+        latest_turn_usage = {
+            "input_tokens": _token_value("input_tokens", "inputTokens"),
+            "cached_input_tokens": _token_value(
+                "cached_input_tokens",
+                "cachedInputTokens",
+            ),
+            "output_tokens": _token_value("output_tokens", "outputTokens"),
+        }
+        return dump, latest_turn_usage
+
+    if method != "turn/completed" or latest_turn_usage is None:
+        return dump, latest_turn_usage
+
+    turn = payload.get("turn")
+    if not isinstance(turn, dict):
+        return dump, latest_turn_usage
+    if turn.get("usage") or turn.get("token_usage"):
+        return dump, latest_turn_usage
+
+    prepared = dict(dump)
+    prepared_payload = dict(payload)
+    prepared_turn = dict(turn)
+    prepared_turn["usage"] = dict(latest_turn_usage)
+    prepared_payload["turn"] = prepared_turn
+    prepared["payload"] = prepared_payload
+    return prepared, latest_turn_usage
+
+
 # NOTE: An earlier draft of this file shipped an ``_aiter_stream``
 # wrapper that ran ``next(stream, SENTINEL)`` through
 # ``asyncio.to_thread`` — built on the (wrong) assumption that
@@ -742,6 +801,7 @@ class CodexSDKv2:
             # Cancellation check BEFORE each yield so a Stop interrupts
             # before the next event reaches the response_processor.
             event_count = 0
+            latest_turn_usage: dict[str, int] | None = None
             try:
                 async for notification in stream:
                     event_count += 1
@@ -780,6 +840,11 @@ class CodexSDKv2:
                             if hasattr(pl, "model_dump")
                             else pl
                         )
+
+                    dump, latest_turn_usage = _prepare_codex_notification(
+                        dump,
+                        latest_turn_usage,
+                    )
 
                     for translated in output_transfer(
                         dump,

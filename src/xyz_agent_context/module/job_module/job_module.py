@@ -84,56 +84,28 @@ from xyz_agent_context.module.job_module._job_lifecycle import (
     update_ongoing_jobs_from_chat,
 )
 
+# Settings (leaf module, safe to import at module level)
+from xyz_agent_context.settings import settings
 
-class JobModule(XYZBaseModule):
-    """
-    Job Module - Background task management module
 
-    Provides background task capabilities:
-    1. **Instructions** - Tells Agent when to create Jobs and how to fill in parameters
-    2. **Tools (MCP)** - Provides job_create, job_retrieval_* and other tools
-    3. **Data** - Jobs stored in job_table
-    4. **Hooks**:
-        - hook_data_gathering: Load user's active Job list into instructions
-        - hook_after_event_execution: After Job execution, use LLM to analyze results and update status
+# =============================================================================
+# Instruction templates
+#
+# JOB_MODULE_INSTRUCTIONS is the legacy template (hoisted verbatim out of
+# __init__, 2026-07-25): its "Current Job Status" section carries
+# {jobs_information}, which changes whenever a job is created / completed /
+# transitions — breaking the system prompt's byte stability across turns.
+#
+# R4 turn-context relocation: with the flag ON
+# (settings.prompt_turn_context_relocation_enabled) the module renders
+# JOB_MODULE_INSTRUCTIONS_STABLE (the section becomes a static pointer, and
+# the "listed above" location wording is corrected to point at the turn
+# context) while the jobs table travels via get_turn_context() into the
+# "[Turn context]" block of the current message. Flag OFF renders the legacy
+# template, functionally equivalent to pre-R4.
+# =============================================================================
 
-    Collaboration with JobTrigger:
-    - JobTrigger is responsible for polling and triggering Job execution
-    - JobModule is responsible for creating Jobs and post-execution status updates
-    """
-
-    # =========================================================================
-    # Initialization
-    # =========================================================================
-
-    def __init__(
-        self,
-        agent_id: str,
-        user_id: Optional[str] = None,
-        database_client: Optional[DatabaseClient] = None,
-        instance_id: Optional[str] = None,
-        instance_ids: Optional[List[str]] = None
-    ):
-        """
-        Initialize JobModule
-
-        Args:
-            agent_id: Agent ID, used for data isolation
-            user_id: User ID, the user who owns the Job
-            database_client: Database client
-            instance_id: Instance ID (if provided, indicates this is a specific instance operation)
-            instance_ids: All instance IDs associated with the Narrative
-        """
-        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
-        self.port = 7803  # MCP Server port
-
-        # Initialize repository (lazy initialization)
-        self._job_repo: Optional[JobRepository] = None
-
-        # Build instructions
-        agent_id_note = f"""**IMPORTANT**: Your agent_id is `{agent_id}`. When calling job tools, ALWAYS pass `agent_id="{agent_id}"` as the first parameter."""
-
-        self.instructions = """
+JOB_MODULE_INSTRUCTIONS = """
 #### Job Module · Background Task Management
 
 ##### What is a Job?
@@ -280,8 +252,71 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
    - Not met -> Continue follow-up, record progress
 
 """
-        # Replace placeholders
-        # self.instructions = self.instructions.replace("{agent_id_note}", agent_id_note)
+
+JOB_MODULE_INSTRUCTIONS_STABLE = (
+    JOB_MODULE_INSTRUCTIONS
+    .replace(
+        "##### Current Job Status\n\n{jobs_information}\n",
+        "##### Current Job Status\n\n"
+        "The jobs for this conversation are provided fresh every turn in "
+        'the "Current Job Status" section of the turn context block of the '
+        "current message.\n",
+    )
+    .replace(
+        "If there are jobs listed above:",
+        "If there are jobs listed in the turn context:",
+    )
+)
+
+
+class JobModule(XYZBaseModule):
+    """
+    Job Module - Background task management module
+
+    Provides background task capabilities:
+    1. **Instructions** - Tells Agent when to create Jobs and how to fill in parameters
+    2. **Tools (MCP)** - Provides job_create, job_retrieval_* and other tools
+    3. **Data** - Jobs stored in job_table
+    4. **Hooks**:
+        - hook_data_gathering: Load user's active Job list into instructions
+        - hook_after_event_execution: After Job execution, use LLM to analyze results and update status
+
+    Collaboration with JobTrigger:
+    - JobTrigger is responsible for polling and triggering Job execution
+    - JobModule is responsible for creating Jobs and post-execution status updates
+    """
+
+    # =========================================================================
+    # Initialization
+    # =========================================================================
+
+    def __init__(
+        self,
+        agent_id: str,
+        user_id: Optional[str] = None,
+        database_client: Optional[DatabaseClient] = None,
+        instance_id: Optional[str] = None,
+        instance_ids: Optional[List[str]] = None
+    ):
+        """
+        Initialize JobModule
+
+        Args:
+            agent_id: Agent ID, used for data isolation
+            user_id: User ID, the user who owns the Job
+            database_client: Database client
+            instance_id: Instance ID (if provided, indicates this is a specific instance operation)
+            instance_ids: All instance IDs associated with the Narrative
+        """
+        super().__init__(agent_id, user_id, database_client, instance_id, instance_ids)
+        self.port = 7803  # MCP Server port
+
+        # Initialize repository (lazy initialization)
+        self._job_repo: Optional[JobRepository] = None
+
+        # Legacy template by default; get_instructions() swaps in the
+        # stable variant when the R4 relocation flag is on.
+        self.instructions = JOB_MODULE_INSTRUCTIONS
         self.instance_ids = instance_ids
 
     def _get_repo(self) -> JobRepository:
@@ -308,6 +343,38 @@ When the ONGOING Job's target user (PARTICIPANT) chats with the Agent:
             description="Provides background task creation and management capabilities",
             module_type="task"  # Task module, requires LLM to decide whether to create
         )
+
+    # =========================================================================
+    # Instructions
+    # =========================================================================
+
+    async def get_instructions(self, ctx_data: ContextData) -> str:
+        """Render the module instruction, selecting the template by the R4
+        relocation flag.
+
+        Flag ON  → stable template ({jobs_information} replaced by a static
+                   pointer) so the output is byte-stable across turns; the
+                   jobs table travels via get_turn_context() instead.
+        Flag OFF → untouched legacy template, functionally equivalent to pre-R4.
+        """
+        self.instructions = (
+            JOB_MODULE_INSTRUCTIONS_STABLE
+            if settings.prompt_turn_context_relocation_enabled
+            else JOB_MODULE_INSTRUCTIONS
+        )
+        return await super().get_instructions(ctx_data)
+
+    async def get_turn_context(self, ctx_data: ContextData) -> str:
+        """Per-turn volatile span: the "Current Job Status" table.
+
+        Carries ctx_data.jobs_information exactly as hook_data_gathering
+        formatted it (including the "*No jobs for this conversation.*"
+        empty-state line — R4: relocated, never dropped).
+        """
+        jobs_information = getattr(ctx_data, "jobs_information", None)
+        if not jobs_information:
+            return ""
+        return f"##### Current Job Status\n\n{jobs_information}"
 
     # =========================================================================
     # Hooks

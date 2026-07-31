@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/repository/agent_repository.py
-last_verified: 2026-04-10
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — resolve_owner：agent 属主语义的唯一出口
+
+新增 `resolve_owner(agent_id) -> str`（''=未知/失败）。此前同一逻辑有
+三份私有拷贝（channel_trigger_base._resolve_agent_owner /
+message_bus_trigger._get_agent_owner / openai_compat.
+_resolve_agent_creator），三处已全部收敛为对本方法的委托；第四个消费者
+是观察端点的可见性判定（websocket.py）。刻意与 `events.user_id` 区分：
+那列是 run 的触发方 key（team run 存发送方），不是属主。
 
 # agent_repository.py
 

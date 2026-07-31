@@ -244,9 +244,91 @@ async def test_recharge_posts_hosted_checkout_and_returns_checkout_url():
     assert body["data"]["checkout_url"].startswith("https://checkout.stripe.com/")
     assert seen["method"] == "POST"
     assert seen["path"] == "/v1/finance/recharge/stripe/checkout"
-    # Only amount+currency are forwarded — no redirect-URL passthrough (attack
-    # surface with no current use; see recharge() docstring).
+    # A caller that supplies no redirect targets sends the pre-2026-07-30 body
+    # byte-for-byte — NOT explicit nulls. Upstream accepts null, but "omitted"
+    # is the shape that has always worked, so an unconfigured deployment keeps
+    # exactly today's behavior.
     assert seen["body"] == {"amount": 10, "currency": "USD"}
+
+
+@pytest.mark.asyncio
+async def test_recharge_forwards_redirect_urls_when_given():
+    """The route resolved a return target -> it reaches the upstream body.
+
+    Verified live against dev 2026-07-30: this field IS consumed and handed to
+    Stripe (an illegal value makes the upstream answer 500 "Failed to create
+    Stripe checkout session"), so what we send here decides where the payer
+    lands after paying.
+    """
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"success": True, "data": {}})
+
+    await _client_with(handler).recharge(
+        "jwt",
+        10,
+        "USD",
+        success_url="https://agent.narra.nexus/app/settings?status=success",
+        cancel_url="https://agent.narra.nexus/app/settings?status=cancelled",
+    )
+    assert seen["body"] == {
+        "amount": 10,
+        "currency": "USD",
+        "success_url": "https://agent.narra.nexus/app/settings?status=success",
+        "cancel_url": "https://agent.narra.nexus/app/settings?status=cancelled",
+    }
+
+
+@pytest.mark.asyncio
+async def test_subscribe_sends_no_body_when_no_redirect_urls():
+    """Unconfigured deployments must post NO body, exactly as before.
+
+    The upstream treats both fields as Optional[str] (probed dev+prod
+    2026-07-30: `{}` and explicit nulls are both accepted), but sending
+    nothing is the shape that has shipped for months.
+    """
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["content"] = request.content
+        return httpx.Response(200, json={"session_id": "cs_1", "checkout_url": "https://x/y"})
+
+    await _client_with(handler).subscribe("jwt")
+    assert seen["content"] == b""
+
+
+@pytest.mark.asyncio
+async def test_subscribe_forwards_redirect_urls_when_given():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"session_id": "cs_1", "checkout_url": "https://x/y"})
+
+    await _client_with(handler).subscribe(
+        "jwt",
+        success_url="https://agent.narra.nexus/app/settings?status=success",
+        cancel_url="https://agent.narra.nexus/app/settings?status=cancelled",
+    )
+    assert seen["body"] == {
+        "success_url": "https://agent.narra.nexus/app/settings?status=success",
+        "cancel_url": "https://agent.narra.nexus/app/settings?status=cancelled",
+    }
+
+
+@pytest.mark.asyncio
+async def test_subscribe_forwards_only_the_url_that_was_given():
+    """Half-configured is still a legal body — no None smuggled through."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content.decode())
+        return httpx.Response(200, json={"session_id": "cs_1", "checkout_url": "https://x/y"})
+
+    await _client_with(handler).subscribe("jwt", success_url="https://agent.narra.nexus/ok")
+    assert seen["body"] == {"success_url": "https://agent.narra.nexus/ok"}
 
 
 @pytest.mark.asyncio

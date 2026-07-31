@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — onboarding 的 models 支持按协议 dict（PR #204）
+
+`onboard_one_key`/`_build_dual_providers` 的 `models` 除单列表外接受
+`{protocol: [ids]}`——free 门产出的 openai/anthropic 名单确实不同，单列表会
+把整卡摊平。dict 中某协议缺失/为空时回落 `get_default_models`。
+
+## 2026-07-30 — claude_oauth 模型列也改为读时覆盖
+
+镜像 codex_oauth 的模式：`get_user_config` 对 claude_oauth 行永远返回 CLI 家族
+别名（`get_default_models("claude_oauth","anthropic")` = opus/sonnet/haiku），
+无视存量 `models` 列。动机：别名机制上线前建的卡存的是 pinned 完整版本 id，
+上游一下线，slot 自愈的 membership 测试恰恰是对着这列做的——死 id 看起来
+"合法"，agent 就永远跑在死模型上。覆盖之后自愈会在下次 resolve 把这类 slot
+修到活别名。代价：用户不能再自定义该卡模型列（与 codex 一致，前端已隐藏
+Edit）。CODEX_CURATED_MODELS 注释补了人工核对 SOP + catalog 一致性 pin 测试。
+
+## 2026-07-29 — `nexus_power` 进 `_SUPPORTED_AGENT_FRAMEWORKS`
+
+框架白名单是双份的(此处 + [[resolver]] 的 `_KNOWN_AGENT_FRAMEWORKS`),两边
+都得写。少写任一边的表现不是报错而是**静默回落 claude_code**,槽里存的值
+看着完全正常——所以新增框架时这两处一起改,别只改一处。
 
 ## 2026-07-28 — 新增 netmind_free 卡型
 
