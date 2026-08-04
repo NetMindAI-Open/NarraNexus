@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/types/messages.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-01
 stub: false
 ---
+
+## 2026-08-01 — 两个联合类型补 `free_tier_exhausted` / `invalid_credentials`
+
+`ErrorMessage.action_reason` 与 `ChatMessage.actionReason` 补上这两个取值。
+`invalid_credentials` 是 2026-07-29 那次（BYOK NetMind key 被 403 拒、整轮落到伪造
+兜底回复）加进后端分类器的，当时**没同步过来**；`free_tier_exhausted` 是本次新增。
+
+值得记的是**为什么会漏两次**：两个联合末尾都有 `| string` 前向兼容，所以后端加了新
+reason 而前端不补，`tsc` 一声不吭 —— 这份枚举实际上退化成了装饰，IDE 补全和 switch
+穷尽检查都靠不住。`| string` 要留（wire 契约必须容忍比前端新的后端），但代价就是
+**同步只能靠人记**：改 `failure.py` 的 `SELF_SERVICEABLE_REASON_*` 时，这里没有编译器
+替你报警。
 
 ## 2026-07-30 — Segment 型别落户 types + `ToolCallEvent.pending` + `ChatMessage.segments`
 

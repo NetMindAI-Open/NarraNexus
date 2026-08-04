@@ -5,7 +5,7 @@
  * @description The Pro plan card. Two modes:
  *   - upsell (default): shown at the decision moment (Free user whose free
  *     tier is used up), leading with the perks that differentiate Pro from a
- *     same-priced top-up, with an "Upgrade to Pro" CTA.
+ *     same-priced top-up, with an "Upgrade to Nexus Pro" CTA.
  *   - subscribed: the SAME plan intro inside a Pro user's manage dialog —
  *     the CTA is replaced by a "Subscribed" state chip, so the user can see
  *     what their plan includes right where they'd cancel it.
@@ -44,7 +44,7 @@ export function NetmindUpsellCard({ proPlan, onUpgrade, busy, subscribed = false
     <div className="rounded-md border border-[var(--border-default)] p-3.5 space-y-3 bg-[var(--bg-sunken)]">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
-          {t('settings.netmind.upsellCardName', 'NetMind Pro')}
+          {t('settings.netmind.upsellCardName', 'Nexus Pro')}
           {subscribed && (
             <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/12 text-[var(--accent-primary)]">
               ✓ {t('settings.netmind.subscribedBadge', 'Subscribed')}
@@ -97,7 +97,7 @@ export function NetmindUpsellCard({ proPlan, onUpgrade, busy, subscribed = false
         <Button variant="accent" size="sm" onClick={onUpgrade} disabled={busy} className="w-full">
           {busy
             ? t('settings.netmind.working', 'Working…')
-            : t('settings.netmind.upsellName', 'Upgrade to Pro')}
+            : t('settings.netmind.upsellName', 'Upgrade to Nexus Pro')}
         </Button>
       )}
     </div>

@@ -52,6 +52,21 @@ def broker_url() -> Optional[str]:
     return (os.getenv("BROKER_URL") or "").strip() or None
 
 
+def executor_seam_active() -> bool:
+    """True when THIS process delegates CLI runs to another node.
+
+    Two deployment shapes set the seam: the static single-executor env
+    (``AGENT_EXECUTOR_URL``, the RemoteAgentLoopDriver fallback) and the
+    broker-managed per-user executors (``BROKER_URL`` — what dev/prod
+    compose actually sets; the deploy stack never sets AGENT_EXECUTOR_URL).
+    Anything that judges CLI/credential health from LOCAL state (PATH,
+    ~/.codex, ~/.claude) must treat "seam active" as "this node cannot
+    decide" — checking only the static env var here is how PR #224's
+    control-plane guard shipped dead on cloud.
+    """
+    return bool((os.getenv("AGENT_EXECUTOR_URL") or "").strip() or broker_url())
+
+
 async def ensure_executor(
     user_id: str, *, timeout: float = 120.0
 ) -> Optional[ExecutorEnsureResult]:

@@ -71,7 +71,11 @@ export default function MarkdownRenderer({ artifact }: Props) {
   ) : !text ? (
     <div className="p-4 opacity-60">(empty markdown)</div>
   ) : (
-    <div className="markdown-content max-w-none p-4 overflow-auto">
+    // Auto height, no overflow — scrolling is owned by ArtifactRenderer's
+    // bounded wrapper (column) or the zoom modal's outer container. A bound
+    // here would clamp content to one screen inside the modal's fixed-height
+    // scale layers.
+    <div className="markdown-content max-w-none p-4">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );

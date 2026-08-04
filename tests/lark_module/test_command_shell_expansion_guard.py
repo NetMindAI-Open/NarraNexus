@@ -37,25 +37,50 @@ from xyz_agent_context.module.lark_module._lark_command_security import (
 
 
 @pytest.mark.parametrize(
-    "cmd",
+    ("cmd", "expected_hint"),
     [
-        'docs +update --doc D --command overwrite --content "$(cat /tmp/pm_notes_clean.md)"',
-        'im +messages-send --chat-id oc_x --text "$(cat /tmp/lark_leaderboard.txt)"',
-        'im +messages-send --chat-id oc_x --markdown "$(cat lark_part1.md)"',
-        'docs +create --title T --markdown "$(cat /opt/narranexus/workspaces/a/report.md)"',
-        'drive metas batch_query --data "$(cat /tmp/b.json | python3 -c \'import json\')"',
+        # --content routes to itself: the hint names the real @file mechanism
+        (
+            'docs +update --doc D --command overwrite --content "$(cat /tmp/pm_notes_clean.md)"',
+            "--content @",
+        ),
+        # im message bodies read nothing: inline advice, no @file route
+        (
+            'im +messages-send --chat-id oc_x --text "$(cat /tmp/lark_leaderboard.txt)"',
+            "inline",
+        ),
+        (
+            'im +messages-send --chat-id oc_x --markdown "$(cat lark_part1.md)"',
+            "inline",
+        ),
+        # --data routes to itself
+        (
+            'drive metas batch_query --data "$(cat /tmp/b.json | python3 -c \'import json\')"',
+            "--data @",
+        ),
+        # mail --body does not read files; the hint names --body-file, which does
+        (
+            'mail +send --to a@b.c --subject S --body "$(cat body.html)"',
+            "--body-file",
+        ),
     ],
 )
-def test_whole_value_command_substitution_is_rejected(cmd):
+def test_whole_value_command_substitution_is_rejected(cmd, expected_hint):
     allowed, reason = validate_command(cmd)
     assert not allowed, f"should have been rejected: {cmd}"
-    assert "@" in reason, "the rejection must point at the @file alternative"
+    # The rejection must name the alternative that ACTUALLY works for the
+    # offending flag (flag→file-route table) — a generic "@file" hint sent
+    # mail/im users to flags that don't exist or don't read files.
+    assert expected_hint in reason, f"{cmd!r} → {reason!r}"
 
 
 def test_rejection_names_the_working_alternative():
-    _, reason = validate_command('docs +create --title T --markdown "$(cat r.md)"')
+    # docs v2 carries no --markdown; --content is the real payload flag.
+    _, reason = validate_command(
+        'docs +update --doc-id D --content "$(cat r.md)"'
+    )
     assert "not" in reason.lower() and "shell" in reason.lower()
-    assert "@" in reason
+    assert "--content @" in reason
 
 
 def test_sanitize_raises_on_command_substitution():
@@ -91,12 +116,23 @@ def test_legitimate_content_still_passes(content):
 # ---------------- 2. stdin sentinel ----------------------------------
 
 
-@pytest.mark.parametrize("flag", ["--content", "--markdown", "--text", "--data"])
-def test_stdin_dash_is_rejected_on_content_flags(flag):
-    allowed, reason = validate_command(f"docs +update --doc D {flag} -")
+@pytest.mark.parametrize(
+    ("cmd", "expected_hint"),
+    [
+        # fixtures use commands that actually carry the flag; the hint must
+        # name the route that works for THAT flag (flag→file-route table)
+        ("docs +update --doc D --content -", "--content @"),
+        ("drive metas batch_query --data -", "--data @"),
+        ("im +messages-send --chat-id oc_x --text -", "inline"),
+        ("im +messages-send --chat-id oc_x --markdown -", "inline"),
+        ("mail +send --to a@b.c --subject S --body -", "--body-file"),
+    ],
+)
+def test_stdin_dash_is_rejected_on_content_flags(cmd, expected_hint):
+    allowed, reason = validate_command(cmd)
     assert not allowed
     assert "stdin" in reason.lower()
-    assert "@" in reason
+    assert expected_hint in reason, f"{cmd!r} → {reason!r}"
 
 
 def test_plain_hyphen_elsewhere_is_not_stdin():

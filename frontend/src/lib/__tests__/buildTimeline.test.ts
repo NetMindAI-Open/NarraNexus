@@ -187,3 +187,35 @@ describe('buildUnifiedTimeline', () => {
     expect(timeline[0].content).toBe('real');
   });
 });
+
+// ── blank-bubble guard (2026-07-13 report) ──────────────────────────
+describe('blank history rows', () => {
+  it('drops whitespace-only history rows with no attachments', () => {
+    const out = buildUnifiedTimeline(
+      [
+        hist({ role: 'assistant', content: '\n', timestamp: '2026-07-13T08:00:00Z' }),
+        hist({ role: 'assistant', content: '   ', timestamp: '2026-07-13T08:01:00Z' }),
+        hist({ role: 'assistant', content: 'real reply', timestamp: '2026-07-13T08:02:00Z' }),
+      ],
+      [],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toBe('real reply');
+  });
+
+  it('keeps an empty-content history row that carries attachments', () => {
+    const out = buildUnifiedTimeline(
+      [
+        hist({
+          role: 'user',
+          content: '',
+          timestamp: '2026-07-13T08:00:00Z',
+          attachments: [{ file_name: 'a.png' }] as SimpleChatMessage['attachments'],
+        }),
+      ],
+      [],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].attachments).toHaveLength(1);
+  });
+});

@@ -1,8 +1,22 @@
 ---
 code_file: frontend/src/components/settings/ModelDefaultsSettings.tsx
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 框架下拉按钱包过滤 + 切框架不再无条件清 provider
+
+框架下拉从 `AGENT_FRAMEWORKS` 换成
+[[agentFramework]] 的 `availableFrameworks(bindableProviders, framework)`，
+provider 下拉的过滤换成 `providerBacksFramework`。两者都吃
+`bindableProviders`（云端 netmind-only 过滤之后的那份）——用整份钱包算会把
+云端根本绑不了的卡算进"能驱动"。隐藏发生时补一行
+`frameworkFilteredNote` 说明。
+
+`onFrameworkChange` **不再乐观清空 provider 草稿**：清不清由后端答
+（`slot_cleared`），因为两个框架都能驱动的绑定不该被切换白白清掉。为 true
+时草稿与 `agentInitial` 一起清——只清草稿会让表单立刻变 dirty，用户看到一个
+自己没动过的空 provider。
 
 ## 2026-07-29 — 框架门禁改问谓词，NexusPower 云端放行
 

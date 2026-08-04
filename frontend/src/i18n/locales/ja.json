@@ -195,7 +195,15 @@
         "generic": "設定で修正できる構成の問題により、今回の実行はできませんでした。修正後に再送信してください。",
         "executor_oom": "実行環境がメモリ不足でシステムに停止されました。タスクを小さく分割するか、有効なモジュールを減らして再送信してください。",
         "executor_unreachable": "実行コンテナに一時的に接続できません。通常は数秒で回復します。しばらくしてからこのメッセージを再送信してください。",
-        "infra_transient": "プラットフォーム側の一時的な実行問題により、このターンは実行できませんでした。しばらくしてからメッセージを再送信してください。"
+        "infra_transient": "プラットフォーム側の一時的な実行問題により、このターンは実行できませんでした。しばらくしてからメッセージを再送信してください。",
+        "free_tier_exhausted": "無料クレジットを使い切りました —— Nexus Pro にアップグレードするか、ご自身の provider キーを追加してこの Agent のスロットを切り替えてください。"
+      },
+      "freeTier": {
+        "useOwnKey": "自分の provider を使う"
+      },
+      "upgradeCta": "Nexus Pro にアップグレード",
+      "balance": {
+        "plans": "プランとクレジット"
       }
     },
     "dateToday": "今日",
@@ -1071,6 +1079,9 @@
     "popover": {
       "triggerTitle": "トークン使用量—クリックで詳細",
       "inOut": "入力 {{in}} / 出力 {{out}}",
+      "cacheHit": "キャッシュヒット {{rate}}%",
+      "totalCost": "合計 {{cost}}",
+      "cacheDetail": "キャッシュ読み {{read}} · 書き {{write}}",
       "byModel": "モデル別",
       "daily": "日別",
       "viewAgent": "Agent",
@@ -1236,6 +1247,7 @@
         "failed": "更新の {{stage}} に失敗しました。"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "接続済みのプロバイダーで実際に動かせるフレームワークのみを表示しています。",
         "cloudFrameworkLockedTitle": "クラウドではスタッフ限定",
         "cloudFrameworkLocked": "このフレームワークは共有の CLI ログインで認証するため、クラウドではスタッフ限定です。Claude Code と NexusPower-beta はクラウドでも利用できます。その他はローカルのデスクトップ版をご利用ください。"
       }

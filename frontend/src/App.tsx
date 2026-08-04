@@ -33,11 +33,12 @@ const YouWorkspace = lazy(() => import('@/pages/YouWorkspace'));
 // NM design system dev gallery — public (no auth) so it can be loaded
 // before login during visual review. Not linked from any nav.
 const NMPlaygroundPage = lazy(() => import('@/pages/NMPlaygroundPage'));
+const PayPage = lazy(() => import('@/pages/PayPage'));
 
 /** Full-screen loading placeholder */
 function PageFallback() {
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-[var(--bg-deep)]">
+    <div className="h-dvh-safe w-screen flex items-center justify-center bg-[var(--bg-deep)]">
       <div className="w-8 h-8 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
     </div>
   );
@@ -97,9 +98,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn) {
     // Preserve the URL the user was trying to reach so LoginPage can send
     // them back after auth. This is what makes "Install in NarraNexus →
-    // Cloud" from www.narra.nexus land on the import page, not /chat.
-    // RegisterPage does NOT read `next` yet — fresh signups still land on
-    // the default. Tracked as a known edge case.
+    // Cloud" from www.narra.nexus land on the import page, not /chat, and
+    // what carries the /pay payment intent through login. Signup honors it
+    // too: SignUpDialog lives ON /login (the URL keeps ?next=) and its
+    // onRegistered chains into the same emailLogin onSuccess that reads it —
+    // verified 2026-07-31, all three auth paths return to `next`.
     const next = encodeURIComponent(location.pathname + location.search);
     return <Navigate to={`/login?next=${next}`} replace />;
   }
@@ -250,20 +253,6 @@ function App() {
     };
   }, [navigate]);
 
-  // Surface "quota exhausted" globally. api.ts dispatches a CustomEvent
-  // on HTTP 402 + error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER; we show a
-  // dismissible top banner prompting the user to configure their own
-  // provider. Auto-dismisses after 8s so it doesn't stick forever.
-  const [quotaExceeded, setQuotaExceeded] = useState(false);
-  useEffect(() => {
-    const handler = () => {
-      setQuotaExceeded(true);
-      window.setTimeout(() => setQuotaExceeded(false), 8000);
-    };
-    window.addEventListener('narranexus:quota-exceeded', handler);
-    return () => window.removeEventListener('narranexus:quota-exceeded', handler);
-  }, []);
-
   // Stale JWT: api.ts (REST 401) AND wsManager (WS AuthError frame) both
   // dispatch narranexus:auth-expired when the cloud rejects the token.
   // We logout via configStore so ProtectedRoute redirects to /login, AND
@@ -402,17 +391,6 @@ function App() {
       <MockBanner />
       <UpdateBanner />
       <ArenaProvisioningModal />
-      {quotaExceeded && (
-        <div
-          className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-red-500)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
-          onClick={() => setQuotaExceeded(false)}
-          role="alert"
-        >
-          Free-tier quota exhausted. Open Settings → Providers to add your own
-          API key — or subscribe to a NetMind.AI plan and link it in Settings →
-          Account &amp; Subscription. (click to dismiss)
-        </div>
-      )}
       {sessionExpired && (
         <div
           className="fixed top-0 left-0 right-0 z-50 bg-[var(--color-amber-500,#d97706)] text-white px-4 py-2 text-sm text-center cursor-pointer font-[family-name:var(--font-sans)]"
@@ -478,6 +456,15 @@ function App() {
         <Route
           path="/setup"
           element={<ProtectedRoute><SetupPage /></ProtectedRoute>}
+        />
+
+        {/* Website-to-Stripe bounce: the pricing page's plan CTAs point here.
+            ProtectedRoute gives the logged-out visitor /login?next=%2Fpay, so
+            the payment intent survives login/signup; PayPage then mints the
+            checkout session and redirects. */}
+        <Route
+          path="/pay"
+          element={<ProtectedRoute><PayPage /></ProtectedRoute>}
         />
 
         {/* Protected app routes */}

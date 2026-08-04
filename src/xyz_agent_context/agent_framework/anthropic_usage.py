@@ -39,6 +39,11 @@ def normalize_anthropic_usage(usage: Any) -> dict[str, int]:
 
     return {
         "input_tokens": input_tokens,
+        # The full-rate bucket on its own. Exposed explicitly because callers
+        # that bill the three buckets separately would otherwise each rederive
+        # it as `input_tokens - cw - cr`, and one sign slip there is a silent
+        # 10x error on a cache-warm turn (cache reads are 0.1x input).
+        "uncached_input_tokens": uncached_input_tokens,
         "output_tokens": output_tokens,
         "cache_creation_input_tokens": cache_creation_input_tokens,
         "cache_read_input_tokens": cache_read_input_tokens,

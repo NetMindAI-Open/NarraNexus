@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/utils/attachment_storage.py
-last_verified: 2026-05-04
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — `persist_attachment_bytes`:"bytes → Attachment" 的单一居所
+
+store + per-day index + audio/* Whisper STT(never-raise)+ Attachment
+构造,原本内联在 channel_trigger_base._persist_attachment 里;抽到这里
+后由两个调用方共享:trigger 的 `_persist_attachment`(下载→persist)与
+managed ingress 的附件转换器(平台已落盘→本地读→persist)。STT 的
+TranscriptionService 仍是惰性导入,存储层 import 期不依赖
+agent_framework。
 
 # attachment_storage.py
 

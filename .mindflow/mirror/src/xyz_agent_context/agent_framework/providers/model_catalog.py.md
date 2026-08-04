@@ -4,6 +4,16 @@ last_verified: 2026-07-31
 stub: false
 ---
 
+## 2026-07-31 — codex curated 列表迁入 _DEFAULT_MODELS(单一事实源)
+
+`("codex_oauth","openai")` 键新增,值即原 user_service 里的
+CODEX_CURATED_MODELS 字面量;user_service 现在反向读
+`get_default_models("codex_oauth","openai")`。动机(PR #224 review 第
+2 条):字面量留在 user_service 时 catalog 查不到 codex 键,
+codex verify_live 的「curated 优先」防线是死代码,永远回落到它本要
+提防的存量 models 列。人工核对 SOP 与 pin 测试
+(test_codex_curated_models_stay_registered_in_catalog)不变。
+
 ## 2026-07-31 — ModelMeta 增 context_window;nexus_power 也接进来了
 
 新增可选 `context_window` + `get_context_window(model_id)`:provider 的**硬墙**

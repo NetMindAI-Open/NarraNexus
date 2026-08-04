@@ -1,7 +1,22 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — instructions 教的 job_type 以 enum 为唯一真相
+
+指令模板曾教一个 enum 里不存在的 `RECURRING` 类型（表格行 + 示例 +
+`job_type` 取值行共三处）。越守 prompt 的模型死得越惨：提交
+`job_type="recurring"` → `Invalid job_type` → 白烧一轮自纠（2026-08-04
+W1 实测每次必现）。真相是 `SCHEDULED` 本身就是 cron/interval 周期任务
+（schema/job_schema.py JobType 注释），RECURRING 行描述的正是它。现在
+`tests/job_module/test_instructions_match_schema.py` 把模板教的 job_type
+钉死在 enum 值集合上——双向断言（不教幻影类型、enum 值全部教到），
+两个模板变体（legacy / STABLE）都覆盖。
+
+同一张类型表的 ONE_OFF 行原写「run_at（或立即）」，但 service 对
+ONE_OFF 强制要求 run_at，没有立即执行的缺省路径。现改成
+`run_at (required)`，测试同时钉住必填描述，避免模型省略字段后白跑一轮纠错。
 
 ## 2026-07-28 — R4b："Current Job Status" 表搬进 get_turn_context
 

@@ -21,7 +21,8 @@ import { useConfirm } from '@/components/ui';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
-  frameworkAcceptsProtocol,
+  availableFrameworks,
+  providerBacksFramework,
   isCodexFramework,
   getModelsForSlot,
   prettifyModel,
@@ -120,19 +121,23 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const providerList = Object.values(providers).filter((p) => p.is_active);
   const hasProviders = providerList.length > 0;
 
-  // Agent slot: only the framework's protocol gates the list (codex_cli →
-  // openai, claude_code → anthropic). On local, no source filter — any
-  // openai-protocol provider (codex_oauth / user / netmind / yunwu /
-  // openrouter) can back codex; Responses-API compatibility is the provider's
-  // concern, not policed here (binding rule #15). Mirrors backend
-  // validate_slot_binding. Cloud non-staff additionally sees NetMind-source
-  // providers only (cloudNetmindOnly — the route gates would 403 anything else).
-  const agentProviders = providerList.filter((p) => {
-    if (netmindOnly && !isSlotBindableSource(p.source)) return false;
-    const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework);
-    if (!frameworkAcceptsProtocol(fw, p.protocol)) return false;
-    return true;
-  });
+  // Agent slot: protocol + subscription-credential gate, both inside
+  // providerBacksFramework (mirrors backend validate_slot_binding). No source
+  // filter beyond that on local — any openai-protocol provider (codex_oauth /
+  // user / netmind / yunwu / openrouter) can back codex; Responses-API
+  // compatibility is the provider's concern, not policed here (binding rule
+  // #15). Cloud non-staff additionally sees NetMind-source providers only
+  // (cloudNetmindOnly — the route gates would 403 anything else).
+  const bindableProviders = providerList.filter(
+    (p) => !netmindOnly || isSlotBindableSource(p.source),
+  );
+  const agentProviders = bindableProviders.filter((p) =>
+    providerBacksFramework(p, framework),
+  );
+  // Frameworks nothing bindable can drive are hidden rather than offered as a
+  // dead end (a Claude Code Login alone can only ever run Claude Code).
+  const frameworkOptions = availableFrameworks(bindableProviders, framework);
+  const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;
   // Helper accepts OAuth (claude_oauth / codex_oauth) too: the backend routes an
   // OAuth helper to a CliHelperConfig and runs its structured calls one-shot
   // through the same CLI as the agent, so one subscription covers both slots.
@@ -153,11 +158,12 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
   const isDirty = agentChanged || helperChanged;
 
   // Framework switch persists immediately (it may auto-install codex + re-probe
-  // auth); switching protocol clears the agent provider/model so the user picks
-  // a compatible one.
+  // auth). The BACKEND decides whether the bound provider survives — a card the
+  // new framework can't drive (CLI subscription, or wrong protocol) is unbound
+  // server-side. Mirror that answer instead of clearing optimistically: a
+  // binding both frameworks can drive must keep the user's model pick.
   const onFrameworkChange = async (next: string) => {
     setFramework(next);
-    setAgentDraft((d) => ({ ...d, provider_id: '', model: '' }));
     setFrameworkSaving(true);
     setError('');
     setInstall(null);
@@ -166,6 +172,11 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
       if (resp.success) {
         setProbe(resp.data.probe);
         setInstall(resp.data.install);
+        if (resp.data.slot_cleared) {
+          const cleared = { provider_id: '', model: '' };
+          setAgentDraft((d) => ({ ...d, ...cleared }));
+          setAgentInitial((d) => ({ ...d, ...cleared }));
+        }
       }
     } catch (e) {
       setError(
@@ -334,10 +345,18 @@ export function ModelDefaultsSettings({ onManageProviders }: Props = {}) {
                 void onFrameworkChange(e.target.value);
               }}
             >
-              {AGENT_FRAMEWORKS.map((f) => (
+              {frameworkOptions.map((f) => (
                 <option key={f.id} value={f.id}>{f.label} — {f.desc}</option>
               ))}
             </select>
+            {frameworksHidden && (
+              <div className="text-xs text-[var(--text-tertiary)] mt-1">
+                {t(
+                  'pages.settings.modelDefaults.frameworkFilteredNote',
+                  'Only the frameworks your connected providers can actually run are listed.',
+                )}
+              </div>
+            )}
             {frameworkSaving && isCodexFramework(framework) && (
               <div className="text-xs text-[var(--text-tertiary)] mt-1 italic">
                 {t('pages.settings.modelDefaults.verifyingCodex')}

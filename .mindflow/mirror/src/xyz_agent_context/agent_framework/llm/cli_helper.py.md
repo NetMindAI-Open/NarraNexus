@@ -1,8 +1,53 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/cli_helper.py
-last_verified: 2026-07-28
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — 两条改动的合并点
+
+dev 的抽取（下一条）与本分支的 usage 形状（再下一条）都保留：codex 分支现在调用
+共享的 `run_codex_cli_oneshot`，拿到 `CliOneshotResult` 后在边界处组装成
+`HelperUsage`。`CliOneshotResult` **不带** cache 字段，理由与 codex 分支的 cache 两位
+留 0 完全相同（OpenAI 形状的 input 总数已含缓存输入），所以共享模块无需改动。
+
+原分支自带的 `_HELPER_CWD` 裸 `makedirs` 一并让位给 dev 的 `oneshot_cwd()` ——
+后者多了共享主机上的属主校验，是更强的那一版。
+
+## 2026-07-31 — codex 一发内核抽到 [[cli_oneshot]]
+
+`_run_codex_oneshot_inner` 的驱动构造 + 事件解析(text.delta /
+response.done / 错误事件 type+message 合并)整体迁入共享模块
+`llm/cli_oneshot.py`(PR #224 review 第 5 条:verify_live 是第三份
+拷贝)。本文件保留:_codex_ctx 装/卸(helper 自己的槽位配置)、
+_HELPER_CWD、"空文本+错误 → RuntimeError(供 #68 is_credential_error
+分类)"的收尾语义。
+
+Review 第 3 轮跟进:事件常量的 4 个残留 import 删除;`_HELPER_CWD`
+裸 makedirs 换 `oneshot_cwd("cli-helper")`(补上共享主机属主校验,
+namespace 与 verify 的分开)。
+
+## 2026-07-30 — `_run_oneshot` 返回 HelperUsage，不再是 (text, in, out)
+
+新增 `HelperUsage` frozen dataclass（四桶 + `any_recorded`），`_run_oneshot` 及
+其 claude / codex 两个实现、两个调用点全部改用它。
+
+原来的三元组**没有位置放 cache 计数器** —— 而这条路径跑的正是 agent_loop 那个
+会报出六位数 cache_read 的同一个 CLI，于是每次 one-shot 都当作全无缓存记账。
+
+两个分支的 provider 形状不同，处理也不同，这是有意的：
+- **claude 分支**：Anthropic 形状，三桶互斥、计价 1x / 1.25x / 0.1x，分开保留。
+- **codex 分支**：OpenAI 形状，input 总数**已经包含**缓存输入、cached 只是明细，
+  没有独立桶可拆，所以 cache 两位留 0 —— 是判断结果，不是漏写。
+
+`any_recorded` 把记账条件从 `in > 0 or out > 0` 放宽到「任一桶非零」，理由同
+[[anthropic_helper]] 同日条目。
+
+顺带确认：`_DEFAULT_CLAUDE_HELPER_MODEL = "haiku"` 就是库里 207 行裸 `haiku`
+的来源，定价侧靠 [[model_pricing]] 的别名归一化接住。
+
+Tests：`tests/agent_framework/test_helper_cache_accounting.py`；存量
+`test_cli_helper.py` / `test_helper_json_repair.py` 的 stub 已随契约更新。
 
 ## 2026-07-28 — Claude CLI cache usage normalization
 

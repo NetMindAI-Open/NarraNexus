@@ -1,8 +1,43 @@
 ---
 code_file: src/xyz_agent_context/channel/message_source_handler.py
-last_verified: 2026-07-03
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — extract_reply_text 空白复判 + 三态返回契约（空气泡根因）
+
+citation strip 之后复判空白：gpt-5.x + WebSearch 场景「几乎全是
+citation token 的回复」被剥成 `"\n"`，truthy 穿过原有的 `if not text`
+falsy 判定，一路落库成空气泡（2026-07-13 报告的真凶）。返回值改为三态
+契约：非空 str=回复文本；`""`=**是**回复调用但文本剥空（含 content
+缺失）；None=根本不是回复调用（工具名不匹配，或自定义 extractor 拒绝
+如 lark_cli 非发送命令）。所有 falsy 消费方（chat_module split、
+_delivered_to_origin、step_4 锚点）行为一致；唯一需要区分的消费方是
+openai_compat._classify_event——`""` 丢弃事件、None 落 tool_call，按
+is_user_reply_tool 名字判会误吞 lark_cli 非发送命令（review 建议的原
+方案即此缺陷）。语义影响：纯空白回复算「未交付」——剥完只剩空白说明
+本来就没有实质回复。owner-visible 路径经 extract_owner_visible_text
+委托，同点覆盖。
+
+## 2026-08-04 (review 三) — effective_owner_visible_names 属性
+
+None 回落规则收敛到单点：属性返回「生效的 owner-visible 名单」，
+is_owner_visible_reply_tool 与 chat_module 的日志共用，日志不再手抄
+回落逻辑（review round 2 Minor #4：手抄的规则将来必先漂）。
+
+## 2026-08-04 (review 修正) — owner_visible_reply_tool_names：「交付给来源」≠「owner 可见」
+
+PR #230 review 抓到：一份 `user_reply_tool_names` 名单被三个消费方共用，
+bus 名单扩容后「bus 交付」被 step_4 误当「给 owner 发过消息」→ owner 会话
+锚点被 A2A 回复劫持。拆成两个谓词：
+- `user_reply_tool_names` = 交付给「联系你的人」（度量/NO-REPLY 判定语义）。
+- `owner_visible_reply_tool_names`（新，默认 None=回落前者）= 输出出现在
+  owner web chat。chat/IM 渠道天然两者相同（会话对象就是 owner）；bus
+  override 为仅 send_message_to_user_directly（对端是 agent）。
+新方法 `is_owner_visible_reply_tool` / `extract_owner_visible_text`（复用
+extract_reply_text 的自定义 extractor 路径）。消费方：step_4 锚点判定与
+chat_module 的 user-visible split 用 owner-visible；extract_reply_text
+保持「交付」语义留给度量与未来兜底。
 
 ## 2026-07-03 — `dedicated_trigger` flag + `handlers()` accessor
 

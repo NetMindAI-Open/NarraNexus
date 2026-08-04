@@ -275,6 +275,7 @@ def _inst(module: _FakeModule) -> SimpleNamespace:
 async def test_module_blocks_priority_order_dedupe_and_fail_open():
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.agent_id = AGENT_ID
+    runtime.user_id = None  # __init__ skipped; identity seam reads it
 
     low = _FakeModule("LowPriority", 5, "## Low block")
     high = _FakeModule("HighPriority", 2, "## High block")

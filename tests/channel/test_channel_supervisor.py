@@ -152,30 +152,28 @@ def test_parse_only(raw, expected):
 
 # ── Aggregated health payload ─────────────────────────────────────────────────
 
-class _FakeQueue:
-    def __init__(self, depth):
-        self._depth = depth
-
-    def qsize(self):
-        return self._depth
-
-
-class _FakeAuditRepo:
-    async def count_by_type(self, since_hours=1):
-        return {"ingress_processed": 3}
-
-
 class _HealthTrigger:
-    """Minimal object exposing the base attributes the health payload reads."""
+    """Minimal object exposing only the trigger's public health contract."""
 
     def __init__(self, *, running, with_audit=True):
-        self.running = running
-        self._startup_time_ms = 1000 if running else 0
-        self._audit_repo = _FakeAuditRepo() if with_audit else None
-        self._subscriber_tasks = {"k1": object()}
-        self._workers = [object(), object()]
-        self._task_queue = _FakeQueue(5)
-        self._subscriber_creds = {"k1": object()}
+        status = "ok" if running and with_audit else "starting"
+        self._snapshot = {
+            "status": status,
+            "running": running,
+            "uptime_seconds": 1.0 if running else 0.0,
+            "startup_time_ms": 1000 if running else 0,
+            "last_ws_connected_ms": 0,
+            "subscriber_count": 1,
+            "worker_count": 2,
+            "queue_depth": 5,
+            "subscriber_keys": ["k1"],
+            "breaker_isolated_keys": [],
+            "unstartable_keys": [],
+            "recent_event_counts": {"ingress_processed": 3} if with_audit else {},
+        }
+
+    async def health_snapshot(self):
+        return dict(self._snapshot)
 
 
 async def test_health_payload_ok_when_all_channels_ok():

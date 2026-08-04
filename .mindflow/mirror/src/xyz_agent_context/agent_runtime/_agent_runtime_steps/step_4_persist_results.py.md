@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/_agent_runtime_steps/step_4_persist_results.py
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 (review 修正) — 锚点判定改用 owner-visible 谓词
+
+`_turn_delivered_user_message` 由 `extract_reply_text` 改为
+`extract_owner_visible_text`：bus 轮对 peer agent 的交付不再触发
+proactive-delivery 分支（否则每次 A2A 回复都会把 owner 的
+current_narrative_id 指到 bus narrative 并清空 last_query——PR #230
+review Important #2）。函数 docstring 的契约（"surfaces in the user's
+chat"）从此与实现一致。测试：
+tests/agent_runtime/test_owner_visible_delivery.py。
 
 ## 2026-07-29 — 删除 4.7 句柄持久化(T5),−96 行
 

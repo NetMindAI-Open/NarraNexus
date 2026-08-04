@@ -1,7 +1,41 @@
 ---
 code_file: src/xyz_agent_context/module/base.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 (review 修正) — working_source_matches 公共谓词
+
+四处 owns_working_source 覆写各写一套 enum/字符串比较（两种 isinstance
+极性相反、第二子句全是死代码——WorkingSource 是 (str, Enum)，一个 ==
+两形态通吃）。抽 `working_source_matches(ws, name)` 模块级函数，
+chat/bus/channel 基类共用。
+
+## 2026-08-04 — 新增 owns_working_source 钩子（origin-first 排序的数据源）
+
+`owns_working_source(working_source) -> bool` 默认 False。声明「本模块是
+该来源轮次的主人」；[[context_runtime]] 的 expressive 收集用它把来源模块
+的声明排最前，使默认回复工具跟随本轮联系渠道（原则：独白=思考、交付走
+工具、工具跟来源走，不写死 owner-chat 默认）。覆写者：chat（CHAT）、
+message_bus（MESSAGE_BUS）、channel 基类（channel_name 匹配）。
+
+## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+
+回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
+(那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
+首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
+只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
+
+## 2026-08-01 — build_instrumented_mcp_server:部署面的单一接入点
+
+新增非重写的包装方法:子类继续实现 `create_mcp_server()`(文档化的扩展点),
+**服务方改调 `build_instrumented_mcp_server()`**。它在返回前装上平台级接线——
+当前是调用者身份解析([[_mcp_identity]])。这样做的收益是 P1 修复
+零散落:16 个模块、93 个带 `agent_id` 的工具**一个文件都不用改**,新模块
+声明 `agent_id` 就自动获得。永不抛异常:装不上也照样把 server 交出去
+(身份解析是增强,不是服务前提)。
+
+命名刻意避开 `ModuleRunner._build_mcp_server`(那个是包 uvicorn app 的,
+两回事)。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

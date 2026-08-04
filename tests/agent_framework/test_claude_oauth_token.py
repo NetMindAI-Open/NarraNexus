@@ -315,10 +315,10 @@ async def test_test_provider_routes_oauth_token_to_live_verify(monkeypatch):
 
     async def _fake_verify(self):
         called["hit"] = True
-        return True, "live CLI call succeeded"
+        return "ok", "live CLI call succeeded"
 
     monkeypatch.setattr(
-        claude_oauth_mod.ClaudeOAuthDriver, "verify_token_live", _fake_verify
+        claude_oauth_mod.ClaudeOAuthDriver, "verify_live", _fake_verify
     )
 
     service, db = _service()
@@ -331,19 +331,28 @@ async def test_test_provider_routes_oauth_token_to_live_verify(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_test_provider_oauth_keeps_static_shortcircuit(monkeypatch):
+async def test_test_provider_oauth_also_runs_live_verify(monkeypatch):
+    """REVERSED contract (2026-07-31 codex P0): host-CLI oauth rows used to
+    keep a static unconditional pass — which is exactly how expired CLI
+    credentials tested green and ProviderReadiness re-armed jobs onto them.
+    Host oauth now runs the same live verification as oauth_token."""
     from xyz_agent_context.agent_framework.providers.driver.drivers import (
         claude_oauth as claude_oauth_mod,
     )
 
-    async def _boom(self):  # pragma: no cover — must not be called
-        raise AssertionError("live verify must not run for host-CLI oauth rows")
+    called = {}
+
+    async def _fake_verify(self):
+        called["hit"] = True
+        return "dead", "host CLI credentials expired — run `claude login`"
 
     monkeypatch.setattr(
-        claude_oauth_mod.ClaudeOAuthDriver, "verify_token_live", _boom
+        claude_oauth_mod.ClaudeOAuthDriver, "verify_live", _fake_verify
     )
 
     service, _db = _service()
     _, new_ids = await service.add_provider("u1", card_type="claude_oauth")
-    ok, _detail = await service.test_provider("u1", new_ids[0])
-    assert ok is True
+    ok, detail = await service.test_provider("u1", new_ids[0])
+    assert called.get("hit") is True
+    assert ok is False
+    assert "expired" in detail

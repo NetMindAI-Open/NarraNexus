@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/base.py
-last_verified: 2026-07-20
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — VerifyVerdict 三态(PR #224 review 第 4 条)
+
+`verify_live` 的返回从 bool 改为 `Literal["ok","dead","unknown"]`
+(常量 VERIFY_OK/DEAD/UNKNOWN)。动机:把「确证已死」和「本节点无法
+判定」压成同一个 False,会让"容器里没装 CLI / 控制面≠执行面 / 超时"
+统统读成"凭证已死",而 False 经 [[user_service]] → [[readiness]] 会
+永久拦死 PAUSED_NO_QUOTA job 的唯一边缘恢复入口。语义:只有 dead 可以
+阻塞;unknown 必须不阻塞(消费方映射为 True 加 "(not live-verified)"
+标注)。
 ## 2026-07-20 — 删除 on_call_completed 与 CallContext（死代码，行为不变）
 
 Protocol 上的 `on_call_completed` 声明、`_DriverBase` 的空默认实现、以及只

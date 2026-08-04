@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import contextvars
+import json
 
 import pytest
 from pydantic import BaseModel
@@ -795,3 +796,108 @@ async def test_onboard_meta_reports_activated_flag():
     assert meta2["activated"] is False
     assert new_ids  # the provider itself WAS registered
     assert "agent" not in config.slots  # ...but nothing was bound
+
+
+@pytest.mark.asyncio
+async def test_onboard_free_tier_uses_deployment_env_models(monkeypatch):
+    """The wallet card opens on the FREE_TIER_* env pair — which models the
+    platform pays for is an ops decision, not the catalog constant — and the
+    agent slot starts with thinking off so the wallet never buys reasoning
+    tokens the user can't see (and the LiteLLM /v1/messages bridge can't
+    survive; see free_tier_default_thinking)."""
+    monkeypatch.setenv("FREE_TIER_AGENT_MODEL", "anthropic/claude-sonnet-5")
+    monkeypatch.setenv("FREE_TIER_HELPER_MODEL", "anthropic/claude-haiku-4-5")
+    monkeypatch.delenv("FREE_TIER_AGENT_THINKING", raising=False)
+    db = _FakeDB()
+    svc = UserProviderService(db)
+
+    config, new_ids, meta = await svc.onboard_one_key(
+        "u1", "wallet-key", provider_type="netmind_free",
+    )
+
+    assert meta["agent_model"] == "anthropic/claude-sonnet-5"
+    assert meta["helper_model"] == "anthropic/claude-haiku-4-5"
+    assert config.slots["agent"].model == "anthropic/claude-sonnet-5"
+    assert config.slots["helper_llm"].model == "anthropic/claude-haiku-4-5"
+    agent_slot = next(
+        s for s in db.slots.values()
+        if s["user_id"] == "u1" and s["slot_name"] == "agent"
+    )
+    assert json.loads(agent_slot["params_json"])["thinking"] == "off"
+
+
+@pytest.mark.asyncio
+async def test_onboard_free_tier_falls_back_to_catalog_without_env(monkeypatch):
+    """No FREE_TIER_* envs → the catalog constants still apply (local/dev
+    setups without the ops overrides), and thinking still defaults off."""
+    for var in ("FREE_TIER_AGENT_MODEL", "FREE_TIER_HELPER_MODEL",
+                "FREE_TIER_AGENT_THINKING"):
+        monkeypatch.delenv(var, raising=False)
+    db = _FakeDB()
+    svc = UserProviderService(db)
+
+    config, _, meta = await svc.onboard_one_key(
+        "u1", "wallet-key", provider_type="netmind_free",
+    )
+
+    assert meta["agent_model"] == "deepseek-ai/DeepSeek-V4-Pro"
+    assert meta["helper_model"] == "deepseek-ai/DeepSeek-V4-Flash"
+    agent_slot = next(
+        s for s in db.slots.values()
+        if s["user_id"] == "u1" and s["slot_name"] == "agent"
+    )
+    assert json.loads(agent_slot["params_json"])["thinking"] == "off"
+
+
+@pytest.mark.asyncio
+async def test_onboard_non_free_tier_keeps_thinking_neutral():
+    """BYOK onboarding is untouched: the user pays, thinking stays auto."""
+    db = _FakeDB()
+    svc = UserProviderService(db)
+
+    await svc.onboard_one_key("u1", "sk-ant-abc123")
+
+    agent_slot = next(
+        s for s in db.slots.values()
+        if s["user_id"] == "u1" and s["slot_name"] == "agent"
+    )
+    assert json.loads(agent_slot["params_json"])["thinking"] == ""
+
+
+def test_free_tier_thinking_invalid_value_fails_closed(monkeypatch):
+    """A typo in the safety switch must not silently restore auto thinking."""
+    from loguru import logger
+
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        free_tier_default_thinking,
+    )
+
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
+    try:
+        monkeypatch.setenv("FREE_TIER_AGENT_THINKING", "disabled")
+        assert free_tier_default_thinking() == "off"
+    finally:
+        logger.remove(sink_id)
+
+    assert any(
+        "FREE_TIER_AGENT_THINKING" in warning and "disabled" in warning
+        for warning in warnings
+    )
+
+
+def test_free_tier_thinking_dotenv_passthrough_contract():
+    """Local .env loading must forward the free-tier thinking switch."""
+    from xyz_agent_context.settings import _DOTENV_PASSTHROUGH
+
+    assert "FREE_TIER_AGENT_THINKING" in _DOTENV_PASSTHROUGH
+
+
+def test_free_tier_thinking_explicit_auto_is_allowed(monkeypatch):
+    """Only the explicit escape hatch may restore neutral auto thinking."""
+    from xyz_agent_context.agent_framework.providers.free_tier import (
+        free_tier_default_thinking,
+    )
+
+    monkeypatch.setenv("FREE_TIER_AGENT_THINKING", "auto")
+    assert free_tier_default_thinking() == ""

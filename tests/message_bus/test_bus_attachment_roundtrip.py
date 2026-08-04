@@ -97,7 +97,10 @@ def _msg(**kw):
 
 def test_owner_relay_prompt_injects_marker():
     trig = MessageBusTrigger(bus=None)
-    prompt = trig._build_prompt([_msg()], owner_user_id="user_a", owner_name="Bin")
+    prompt = trig._build_prompt(
+        [_msg()], owner_user_id="user_a", owner_name="Bin",
+        i_started_this_exchange=True,
+    )
     assert "use Read tool" in prompt
     assert "report.pdf" in prompt
 

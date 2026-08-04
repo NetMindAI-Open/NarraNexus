@@ -195,7 +195,15 @@
         "generic": "설정에서 고칠 수 있는 구성 문제로 인해 이번 실행을 수행할 수 없습니다. 수정 후 다시 보내세요.",
         "executor_oom": "실행 환경의 메모리가 부족하여 시스템에 의해 중단되었습니다. 작업을 더 작게 나누거나 활성 모듈을 줄인 후 다시 보내세요.",
         "executor_unreachable": "실행 컨테이너에 일시적으로 연결할 수 없습니다. 보통 몇 초 내에 복구됩니다 — 잠시 후 이 메시지를 다시 보내세요.",
-        "infra_transient": "플랫폼 측의 일시적인 실행 문제로 이번 턴을 실행하지 못했습니다. 잠시 후 메시지를 다시 보내세요."
+        "infra_transient": "플랫폼 측의 일시적인 실행 문제로 이번 턴을 실행하지 못했습니다. 잠시 후 메시지를 다시 보내세요.",
+        "free_tier_exhausted": "무료 크레딧을 모두 사용했습니다 —— Nexus Pro 로 업그레이드하거나, 직접 발급한 provider 키를 추가해 이 Agent 슬롯을 전환하세요."
+      },
+      "freeTier": {
+        "useOwnKey": "내 provider 사용"
+      },
+      "upgradeCta": "Nexus Pro로 업그레이드",
+      "balance": {
+        "plans": "요금제 및 크레딧"
       }
     },
     "dateToday": "오늘",
@@ -1071,6 +1079,9 @@
     "popover": {
       "triggerTitle": "토큰 사용량 — 클릭하여 세부 정보 보기",
       "inOut": "입력 {{in}} / 출력 {{out}}",
+      "cacheHit": "캐시 적중 {{rate}}%",
+      "totalCost": "총 {{cost}}",
+      "cacheDetail": "캐시 읽기 {{read}} · 쓰기 {{write}}",
       "byModel": "모델별",
       "daily": "일별",
       "viewAgent": "Agent",
@@ -1236,6 +1247,7 @@
         "failed": "업데이트 {{stage}} 실패."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "연결된 제공자가 실제로 실행할 수 있는 프레임워크만 표시됩니다.",
         "cloudFrameworkLockedTitle": "클라우드에서는 스태프 전용",
         "cloudFrameworkLocked": "이 프레임워크는 공유 CLI 로그인으로 인증하므로 클라우드에서는 스태프만 사용할 수 있습니다. Claude Code와 NexusPower-beta는 클라우드에서도 사용 가능하며, 나머지는 로컬 데스크톱 버전에서 이용하세요."
       }

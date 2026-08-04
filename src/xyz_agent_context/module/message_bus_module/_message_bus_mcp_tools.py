@@ -16,6 +16,59 @@ from __future__ import annotations
 
 from typing import Any, Callable, List, Optional
 
+from xyz_agent_context.schema import BUS_ERRAND_TURN_SOURCE, WorkingSource
+
+# Both send tools stamp WHICH KIND of turn is sending: an owner-facing turn
+# means this is an errand question (the recipient must answer US), a
+# message_bus turn means we are already answering a peer (so their next
+# message is a reply). MessageBusTrigger picks the recipient's directive from
+# it, and both tools write the same table — so both must record it.
+from xyz_agent_context.module._mcp_identity import (
+    caller_errand_scope,
+    caller_turn_source,
+)
+
+
+def _send_turn_source(*, to_agent: str = "", channel_id: str = "") -> Optional[str]:
+    """The ``sender_turn_source`` stamp for ONE send.
+
+    Starts from the turn kind, then upgrades to ``BUS_ERRAND_TURN_SOURCE`` for
+    the one case the turn kind cannot express: a bus turn that is continuing
+    OUR errand, sending to the peer/channel that errand lives in. Such a
+    message is a QUESTION even though the turn is "message_bus", so the
+    recipient must not read it as an answer and relay it to its owner (P1
+    evt_0dcee899, path A of the 2026-08-03 review).
+
+    Why per-send and not per-turn: a bus turn is not homogeneous. Unread bus
+    messages are injected from ALL channels every turn
+    (``MessageBusModule.hook_data_gathering`` → ``bus.get_unread``), and the
+    module prompt REQUIRES answering them ("A question is never ping-pong").
+    So an errand-continuation turn routinely also answers an unrelated peer C.
+    Stamping the whole turn made C's answer look like a question, and C — which
+    had asked on its own owner's behalf — stopped relaying to that owner: the
+    very P1 failure, one seat over (2026-08-03 review). The scope check keeps
+    the upgrade on the errand and leaves every other send plain.
+
+    Residuals, documented (the full list, with the recipient-side ones, lives
+    on ``MessageBusTrigger._incoming_is_reply_to_my_errand``): answering the
+    errand peer's OWN question inside our errand turn also gets the errand
+    stamp (needs mutual errands in flight in the same reused DM channel), and a
+    send into a GROUP channel that happens to be the errand channel stamps
+    every member. Both are narrower than what whole-turn stamping broke.
+    """
+    source = caller_turn_source()
+    if source != WorkingSource.MESSAGE_BUS.value:
+        # Owner-facing turns are already unambiguous questions; None means the
+        # transport told us nothing and the recipient degrades on its own.
+        return source
+
+    errand_peer, errand_channel = caller_errand_scope()
+    aimed_at_errand = (
+        (bool(to_agent) and to_agent == errand_peer)
+        or (bool(channel_id) and channel_id == errand_channel)
+    )
+    return BUS_ERRAND_TURN_SOURCE if aimed_at_errand else source
+
 
 def _split_refs(refs: str) -> List[str]:
     """Parse a comma-separated attachment_refs string into a clean list."""
@@ -123,6 +176,7 @@ def register_message_bus_mcp_tools(
                 content=content,
                 mentions=mentions,
                 attachments=attachments or None,
+                sender_turn_source=_send_turn_source(channel_id=channel_id),
             )
             return {"success": True, "message_id": msg_id, "attached": len(attachments)}
         except Exception as e:
@@ -290,6 +344,7 @@ def register_message_bus_mcp_tools(
                 to_agent=to_agent_id,
                 content=content,
                 attachments=attachments or None,
+                sender_turn_source=_send_turn_source(to_agent=to_agent_id),
             )
             return {
                 "success": True,

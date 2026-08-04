@@ -1,8 +1,29 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/anthropic_helper.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 记账改为分桶，不再压平成一个数
+
+`llm_function` 与 `llm_stream` 两条路径以前都把 `usage["input_tokens"]`
+（三桶之和）写进 `input_tokens` 列、cache 两列留空。现在写
+`uncached_input_tokens` 并把 cache_creation / cache_read 一并传给
+`record_cost`，与 `agent_loop`(step_4) 一直以来的形状对齐。
+
+两个后果都是要害：(1) 缓存命中的调用会按全价记账；(2) **未来在这条路上做缓存
+将无法验证** —— 命中与否账本上是同一个数。
+
+**这不是对历史行的重新解释**：helper 路径今天完全没有 prompt caching，全部
+2254 行的 cw/cr 都是 0，「uncached」与「总和」在每一行历史数据上数值相同，因此不
+触碰铁律 #6（不得静默改变既有列的语义）。
+
+记账触发条件同步放宽为「任一桶非零」：一次全缓存命中的调用可以合法地报
+`input_tokens == 0` 却仍然花钱，旧的 `in > 0 or out > 0` 会丢掉这一行、还会误报
+一条 "provider returned no usage" —— 丢掉的恰好是能证明缓存生效的那些行。
+
+Tests：`tests/agent_framework/test_helper_cache_accounting.py`。
+
 
 ## 2026-07-28 — provider-neutral Anthropic input totals
 

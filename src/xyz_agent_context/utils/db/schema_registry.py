@@ -694,6 +694,17 @@ _register(
             # and points into the per-user shared area; markers are built from it
             # at delivery time. NULL for text-only messages. See _bus_attachment_impl.
             Column("attachments", "TEXT", "TEXT", nullable=True),
+            # Which KIND of turn produced this message: an owner-facing turn
+            # ("chat", "job", …) means the sender was running an errand for
+            # its owner, so this message is a QUESTION; "message_bus" means
+            # the sender was itself answering a peer, so this is a REPLY.
+            # MessageBusTrigger picks the recipient's directive from it —
+            # inferring it from channel ordering is impossible, because DM
+            # channels are found symmetrically and REUSED, so "who opened the
+            # channel" is fixed forever while errands run in both directions
+            # (P1 2026-08-03 review). NULL on legacy rows / senders that
+            # predate this column; the trigger falls back then.
+            Column("sender_turn_source", "TEXT", "VARCHAR(32)", nullable=True),
             # events row id of the turn that produced this message (agent
             # replies posted by the trigger). NULL for user messages and for
             # rows written before the column existed. Powers the per-message

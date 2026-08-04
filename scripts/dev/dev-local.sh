@@ -131,6 +131,18 @@ for var in NARRATIVE_JUDGE_MODEL NARRATIVE_JUDGE_EFFORT \
   fi
 done
 
+# Forward helper-LLM diagnostics the same way, for the same reason: they are
+# per-experiment switches set in the parent shell, and a pane that does not
+# inherit them silently produces a run with no measurements — which reads as
+# "the helper made no calls" rather than "the probe was never on".
+HELPER_ENV=""
+for var in HELPER_PROMPT_PROBE_ENABLED HELPER_PROMPT_DUMP_DIR; do
+  value="${!var-}"
+  if [ -n "$value" ]; then
+    HELPER_ENV+="export $var='$value'; "
+  fi
+done
+
 # Propagate the LAUNCHER's PATH into every tmux window. tmux windows inherit the
 # tmux *server's* environment, captured once when the server first started — not
 # our current env. A long-lived server (started days ago, before the user
@@ -157,7 +169,7 @@ for var in POSTHOG_API_KEY POSTHOG_HOST NARRA_ANALYTICS_ENABLED; do
   fi
 done
 
-ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}cd '$PROJECT_ROOT'"
+ENV_CMD="export PATH='$PATH'; export DATABASE_URL='$DATABASE_URL'; export SQLITE_PROXY_URL='$SQLITE_PROXY_URL'; export NARRA_SURFACE='$NARRA_SURFACE'; ${NARRATIVE_ENV}${ANALYTICS_ENV}${HELPER_ENV}cd '$PROJECT_ROOT'"
 
 # --- Create control script ---
 CONTROL_SCRIPT="$PROJECT_ROOT/scripts/.control.sh"
@@ -305,8 +317,16 @@ tmux new-window -t "$SESSION" -n "MCP" \
 # event loop, each as a supervised task with backoff-restart, replacing the old
 # four-window layout (Poller / Jobs / BusTrigger / ChannelTriggers). Same
 # ``uv run`` ban as DB Proxy — use $VENV_PY directly.
+# NEXUS_EXTERNAL_TRIGGERS=1 mirrors run.sh's container-mode gate (binding
+# rule #7): the platform (or a local stand-in bridge) owns the clock and the
+# IM connections, so jobs/channels must not double-consume the same bots.
+SUPERVISOR_ARGS=""
+if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" = "1" ]; then
+  SUPERVISOR_ARGS="--exclude jobs,channels"
+  echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
+fi
 tmux new-window -t "$SESSION" -n "Workers" \
-  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor; echo 'Workers stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor $SUPERVISOR_ARGS; echo 'Workers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

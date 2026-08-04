@@ -145,6 +145,27 @@ describe('run meta header (activity card upgrade)', () => {
     expect(screen.getByText(/1\.3k.*300/)).toBeTruthy();
   });
 
+  test('token chip counts the cache buckets into the input side', async () => {
+    // Cache-warm run: 33 full-rate + 735k cache read + 134k cache write.
+    // The old chip showed "33 / 19.5k" — dropping >99% of the input side.
+    getEventLogMock.mockResolvedValue({
+      ...metaResponse,
+      meta: {
+        ...metaResponse.meta,
+        input_tokens: 33,
+        output_tokens: 19_528,
+        cache_read_tokens: 735_147,
+        cache_creation_tokens: 134_071,
+      },
+    });
+    render(<InnerThoughtCard item={baseItem} agentId="agent_a" />);
+    fireEvent.click(screen.getByText('chat.inner.viewLoop'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/869\.3k.*19\.5k/)).toBeTruthy();
+    });
+  });
+
   test('meta chips are hidden when the data is absent (legacy rows)', async () => {
     getEventLogMock.mockResolvedValue({
       ...metaResponse,

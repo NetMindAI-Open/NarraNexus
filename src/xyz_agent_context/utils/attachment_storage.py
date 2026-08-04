@@ -303,3 +303,77 @@ def get_attachment_metadata(
         if entry:
             return entry
     return None
+
+
+async def persist_attachment_bytes(
+    agent_id: str,
+    user_id: str,
+    *,
+    raw_bytes: bytes,
+    original_name: str,
+    mime_type: str,
+    log_prefix: str = "attachment",
+):
+    """Store bytes through the native attachment protocol and return a
+    fully-populated ``Attachment`` (file_id + per-day index + Whisper STT
+    for audio/*).
+
+    One home for the "bytes → Attachment" tail shared by the channel
+    triggers' ``_persist_attachment`` and the managed ingress converter
+    (which reads platform-written files instead of downloading). The
+    caller owns size validation and MIME sniffing; STT follows the
+    never-raise contract — transcript stays ``None`` on failure /
+    provider unavailable / non-audio MIME.
+    """
+    from loguru import logger
+
+    from xyz_agent_context.schema.attachment_schema import (
+        Attachment,
+        derive_category_from_mime,
+    )
+
+    file_id, on_disk = store_uploaded_attachment(
+        agent_id,
+        user_id,
+        raw_bytes=raw_bytes,
+        original_name=original_name,
+        mime_type=mime_type,
+    )
+
+    transcript = None
+    if mime_type.startswith("audio/"):
+        try:
+            # Lazy import so this storage util stays free of
+            # agent_framework dependencies at import time.
+            from xyz_agent_context.agent_framework.llm.transcription import (
+                TranscriptionService,
+            )
+
+            svc = TranscriptionService.instance()
+            if await svc.is_available(user_id):
+                transcript = await svc.transcribe(
+                    file_path=str(on_disk),
+                    file_id=file_id,
+                    agent_id=agent_id,
+                    user_id=user_id,
+                )
+                if transcript:
+                    logger.info(
+                        f"[{log_prefix}:{agent_id}] transcribed "
+                        f"file_id={file_id} chars={len(transcript)}"
+                    )
+        except Exception as e:  # noqa: BLE001
+            # Never-raise: STT failure must not block attachment flow.
+            logger.warning(
+                f"[{log_prefix}:{agent_id}] STT failed for "
+                f"file_id={file_id}: {type(e).__name__}: {e}"
+            )
+
+    return Attachment(
+        file_id=file_id,
+        mime_type=mime_type,
+        original_name=original_name,
+        size_bytes=len(raw_bytes),
+        category=derive_category_from_mime(mime_type),
+        transcript=transcript,
+    )

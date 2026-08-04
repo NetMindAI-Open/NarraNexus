@@ -41,6 +41,18 @@ EVENT_DEBOUNCE_MERGED = "debounce_merged"
 # ─── Subscriber lifecycle ─────────────────────────────────────────────────
 EVENT_SUBSCRIBER_STARTED = "subscriber_started"
 EVENT_SUBSCRIBER_STOPPED = "subscriber_stopped"
+# Fast-death circuit breaker (2026-08-04): a subscriber that keeps dying
+# within seconds of starting (cleared secret → silent return, no exception
+# for is_permanent_auth_failure to see) is isolated instead of being
+# restarted every poll forever. One row per trip / clear, replacing the
+# unbounded death/rebirth WARNING spam this shipped to fix.
+EVENT_SUBSCRIBER_BREAKER_TRIPPED = "subscriber_breaker_tripped"
+EVENT_SUBSCRIBER_BREAKER_CLEARED = "subscriber_breaker_cleared"
+# Pre-flight rejection: the credential is bound but provably cannot connect
+# (Lark: App Secret cleared), so no subscriber is started at all. Written
+# once per credential state — the breaker never has to absorb a restart
+# storm for a condition knowable before the first start.
+EVENT_SUBSCRIBER_UNSTARTABLE = "subscriber_unstartable"
 
 # ─── Transport-layer events (renamed from Lark's ws_*) ────────────────────
 EVENT_TRANSPORT_CONNECTED = "transport_connected"

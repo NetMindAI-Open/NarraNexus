@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/cloud_bus.py
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — both send stubs carry sender_turn_source
+
+与 ABC 的新参数保持同步(见 [[message_bus_service]]);仍 raise
+NotImplementedError。修复前传这个 keyword 会先 TypeError,盖掉真正的
+"not yet implemented" 信号。
 
 ## 2026-07-31 — send_message stub carries event_id
 

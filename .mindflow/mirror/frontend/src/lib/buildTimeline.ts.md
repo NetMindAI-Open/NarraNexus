@@ -1,8 +1,20 @@
 ---
 code_file: frontend/src/lib/buildTimeline.ts
-last_verified: 2026-07-14
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 空白历史行兜底过滤
+
+history 循环跳过 `isBlankText(content) && !attachments?.length` 的行
+（空白谓词统一在 lib/isBlankText.ts）：后端 strip 守卫上线前已写坏的
+存量空白行只能靠这层挡住不出空气泡。带附件的空 content 行（纯附件消
+息）保留——附件自己会渲染。这是兜底不是主修，主修在 chat_module 落库
+守卫；不在 MessageBubble 里 early-return 藏行（那是把 bug 藏起来）。
+隐式耦合：被 continue 的行同时退出下方去重索引（historyEventRoleKeys
+/ historyByContentKey），同 event_id 的 session 副本将不再被去重——今
+天无害（后端不再产空白行、存量空白行无活 session），若未来重新出现空
+白行生产者要先想起这层。
 
 ## 2026-07-14 — carry `actionReason` through the same hop
 

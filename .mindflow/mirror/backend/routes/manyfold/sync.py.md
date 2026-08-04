@@ -1,8 +1,37 @@
 ---
 code_file: backend/routes/manyfold/sync.py
-last_verified: 2026-07-28
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 契约值归一化 + lark enabled 收敛(review)
+
+chat_type 统一 .lower()(平台 TS 传 "GROUP" 不再漏过静默判定);
+is_mention 走 `_ctx_flag`(字符串 "false"/"0" 不再因 bool() 变真——
+那会让非 @ 群消息被当成 @,agent 重新闯群闲聊)。lark 行 enabled 改用
+`cred.receive_enabled()`(get_active_credentials 已滤 is_active,语义
+单一居所)。
+## 2026-08-03(补) — trigger_extra_data 恒带 `managed_ingress: True`
+
+渠道 turn 的 extra_data 加显式 managed 标记——原本与原生 trigger 的
+extra_data 形状难以区分,而 narramessenger 等模块需要按来源切换回复
+指令(narra_reply→narra_send)。原生路径不带此键,语义即 False。
+
+## 2026-08-03 — managed-IM 入站分流(model B 消费端回归 + 契约扩展)
+
+新增 `_PROVIDER_WORKING_SOURCE` + `build_inbound_run_context()`:把
+openai_compat 转来的 `channel_provider/channel_context` 翻译成
+`(working_source, ChannelTag 前缀输入, trigger_extra_data)`。历史注:该
+消费端最早实现于 feat/manyfold-cloud(PR #118),#172 rebase 时丢失,
+本次按 v1 契约(spec 2026-08-03)重建并扩展——新增 optional 字段
+chat_type / thread_id / reply_token / is_mention / attachments 的透传。
+关键语义:未知 provider(含 matrix 旧映射、slack)→ 原样 MANYFOLD 裸
+turn,零行为变化;`trigger_id` 走原生 `{channel}_{message_id}` 约定
+(平台已去重,这里只是 trace 身份);平台原始附件字典走
+**`manyfold_attachments`** 键——绝不能直接放 `attachments`,那个键会被
+context_runtime 的 marker 管线按原生 Attachment schema 消费,未转换的
+平台字典会产出垃圾 marker(转换归 ingress 执行体,阶段 E)。所有
+context 值经 `_ctx_str` 强制 str 化(平台是 TS,int/None 常见)。
 
 # sync.py — Manyfold managed-trigger surface
 

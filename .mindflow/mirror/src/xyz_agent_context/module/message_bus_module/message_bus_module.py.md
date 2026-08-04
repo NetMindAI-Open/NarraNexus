@@ -1,8 +1,47 @@
 ---
 code_file: src/xyz_agent_context/module/message_bus_module/message_bus_module.py
-last_verified: 2026-07-28
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — bus 轮次的回复面声明（origin-aware）+「干完活必须交付」纪律
+
+P0 recvrdLPavENwg（8/1 briefing squad：5 个分析师真研究、纯文本收尾、零交付）
+的声明侧修复。新增 `get_expressive_tools(ctx_data)` 覆写：**只在**
+working_source=MESSAGE_BUS 的轮次声明 `bus_send_message` + `bus_send_to_agent`
+（fully-qualified，派生自 get_mcp_config().server_name）。三重门：
+① 非 bus 轮不声明（chat 轮广告 bus 工具会诱导经 bus 回 owner）；
+② team 房（extra_data `bus_team_room`，由 [[message_bus_trigger]] 盖章）不声明——
+纯文本自动上墙、prompt 禁投递工具，声明会诱导双发；③ 无 ctx 不声明。
+配套 `owns_working_source`：收集点（[[context_runtime]]）把来源模块的声明排
+到最前，默认回复工具从此跟着「谁联系的你」走。
+
+Reply Discipline 同批加一条「**Finished work is never ping-pong — deliver it**」：
+沉默许可只给"没实质内容"，做完别人求的活必须用 bus 工具送达，纯文本收尾
+= 零交付。注意：与 2026-08-01 那条同理，文案对弱模型效力有限，真正的机制
+修复是声明面（本条）+ 判定面（message_bus/__init__）对齐。
+
+## 2026-08-01 — 指令新增「替 owner 去问另一个 agent」剧本
+
+P1 段 06:owner 说"问问教学专家在干嘛",agent 答做不了。能力一直都有
+(`bus_send_to_agent` 会触发对方),缺的是**把这类请求认出来并给出路线**。
+新增小节明确:① 这类请求你能做,**不得回答无法联系其他 agent**;
+② 从 Known Agents 取准确 id;③ 用 `bus_send_to_agent` 发问,
+**别用社交网络/联系方式工具**(那返回联系方式,不是答案);
+④ 告诉 owner 已问、回复会另开一轮;⑤ 对方回复到达时用
+`send_message_to_user_directly` **回报给 owner**——并写明
+Reply Discipline 只管对**同伴**的回复,绝不压制对 owner 的回报
+(不写这句,那条"没实质就沉默"的规则会把用户要的答案吞掉)。
+找不到目标要问清楚,那是澄清问题、不是拒绝。
+
+文案进 `_static_instruction_parts`(静态、逐字稳定,可缓存),有测试断言
+稳定性与各条要点。
+
+Reply Discipline 同批加了一条「问题从来不是 ping-pong,必须回答」——含
+「替 owner 转达的问题」和「回报自己 owner 不算交差」。**但要知道:光加这
+条文案对被测模型无效**(真机 3/3 仍拒答),真正起作用的是
+[[message_bus_trigger]] 那侧把假的 Owner Relay 指令换掉。这条文案保留是
+因为它本身正确、且对强模型有用,**不要**把它当成该问题的修复。
 
 ## 2026-07-28 — R4b：三个数据列表搬进 get_turn_context
 

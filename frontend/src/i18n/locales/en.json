@@ -236,7 +236,15 @@
         "generic": "This turn could not run due to a configuration issue you can fix in Settings, then send again.",
         "executor_oom": "The execution environment ran out of memory and was stopped by the system. Try splitting the task into smaller steps or reducing active modules, then send again.",
         "executor_unreachable": "Your execution container is temporarily unreachable. It usually recovers within a few seconds — please resend this message shortly.",
-        "infra_transient": "This turn could not run due to a temporary platform-side execution issue. Please send the message again in a moment."
+        "infra_transient": "This turn could not run due to a temporary platform-side execution issue. Please send the message again in a moment.",
+        "free_tier_exhausted": "Your free platform credit is used up — upgrade to Nexus Pro, or add your own provider key and switch this Agent's slot to it."
+      },
+      "freeTier": {
+        "useOwnKey": "Use my own provider"
+      },
+      "upgradeCta": "Get Nexus Pro",
+      "balance": {
+        "plans": "Plans & credits"
       }
     },
     "attachments": {
@@ -856,17 +864,17 @@
       "bulkDeleteFailed": "Bulk delete failed: {{error}}"
     },
     "netmind": {
-      "planPro": "Pro",
+      "planPro": "Nexus Pro",
       "badgeFree": "Free",
-      "badgeCancelled": "Pro · ending",
+      "badgeCancelled": "Nexus Pro · ending",
       "subtitle": "Power plan & credits · used for your LLM API usage",
       "loading": "Loading…",
       "error": "Could not load your NetMind.AI Power account. If your login expired, sign in again and refresh.",
       "expiresDowngrade": "Valid until {{date}}, then downgrades to Free",
       "cancelBtn": "Cancel subscription",
-      "cancelConfirm": "Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?",
+      "cancelConfirm": "Cancel = turn off auto-renew. You stay on Nexus Pro until the period ends — no immediate downgrade, no prorated refund. Continue?",
       "reactivateBtn": "Resume auto-renew",
-      "reactivateConfirm": "Resume auto-renew for your NetMind.AI Power Pro subscription?",
+      "reactivateConfirm": "Resume auto-renew for your Nexus Pro subscription?",
       "working": "Working…",
       "awaitingPayment": "Waiting for payment to complete… this panel refreshes automatically. If you already paid, come back to this tab.",
       "pollTimeout": "Still not active. If you completed payment, refresh in a moment.",
@@ -889,9 +897,9 @@
       "checkingStatus": "Checking your NetMind.AI Power connection…",
       "netStatusError": "Couldn’t read your connection status. Refresh to retry.",
       "notConnected": "Your NetMind.AI Power account isn’t linked as a provider yet.",
-      "managePlan": "Manage plan & credits",
-      "manageSubscription": "Manage subscription & balance",
-      "manageBalance": "Manage balance",
+      "managePlan": "Upgrade or top up",
+      "manageSubscription": "Top up or manage subscription",
+      "manageBalance": "Add credits",
       "freeTierLabel": "Free tier",
       "freeTierLeft": "{{pct}}% left",
       "freeTierExhaustedNote": "Free tier used up — usage now draws from your balance.",
@@ -907,7 +915,7 @@
       "flowProNoTier": "Usage draws your monthly grant first, then your balance.",
       "lowChoose": "You're low on credits. To keep going:",
       "exhaustedChoose": "Free tier used up. To keep going:",
-      "upsellName": "Upgrade to Pro",
+      "upsellName": "Upgrade to Nexus Pro",
       "topupOrLink": "Just need a one-time top-up? Add credits",
       "proMemberActive": "Member pricing active — up to 50% off",
       "needTopup": "Your grant and balance are running low. Add credits to keep going:",
@@ -918,7 +926,7 @@
       "planExplProActive": "Member · valid until {{date}}",
       "balanceUsable": "Current usable balance",
       "grantIncluded": "(included in balance)",
-      "upsellCardName": "NetMind Pro",
+      "upsellCardName": "Nexus Pro",
       "upsellPerkDiscount": "Up to 50% off on models like OpenAI & Anthropic",
       "upsellPerkNoFee": "No platform service fee",
       "upsellPerkGrant": "Includes {{amount}} / month in usable balance",
@@ -1325,6 +1333,9 @@
       "modelUsage": "Model usage",
       "helperUsage": "Helper Model Usage",
       "inOut": "{{in}} in / {{out}} out",
+      "cacheHit": "{{rate}}% cache hit",
+      "totalCost": "{{cost}} total",
+      "cacheDetail": "cache read {{read}} · write {{write}}",
       "byModel": "By Model",
       "daily": "Daily",
       "viewAgent": "Agent",
@@ -1418,6 +1429,12 @@
     }
   },
   "pages": {
+    "pay": {
+      "working": "Taking you to checkout…",
+      "errorTitle": "Couldn't start checkout",
+      "retry": "Try again",
+      "goAccount": "Open account page"
+    },
     "login": {
       "changeMode": "Change mode",
       "cloudAccess": "Cloud · Access",
@@ -1518,6 +1535,7 @@
         "openButton": "Open batch manager…"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Only the frameworks your connected providers can actually run are listed.",
         "label": "Model Defaults",
         "hint": "The framework and model every agent inherits by default. Per-agent overrides live in the chat page.",
         "thinking": "Thinking",

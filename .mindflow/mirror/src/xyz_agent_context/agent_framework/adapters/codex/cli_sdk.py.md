@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/codex/cli_sdk.py
 stub: false
-last_verified: 2026-07-27
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — v1 fallback 的 "headers ignored" 告警豁免平台 header
+
+与 v2 同批:每个模块 server 现在都带 `X-NarraNexus-*`(身份注入),原来的
+告警会每轮列出全部 ~16 个 server 名。改为只在**用户自己的** header 被丢时
+告警。判据是命名空间前缀而非 import 常量(适配层不反向依赖 module 包)。
+v1 未注册、仅作 revival fallback,影响面小但和 v2 保持一致。
 
 
 ## 2026-07-27（补）— review 修复：@timed 归位 agent_loop

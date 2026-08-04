@@ -10,7 +10,7 @@ our LiteLLM gateway rather than a credential the user pasted. Everything
 downstream — slot binding, model switching, the agent loop, cost records —
 treats it exactly like the user's own NetMind card.
 
-This module owns the two facts that make that work:
+This module owns the three facts that make that work:
 
   * ``FREE_TIER_SOURCE`` — the ``user_providers.source`` value. Distinct from
     ``netmind`` on purpose: the two must be able to COEXIST, so that a user who
@@ -24,6 +24,10 @@ This module owns the two facts that make that work:
     and local mode has none at all), and a module-level constant cannot express
     that.
 
+  * ``free_tier_default_models()`` / ``free_tier_default_thinking()`` — the
+    deployment-controlled opening models and agent thinking mode. The latter
+    fails closed to ``off`` unless ops explicitly selects ``on`` or ``auto``.
+
 Upstream: ``backend/integrations/free_tier/provisioner.py`` opens the wallet and
 calls ``onboard_one_key(provider_type=FREE_TIER_SOURCE, ...)``.
 Downstream: ``UserProviderService`` builds the rows; ``cloud_policy`` allows
@@ -31,8 +35,10 @@ them to be bound to slots.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+import os
+
+from loguru import logger
 
 # ``user_providers.source`` for the free-tier card. Also the ``card_type`` the
 # dual-provider builder keys on, so the two can never drift.
@@ -99,6 +105,29 @@ def free_tier_default_models() -> tuple[str, str]:
         _env("FREE_TIER_AGENT_MODEL", _DEFAULT_AGENT_MODEL),
         _env("FREE_TIER_HELPER_MODEL", _DEFAULT_HELPER_MODEL),
     )
+
+
+def free_tier_default_thinking() -> str:
+    """Neutral ``thinking`` value the card's agent slot starts on.
+
+    Defaults to ``off`` — deliberately, and for two independent reasons:
+    the wallet pays for reasoning tokens the user never sees, and the
+    LiteLLM gateway's ``/v1/messages`` bridge drops the entire reply when
+    the upstream answers with reasoning attached (BerriAI/litellm#29518,
+    diagnosed 2026-08-02). Set ``FREE_TIER_AGENT_THINKING=auto`` to restore
+    auto once the gateway is on a version that survives it (an EMPTY env
+    value falls back to the default, so ``auto`` is the explicit escape).
+    """
+    value = _env("FREE_TIER_AGENT_THINKING", "off").lower()
+    if value in ("on", "off"):
+        return value
+    if value == "auto":
+        return ""
+    logger.warning(
+        "Unrecognised FREE_TIER_AGENT_THINKING={!r} — falling back to 'off'",
+        value,
+    )
+    return "off"
 
 
 def is_free_tier_enabled() -> bool:

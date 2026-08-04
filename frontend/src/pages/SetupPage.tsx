@@ -78,7 +78,7 @@ export function SetupPage() {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-[var(--bg-deep)]">
+    <div className="h-dvh-safe w-screen flex flex-col bg-[var(--bg-deep)]">
       {/* Header — original logo preserved */}
       <div className="flex flex-col items-center pt-10 pb-6 animate-fade-in gap-3">
         <div className="flex items-center gap-2">

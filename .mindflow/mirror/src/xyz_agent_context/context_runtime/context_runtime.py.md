@@ -1,8 +1,76 @@
 ---
 code_file: src/xyz_agent_context/context_runtime/context_runtime.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 (review 修正) — team 房中央门控：整轮空 expressive
+
+review Critical #1：只在 bus module 挡 team 房不够——ChatModule 无条件
+声明（IM 渠道也会声明），team 轮 expressive 非空 → 两框架的 reminder 在
+最贴生成点的位置说「纯文本不送达」，与 team prompt 的「纯文本自动上墙」
+对撞。收口移到收集处：`bus_team_room` 标记为真时整轮声明为空（天然命中
+claude 适配器 append_reply_reminder 的 no-op 分支与 NexusPower 空契约）。
+同批修正：收集点上方的契约注释（原文还写着被推翻的 "must be
+priority-driven"）与 3 元组类型标注（实际已是 4 元组）。
+
+## 2026-08-04 — expressive 收集改 origin-first 排序
+
+排序键从 (priority, module_class) 变为 (origin_rank, priority, module_class)：
+拥有本轮 working_source 的模块（`owns_working_source(ws)`，见 [[base]]）
+origin_rank=0 排最前。第一个收集到的工具即框架的默认回复工具
+（NexusPower constitution 的 example + claude 适配器 reminder 首位），
+从此跟着「谁联系的你」走，而不是恒为 priority 1 的 owner-chat 工具——
+bus 轮默认 bus_send_message、wechat 轮默认 wechat_send。钩子调用
+fail-open（无此方法/抛错 → rank 1，纯 priority 序不变），假模块与
+旧路径零影响。
+
+## 2026-08-03 — 注入本轮的**差事作用域**(而不是升级 turn_source)
+
+header 除 turn_source 外再带 `bus_errand_peer` / `bus_errand_channel`
+(来源:[[message_bus_trigger]] 分类器判定,经 trigger_extra_data →
+`ctx_data.extra_data`);turn_source **保持** working_source 原值。
+
+曾经的错做法(同一 PR 内自我推翻):MESSAGE_BUS + 差事延续时把 turn_source
+整轮升级成 `BUS_ERRAND_TURN_SOURCE`。整轮盖章会波及**同一轮里发给其他同伴的
+回答**——bus 未读是跨 channel 注入、且模块提示词要求回答的,于是那个同伴把
+回答读成提问、不再向自己 owner 回报,P1 换个座位复发(2026-08-03 review
+round 4)。所以这里只注入**事实**(我这轮的差事跟谁、在哪个 channel),把
+「这一条算不算差事提问」交给知道目标的 send 现场判断(见
+[[_message_bus_mcp_tools]] 的 `_send_turn_source`)。
+
+作用域在模块循环外算一次,同轮所有 server 拿同一份;显式
+`X-NarraNexus-Errand-*` header 与 bearer 位置字段双通道(codex 只转发
+bearer——字段数约定见 [[_mcp_identity]])。
+
+## 2026-08-04 — 盖章处补 user_id（W1，回合属主上同一 seam）
+
+`agent_id_headers(...)` 增传 `user_id=self.user_id`——回合属主与 agent
+身份走同一注入点、同一双通道（header + bearer 第 5 位）。`self.user_id`
+可能为 None（无属主的触发回合），builder 对 None 省略 header、bearer 尾
+字段掉落，服务端回退用模型参数。服务端的弱纪律（占位符才注入、None 不
+碰、mismatch 只计量）见 [[_mcp_identity]] 2026-08-04 条。
+
+## 2026-08-04 — 声明收集点 TypeError 单列(review)
+
+fail-open 只该兜"某个模块自己坏了";覆写签名漂移是全站接线 bug,
+改为 logger.error 且注明 declaration DROPPED(教训 #3:别把报警吞成
+背景噪音——ChatModule 曾因此静默哑掉)。
+## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+
+回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
+(那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
+首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
+只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
+
+## 2026-08-01 — mcp_servers spec 注入调用者身份 header
+
+`mcp_servers[name] = {"url": …}` 变成同时带 `headers=agent_id_headers(self.agent_id)`。
+这是 P1「Agent 消极回复"我做不了"」的注入侧:模块 MCP Server 由所有 agent
+共享,此前工具的 `agent_id` 完全由模型填,填了 `agent_current` 就硬失败。
+这一行是**唯一**注入点(两个适配器消费同一个 spec dict);读取与解析在
+[[_mcp_identity]]。选 header 不选 URL query 是实测结论——query 在 SSE
+传输上会丢。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

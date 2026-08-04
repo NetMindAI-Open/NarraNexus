@@ -106,6 +106,37 @@ async def test_add_codex_oauth_for_different_user_succeeds():
 
 
 @pytest.mark.asyncio
+async def test_oauth_auto_bind_sets_framework_before_binding_the_slot():
+    """The auto-bind must keep switching framework FIRST, then bind.
+
+    validate_slot_binding now refuses a subscription card on any framework
+    but its own CLI's, and set_slot reads the framework from the slot row —
+    so binding before the switch would reject the card the user just added.
+    """
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    _, new_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
+    agent_slot = db.slots[("u1", "agent")]
+    assert agent_slot["agent_framework"] == "codex_cli"
+    assert agent_slot["provider_id"] == new_ids[0]
+    # helper_llm rides the same subscription — unaffected by the agent rule.
+    assert db.slots[("u1", "helper_llm")]["provider_id"] == new_ids[0]
+
+
+@pytest.mark.asyncio
+async def test_nexus_power_agent_slot_rejects_codex_oauth_card():
+    """The reported bug: NexusPower + a CLI login card saved fine and only
+    blew up mid-run. It is refused at bind time now."""
+    db = _FakeDB()
+    svc = UserProviderService(db)
+    _, new_ids = await svc.add_provider(user_id="u1", card_type="codex_oauth")
+    await svc.set_user_agent_framework("u1", "nexus_power")
+
+    with pytest.raises(ValueError, match="CLI subscription"):
+        await svc.set_slot("u1", "agent", new_ids[0], "gpt-5.4", actor_is_staff=None)
+
+
+@pytest.mark.asyncio
 async def test_add_codex_oauth_protocol_is_openai_not_anthropic():
     """codex_oauth row's protocol is OpenAI (Codex uses OpenAI's
     Responses API surface). This matters for slot eligibility — the

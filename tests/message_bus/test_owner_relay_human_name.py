@@ -17,6 +17,7 @@ def test_owner_relay_shows_name_but_routing_keeps_user_id():
         messages=[],
         owner_user_id="owner_hex_32",
         owner_name="Alice",
+        i_started_this_exchange=True,
     )
     # Human-facing relay line names the owner.
     assert "Alice" in prompt

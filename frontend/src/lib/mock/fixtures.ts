@@ -631,23 +631,31 @@ export const mockCostSummary: CostSummary = {
   total_cost_usd: 12.47,
   total_input_tokens: 1_248_300,
   total_output_tokens: 218_900,
+  total_cache_read_tokens: 3_600_000,
+  total_cache_creation_tokens: 640_000,
   by_model: {
     'claude-sonnet-4.6': {
       cost: 8.12,
       input_tokens: 820_000,
       output_tokens: 140_000,
+      cache_read_tokens: 2_400_000,
+      cache_creation_tokens: 420_000,
       call_count: 148,
     },
     'claude-opus-4.8': {
       cost: 3.75,
       input_tokens: 248_000,
       output_tokens: 58_000,
+      cache_read_tokens: 700_000,
+      cache_creation_tokens: 120_000,
       call_count: 22,
     },
     'claude-haiku-4.5': {
       cost: 0.60,
       input_tokens: 180_300,
       output_tokens: 20_900,
+      cache_read_tokens: 500_000,
+      cache_creation_tokens: 100_000,
       call_count: 84,
     },
   },
@@ -657,6 +665,8 @@ export const mockCostSummary: CostSummary = {
       date: day.toISOString().slice(0, 10),
       input_tokens: 100_000 + Math.floor(Math.random() * 120_000),
       output_tokens: 15_000 + Math.floor(Math.random() * 30_000),
+      cache_read_tokens: 300_000 + Math.floor(Math.random() * 300_000),
+      cache_creation_tokens: 50_000 + Math.floor(Math.random() * 60_000),
     };
   }),
 };

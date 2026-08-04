@@ -117,9 +117,8 @@ A Job is an abstraction for background tasks, used to execute work that requires
 
 | Type | Description | Trigger Condition | Use Case |
 |------|-------------|-------------------|----------|
-| **ONE_OFF** | One-time task | Execute immediately or at scheduled_time | Single reminder, one-time report |
-| **SCHEDULED** | Scheduled task | At scheduled_time | Reminders or reports at specific time points |
-| **RECURRING** | Recurring task | Repeats by interval_seconds | Daily reports, periodic checks |
+| **ONE_OFF** | One-time task | Executes once at run_at (required) | Single reminder, one-time report |
+| **SCHEDULED** | Periodic task | Repeats by cron or interval_seconds | Daily reports, periodic checks |
 | **ONGOING** | Continuous task | Checks by interval_seconds until end_condition is met | Sales follow-up, goal achievement monitoring |
 
 **ONGOING Type Details**:
@@ -157,7 +156,7 @@ If there are jobs listed above:
 
 **2. When to Create Jobs**
 Use `job_create` when the user requests a task that requires delayed, scheduled, or continuous execution:
-- "Remind me to drink water every day at 8 AM" → recurring job
+- "Remind me to drink water every day at 8 AM" → scheduled job
 - "Keep following up with customer Xiaoming until they show purchase intent" → ongoing job
 - "Research competitors and send me a report tomorrow" → one_off job
 - Multi-step workflows → create jobs with `depends_on_job_ids` for chaining
@@ -172,7 +171,7 @@ Before creating, check existing jobs to avoid duplicates.
 Required fields:
 - `title`: Task title
 - `description`: Task description
-- `job_type`: "one_off" / "scheduled" / "recurring" / "ongoing"
+- `job_type`: "one_off" / "scheduled" / "ongoing"
 - `trigger_config`: Trigger configuration
 - `payload`: Execution parameters
 

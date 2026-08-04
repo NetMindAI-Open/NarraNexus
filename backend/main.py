@@ -289,6 +289,30 @@ async def lifespan(app: FastAPI):
         )
     )
 
+    # Warm the model price table off the event loop.
+    #
+    # `import litellm` costs ~1.5s and the table is loaded lazily on first use.
+    # That first use is inside `await record_cost(...)`, i.e. on the loop — so
+    # without this the first priced call of a process stalls every concurrent WS
+    # frame for a second and a half. A thread, not a task: the cost is a
+    # synchronous import, so create_task would still block. Fire-and-forget with
+    # a done callback (never a bare create_task — iron-rule lesson #2); a
+    # failure here only means the table loads lazily later, which is the old
+    # behaviour, so it warns rather than raising.
+    async def _warm_price_table() -> None:
+        from xyz_agent_context.utils import model_pricing
+
+        await _asyncio.to_thread(model_pricing.warm_cache)
+
+    app.state.price_table_warm_task = _asyncio.create_task(_warm_price_table())
+    app.state.price_table_warm_task.add_done_callback(
+        lambda t: (
+            logger.warning(f"[pricing] price-table warm failed: {t.exception()}")
+            if not t.cancelled() and t.exception() is not None
+            else None
+        )
+    )
+
     # Skill reconciler — keeps the skill_installations audit table following
     # the filesystem truth (users can hand-edit skills/; the DB heals). The
     # loop does its first reconcile pass immediately, so we do NOT block

@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_health_server.py
 stub: false
-last_verified: 2026-07-08
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 隔离态必须在健康面上说得清
+
+`ChannelTriggerBase.health_snapshot()` 增补 `breaker_isolated_keys` /
+`unstartable_keys`。起因：
+[[channel_trigger_base.py]] 的两道闸让「凭据在册但故意不跑」成为稳态，而
+`subscriber_count`（读 `_subscriber_tasks`）会掉到 0、`subscriber_keys`
+（读 `_subscriber_creds`，被挡的 key 每轮照样刷新）却仍列着——两个字段互相
+矛盾，运维 curl 出来既看不出少的那个订阅器去哪了，也分不清「凭据被删」和
+「被隔离」。这正是教训 #4 说的 L2 盲区：进程活着、worker 活着、队列是空的，
+一切「正常」，但某个 agent 的 IM 通道其实被停在那儿。两个列表把
+`subscriber_count < len(subscriber_keys)` 的缺口解释完整。审计表里有事件行
+可查，但那是事后翻表，不是健康面。
 
 ## Why it exists
 
@@ -14,12 +27,12 @@ server also closes the old observability gap where only Lark had an endpoint.
 
 ## Design decisions
 
-- **Reads only base-class attributes.** `_snapshot_one` reads `running`,
-  `_startup_time_ms`, `_subscriber_tasks`, `_workers`, `_task_queue`,
-  `_subscriber_creds`, `_audit_repo` — all on `ChannelTriggerBase`, so it works
-  for any channel. Lark-specific `_last_ws_connected_wallclock_ms` is read via
-  `getattr(..., 0)`, so channels that don't track it report 0 instead of
-  crashing.
+- **One public health seam.** The server calls
+  `ChannelTriggerBase.health_snapshot()` and does not inspect trigger-private
+  subscriber, worker, queue, audit, or breaker dictionaries. Snapshot ownership
+  stays with the class that owns those fields, so adding observability state no
+  longer forces the endpoint and every duck-typed test double to evolve in
+  lockstep. Lark's optional WS timestamp is handled inside the base snapshot.
 - **Overall status = ok only if every channel is ok.** Any channel still
   `starting` (no audit repo yet / not running) makes the aggregate `degraded`.
 - **Best-effort, never blocks startup.** If fastapi/uvicorn aren't installed

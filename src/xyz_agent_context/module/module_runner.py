@@ -312,7 +312,10 @@ class ModuleRunner:
         Raises:
             ValueError: If module doesn't have an MCP server
         """
-        mcp_server = module.create_mcp_server()
+        # build_instrumented_mcp_server, not create_mcp_server: the wrapper
+        # installs the platform wiring every served module needs
+        # (caller-identity resolution — see module/_mcp_identity.py).
+        mcp_server = module.build_instrumented_mcp_server()
         if mcp_server is not None:
             logger.info(f"Starting MCP server for {module.__class__.__name__}")
             # FastMCP's __init__ hardcodes host=127.0.0.1 and auto-enables
@@ -474,7 +477,7 @@ class ModuleRunner:
         instances = []
         for module_class in module_classes:
             module = module_class(agent_id=agent_id, user_id=user, database_client=db)
-            mcp_server = module.create_mcp_server()
+            mcp_server = module.build_instrumented_mcp_server()  # _mcp_identity.py
             if mcp_server:
                 instances.append((module_class.__name__, mcp_server))
                 logger.info(f"{module_class.__name__} ready")

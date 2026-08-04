@@ -1,8 +1,67 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/user_service.py
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-02 — free-tier 开卡用部署配置的模型对 + thinking off（main e1f2acec 的 port）
+
+`onboard_one_key` 里 `ptype == FREE_TIER_SOURCE` 时，agent/helper 的开卡模型
+改从 [[free_tier]] 的 `free_tier_default_models()` 取（即 `FREE_TIER_AGENT_MODEL` /
+`FREE_TIER_HELPER_MODEL` env），不再用 catalog 常量——此前这两个 env 只进了
+provisioner 的日志行，新注册用户仍落在 ops 已弃用的模型上。同时 agent 槽的
+`set_slot` 带上 `thinking=free_tier_default_thinking()`（默认 "off"）：钱包
+替用户付 reasoning token，且 LiteLLM `/v1/messages` 桥在上游带 reasoning 时
+会吞掉整条回复（BerriAI/litellm#29518，2026-08-02 prod 事故）。哪对模型、
+开不开 thinking，对钱包卡而言都是**平台掏钱的 ops 决策**，所以从部署配置读。
+BYOK 路径不动（thinking 仍传中性 ""）。helper 槽也刻意保持中性：它绑定的是
+free-tier 的 OpenAI 协议行，不经 Anthropic `/v1/messages` reasoning 桥，所以
+8/2 事故的止血默认只属于 agent 槽。
+
+落库前的 `_verify_onboard_key` 会用同一个部署级 agent 模型发起探测：env 模型
+写错会得到 `unverified` 并继续开卡（只有 401/403 会阻断），这是「网络/上游
+故障不误杀好 key」的既有策略；ops 应从日志看见并修正错误模型值。修复 8/2
+直接落在 main（当天止血），2026-08-04 原样 cherry-pick 进 dev，防止下次快照
+切版把它冲掉。
+
+## 2026-07-31 — test_provider:oauth 与 oauth_token 统一走 driver.verify_live
+
+P0「codex 本地 auth 检查无效」的入口层修复:`auth_type=="oauth"` 的
+无条件 `True, "OAuth provider (managed by Claude Code CLI)"` 删除——
+"CLI 持有真凭证所以 connected 属实"这个 2026-07-28 的论断是错的,CLI
+可以持有**过期**凭证;且这个假通过经 [[readiness]] 泄漏,把暂停 job
+重新武装到死凭证上。两种 OAuth 现统一:ProviderCard.from_row →
+`get_driver_class` → `driver.verify_live()`。缺 driver_type 的存量行按
+协议推导(openai→codex_oauth,anthropic→claude_oauth——旧代码缺省
+claude_oauth 会把 codex 行验到错误的 CLI 上)。无 verify_live 能力的
+驱动回落 probe() 但文案明说"仅存在性检查",绝不把存在性包装成连通性。
+
+Review 轮修正(同日):verify_live 改三态后,本方法负责 verdict→bool
+映射(Test 按钮与 readiness 共用):ok→True,dead→False,
+**unknown→True + "(not live-verified)"**——False 会把"本节点无法判定"
+当成"凭证已死",永久拦死 readiness 的边缘恢复。CODEX_CURATED_MODELS
+字面量迁入 [[model_catalog]] 的 _DEFAULT_MODELS,本文件反向读
+get_default_models(单一事实源,修 verify_live 的 curated 死代码)。
+
+## 2026-07-31 — 绑定规则第 2 条 + 切框架会清掉跑不了的绑定
+
+`validate_slot_binding` 的 agent 槽位加上「订阅凭据」这一条，调
+[[provider_schema]] 的 `framework_can_drive_provider`。两个写入口
+（本类的 `set_slot` 与 [[slot_service]] 的 `set_agent_slot`）共用它，一次
+收紧两处。**helper_llm 不受影响**——OAuth helper 由 CliHelperSDK 一次性跑
+CLI，与 agent 框架无关，所以第 2 条刻意只管 agent 槽。
+
+`set_user_agent_framework` 现在返回 `bool`（是否清了绑定）：切框架**不是**
+槽位写入，没有任何别的地方会重新校验它，于是「绑着 Claude Code Login 切到
+NexusPower」会把 `validate_slot_binding` 拒绝的那个组合原样留在库里，唯一
+的暴露点是 agent 跑到一半。所以这里读一次已绑卡，新框架驱动不了就清空
+`provider_id`/`model` 并 warning 一行。
+
+两个刻意的边界：**dangling provider_id 不动**（provider 行已被删的清理归
+`remove_provider`，这里再写一次只会跟它抢）；返回值经
+`POST /api/providers/agent-framework` 的 `slot_cleared` 传给前端——编辑器据
+此同步草稿**和**已保存快照，否则表单会带着一个用户没碰过的空 provider 变
+dirty。
 
 ## 2026-07-30 — onboarding 的 models 支持按协议 dict（PR #204）
 

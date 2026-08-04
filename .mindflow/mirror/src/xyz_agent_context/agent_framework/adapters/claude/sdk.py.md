@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/sdk.py
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 消费 expressive_tools：回复面 reminder 上 user message 末尾
+
+此前 CLI 驱动完全忽略 TurnInput.expressive_tools，回复指令只存在于遥远的
+system prompt——正是 NexusPower 尾部机制要修的 far-from-generation 失效。
+CLI 无 per-step 缝，最近可控位置 = 本轮 user message 末尾：split_for_argv
+后经 [[prompts]] 的 append_reply_reminder 追加。只上活跃 prompt 输入，
+不进 transcript/history，不跨轮累积；user message 本就逐轮变化，
+不伤缓存前缀。
 
 ## 2026-07-29 (五次) — code review 修复:重试判据排除凭据失败
 

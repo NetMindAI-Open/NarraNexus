@@ -1,8 +1,31 @@
 ---
 code_file: src/xyz_agent_context/schema/hook_schema.py
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — BUS_TEAM_ROOM_EXTRA_KEY 常量
+
+team 房标记键从三处魔法字符串（trigger 盖章/context_runtime 中央门控/
+MessageBusModule 二次防御）提为 schema 层命名常量——两侧平台代码都读它，
+schema 是共享基座。语义见常量注释：同为 MESSAGE_BUS 来源、交付契约相反。
+
+## 2026-08-03 — `BUS_ERRAND_TURN_SOURCE`（模块级常量，非枚举成员）
+
+`"message_bus_errand"`：bus 轮次里**打给自己差事对手**的那一条消息所盖的
+turn-source 章。刻意**不做 WorkingSource 成员**——它从不触发轮次，只落到
+`bus_messages.sender_turn_source`，让收件方分辨「差事主在追问」和「同伴在回
+答」。plain `"message_bus"` 章 = 发送方处于回答同伴的轮次。没有这个区分，
+从 bus 轮次发出的澄清追问和回答盖同一个章，收件方把追问当回复转给自己
+Owner——P1 evt_0dcee899 在 Owner Relay 指令自己推荐的路径上复发
+（2026-08-03 review round 3）。
+
+**盖章粒度是 per-send，不是 per-turn**（round 4 自我推翻的第一版）：一轮里既
+可能追问差事对手、也可能回答另一个 channel 的同伴（bus 未读跨 channel 注入且
+提示词要求回答），整轮盖章会把后者的**回答**标成提问。判断因此下沉到知道目标
+的 send 现场：[[_message_bus_mcp_tools]] 的 `_send_turn_source`。
+
+放在 schema 层是为了 trigger、bus 工具、分类器三方都能引用而不产生跨层依赖。
 
 ## 2026-07-30 — `HookIOData.interrupted`
 

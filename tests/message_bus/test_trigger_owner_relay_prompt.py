@@ -39,7 +39,7 @@ def _trigger() -> MessageBusTrigger:
 
 def test_prompt_without_owner_stays_minimal():
     """Legacy behaviour: no owner_user_id → no relay directive appended."""
-    prompt = _trigger()._build_prompt([_msg()], owner_user_id="")
+    prompt = _trigger()._build_prompt([_msg()], owner_user_id="", i_started_this_exchange=True)
     assert "[Message Bus - Incoming Messages]" in prompt
     assert "Owner Relay" not in prompt
     assert "send_message_to_user_directly" not in prompt
@@ -49,7 +49,8 @@ def test_prompt_with_owner_includes_relay_directive():
     """The new contract: owner is known → prompt instructs the agent to
     relay the peer exchange back to the owner's chat."""
     prompt = _trigger()._build_prompt(
-        [_msg(content="S&P closed at 7109")], owner_user_id="user_tc"
+        [_msg(content="S&P closed at 7109")], owner_user_id="user_tc",
+        i_started_this_exchange=True,
     )
     # Section header
     assert "Owner Relay" in prompt
@@ -65,7 +66,7 @@ def test_relay_directive_mentions_silent_failure():
     """The directive must explain *why* silence is wrong. If the agent only
     sees 'please call X', it may still decide the call is optional. We
     include an explicit 'silent-failure' framing to push back against that."""
-    prompt = _trigger()._build_prompt([_msg()], owner_user_id="user_tc")
+    prompt = _trigger()._build_prompt([_msg()], owner_user_id="user_tc", i_started_this_exchange=True)
     lower = prompt.lower()
     assert "silent" in lower or "the owner sees nothing" in lower
     # Frames the alternative (inbox) as insufficient
@@ -78,7 +79,7 @@ def test_relay_directive_covers_followup_case():
        (b) peer needs clarification, send follow-up + status to owner
     Both paths must be in the directive so the agent doesn't get stuck in
     case (b) without telling the owner the thread is alive."""
-    prompt = _trigger()._build_prompt([_msg()], owner_user_id="user_tc")
+    prompt = _trigger()._build_prompt([_msg()], owner_user_id="user_tc", i_started_this_exchange=True)
     assert "bus_send_to_agent" in prompt  # follow-up path
     assert "send_message_to_user_directly" in prompt  # both paths
     # Status-update framing for case (b)
@@ -89,7 +90,8 @@ def test_peer_messages_preserved_above_directive():
     """The peer message must still be the first thing the agent reads —
     directive is a footer, not a header."""
     prompt = _trigger()._build_prompt(
-        [_msg(content="UNIQUE_PEER_CONTENT")], owner_user_id="user_tc"
+        [_msg(content="UNIQUE_PEER_CONTENT")], owner_user_id="user_tc",
+        i_started_this_exchange=True,
     )
     peer_idx = prompt.index("UNIQUE_PEER_CONTENT")
     directive_idx = prompt.index("Owner Relay")

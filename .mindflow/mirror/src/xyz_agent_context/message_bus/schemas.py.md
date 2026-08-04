@@ -1,8 +1,14 @@
 ---
 code_file: src/xyz_agent_context/message_bus/schemas.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — BusMessage 增加 sender_turn_source
+
+承载"这条消息是提问还是回复"的事实(发送方那一轮的种类)。存量行与丢
+header 的适配器上为 None,消费方必须按未知降级 —— 见
+[[message_bus_trigger]] 的降级顺序。
 
 ## 2026-07-31 — BusMessage.event_id
 

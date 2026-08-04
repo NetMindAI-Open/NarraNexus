@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/stores/chatStore.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 回复提取过滤空白部分；删除死方法 getUserVisibleResponse
+
+stopStreaming 的回复提取 `.filter(Boolean)` 收紧为
+`.filter((s) => !isBlankText(s))`（谓词统一在 lib/isBlankText.ts）：空
+白 content 的 send_message 调用不算回复，落到既有占位文案分支——与后
+端 hook_persist_turn 的 strip 守卫同口径，否则出现「当场有空气泡、刷
+新后消失」的 session/落库漂移。同批删除 getUserVisibleResponse（接口
++实现）：frontend/src 内零生产调用方，铁律 #2/#8 不留死码。
 
 ## 2026-07-30 — stopStreaming 存 segments
 

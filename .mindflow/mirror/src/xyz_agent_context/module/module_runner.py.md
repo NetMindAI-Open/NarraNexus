@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/module_runner.py
-last_verified: 2026-07-27
+last_verified: 2026-08-01
 ---
+
+## 2026-08-01 — 两个部署点改走 build_instrumented_mcp_server
+
+`create_mcp_server()` → `module.build_instrumented_mcp_server()`(两处:
+同步 `start_mcp_server` 与 async 多路服务)。原因见 [[base]] / [[_mcp_identity]]:
+调用者身份注入必须覆盖所有被服务的模块。**刻意保持严格**(不做
+`getattr` 回落):绕过包装的模块会被以"信任模型填的 agent_id"这个旧 bug
+行为服务,那是静默降级,宁可让它显式炸。测试里的 duck-typed 假模块因此
+同批补上了该方法。
 
 ## 2026-07-27 — 单进程 MCP 的集中式 SIGTERM/SIGINT 优雅退出（修孤儿占端口）
 

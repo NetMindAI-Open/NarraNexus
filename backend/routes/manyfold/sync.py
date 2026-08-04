@@ -38,10 +38,134 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 
+from xyz_agent_context.schema.channel_tag import ChannelTag
+from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Managed-IM inbound run context (model B) — reply via the LOCAL channel tool
+# ---------------------------------------------------------------------------
+
+# IM provider → WorkingSource. Naming an origin makes the forwarded turn
+# behave like the in-process channel trigger's inbound: the matching channel
+# module renders its "reply via <tool>" mode and the agent sends through its
+# LOCAL credentials, so the platform only forwards inbound and never touches
+# the outbound reply. Providers the platform cannot hand over (slack) or
+# deliberately keeps (unknown names) fall back to a plain MANYFOLD turn.
+# Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.
+_PROVIDER_WORKING_SOURCE: dict[str, WorkingSource] = {
+    "lark": WorkingSource.LARK,
+    "slack": WorkingSource.SLACK,
+    "telegram": WorkingSource.TELEGRAM,
+    "wechat": WorkingSource.WECHAT,
+    "discord": WorkingSource.DISCORD,
+    "narramessenger": WorkingSource.NARRAMESSENGER,
+}
+
+
+def _ctx_str(ctx: dict, key: str) -> str:
+    """Coerce a channel_context value to a stripped string ('' when absent).
+    The platform side is TypeScript — ints/None slip through easily and must
+    never break dispatch."""
+    value = ctx.get(key)
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+_FALSY_STRINGS = frozenset({"false", "0", "no", "off", ""})
+
+
+def _ctx_flag(value: Any) -> bool:
+    """Boolean coercion that survives TypeScript stringification: a literal
+    "false"/"0" must not become truthy (bool("false") is True — that exact
+    slip would make a non-mention group message look mentioned and put the
+    agent back into barging on group small talk)."""
+    if isinstance(value, str):
+        return value.strip().lower() not in _FALSY_STRINGS
+    return bool(value)
+
+
+def build_inbound_run_context(
+    *,
+    channel_provider: Optional[str],
+    channel_context: Optional[dict],
+    user_input: str,
+    session_id: str,
+) -> tuple[WorkingSource, str, dict]:
+    """Translate a Manyfold-forwarded turn into an agent-run context.
+
+    Without ``channel_provider`` (or an unknown one) this is a plain
+    MANYFOLD turn, unchanged: the reply streams back for the platform to
+    deliver.
+
+    With a known IM ``channel_provider`` it mirrors what
+    channel_trigger_base does for a native inbound: prefix the input with
+    the ChannelTag (so the room_id reaches the agent for its reply tool)
+    and carry ``channel_tag`` in ``trigger_extra_data`` (so the channel
+    module fills current_sender_id / owner trust). Optional contract
+    fields (chat_type / thread_id / reply_token / is_mention /
+    attachments) are passed through only when present — raw platform
+    attachment dicts travel under ``manyfold_attachments`` and are
+    converted to native Attachment objects by the ingress executor, never
+    fed to the marker pipeline unconverted.
+
+    Returns ``(working_source, input_content, trigger_extra_data)``.
+    """
+    ws = _PROVIDER_WORKING_SOURCE.get((channel_provider or "").lower().strip())
+    if ws is None:
+        return (
+            WorkingSource.MANYFOLD,
+            user_input,
+            {"trigger_id": session_id, "retrieval_anchor": user_input},
+        )
+
+    ctx = channel_context if isinstance(channel_context, dict) else {}
+    sender_id = _ctx_str(ctx, "sender_id")
+    sender_name = _ctx_str(ctx, "sender_name") or sender_id or "user"
+    room_id = _ctx_str(ctx, "room_id")
+    source_message_id = _ctx_str(ctx, "source_message_id")
+    tag = ChannelTag(
+        channel=ws.value,
+        sender_name=sender_name,
+        sender_id=sender_id,
+        room_id=room_id,
+    )
+    trigger_extra_data: dict[str, Any] = {
+        "channel_tag": tag.to_dict(),
+        # Native channel triggers anchor retrieval on "[From <name>] <body>".
+        "retrieval_anchor": f"[From {sender_name}] {user_input}",
+        # Native convention f"{channel}_{message_id}"; the platform dedups
+        # upstream, so this is trace identity, not a dedup key.
+        "trigger_id": (
+            f"{ws.value}_{source_message_id}" if source_message_id else session_id
+        ),
+        "source_message_id": source_message_id,
+        # Lets modules distinguish a platform-forwarded turn from a native
+        # trigger turn — narramessenger switches its reply instruction to
+        # narra_send (narra_reply's delivery relies on the in-process
+        # trigger, which is not running under managed mode).
+        "managed_ingress": True,
+    }
+    chat_type = _ctx_str(ctx, "chat_type").lower()
+    if chat_type:
+        trigger_extra_data["chat_type"] = chat_type
+    for key in ("thread_id", "reply_token"):
+        value = _ctx_str(ctx, key)
+        if value:
+            trigger_extra_data[key] = value
+    if "is_mention" in ctx:
+        trigger_extra_data["is_mention"] = _ctx_flag(ctx.get("is_mention"))
+    attachments = ctx.get("attachments")
+    if isinstance(attachments, list):
+        cleaned = [a for a in attachments if isinstance(a, dict)]
+        if cleaned:
+            trigger_extra_data["manyfold_attachments"] = cleaned
+    return ws, f"{tag.format()}\n{user_input}", trigger_extra_data
 
 
 def _require_manyfold_auth(request: Request) -> None:
@@ -201,9 +325,12 @@ async def list_channels_for_manyfold(request: Request):
             {
                 "provider": "lark",
                 "agent_id": cred.agent_id,
-                "enabled": bool(cred.is_active and cred.has_secret),
+                # get_active_credentials already filters is_active=1, so
+                # receive_enabled() (has a decodable secret) is the whole
+                # remaining question — one home with the trigger's own gate.
+                "enabled": cred.receive_enabled(),
                 "external_id": cred.app_id or None,
-                "credentials": {"app_secret": cred.app_secret},
+                "credentials": {"app_secret": cred.get_app_secret()},
                 "config": {
                     "app_id": cred.app_id,
                     "brand": cred.brand or "feishu",

@@ -19,6 +19,7 @@ from loguru import logger
 from pydantic import BaseModel, TypeAdapter
 from openai import AsyncOpenAI
 
+from xyz_agent_context.agent_framework.llm._prompt_probe import emit as _probe_emit
 from xyz_agent_context.agent_framework.api_config import openai_config
 from xyz_agent_context.utils.cost_tracker import (
     get_cost_context,
@@ -337,6 +338,7 @@ class OpenAIAgentsSDK:
         only passing it when the model supports it.
         """
         model_name = self._resolve_model(model)
+        _probe_emit("openai", model_name, instructions, user_input)
 
         # Resolve max_tokens from model catalog (per-model limit)
         # If model is not in catalog, leave as None — let the API use its own default

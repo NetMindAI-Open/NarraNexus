@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/MarkdownRenderer.tsx
-last_verified: 2026-05-27
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 根节点必须保持 auto 高度、零滚动容器
+
+云端 artifact 滑不动修复（Base recvpm05jsLg3o）定稿版：滚动归属在
+**ArtifactRenderer 的 bounded 包装盒**（列内），或 ZoomModal 的外层
+overflow-auto（弹窗内）——本渲染器根 div 保持 auto 高度且**不再带
+overflow-auto**（原有的那个纵向从未生效过，是死代码）。第一版曾给根
+div 加 `h-full` 自滚，review 打回：h-full 在弹窗里会对着 scale 层的
+确定高度解析，把内容钳成一屏+嵌套滚动条。契约测试
+[[../../__tests__/scrollContainment.test.tsx]] 钉死"根节点无 h-full、
+无滚动容器"。
 
 ## 2026-05-27 — same Dismiss-loop fix as HtmlRenderer
 

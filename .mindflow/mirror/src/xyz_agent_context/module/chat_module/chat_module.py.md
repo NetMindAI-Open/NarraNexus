@@ -1,8 +1,54 @@
 ---
 code_file: src/xyz_agent_context/module/chat_module/chat_module.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
 
+## 2026-08-04 — assistant_content 守卫 strip 化 + NO-REPLY 日志字段更名
+
+主路径占位守卫从 `if not assistant_content` 改为 `.strip()` 判空，与
+silent-batch 分支（早已 `.strip()`）口径对齐。注意：这是**第二道网**
+——第一道在 extract_reply_text 的空白守卫（剥空的 part 进不了 split
+的 join），当前代码里本分支对纯空白实际够不到，保留作跨层纵深防御，
+防未来 extractor 路径回归。interrupted 分支语义不变——空白+打断落
+"(Interrupted by user)"。[NO-REPLY] 日志里误导的 `final_output_empty`
+字段更名 `placeholder_reply`（它判的是占位文案，与 io_data.final_output
+无关），文案同时覆盖「没调回复工具」与「调了但剥空」两种情形。
+
+## 2026-08-04 (review 三) — 背景轮持久化二分：[DELIVERED-BG] vs [NO-REPLY-BG]
+
+review round 2 抓到：owner-visible 拆分后，bus 名单扩容失去活消费方，
+真交付的 bus 轮仍被打 [NO-REPLY-BG]，「要不要兜底」的度量继续失真。
+新增 `_delivered_to_origin(working_source, responses)`（吃 handler 的
+**全量** user_reply_tool_names，与 owner-visible 消费方分工明确），
+else 分支据此二分：交付过 → [DELIVERED-BG] 日志 + activity meta
+`delivered_to_origin=True`；真沉默才是 [NO-REPLY-BG]。
+`_build_activity_summary` 增 delivered_to_origin 参数，bus/a2a 文案
+诚实化——旧版无条件 "Replied to X" 在 8/1 场景说的是没发生过的回复，
+现在只有真交付才说 Replied，沉默说 "(no reply sent)"。
+同批：working_source_matches/WorkingSource import 上提；no-match 日志
+改用 handler.effective_owner_visible_names（回落规则单点化）。
+
+## 2026-08-04 (review 修正) — user-visible split 改用 owner-visible 谓词
+
+`_split_user_visible_response` 的提取由 `extract_reply_text` 改为
+`extract_owner_visible_text`：bus-only 交付轮次回到 activity 行持久化
+（不再把 agent↔agent 交换写成 owner 可见的对话对）；IM 渠道经 None 回落
+行为逐字节不变。no-match 日志改说 "no owner-visible reply tool matched"
+并打印生效的 owner 名单（原名单语义已拆分，照旧打印会误导排查）。
+
+## 2026-08-04 — owns_working_source(CHAT) + 声明语义更新
+
+origin-first 排序落地后，本模块声明仅在 CHAT 轮凭 origin 排第一；
+非 chat 轮凭 priority 1 紧随来源模块之后——仍全场在列（Owner Relay
+合法经它交付），但不再是所有轮次的默认。docstring 同步改口。
+
+## 2026-08-04 — get_expressive_tools 补上 ctx_data(review 抓漏)
+
+签名扫尾漏了本类:基类/调用点已改带参,本覆写仍是 (self)-only →
+每次调用 TypeError → 收集点 fail-open 吞掉 → owner chat 默认回复工具
+声明静默清零(NexusPower 路径致哑)。已补参;并新增 MODULE_MAP 全量
+签名守卫测试 + 收集点对 TypeError 单独 logger.error(签名漂移是接线
+bug,不许长得像"某模块声明崩了,无所谓")。
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 
 覆写 `get_expressive_tools()`:从 `get_mcp_config().server_name` 派生全名

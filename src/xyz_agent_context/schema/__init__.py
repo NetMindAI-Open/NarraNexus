@@ -86,6 +86,8 @@ from .inbox_schema import (
 # ===== Hook Schema =====
 from .hook_schema import (
     WorkingSource,  # Execution source enum
+    BUS_ERRAND_TURN_SOURCE,  # Bus turn-source stamp: errand continuation
+    BUS_TEAM_ROOM_EXTRA_KEY,  # extra_data marker: team-room turn (empty reply surface)
     HookExecutionContext,
     HookIOData,
     HookExecutionTrace,
@@ -359,6 +361,8 @@ __all__ = [
 
     # Hook Schema
     "WorkingSource",
+    "BUS_ERRAND_TURN_SOURCE",
+    "BUS_TEAM_ROOM_EXTRA_KEY",
     "HookExecutionContext",
     "HookIOData",
     "HookExecutionTrace",

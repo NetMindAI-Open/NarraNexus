@@ -123,6 +123,29 @@ async def test_meta_carries_input_lifecycle_and_costs(db_client):
 
 
 @pytest.mark.asyncio
+async def test_meta_includes_cache_buckets(db_client):
+    """input_tokens is only the full-rate bucket; the cache columns carry the
+    bulk on a cache-warm run and must be surfaced separately, not dropped."""
+    await _seed_event(db_client, event_id="evt_cache")
+    await db_client.insert("cost_records", {
+        "agent_id": "agent_a", "event_id": "evt_cache",
+        "call_type": "agent_loop", "model": "claude-code",
+        "input_tokens": 33, "output_tokens": 19_528,
+        "cache_read_input_tokens": 735_147,
+        "cache_creation_input_tokens": 134_071,
+        "total_cost_usd": 2.198,
+    })
+
+    client = _build_client(db_client)
+    body = client.get("/api/agents/agent_a/event-log/evt_cache").json()
+
+    meta = body["meta"]
+    assert meta["input_tokens"] == 33
+    assert meta["cache_read_tokens"] == 735_147
+    assert meta["cache_creation_tokens"] == 134_071
+
+
+@pytest.mark.asyncio
 async def test_meta_graceful_on_legacy_row_without_lifecycle_or_costs(db_client):
     await _seed_event(
         db_client, event_id="evt_old",

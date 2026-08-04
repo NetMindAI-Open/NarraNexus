@@ -352,3 +352,61 @@ def test_dump_returns_serializable_snapshot():
     # Must be JSON-serialisable for debug logging.
     json.dumps(snapshot)
     assert "lark" in snapshot
+
+
+def test_extract_reply_text_all_citation_reply_returns_blank_sentinel():
+    """A reply that is *nothing but* citation tokens (gpt-5.x +
+    WebSearch emitting only markers) strips down to bare whitespace —
+    that is a blank reply attempt — "" (distinct from None = not a reply
+    call at all, so lark_cli non-send commands still classify as real
+    tool calls downstream). Root cause of the
+    2026-07-13 blank-bubble report."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    raw = "citeturn6view1\nciteturn6news2"
+    out = h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly",
+        {"content": raw},
+    )
+    assert out == ""
+
+
+def test_extract_reply_text_whitespace_only_content_returns_blank_sentinel():
+    """Literal whitespace content never survives extraction either —
+    the falsy check alone let "\\n" through as a truthy 'reply'."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    assert h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly", {"content": "\n"}
+    ) == ""
+    assert h.extract_reply_text(
+        "mcp__chat_module__send_message_to_user_directly", {"content": "   "}
+    ) == ""
+
+
+def test_extract_owner_visible_text_inherits_blank_guard():
+    """extract_owner_visible_text delegates to extract_reply_text, so
+    the blank guard covers the owner-visible split too."""
+    from xyz_agent_context.channel.message_source_handler import (
+        MessageSourceHandler,
+    )
+
+    h = MessageSourceHandler(
+        name="chat",
+        user_reply_tool_names=("send_message_to_user_directly",),
+    )
+    assert h.extract_owner_visible_text(
+        "mcp__chat_module__send_message_to_user_directly", {"content": "\n"}
+    ) == ""

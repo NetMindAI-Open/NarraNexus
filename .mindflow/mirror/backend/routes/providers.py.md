@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/providers.py
-last_verified: 2026-07-30
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — `POST /agent-framework` 响应新增 `slot_cleared`
+
+切框架时若已绑的 provider 驱动不了新框架（CLI 订阅卡，或协议不符），
+[[user_service]] `set_user_agent_framework` 会解绑并把这件事返回，路由原样
+放进 `data.slot_cleared`。前端据此决定是否清掉草稿里的 provider/model——
+以前是无条件清，把两个框架都能驱动的绑定也一起清了。
 
 ## 2026-07-30 — sync-defaults 的 netmind_free 分支（PR #204）
 

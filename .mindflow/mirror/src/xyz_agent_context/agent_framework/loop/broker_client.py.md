@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/broker_client.py
 stub: false
-last_verified: 2026-07-22
+last_verified: 2026-07-31
 ---
+
+## 2026-07-31 — executor_seam_active():「本进程不跑 CLI」的单一判据
+
+新公开函数:BROKER_URL(dev/prod compose 实际设的)**或**静态
+AGENT_EXECUTOR_URL 任一存在即 True。给 verify_live 的控制面守卫用——
+凡是拿本地状态(PATH、~/.codex、~/.claude)下 CLI/凭证判决的代码,
+seam 生效时必须判"本节点无法决定"。教训:PR #224 第一版守卫只认
+AGENT_EXECUTOR_URL,而部署仓从不设它,守卫在云上是死代码。
 
 ## 2026-07-22 — broker/冷启动不可达 → 类型化 ExecutorUnreachableError
 

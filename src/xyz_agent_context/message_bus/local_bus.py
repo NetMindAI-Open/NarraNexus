@@ -91,6 +91,7 @@ class LocalMessageBus(MessageBusService):
             mentions=mentions,
             attachments=attachments,
             event_id=row.get("event_id"),
+            sender_turn_source=row.get("sender_turn_source"),
             created_at=row.get("created_at"),
         )
 
@@ -105,8 +106,17 @@ class LocalMessageBus(MessageBusService):
         mentions: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
         event_id: Optional[str] = None,
+        sender_turn_source: Optional[str] = None,
     ) -> str:
-        """Send a message to a channel and return the generated message_id."""
+        """Send a message to a channel and return the generated message_id.
+
+        ``sender_turn_source`` records WHICH KIND of turn produced this
+        message ("chat"/"job"/… = the sender was running an errand for its
+        owner, so this is a question; "message_bus" = the sender was already
+        answering a peer, so this is a reply). MessageBusTrigger reads it to
+        decide whether the recipient should answer the peer or relay to its
+        owner — see the column comment in schema_registry.
+        """
         msg_id = _generate_id("msg")
         # A message carrying files is tagged "multimodal" so UI / search can
         # distinguish it; pure text stays "text".
@@ -121,6 +131,7 @@ class LocalMessageBus(MessageBusService):
             "mentions": json.dumps(mentions) if mentions else None,
             "attachments": json.dumps(attachments) if attachments else None,
             "event_id": event_id,
+            "sender_turn_source": sender_turn_source,
             "created_at": _now_iso(),
         })
         # Index the message into the unified search layer (memory_bus), under the
@@ -226,6 +237,7 @@ class LocalMessageBus(MessageBusService):
         content: str,
         msg_type: str = "text",
         attachments: Optional[List[dict]] = None,
+        sender_turn_source: Optional[str] = None,
     ) -> str:
         """Send a direct message to another agent, auto-creating a DM channel if needed."""
         ph = self._db.placeholder
@@ -261,7 +273,8 @@ class LocalMessageBus(MessageBusService):
             )
 
         return await self.send_message(
-            from_agent, channel_id, content, msg_type, attachments=attachments
+            from_agent, channel_id, content, msg_type, attachments=attachments,
+            sender_turn_source=sender_turn_source,
         )
 
     # ===== Channel Management =====

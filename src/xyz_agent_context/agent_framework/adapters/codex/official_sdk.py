@@ -176,6 +176,18 @@ _DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 # =========================================================================
 
 
+# Our own injected-header namespace. Codex forwards no header but the bearer,
+# so anything we put here MUST also be carried on the bearer (identity and
+# turn source both are — see module/_mcp_identity.py) and every consumer MUST
+# degrade on absence. Under that contract dropping these is expected rather
+# than noteworthy, which is why they are exempt from the warning below.
+#
+# If you add a header here, carry it on the bearer too. Shipping one that was
+# header-only silently disabled the fix that depended on it (PR #229 review):
+# the value was simply never present on codex.
+PLATFORM_HEADER_PREFIX = "x-narranexus-"
+
+
 def _mcp_bearer_env_var(server_name: str, headers: dict | None) -> str | None:
     """Env-var name for a server's ``Authorization: Bearer`` header, if any.
 
@@ -208,7 +220,20 @@ def codex_mcp_bearer_env(mcp_servers: dict[str, dict]) -> dict[str, str]:
 
     Returns ``{env_var_name: token}`` for every server whose headers carry
     ``Authorization: Bearer <token>``. Logs a warning (header keys only)
-    for headers codex cannot express.
+    for headers codex cannot express — a USER's custom header silently
+    vanishing is worth shouting about.
+
+    Headers in the platform's own ``X-NarraNexus-*`` namespace are exempt
+    from that warning: by contract (see the prefix constant above) they are
+    injected by us, also carried on the bearer, and their consumers degrade
+    on absence — so dropping them here is expected. Without the exemption
+    every codex turn logged one warning per module server — ~16 lines a
+    turn, which is how real warnings get buried.
+
+    Matching on the namespace rather than importing a constant keeps this
+    adapter free of any dependency on the module package (the layering would
+    otherwise point backwards, and every future adapter would copy the
+    import) and covers platform headers added later for free.
     """
     env: dict[str, str] = {}
     for name, spec in mcp_servers.items():
@@ -219,6 +244,7 @@ def codex_mcp_bearer_env(mcp_servers: dict[str, dict]) -> dict[str, str]:
         unsupported = [
             k for k in headers
             if not (k.lower() == "authorization" and bearer_env)
+            and not k.lower().startswith(PLATFORM_HEADER_PREFIX)
         ]
         if bearer_env:
             auth = headers.get("Authorization") or headers.get("authorization")

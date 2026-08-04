@@ -1,8 +1,15 @@
 ---
 code_file: backend/routes/jobs.py
-last_verified: 2026-06-01
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — /complex 批量创建带 confirm_new=True（W1）
+
+/complex 的标题由调用方设计，同组子任务标题天然相近（"X part 1/2"）。
+相似判重门是防 LLM 重复创建的，对确定性批量只会误伤：旧行为下第二个
+子任务会被静默合并到第一个上，依赖图跟着指错。现在显式跳过相似门
+（精确同名幂等仍生效）。
 
 ## 2026-06-01 — enum-derived status filter (batch ③)
 

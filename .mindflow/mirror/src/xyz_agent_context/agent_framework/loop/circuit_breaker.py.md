@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/loop/circuit_breaker.py
-last_verified: 2026-07-22
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — `_is_out_of_credit` 改为成员判定
+
+原本与 `SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE` 做相等比较。免费额度用完在同日拆成
+第二个 out-of-credit reason 后，相等比较让它降级成 BUSINESS —— 平台告警、永不暂停，即
+**额度用尽的用户无限重试**。改为 `in OUT_OF_CREDIT_REASONS`（[[failure]]）。
+
+这条不是新增功能，是修回归；`test_exhausted_wallet_is_quota_not_business` 抓住了它。
 
 ## 2026-07-22 — executor-infra 失败也**不进熔断器**（与自助类豁免同理）
 

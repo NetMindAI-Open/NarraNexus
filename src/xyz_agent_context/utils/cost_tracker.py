@@ -19,25 +19,20 @@ Architecture:
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 from loguru import logger
 
 
 # =============================================================================
-# Price Table (per million tokens, USD)
+# Pricing
 # =============================================================================
 #
-# Only contains models whose name strings are controlled by our code:
-#   - OpenAI: hardcoded in adapters/openai_agents.py (MODEL_NAME)
-#   - Gemini: hardcoded in llm/gemini_api.py (self.model)
-# Claude costs use sdk_cost_usd directly (see record_cost), so no entry needed here.
-MODEL_PRICING: Dict[str, Dict[str, float]] = {
-    # OpenAI
-    "gpt-5.1-2025-11-13": {"input": 2.0, "output": 8.0},
-    # Gemini
-    "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
-}
+# The two-entry hand-written MODEL_PRICING that used to live here is gone; see
+# utils/model_pricing.py for what it was and why it failed (short version: on
+# 2026-07-30 neither entry matched any model actually running, so every
+# llm_function / llm_stream / embedding row in the ledger was booked at $0,
+# and the one entry that DID exist was priced at half the real rate).
 
 
 # =============================================================================
@@ -95,34 +90,66 @@ def calculate_cost(
     model: str,
     input_tokens: int,
     output_tokens: int,
+    cache_read_tokens: int = 0,
+    cache_creation_tokens: int = 0,
 ) -> dict:
     """
-    Calculate cost for a single API call based on the price table.
+    Calculate cost for a single API call.
 
-    Only works for models whose name strings we control (OpenAI, Gemini).
-    Claude costs should use sdk_cost_usd directly — this function returns zeros for
-    unknown models, which is expected behavior, not an error.
+    ``input_tokens`` is the tokens billed at the FULL input rate. Cache reads
+    and cache writes are separate buckets priced at their own rates — this
+    mirrors Anthropic's three mutually-exclusive usage columns, where treating
+    the three as one number overstates a cache-warm turn by roughly 10x.
+
+    Unknown model → zeros, which is a real answer ("we do not know the rate"),
+    not an error. Callers must still record the tokens: usage stays visible
+    even when its price does not. ``model_pricing`` warns once per unknown id.
 
     Args:
-        model: Model identifier (must be an exact key in MODEL_PRICING)
-        input_tokens: Number of input tokens consumed
-        output_tokens: Number of output tokens consumed
+        model: Model identifier as reported by the provider
+        input_tokens: Full-rate input tokens
+        output_tokens: Output tokens
+        cache_read_tokens: Prompt-cache read tokens (typically 0.1x input)
+        cache_creation_tokens: Prompt-cache write tokens (typically 1.25x input)
 
     Returns:
-        {"input_cost": float, "output_cost": float, "total_cost": float}
+        {"input_cost", "output_cost", "cache_cost", "total_cost"}
     """
-    pricing = MODEL_PRICING.get(model)
-    if pricing is None:
-        # Not a warning — Claude calls intentionally skip the price table
-        logger.debug(f"Model not in price table (using sdk_cost if available): {model}")
-        return {"input_cost": 0.0, "output_cost": 0.0, "total_cost": 0.0}
+    from xyz_agent_context.utils.model_pricing import price_for
 
-    input_cost = (input_tokens / 1_000_000) * pricing["input"]
-    output_cost = (output_tokens / 1_000_000) * pricing["output"]
+    price = price_for(model)
+    if price is None:
+        return {
+            "input_cost": 0.0,
+            "output_cost": 0.0,
+            "cache_cost": 0.0,
+            "total_cost": 0.0,
+        }
+
+    input_cost = input_tokens * price.input_per_token
+    output_cost = output_tokens * price.output_per_token
+
+    # A model with no published cache rate is not a model with free caching —
+    # it is one whose cache tiers upstream does not record. Falling back to the
+    # normal input rate keeps an unpriced cache read visible as spend; booking
+    # it at 0 would make enabling caching look like it cut cost to nothing.
+    write_rate = (
+        price.cache_write_per_token
+        if price.cache_write_per_token is not None
+        else price.input_per_token
+    )
+    read_rate = (
+        price.cache_read_per_token
+        if price.cache_read_per_token is not None
+        else price.input_per_token
+    )
+    cache_cost = cache_creation_tokens * write_rate + cache_read_tokens * read_rate
+
     return {
         "input_cost": input_cost,
         "output_cost": output_cost,
-        "total_cost": input_cost + output_cost,
+        "cache_cost": cache_cost,
+        "total_cost": input_cost + output_cost + cache_cost,
     }
 
 
@@ -156,7 +183,11 @@ async def record_cost(
         cache_creation_tokens: Prompt-cache write tokens
         num_turns: Model calls within this run (None = framework didn't report)
     """
-    cost = calculate_cost(model, input_tokens, output_tokens)
+    cost = calculate_cost(
+        model, input_tokens, output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_creation_tokens=cache_creation_tokens,
+    )
     # Prefer SDK-provided cost (most accurate, e.g. Claude SDK considers caching discounts).
     # Fall back to price-table calculation, then to $0 as last resort.
     if sdk_cost_usd and sdk_cost_usd > 0:

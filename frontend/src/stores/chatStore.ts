@@ -23,6 +23,7 @@ import type {
   TurnEvent,
 } from '@/types';
 import { generateId } from '@/lib/utils';
+import { isBlankText } from '@/lib/isBlankText';
 import { notifyAgentReplyCompleted } from '@/lib/desktopNotify';
 import { segmentTurn } from '@/lib/segmentTurn';
 
@@ -126,8 +127,6 @@ interface ChatState {
   history: ConversationRound[];
   currentEvents: TurnEvent[];
 
-  getUserVisibleResponse: () => string | null;
-
   // Actions (all accept agentId)
   setActiveAgent: (agentId: string) => void;
   addUserMessage: (
@@ -218,16 +217,6 @@ export const useChatStore = create<ChatState>((_set, get) => {
 
     // Initial flat fields (derived from empty active session)
     ...deriveFlatFields({ agentSessions: {}, activeAgentId: '' }),
-
-    getUserVisibleResponse: () => {
-      const state = get();
-      const session = getSession(state.agentSessions, state.activeAgentId);
-      const parts = session.currentToolCalls
-        .filter((tool) => tool.tool_name.endsWith('send_message_to_user_directly'))
-        .map((tool) => tool.tool_input?.content as string)
-        .filter(Boolean);
-      return parts.length > 0 ? parts.join('\n\n') : null;
-    },
 
     // Switch active agent (also clears its completion notification)
     setActiveAgent: (agentId: string) => {
@@ -335,7 +324,10 @@ export const useChatStore = create<ChatState>((_set, get) => {
         const responseParts = session.currentToolCalls
           .filter((tool) => tool.tool_name.endsWith('send_message_to_user_directly'))
           .map((tool) => tool.tool_input?.content as string)
-          .filter(Boolean);
+          // Blank content is no reply — same line the backend persist
+          // guard draws: a "\n" part falls through to the placeholder
+          // branch instead of rendering as a blank session bubble.
+          .filter((s) => !isBlankText(s));
 
         let displayContent: string;
         let isError = false;

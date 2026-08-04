@@ -68,6 +68,9 @@ from xyz_agent_context.channel.channel_audit_events import (
     EVENT_DEBOUNCE_MERGED,
     EVENT_SUBSCRIBER_STARTED,
     EVENT_SUBSCRIBER_STOPPED,
+    EVENT_SUBSCRIBER_BREAKER_TRIPPED,
+    EVENT_SUBSCRIBER_BREAKER_CLEARED,
+    EVENT_SUBSCRIBER_UNSTARTABLE,
     EVENT_TRANSPORT_CONNECTED,
     EVENT_TRANSPORT_DISCONNECTED,
     EVENT_TRANSPORT_BACKOFF,
@@ -91,14 +94,11 @@ from xyz_agent_context.repository.channel_seen_message_repository import (
 from xyz_agent_context.repository.channel_trigger_audit_repository import (
     ChannelTriggerAuditRepository,
 )
-from xyz_agent_context.schema.attachment_schema import (
-    Attachment,
-    derive_category_from_mime,
-)
+from xyz_agent_context.schema.attachment_schema import Attachment
 from xyz_agent_context.schema.channel_tag import ChannelTag
 from xyz_agent_context.schema.hook_schema import WorkingSource
 from xyz_agent_context.schema.parsed_message import ParsedMessage
-from xyz_agent_context.utils.attachment_storage import store_uploaded_attachment
+from xyz_agent_context.utils.attachment_storage import persist_attachment_bytes
 
 
 # Used by sanitize_display_name to strip C0/C1 controls (newlines, tabs,
@@ -135,6 +135,13 @@ def _compute_next_backoff(
     if ran_seconds >= healthy_threshold_seconds:
         return base
     return min(max(current, base) * 2, max_backoff)
+
+
+# Fingerprint stand-in for a credential with no introspectable attributes.
+# A constant (never the default repr, which embeds the object address) so an
+# un-fingerprintable credential reads as UNCHANGED rather than as a re-bind
+# on every poll.
+_UNFINGERPRINTABLE_CREDENTIAL = "<unfingerprintable>"
 
 
 class ChannelTriggerBase(ABC):
@@ -180,6 +187,36 @@ class ChannelTriggerBase(ABC):
     CREDENTIAL_POLL_INTERVAL_SECONDS: int = 10
     IDLE_POLL_INTERVAL_SECONDS: int = 30  # when no credentials are active
 
+    # Fast-death circuit breaker for subscriber restarts. A subscriber that
+    # exits within BREAKER_FAST_DEATH_SECONDS of starting counts as a fast
+    # death; BREAKER_FAST_DEATH_THRESHOLD consecutive fast deaths trip the
+    # breaker and the key is isolated, re-probed on the escalating
+    # BREAKER_BACKOFF_SCHEDULE_SECONDS delays (last entry repeats forever).
+    # Complements ``is_permanent_auth_failure``: that hook needs a
+    # *recognised exception*, but a cleared secret makes the subscriber exit
+    # silently (return, no raise) so the watcher would otherwise restart the
+    # same dead key every poll forever. The breaker never mutates the
+    # credential row — an updated credential (owner re-binds) clears it
+    # immediately, and a healthy lifetime resets the counters.
+    BREAKER_FAST_DEATH_SECONDS: float = 60.0
+    BREAKER_FAST_DEATH_THRESHOLD: int = 3
+    BREAKER_BACKOFF_SCHEDULE_SECONDS: tuple[float, ...] = (300.0, 1800.0, 7200.0)
+
+    # Credential fields EXCLUDED from the breaker fingerprint. The
+    # fingerprint answers exactly one question — "did the owner change
+    # something that might fix this credential?" — so bookkeeping the
+    # subscriber writes back about itself must not count. Miss one and the
+    # breaker clears itself on its own traffic: Matrix's
+    # ``matrix_since_token`` is documented WRITE-HEAVY (every sync
+    # response), Lark writes ``bot_open_id`` / ``bot_name`` right after
+    # connecting. Subclasses extend this set; the escalation memory
+    # deliberately survives a fingerprint-triggered clear so that even a
+    # field we FAILED to exclude costs a bounded 3 restarts per backoff
+    # tier instead of an unbounded storm.
+    BREAKER_VOLATILE_CREDENTIAL_FIELDS: frozenset[str] = frozenset(
+        {"created_at", "updated_at"}
+    )
+
     # If non-zero, submit messages through ChannelDebounceMerger with this
     # window before processing. 0 disables debounce (Lark today, Phase 2).
     DEBOUNCE_WINDOW_MS: int = 0
@@ -209,6 +246,24 @@ class ChannelTriggerBase(ABC):
         # ``credential.app_id`` — overridable via _subscriber_key).
         self._subscriber_tasks: dict[str, asyncio.Task] = {}
         self._subscriber_creds: dict[str, Any] = {}
+        # What each RUNNING subscriber was started with. The fingerprint is
+        # captured here (not read off _subscriber_creds at death time) so
+        # the breaker compares like with like: "the credential this start
+        # used" vs "the credential in the DB now". _subscriber_creds is a
+        # poll behind, so sampling it would make any between-poll write look
+        # like a re-bind.
+        self._subscriber_started_at: dict[str, float] = {}
+        self._subscriber_start_fingerprint: dict[str, str] = {}
+
+        # Circuit-breaker state, keyed like _subscriber_tasks.
+        self._breaker_fast_deaths: dict[str, int] = {}
+        self._breaker_trips: dict[str, int] = {}
+        self._breaker_blocked_until: dict[str, float] = {}
+        self._breaker_cred_fingerprint: dict[str, str] = {}
+        # Keys rejected by the ``should_start_subscriber`` pre-flight, with
+        # the fingerprint that was rejected — so the WARNING + audit row
+        # fire once per credential state, not once per poll.
+        self._unstartable_fingerprint: dict[str, str] = {}
 
         # Worker pool
         self._task_queue: asyncio.Queue = asyncio.Queue()
@@ -307,6 +362,19 @@ class ChannelTriggerBase(ABC):
     def is_permanent_auth_failure(self, exc: BaseException) -> bool:
         return False
 
+    # Override hook — pre-flight: can a subscriber possibly start with this
+    # credential? Answered from the credential alone, before any connection
+    # attempt. The default returns True (every loaded credential is tried).
+    # Channels override when a row can be known-bad up front — Lark's
+    # ``receive_enabled()`` is False once the App Secret is cleared, which
+    # is exactly the 2026-08-01 prod incident: the subscriber used to start,
+    # discover the missing secret, and return, on every poll forever.
+    # Rejecting here costs zero restarts and zero ERROR lines; the
+    # fast-death breaker stays the backstop for everything NOT knowable in
+    # advance. Must not do I/O — it runs on every watcher poll.
+    def should_start_subscriber(self, credential: Any) -> bool:
+        return True
+
     # Override hook — flip the credential row's ``enabled`` flag to False
     # so the watcher stops respawning subscribers against a dead token.
     # Subclass implementations typically call ``mgr.set_enabled(agent_id,
@@ -401,50 +469,15 @@ class ChannelTriggerBase(ABC):
         """
         user_id = await self._resolve_agent_owner(agent_id) or agent_id
         mime_type = self._sniff_mime(raw_bytes, mime_hint, original_name)
-        file_id, on_disk = store_uploaded_attachment(
+        # Shared "bytes → Attachment" tail (store + index + STT) — one home
+        # with the managed-ingress converter.
+        return await persist_attachment_bytes(
             agent_id,
             user_id,
             raw_bytes=raw_bytes,
             original_name=original_name,
             mime_type=mime_type,
-        )
-
-        transcript: Optional[str] = None
-        if mime_type.startswith("audio/"):
-            try:
-                # Lazy import to keep the channel layer free of agent_framework
-                # dependencies at import time.
-                from xyz_agent_context.agent_framework.llm.transcription import (
-                    TranscriptionService,
-                )
-
-                svc = TranscriptionService.instance()
-                if await svc.is_available(user_id):
-                    transcript = await svc.transcribe(
-                        file_path=str(on_disk),
-                        file_id=file_id,
-                        agent_id=agent_id,
-                        user_id=user_id,
-                    )
-                    if transcript:
-                        logger.info(
-                            f"[{self.channel_name}:{agent_id}] transcribed "
-                            f"file_id={file_id} chars={len(transcript)}"
-                        )
-            except Exception as e:  # noqa: BLE001
-                # Never-raise: STT failure must not block attachment flow.
-                logger.warning(
-                    f"[{self.channel_name}:{agent_id}] STT failed for "
-                    f"file_id={file_id}: {type(e).__name__}: {e}"
-                )
-
-        return Attachment(
-            file_id=file_id,
-            mime_type=mime_type,
-            original_name=original_name,
-            size_bytes=len(raw_bytes),
-            category=derive_category_from_mime(mime_type),
-            transcript=transcript,
+            log_prefix=self.channel_name,
         )
 
     @staticmethod
@@ -555,9 +588,57 @@ class ChannelTriggerBase(ABC):
             task.cancel()
 
         self._subscriber_tasks.clear()
+        self._subscriber_started_at.clear()
+        self._subscriber_start_fingerprint.clear()
+        # Isolation describes live subscriber state; a stopped trigger must
+        # not carry it into the next start().
+        self._breaker_fast_deaths.clear()
+        self._breaker_trips.clear()
+        self._breaker_blocked_until.clear()
+        self._breaker_cred_fingerprint.clear()
+        self._unstartable_fingerprint.clear()
         self._workers.clear()
         self._monitor_tasks.clear()
         logger.info(f"{type(self).__name__} stopped")
+
+    async def health_snapshot(self) -> dict:
+        """Return this trigger's JSON-serialisable operational state.
+
+        The health server consumes this public seam instead of reaching into
+        subscriber, worker, and breaker internals. Subclasses may extend the
+        payload without coupling the server or its test doubles to new private
+        bookkeeping fields.
+        """
+        now_ms = int(time.time() * 1000)
+        startup_ms = self._startup_time_ms or 0
+        recent_counts: dict[str, int] = {}
+        if self._audit_repo is not None:
+            try:
+                recent_counts = await self._audit_repo.count_by_type(since_hours=1)
+            except Exception as e:  # noqa: BLE001 — health must degrade, not crash
+                logger.warning(
+                    f"[health:{self.channel_name}] count_by_type failed: {e}"
+                )
+
+        status = "ok" if self._audit_repo is not None and self.running else "starting"
+        return {
+            "status": status,
+            "running": self.running,
+            "uptime_seconds": (
+                (now_ms - startup_ms) / 1000.0 if startup_ms else 0.0
+            ),
+            "startup_time_ms": startup_ms,
+            "last_ws_connected_ms": getattr(
+                self, "_last_ws_connected_wallclock_ms", 0
+            ),
+            "subscriber_count": len(self._subscriber_tasks),
+            "worker_count": len(self._workers),
+            "queue_depth": self._task_queue.qsize(),
+            "subscriber_keys": sorted(self._subscriber_creds),
+            "breaker_isolated_keys": sorted(self._breaker_blocked_until),
+            "unstartable_keys": sorted(self._unstartable_fingerprint),
+            "recent_event_counts": recent_counts,
+        }
 
     # ────────────────────────────────────────────────────────────────────
     # Worker pool sizing
@@ -614,6 +695,7 @@ class ChannelTriggerBase(ABC):
 
                 # Idle path — fewer log lines, longer poll.
                 if not creds and not self._subscriber_tasks:
+                    self._breaker_purge_stale(set())
                     if not idle_logged:
                         logger.info(
                             f"{type(self).__name__}: no {self.channel_name} "
@@ -635,6 +717,9 @@ class ChannelTriggerBase(ABC):
                 current_keys = set(seen_keys.keys())
                 running_keys = set(self._subscriber_tasks.keys())
 
+                # A removed credential also retires its breaker state.
+                self._breaker_purge_stale(current_keys)
+
                 # Stop subscribers whose credential is gone.
                 for key in running_keys - current_keys:
                     await self._stop_subscriber(key)
@@ -647,8 +732,25 @@ class ChannelTriggerBase(ABC):
                     logger.warning(
                         f"{type(self).__name__}: subscriber for {key} died, removing"
                     )
+                    dead_cred = self._subscriber_creds.get(key)
                     self._subscriber_tasks.pop(key, None)
                     self._subscriber_creds.pop(key, None)
+                    await self._breaker_record_death(key, dead_cred)
+
+                # A subscriber that is still running after the fast-death
+                # window has already proved healthy. Settle that success now;
+                # requiring it to die before clearing escalation memory would
+                # make every successful backoff recovery permanently raise the
+                # next incident's isolation tier.
+                now = time.monotonic()
+                for key, started in self._subscriber_started_at.items():
+                    task = self._subscriber_tasks.get(key)
+                    if (
+                        task is not None
+                        and not task.done()
+                        and now - started >= self.BREAKER_FAST_DEATH_SECONDS
+                    ):
+                        self._breaker_forget(key)
 
                 # Start subscribers for new keys; refresh the cached
                 # credential for ALL keys every poll. The credential is a
@@ -664,19 +766,7 @@ class ChannelTriggerBase(ABC):
                 # not disturb the live transport connection.
                 for key, cred in seen_keys.items():
                     if key not in self._subscriber_tasks:
-                        task = asyncio.create_task(self._subscribe_loop(cred))
-                        self._subscriber_tasks[key] = task
-                        agent_id = getattr(cred, "agent_id", "")
-                        app_id = getattr(cred, "app_id", "")
-                        logger.info(
-                            f"{type(self).__name__}: started subscriber for "
-                            f"agent={agent_id} key={key}"
-                        )
-                        await self._audit(
-                            EVENT_SUBSCRIBER_STARTED,
-                            agent_id=agent_id,
-                            app_id=app_id,
-                        )
+                        await self._maybe_start_subscriber(key, cred)
                     self._subscriber_creds[key] = cred
 
                 # Pool sizing.
@@ -697,9 +787,43 @@ class ChannelTriggerBase(ABC):
 
             await asyncio.sleep(self.CREDENTIAL_POLL_INTERVAL_SECONDS)
 
+    async def _maybe_start_subscriber(self, key: str, cred: Any) -> None:
+        """Start one subscriber, unless a gate says otherwise.
+
+        Two independent gates, cheapest first: a credential that provably
+        cannot connect never costs a start at all (pre-flight), and anything
+        else has to get past the fast-death breaker.
+        """
+        if not self.should_start_subscriber(cred):
+            await self._note_unstartable(key, cred)
+            return
+        # Startable again — retire any stale pre-flight mark even when the
+        # breaker still holds this key; the gates are independent and the
+        # health surface reports both.
+        self._unstartable_fingerprint.pop(key, None)
+        if not await self._breaker_admit(key, cred):
+            return
+
+        self._subscriber_tasks[key] = asyncio.create_task(self._subscribe_loop(cred))
+        self._subscriber_started_at[key] = time.monotonic()
+        self._subscriber_start_fingerprint[key] = self._credential_fingerprint(cred)
+        agent_id = getattr(cred, "agent_id", "")
+        app_id = getattr(cred, "app_id", "")
+        logger.info(
+            f"{type(self).__name__}: started subscriber for "
+            f"agent={agent_id} key={key}"
+        )
+        await self._audit(
+            EVENT_SUBSCRIBER_STARTED, agent_id=agent_id, app_id=app_id,
+        )
+
     async def _stop_subscriber(self, key: str) -> None:
         cred = self._subscriber_creds.pop(key, None)
         task = self._subscriber_tasks.pop(key, None)
+        # An intentional stop is not a death — drop the start marks so the
+        # breaker never counts it.
+        self._subscriber_started_at.pop(key, None)
+        self._subscriber_start_fingerprint.pop(key, None)
         if task and not task.done():
             task.cancel()
         agent_id = getattr(cred, "agent_id", "") if cred else ""
@@ -709,6 +833,178 @@ class ChannelTriggerBase(ABC):
             EVENT_SUBSCRIBER_STOPPED,
             agent_id=agent_id,
             app_id=app_id,
+            details={"key": key},
+        )
+
+    # ────────────────────────────────────────────────────────────────────
+    # Fast-death circuit breaker
+    # ────────────────────────────────────────────────────────────────────
+
+    def _credential_fingerprint(self, cred: Any) -> str:
+        """Stable identity of a credential's *auth-relevant* contents.
+
+        Answers one question: "did the owner change something that might fix
+        this credential?" Fields the subscriber writes back about itself
+        (cursors, cached platform identity, timestamps) are excluded via
+        ``BREAKER_VOLATILE_CREDENTIAL_FIELDS`` — counting them would make the
+        channel's own traffic read as a re-bind and clear the breaker on the
+        poll right after it tripped. Credential field values must also have a
+        stable ``repr`` across DB loads. If a channel introduces a field whose
+        value uses the default address-bearing object repr, that field must be
+        excluded as volatile or the channel must override this method with a
+        stable auth-relevant encoding.
+        """
+        try:
+            fields = vars(cred)
+        except TypeError:
+            # ``__slots__`` / C-level object: no introspectable state. Return
+            # a CONSTANT, never ``repr(cred)`` — the default repr embeds the
+            # object address, which differs on every poll and would read as
+            # "the owner re-bound" forever, i.e. no breaker at all. A
+            # constant fails safe: isolation holds and the backoff re-probe
+            # remains the recovery path.
+            return _UNFINGERPRINTABLE_CREDENTIAL
+        volatile = self.BREAKER_VOLATILE_CREDENTIAL_FIELDS
+        return repr(sorted(
+            (k, repr(v)) for k, v in fields.items() if k not in volatile
+        ))
+
+    def _breaker_release(self, key: str) -> None:
+        """Lift isolation but KEEP the escalation memory (``_breaker_trips``).
+
+        Used for both re-probes and re-binds. Keeping the trip count is what
+        bounds the damage of a volatile field we failed to exclude: such a
+        key still escalates 5min → 30min → 2h instead of being restarted at
+        the shortest tier forever. A genuinely healthy session clears the
+        count for real (see ``_breaker_record_death``).
+        """
+        self._breaker_blocked_until.pop(key, None)
+        self._breaker_cred_fingerprint.pop(key, None)
+        self._breaker_fast_deaths.pop(key, None)
+
+    def _breaker_forget(self, key: str) -> None:
+        """Wipe every trace of a key — healthy subscriber or gone credential."""
+        self._breaker_fast_deaths.pop(key, None)
+        self._breaker_trips.pop(key, None)
+        self._breaker_blocked_until.pop(key, None)
+        self._breaker_cred_fingerprint.pop(key, None)
+        self._unstartable_fingerprint.pop(key, None)
+
+    def _breaker_purge_stale(self, current_keys: set) -> None:
+        """Retire breaker state for keys whose credential no longer exists."""
+        tracked = (
+            set(self._breaker_fast_deaths)
+            | set(self._breaker_trips)
+            | set(self._breaker_blocked_until)
+            | set(self._breaker_cred_fingerprint)
+            | set(self._unstartable_fingerprint)
+        )
+        for key in tracked - current_keys:
+            self._breaker_forget(key)
+
+    async def _breaker_record_death(self, key: str, cred: Any) -> None:
+        """Count a reaped subscriber death; trip the breaker on a streak.
+
+        Only *fast* deaths (lifetime < BREAKER_FAST_DEATH_SECONDS) count — a
+        subscriber that lived a healthy stretch before dying resets the
+        streak, so ordinary network flaps never trip. ``cred`` supplies audit
+        labels ONLY; the fingerprint recorded at trip time is the one
+        captured when this subscriber was started.
+        """
+        started = self._subscriber_started_at.pop(key, None)
+        start_fingerprint = self._subscriber_start_fingerprint.pop(key, None)
+        if started is None:
+            return
+        lifetime = time.monotonic() - started
+        if lifetime >= self.BREAKER_FAST_DEATH_SECONDS:
+            self._breaker_forget(key)
+            return
+        deaths = self._breaker_fast_deaths.get(key, 0) + 1
+        self._breaker_fast_deaths[key] = deaths
+        if deaths < self.BREAKER_FAST_DEATH_THRESHOLD:
+            return
+
+        trips = self._breaker_trips.get(key, 0)
+        schedule = self.BREAKER_BACKOFF_SCHEDULE_SECONDS
+        delay = schedule[min(trips, len(schedule) - 1)]
+        self._breaker_trips[key] = trips + 1
+        self._breaker_blocked_until[key] = time.monotonic() + delay
+        # The re-probe after backoff gets a fresh streak of its own.
+        self._breaker_fast_deaths[key] = 0
+        if start_fingerprint is not None:
+            self._breaker_cred_fingerprint[key] = start_fingerprint
+        agent_id = getattr(cred, "agent_id", "") if cred else ""
+        app_id = getattr(cred, "app_id", "") if cred else key
+        logger.error(
+            f"{type(self).__name__}: circuit breaker TRIPPED for {key} "
+            f"(agent={agent_id}): {deaths} consecutive deaths within "
+            f"{self.BREAKER_FAST_DEATH_SECONDS:.0f}s of starting; isolating "
+            f"for {delay:.0f}s (trip #{trips + 1}). Re-binding the "
+            f"credential clears the breaker immediately."
+        )
+        await self._audit(
+            EVENT_SUBSCRIBER_BREAKER_TRIPPED,
+            agent_id=agent_id,
+            app_id=app_id,
+            details={
+                "key": key,
+                "consecutive_fast_deaths": deaths,
+                "isolated_seconds": delay,
+                "trip_number": trips + 1,
+            },
+        )
+
+    async def _breaker_admit(self, key: str, cred: Any) -> bool:
+        """Decide whether an isolated key may start again — and record it.
+
+        Not a pure predicate: admitting clears the isolation state and writes
+        the audit row that closes the DB trail (a re-probe that left no trace
+        would read as "tripped … long silence … tripped again").
+        """
+        blocked_until = self._breaker_blocked_until.get(key)
+        if blocked_until is None:
+            return True
+        if self._credential_fingerprint(cred) != self._breaker_cred_fingerprint.get(key):
+            reason = "credential_changed"
+        elif time.monotonic() >= blocked_until:
+            reason = "backoff_expired"
+        else:
+            return False
+
+        agent_id = getattr(cred, "agent_id", "")
+        logger.info(
+            f"{type(self).__name__}: circuit breaker CLEARED for {key} "
+            f"(agent={agent_id}): {reason}"
+        )
+        await self._audit(
+            EVENT_SUBSCRIBER_BREAKER_CLEARED,
+            agent_id=agent_id,
+            app_id=getattr(cred, "app_id", "") or key,
+            details={"key": key, "reason": reason},
+        )
+        self._breaker_release(key)
+        return True
+
+    async def _note_unstartable(self, key: str, cred: Any) -> None:
+        """Report a credential the pre-flight rejected — once per state.
+
+        Logging every poll would recreate the spam the breaker exists to
+        stop, so the rejected fingerprint is remembered; a re-bind is a new
+        situation and reports again.
+        """
+        fingerprint = self._credential_fingerprint(cred)
+        if self._unstartable_fingerprint.get(key) == fingerprint:
+            return
+        self._unstartable_fingerprint[key] = fingerprint
+        agent_id = getattr(cred, "agent_id", "")
+        logger.warning(
+            f"{type(self).__name__}: credential for {key} (agent={agent_id}) "
+            f"cannot start a subscriber — skipping until it changes"
+        )
+        await self._audit(
+            EVENT_SUBSCRIBER_UNSTARTABLE,
+            agent_id=agent_id,
+            app_id=getattr(cred, "app_id", "") or key,
             details={"key": key},
         )
 
@@ -1494,6 +1790,150 @@ class ChannelTriggerBase(ABC):
         return ""
 
     # ────────────────────────────────────────────────────────────────────
+    # Managed-ingress seams (platform-held connection; start() never runs)
+    # ────────────────────────────────────────────────────────────────────
+    #
+    # Under Manyfold managed mode the platform owns the connection and the
+    # cleaning pipeline (dedup / echo / mention gate) and forwards inbound
+    # IM as chat turns (backend/routes/openai_compat.py). These seams let
+    # that ingress path reuse the trigger's per-message BUSINESS hooks —
+    # owner claim, authorization, inbox write, error fallback — without
+    # running the subscribe loops: the ingress constructs the trigger,
+    # never calls start(), and invokes before/after around the agent run.
+    # Design: specs/2026-08-03-manyfold-managed-im-ingress-design.md §3.2.
+
+    def _managed_bind(self, db) -> None:
+        """Adopt a db handle + audit repo outside start() (managed mode).
+        Mirrors start()'s first steps for the state the business hooks
+        read; idempotent."""
+        self._db = db
+        if self._audit_repo is None:
+            self._audit_repo = ChannelTriggerAuditRepository(self.channel_name, db)
+
+    async def _credential_for_agent(self, agent_id: str) -> Optional[Any]:
+        """First active credential bound to ``agent_id``, or None."""
+        try:
+            creds = await self.load_active_credentials()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: load_active_credentials failed for "
+                f"managed ingress ({type(e).__name__}: {e})"
+            )
+            return None
+        for cred in creds or []:
+            if getattr(cred, "agent_id", None) == agent_id:
+                return cred
+        return None
+
+    async def managed_before_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        is_mention: bool = True,
+    ) -> tuple[bool, str]:
+        """Business gate before a managed (platform-forwarded) run.
+
+        Default: allow. Channel subclasses override for the inbound side
+        effects that natively live in their ``_process_message`` (WeChat
+        owner claim, NarraMessenger authorization). Returning
+        ``(False, receipt)`` blocks the agent run; the receipt is streamed
+        back to the platform transcript."""
+        self._managed_bind(db)
+        return True, ""
+
+    async def managed_after_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        reply_text: str,
+        error_text: str = "",
+    ) -> None:
+        """Post-run bookkeeping for a managed inbound: error fallback when
+        the run failed before any reply, then the native inbox write and a
+        minimal audit row. Best-effort throughout — this runs after the
+        reply stream closed and must never raise."""
+        self._managed_bind(db)
+        replied = bool((reply_text or "").strip())
+        if error_text and not replied:
+            credential = await self._credential_for_agent(agent_id)
+            if credential is not None:
+                from xyz_agent_context.agent_runtime.run_collector import RunError
+
+                await self._send_error_fallback(
+                    credential,
+                    message,
+                    self.format_error_reply(
+                        RunError(
+                            error_type="managed_run_failed",
+                            error_message=error_text,
+                        )
+                    ),
+                    already_replied=False,
+                )
+        try:
+            await self._inbox_writer.write(
+                db=db,
+                agent_id=agent_id,
+                sender_id=message.sender_id,
+                sender_name=message.sender_name,
+                original_message=message.content,
+                agent_response=(reply_text or "").strip() or CHANNEL_SILENT_SENTINEL,
+                chat_id=message.chat_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                f"{type(self).__name__}: managed inbox write failed "
+                f"({type(e).__name__}: {e})"
+            )
+        await self._audit(
+            "managed_ingress_processed",
+            agent_id=agent_id,
+            message_id=message.message_id,
+            chat_id=message.chat_id,
+            sender_id=message.sender_id,
+            details={
+                "replied": replied,
+                "error": (error_text or "")[:200],
+            },
+        )
+
+    async def managed_silent_ingest(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        attachments: Optional[List[Attachment]] = None,
+    ) -> str:
+        """Memory-only ingestion for a managed non-mention group message.
+
+        Mirrors the native ``group_silent`` path: narrative routing + memory
+        write run via ``_build_and_run_agent_silent_batch``, the agent LLM
+        step is skipped, and NOTHING is sent to the room. Lives on the
+        trigger (not the ingress coordinator) so the batch-call shape stays
+        this class's private knowledge and a channel can override the
+        behaviour (e.g. opt out of silent ingestion entirely). Returns a
+        transcript receipt for the platform-facing completion."""
+        self._managed_bind(db)
+        credential = await self._credential_for_agent(agent_id)
+        if credential is None:
+            return "(silent group message dropped - no channel credential)"
+        sender_names = (
+            {message.sender_id: message.sender_name} if message.sender_id else None
+        )
+        await self._build_and_run_agent_silent_batch(
+            credential,
+            [message],
+            sender_name_by_id=sender_names,
+            attachments_by_index=[attachments] if attachments else None,
+        )
+        return "(silent group message ingested to memory - no reply)"
+
+    # ────────────────────────────────────────────────────────────────────
     # Audit helpers
     # ────────────────────────────────────────────────────────────────────
 
@@ -1540,6 +1980,13 @@ class ChannelTriggerBase(ABC):
             "queue_depth": self._task_queue.qsize(),
             "worker_count": len(self._workers),
             "subscriber_count": len(self._subscriber_tasks),
+            # Bound credentials deliberately NOT running. Carried on every
+            # beat so isolation shows up as a standing state in the DB, not
+            # only as the single row written when it tripped (lesson #4:
+            # health has to reach L2, and "process up, queue empty" hides an
+            # agent whose IM channel is quietly parked).
+            "breaker_isolated_count": len(self._breaker_blocked_until),
+            "unstartable_count": len(self._unstartable_fingerprint),
             "uptime_seconds": (
                 (int(time.time() * 1000) - self._startup_time_ms) / 1000.0
                 if self._startup_time_ms > 0 else 0.0

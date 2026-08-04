@@ -488,7 +488,11 @@ export function MainLayout() {
   }, [agentId, userId]);
 
   return (
-    <div className="h-screen flex flex-col bg-[var(--bg-deep)] relative overflow-hidden">
+    // h-dvh-safe (not h-screen): 100vh on mobile includes the space behind
+    // the browser's retractable UI, pushing the layout's bottom edge under
+    // the toolbar. The class carries a plain-vh fallback for engines
+    // without dvh (see index.css).
+    <div className="h-dvh-safe flex flex-col bg-[var(--bg-deep)] relative overflow-hidden">
       {/* Narrow global status strip — breadcrumb + connection + ⌘K */}
       <TopBar />
 

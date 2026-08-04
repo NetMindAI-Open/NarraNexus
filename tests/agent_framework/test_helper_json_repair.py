@@ -35,7 +35,7 @@ from xyz_agent_context.agent_framework.api_config import (
     set_user_config,
 )
 from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
+from xyz_agent_context.agent_framework.llm.cli_helper import HelperUsage, CliHelperSDK
 from xyz_agent_context.settings import settings
 
 
@@ -164,9 +164,9 @@ async def test_cli_repairs_on_third_attempt(monkeypatch):
     )
     monkeypatch.setattr(settings, "helper_json_repair_attempts", 3)
     replies = iter([
-        ("prose, no json", 0, 0),
-        ("```\nstill not valid\n```", 0, 0),
-        ('{"value": 7}', 0, 0),
+        ("prose, no json", HelperUsage()),
+        ("```\nstill not valid\n```", HelperUsage()),
+        ('{"value": 7}', HelperUsage()),
     ])
 
     async def fake_run_oneshot(system_prompt, user_input, model_name):
@@ -191,7 +191,7 @@ async def test_cli_repair_prompt_feeds_back_previous_reply(monkeypatch):
     )
     monkeypatch.setattr(settings, "helper_json_repair_attempts", 2)
     seen_prompts: list[str] = []
-    replies = iter([("BAD_REPLY_XYZ not json", 0, 0), ('{"value": 9}', 0, 0)])
+    replies = iter([("BAD_REPLY_XYZ not json", HelperUsage()), ('{"value": 9}', HelperUsage())])
 
     async def fake_run_oneshot(system_prompt, user_input, model_name):
         seen_prompts.append(user_input)
@@ -219,7 +219,7 @@ async def test_cli_raises_after_exhausting_attempts(monkeypatch):
 
     async def fake_run_oneshot(system_prompt, user_input, model_name):
         calls["n"] += 1
-        return ("never valid json", 0, 0)
+        return ("never valid json", HelperUsage())
 
     sdk = CliHelperSDK()
     monkeypatch.setattr(sdk, "_run_oneshot", fake_run_oneshot)
@@ -241,7 +241,7 @@ async def test_cli_no_schema_single_call(monkeypatch):
 
     async def fake_run_oneshot(system_prompt, user_input, model_name):
         calls["n"] += 1
-        return ("plain reply", 0, 0)
+        return ("plain reply", HelperUsage())
 
     sdk = CliHelperSDK()
     monkeypatch.setattr(sdk, "_run_oneshot", fake_run_oneshot)

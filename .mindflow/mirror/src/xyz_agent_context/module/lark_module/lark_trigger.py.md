@@ -1,8 +1,23 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/lark_trigger.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — secret 为空的凭据不再启动订阅器
+
+覆写基类 `should_start_subscriber` → `credential.receive_enabled()`
+（`bool(app_secret_encoded)`）。`_subscribe_loop` 里那处「重读凭据发现
+secret 空 → WARNING → return」保留（secret 可能在会话中途被清），但**已经
+处于该状态的凭据现在一次都不启动**：8/1-8/3 prod 事故就是这一行——启动、
+发现没 secret、return，~28s 一轮，四小时 1498 次。同时把
+`bot_name`/`bot_open_id` 加进 `BREAKER_VOLATILE_CREDENTIAL_FIELDS`：这两个
+字段是订阅器连上后自己回写的（`/open-apis/bot/v3/info`），留在熔断指纹里会
+被读成「owner 换绑」。详见 [[channel_trigger_base.py]] 8/4 条目。
+
+顺带：`_subscribe_loop` 里 brand_mismatch 那段注释原本用 "breaker" 指代
+「翻 auth_status 让凭据掉出 active 集合」这套机制，与基类新引入的熔断器撞
+词，改写为「未被降级出 active 集合」。
 
 ## 2026-07-31 — 遗留直调 collect_run 并入 AgentRuntimeClient seam
 

@@ -1,8 +1,19 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/anthropic_usage.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — 显式导出 uncached 桶
+
+返回值新增 `uncached_input_tokens`（= 原始 `input_tokens` 字段，即全价那一桶）。
+`input_tokens` 仍是三桶之和，语义不变。
+
+加它是因为开始有调用方要**分桶计价**（[[anthropic_helper]] / [[cli_helper]]），
+否则每个调用方都得自己写 `input - cw - cr`。那个减法一旦符号写反就是一次静默的
+10 倍误差（cache read 计价 0.1x），而且错得毫无征兆 —— 与其让三处各写一遍，
+不如在产出侧算一次。
+
 
 # anthropic_usage.py — provider-neutral Anthropic usage totals
 

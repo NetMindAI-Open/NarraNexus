@@ -1,8 +1,33 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/driver/drivers/claude_oauth.py
-last_verified: 2026-07-26
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — verify_token_live → verify_live,host-oauth 模式也真验
+
+2026-07-23 只给 oauth_token 修了"存在≠健康";host-CLI `oauth` 模式在
+user_service 里仍是无条件放行,直到 codex P0 暴露同类谎报。重命名为
+`verify_live` 并覆盖两种模式:token 模式逻辑不变;host 模式先 probe()
+(凭证文件/Keychain 存在性)快速失败、再跑同一个一发 CLI 调用——
+`build_claude_config` 本就按模式选凭证通道(token→env 注入,host→CLI
+自己的存储),一发调用天然两用。成功/失败文案改为模式无关措辞。
+
+Review 轮修正(同日,PR #224 Critical):host-oauth 一发**必须先
+staging**——to_cli_env 把 CLAUDE_CONFIG_DIR 指向隔离目录(#72 泄漏修复),
+其 .credentials.json 只有 `_stage_claude_oauth_credentials`(agent
+adapter 每次 spawn 前调)会写;不 staging 则刚 `claude login` 还没跑过
+turn 的健康凭证会被验成死的。verify_live 现与 adapter 同步 staging。
+返回改三态:executor seam(`executor_seam_active()`,BROKER_URL 或
+AGENT_EXECUTOR_URL——review 第 3 轮:只认后者在云上是死守卫)/超时/
+staging 失败/CLINotFoundError(resolve_cli_path 对无外部二进制 fail-open
+到 bundled,"起不来"不是凭证判决)→ unknown;token 缺失/probe 失败/
+CLI 拒绝(claude SDK 把 auth 失败作为进程异常抛出,与 codex 相反,
+其余异常即 dead)→ dead。**seam 守卫只罩 host-oauth**:token 模式凭证
+随 env 注入、backend 镜像有 claude CLI,控制面上验证有效(2026-07-23
+起如此),不得连坐降为 unknown。一发与 agent 同二进制:
+ClaudeAgentOptions 带 `cli_path=resolve_cli_path()`(尊重 CLAUDE_CLI_PATH
+钉版)。
 
 # claude_oauth.py — Claude subscription driver (host-CLI OAuth + setup-token)
 

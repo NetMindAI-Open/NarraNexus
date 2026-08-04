@@ -38,6 +38,7 @@ class MessageBusService(ABC):
         mentions: Optional[List[str]] = None,
         attachments: Optional[List[dict]] = None,
         event_id: Optional[str] = None,
+        sender_turn_source: Optional[str] = None,
     ) -> str:
         """
         Send a message to a channel.
@@ -52,6 +53,12 @@ class MessageBusService(ABC):
                 _bus_attachment_impl); files travel by reference, not bytes.
             event_id: events row id of the turn that produced this message
                 (agent replies posted by the trigger); None otherwise.
+            sender_turn_source: WHICH KIND of turn produced this send —
+                a WorkingSource value ("chat"/"job"/"message_bus"/…) or
+                BUS_ERRAND_TURN_SOURCE. Recipients' trigger uses it to tell
+                "being asked" from "being answered" (Owner Relay routing);
+                None when the sender's transport dropped the identity
+                headers (legacy / degraded path).
 
         Returns:
             The generated message_id.
@@ -133,6 +140,7 @@ class MessageBusService(ABC):
         content: str,
         msg_type: str = "text",
         attachments: Optional[List[dict]] = None,
+        sender_turn_source: Optional[str] = None,
     ) -> str:
         """
         Send a message directly to another agent by agent_id.
@@ -147,6 +155,8 @@ class MessageBusService(ABC):
             msg_type: The message type (default: "text").
             attachments: Optional list of bus-attachment dicts (see
                 _bus_attachment_impl); files travel by reference, not bytes.
+            sender_turn_source: WHICH KIND of turn produced this send (see
+                ``send_message``); None when unknown.
 
         Returns:
             The generated message_id.

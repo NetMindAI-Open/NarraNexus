@@ -99,8 +99,24 @@ def is_credential_error(error: Union[str, BaseException, None]) -> bool:
 # bug / unattributable" bucket stays untouched.
 SELF_SERVICEABLE_REASON_CONTEXT_WINDOW = "context_window"
 SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE = "insufficient_balance"
+SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED = "free_tier_exhausted"
 SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND = "model_not_found"
 SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS = "invalid_credentials"
+
+# Every reason that means "this credential has no money left". Consumers asking
+# that question MUST test membership, not equality against one member.
+#
+# Learned the hard way on 2026-07-30: splitting free-tier exhaustion out of
+# `insufficient_balance` silently broke two incident guards that compared against
+# the single constant — the circuit breaker stopped categorising it as QUOTA (so
+# an exhausted user retried forever) and job_trigger stopped treating it as
+# edge-only-resume (so the time backstop re-armed paused jobs every cycle, which
+# is precisely the 390-retry storm). Both were caught by existing tests; this set
+# is what keeps the NEXT such reason from re-breaking them.
+OUT_OF_CREDIT_REASONS: frozenset[str] = frozenset({
+    SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+    SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED,
+})
 
 # Exact error TYPE (exception class name / SDK enum) → reason. Kept exact to
 # avoid substring traps; broader detection is done via the markers below.
@@ -141,10 +157,27 @@ _INSUFFICIENT_BALANCE_MARKERS: tuple[Marker, ...] = (
     "exceeded your current quota",
     "payment required",
     "402 payment",  # narrowed from bare "402" (token counts etc. contain 402)
-    # LiteLLM gateway, free-tier wallet spent. This is how free-tier exhaustion
-    # reaches us now that it is a per-user budget enforced in the request path
-    # rather than a pre-run gate — routing it here is what keeps background jobs
-    # pausing (job_trigger layer 2) instead of retry-storming.
+)
+# OUR OWN LiteLLM gateway refusing a per-user budget — i.e. the free-tier wallet
+# is spent. Split out of the generic balance markers above (2026-07-30) because
+# the two conditions look identical to the user and have OPPOSITE remedies: this
+# one cannot be topped up (that route is staff-only) and its key was never in the
+# user's hands, so the generic "top up or re-paste" guidance is impossible to act
+# on. See SELF_SERVICEABLE_USER_MESSAGE.
+#
+# The marker is the whole signal, deliberately: only our gateway enforces a
+# per-user budget, and it says so in the body. Reading it here — rather than
+# inferring "is this the free-tier card" from configuration — is what keeps an
+# UPSTREAM outage honest: a dry shared upstream answers with NetMind's "balance
+# not enough", stays `insufficient_balance`, and therefore never tells the user
+# to go buy something over a failure that is ours.
+#
+# Known false positive, accepted: a user whose OWN provider is itself a LiteLLM
+# proxy with per-key budgets (custom_openai / custom_anthropic take any base_url)
+# produces the same body. The cost is misdirected advice, not a broken flow.
+# Eliminating it needs the per-slot card source, which `get_provider_source()`
+# cannot give today (providers/resolver.py hardcodes "user" for every user card).
+_FREE_TIER_BUDGET_MARKERS: tuple[Marker, ...] = (
     "budget has been exceeded",
     "exceeded budget",
     "crossed spend within budget",
@@ -198,6 +231,9 @@ _INVALID_CREDENTIALS_MARKERS: tuple[Marker, ...] = (
 # spent balance stays ``insufficient_balance``, whose remedy is the useful one).
 _SELF_SERVICEABLE_MARKERS: tuple[tuple[str, tuple[Marker, ...]], ...] = (
     (SELF_SERVICEABLE_REASON_CONTEXT_WINDOW, _CONTEXT_WINDOW_MARKERS),
+    # BEFORE the generic balance markers: "budget has been exceeded" would
+    # otherwise be swallowed by them and lose the only remedy the user can act on.
+    (SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED, _FREE_TIER_BUDGET_MARKERS),
     (SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE, _INSUFFICIENT_BALANCE_MARKERS),
     (SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND, _MODEL_NOT_FOUND_MARKERS),
     (SELF_SERVICEABLE_REASON_INVALID_CREDENTIALS, _INVALID_CREDENTIALS_MARKERS),
@@ -224,9 +260,23 @@ def classify_self_serviceable(
     ``unknown``, signal only in the folded-in stderr message).
     """
     et = (error_type or "").strip()
-    if et in _SELF_SERVICEABLE_TYPES:
-        return _SELF_SERVICEABLE_TYPES[et]
     hay = f"{et}\n{error_message or ''}".lower()
+    typed = _SELF_SERVICEABLE_TYPES.get(et)
+    if typed is not None:
+        # A type-table hit names the CATEGORY; for the out-of-credit ones the
+        # message still decides WHICH credit ran out. ``billing_error`` is an SDK
+        # enum meaning no more than "no money", so returning on it blind would
+        # hand a spent free-tier wallet the BYOK guidance (top up / switch the
+        # provider) — the very pair that is impossible for that card and the
+        # reason ``free_tier_exhausted`` exists.
+        #
+        # Scoped to OUT_OF_CREDIT_REASONS on purpose: a context-window error is
+        # not made a budget error by the word "budget" appearing in its body.
+        if typed in OUT_OF_CREDIT_REASONS and any(
+            _marker_hit(m, hay) for m in _FREE_TIER_BUDGET_MARKERS
+        ):
+            return SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED
+        return typed
     if not hay.strip():
         return None
     for reason, markers in _SELF_SERVICEABLE_MARKERS:
@@ -272,6 +322,21 @@ SELF_SERVICEABLE_USER_MESSAGE: dict[str, str] = {
         "Settings → Providers, which shows which account each key belongs to "
         "(so you top up the right one). A top-up can take a few minutes to take "
         "effect, then send the message again."
+    ),
+    # Neither of the BYOK remedies exists here, so neither is offered: the wallet
+    # is topped up only by staff (/api/admin/quota/topup), and its key was shown
+    # once to the server and never to the user. What IS available is the funnel
+    # this copy restores — the pre-2026-07-28 flow said the same thing from an
+    # HTTP 402 banner, and that trigger disappeared when the free tier became an
+    # ordinary provider card.
+    SELF_SERVICEABLE_REASON_FREE_TIER_EXHAUSTED: (
+        # Keeps the WHERE that the chat copy drops: this string also reaches
+        # surfaces with no buttons to click — a paused job's failure reason, the
+        # background-LLM alert — so it has to stand on its own.
+        "This turn could not run: your free platform credit is used up — "
+        "upgrade to Nexus Pro in Settings → Account & Subscription, or add your "
+        "own provider key and switch this Agent's slot to it in "
+        "Settings → Providers."
     ),
     SELF_SERVICEABLE_REASON_MODEL_NOT_FOUND: (
         "This turn could not run: the configured model id was rejected by the "

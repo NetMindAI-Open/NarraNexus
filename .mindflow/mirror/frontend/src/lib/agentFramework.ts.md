@@ -1,8 +1,25 @@
 ---
 code_file: frontend/src/lib/agentFramework.ts
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — `providerBacksFramework()` + `availableFrameworks()`
+
+`providerBacksFramework(prov, framework)` 是后端
+[[provider_schema]] `framework_can_drive_provider` 的孪生：protocol 门 +
+订阅凭据门。两个 agent-slot provider 下拉从 `frameworkAcceptsProtocol` 换成
+它——只查协议时，claude_oauth（anthropic）在 NexusPower 下照样可选，存得进
+库，跑起来才炸。
+
+`availableFrameworks(providers, current)` 决定框架下拉列什么：钱包里没有一张
+卡能驱动的框架是死路（选中后 provider 下拉直接空），所以隐藏。两个刻意的
+逃生口：**providers 为空不过滤**（还没加卡的用户不该面对空下拉）、
+**current 永远保留**（丢掉选中值会让 `<select>` 悄悄改指向另一个框架）。
+
+**它不查云端 staff-only 规则**（`frameworkAllowedInCloud`）：那两处选择器是
+故意把云端禁用的框架继续列出来、选中时弹解释，比悄悄变短的列表友好。两条
+规则问的是不同的问题，别合并。
 
 ## 2026-07-29 — `frameworkAllowedInCloud()`：后端云策略的前端孪生
 

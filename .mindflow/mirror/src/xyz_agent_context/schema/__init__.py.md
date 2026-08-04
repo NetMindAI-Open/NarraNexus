@@ -1,8 +1,13 @@
 ---
 code_file: src/xyz_agent_context/schema/__init__.py
-last_verified: 2026-07-30
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — 导出 `BUS_ERRAND_TURN_SOURCE`
+
+[[hook_schema]] 新增的 bus 差事延续 turn-source 章常量进公共导出面——
+trigger、context_runtime、测试都从 `xyz_agent_context.schema` 引。纯转发。
 
 ## 2026-07-29 — 移除 `AgentCliSession` 导出
 

@@ -1,8 +1,15 @@
 ---
 code_file: frontend/src/components/chat/AgentLlmConfigPanel.tsx
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 框架下拉按钱包过滤（与 ModelDefaultsSettings 同批）
+
+与 [[ModelDefaultsSettings]] 同一处改动：框架下拉走
+`availableFrameworks(bindableProviders, agentDraft.agent_framework)`，
+provider 下拉走 `providerBacksFramework`。本面板切框架仍然清本地草稿——
+per-agent 覆盖只在 Save 时落库，没有"已持久化的非法组合"这个问题。
 
 ## 2026-07-29 — 框架门禁改问谓词，NexusPower 云端放行
 

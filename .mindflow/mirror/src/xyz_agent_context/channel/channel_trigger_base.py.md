@@ -1,8 +1,79 @@
 ---
 code_file: src/xyz_agent_context/channel/channel_trigger_base.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 起不来的凭据：预检门 + 快速死亡熔断器
+
+prod 实锤（8/1-8/3）：某 agent 的 Lark App Secret 被清空后，订阅器每次启动
+即静默 `return`（不抛异常，`is_permanent_auth_failure` 永远看不见），
+watcher 无条件重启同 key → ~28s 死亡重生死循环，4h 刷 1498 次 WARNING。
+
+**两道闸，先便宜后通用**：
+
+1. `should_start_subscriber(cred)` 覆写钩子（默认 True，不做 I/O）——能只
+   看凭据就断定「连都连不上」的，一次都不启动。Lark 覆写为
+   `receive_enabled()`（secret 空即 False），本次事故因此是 0 重启 0 ERROR。
+   拒绝走 `_note_unstartable`：**按指纹去重**，一个凭据状态只报一次
+   （WARNING + `subscriber_unstartable` 审计行），换绑后重报。
+2. 熔断器——一切**事前不可知**的兜底。每 key 数连续快速死亡（存活 <
+   `BREAKER_FAST_DEATH_SECONDS`=60s），连续 `BREAKER_FAST_DEATH_THRESHOLD`
+   （3）次触发，按 `BREAKER_BACKOFF_SCHEDULE_SECONDS`（5min→30min→2h，
+   末档循环）隔离重探。与 `is_permanent_auth_failure` 互补而非替代：那条
+   路需要可识别的异常类，熔断器认的是「反复秒死」这个形状。
+
+**指纹是本设计最锋利的一处，两次都能把熔断器废掉**（review 抓出，8/4 修）：
+
+- **取样时机**：指纹必须取自「这次启动实际用的凭据」
+  （`_subscriber_start_fingerprint`，启动时落），不能取 `_subscriber_creds`
+  ——后者比本轮 poll 慢一拍，两次 poll 之间任何一次写库都会被读成换绑，
+  熔断刚跳闸就在同一轮被清除。
+- **字段范围**：必须排掉订阅器自己回写的簿记字段
+  （`BREAKER_VOLATILE_CREDENTIAL_FIELDS`，子类扩展）。Matrix 的
+  `matrix_since_token` 每次 sync 都写、Lark 连上后写 `bot_open_id`/
+  `bot_name`——不排掉就是「自己的流量把自己的熔断器清了」。
+- 兜底：指纹触发的解除走 `_breaker_release`（**保留** `_breaker_trips`
+  升档记忆），所以哪天漏排一个高频字段，代价是每档 3 次重启并继续升档，
+  而不是无限风暴。watcher 会在订阅器**仍存活**且越过 60s 快死窗口时立即
+  `_breaker_forget` 全清；判定时还必须检查 task 尚未结束，防止同轮 reap 的
+  `await` 期间产生竞态。不能要求健康订阅器先死亡才结算，否则一次成功的退避
+  恢复会永久抬高下次故障的隔离档位。
+- 默认实现仍以字段 `repr` 组成指纹，因此 auth-relevant 字段值必须跨 DB load
+  有稳定 repr；地址型对象字段必须列入 volatile，或由子类覆写成稳定编码。
+  顶层凭据对象不可 introspect 时使用常量指纹，fail-safe 保持隔离。
+
+其余不变量：健康存活（≥60s）清零 streak + trips（网络抖动不误熔断）；主动
+`_stop_subscriber` 先 pop 掉启动标记（不计死）；凭据整行消失
+`_breaker_purge_stale` 清全部五个 dict；`stop()` 一并清空（生命周期对称）。
+日志/审计：trip=ERROR 一条 + `subscriber_breaker_tripped`；每次解除（含
+退避到期重探）=INFO 一条 + `subscriber_breaker_cleared` 带 `reason`，
+DB 轨迹不留空白（教训 #5）。心跳与 `/healthz` 另外常驻上报隔离态
+（教训 #4，见 [[channel_health_server.py]]）。
+Pin: tests/channel/test_credential_breaker.py。
+
+## 2026-08-04 — 第三个 managed 缝:`managed_silent_ingest`(review)
+
+静默摄取从协调器收回本类:批量调用的形状(credential/sender 表/
+attachments_by_index)是 trigger 的私有编排知识,协调器伸手进私有方法
+= 缝要消灭的耦合;渠道也因此获得覆写点(某渠道可选择不做静默)。
+## 2026-08-03(补) — `_persist_attachment` 尾段抽到共享函数
+
+store+STT+Attachment 构造迁至
+`attachment_storage.persist_attachment_bytes`(managed ingress 转换器
+共用);trigger 保留 owner 解析 + MIME sniff。行为不变。
+
+## 2026-08-03 — managed-ingress 缝(start() 之外复用业务钩子)
+
+新增 `_managed_bind` / `_credential_for_agent` / `managed_before_run`
+/ `managed_after_run`:Manyfold 托管模式下平台持有连接与清洗,
+openai_compat 经 managed_channel_ingress 构造 trigger(不 start)并在
+run 前后调这两个缝。默认 before=放行;after=错误兜底(run 失败且无回复
+→ `_send_error_fallback` + `format_error_reply(RunError)`)+ 原生
+inbox write(无回复写 CHANNEL_SILENT_SENTINEL,与原生 extract_output
+语义一致)+ `managed_ingress_processed` 审计行(教训 #5)。
+`_managed_bind` 等价于 start() 里业务钩子所需的最小状态(_db +
+audit repo),幂等。覆写:wechat(认主)、matrix(authorize)。
 
 ## 2026-07-31 — _resolve_agent_owner 委托 AgentRepository.resolve_owner
 

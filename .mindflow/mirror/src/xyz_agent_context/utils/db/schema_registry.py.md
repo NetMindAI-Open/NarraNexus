@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/utils/db/schema_registry.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — bus_messages 增加 sender_turn_source 列
+
+可空,记录发送方那一轮的种类(owner 面 vs message_bus)。纯新增列,
+`auto_migrate` 下次启动自动加上,不改任何既有列语义(铁律 #6)。用途见
+[[message_bus_trigger]]:收件方该"答同伴"还是"回报 owner",只能靠消息级
+事实判断。
 
 ## 2026-07-31 — bus_messages.event_id (additive)
 

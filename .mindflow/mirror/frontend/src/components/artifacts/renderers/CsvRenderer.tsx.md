@@ -1,8 +1,19 @@
 ---
 code_file: frontend/src/components/artifacts/renderers/CsvRenderer.tsx
-last_verified: 2026-05-27
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — table wrapper 交出 overflow-auto，保持 auto 尺寸
+
+滑不动修复（Base recvpm05jsLg3o）定稿版：纵向和宽表横向滚动都归
+**ArtifactRenderer 的 bounded 包装盒**（列内）或 ZoomModal 外层容器
+（弹窗内），本文件的 table wrapper 摘掉 overflow-auto、保持 auto 尺寸
+——横向滚动条因此固定在视口底部而不是沉在长表内容底部。下面
+「overflow-auto 在 wrapper 不在 table 上」的 border-collapse 决策仍然
+成立，只是那个 wrapper 换成了上层的 bounded 盒；table 外面这层 div
+仍保留（padding 载体）。第一版曾在这里加 h-full 自滚，review 打回
+（弹窗内会钳成一屏），见 MarkdownRenderer.tsx.md 同日条目。
 
 ## 2026-05-27 — same Dismiss-loop fix as HtmlRenderer
 

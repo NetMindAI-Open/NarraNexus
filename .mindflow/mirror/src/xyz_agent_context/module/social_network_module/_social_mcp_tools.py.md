@@ -1,7 +1,18 @@
 ---
 code_file: src/xyz_agent_context/module/social_network_module/_social_mcp_tools.py
-last_verified: 2026-05-27
+last_verified: 2026-08-01
 ---
+
+## 2026-08-01 — get_contact_info 描述加免责与改道
+
+P1 现场模型把"问问 X 在干嘛"路由到了 `get_contact_info`——旧描述
+"Use this when you need to know how to contact a specific person" 读起来
+确实像。新描述明说:只给联系方式、**不联系任何人**、答不了"另一个 agent
+在干什么/做完没有",要真去问用 `bus_send_to_agent`。工具描述是模型选工具
+时唯一看得到的东西,所以这属于行为契约,有测试。
+
+`agent_id` 参数描述也改成"你自己的 id"(此前"拥有此社交网络的 agent 的
+ID",容易被读成可以传别人的)。
 
 ## 2026-05-27 — `search_social_network` 不再支持 `semantic`
 

@@ -240,12 +240,37 @@ class WeChatTrigger(ChannelTriggerBase):
     async def _process_message(
         self, credential: WeChatCredential, message: ParsedMessage
     ) -> None:
-        if not credential.owner_wx_id and message.sender_id and self._db:
-            mgr = WeChatCredentialManager(self._db)
-            if await mgr.claim_owner(credential.agent_id, message.sender_id):
-                # In-memory mutation so the rest of THIS turn sees the owner.
-                credential.owner_wx_id = message.sender_id
+        await self.claim_owner_if_unclaimed(credential, message.sender_id, self._db)
         return await super()._process_message(credential, message)
+
+    async def claim_owner_if_unclaimed(
+        self, credential: WeChatCredential, sender_id: str, db: Any
+    ) -> None:
+        """First-DM owner claim (CAS) — one home shared by the native inbound
+        path and the managed ingress (the claim natively lives on the receive
+        path, which the platform holds under managed mode)."""
+        if credential.owner_wx_id or not sender_id or db is None:
+            return
+        mgr = WeChatCredentialManager(db)
+        if await mgr.claim_owner(credential.agent_id, sender_id):
+            # In-memory mutation so the rest of THIS turn sees the owner.
+            credential.owner_wx_id = sender_id
+
+    async def managed_before_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        is_mention: bool = True,
+    ) -> tuple[bool, str]:
+        """Managed-mode inbound: run the owner claim the native receive path
+        would have run, then allow."""
+        self._managed_bind(db)
+        credential = await self._credential_for_agent(agent_id)
+        if credential is not None:
+            await self.claim_owner_if_unclaimed(credential, message.sender_id, db)
+        return True, ""
 
     # ── Reply-side override ──────────────────────────────────────────────
 

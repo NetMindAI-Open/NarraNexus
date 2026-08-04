@@ -11,6 +11,7 @@ Module structure (after refactoring):
     ├── module_service.py     # Module service (protocol layer)
     ├── hook_manager.py       # Hook manager
     ├── module_runner.py      # MCP runner
+    ├── _mcp_identity.py      # Caller identity for MCP tools (server-side)
     ├── _module_impl/         # Private implementation
     │   ├── loader.py         # Module loading
     │   ├── selector.py       # Module selection
@@ -28,6 +29,18 @@ Usage:
 # Base class (imported from base.py)
 # =============================================================================
 from .base import XYZBaseModule, mcp_host
+
+# Injection-side surface of caller identity. Published here so callers
+# OUTSIDE this package (context_runtime builds the per-agent mcp spec) do not
+# reach into a private module; the server-side resolution stays private.
+from ._mcp_identity import (
+    AGENT_ID_HEADER,
+    TURN_SOURCE_HEADER,
+    USER_ID_HEADER,
+    ERRAND_PEER_HEADER,
+    ERRAND_CHANNEL_HEADER,
+    agent_id_headers,
+)
 
 # =============================================================================
 # Concrete Module implementations (must be after XYZBaseModule definition)
@@ -116,6 +129,12 @@ from ._module_impl import (
 # Public API
 # =============================================================================
 __all__ = [
+    "AGENT_ID_HEADER",
+    "TURN_SOURCE_HEADER",
+    "USER_ID_HEADER",
+    "ERRAND_PEER_HEADER",
+    "ERRAND_CHANNEL_HEADER",
+    "agent_id_headers",
     # ===== Base class =====
     "XYZBaseModule",
 

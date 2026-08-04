@@ -453,8 +453,12 @@ class EventLogMeta(BaseModel):
     # None (not 0) when no cost rows exist — the UI hides the chip instead
     # of showing a misleading "$0".
     total_cost_usd: Optional[float] = None
+    # input_tokens is only the full-rate bucket; on a cache-warm run the two
+    # cache buckets below carry the bulk of what the model actually read.
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     tool_call_count: int = 0
 
 
@@ -653,12 +657,21 @@ class JobDetailResponse(BaseModel):
 
 
 # ===== Cost Schemas =====
+#
+# Token fields mirror the ledger's three mutually exclusive input buckets
+# (cost_records columns): input_tokens is ONLY the full-rate uncached bucket;
+# cache_read_tokens (0.1x) and cache_creation_tokens (1.25x) are separate.
+# On a cache-warm agent the cache buckets hold >99% of the input side, so any
+# consumer that sums just input+output is off by orders of magnitude — that
+# was the popover bug where the helper looked bigger than the main loop.
 
 class CostModelBreakdown(BaseModel):
     """Cost breakdown for a single model"""
     cost: float = 0.0
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     call_count: int = 0
 
 
@@ -667,6 +680,8 @@ class CostDailyEntry(BaseModel):
     date: str
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 class CostSummary(BaseModel):
@@ -674,6 +689,8 @@ class CostSummary(BaseModel):
     total_cost_usd: float = 0.0
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    total_cache_read_tokens: int = 0
+    total_cache_creation_tokens: int = 0
     by_model: Dict[str, CostModelBreakdown] = {}
     daily: List[CostDailyEntry] = []
 
@@ -687,6 +704,8 @@ class CostRecord(BaseModel):
     model: str
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
     total_cost_usd: float = 0.0
     created_at: Optional[str] = None
 

@@ -245,11 +245,16 @@ def create_social_network_mcp_server(port: int, get_db_client_fn, module_class) 
     @mcp.tool()
     async def get_contact_info(agent_id: str, entity_id: str) -> dict:
         """
-        Get contact information for reaching out to someone in your network.
-        Use this when you need to know how to contact a specific person.
+        Get the stored contact details (channel, email, handle) for someone
+        in your network — i.e. HOW to reach them.
+
+        This returns contact details only; it does NOT contact anyone and
+        cannot tell you what another agent is doing or whether they finished
+        a task. To actually ask another agent something, message them with
+        `bus_send_to_agent` instead — they will be triggered and reply.
 
         Args:
-            agent_id: The ID of the agent who owns this social network
+            agent_id: Your own agent id (the owner of this social network)
             entity_id: The user_id or agent_id of the person
 
         Returns:

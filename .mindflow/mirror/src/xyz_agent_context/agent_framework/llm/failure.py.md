@@ -1,8 +1,56 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/llm/failure.py
-last_verified: 2026-07-30
+last_verified: 2026-08-01
 stub: false
 ---
+
+## 2026-07-30 — 免费额度用完拆成自己的 reason + `OUT_OF_CREDIT_REASONS`
+
+`free_tier_exhausted` 从 `insufficient_balance` 里拆出来。两者对用户长得一样（都是
+「没钱了」），**补救措施却相反**：免费额度的钱包用户无法充值（`/api/admin/quota/topup`
+要 `role=staff`），key 也从未在用户手里（网关只对服务器显示一次），所以通用文案里那两条
+出路对它**物理上都做不到**。
+
+**判据是 marker，不是卡片来源**：只有我们自己的 LiteLLM 网关会执行 per-user 预算，而且它
+在报文里明说（那四个 marker 原本就分组在一起、注释写着「free-tier wallet spent」）。
+读报文而不是从配置推断，是为了让**上游故障保持诚实** —— 共享上游干了会返回 NetMind 的
+`balance not enough`，仍归 `insufficient_balance`，因此绝不会拿我们自己的故障去催用户付费。
+判定顺序放在 `insufficient_balance` **之前**（最具体优先，与本表既有约定一致）。
+
+**类型表命中后仍要看报文**（2026-08-01 补）：`classify_self_serviceable` 原本一旦命中
+`_SELF_SERVICEABLE_TYPES` 就立即返回、完全不读 message。而 `billing_error` 是 SDK 折叠出的
+枚举，语义只到「没钱了」为止 —— 报文里明写 `Budget has been exceeded` 也会被判成
+`insufficient_balance`，正好把免费额度用户推回那对做不到的建议。现在的规则是：**类型表命中
+给出「类别」，报文决定「是哪一种」** —— 命中值属于 `OUT_OF_CREDIT_REASONS` 时再跑一遍
+free-tier marker 做细化。刻意限定在这个集合内：context-window 错误不会因为正文里出现
+「budget」就变成预算错误。只有 raw-exception 路径能走到（inline 路径 error_type 塌成
+`unknown`），所以此前一直没暴露。
+
+文案里的套餐**具名 Nexus Pro**（2026-08-01，随 #222 改名），与既有「升级 Nexus Pro」用词
+一致 —— 泛称「a plan」在一个已经有确定产品名的界面里只会让人多问一句。
+
+文案分两处、刻意不同：**聊天里**（`chat.error.action.free_tier_exhausted`）走短版，因为
+[[MessageBubble]] 就在旁边给了两个按钮；**本文件这条**保留「在哪操作」的指引 —— 它还会
+到达没有按钮的地方（暂停任务的失败原因、后台 LLM 告警），必须能独立成话。
+
+已接受的误报：用户自己的 provider 若本身是带 per-key 预算的 LiteLLM 代理
+（`custom_openai` / `custom_anthropic` 接受任意 base_url），会产生同样报文而被标成免费额度
+用完。代价是建议不当，不是流程中断。彻底消除需要 per-slot 卡片来源 ——
+`get_provider_source()` 现在是粗粒度的（`providers/resolver.py` 对所有用户卡硬编码
+`"user"`），单独跟进。
+
+### `OUT_OF_CREDIT_REASONS` 存在的理由（踩过）
+
+拆分第一版**同时破了两个事故防线**，因为它们各自与那个**单个**旧常量做相等比较：
+
+- [[circuit_breaker]] 的 `_is_out_of_credit` → 不再归 QUOTA → 断路器不再暂停 →
+  **额度用尽的用户无限重试**
+- [[job_trigger]] 的 `_EDGE_ONLY_RESUME_REASONS` → 少了它就被交回时间兜底盲探 →
+  **每个周期重新拉起暂停的任务，正是 390 次重试那场风暴**
+
+两处都被既有测试抓到（它们恰好用了网关预算那条报文）。所以现在有一个规范集合，
+**问「是不是没钱了」的消费者必须做成员判定、不许与单个成员比较** —— 这是让下一个新增
+reason 不再悄悄掉出这两道防线的机制，并有测试断言这层关系本身。
 
 ## 2026-07-30 — 第四个 self-serviceable reason：`invalid_credentials`（凭据被拒 ≠ 登录过期）
 

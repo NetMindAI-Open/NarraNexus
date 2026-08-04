@@ -168,12 +168,22 @@ async def test_run_mcp_servers_async_uses_gather_not_threads(monkeypatch, fake_u
         def create_mcp_server(self):
             return fake_a
 
+        # ModuleRunner serves via the base-class wrapper (it installs
+        # caller-identity resolution); mirror it on the fake.
+        def build_instrumented_mcp_server(self):
+            return self.create_mcp_server()
+
     class _FakeModuleB:
         def __init__(self, agent_id, user_id, database_client):
             pass
 
         def create_mcp_server(self):
             return fake_b
+
+        # ModuleRunner serves via the base-class wrapper (it installs
+        # caller-identity resolution); mirror it on the fake.
+        def build_instrumented_mcp_server(self):
+            return self.create_mcp_server()
 
     monkeypatch.setattr(runner, "_resolve_modules", lambda _m: [_FakeModuleA, _FakeModuleB])
 
@@ -290,6 +300,10 @@ async def test_sigterm_stops_every_server_not_just_the_last(monkeypatch, fake_uv
         def create_mcp_server(self):
             return fakes[0]
 
+        # ModuleRunner serves via the base-class wrapper.
+        def build_instrumented_mcp_server(self):
+            return self.create_mcp_server()
+
     class _M1:
         def __init__(self, agent_id, user_id, database_client):
             pass
@@ -297,12 +311,20 @@ async def test_sigterm_stops_every_server_not_just_the_last(monkeypatch, fake_uv
         def create_mcp_server(self):
             return fakes[1]
 
+        # ModuleRunner serves via the base-class wrapper.
+        def build_instrumented_mcp_server(self):
+            return self.create_mcp_server()
+
     class _M2:
         def __init__(self, agent_id, user_id, database_client):
             pass
 
         def create_mcp_server(self):
             return fakes[2]
+
+        # ModuleRunner serves via the base-class wrapper.
+        def build_instrumented_mcp_server(self):
+            return self.create_mcp_server()
 
     modules = [_M0, _M1, _M2]
     monkeypatch.setattr(runner, "_resolve_modules", lambda _m: modules)

@@ -43,6 +43,16 @@ if TYPE_CHECKING:
     from xyz_agent_context.narrative.models import Event, Narrative
 
 
+# ctx_data.extra_data marker: stamped by MessageBusTrigger on team-room
+# turns (same MESSAGE_BUS working_source as ordinary bus turns, OPPOSITE
+# delivery contract — plain text auto-posts to the room, delivery tools are
+# forbidden by the room prompt). Consumers: context_runtime empties the
+# turn's whole expressive surface; MessageBusModule's declaration gate is a
+# second line of defense. Lives here (not in message_bus) because both
+# sides of the platform read it and schema is the shared base layer.
+BUS_TEAM_ROOM_EXTRA_KEY = "bus_team_room"
+
+
 class WorkingSource(str, Enum):
     """
     Agent execution source - Identifies the origin that triggered Agent execution
@@ -170,6 +180,22 @@ class WorkingSource(str, Enum):
             WorkingSource.CALLBACK,
             WorkingSource.SKILL_STUDY,
         )
+
+
+# Turn-source stamp for bus sends made from a MESSAGE_BUS turn that is
+# CONTINUING the sender's own errand (the batch that triggered the turn was
+# classified as a reply to an errand the sender started). Deliberately NOT a
+# WorkingSource member: it never triggers a turn — it only rides the MCP
+# identity bearer and lands in ``bus_messages.sender_turn_source`` so the
+# RECIPIENT can tell "the errand owner is asking me (again)" from "a peer is
+# answering me". Plain ``WorkingSource.MESSAGE_BUS`` on a message means the
+# sender was in a peer-ANSWERING turn; this stamp means the sender was in a
+# bus turn but still ASKING (clarifying follow-up, or fanning out to a third
+# agent). Without the distinction, a follow-up question sent from a bus turn
+# was stamped identically to an answer and the recipient relayed it to its
+# owner instead of answering the peer — P1 evt_0dcee899 recurred on exactly
+# the path the Owner-Relay directive itself recommends (2026-08-03 review).
+BUS_ERRAND_TURN_SOURCE = "message_bus_errand"
 
 
 @dataclass

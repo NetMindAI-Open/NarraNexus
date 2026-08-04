@@ -58,6 +58,16 @@
   --color-error:   var(--color-red-500);
   --color-info:    var(--color-silicon);
 
+  /* NB: there is deliberately no "on-error" token set here. Every text and
+     border token in this file assumes a PAPER ground — --text-secondary is 70%
+     ink, --border-default 22% ink — so a control placed on a solid
+     --color-error fill (the isError chat bubble) misreads with all of them, and
+     --accent-primary is worse still: ink in light mode, CREAM in dark. The fix
+     is placement, not a parallel palette. Put actions on the paper BELOW such a
+     bubble, where the ordinary Button variants work — see MessageBubble's
+     free-tier buttons, which lived inside the bubble for three rounds of
+     special-case tokens before moving out. */
+
   /* === Radius scale (Axiom #5) — "editorial" slight rounding ===
      Aligned to the Narra Agent App design ref (Narra radii: --r 3px /
      --r-lg 4px). The whole ladder is compressed from the old soft
@@ -558,6 +568,19 @@ textarea.nx-textarea:focus::-webkit-scrollbar-thumb {
   font-weight: 400;
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.82);
+}
+
+/* ============================================================================
+   Viewport-height root with dvh fallback
+   ============================================================================ */
+/* Full-viewport shells: dvh tracks the mobile browser's retractable UI so the
+   layout's bottom edge is never buried under the toolbar. The plain 100vh
+   line is the fallback for engines without dvh (Tauri declares macOS 12.0
+   minimum; WebKit only ships dvh from 12.3) — they drop the dvh declaration
+   and keep vh. Use this instead of Tailwind's h-screen/h-dvh on app shells. */
+.h-dvh-safe {
+  height: 100vh;
+  height: 100dvh;
 }
 
 /* ============================================================================

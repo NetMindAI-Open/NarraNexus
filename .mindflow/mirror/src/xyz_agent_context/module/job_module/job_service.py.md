@@ -1,7 +1,32 @@
 ---
 code_file: src/xyz_agent_context/module/job_module/job_service.py
-last_verified: 2026-07-13
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 相似标题从「静默吞掉」改为「要求确认」（W1）
+
+旧行为把 Jaccard≥0.5 的相似标题当已存在返回 success=True/is_existing——
+『Daily Weather Report』静默吸收『Daily News Report』（0.5 恰好过线），
+用户的新需求在一句成功话术后消失（2026-08-04 实测复现，且候选池按
+agent 不按 user，别人的标题也能挡你）。现契约三层：
+
+- **精确同名（同 user）→ is_existing**：不变，这是 LLM 重复调用的幂等保护。
+- **相似标题（同 user）→ `success=False + needs_confirmation + similar_job`
+  摘要**：把决定权还给用户——模型拿着摘要去问『你是指这个，还是要新建』；
+  确认后带 `confirm_new=true` 重调。绝不再假装成功。
+- **跨用户不再耦合**：候选查询 `get_active_jobs_by_agent` 新增 user_id
+  过滤，dedup 调用方必须传。
+- `confirm_new=True` 只越过相似门，不越过精确同名门。三个确定性调用方
+  （backend /complex 批量、arena provisioning、service 内部
+  `create_jobs_batch`）固定传 True——它们的标题是调用方设计的（同组子任务
+  标题天然相近），不该被防 LLM 重复的门挡住。batch 测试用两个相似兄弟
+  标题验证它们都能落库，依赖映射不会指向未创建的 instance。batch 若精确
+  同名命中已有 Job，service 返回的 instance_id 会替换预生成的 `key_to_id`；
+  后续依赖因此指向真实已有实例，而非永远不存在的占位 ID。
+
+docstring 顺带纠偏：阈值写 0.6 实为 0.5 的漂移；并写明相似度只看标题
+分词的陷阱（内容不同也会撞）与 CJK 单 token 几乎不触发的不对称性。
+测试：`tests/job_module/test_job_similar_title_dedup.py` 四条契约各一。
 
 ## 2026-07-13 — `update_job` 复活 job 时自愈调度（防僵尸）
 
@@ -30,7 +55,7 @@ Job 的创建需要同时写两张表（`module_instances` + `jobs`），还要�
 
 ## 设计决策
 
-**两层重复检测**：`create_job_with_instance()` 在真正创建前做了两次检查——先精确匹配同 `agent_id + user_id + title` 的活跃 Job，再用 Jaccard 相似度（阈值 0.5）模糊匹配标题相近的活跃 Job。两次检查都命中时返回 `is_existing=True`，不创建新 Job。这是为了应对 LLM 在多步骤请求里倾向于重复创建 Job 的问题。代价是：正常情况下两个标题相近但实际不同的 Job 会被错误合并，相似度阈值 0.5 偏保守。
+**两层重复检测**：`create_job_with_instance()` 在真正创建前做两次检查——先精确匹配同 `agent_id + user_id + title` 的活跃 Job（命中返回 `is_existing=True`，幂等保护）；再用 Jaccard 相似度（阈值 0.5，候选按 user 过滤）模糊匹配标题相近的活跃 Job——**相似命中不再静默合并，而是返回 `needs_confirmation` 要模型与用户确认**（见 2026-08-04 条）。
 
 **依赖关系与 BLOCKED 状态**：如果传入了 `dependencies`（非空列表），`ModuleInstance` 的初始状态直接设为 `BLOCKED`，由 `ModulePoller` 监听依赖项完成后激活。不会校验依赖项的 instance_id 是否真实存在——传入不存在的 ID 会导致 Job 永久卡在 BLOCKED。
 

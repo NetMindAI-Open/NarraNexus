@@ -118,14 +118,14 @@ def _is_out_of_credit(error_type: str, message: str) -> bool:
     budget wording so background jobs pause, and two lists would drift.
     """
     from xyz_agent_context.agent_framework.llm.failure import (
-        SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE,
+        OUT_OF_CREDIT_REASONS,
         classify_self_serviceable,
     )
 
-    return (
-        classify_self_serviceable(error_type, message)
-        == SELF_SERVICEABLE_REASON_INSUFFICIENT_BALANCE
-    )
+    # Membership, not equality: free-tier exhaustion is a SECOND out-of-credit
+    # reason (2026-07-30). Comparing against one member demoted it to BUSINESS —
+    # platform-alert, never a pause — i.e. an exhausted user retrying forever.
+    return classify_self_serviceable(error_type, message) in OUT_OF_CREDIT_REASONS
 
 
 def classify_agent_error(

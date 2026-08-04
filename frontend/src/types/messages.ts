@@ -113,7 +113,9 @@ export interface ErrorMessage extends BaseMessage {
    * guidance instead of a generic "turn failed". Set for two error classes,
    * both of which skip the helper-LLM fallback (never masked):
    * - error_type === 'config_actionable' (user-fixable config): switch model /
-   *   top up / fix model id.
+   *   top up / fix model id / re-paste a rejected key. 'free_tier_exhausted'
+   *   is the platform wallet specifically — neither of the balance remedies
+   *   applies to it, so MessageBubble renders its own pair of buttons.
    * - error_type === 'infra_transient' (platform-side executor infra):
    *   'executor_oom' / 'executor_unreachable' — retry / split the task.
    * Optional / open-ended for forward-compat with new reasons.
@@ -121,7 +123,9 @@ export interface ErrorMessage extends BaseMessage {
   action_reason?:
     | 'context_window'
     | 'insufficient_balance'
+    | 'free_tier_exhausted'
     | 'model_not_found'
+    | 'invalid_credentials'
     | 'executor_oom'
     | 'executor_unreachable'
     | string;
@@ -238,7 +242,9 @@ export interface ChatMessage {
   toolCalls?: AgentToolCall[];
   isError?: boolean;  // True when displaying runtime errors (rate limit, API errors, etc.)
   // Set when the turn failed an actionable way that skips the fallback:
-  // - config_actionable (user-fixable): switch model / top up / fix model id.
+  // - config_actionable (user-fixable): switch model / top up / fix model id /
+  //   re-paste a rejected key. 'free_tier_exhausted' is the platform wallet,
+  //   whose only real remedies are the plan or a provider of one's own.
   // - infra_transient (platform-side executor infra): 'executor_oom' /
   //   'executor_unreachable' — retry / split the task.
   // Carries the reason so MessageBubble renders "what you can do" guidance and
@@ -246,7 +252,9 @@ export interface ChatMessage {
   actionReason?:
     | 'context_window'
     | 'insufficient_balance'
+    | 'free_tier_exhausted'
     | 'model_not_found'
+    | 'invalid_credentials'
     | 'executor_oom'
     | 'executor_unreachable'
     | string;

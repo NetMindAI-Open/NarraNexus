@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/schema/provider_schema.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — `framework_can_drive_provider()`：订阅凭据 ↔ 框架的唯一真相源
+
+新增 `SUBSCRIPTION_AUTH_TYPES`（oauth / oauth_token）、
+`CLI_FRAMEWORK_BY_OAUTH_SOURCE`（claude_oauth→claude_code、
+codex_oauth→codex_cli）与谓词 `framework_can_drive_provider()`。
+
+**它回答的问题是「技术上能不能兑付」，不是「合不合适」**（铁律 #15 的边界）：
+订阅登录卡是**某个 CLI 的凭据**，不是通用 provider key。nexus_power 直接打
+provider HTTP API，`nexus_agent._resolve_provider` 明确拒绝 oauth/oauth_token
+——所以「NexusPower + Claude Code Login」不是"可能跑不好"，是**必然报错**。
+protocol 这一层拦不住它：claude_oauth 是 anthropic 协议，nexus_power 也收
+anthropic。
+
+`CLI_FRAMEWORK_BY_OAUTH_SOURCE` 是**显式 allow-list 且 fail-closed**：新增
+一种 OAuth 卡型如果忘了登记，它对所有框架都不可用——在绑定时报错，而不是在
+agent_loop 中途炸。api_key / bearer_token 卡完全不过这道门。
+
+前端孪生：[[agentFramework]] 的 `providerBacksFramework()`。
 
 ## 2026-07-29 — `nexus_power` 进 `AGENT_FRAMEWORK_REQUIRED_PROTOCOLS`
 

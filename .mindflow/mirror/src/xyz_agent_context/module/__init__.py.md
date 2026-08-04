@@ -1,7 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/__init__.py
-last_verified: 2026-06-22
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 导出调用者身份的注入面
+
+`AGENT_ID_HEADER` / `TURN_SOURCE_HEADER` / `USER_ID_HEADER` / `ERRAND_PEER_HEADER` /
+`ERRAND_CHANNEL_HEADER`(后两个 2026-08-03 加,承载本轮差事作用域)/
+`agent_id_headers` 经本文件导出:
+[[context_runtime]] 在包外组装 per-agent mcp spec,原先直接 import
+`._mcp_identity`(私有模块被当公共 seam 用)。服务端解析仍留私有。
+包 docstring 的目录树同批补上 `_mcp_identity.py`。
 
 > 2026-06-22：`NarramessengerModule` 加入 MODULE_MAP / `__all__`（capability
 > module，NarraMessenger gateway-poll IM channel）。

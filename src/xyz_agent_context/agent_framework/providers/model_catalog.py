@@ -235,6 +235,20 @@ _DEFAULT_MODELS: dict[tuple[str, str], list[str]] = {
         "sonnet",
         "haiku",
     ],
+    # Codex CLI OAuth cards. SINGLE SOURCE for the curated codex list:
+    # user_service.CODEX_CURATED_MODELS reads THIS entry (it used to own the
+    # constant, which left get_default_models("codex_oauth", ...) empty — so
+    # codex verify_live's "curated defaults first" guard silently fell back to
+    # the stale stored models column it was built to distrust). The ids are
+    # full model names (the codex CLI has no family aliases); update them from
+    # the codex CLI's interactive model picker — the pin test
+    # test_codex_curated_models_stay_registered_in_catalog keeps them
+    # consistent with the catalog registry.
+    ("codex_oauth", "openai"): [
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+    ],
 }
 
 # Suggested models when user adds a generic Anthropic / OpenAI provider.

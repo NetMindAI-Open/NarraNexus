@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/message_bus/local_bus.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — send_message/send_to_agent 记录发送方 turn 的种类
+
+新增可选 `sender_turn_source`,落到 `bus_messages.sender_turn_source`:
+owner 面 turn(chat/job/…)= 发送方在跑差事、这条是**提问**;`message_bus`
+= 它本来就在答同伴、这条是**回复**。[[message_bus_trigger]] 据此选给收件方
+哪条指令 —— 靠 channel 排序推断做不到,因为 DM channel 是**对称查找+复用**
+的(见本文件 `send_to_agent` 的 direct-channel 查询),opener 永远固定而
+差事是双向跑的。`_row_to_message` 同批带出该字段。
 
 ## 2026-07-31 — send_message persists event_id
 

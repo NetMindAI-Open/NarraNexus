@@ -52,11 +52,17 @@ def test_is_no_quota_failure_by_message_fallback():
     assert _is_no_quota_failure({"success": False, "error": "No provider configured. Add one in Settings."})
 
 
-def test_spent_free_tier_wallet_pauses_via_the_balance_classifier():
+def test_spent_free_tier_wallet_pauses_via_the_self_serviceable_classifier():
     """Free-tier exhaustion no longer has an error type of its own: the wallet
     lives on the gateway, which refuses the call in the request path. It must
     still reach PAUSED_NO_QUOTA — through the self-serviceable classifier, not
-    through a second bespoke marker list."""
+    through a second bespoke marker list.
+
+    Since 2026-07-30 it classifies as its own reason (`free_tier_exhausted`,
+    split off from `insufficient_balance` so the two can carry different
+    remedies). The pause gate asks only "is this self-serviceable at all", so the
+    split must not change it — an unpaused free-tier job is how the 390-retry
+    storm happened."""
     assert _is_no_quota_failure({
         "success": False,
         "error_type": "unknown",

@@ -56,6 +56,7 @@ async def _collect_server_order(monkeypatch, instances) -> list[str]:
     monkeypatch.setattr(settings, "prompt_turn_context_relocation_enabled", True)
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.agent_id = AGENT_ID
+    runtime.user_id = None  # __init__ is skipped; the identity seam reads it
     ctx = ContextData(agent_id=AGENT_ID, user_id=None, input_content="hi")
     _messages, mcp_servers, _dis, _expr = await runtime.build_input_for_framework(
         messages=[],

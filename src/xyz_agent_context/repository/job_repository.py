@@ -383,7 +383,8 @@ class JobRepository(BaseRepository[JobModel]):
     async def get_active_jobs_by_agent(
         self,
         agent_id: str,
-        limit: int = 50
+        limit: int = 50,
+        user_id: Optional[str] = None
     ) -> List[JobModel]:
         """
         Get all active Jobs under an Agent (for semantic deduplication)
@@ -393,21 +394,27 @@ class JobRepository(BaseRepository[JobModel]):
         Args:
             agent_id: Agent ID
             limit: Maximum number of results
+            user_id: When given, restrict to this creator's jobs. Dedup
+                callers MUST pass it — one user's job titles must never
+                block another user's creations (W1 2026-08-04).
 
         Returns:
             List of JobModel
         """
-        logger.debug(f"    → JobRepository.get_active_jobs_by_agent({agent_id})")
+        logger.debug(f"    → JobRepository.get_active_jobs_by_agent({agent_id}, user_id={user_id})")
 
+        user_clause = "AND user_id = %s" if user_id is not None else ""
         query = f"""
             SELECT * FROM {self.table_name}
             WHERE agent_id = %s
+              {user_clause}
               AND status IN ('pending', 'active', 'running')
             ORDER BY created_at DESC
             LIMIT %s
         """
+        params = (agent_id, user_id, limit) if user_id is not None else (agent_id, limit)
 
-        rows = await self._db.execute(query, params=(agent_id, limit), fetch=True)
+        rows = await self._db.execute(query, params=params, fetch=True)
         return [self._row_to_entity(row) for row in rows]
 
     async def update_job(

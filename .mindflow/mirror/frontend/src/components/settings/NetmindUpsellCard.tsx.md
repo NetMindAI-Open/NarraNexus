@@ -1,8 +1,17 @@
 ---
 code_file: frontend/src/components/settings/NetmindUpsellCard.tsx
-last_verified: 2026-07-18
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 套餐名统一为 "Nexus Pro"
+
+Owner 定名:面向用户的套餐名从 "NetMind Pro"/"Pro" 改为 **Nexus Pro**,
+zh/en 六个 key 一起动(planPro / badgeCancelled / cancelConfirm /
+reactivateConfirm / upsellName / upsellCardName),组件内联缺省值同步。
+注意 `planPro` 徽章和 upsell 卡标题现在是同一字符串,测试断言用
+getAllByText。后端/NetMind API 返回的 plan.name 不受影响(UI 不渲染它,
+只用 i18n)。
 
 ## 2026-07-18 — 新增 subscribed 模式（已订阅态）
 

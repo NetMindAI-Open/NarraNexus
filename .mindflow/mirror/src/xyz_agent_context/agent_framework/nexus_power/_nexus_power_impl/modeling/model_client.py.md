@@ -1,8 +1,21 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/nexus_power/_nexus_power_impl/modeling/model_client.py
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — `_price_row` 删除，价格解析下沉到 [[model_pricing]]
+
+`price_usage` 现在只做「桶 × 单价」的加法，单价从 `price_for(model)` 来。
+
+删掉的 `_price_row` 与 `model_pricing` 是**两份实现同一条规则**（input/output 单价、
+cache 读写无公布价回退 input 价、未知返回 None 逐条一致），但 id 解析不同：这份剥 route
+前缀 + 大小写不敏感，那份两者都不做。于是**同一个 model id 在两个账本里一个有价一个记 $0**
+—— `minimax/minimax-m2.5`（1416 次调用）就是这么在 helper 侧被记成免费的。
+
+合并方向是**保留这份的宽松解析**（它是对的那一半），搬进 `model_pricing`。本文件因此不再
+出现 `import litellm`，那条「必须走座位」的注释随 `_price_row` 一起删除 —— 座位约束现在由
+`model_pricing` 侧的静态测试守着。
 
 ## 2026-07-31 — 截断从字节判,不从 stop_reason 判
 

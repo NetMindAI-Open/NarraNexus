@@ -573,6 +573,9 @@ class ArenaProvisioningService:
                     job_type="scheduled",
                     trigger_config=trigger_config,
                     payload=spec["payload"],
+                    # Fixed platform specs, not an LLM guess; re-provision
+                    # idempotency rides on the exact-title check alone.
+                    confirm_new=True,
                 )
                 if not result.get("success"):
                     logger.warning(f"[arena.provision] job '{spec['title']}' failed: {result}")

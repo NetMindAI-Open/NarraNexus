@@ -211,7 +211,12 @@ export default function ArtifactZoomModal({ artifact, onClose }: Props) {
                 transform: `scale(${zoom})`,
               }}
             >
-              <ArtifactRenderer artifact={artifact} />
+              {/* bounded={false}: the renderer must overflow these fixed-
+                  height layers so the outer scroll container above carries
+                  ALL scrolling — the sizer trick depends on that overflow.
+                  A bounded renderer would clamp content to one screen and
+                  nest a second scrollbar inside the scaled layer. */}
+              <ArtifactRenderer artifact={artifact} bounded={false} />
             </div>
           </div>
         </div>

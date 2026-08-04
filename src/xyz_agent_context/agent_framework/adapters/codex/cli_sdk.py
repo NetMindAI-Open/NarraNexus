@@ -216,7 +216,19 @@ class CodexSDK:
             # this driver is a kept-importable fallback only (see
             # agent_framework/__init__.py); the registered CodexSDKv2 path
             # handles Authorization bearer headers via bearer_token_env_var.
-            _with_headers = [n for n, sp in mcp_servers.items() if sp.get("headers")]
+            # Ignore the platform's own X-NarraNexus-* headers when deciding
+            # whether to warn: every module server carries them since
+            # 2026-08-01, so counting them made this fire once per turn
+            # listing all ~16 servers. Only a USER's header being dropped is
+            # worth a line. (Same namespace convention as v2 — deliberately
+            # no import from the module package.)
+            _with_headers = [
+                n for n, sp in mcp_servers.items()
+                if any(
+                    not k.lower().startswith("x-narranexus-")
+                    for k in (sp.get("headers") or {})
+                )
+            ]
             if _with_headers:
                 logger.warning(
                     f"[CodexSDK v1] MCP headers on {_with_headers} are ignored "

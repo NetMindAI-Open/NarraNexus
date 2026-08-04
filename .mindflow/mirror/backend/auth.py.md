@@ -195,11 +195,16 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
    config or fall back to the system-default NetMind key, with quota
    gating. The resolver itself short-circuits when the feature is
    disabled (local mode / env off), so this path is transparent.
-3. Catches `QuotaExceededError` and emits HTTP 402 with
-   `error_code: QUOTA_EXCEEDED_NO_USER_PROVIDER`. The frontend
-   interceptor pattern-matches the code, not the message, and
-   surfaces a toast directing the user to configure their own
-   provider.
+3. ~~Catches `QuotaExceededError` and emits HTTP 402 with
+   `error_code: QUOTA_EXCEEDED_NO_USER_PROVIDER`.~~ **Gone since the
+   2026-07-28 wallet migration.** The pre-run quota gate was the thing
+   that raised it; once the free tier became an ordinary provider card,
+   exhaustion moved to a mid-run gateway refusal and the exception, the
+   402 and its `error_code` all ceased to exist — `git grep
+   QUOTA_EXCEEDED_NO_USER_PROVIDER` now matches only prose. The frontend
+   half (an `api.ts` interceptor dispatching a banner) survived with no
+   emitter until 2026-07-30, when it was deleted too; the funnel it used
+   to open now lives in [[MessageBubble]]'s in-chat buttons.
 
 # auth.py — JWT 认证工具与 HTTP 中间件
 

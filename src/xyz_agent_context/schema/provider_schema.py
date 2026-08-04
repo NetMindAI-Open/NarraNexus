@@ -205,3 +205,73 @@ def get_slot_required_protocols(
             AGENT_FRAMEWORK_REQUIRED_PROTOCOLS["claude_code"],
         )
     return SLOT_REQUIRED_PROTOCOLS.get(slot_name, [])
+
+
+SUBSCRIPTION_AUTH_TYPES = frozenset(
+    {AuthType.OAUTH.value, AuthType.OAUTH_TOKEN.value}
+)
+"""Auth types that carry a CLI SUBSCRIPTION credential rather than an API key.
+
+Both transports of the same thing: ``oauth`` = the CLI's own credential
+store on the host, ``oauth_token`` = a ``setup-token`` long-lived token
+env-injected at spawn. Neither can make a direct Messages /
+Chat-Completions call — only the CLI that owns the credential can spend it.
+"""
+
+
+CLI_FRAMEWORK_BY_OAUTH_SOURCE: dict[str, str] = {
+    ProviderSource.CLAUDE_OAUTH.value: "claude_code",
+    ProviderSource.CODEX_OAUTH.value: "codex_cli",
+}
+"""Subscription card -> the ONE agent framework that can spend it.
+
+A subscription login is a credential for a specific CLI, not a generic
+provider key: ``claude_oauth`` is only redeemable by the ``claude`` CLI
+(``claude_code``), ``codex_oauth`` only by the ``codex`` CLI (``codex_cli``).
+NexusPower drives the provider HTTP API itself and refuses subscription
+credentials outright (``adapters/nexus/nexus_agent._resolve_provider``), so
+it is deliberately absent from every value here.
+
+Deliberately an explicit ALLOW-list keyed by source: a new OAuth card type
+that forgets to register here is rejected for every framework, which
+surfaces at bind time as a clear error instead of at agent-loop time as a
+cryptic runtime failure.
+"""
+
+
+def framework_can_drive_provider(
+    framework: str | None,
+    *,
+    source: str,
+    auth_type: str,
+    protocol: str,
+) -> bool:
+    """Can ``framework`` actually run the AGENT slot on this provider card?
+
+    Two gates, in order:
+
+    1. Protocol — the framework's :data:`AGENT_FRAMEWORK_REQUIRED_PROTOCOLS`.
+    2. Subscription credential — a card whose ``auth_type`` is in
+       :data:`SUBSCRIPTION_AUTH_TYPES` is redeemable ONLY by the CLI
+       framework registered for its source (see
+       :data:`CLI_FRAMEWORK_BY_OAUTH_SOURCE`).
+
+    API-key / bearer-token cards pass gate 2 untouched: whether a given
+    endpoint serves a given framework well is the provider's characteristic,
+    not something the platform polices at config time (binding rule #15).
+    This function is about what is *technically redeemable*, nothing else.
+
+    Frontend twin: ``frontend/src/lib/agentFramework.ts``
+    ``providerBacksFramework()`` — keep the two in step so a picker never
+    offers a binding the writers reject.
+    """
+    allowed = get_slot_required_protocols(
+        SlotName.AGENT.value, agent_framework=framework
+    )
+    if protocol not in [p.value for p in allowed]:
+        return False
+    if auth_type in SUBSCRIPTION_AUTH_TYPES:
+        return (framework or "claude_code") == CLI_FRAMEWORK_BY_OAUTH_SOURCE.get(
+            source
+        )
+    return True

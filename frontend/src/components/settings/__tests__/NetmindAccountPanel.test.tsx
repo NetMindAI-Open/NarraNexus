@@ -280,9 +280,9 @@ test('free × healthy: reassurance shown, ZERO spend buttons, manage link collap
   expect(await screen.findByText(/Running on your NetMind/)).toBeTruthy();
   // the core UX goal: no spend CTA anywhere until the user asks
   expect(screen.queryByRole('button', { name: /Subscribe to Pro/ })).toBeNull();
-  expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeNull();
   expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
-  expect(screen.getByRole('button', { name: /Manage plan & credits/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Upgrade or top up/ })).toBeTruthy();
 });
 
 test('free × healthy: Manage opens a MODAL — Pro card leads, top-up demoted to a link (no peer choice)', async () => {
@@ -291,10 +291,10 @@ test('free × healthy: Manage opens a MODAL — Pro card leads, top-up demoted t
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
   // closed by default — no Pro card, no top-up in the DOM yet
-  expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
-  fireEvent.click(await screen.findByRole('button', { name: /Manage plan & credits/ }));
+  expect(screen.queryByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeNull();
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade or top up/ }));
   // modal shows the Pro value card as the lead action…
-  expect(screen.getByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeTruthy();
   expect(screen.getByText(/Up to 50% off/)).toBeTruthy();
   // …with top-up NOT presented as a peer button — it's a demoted link first
   expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
@@ -315,7 +315,7 @@ test('free × low: ONE promoted action — upsell card with value prop + dynamic
   expect(screen.getByText(/No platform service fee/)).toBeTruthy();
   // price pulled from getPlans (monthly_grant_usd=19, period=month→mo)
   expect(screen.getAllByText(/\$19\.00 \/ mo/).length).toBeGreaterThan(0);
-  expect(screen.getByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeTruthy();
   // top-up demoted to a link, not a peer button
   expect(screen.queryByRole('button', { name: /^Recharge$/ })).toBeNull();
   expect(screen.getByRole('button', { name: /Just need a one-time top-up/ })).toBeTruthy();
@@ -335,7 +335,7 @@ test('free × low: upsell button → api.subscribe + openExternal(checkout_url)'
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://pay/x' } });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Pro/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
   await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
   await waitFor(() => expect(mockOpenExternal).toHaveBeenCalledWith('https://pay/x'));
 });
@@ -344,7 +344,7 @@ test('free × low: plans fetch fails → upsell card still renders, price line h
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetPlans.mockRejectedValue(new Error('502'));
   render(<NetmindAccountPanel />);
-  expect(await screen.findByRole('button', { name: /Upgrade to Pro/ })).toBeTruthy();
+  expect(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeTruthy();
   expect(screen.queryByText(/\$19\.00/)).toBeNull();
 });
 
@@ -357,7 +357,7 @@ test('pro × healthy: member-pricing note, cancel hidden behind Manage', async (
   expect(await screen.findByText(/Member · valid until/)).toBeTruthy();
   expect(screen.getByText(/Member pricing active/)).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Cancel subscription/ })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Top up or manage subscription/ }));
   expect(screen.getByRole('button', { name: /Cancel subscription/ })).toBeTruthy();
 });
 
@@ -365,13 +365,14 @@ test('pro manage dialog: plan intro shown as Subscribed — perks visible, no up
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   mockGetFeeInfo.mockResolvedValue(FEE_RICH);
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
-  // Plan card in subscribed state: name + badge + perks…
-  expect(screen.getByText('NetMind Pro')).toBeTruthy();
+  fireEvent.click(await screen.findByRole('button', { name: /Top up or manage subscription/ }));
+  // Plan card in subscribed state: name + badge + perks… ("Nexus Pro" appears
+  // twice on purpose: the panel's plan badge and the card title share the name)
+  expect(screen.getAllByText('Nexus Pro').length).toBeGreaterThanOrEqual(2);
   expect(screen.getByText(/Subscribed/)).toBeTruthy();
   expect(screen.getByText(/Up to 50% off on models like OpenAI/)).toBeTruthy();
   // …but no upgrade CTA (cancel is the only plan action here).
-  expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeNull();
   // Pricing link present too (added 2026-07-18).
   expect(screen.getByRole('button', { name: /See all models & pricing/ })).toBeTruthy();
 });
@@ -382,7 +383,7 @@ test('pro × low: top-up promoted directly (no upsell — already Pro)', async (
   render(<NetmindAccountPanel />);
   expect(await screen.findByText(/grant and balance are running low/)).toBeTruthy();
   expect(screen.getByRole('button', { name: /^Recharge$/ })).toBeTruthy(); // no click needed
-  expect(screen.queryByRole('button', { name: /Upgrade to Pro/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Upgrade to Nexus Pro/ })).toBeNull();
 });
 
 // Confirmation goes through the in-app dialog (useConfirm), never
@@ -392,7 +393,7 @@ test('pro × low: top-up promoted directly (no upsell — already Pro)', async (
 // tests here stubbed window.confirm, which is precisely why that was invisible.
 // `nativeConfirm` therefore asserts absence, not a return value.
 async function openManageDialog() {
-  fireEvent.click(await screen.findByRole('button', { name: /Manage subscription & balance/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Top up or manage subscription/ }));
   fireEvent.click(screen.getByRole('button', { name: /Cancel subscription/ }));
 }
 
@@ -515,7 +516,7 @@ test('eligible=false warning still shows for pro_cancelled (no low prompt there)
 test('runway: hidden when fee fails and quota is off; plan status still shows', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   render(<NetmindAccountPanel />);
-  await screen.findByRole('button', { name: /Upgrade to Pro/ }); // load settled
+  await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }); // load settled
   expect(screen.queryByText('Current balance')).toBeNull();
   expect(screen.queryByText('Free tier')).toBeNull();
 });
@@ -748,7 +749,7 @@ test('subscribe payment lands → auto-link fires (no sign-out required)', async
   mockSubscribe.mockResolvedValue({ success: true, data: { checkout_url: 'https://stripe/x' } });
   mockUseSubscription.mockResolvedValue({ success: true });
   render(<NetmindAccountPanel />);
-  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Pro/ }));
+  fireEvent.click(await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ }));
   // First poll tick returns ACTIVE.
   mockGetSubscription.mockResolvedValue(PRO_SUB(true));
   await waitFor(() => expect(mockUseSubscription).toHaveBeenCalledTimes(1), { timeout: 5000 });
@@ -823,7 +824,7 @@ test('activity: hidden entirely when every record is pending', async () => {
     ],
   });
   render(<NetmindAccountPanel />);
-  await screen.findByRole('button', { name: /Upgrade to Pro/ });
+  await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ });
   expect(screen.queryByText(/Recent activity/)).toBeNull();
 });
 
@@ -831,7 +832,7 @@ test('activity: hidden when records fetch fails', async () => {
   mockGetSubscription.mockResolvedValue(FREE_SUB);
   mockGetRecords.mockRejectedValue(new Error('502'));
   render(<NetmindAccountPanel />);
-  await screen.findByRole('button', { name: /Upgrade to Pro/ });
+  await screen.findByRole('button', { name: /Upgrade to Nexus Pro/ });
   expect(screen.queryByText(/Recent activity/)).toBeNull();
 });
 

@@ -310,6 +310,14 @@ class LarkTrigger(ChannelTriggerBase):
     working_source = WorkingSource.LARK
     react_tool_ref = "mcp__lark_module__react_to_user_message"
 
+    # Written by the subscriber itself right after connecting (the
+    # /open-apis/bot/v3/info lookup), so they must not read as the owner
+    # re-binding when the fast-death breaker compares fingerprints.
+    BREAKER_VOLATILE_CREDENTIAL_FIELDS = (
+        ChannelTriggerBase.BREAKER_VOLATILE_CREDENTIAL_FIELDS
+        | frozenset({"bot_name", "bot_open_id"})
+    )
+
     # ── Worker pool — same defaults as the base, kept here for tests ─────
     MIN_WORKERS = 3
     WORKERS_PER_SUBSCRIBER = 2
@@ -940,6 +948,19 @@ class LarkTrigger(ChannelTriggerBase):
         """Active + logged_in Lark credentials from DB."""
         return await self._credential_manager().get_active_credentials()
 
+    def should_start_subscriber(  # type: ignore[override]
+        self, credential: LarkCredential
+    ) -> bool:
+        """No App Secret → the SDK client cannot authenticate, full stop.
+
+        ``_subscribe_loop`` re-checks this after re-reading the row (the
+        secret can be cleared mid-session), but checking here means a
+        credential that is ALREADY in that state never costs a start at all.
+        The 2026-08-01 prod incident was exactly this row: start → discover
+        the cleared secret → return, ~28s apart, 1498 times in four hours.
+        """
+        return credential.receive_enabled()
+
     # ────────────────────────────────────────────────────────────────────
     # Subscribe loop — Lark's SDK threading does not fit the base's
     # async-iterator pattern. We override entirely.
@@ -1225,8 +1246,10 @@ class LarkTrigger(ChannelTriggerBase):
             details={
                 "ran_seconds": ran_seconds,
                 "error": err_text,
-                # Empty when the write failed — the breaker did NOT trip and
-                # the watcher will keep restarting this subscriber.
+                # Empty when the write failed — the credential was NOT
+                # demoted out of the active set, so the watcher will keep
+                # restarting this subscriber (until the base's fast-death
+                # breaker isolates it).
                 "auth_status_set": (
                     "" if persist_error else AUTH_STATUS_BRAND_MISMATCH
                 ),

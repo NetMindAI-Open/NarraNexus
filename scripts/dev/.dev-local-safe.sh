@@ -223,8 +223,16 @@ tmux new-window -t "$SESSION" -n "MCP" \
 # One supervisor process runs every long-running background worker in a single
 # event loop, each as a supervised task with backoff-restart, replacing the old
 # four-window layout (Poller / Jobs / BusTrigger / ChannelTriggers).
+# NEXUS_EXTERNAL_TRIGGERS=1 mirrors run.sh's container-mode gate (binding
+# rule #7): the platform (or a local stand-in bridge) owns the clock and the
+# IM connections, so jobs/channels must not double-consume the same bots.
+SUPERVISOR_ARGS=""
+if [ "${NEXUS_EXTERNAL_TRIGGERS:-}" = "1" ]; then
+  SUPERVISOR_ARGS="--exclude jobs,channels"
+  echo "NEXUS_EXTERNAL_TRIGGERS=1 — worker supervisor excludes jobs,channels (platform-managed)"
+fi
 tmux new-window -t "$SESSION" -n "Workers" \
-  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor; echo 'Workers stopped. Press Enter to close.'; read"
+  "$ENV_CMD; echo '=== Worker Supervisor ==='; '$VENV_PY' -m xyz_agent_context.module.run_worker_supervisor $SUPERVISOR_ARGS; echo 'Workers stopped. Press Enter to close.'; read"
 
 # --- Frontend ---
 tmux new-window -t "$SESSION" -n "Frontend" \

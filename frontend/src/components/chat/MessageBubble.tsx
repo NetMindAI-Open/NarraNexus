@@ -22,10 +22,11 @@ import { Sparkles, AlertTriangle, AlertCircle, Copy, Download, Check, Loader2, F
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import type { Attachment, ChatMessage, Segment, TurnEvent } from '@/types';
 import type { EventLogToolCall, EventLogTimelineEntry, EventLogResponse } from '@/types';
 import { cn, formatDate, formatTime } from '@/lib/utils';
-import { Markdown } from '@/components/ui';
+import { Button, Markdown } from '@/components/ui';
 import { RingAvatar } from '@/components/nm';
 import { api } from '@/lib/api';
 import { segmentTurn, timelineToEvents } from '@/lib/segmentTurn';
@@ -45,9 +46,15 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, isStreaming = false, eventId, agentId, agentName }: MessageBubbleProps) {
   const { t } = useTranslation();
+  // Free-tier remedy buttons deep-link into Settings via `?tab=` (added in #211).
+  const navigate = useNavigate();
   const [showDetails, setShowDetails] = useState(false);
   const [copied, setCopied] = useState(false);
   const userId = useConfigStore((s) => s.userId);
+  // Billing exists only for a NetMind session — the routes 404 for a pure-local
+  // username user, and SettingsPage hides the Account pane on the same signal.
+  // Gates the balance-exhausted button so it can't deep-link into a blank pane.
+  const hasBilling = !!useConfigStore((s) => s.netmindToken);
   const isUser = message.role === 'user';
 
   // Lazy-loaded event log state
@@ -529,6 +536,91 @@ export function MessageBubble({ message, isStreaming = false, eventId, agentId, 
           )}
 
         </div>
+
+        {/* Free-tier exhaustion is the one reason whose remedy is not a setting
+            the user can guess at: the wallet cannot be topped up from their side
+            and its key was never theirs. So the two paths that DO exist are
+            offered as buttons. Before the free tier became an ordinary provider
+            card (2026-07-28) this funnel lived in a global HTTP-402 banner; the
+            402 disappeared with the pre-run quota gate and took the funnel with
+            it.
+
+            OUTSIDE the bubble, like the meta row below and for the same kind of
+            reason. Inside, the buttons sit on the solid --color-error fill,
+            where every control token in the app misreads: --accent-primary is
+            an ink block in light mode and CREAM in dark (a white label on it
+            vanishes), --border-default is 22% ink and disappears on red, and a
+            filled control cannot share a label color with an outlined one, so
+            the pair stops looking like a pair. Three rounds of --on-error
+            special-case tokens each fixed one of those and exposed the next.
+            On paper the ordinary Button variants just work — accent + outline
+            IS the app's primary/secondary pair — so the special case is gone. */}
+        {message.actionReason === 'free_tier_exhausted' && (
+          <div className={cn('mt-2 flex flex-wrap gap-2', isUser && 'justify-end')}>
+            <Button
+              variant="accent"
+              // /pay, not the account page: it mints the checkout session and
+              // redirects to Stripe in one hop (#223), and every degenerate case
+              // it handles — already subscribed, desktop webview, non-Power
+              // session, 401 — falls back to exactly the account page this used
+              // to point at. So the settings detour buys nothing.
+              onClick={() => navigate('/pay')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.upgradeCta', 'Get Nexus Pro')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate('/app/settings?tab=providers')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.freeTier.useOwnKey', 'Use my own provider')}
+            </Button>
+          </div>
+        )}
+
+        {/* A spent BALANCE gets its own pair: the plan, and a top-up.
+
+            It shares the plan button with the free-tier funnel but NOT "use my
+            own provider" — that one's whole premise is a user who has no card
+            of their own, which is the opposite of this user.
+
+            The second label names our DESTINATION rather than an action on
+            "your account", because `insufficient_balance` is provider-agnostic
+            by design — it fires for a DeepSeek 402, an OpenAI quota, an
+            Anthropic credit balance and the user's own NetMind account alike,
+            and nothing in the reason says which one ran dry
+            (get_provider_source is coarse: providers/resolver.py returns "user"
+            for every non-platform card). "Plans & credits" is true in all of
+            those cases; "Top up your account" would not be. The bubble text
+            still carries the full remedy, including switching providers, so
+            this adds shortcuts without narrowing the advice. */}
+        {message.actionReason === 'insufficient_balance' && hasBilling && (
+          <div className={cn('mt-2 flex flex-wrap gap-2', isUser && 'justify-end')}>
+            {/* The plan leads because it is the only remedy that also removes
+                the next interruption. Shared with the free-tier funnel on
+                purpose — same route, same words, so ONE key
+                (`chat.error.upgradeCta`) rather than two that drift: within a
+                single PR the duplicated pair had already diverged in 4 of 10
+                locales. /pay degrades to the account page for someone already
+                subscribed, so the label being off for them costs a redirect,
+                not a dead end. */}
+            <Button
+              variant="accent"
+              onClick={() => navigate('/pay')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.upgradeCta', 'Get Nexus Pro')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate('/app/settings?tab=account')}
+              className="h-8 px-3 text-xs"
+            >
+              {t('chat.error.balance.plans', 'Plans & credits')}
+            </Button>
+          </div>
+        )}
 
         {/* Meta row — pulled OUTSIDE the bubble so the bubble stays tight
             (no internal footer padding/whitespace). Time + copy/download sit

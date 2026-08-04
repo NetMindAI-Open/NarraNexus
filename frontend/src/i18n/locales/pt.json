@@ -195,7 +195,15 @@
         "generic": "Este turno não pôde ser executado devido a um problema de configuração que você pode corrigir nas Configurações. Corrija e envie novamente.",
         "executor_oom": "O ambiente de execução ficou sem memória e foi interrompido pelo sistema. Divida a tarefa em etapas menores ou reduza os módulos ativos e envie novamente.",
         "executor_unreachable": "Seu contêiner de execução está temporariamente inacessível. Normalmente se recupera em alguns segundos — reenvie esta mensagem em breve.",
-        "infra_transient": "Este turno não pôde ser executado devido a um problema temporário de execução na plataforma. Envie a mensagem novamente em instantes."
+        "infra_transient": "Este turno não pôde ser executado devido a um problema temporário de execução na plataforma. Envie a mensagem novamente em instantes.",
+        "free_tier_exhausted": "O seu crédito gratuito esgotou — faça upgrade para o Nexus Pro, ou adicione a sua própria chave de provedor e mude o slot deste Agent para ela."
+      },
+      "freeTier": {
+        "useOwnKey": "Usar o meu provedor"
+      },
+      "upgradeCta": "Obter o Nexus Pro",
+      "balance": {
+        "plans": "Planos e créditos"
       }
     },
     "dateToday": "Hoje",
@@ -1072,6 +1080,9 @@
     "popover": {
       "triggerTitle": "Uso de tokens — clique para detalhes",
       "inOut": "{{in}} entrada / {{out}} saída",
+      "cacheHit": "{{rate}}% de acertos de cache",
+      "totalCost": "{{cost}} no total",
+      "cacheDetail": "cache lido {{read}} · gravado {{write}}",
       "byModel": "Por Modelo",
       "daily": "Diário",
       "viewAgent": "Agente",
@@ -1237,6 +1248,7 @@
         "failed": "Falha na atualização ({{stage}})."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Apenas os frameworks que seus provedores conectados conseguem executar são listados.",
         "cloudFrameworkLockedTitle": "Apenas staff na nuvem",
         "cloudFrameworkLocked": "Este framework autentica-se através de um login CLI partilhado, pelo que na nuvem é exclusivo do staff. Claude Code e NexusPower-beta funcionam aqui — os restantes estão disponíveis na versão desktop local."
       }

@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_mcp_tools.py
 stub: false
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — lark_cli docstring 增补消息正文规则
+
+配合 [[_lark_command_security]] 的 @file 守卫，docstring 新增
+--text/--markdown 段：① 多词正文必须整体引号包裹（未加引号会被
+positional-arguments 拒绝）；② 这两个 flag 不读文件，禁止先 Write
+文件再引用——正文永远内联。动机：claude_code 链路模型的编程习惯
+（写文件解决问题）漏进 IM 场景，工具描述是压制它杠杆最高的 prompt 面。
 
 ## 2026-07-29 — bot identity, sensitive-scope guidance, skill list
 

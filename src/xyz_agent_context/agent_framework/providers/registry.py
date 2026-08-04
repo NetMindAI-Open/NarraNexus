@@ -588,7 +588,17 @@ class ProviderRegistry:
             (success: bool, message: str)
         """
         if provider.auth_type == AuthType.OAUTH:
-            return True, "OAuth provider (managed by Claude Code CLI)"
+            # Fail CLOSED: a transient ProviderConfig carries no driver card,
+            # so there is nothing this path can honestly verify. The old
+            # unconditional pass here is the same lie the 2026-07-31 codex P0
+            # exposed in user_service (dead CLI credentials testing green).
+            # Saved OAuth rows are verified by UserProviderService.test_provider
+            # → driver.verify_live; this transient path only ever sees api-key
+            # onboarding probes today.
+            return False, (
+                "OAuth providers cannot be verified from a transient config — "
+                "save the provider and use its Test action (live CLI check)"
+            )
 
         try:
             if provider.protocol == ProviderProtocol.OPENAI:

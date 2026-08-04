@@ -23,7 +23,7 @@ from xyz_agent_context.agent_framework.api_config import (
     set_user_config,
 )
 from xyz_agent_context.agent_framework.llm.anthropic_helper import AnthropicHelperSDK
-from xyz_agent_context.agent_framework.llm.cli_helper import CliHelperSDK
+from xyz_agent_context.agent_framework.llm.cli_helper import HelperUsage, CliHelperSDK
 from xyz_agent_context.agent_framework.llm.helper_sdk import get_helper_sdk
 from xyz_agent_context.agent_framework.adapters.openai_agents import OpenAIAgentsSDK
 
@@ -175,7 +175,7 @@ async def test_llm_function_structured(monkeypatch):
     sdk = CliHelperSDK()
 
     async def _fake_oneshot(system_prompt, user_input, model_name):
-        return '{"answer": "hi"}', 10, 5
+        return '{"answer": "hi"}', HelperUsage(input_tokens=10, output_tokens=5)
 
     monkeypatch.setattr(sdk, "_run_oneshot", _fake_oneshot)
 
@@ -196,7 +196,7 @@ async def test_llm_function_no_schema_returns_text(monkeypatch):
     sdk = CliHelperSDK()
 
     async def _fake_oneshot(system_prompt, user_input, model_name):
-        return "plain reply", 0, 0
+        return "plain reply", HelperUsage()
 
     monkeypatch.setattr(sdk, "_run_oneshot", _fake_oneshot)
     set_user_config(ClaudeConfig(), OpenAIConfig(),
@@ -210,7 +210,7 @@ async def test_llm_function_raises_when_no_json(monkeypatch):
     sdk = CliHelperSDK()
 
     async def _fake_oneshot(system_prompt, user_input, model_name):
-        return "sorry, I cannot", 0, 0
+        return "sorry, I cannot", HelperUsage()
 
     monkeypatch.setattr(sdk, "_run_oneshot", _fake_oneshot)
     set_user_config(ClaudeConfig(), OpenAIConfig(),

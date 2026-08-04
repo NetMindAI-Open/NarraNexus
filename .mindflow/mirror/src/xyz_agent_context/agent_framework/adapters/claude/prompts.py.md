@@ -1,8 +1,17 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/claude/prompts.py
-last_verified: 2026-04-10
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 新增 append_reply_reminder（不再是纯常量文件）
+
+`REPLY_REMINDER_TEMPLATE` + `append_reply_reminder(user_message, tools)`：
+把平台声明的本轮回复面（TurnInput.expressive_tools，与 NexusPower 尾部
+同一数据源）渲染成 user message 末尾的一段通用规则（只有 reply 工具送达/
+纯文本不送达/消息自带指令优先）。无声明 → 原样返回（不为未知来源
+编造回复面）。规则固定、数据逐轮变化——general 指令 + 声明式数据，
+不做 per-surface hardcode。
 # adapters/claude/prompts.py — Claude Agent SDK system prompt 的格式常量
 
 ## 为什么存在

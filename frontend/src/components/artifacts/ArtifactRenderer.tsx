@@ -48,17 +48,35 @@ const RENDERER_BY_KIND: Record<ArtifactKind, RendererComponent> = {
 
 interface Props {
   artifact: Artifact;
+  /**
+   * true (default, the column): wrap the renderer in an h-full/w-full
+   * overflow-auto box that owns ALL scrolling — the column's content box is
+   * overflow-hidden by design (drag-freeze relies on clipping) and renderer
+   * roots are auto-height, so without this bound nothing ever overflows a
+   * scrollable container and content past the first screen is clipped.
+   *
+   * false (the zoom modal): no wrapper. The modal's scale-sizer layers have
+   * fixed heights and its own outer overflow-auto container must carry the
+   * scrolling — renderers overflow it naturally, and the zoom mechanism
+   * depends on that overflow. A bounded box here would clamp content to one
+   * screen and nest a second scrollbar inside the scaled layer.
+   */
+  bounded?: boolean;
 }
 
-export default function ArtifactRenderer({ artifact }: Props) {
+export default function ArtifactRenderer({ artifact, bounded = true }: Props) {
   const { t } = useTranslation();
   const Renderer = RENDERER_BY_KIND[artifact.kind];
   if (!Renderer) {
     return <div className="p-4 opacity-60">{t('artifacts.unsupportedKind', { kind: artifact.kind })}</div>;
   }
-  return (
+  const body = (
     <Suspense fallback={<div className="p-4 opacity-60">{t('artifacts.loadingRenderer')}</div>}>
       <Renderer artifact={artifact} />
     </Suspense>
   );
+  if (!bounded) return body;
+  // h-full/w-full, NOT absolute inset-0 — absolute would need a positioned
+  // ancestor and this component's placement is the caller's concern.
+  return <div className="h-full w-full overflow-auto overscroll-contain">{body}</div>;
 }

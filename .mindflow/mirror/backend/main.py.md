@@ -1,8 +1,18 @@
 ---
 code_file: backend/main.py
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — lifespan 预热价目表（把 1.5s 同步 import 挪出 event loop）
+
+[[model_pricing]] 的表是懒加载的，这本身对多数进程是对的。但它的**首次触发点在
+`await record_cost(...)` 内部** —— `import litellm` 约 1.5s 的同步开销就落在 event loop 上，
+顿住当时所有并发 WS 帧。
+
+lifespan 里 `asyncio.to_thread(model_pricing.warm_cache)`，fire-and-forget + done callback
+（不留裸 `create_task`）。**必须是线程不是任务**：代价是同步 import，放进 task 里照样阻塞
+event loop。失败只是退回懒加载路径（旧行为），所以只 warning 不抛。
 
 ## 2026-07-31 — 无条件 reconcile → 心跳判活清扫（启动 + 周期）
 

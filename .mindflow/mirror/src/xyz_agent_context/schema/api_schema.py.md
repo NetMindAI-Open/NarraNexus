@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/schema/api_schema.py
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — Cost*/EventLogMeta 加缓存两桶字段
+
+`CostModelBreakdown` / `CostDailyEntry` / `CostRecord` / `EventLogMeta` 加
+`cache_read_tokens` / `cache_creation_tokens`,`CostSummary` 加对应 total_*。
+语义与账本列一致:`input_tokens` 只是未缓存满价桶,三桶互斥、各自计价
+(1x / 0.1x / 1.25x)。缓存热的 agent 输入侧 >99% 在缓存桶里,之前只传
+input+output 导致 popover 把 helper 显示得比主 loop 还大。默认 0,老行为
+auto_migrate 回填过不存在 NULL。生产者 [[agents/cost.py]] /
+[[agents/chat_history.py]],前端镜像类型 types/api.ts。
 
 ## 2026-07-23 — Create/UpdateAgentRequest 加写侧长度上限
 

@@ -1,8 +1,27 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/codex/official_sdk.py
 stub: false
-last_verified: 2026-07-28
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 平台自注入的 `X-NarraNexus-*` header 豁免 unsupported 告警
+
+**为什么必须豁免**:2026-08-01 起每个模块 MCP server 的 spec 都带
+`X-NarraNexus-Agent-Id`(调用者身份注入),于是这条"codex 不支持的 header"
+告警变成**每轮 codex turn 每个模块 server 一行 ≈16 行** —— 真正该被看见的
+告警(用户自己的 header 被丢掉)会被埋掉(教训 #3 的反面:别自己制造噪音)。
+
+**为什么豁免是安全的**——注意这是一条**契约**,不是既成事实:凡放进
+`X-NarraNexus-*` 的 header,都必须**同时**搭 bearer(codex 唯一会转发的
+通道),且消费方必须按缺失降级。当时这句话被同一个 commit 证伪过:
+`X-NarraNexus-Turn-Source` 一开始只走显式 header,于是 codex 侧读不到、
+依赖它的修复静默失效(见 [[_mcp_identity]] 2026-08-04 条)。现在身份与
+turn source 都搭在 bearer 上(`nx-agent:<id>~<source>`),这句才重新成立。
+**往这个命名空间加 header 的人:请一并搭上 bearer。**
+
+判据是**命名空间前缀**(`x-narranexus-`)而不是 import 一个常量:适配层
+不该反向依赖 module 包(否则每个新适配器都要抄一遍那条 import),而且以后
+新增的平台 header 自动覆盖。v1 fallback(cli_sdk.py)同批做了同样的豁免。
 
 ## 2026-07-28 — carry latest per-turn Codex usage to completion
 
@@ -53,7 +72,7 @@ codex 配置表达不了任意 HTTP 头，只支持 `bearer_token_env_var`。新
 `NARRANEXUS_MCP_BEARER_<NAME>` env（token 走子进程 env，不进 argv/config
 overrides）；`_build_codex_config_overrides` 相应发出
 `mcp_servers.<name>.bearer_token_env_var=...`。非 Bearer 头记 warning（只打键名）
-跳过。`agent_loop` 签名与 claude 驱动对齐为 `mcp_servers` spec dict。
+跳过 —— **一个例外**见 2026-08-04 条目（平台自注入的 `X-NarraNexus-*` 静默豁免，不再告警）。`agent_loop` 签名与 claude 驱动对齐为 `mcp_servers` spec dict。
 
 ## 2026-07-08 — per-run CODEX_HOME tempdir: ignore_cleanup_errors=True
 

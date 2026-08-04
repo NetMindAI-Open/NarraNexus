@@ -1,8 +1,32 @@
 ---
 code_file: src/xyz_agent_context/settings.py
-last_verified: 2026-07-29
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — free-tier thinking 安全开关支持本地 `.env`
+
+`FREE_TIER_AGENT_THINKING` 加入 `_DOTENV_PASSTHROUGH`，与同族的
+agent/helper 模型变量对齐。云上 compose 直接注入容器 env，所以不依赖这张表；
+这一项专门保证 `bash run.sh` / `make dev-backend` 从项目 `.env` 启动时，
+`free_tier_default_thinking()` 承诺的显式 `auto` 逃生口真正能被读到。
+
+## 2026-08-03 — `helper_prompt_probe_enabled`
+
+新增一个默认 `False` 的开关，控制 [[_prompt_probe]] 是否打日志。
+
+**为什么是配置项而不是常开**：它坐在每轮跑约 6 次的 helper 热路径上。留在这里而非
+硬编码，是因为它属于「按实验开关」—— 要回答的问题（那约 6 次调用之间有没有 ≥4096
+token 逐字节相同的前导，即 `claude-haiku-4-5` 的 `prompt_cache_min_tokens` 门槛）
+一旦有了结论，开关就该关回去。
+
+**为什么另一个开关不在这里**：配套的 `HELPER_PROMPT_DUMP_DIR` 只从环境变量读，没有
+进 Settings。两者的**风险级别不同**：本项只输出长度与前导切片哈希（无内容），而 dump
+会把对话原文落盘。让后者停在环境变量层，是刻意不给它一个「配置里勾一下就开」的入口。
+
+启动器侧：`scripts/dev/dev-local.sh` 会把这两个变量转发进每个 tmux 窗口 —— 不转发的
+窗口会安静地产出一次「没有任何测量」的运行，读起来像「helper 没发起调用」而不是
+「探针没开」。
 
 ## 2026-07-29 (二次) — 删除 executor_resume_hmac_secret 与 agent_loop_resume_enabled(T6)
 

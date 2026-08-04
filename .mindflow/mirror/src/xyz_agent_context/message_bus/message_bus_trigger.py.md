@@ -1,8 +1,124 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — team 房标记进 trigger_extra_data（bus_team_room）
+
+team 房与普通 bus 轮同为 working_source=MESSAGE_BUS，但交付契约相反
+（前者纯文本自动上墙、prompt 禁投递工具；后者只有工具调用才送达）。
+`_handle_channel_batch` 的 team 分支把 `team_room=is_team` 传入
+`_invoke_runtime`，后者盖进 `trigger_extra_data["bus_team_room"]` →
+`ctx_data.extra_data`，供 [[message_bus_module]] 的 expressive 声明门控
+（team 房不广告 bus 工具，避免自动上墙 + 工具调用双发）。与
+include_monologue 同形的两端钉死（tests/message_bus/test_team_room_marker.py）。
+
+## 2026-08-03 — turn-source 章记录的是「轮次种类」,不是「这条消息在问还是在答」
+
+Review round 3 抓到的复发:`sender_turn_source == "message_bus"` 被当成
+「这是回复」的充分条件,但 bus 轮次里也能**提问**——Owner Relay 指令自己就
+教发起方"有澄清问题用 bus_send_to_agent 追问"(路径 A),回答方也可能为了
+组织答案再问第三个 agent C(路径 B)。两条路径上收件方都会误判成
+Owner Relay,P1 原样复发。
+
+修成两半:
+1. **发送侧,按「这一条发给谁」盖章(不是按整轮)**:trigger 把分类器判定
+   (`i_started`)转成本轮的**差事作用域**——`_invoke_runtime` 用
+   `sender_agent_id`/`channel_id` 填
+   `trigger_extra_data["bus_errand_peer" / "bus_errand_channel"]`,经
+   [[context_runtime]] 落到 MCP identity header/bearer;工具侧
+   `_send_turn_source`(见 [[_message_bus_mcp_tools]])把**本条 send 的目标**
+   与作用域比对,只有打向差事对手的那条才盖 [[hook_schema]] 的
+   `BUS_ERRAND_TURN_SOURCE`。
+2. **收件侧兜底** `_i_have_errand_in_channel`:全批都是 plain
+   "message_bus" 章时,只有当**我自己**在此 channel 有过非
+   "message_bus" 章(或 legacy NULL)的发言——即我真的问过——才算
+   「对我差事的回复」;从没问过的 agent 不可能被欠答案(路径 B:
+   回答轮次 fan-out 给 C)。判据已下推进 SQL(`SELECT 1 … IS NULL OR <>
+   … LIMIT 1`):这条查询跑在最常见的触发路径上,而 DM channel 被对称复用、
+   永不新建,客户端全量扫描会随 agent 对的寿命单调增长。DB 失败 →
+   Owner Relay,与外层同向降级。
+
+### 为什么第 1 步必须 per-send —— 整轮盖章曾让 P1 换个位置复发
+
+第一版把整轮盖成 `message_bus_errand`。但**一轮不只包含差事**:
+`MessageBusModule.hook_data_gathering` 每轮调 `bus.get_unread`,而
+[[local_bus]] 的实现是跨**所有** channel JOIN 成员表,把别的 channel 的未读
+注进 `extra_data`;模块提示词紧接着**要求**回答它们(「A question is never
+ping-pong — answer it」)。于是「A 在差事延续轮次里顺手回答了 C 在另一个
+channel 的提问」是**平台自己注入 + 自己要求**的路径,不是角落:C 收到的回答
+被盖成提问 → C 不再向自己 owner 回报 → 正是本 PR 要修的那个失败,换了个座位
+(2026-08-03 review round 4)。只有 send 现场知道自己打给谁,所以只有 send
+现场能定章。
+
+### 已接受并写进 docstring 的残余洞(**不是**"风险已穷举")
+
+1. **旧差事**:我曾在此 channel 跑过差事,之后同伴**从回答轮次**问我一个全新
+   问题(无任何提示词引导这条路)→ 旧差事行仍投 Owner Relay 票。轮次章表达
+   不了 per-message 的问/答意图。退化 = 修复前行为。
+2. **同一 DM channel 里双向差事同时在飞**:DM channel 对称复用,若差事对手
+   **也**问了我们什么、而我们在差事延续轮次里回答了他,这条回答打的正是差事
+   作用域 → 盖成提问 → 对方去"回复同伴"而不向自己 owner 回报。要踩到得两边
+   owner 同时各派了一个指向对方的差事。**这是我们主动选的方向**:另一条路
+   (整轮盖章)破的是平台**自己引导**的场景(跨 channel 未读每轮注入 + 提示词
+   要求回答),触发频率高得多。
+3. **群 channel 当差事 channel**:作用域也按 channel 匹配,所以发进「恰好是
+   差事 channel 的群」会把每个成员的那份都盖成提问。bus 差事跑在自动建的 DM
+   channel 上,要踩到得手工建群并拿它当差事 channel。
+4. **大小写/手写章**:差事行检查用 SQL `<>` 精确比对,非我方写入器写的、大小写
+   不同的行会被算作差事行 → Owner Relay,与其它降级同向。
+
+彻底关掉 1、2 需要**逐条声明意图**(发送方每条说明"这是问还是答")——review
+提过、我们**没有采纳**:那会把一个正确性关键位重新压在模型听话上(铁律 #15:
+机器可知的事实不能取决于用户选了哪个模型)。将来要做,默认值必须是**推导**
+出来的,不能靠假设。
+
+## 2026-08-01 — Owner Relay 只发给「发起方」,被问的一方改成「回复同伴」
+
+P1 段 06 的**真正根因**,靠真机跑出来的(单测抓不到):`_build_prompt` 只要
+`owner_user_id` 存在就追加 `## Owner Relay — REQUIRED`——而它总是存在。
+于是**被问的那一方**也被告知"你的 owner 当初让你联系这个 peer,他正在
+聊天里等答案"。对收件方这是**假话**:它的 owner 什么都没问。
+
+现场后果(连跑 3 次复现):小雀替 TC 转达问题 → 羽书 收到假的 Owner Relay
+→ 调 `send_message_to_user_directly` 回给自己 owner,并认定差事已了
+(「未回复小雀 — 她是转发…按 Reply Discipline」)→ 小雀(已向用户承诺回报)
+永远等不到回复。**模型是在照做,是 prompt 在骗它。**
+
+修法(2026-08-04 定稿):按**消息上记录的事实**选指令,不再靠 channel 排序推断。
+
+发送方在 `bus_send_to_agent` 时把**自己这一轮的种类**写到消息上
+(`bus_messages.sender_turn_source`):owner 面的 turn(chat/job/…)=我在跑
+差事、这条是**提问**;`message_bus` turn = 我本来就在答同伴、这条是**回复**。
+触发侧读进来那批消息的这个字段即可,零历史查询。
+
+**两次靠 channel 排序推断都错了**,记下来别再试:
+1. 「我在这个 channel 说过话吗」—— 被问方回复一次之后就"说过话"了,**追问**
+   会翻回 Owner Relay,bug 原样复发。
+2. 「谁开的场」—— `send_to_agent` 找 DM channel 是**对称查找 + 复用**
+   (local_bus:245),所以 A 一旦 DM 过 B,opener 永远是 A;此后 B 反向跑差事
+   问 A 时**两边都判错**:A 拿到 Owner Relay(把 B 的问题转给自己 owner,
+   P1 原样复现),B 收到回复时被告知"你 owner 没在等"(不回报)。**这不是
+   罕见退化,是那一对 agent 的反向永久失效** —— 而且第 2 点里 B 那一步
+   是我这次改动**引入的回归**(改之前它会拿到 Owner Relay 并正确回报)。
+   review 抓出来的。
+
+降级顺序:字段为空(存量行)且**我从没在此 channel 发过言** → 显然是
+被问方;否则 → Owner Relay(2026-08-01 前的行为)。**注意这个降级分支本身
+就是上面第 1 种错法**,所以它只能是兜底、不能是常态:第一版 turn source
+只走显式 header 而 codex 不转发,codex 提问方于是恒走降级,追问从第 2 个
+问题起就错 —— 已通过让 turn source 搭 bearer 修掉(见 [[_mcp_identity]])。
+DB 异常同样回落 Owner Relay:错 relay 只是体验噪音,错误压掉 Owner Relay
+会让 2026-06 那个静默失败复活。
+
+`_build_prompt` 的 `i_started_this_exchange` 改成**关键字必填**:它决定给
+agent 两条互相矛盾的指令里的哪一条,漏传不该静默继承 Owner Relay。
+
+真机验证(第 4 次):羽书 改为在 bus 上回复并附状态,还自己诊断了前三次
+「我之前三次都直接回复了 TC…但 TC 似乎没看到」;小雀 随后被触发并
+「已将羽书的回复完整转达给 TC」,同时正确地没有再 ping-pong 回去。
+整条链路(发问 → 对方答 → 回报用户)闭合。
 
 ## 2026-07-31 — _get_agent_owner 委托 AgentRepository.resolve_owner
 

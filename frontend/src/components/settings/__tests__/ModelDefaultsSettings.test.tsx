@@ -222,6 +222,103 @@ test('local stays fully open and shows no note', async () => {
   ).toBeNull();
 });
 
+test('a wallet holding only a Claude Code Login offers only that framework', async () => {
+  // The reported bug: with just a `claude auth login` card, NexusPower was
+  // still offered — and picking it saved a binding that only failed mid-run
+  // (nexus_power refuses subscription credentials). Nothing else can run on
+  // that card, so nothing else is listed.
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: {
+      providers: {
+        p_login: {
+          provider_id: 'p_login',
+          name: 'Claude Code (OAuth)',
+          source: 'claude_oauth',
+          protocol: 'anthropic',
+          auth_type: 'oauth',
+          is_active: true,
+          models: ['opus', 'haiku'],
+        },
+      },
+      slots: {},
+    },
+  });
+  await renderLoaded();
+
+  const select = frameworkSelect();
+  expect(
+    [...select.querySelectorAll('option')].map((o) => o.value),
+  ).toEqual(['claude_code']);
+  expect(
+    screen.getByText(/Only the frameworks your connected providers can actually run/),
+  ).toBeInTheDocument();
+  // ...and the login card is still selectable for the agent slot itself.
+  expect(screen.getAllByRole('option', { name: 'Claude Code (OAuth)' }).length)
+    .toBeGreaterThan(0);
+});
+
+test('a mixed wallet keeps every framework listed and shows no note', async () => {
+  await renderLoaded();
+
+  expect(
+    [...frameworkSelect().querySelectorAll('option')].map((o) => o.value),
+  ).toEqual(['claude_code', 'codex_cli', 'nexus_power']);
+  expect(
+    screen.queryByText(/Only the frameworks your connected providers can actually run/),
+  ).toBeNull();
+});
+
+test('switching framework drops the binding only when the backend cleared it', async () => {
+  // The backend unbinds a provider the new framework can't drive and says so
+  // via `slot_cleared`; a binding both frameworks can drive must survive, so
+  // the editor mirrors that answer instead of clearing optimistically.
+  mockGetProviders.mockResolvedValue({
+    success: true,
+    data: {
+      providers: PROVIDERS,
+      slots: { agent: { config: { provider_id: 'p_own', model: 'claude-opus-4-8' } } },
+    },
+  });
+  mockSetAgentFramework.mockResolvedValue({
+    success: true,
+    data: {
+      framework: 'nexus_power',
+      probe: { ok: true, detail: '' },
+      install: null,
+      slot_cleared: false,
+    },
+  });
+  await renderLoaded();
+
+  const providerSelect = screen.getAllByRole('combobox')[1] as HTMLSelectElement;
+  const save = screen.getByRole('button', {
+    name: 'pages.settings.modelDefaults.saveDefaults',
+  });
+  expect(providerSelect.value).toBe('p_own');
+  fireEvent.change(frameworkSelect(), { target: { value: 'nexus_power' } });
+  await waitFor(() => expect(mockSetAgentFramework).toHaveBeenCalledWith('nexus_power'));
+  // nexus_power drives that anthropic key fine — the pick survives.
+  expect(providerSelect.value).toBe('p_own');
+  expect(save).toBeDisabled();
+
+  // codex_cli can't: the backend unbinds and reports it. The draft AND the
+  // saved-state snapshot both drop it, so the form doesn't come back dirty
+  // with an empty provider the user never touched.
+  mockSetAgentFramework.mockResolvedValue({
+    success: true,
+    data: {
+      framework: 'codex_cli',
+      probe: { ok: true, detail: '' },
+      install: null,
+      slot_cleared: true,
+    },
+  });
+  fireEvent.change(frameworkSelect(), { target: { value: 'codex_cli' } });
+  await waitFor(() => expect(providerSelect.value).toBe(''));
+  expect(save).toBeDisabled();
+});
+
 test('cloud non-staff can select the free-tier card in both slots', async () => {
   // The bug this pins: `p.source !== 'netmind'` was inlined in four filters,
   // so when the free tier gained its own source the card was registered,

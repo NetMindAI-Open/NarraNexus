@@ -42,6 +42,9 @@ from xyz_agent_context.agent_framework.adapters.claude.transcript import (
     prepare_transcript,
     remove_transcript,
 )
+from xyz_agent_context.agent_framework.adapters.claude.prompts import (
+    append_reply_reminder,
+)
 from xyz_agent_context.agent_framework.adapters.materializer import (
     assemble_argv_prompt,
     split_for_argv,
@@ -706,6 +709,17 @@ class ClaudeAgentSDK:
         # moved mid-turn.
         base_system_prompt, history_entries, this_turn_user_message = (
             split_for_argv(messages)
+        )
+
+        # Reply-surface reminder — the platform's declared delivery tools for
+        # THIS turn's origin (TurnInput.expressive_tools), rendered at the end
+        # of the user message. NexusPower repeats this rule per step next to
+        # the generation point; the CLI's closest equivalent seam is here.
+        # Rides only the live prompt input — never the transcript/history, so
+        # it cannot accumulate across turns. Empty declaration (team rooms,
+        # unknown surface) leaves the message untouched.
+        this_turn_user_message = append_reply_reminder(
+            this_turn_user_message, kwargs.get("expressive_tools")
         )
 
         # Author the transcript ourselves rather than depending on the CLI still

@@ -41,6 +41,12 @@ class BusMessage(BaseModel):
     # events row id of the turn that produced this message (set by the trigger
     # on agent replies). None for user messages and legacy rows.
     event_id: Optional[str] = None
+    # WHICH KIND of turn produced this message — "chat"/"job"/… (the sender
+    # was running an errand for its owner, so this is a QUESTION) vs
+    # "message_bus" (the sender was answering a peer, so this is a REPLY).
+    # MessageBusTrigger selects the recipient's directive from it. None on
+    # legacy rows and on adapters that cannot forward the injected header.
+    sender_turn_source: Optional[str] = None
     created_at: Any = None
 
 

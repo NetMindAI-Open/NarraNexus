@@ -1,8 +1,14 @@
 ---
 code_file: backend/integrations/arena/arena_provisioning_service.py
-last_verified: 2026-06-23
+last_verified: 2026-08-04
 stub: false
 ---
+
+## 2026-08-04 — 预置 job 创建带 confirm_new=True（W1）
+
+ARENA_JOBS 是固定平台规格，不是 LLM 的猜测；重复预置的幂等由精确同名
+门保证。相似判重门（防 LLM 重复创建）对确定性代码只有误伤面——两个
+规格标题若分词相近，旧行为会静默漏建其一。显式跳过。
 
 ## 2026-06-23 — owner-email binding step
 

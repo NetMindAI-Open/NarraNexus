@@ -195,7 +195,15 @@
         "generic": "Ce tour n'a pas pu s'exécuter en raison d'un problème de configuration réparable dans les paramètres. Corrigez, puis renvoyez.",
         "executor_oom": "L'environnement d'exécution a manqué de mémoire et a été arrêté par le système. Divisez la tâche en étapes plus petites ou réduisez les modules actifs, puis renvoyez.",
         "executor_unreachable": "Votre conteneur d'exécution est temporairement injoignable. Il récupère généralement en quelques secondes — veuillez renvoyer ce message sous peu.",
-        "infra_transient": "Ce tour n'a pas pu s'exécuter en raison d'un problème d'exécution temporaire côté plateforme. Veuillez renvoyer le message dans un instant."
+        "infra_transient": "Ce tour n'a pas pu s'exécuter en raison d'un problème d'exécution temporaire côté plateforme. Veuillez renvoyer le message dans un instant.",
+        "free_tier_exhausted": "Votre crédit gratuit est épuisé — passez à Nexus Pro, ou ajoutez votre propre clé de fournisseur et basculez le slot de cet Agent dessus."
+      },
+      "freeTier": {
+        "useOwnKey": "Utiliser mon fournisseur"
+      },
+      "upgradeCta": "Passer à Nexus Pro",
+      "balance": {
+        "plans": "Forfaits et crédits"
       }
     },
     "dateToday": "Aujourd'hui",
@@ -1072,6 +1080,9 @@
     "popover": {
       "triggerTitle": "Utilisation des tokens — cliquez pour les détails",
       "inOut": "{{in}} entrée / {{out}} sortie",
+      "cacheHit": "{{rate}} % de cache",
+      "totalCost": "{{cost}} au total",
+      "cacheDetail": "cache lu {{read}} · écrit {{write}}",
       "byModel": "Par modèle",
       "daily": "Quotidien",
       "viewAgent": "Agent",
@@ -1237,6 +1248,7 @@
         "failed": "Échec de la mise à jour ({{stage}})."
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "Seuls les frameworks que vos fournisseurs connectés peuvent réellement exécuter sont listés.",
         "cloudFrameworkLockedTitle": "Réservé au staff dans le cloud",
         "cloudFrameworkLocked": "Ce framework s'authentifie via une connexion CLI partagée : dans le cloud, il est réservé au staff. Claude Code et NexusPower-beta fonctionnent tous deux ici — les autres sont disponibles dans la version desktop locale."
       }

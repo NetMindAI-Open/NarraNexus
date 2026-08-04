@@ -12,12 +12,14 @@ implement this via a DUFS WebDAV sidecar; we don't want to ship DUFS
 in the NarraNexus image (extra binary, supervisord plumbing, port
 allocation), so we implement just the read paths in FastAPI directly.
 
-Write operations (mkdir / write / mv / rm) are deliberately NOT exposed
-— files in this workspace are produced by the agent's own tools, not
-something a Manyfold user should mutate from the outside. The matching
-Manyfold-side client (`NarraNexusFilesClient`) refuses write calls so
-they 405 here at the routing layer for free; we'd rather have the
-405 than silently let the UI succeed-then-confuse.
+Write surface (2026-08-03, managed-attachment design §Q7): exactly ONE
+write endpoint — ``POST .../files/write`` — added so the platform's
+chat-attachment ingest can land inbound files inside the agent
+workspace (it is the missing half of the attachment channel; the
+platform's ``narraNexusCtx`` wires its ``write`` here and flips
+``chatCapabilitiesByFramework.narranexus.attachments``). mkdir / mv /
+rm stay unexposed: workspace mutation beyond dropping attachment bytes
+remains the agent's own business.
 
 Registered only when ``ENABLE_MANYFOLD_API=1`` (see ``backend/main.py``).
 Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
@@ -25,6 +27,7 @@ Auth: same gateway-token middleware as the rest of ``/manyfold/...``.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
@@ -337,3 +340,85 @@ async def read_file(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# POST /manyfold/agents/{agent_id}/files/write — attachment ingest landing
+# ---------------------------------------------------------------------------
+
+# Defensive cap mirroring the platform's own per-file chat-upload limit
+# order of magnitude; the platform enforces its caps before sending, this
+# is the second line.
+_MAX_WRITE_BYTES = 64 * 1024 * 1024
+
+
+@router.post("/manyfold/agents/{agent_id}/files/write")
+async def write_file(
+    agent_id: str,
+    request: Request,
+    path: str = Query(..., description="workspace-relative destination path"),
+    overwrite: bool = Query(
+        False,
+        description=(
+            "Passing true authorizes replacing an existing file at path. "
+            "Default false: this is the API's only write door, and a caller "
+            "naming a colliding path should mean it (attachment ingest "
+            "writes unique per-message directories, so collisions there "
+            "are retries, not accidents)."
+        ),
+    ),
+):
+    """Write the request body's raw bytes to ``path`` inside the agent
+    workspace (parents created). The single write surface of this API —
+    exists so the platform's chat-attachment ingest can land inbound IM /
+    UI files for the agent to Read (managed-attachment design §Q7).
+
+    Same guard rails as the read endpoints: gateway auth, workspace-scoped
+    ``_safe_resolve`` (403 on escape), plus a size cap enforced WHILE
+    streaming the body (a over-cap upload is rejected at the boundary, not
+    after buffering it into memory). Returns the workspace-relative path
+    so the caller can reference it on the wire.
+    """
+    _require_manyfold_auth(request)
+    workspace, _user_id = await _resolve_workspace_root(agent_id)
+    root = workspace.resolve(strict=False)
+    target = _safe_resolve(workspace, path)
+    if target == root:
+        raise HTTPException(
+            status_code=400,
+            detail="path must name a file inside the workspace, not the root",
+        )
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > _MAX_WRITE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"body too large: exceeds {_MAX_WRITE_BYTES} bytes"
+                ),
+            )
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    if target.exists() and target.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail=f"path is a directory: {path!r}",
+        )
+    if target.exists() and not overwrite:
+        raise HTTPException(
+            status_code=409,
+            detail=f"file exists and overwrite=false: {path!r}",
+        )
+
+    def _write() -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+
+    await asyncio.to_thread(_write)
+    rel = str(target.relative_to(root))
+    logger.info(
+        f"[manyfold-files:{agent_id}] wrote {len(body)} bytes to {rel!r}"
+    )
+    return {"ok": True, "path": rel, "size": len(body)}

@@ -767,8 +767,14 @@ async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_c
     total_cost_usd: Optional[float] = None
     input_tokens = 0
     output_tokens = 0
+    # The two cache buckets travel separately: input_tokens is only the
+    # full-rate bucket, and on a cache-warm run the cache columns hold the
+    # bulk of what the model actually read (same split as /costs).
+    cache_read_tokens = 0
+    cache_creation_tokens = 0
     cost_rows = await db_client.execute(
-        "SELECT model, input_tokens, output_tokens, total_cost_usd "
+        "SELECT model, input_tokens, output_tokens, "
+        "cache_read_input_tokens, cache_creation_input_tokens, total_cost_usd "
         "FROM cost_records WHERE event_id = %s",
         (event_row.get("event_id"),),
         fetch=True,
@@ -779,6 +785,8 @@ async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_c
             models.append(model)
         input_tokens += int(row.get("input_tokens") or 0)
         output_tokens += int(row.get("output_tokens") or 0)
+        cache_read_tokens += int(row.get("cache_read_input_tokens") or 0)
+        cache_creation_tokens += int(row.get("cache_creation_input_tokens") or 0)
         total_cost_usd = (total_cost_usd or 0.0) + float(row.get("total_cost_usd") or 0.0)
 
     final_output = event_row.get("final_output")
@@ -796,5 +804,7 @@ async def _build_event_meta(db_client, event_row: Dict[str, Any], *, tool_call_c
         total_cost_usd=total_cost_usd,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_creation_tokens=cache_creation_tokens,
         tool_call_count=tool_call_count,
     )

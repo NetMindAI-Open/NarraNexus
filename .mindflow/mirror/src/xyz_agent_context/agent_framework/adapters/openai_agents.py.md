@@ -1,8 +1,24 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/adapters/openai_agents.py
-last_verified: 2026-07-21
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — 接上 [[_prompt_probe]]（默认关闭的诊断挂点）
+
+`_run_agent` 在 `self._resolve_model(model)` 之后调一次 `_probe_emit("openai",
+model_name, instructions, user_input)`。**无行为变化** —— 探针默认关闭，且门在做任何
+哈希/栈回溯之前就判掉。
+
+**为什么挂在这里而不是别处**：这是本 SDK 唯一一个同时握有「最终 model_name」和
+「instructions / user_input 各自的原文」的点。二者必须同时在手才有意义 —— 探针要回答的
+问题是那约 6 次 helper 调用有没有 ≥4096 token 的相同前导，而
+`instance_decision` 把 85 字符常量当 instructions、18K 全塞 user_input 这个事实，
+只有看到这个切分才暴露得出来（`instructions` 映射到 `system`，所以「给 system 加
+cache_control」实际会去缓存那 85 个字符）。三个 helper SDK 各在自己的同类位置挂一次。
+
+import 是**模块级**的，与 [[cli_helper]] / [[anthropic_helper]] 一致。初版写成函数内
+import，实测 `llm._prompt_probe` 与本模块之间无循环依赖，纯属不一致，已统一。
 
 ## 2026-07-21 — 新增对外共享的 `json_repair_note()`(Lark bug #2)
 

@@ -83,6 +83,7 @@ _DOTENV_PASSTHROUGH = {
     "FREE_TIER_GATEWAY_OPENAI_BASE_URL",
     "FREE_TIER_AGENT_MODEL",
     "FREE_TIER_HELPER_MODEL",
+    "FREE_TIER_AGENT_THINKING",
     # Where transcription goes for a free-tier user. The proxy holds the
     # operator's STT credential; we only ever send the user's wallet key.
     "FREE_TIER_STT_PROXY_URL",
@@ -183,6 +184,15 @@ class Settings(BaseSettings):
     # schema-divergent JSON on the first try, especially for complex nested
     # schemas on Haiku; a bounded repair retry recovers most of these.
     helper_json_repair_attempts: int = 3
+    # Log the SHAPE of every helper prompt — lengths plus leading-slice hashes,
+    # no content. Off by default; this sits on the hot path of a call that runs
+    # ~6 times per turn. Turned on to answer whether those calls share a
+    # byte-identical head long enough to cache (claude-haiku-4-5 will not cache
+    # a prefix under 4096 tokens, so "some repetition" is not sufficient).
+    # Pair with HELPER_PROMPT_DUMP_DIR to also write the exact payloads, which
+    # upgrades the bracketed answer to an exact longest-common-prefix — that
+    # one writes conversation content to disk, so it is a separate opt-in.
+    helper_prompt_probe_enabled: bool = False
 
     # ===== Database =====
     database_url: Optional[str] = None

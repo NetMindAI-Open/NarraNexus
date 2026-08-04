@@ -1,8 +1,30 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/narramessenger_module.py
 stub: false
-last_verified: 2026-07-31
+last_verified: 2026-08-04
 ---
+
+## 2026-08-04 — 过滤精确化 + `_is_nm_turn` 去重(review)
+
+托管声明过滤从子串改 `endswith("__narra_reply")`(未来 narra_reply_*
+兄弟工具不再连坐);来源判定抽 `_is_nm_turn`,get_instructions 与
+get_expressive_tools 共用。
+## 2026-08-03 — `get_expressive_tools` 增加可选 ctx_data(按来源声明)
+
+回复面声明可按 turn 来源变化——声明面绝不能列出本回合无法投递的死工具
+(那是喂给模型的错误信息,弱模型遇声明/指令冲突时常以"写成文字"收场)。
+首个消费者:narramessenger 托管回合剔除 trigger 捕获式的 narra_reply,
+只声明 narra_send。无 ctx 调用方(测试/旧路径)行为不变。
+
+## 2026-08-03 — 托管来源回合的回复指令切 `narra_send`
+
+`build_extra_data` 透传 `managed_ingress`(来自 openai_compat 分流的
+trigger_extra_data);`get_instructions` 对 NARRAMESSENGER 来源 + managed
+的回合渲染 `_managed_reply_action_block`——指令 agent 用
+`narra_send(room_id=…, text=…)` 直发并明确禁用 `narra_reply`(它是
+trigger 捕获式标记,托管模式 MatrixTrigger 不跑,调了等于静默丢失,
+7-30 P8 的一半根因)。原生来源回合与 proactive 分支不变。回复分类侧
+无需改动:MessageSource 注册的提取器本就覆盖 narra_send。
 
 ## 2026-07-31 — 回复契约:投递面由平台声明(expressive seam)
 

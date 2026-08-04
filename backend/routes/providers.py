@@ -1038,7 +1038,7 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
 
     service = await _get_service()
     try:
-        await service.set_user_agent_framework(uid, body.framework)
+        slot_cleared = await service.set_user_agent_framework(uid, body.framework)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -1049,6 +1049,11 @@ async def set_agent_framework(request: Request, body: SetAgentFrameworkRequest):
             "framework": body.framework,
             "probe": probe,
             "install": install_result,  # null for claude_code, dict for codex_cli
+            # True when the previously bound provider cannot back the new
+            # framework (a CLI-subscription card, or the wrong protocol) and
+            # was therefore unbound. The editor reports it instead of leaving
+            # a provider on screen that is no longer stored.
+            "slot_cleared": slot_cleared,
         },
     }
 

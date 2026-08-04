@@ -703,6 +703,19 @@ def register_lark_mcp_tools(mcp: Any) -> None:
         Do NOT add `--profile` or `--format json` — both are injected /
         forbidden by shortcut commands.
 
+        Message content (`--text` / `--markdown`) — the flag's VALUE is the
+        literal message body:
+          - Multi-word content MUST be ONE quoted argument:
+            `im +messages-send --chat-id oc_x --markdown "line one\\n\\nline two" --as bot`.
+            Unquoted spaces split into positional args and the command is
+            rejected.
+          - These flags do NOT read files. `--markdown @reply.md` would
+            deliver the literal string "@reply.md" to the human. Never
+            Write the message to a file first — always inline the full
+            content in the command string, however long. (This rule is
+            about `im +messages-*`; `docs` content flags keep their own
+            `--content @relative/path` file convention.)
+
         On failure:
           - "missing_scope: X": recovery depends on whether X is a
             bot-identity or user-identity scope, and the system prompt's

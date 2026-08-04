@@ -206,23 +206,6 @@ class ApiClient {
           window.dispatchEvent(new CustomEvent('narranexus:auth-expired'));
         }
       }
-      // System free-tier quota exhausted: dispatch a global event so
-      // any listener (App shell, dedicated toast, etc.) can surface it.
-      // Using CustomEvent keeps api.ts UI-framework-agnostic.
-      if (response.status === 402) {
-        try {
-          const body = await response.clone().json();
-          if (body?.error_code === 'QUOTA_EXCEEDED_NO_USER_PROVIDER') {
-            window.dispatchEvent(
-              new CustomEvent('narranexus:quota-exceeded', {
-                detail: body,
-              })
-            );
-          }
-        } catch {
-          // ignore parse errors; still throw below
-        }
-      }
       // Extract the FastAPI HTTPException `detail` field so callers get
       // an actionable message ("Cannot add another user's agent") instead
       // of just "API error: 403 Forbidden". Falls back to the status
@@ -1283,6 +1266,9 @@ class ApiClient {
         action: 'already_installed' | 'auto_installed' | 'blocked' | 'install_failed';
         reason: string;
       } | null;
+      /** The bound agent provider couldn't back the new framework and was
+       *  unbound server-side — the editor has to drop it from its draft. */
+      slot_cleared: boolean;
     };
   }> {
     return this.request(`/api/providers/agent-framework`, {

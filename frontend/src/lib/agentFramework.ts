@@ -144,6 +144,80 @@ export function frameworkAllowedInCloud(
   return CLOUD_ALLOWED_FRAMEWORKS.includes(framework)
 }
 
+/**
+ * Auth types that carry a CLI SUBSCRIPTION credential instead of an API key —
+ * `oauth` (the CLI's own credential store) and `oauth_token` (a setup-token
+ * env-injected at spawn). Mirror of backend
+ * ``provider_schema.SUBSCRIPTION_AUTH_TYPES``.
+ */
+export const SUBSCRIPTION_AUTH_TYPES = ['oauth', 'oauth_token']
+
+/**
+ * Subscription card → the ONE framework that can spend it. Mirror of backend
+ * ``provider_schema.CLI_FRAMEWORK_BY_OAUTH_SOURCE``.
+ *
+ * A subscription login is a credential for a specific CLI, not a generic
+ * provider key: only the `claude` CLI can redeem a Claude Code Login, only
+ * `codex` a Codex CLI Login. NexusPower drives the provider HTTP API and
+ * refuses subscription credentials outright, so it appears in no value here.
+ */
+export const CLI_FRAMEWORK_BY_OAUTH_SOURCE: Record<string, string> = {
+  claude_oauth: 'claude_code',
+  codex_oauth: 'codex_cli',
+}
+
+/**
+ * Can this provider card actually back the AGENT slot under `framework`?
+ * Frontend twin of backend ``provider_schema.framework_can_drive_provider``
+ * (the gate inside ``validate_slot_binding``) — protocol first, then the
+ * subscription-credential rule.
+ *
+ * API-key / bearer cards pass the second gate untouched: whether an endpoint
+ * serves a framework WELL is the provider's characteristic, not something we
+ * police (binding rule #15). This only refuses what is technically
+ * unredeemable — and would otherwise fail in the middle of a run.
+ */
+export function providerBacksFramework(
+  prov: Pick<ProviderSummary, 'source' | 'protocol' | 'auth_type'>,
+  framework: string | null | undefined,
+): boolean {
+  const fw = AGENT_FRAMEWORKS.find((f) => f.id === framework)
+  if (!frameworkAcceptsProtocol(fw, prov.protocol)) return false
+  if (!SUBSCRIPTION_AUTH_TYPES.includes(prov.auth_type)) return true
+  return (framework || 'claude_code') === CLI_FRAMEWORK_BY_OAUTH_SOURCE[prov.source]
+}
+
+/**
+ * The frameworks worth OFFERING for this wallet: a framework nothing in the
+ * provider list can drive is a dead end (pick it and every provider option
+ * disappears), so it is hidden rather than left to fail at save time. Pass the
+ * providers the user may actually BIND — on cloud that is the
+ * `isSlotBindableSource` subset, not the whole wallet.
+ *
+ * Two deliberate escape hatches:
+ *   - `providers` empty → no filtering. A user who hasn't added a card yet
+ *     must not face an empty framework dropdown.
+ *   - `current` is always kept, even when nothing can drive it. Dropping the
+ *     selected value would silently re-point a `<select>` at another
+ *     framework without the user (or the backend) ever agreeing to it.
+ *
+ * The cloud staff-only rule is deliberately NOT applied here: those pickers
+ * keep listing a staff-only framework and answer the pick with an explanation
+ * (see `frameworkAllowedInCloud`'s call sites), which reads friendlier than a
+ * silently shorter list. This function answers a different question — "can any
+ * card of mine run it at all".
+ */
+export function availableFrameworks(
+  providers: Array<Pick<ProviderSummary, 'source' | 'protocol' | 'auth_type'>>,
+  current: string,
+): AgentFramework[] {
+  if (!providers.length) return AGENT_FRAMEWORKS
+  return AGENT_FRAMEWORKS.filter(
+    (f) =>
+      f.id === current || providers.some((p) => providerBacksFramework(p, f.id)),
+  )
+}
+
 // What the helper_llm "Default (recommended)" resolves to per protocol.
 // Mirrors backend ``_ONBOARD_HELPER_MODELS`` in model_catalog.py.
 export const RECOMMENDED_HELPER_MODEL_BY_PROTOCOL: Record<string, string> = {

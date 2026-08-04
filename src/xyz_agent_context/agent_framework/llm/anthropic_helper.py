@@ -42,6 +42,7 @@ from xyz_agent_context.utils.cost_tracker import (
     record_cost,
     warn_missing_usage,
 )
+from xyz_agent_context.agent_framework.llm._prompt_probe import emit as _probe_emit
 from xyz_agent_context.utils.logging import timed
 
 
@@ -129,6 +130,7 @@ class AnthropicHelperSDK:
         user's parameter choice (iron rule #15).
         """
         model_name = self._resolve_model(model)
+        _probe_emit("anthropic", model_name, instructions, user_input)
         max_tokens = self._max_tokens_for(model_name)
         if reasoning_effort:
             logger.debug(
@@ -179,15 +181,30 @@ class AnthropicHelperSDK:
                 b.text for b in msg.content if getattr(b, "type", "") == "text"
             )
             usage = normalize_anthropic_usage(getattr(msg, "usage", None))
-            in_tok = usage["input_tokens"]
+            # Record the three Anthropic buckets SEPARATELY, matching what
+            # agent_loop already writes (step_4). They are mutually exclusive
+            # and priced 1x / 1.25x / 0.1x, so collapsing them into one column
+            # — as this call site used to — makes a cache-warm call look up to
+            # 10x more expensive than it is, and makes any future caching work
+            # on this path unverifiable: the ledger would show the same number
+            # whether the cache hit or not.
+            #
+            # This is not a reinterpretation of existing rows: the helper path
+            # has no prompt caching today, so every historical row has
+            # cw = cr = 0, where "uncached" and "total" are the same number.
+            in_tok = usage["uncached_input_tokens"]
             out_tok = usage["output_tokens"]
+            cache_write = usage["cache_creation_input_tokens"]
+            cache_read = usage["cache_read_input_tokens"]
             if _agent_id and _db:
-                if in_tok > 0 or out_tok > 0:
+                if in_tok > 0 or out_tok > 0 or cache_write > 0 or cache_read > 0:
                     try:
                         await record_cost(
                             db=_db, agent_id=_agent_id, event_id=None,
                             call_type="llm_function", model=model_name,
                             input_tokens=in_tok, output_tokens=out_tok,
+                            cache_creation_tokens=cache_write,
+                            cache_read_tokens=cache_read,
                         )
                     except Exception as e:
                         logger.warning(f"[AnthropicHelper] failed to record cost: {e}")
@@ -274,8 +291,13 @@ class AnthropicHelperSDK:
             )
 
         client = self._build_client()
+        # Pre-bound because the recording block below runs after the `async
+        # with`, and a stream that ends without a final message (early close,
+        # provider error) never reaches the assignment inside it.
         input_tokens = 0
         output_tokens = 0
+        cache_write = 0
+        cache_read = 0
         char_count = 0
 
         async with client.messages.stream(
@@ -290,8 +312,11 @@ class AnthropicHelperSDK:
                     yield delta
             final = await stream.get_final_message()
             usage = normalize_anthropic_usage(getattr(final, "usage", None))
-            input_tokens = usage["input_tokens"]
+            # Same three-bucket split as the llm_function path above.
+            input_tokens = usage["uncached_input_tokens"]
             output_tokens = usage["output_tokens"]
+            cache_write = usage["cache_creation_input_tokens"]
+            cache_read = usage["cache_read_input_tokens"]
 
         logger.info(
             f"[AnthropicHelper-Stream] completed: model={model_name} "
@@ -301,12 +326,14 @@ class AnthropicHelperSDK:
 
         _agent_id, _db = self._resolve_cost_context(None, None)
         if _agent_id and _db:
-            if input_tokens > 0 or output_tokens > 0:
+            if input_tokens > 0 or output_tokens > 0 or cache_write > 0 or cache_read > 0:
                 try:
                     await record_cost(
                         db=_db, agent_id=_agent_id, event_id=None,
                         call_type="llm_stream", model=model_name,
                         input_tokens=input_tokens, output_tokens=output_tokens,
+                        cache_creation_tokens=cache_write,
+                        cache_read_tokens=cache_read,
                     )
                 except Exception as e:
                     logger.warning(

@@ -1,6 +1,6 @@
 ---
 doc_type: reference
-last_verified: 2026-04-10
+last_verified: 2026-08-01
 scope:
   - src/xyz_agent_context/module/
   - src/xyz_agent_context/schema/module_schema.py
@@ -134,18 +134,51 @@ get_instructions() -> build_module_instructions() -> build_complete_system_promp
 
 **架构要点：** 每个模块一个 MCP Server 进程（而非每个 Agent 一个），所有 Agent 共享同一个 Server。
 
-**Agent 身份识别方式：** 通过工具参数显式传递。每个 MCP tool 声明 `agent_id` 和/或 `instance_id` 作为参数。系统中没有 thread-local、上下文注入或自动路由机制。
+**Agent 身份识别方式（2026-08-01 起）：** 工具仍声明 `agent_id` 参数（schema 不变，模型照旧传），
+但**服务端注入的身份是权威来源**。平台在 per-agent 的 `mcp_servers` spec 里注入 HTTP header，
+工具执行前由 `module/_mcp_identity.py` 解析：
 
 ```python
 @mcp.tool()
 async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
-    # agent_id 来自 LLM 的 tool call 参数
-    # LLM 通过 system prompt 上下文获知 agent_id
+    # agent_id 到达这里时已被 install_caller_identity 校正为真实调用者：
+    #   注入身份（权威） > 模型传的参数
+    # 模型填占位符（agent_current / self / …）不再是硬失败
 ```
+
+- 注入点：`context_runtime` 组装 `mcp_servers` 处（单点，两个适配器共用）
+- 安装点：`XYZBaseModule.build_instrumented_mcp_server()` ← ModuleRunner 部署时调用。
+  **模块无需任何改动**，声明了 `agent_id` 的工具自动获得（当前 93/93 覆盖）
+- 通道是 header 而非 URL query：实测 query 在 SSE 传输上会丢失（工具调用 POST 到
+  `/messages/?session_id=…`）。codex 适配器不能带任意 header，所以每个平台事实
+  都借 `Authorization` 再发一份 —— bearer 是一条**位置记录**：
+
+  ```
+  Authorization: Bearer nx-agent:<agent_id>~<turn_source>~<errand_peer>~<errand_channel>
+  ```
+
+  字段数与顺序由 `_mcp_identity.BEARER_FIELDS` 钉死：位置固定、尾部空字段不
+  上线（读者要容忍 1~N 段）、中间空字段合法表示未知、新事实只能**追加在末尾**、
+  解析只走 `_parse_bearer`（手写 `split(sep, 1)` 会把后一段并进前一段）。
+  每个字段同时有一个 `X-NarraNexus-*` 显式 header 拼写。
+- 每轮注入的事实不止身份：`turn_source`（哪种轮次在调用）+ **差事作用域**
+  （本轮的差事跟哪个 peer、在哪个 channel）。作用域存在的原因是「一轮」并不
+  同质 —— bus 未读跨 channel 注入、提示词要求回答，所以同一轮既可能追问差事
+  对手、也可能回答别的同伴；「这一条算不算差事提问」只能由知道目标的 send
+  现场判断（`_message_bus_mcp_tools._send_turn_source`）。整轮盖章的复发详见
+  `mirror/…/message_bus_trigger.py.md`。
+- 仍然没有 thread-local；`ContextVar` 只用于读取当次 MCP 请求
+
+> 历史：在此之前 `agent_id` **完全**由模型自填，且无任何注入。一个模型填了
+> `agent_id="agent_current"` 就会撞上硬错误、进而告诉用户"做不了"——P1
+> 「Agent 消极回复"我做不了"」(evt_0dcee899)。详见 `mirror/…/_mcp_identity.py.md`。
 
 **数据库访问：** `get_mcp_db_client()` 是类级别的（同一 MCP 进程内所有 Agent 共享）。按 Agent 隔离通过查询中的 WHERE 条件实现，而非独立的数据库连接。
 
-**安全模型：** 依赖 Agent SDK 正确构造参数。MCP Server 不验证 `agent_id` 是否与调用者匹配——运行时是可信的。
+**安全模型：** 注入身份存在时，Server **会**用它覆盖参数里的 `agent_id`，
+所以一个 agent 不能靠传别人的 id 去读别人的数据（2026-08-01 前是可以的，
+当时的表述是"运行时是可信的"）。没有注入时（未来某个不带 header 的适配器、
+直连 MCP 客户端）回落到旧行为：信任参数。
 
 **端口分配：**
 
@@ -164,7 +197,8 @@ async def skill_save_config(agent_id: str, user_id: str, skill_name: str, ...):
 1. 创建 `module/{name}_module/` 目录
 2. 实现 `XYZBaseModule` 子类，包含 `get_config()`、hooks、`create_mcp_server()`
 3. 编写 `prompts.py` 定义模块指令（Layer 1）
-4. 编写 `_*_mcp_tools.py` 定义工具（将 `agent_id` 作为参数传递）
+4. 编写 `_*_mcp_tools.py` 定义工具（照旧声明 `agent_id` 参数——服务端会把它
+   校正为真实调用者，见 §5，无需自己做任何身份处理）
 5. 在 `module/__init__.py` 的 `MODULE_MAP` 中注册
 6. 在 `schema_registry.py` 中使用 `_register(TableDef(...))` 添加数据表
 7. 在 `repository/` 创建对应的数据访问类

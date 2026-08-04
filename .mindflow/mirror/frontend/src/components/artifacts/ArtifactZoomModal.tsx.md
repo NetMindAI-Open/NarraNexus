@@ -1,9 +1,18 @@
 ---
 code_file: frontend/src/components/artifacts/ArtifactZoomModal.tsx
-last_verified: 2026-05-14
+last_verified: 2026-08-04
 stub: false
 ---
 
+## 2026-08-04 — ArtifactRenderer 必须传 bounded={false}
+
+列内滚动修复给 ArtifactRenderer 加了默认的有界滚动包装盒；弹窗这里
+**必须**显式传 `bounded={false}` 关掉它：sizer/inner 两层都是确定高度，
+zoom 机制依赖渲染内容**溢出**这些层、由最外层 scrollRef(overflow-auto)
+统一承载滚动。带上包装盒会把内容钳成一屏、在缩放层内产生第二根滚动条，
+且 overscroll-contain 掐断滚动链——放大态读长文/平移宽表直接报废。
+契约测试在 [[__tests__/scrollContainment.test.tsx]]（bounded=false 断言
+渲染树里零滚动容器）。
 # ArtifactZoomModal.tsx — Fullscreen artifact viewer
 
 ## Why it exists

@@ -34,8 +34,14 @@ def test_im_summary_without_tag_is_generic():
 
 
 def test_message_bus_summary():
-    assert _summary("message_bus") == "Handled a peer-agent message"
-    assert _summary("message_bus", sender_name="agent_peer") == "Replied to agent_peer"
+    """The bus summary is honest about delivery now: "Replied to X" only
+    when a reply tool actually delivered to the origin — the old
+    unconditional wording claimed replies that never happened (8/1)."""
+    assert _summary("message_bus") == "Handled a peer-agent message (no reply sent)"
+    assert (
+        _summary("message_bus", sender_name="agent_peer")
+        == "Read messages from agent_peer (no reply sent)"
+    )
 
 
 def test_summary_never_echoes_raw_source_token():

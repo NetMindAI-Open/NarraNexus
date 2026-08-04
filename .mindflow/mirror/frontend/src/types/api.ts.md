@@ -4,6 +4,15 @@ last_verified: 2026-07-30
 stub: true
 ---
 
+## 2026-07-30 — Cost*/EventLogMeta 镜像缓存两桶字段
+
+跟随后端 api_schema 同日改动:`CostModelBreakdown` / `CostDailyEntry` /
+`CostRecord` / `CostSummary` / `EventLogMeta` 加缓存读/写字段。**全部可选,
+消费方必须 `?? 0`**:字段落地当天就踩过一次——新前端(Vite 热更)对着未
+重启的旧后端,响应里没有这些键,undefined 进求和直接渲染成 "NaNM"。
+语义:`input_tokens` 只是满价未缓存桶,展示层求和必须把三桶都加上,
+否则缓存热的 agent 输入侧少报两个数量级。
+
 ## 2026-07-30 — TriggerConfig 字段名对齐后端
 
 `TriggerConfig` 原来声明 `cron_expression` / `trigger_type`,与后端

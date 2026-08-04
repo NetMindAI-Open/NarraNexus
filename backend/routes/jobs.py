@@ -386,6 +386,10 @@ async def create_job_complex(request: CreateJobComplexRequest):
                 trigger_config=TriggerConfig.immediate().model_dump(mode="json"),
                 payload=payload_str,
                 dependencies=depends_on_job_ids if depends_on_job_ids else None,
+                # Deterministic batch with caller-chosen titles: sibling jobs in
+                # one group are often near-duplicates by title ("X part 1/2") —
+                # the LLM-repeat similarity gate must not merge or block them.
+                confirm_new=True,
             )
 
             if not result.get("success"):

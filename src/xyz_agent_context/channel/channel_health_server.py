@@ -14,9 +14,9 @@ Port: 47831 (unchanged from the Lark server — quiet range, no collision with t
 NarraNexus 74xx fleet). Container-internal; operators curl from inside:
     docker exec <container> curl -s localhost:47831/healthz
 
-The payload reads only ``ChannelTriggerBase`` attributes, so it works for any
-trigger. Lark-specific fields (last WS connect wallclock) are read via
-``getattr`` with a default, so channels that don't track them simply report 0.
+The payload delegates to ``ChannelTriggerBase.health_snapshot()``, so the
+server does not depend on trigger-private bookkeeping. Lark-specific fields
+(last WS connect wallclock) are handled by that public snapshot with a default.
 
 Best-effort: if FastAPI/uvicorn aren't installed (tests, stripped image)
 ``start_channel_health_server`` returns None and the supervisor runs without
@@ -25,7 +25,6 @@ health. It never blocks trigger startup.
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
@@ -37,37 +36,9 @@ if TYPE_CHECKING:
 HEALTHZ_PORT = 47831
 
 
-async def _snapshot_one(name: str, trigger: "ChannelTriggerBase") -> dict:
-    """Snapshot a single trigger's state as a JSON-serialisable dict.
-
-    Reads only base-class attributes plus optional Lark-specific ones via
-    getattr, so it is channel-agnostic.
-    """
-    now_ms = int(time.time() * 1000)
-    startup_ms = trigger._startup_time_ms or 0
-
-    recent_counts: dict[str, int] = {}
-    if trigger._audit_repo is not None:
-        try:
-            recent_counts = await trigger._audit_repo.count_by_type(since_hours=1)
-        except Exception as e:  # noqa: BLE001 — health must degrade, not crash
-            logger.warning(f"[health:{name}] count_by_type failed: {e}")
-
-    status = "ok" if trigger._audit_repo is not None and trigger.running else "starting"
-
-    return {
-        "status": status,
-        "running": trigger.running,
-        "uptime_seconds": (now_ms - startup_ms) / 1000.0 if startup_ms else 0.0,
-        "startup_time_ms": startup_ms,
-        # Lark tracks this; other channels don't — default 0.
-        "last_ws_connected_ms": getattr(trigger, "_last_ws_connected_wallclock_ms", 0),
-        "subscriber_count": len(trigger._subscriber_tasks),
-        "worker_count": len(trigger._workers),
-        "queue_depth": trigger._task_queue.qsize(),
-        "subscriber_keys": sorted(trigger._subscriber_creds.keys()),
-        "recent_event_counts": recent_counts,
-    }
+async def _snapshot_one(_name: str, trigger: "ChannelTriggerBase") -> dict:
+    """Snapshot a trigger through its public health contract."""
+    return await trigger.health_snapshot()
 
 
 async def build_health_payload(

@@ -1,8 +1,23 @@
 ---
 code_file: backend/routes/agents/cost.py
-last_verified: 2026-07-28
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — surface the two prompt-cache buckets
+
+The SELECT and every aggregation level (total / by_model / daily /
+records) now carry `cache_read_input_tokens` / `cache_creation_input_tokens`
+alongside input/output. The ledger keeps three mutually exclusive
+input-side buckets (uncached 1x / cache write 1.25x / cache read 0.1x);
+this route used to read only `input_tokens`, so a cache-warm agent showed
+"input 213" for a week whose real input side was 1.2M tokens — and the
+helper row outranked the main loop purely because output dominated the
+visible sum (live case: agent_39b2b72b823b). Bucket semantics stay
+ledger-true in the API (`input_tokens` remains ONLY the full-rate bucket;
+new `*cache_read*` / `*cache_creation*` fields are separate); summing for
+display is the frontend's job ([[CostPopover.tsx]]).
+Tests: `tests/backend/test_agents_cost_route.py`.
 
 ## 2026-07-28 — aggregate by usage role, not provider name
 

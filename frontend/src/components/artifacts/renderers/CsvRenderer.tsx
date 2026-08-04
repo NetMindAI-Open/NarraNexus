@@ -79,7 +79,11 @@ export default function CsvRenderer({ artifact }: Props) {
     (() => {
       const [header, ...body] = rows;
       return (
-        <div className="overflow-auto p-4">
+        // Auto size, no overflow — vertical and wide-table horizontal
+        // scrolling are owned by ArtifactRenderer's bounded wrapper (column)
+        // or the zoom modal's outer container. Still a div around the table,
+        // never overflow on the table itself (border-collapse clipping quirk).
+        <div className="p-4">
           <table className="border-collapse text-sm">
             <thead>
               <tr>

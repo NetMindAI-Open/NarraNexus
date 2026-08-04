@@ -1,8 +1,18 @@
 ---
 code_file: backend/routes/agents/chat_history.py
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 stub: false
 ---
+
+## 2026-07-30 — meta carries the prompt-cache buckets
+
+`_build_event_meta`'s cost_records aggregation now also sums
+`cache_read_input_tokens` / `cache_creation_input_tokens` into
+`EventLogMeta.cache_read_tokens` / `.cache_creation_tokens`. Same defect
+class as the /costs popover fixed the same day: `input_tokens` is only the
+full-rate bucket, so a cache-warm run's token chip showed "33 in" while
+the model actually read ~869k. Buckets stay separate in the API; the
+frontend sums for display ([[InnerThoughtCard.tsx]]).
 
 ## 2026-07-23 — event-log meta (activity card header)
 

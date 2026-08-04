@@ -64,6 +64,7 @@ class JobInstanceService:
         related_entity_id: Optional[str] = None,  # Feature 2.2.1 (changed to single value)
         narrative_id: Optional[str] = None,  # Feature 3.1
         monitored_job_ids: Optional[List[str]] = None,  # Monitored Job pattern (2026-01-21)
+        confirm_new: bool = False,
     ) -> Dict[str, Any]:
         """
         Create a Job and its corresponding ModuleInstance
@@ -98,6 +99,10 @@ class JobInstanceService:
             related_entity_id: Target user ID, used as the primary identity during Job execution
             narrative_id: Associated Narrative ID (for loading conversation context)
             monitored_job_ids: Monitored Job pattern, the Job IDs monitored by this Job
+            confirm_new: Skip the SIMILAR-title gate (the user confirmed they
+                want a new job despite an existing similar one, or the caller
+                is deterministic platform code, not an LLM guess). The
+                exact-title idempotency check still applies.
 
         Returns:
             Dict with success status, job_id, instance_id, and message
@@ -141,25 +146,39 @@ class JobInstanceService:
                     "is_existing": True  # Mark this as an existing Job, not newly created
                 }
 
-            # 0.6. Semantic similarity detection: check if a semantically similar active Job already exists
-            # This prevents Agent Loop from creating duplicate tasks that Instance Decision already created
-            active_jobs = await job_repo.get_active_jobs_by_agent(agent_id, limit=50)
-            if active_jobs:
+            # 0.6. Similar-title gate: guard against LLM repeat-creation, but
+            # CONFIRM instead of silently swallowing. The old behavior returned
+            # the similar job as success=True/is_existing — 'Daily Weather
+            # Report' silently absorbed 'Daily News Report' (Jaccard 0.5) and
+            # the user's distinct request vanished behind a success message
+            # (live-reproduced 2026-08-04, W1). Candidates are scoped to the
+            # SAME user: another user's titles must never block this one.
+            if not confirm_new:
+                active_jobs = await job_repo.get_active_jobs_by_agent(
+                    agent_id, limit=50, user_id=user_id
+                )
                 similar_job = self._find_similar_job_by_title(title, active_jobs)
                 if similar_job:
                     logger.warning(
-                        f"Found semantically similar active job: '{similar_job.title}' (ID: {similar_job.job_id})"
+                        f"Similar active job found: '{similar_job.title}' "
+                        f"(ID: {similar_job.job_id}) — asking for confirmation, not creating"
                     )
                     return {
-                        "success": True,
-                        "job_id": similar_job.job_id,
-                        "instance_id": similar_job.instance_id,
-                        "message": (
-                            f"A similar job '{similar_job.title}' already exists and is active. "
-                            f"Returning existing job instead of creating duplicate."
+                        "success": False,
+                        "needs_confirmation": True,
+                        "similar_job": {
+                            "job_id": similar_job.job_id,
+                            "instance_id": similar_job.instance_id,
+                            "title": similar_job.title,
+                            "job_type": str(getattr(similar_job.job_type, "value", similar_job.job_type)),
+                            "description": (similar_job.description or "")[:200],
+                        },
+                        "error": (
+                            f"Not created: an active job with a similar title already exists — "
+                            f"'{similar_job.title}' (job_id={similar_job.job_id}). Tell the user "
+                            "about it and ask whether they mean that job or want a new one. "
+                            "If they want a new one, call job_create again with confirm_new=true."
                         ),
-                        "is_existing": True,
-                        "similar_match": True  # Mark this as a semantic similarity match
                     }
 
             # 1. Validate job_type
@@ -369,11 +388,15 @@ class JobInstanceService:
                 payload=config.get("payload", ""),
                 dependencies=dependencies,
                 instance_id=instance_id,
+                confirm_new=True,
             )
 
             if result["success"]:
+                resolved_instance_id = result["instance_id"]
+                if task_key and resolved_instance_id != instance_id:
+                    key_to_id[task_key] = resolved_instance_id
                 created_jobs.append(result["job_id"])
-                created_instances.append(result["instance_id"])
+                created_instances.append(resolved_instance_id)
             else:
                 errors.append({
                     "task_key": task_key,
@@ -514,14 +537,19 @@ class JobInstanceService:
         existing_jobs: List["JobModel"]
     ) -> Optional["JobModel"]:
         """
-        Find a semantically similar Job in the existing Job list by title
+        Find a similar Job in the existing Job list by title
 
-        Uses a simple string similarity algorithm (Jaccard similarity) to avoid calling the embedding API.
-        If similarity exceeds the threshold (0.6), it is considered a duplicate Job.
+        Uses token-set Jaccard similarity (no embedding call) against the
+        threshold defined in the body (0.5). Note the trap: similarity is
+        over TITLE WORDS only — 'Daily Weather Report' vs 'Daily News
+        Report' scores 0.5 despite being different requests. That is why the
+        caller turns a hit into a confirmation, never a silent merge.
+        CJK titles usually tokenize to a single word and rarely trigger.
 
         Args:
             new_title: Title of the new Job
-            existing_jobs: List of existing active Jobs
+            existing_jobs: List of existing active Jobs (caller pre-scopes
+                these to one user)
 
         Returns:
             The similar Job found, or None if none found

@@ -1,8 +1,12 @@
 ---
 code_file: frontend/src/pages/SetupPage.tsx
-last_verified: 2026-07-28
+last_verified: 2026-08-04
 stub: false
 ---
+## 2026-08-04 — 根容器 h-screen → h-dvh-safe
+
+整屏根改用 index.css 的 `.h-dvh-safe`（100vh 兜底 + 100dvh 覆盖），与
+MainLayout/App.tsx 同批收口移动端视口高度问题。纯样式，无逻辑变化。
 ## 2026-07-28 — Beta badge in the header
 
 The header logo now sits in a flex row with [[BetaBadge.tsx]] (shared brand

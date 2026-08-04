@@ -370,59 +370,41 @@ def _inclusive(raw: dict[str, Any]) -> bool:
 
 
 def price_usage(usage: Usage, model: str) -> float | None:
-    """Price a turn from litellm's maintained cost map.
+    """Price a turn: buckets x the resolved per-token rates.
 
-    litellm ships (and keeps current) per-model prices for hundreds of
-    models — far better than a table we would hand-maintain and let rot.
-    Cached reads use their discounted rate when the map provides one.
-    Unknown model → None, which the platform records as "no price
-    available" rather than a confidently wrong number.
+    Price RESOLUTION lives in ``utils/model_pricing`` — the repo's single
+    resolver — and this function is only the arithmetic on top. It used to
+    carry its own ``_price_row`` whose rules matched that module line for line
+    (input/output rates, cache read and write falling back to the input rate,
+    unknown model -> None) but whose id handling did NOT: it folded case and
+    stripped route prefixes where the other did neither, so ``minimax/minimax-
+    m2.5`` was priced on this ledger and booked at $0 on the other. Two
+    implementations of one rule are how that happens; the tolerant id handling
+    was the correct half and moved into the resolver (2026-08-03 review).
+
+    Unknown model -> None, which the platform records as "no price available"
+    rather than a confidently wrong number.
     """
-    prices = _price_row(model)
-    if not prices:
+    from xyz_agent_context.utils.model_pricing import price_for
+
+    price = price_for(model)
+    if price is None:
         return None
-    input_rate = prices.get("input_cost_per_token") or 0.0
-    output_rate = prices.get("output_cost_per_token") or 0.0
-    cache_read_rate = prices.get("cache_read_input_token_cost")
-    if cache_read_rate is None:
-        cache_read_rate = input_rate
-    cache_write_rate = prices.get("cache_creation_input_token_cost") or input_rate
+    # A cache bucket with no published rate is priced at the normal input rate,
+    # never at zero: an un-priced cache read is still a real, billed read.
+    cache_read_rate = (
+        price.cache_read_per_token
+        if price.cache_read_per_token is not None
+        else price.input_per_token
+    )
+    cache_write_rate = (
+        price.cache_write_per_token
+        if price.cache_write_per_token is not None
+        else price.input_per_token
+    )
     return (
-        usage.input_tokens * input_rate
-        + usage.output_tokens * output_rate
+        usage.input_tokens * price.input_per_token
+        + usage.output_tokens * price.output_per_token
         + usage.cache_read_tokens * cache_read_rate
         + usage.cache_creation_tokens * cache_write_rate
     )
-
-
-def _price_row(model: str) -> dict[str, Any] | None:
-    """litellm's price row for a model id, tolerant of route prefixes.
-
-    ``anthropic/deepseek-ai/DeepSeek-V4-Pro`` and the bare id both
-    resolve; the map is keyed by several forms, so try most-specific
-    first, then a case-insensitive sweep.
-    """
-    # Through the seam, never `import litellm` here: that class declares
-    # itself the repo's single litellm import point, and a second one
-    # makes the claim false and the swap it protects (different client,
-    # direct SDK) a two-file change instead of one — iron rule #9
-    # (2026-07-29 review).
-    from xyz_agent_context.agent_framework.llm.litellm_client import LitellmClient
-
-    try:
-        table = LitellmClient.model_cost_map()
-    except ImportError:  # pragma: no cover - litellm is a hard dependency
-        return None
-    candidates = [model]
-    if "/" in model:
-        candidates.append(model.split("/", 1)[1])
-        candidates.append(model.rsplit("/", 1)[-1])
-    for candidate in candidates:
-        row = table.get(candidate)
-        if row:
-            return row
-    lowered = model.lower()
-    for key, row in table.items():
-        if key.lower() == lowered:
-            return row
-    return None

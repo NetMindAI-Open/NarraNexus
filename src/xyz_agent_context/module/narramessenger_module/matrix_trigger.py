@@ -214,6 +214,16 @@ class MatrixTrigger(ChannelTriggerBase):
     brand_display = "NarraMessenger"
     working_source = WorkingSource.NARRAMESSENGER
 
+    # ``matrix_since_token`` is rewritten on EVERY sync response (see the
+    # field comment in _narramessenger_credential_manager). Left in the
+    # breaker fingerprint it would make our own sync traffic look like the
+    # owner re-binding, clearing the breaker on the poll right after it
+    # tripped — i.e. no breaker at all for this channel.
+    BREAKER_VOLATILE_CREDENTIAL_FIELDS = (
+        ChannelTriggerBase.BREAKER_VOLATILE_CREDENTIAL_FIELDS
+        | frozenset({"matrix_since_token"})
+    )
+
     # ── Worker pool ──────────────────────────────────────────────────────
     # Concurrency tuning inherited from the pre-Matrix era; migration
     # kept identical characteristics so throughput per agent is unchanged.
@@ -865,6 +875,48 @@ class MatrixTrigger(ChannelTriggerBase):
             for (rid, mxid) in self._display_name_cache.keys()
             if rid == room_id
         ]
+
+    async def managed_before_run(
+        self,
+        *,
+        agent_id: str,
+        message: ParsedMessage,
+        db: Any,
+        is_mention: bool = True,
+    ) -> tuple[bool, str]:
+        """Managed-mode inbound gate: run Narra's authorize-event exactly as
+        the native path does (fail-closed). Non-mention group traffic mirrors
+        SILENT_BYPASS_AUTHORIZE — memory-only handling needs no authorization
+        and must not spam the gate."""
+        self._managed_bind(db)
+        if not is_mention and message.chat_type == ChatType.GROUP:
+            return True, ""
+        credential = await self._credential_for_agent(agent_id)
+        if credential is None:
+            # Fail-closed: without the bind credential we cannot authorize.
+            return False, (
+                "narramessenger authorization unavailable (no active credential)"
+            )
+        verdict = await self._authorize_event(credential, message, mentioned=is_mention)
+        if verdict.allow:
+            return True, ""
+        if verdict.notice_send and verdict.notice_text:
+            # The native path posts the server-suggested denial via the live
+            # client; managed mode has no client — same credential, plain
+            # HTTP sender.
+            try:
+                await matrix_room_send(
+                    homeserver=credential.matrix_homeserver_url,
+                    token=credential.matrix_access_token,
+                    room_id=message.chat_id,
+                    content={"msgtype": "m.notice", "body": verdict.notice_text},
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"[matrix:{agent_id}] managed denial notice send failed: "
+                    f"{type(e).__name__}: {e}"
+                )
+        return False, "narramessenger authorization denied"
 
     async def _authorize_event(
         self,

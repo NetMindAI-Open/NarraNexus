@@ -236,7 +236,15 @@
         "generic": "由于一个你可以在设置中修复的配置问题，本次运行未能执行。修复后请重新发送。",
         "executor_oom": "执行环境内存不足，被系统中断。请把任务拆小或减少启用的模块后重试。",
         "executor_unreachable": "你的执行容器暂时不可达，通常几秒内自动恢复，请稍后重发这条消息。",
-        "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。"
+        "infra_transient": "本次执行因平台侧临时问题未能运行，请稍后重发这条消息。",
+        "free_tier_exhausted": "你的平台免费额度已用完 —— 升级 Nexus Pro，或添加你自己的 provider key 并切换这个 Agent slot。"
+      },
+      "freeTier": {
+        "useOwnKey": "用我自己的 provider"
+      },
+      "upgradeCta": "升级 Nexus Pro",
+      "balance": {
+        "plans": "查看套餐与充值"
       }
     },
     "attachments": {
@@ -856,17 +864,17 @@
       "bulkDeleteFailed": "批量删除失败：{{error}}"
     },
     "netmind": {
-      "planPro": "Pro",
+      "planPro": "Nexus Pro",
       "badgeFree": "Free",
-      "badgeCancelled": "Pro · 即将到期",
+      "badgeCancelled": "Nexus Pro · 即将到期",
       "subtitle": "Power 套餐与额度 · 用于 LLM API 调用",
       "loading": "加载中…",
       "error": "无法加载你的 NetMind.AI Power 账户。若登录已失效，请重新登录后刷新。",
       "expiresDowngrade": "有效至 {{date}}，到期降级为 Free",
       "cancelBtn": "取消订阅",
-      "cancelConfirm": "取消 = 关闭自动续费。当前周期到期前仍是 Pro——不立即降级、不按比例退款。确定继续？",
+      "cancelConfirm": "取消 = 关闭自动续费。当前周期到期前仍是 Nexus Pro——不立即降级、不按比例退款。确定继续？",
       "reactivateBtn": "恢复自动续费",
-      "reactivateConfirm": "恢复你的 NetMind.AI Power Pro 订阅自动续费？",
+      "reactivateConfirm": "恢复你的 Nexus Pro 订阅自动续费？",
       "working": "处理中…",
       "awaitingPayment": "等待支付完成…本面板会自动刷新。若你已完成支付，回到此标签页即可。",
       "pollTimeout": "仍未生效。若你已完成支付，请稍后刷新。",
@@ -889,9 +897,9 @@
       "checkingStatus": "正在检查你的 NetMind.AI Power 连接状态…",
       "netStatusError": "暂时读不到连接状态，请刷新重试。",
       "notConnected": "尚未将你的 NetMind.AI Power 账户接入为服务商。",
-      "managePlan": "管理套餐与余额",
-      "manageSubscription": "管理订阅与余额",
-      "manageBalance": "管理余额",
+      "managePlan": "升级或充值",
+      "manageSubscription": "充值或管理订阅",
+      "manageBalance": "充值",
       "freeTierLabel": "免费额度",
       "freeTierLeft": "剩余 {{pct}}%",
       "freeTierExhaustedNote": "免费额度已用完，用量现从你的余额扣除。",
@@ -907,7 +915,7 @@
       "flowProNoTier": "用量先扣每月赠额，再扣充值余额。",
       "lowChoose": "余额不足。继续运行，选一个：",
       "exhaustedChoose": "免费额度已用完。继续运行，选一个：",
-      "upsellName": "升级 Pro",
+      "upsellName": "升级 Nexus Pro",
       "topupOrLink": "只是想临时充值一次？添加余额",
       "proMemberActive": "会员价生效中 · 最高 5 折",
       "needTopup": "本月赠额与余额将尽。充值以继续：",
@@ -918,7 +926,7 @@
       "planExplProActive": "会员 · 有效至 {{date}}",
       "balanceUsable": "当前可用余额",
       "grantIncluded": "（已计入余额）",
-      "upsellCardName": "NetMind Pro",
+      "upsellCardName": "Nexus Pro",
       "upsellPerkDiscount": "OpenAI、Anthropic 等模型最高 5 折",
       "upsellPerkNoFee": "零平台服务费",
       "upsellPerkGrant": "每月含 {{amount}} 可用余额",
@@ -1325,6 +1333,9 @@
       "modelUsage": "模型用量",
       "helperUsage": "Helper 模型用量",
       "inOut": "输入 {{in}} / 输出 {{out}}",
+      "cacheHit": "缓存命中 {{rate}}%",
+      "totalCost": "共 {{cost}}",
+      "cacheDetail": "缓存读 {{read}} · 缓存写 {{write}}",
       "byModel": "按模型",
       "daily": "每日",
       "viewAgent": "智能体",
@@ -1418,6 +1429,12 @@
     }
   },
   "pages": {
+    "pay": {
+      "working": "正在前往支付页…",
+      "errorTitle": "无法发起支付",
+      "retry": "重试",
+      "goAccount": "打开账户页"
+    },
     "login": {
       "changeMode": "切换模式",
       "cloudAccess": "云端 · 接入",
@@ -1518,6 +1535,7 @@
         "openButton": "打开批量管理器…"
       },
       "modelDefaults": {
+        "frameworkFilteredNote": "这里只列出当前已连接的服务商能驱动的框架。",
         "label": "模型默认值",
         "hint": "所有 Agent 默认继承的框架和模型。每个 Agent 的单独配置可在对话页面中修改。",
         "thinking": "思考",

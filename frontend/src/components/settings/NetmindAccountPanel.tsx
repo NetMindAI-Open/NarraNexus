@@ -250,7 +250,7 @@ export function NetmindAccountPanel() {
     const ok = await confirm({
       title: t('settings.netmind.cancelConfirmTitle', 'Turn off auto-renew?'),
       message: t('settings.netmind.cancelConfirm',
-        'Cancel = turn off auto-renew. You stay on Pro until the period ends — no immediate downgrade, no prorated refund. Continue?'),
+        'Cancel = turn off auto-renew. You stay on Nexus Pro until the period ends — no immediate downgrade, no prorated refund. Continue?'),
       confirmText: t('settings.netmind.cancelConfirmAction', 'Turn off auto-renew'),
       cancelText: t('settings.netmind.cancelConfirmKeep', 'Keep subscription'),
       danger: true,
@@ -277,7 +277,7 @@ export function NetmindAccountPanel() {
     const ok = await confirm({
       title: t('settings.netmind.reactivateConfirmTitle', 'Resume auto-renew?'),
       message: t('settings.netmind.reactivateConfirm',
-        'Resume auto-renew for your NetMind.AI Power Pro subscription?'),
+        'Resume auto-renew for your Nexus Pro subscription?'),
       confirmText: t('settings.netmind.reactivateConfirmAction', 'Resume'),
       cancelText: t('settings.netmind.reactivateConfirmDismiss', 'Not now'),
     });
@@ -557,14 +557,14 @@ export function NetmindAccountPanel() {
     if (state === 'pro_active') {
       return (
         <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--accent-primary)]/12 text-[var(--accent-primary)]">
-          {t('settings.netmind.planPro', 'Pro')}
+          {t('settings.netmind.planPro', 'Nexus Pro')}
         </span>
       );
     }
     if (state === 'pro_cancelled') {
       return (
         <span className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded-full bg-[var(--color-warning)]/12 text-[var(--color-warning)]">
-          {t('settings.netmind.badgeCancelled', 'Pro · ending')}
+          {t('settings.netmind.badgeCancelled', 'Nexus Pro · ending')}
         </span>
       );
     }

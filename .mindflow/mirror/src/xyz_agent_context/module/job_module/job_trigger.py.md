@@ -3,6 +3,16 @@ code_file: src/xyz_agent_context/module/job_module/job_trigger.py
 last_verified: 2026-07-30
 ---
 
+## 2026-07-30 — `_EDGE_ONLY_RESUME_REASONS` 并入 `OUT_OF_CREDIT_REASONS`
+
+原本逐个列举，其中只有 `insufficient_balance` 代表「没钱了」。免费额度用完同日拆成第二个
+out-of-credit reason，若不在此集合里就会被交回**静态就绪检查 + 时间兜底**盲探 —— 而充值
+并不改变配置，静态检查观察不到，于是每个周期都会重新拉起暂停的任务，正是本文件注释警告的
+那场重试风暴。
+
+改成 `*OUT_OF_CREDIT_REASONS` 展开：新的 out-of-credit reason 会自动落在这里，不依赖有人
+记得回来加一行。
+
 ## 2026-07-30 — 成功执行清 last_error（否则恢复消息永久残留）
 
 `_finalize_job_execution` 的成功分支原来只在有 backoff 时清 `consecutive_failure_count`

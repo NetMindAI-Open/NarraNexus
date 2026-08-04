@@ -112,7 +112,12 @@ function StatChip({ icon, children, title }: {
 function RunMeta({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }) {
   const failed = meta.state === 'failed';
   const cancelled = meta.state === 'cancelled';
-  const hasTokens = meta.input_tokens > 0 || meta.output_tokens > 0;
+  // input_tokens alone is only the full-rate bucket; the cache buckets carry
+  // the bulk of what the model read on a cache-warm run. `?? 0` keeps stale
+  // cached responses from older backends from rendering NaN.
+  const inputSideTokens =
+    meta.input_tokens + (meta.cache_read_tokens ?? 0) + (meta.cache_creation_tokens ?? 0);
+  const hasTokens = inputSideTokens > 0 || meta.output_tokens > 0;
   const hasChips =
     failed || cancelled || meta.duration_seconds != null ||
     meta.total_cost_usd != null || hasTokens || meta.models.length > 0;
@@ -150,7 +155,7 @@ function RunMeta({ meta, t }: { meta: EventLogMeta; t: (k: string) => string }) 
               icon={<ArrowDownToLine className="w-2.5 h-2.5" />}
               title={t('chat.inner.meta.tokens')}
             >
-              {formatTokens(meta.input_tokens)} / {formatTokens(meta.output_tokens)}
+              {formatTokens(inputSideTokens)} / {formatTokens(meta.output_tokens)}
             </StatChip>
           )}
           {meta.models.map((m) => (

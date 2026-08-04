@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/module/wechat_module/wechat_trigger.py
 stub: false
-last_verified: 2026-07-16
+last_verified: 2026-08-03
 ---
+
+## 2026-08-03 — 首聊认主抽成 `claim_owner_if_unclaimed`,接 managed 缝
+
+原 `_process_message` 里的内联认主块抽成公开方法(CAS 语义不变,
+含"本 turn 立即可见"的内存回填),原生路径照调;新增
+`managed_before_run` 覆写在托管模式(平台持有收消息路径,原生认主
+点永远不触发——7-30 P5 的 send_failed 根因之一)下执行同一认主。
+单一居所,两条路径不漂移。
 
 ## 2026-07-16 — hard-timeout on getupdates; recovery via the base, not in-place
 

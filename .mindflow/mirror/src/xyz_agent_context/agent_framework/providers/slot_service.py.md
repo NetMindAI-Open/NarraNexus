@@ -1,8 +1,15 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/slot_service.py
-last_verified: 2026-07-29
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — 继承到「订阅凭据 ↔ 框架」这条新规则
+
+本文件没改代码：per-agent pin 走的还是共用的 `validate_slot_binding`，所以
+[[user_service]] 2026-07-31 新增的第 2 条（CLI 订阅卡只能配它自己的 CLI 框架）
+在 `set_agent_slot` 上自动生效——单个 agent 把自己 pin 成 nexus_power 再绑
+Claude Code Login 卡，同样在**保存时**被拒。共用校验器的价值就在这里。
 
 ## 2026-07-29 — per-agent pin 与用户级切换问同一个问题
 

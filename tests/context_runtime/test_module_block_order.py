@@ -32,6 +32,7 @@ from xyz_agent_context.schema.module_schema import ModuleInstructions
 def _runtime() -> ContextRuntime:
     runtime = ContextRuntime.__new__(ContextRuntime)
     runtime.agent_id = "agent_block_order"
+    runtime.user_id = None  # __init__ skipped; identity seam reads it
     return runtime
 
 

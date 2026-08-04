@@ -1,8 +1,16 @@
 ---
 code_file: src/xyz_agent_context/agent_framework/providers/registry.py
-last_verified: 2026-07-16
+last_verified: 2026-07-31
 stub: false
 ---
+
+## 2026-07-31 — test_provider 对 OAuth fail closed
+
+瞬态 ProviderConfig 没有 driver 卡,本路径对 OAuth 无从诚实验证,原来
+的无条件 True 与 user_service 是同一处谎(同批修复)。改为 False +
+指路"存卡后用 Test(live CLI 检查)"。生产上本路径只被 onboarding 的
+API-key 探活使用(_verify_onboard_key),不会传 OAuth 配置进来——
+fail closed 是防御,不改变现役行为。
 
 ## 2026-07-16 — `_interpret_test_response`: 自助类 400/404 不再当"可达"
 

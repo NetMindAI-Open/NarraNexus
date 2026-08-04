@@ -1,7 +1,17 @@
 ---
 code_file: frontend/src/components/chat/InnerThoughtCard.tsx
-last_verified: 2026-07-23
+last_verified: 2026-07-30
 ---
+
+## 2026-07-30 — token chip includes the cache buckets
+
+The in/out token chip's input side is now
+`input_tokens + cache_read_tokens + cache_creation_tokens` (`?? 0` — the
+cache fields are optional in the type; responses cached by older builds
+lack them). `input_tokens` alone is only the full-rate bucket, so a
+cache-warm run's chip showed "33 / 19.5k" while the model actually read
+~869k. Same-day counterpart of the CostPopover fix; backend fields from
+[[agents/chat_history.py]] `_build_event_meta`.
 
 ## 2026-07-23 — run meta header (activity card upgrade)
 

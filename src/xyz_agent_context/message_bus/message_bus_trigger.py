@@ -42,6 +42,7 @@ from xyz_agent_context.message_bus.local_bus import (
     LocalMessageBus,
 )
 from xyz_agent_context.message_bus.schemas import BusMessage
+from xyz_agent_context.schema import BUS_TEAM_ROOM_EXTRA_KEY, WorkingSource
 
 # Poll interval in seconds (initial; adaptive bounds below)
 POLL_INTERVAL = 3
@@ -583,6 +584,9 @@ class MessageBusTrigger:
         """
         is_team = channel_owner.startswith(TEAM_ROOM_OWNER_PREFIX)
         member_map: Dict[str, str] = {}
+        # DM branch overwrites this with the classifier's verdict; team rooms
+        # keep False (they never carry the Owner-Relay/Answer-the-peer split).
+        errand_continuation = False
         try:
             if is_team:
                 member_map = await self._team_member_names(channel_id)
@@ -610,9 +614,22 @@ class MessageBusTrigger:
                     from xyz_agent_context.repository import UserRepository
                     owner_name = await UserRepository(await get_db_client()).get_display_name(owner_user_id)
 
+                # Which directive applies depends on who started this thread:
+                # a reply to OUR errand goes to the owner; a fresh question
+                # from a peer must be answered on the bus. Getting this wrong
+                # is what made recipients answer their owner and leave the
+                # asking agent hanging (P1 2026-08-03).
+                i_started = await self._incoming_is_reply_to_my_errand(
+                    agent_id, channel_id, messages
+                )
+                errand_continuation = i_started
+
                 # Build prompt from messages
                 prompt = self._build_prompt(
-                    messages, owner_user_id=owner_user_id, owner_name=owner_name
+                    messages,
+                    owner_user_id=owner_user_id,
+                    owner_name=owner_name,
+                    i_started_this_exchange=i_started,
                 )
 
             logger.info(
@@ -647,6 +664,7 @@ class MessageBusTrigger:
                     channel_id=channel_id,
                     trigger_message_id=trigger_message.message_id,
                     retrieval_anchor=build_bus_anchor(messages),
+                    errand_continuation=errand_continuation,
                     on_progress=on_progress,
                     on_event_id=on_event_id,
                     # Team rooms are the one surface whose prompt tells the
@@ -655,6 +673,12 @@ class MessageBusTrigger:
                     # text. The peer-DM/inbox branch keeps the monologue
                     # private — its prompt makes no such promise.
                     include_monologue=is_team,
+                    # Same fact, module-side consumer: the team room must NOT
+                    # advertise bus tools as its reply surface (plain text
+                    # auto-posts; the prompt forbids delivery tools), so the
+                    # marker rides trigger_extra_data for the expressive
+                    # declaration to gate on.
+                    team_room=is_team,
                 )
 
             # On success: advance cursor
@@ -1003,8 +1027,179 @@ class MessageBusTrigger:
             depth += 1
         return depth
 
+    async def _incoming_is_reply_to_my_errand(
+        self,
+        agent_id: str,
+        channel_id: str,
+        incoming: List[BusMessage],
+    ) -> bool:
+        """Is this batch an ANSWER to an errand of ours, or a QUESTION to us?
+
+        Decided from a fact recorded on the message itself
+        (``bus_messages.sender_turn_source``): the sender writes WHICH KIND of
+        turn produced it — an owner-facing turn ("chat"/"job"/…) or an
+        errand-continuation bus turn (``BUS_ERRAND_TURN_SOURCE``) means it is
+        running an errand and asking us; plain "message_bus" means it was in
+        a peer-ANSWERING turn.
+
+        Plain "message_bus" alone is NOT sufficient for Owner Relay, because
+        the stamp records the sender's turn kind, not this message's intent:
+        an agent in a peer-answering turn can still ASK (fan out to a third
+        agent to compose its answer). So the batch only reads as a reply if
+        WE actually hold an errand in this channel — at least one prior send
+        of ours stamped with a non-"message_bus" source (or a pre-stamp
+        legacy NULL, which gets the old benefit of the doubt). An agent that
+        never asked anything here cannot be owed an answer.
+
+        The errand stamp is per-SEND, not per-turn, and that is load-bearing
+        here: a bus turn also answers unrelated peers whose unread the platform
+        injected from other channels, so only sends aimed at the sender's own
+        errand scope carry it (``_send_turn_source`` in the bus module's MCP
+        tools). Stamping the whole turn broke exactly this method's contract
+        from the other side — an ANSWER to an unrelated peer arrived stamped as
+        a question, so that peer stopped relaying to its own owner
+        (2026-08-03 review).
+
+        Residual holes, accepted and documented — do not read this list as
+        "risk exhausted", read it as what is known:
+
+        1. Stale errand: if we once ran an errand in this channel and a peer
+           LATER asks us a fresh question from a peer-ANSWERING turn (a case
+           no prompt of ours guides), the old errand rows still vote Owner
+           Relay. Per-message intent would need the sender to declare
+           ask-vs-answer per send; a turn-kind stamp cannot express it. Equals
+           the pre-fix behaviour.
+        2. Mutual live errands in one DM channel: DM channels are reused
+           symmetrically, so if the errand peer ALSO asked us something and we
+           answer them inside our errand-continuation turn, that answer is
+           aimed at the errand scope and carries the errand stamp — they then
+           answer the peer instead of relaying to their own owner. Needs both
+           owners to have errands in flight at the same time toward each
+           other. This is the direction we chose: the alternative (stamping
+           the whole turn) broke the case the platform ITSELF guides — unread
+           from other channels is injected every turn and the prompt requires
+           answering it — so it fired far more often.
+        3. Group errand channel: the errand scope matches by channel as well
+           as by peer, so a send into a GROUP channel that is the errand
+           channel stamps every member's copy as a question. Bus errands run
+           over auto-created DM channels, so this needs a hand-built group
+           channel used as an errand channel.
+        4. Uppercase / hand-written stamps: the errand-row check compares the
+           stored value exactly (SQL ``<>``), so a row written outside our
+           writers with a different casing counts as an errand row → Owner
+           Relay. Same direction as every other degradation here.
+
+        Closing 1 and 2 for good needs per-message intent — the sender saying
+        "this one is a question" on each send — which the review floated and
+        which we did not take, because it puts a correctness-critical bit back
+        on model obedience (iron rule #15: a machine-knowable fact must not
+        depend on which model the user picked). Revisit only with a default
+        that is derived, never assumed.
+
+        Why not infer it from channel ordering (the first attempt, twice):
+        "have I spoken here" flips as soon as we answer once, so a follow-up
+        question re-broke the bug; "who opened the channel" is fixed forever,
+        because ``send_to_agent`` finds a DM channel SYMMETRICALLY and REUSES
+        it — so once A has DM'd B, every errand B later runs toward A is
+        misclassified for BOTH sides, permanently (P1 2026-08-03 review). The
+        fact is per-message, so it has to be stored per-message.
+
+        Degradation, in order: unknown source but WE have never spoken here →
+        we are plainly the asked party; otherwise → Owner Relay, the
+        pre-2026-08-01 behaviour (a wrongly-relayed answer is cosmetic, while
+        wrongly suppressing Owner Relay resurrects the silent failure that
+        directive exists to prevent).
+        """
+        sources = {
+            (getattr(m, "sender_turn_source", None) or "").strip().lower()
+            for m in incoming
+        }
+        sources.discard("")
+        if sources:
+            if sources != {"message_bus"}:
+                # Any owner-facing or errand-continuation send in the batch
+                # means we are being asked.
+                return False
+            # Every incoming message came from a peer-answering turn. Reply
+            # to OUR errand only if we actually have one here.
+            return await self._i_have_errand_in_channel(agent_id, channel_id)
+
+        # No recorded source (legacy rows, or an adapter that dropped the
+        # header). Fall back to "have we ever spoken here": absence is still
+        # unambiguous — a channel we have never sent into cannot hold a reply
+        # to an errand of ours.
+        try:
+            incoming_ids = {
+                m.message_id for m in incoming if getattr(m, "message_id", None)
+            }
+            ph = self._bus._db.placeholder
+            rows = await self._bus._db.execute(
+                # No human-sender filter here on purpose: from_agent is bound
+                # to agent_id, so a usr_-prefixed sender cannot match anyway.
+                # (_team_cascade_depth needs one because it reads EVERY message
+                # in the channel.) A dead predicate would be worse than none —
+                # 'usr_%' is not even precise, since _ is a LIKE wildcard.
+                f"SELECT message_id FROM bus_messages WHERE channel_id = {ph} "
+                f"AND from_agent = {ph}",
+                (channel_id, agent_id),
+            )
+            for r in rows or []:
+                if str(r["message_id"]) not in incoming_ids:
+                    return True
+            return False
+        except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
+            logger.debug(
+                f"MessageBusTrigger: could not classify channel {channel_id} "
+                f"({e}); assuming owner-relay"
+            )
+            return True
+
+    async def _i_have_errand_in_channel(
+        self, agent_id: str, channel_id: str
+    ) -> bool:
+        """Did WE ever ask something in this channel on an errand?
+
+        True when at least one of our own sends here was stamped with a
+        non-"message_bus" turn source (owner-facing turn, or the
+        errand-continuation stamp) — or carries a legacy NULL stamp, which
+        predates ``sender_turn_source`` and keeps the pre-fix benefit of the
+        doubt. False when we never spoke here, or every send of ours was a
+        peer-answering turn: then an incoming "message_bus"-stamped batch
+        cannot be a reply owed to us, it is a fresh question.
+
+        DB error → True (Owner Relay), same degradation direction as the
+        caller: the silent-failure mode this directive exists to prevent is
+        worse than a cosmetic extra relay.
+        """
+        try:
+            ph = self._bus._db.placeholder
+            # Existence check, pushed down: this runs on the most common bus
+            # trigger path ("a peer answered me"), and DM channels are found
+            # symmetrically and REUSED forever — so a client-side scan would
+            # grow without bound over the life of an agent pair. IS NULL / <>
+            # / LIMIT 1 mean the same thing on SQLite and MySQL.
+            rows = await self._bus._db.execute(
+                f"SELECT 1 FROM bus_messages "
+                f"WHERE channel_id = {ph} AND from_agent = {ph} "
+                f"AND (sender_turn_source IS NULL OR sender_turn_source <> {ph}) "
+                f"LIMIT 1",
+                (channel_id, agent_id, WorkingSource.MESSAGE_BUS.value),
+            )
+            return bool(rows)
+        except Exception as e:  # noqa: BLE001 — prompt shaping, never flow control
+            logger.debug(
+                f"MessageBusTrigger: errand check failed for channel "
+                f"{channel_id} ({e}); assuming owner-relay"
+            )
+            return True
+
     def _build_prompt(
-        self, messages: List[BusMessage], owner_user_id: str = "", owner_name: str = ""
+        self,
+        messages: List[BusMessage],
+        owner_user_id: str = "",
+        owner_name: str = "",
+        *,
+        i_started_this_exchange: bool,
     ) -> str:
         # NOTE: this builds the full EXECUTION prompt (peer messages + the
         # repeated Owner-Relay boilerplate). For narrative retrieval, embed
@@ -1021,6 +1216,31 @@ class MessageBusTrigger:
         reply to the peer or stay silent), and the original owner who asked
         "go talk to agent B for me" never hears back — the reply only lands
         in the Inbox. observed as a silent-failure UX issue in production.
+
+        ``i_started_this_exchange`` decides WHICH directive applies, and it
+        matters (P1 2026-08-03, verified live 3/3): Owner Relay was appended
+        on every DM turn, so an agent receiving a FRESH question from a peer
+        was told "your owner originally asked you to contact this peer agent,
+        they are waiting in chat" — false, and it made the recipient answer
+        the OWNER and treat the errand as discharged. The asking agent
+        (which had promised its user a report) was left waiting forever.
+        The models were obeying us; the prompt was lying to them.
+
+        - True  → this batch is the REPLY to an errand of ours: relay it to
+                  our owner.
+        - False → we are the one being ASKED: answer the PEER on the bus.
+                  Our owner asked for nothing and is not waiting.
+
+        Decided by ``_incoming_is_reply_to_my_errand`` from a fact recorded
+        on the message itself (``sender_turn_source``) — NOT from "have I
+        spoken in this channel", which is only the degradation path and is
+        wrong for follow-ups (see that method for why, and for the residual
+        holes this pair of directives still has).
+
+        Note the directive an OWNER-RELAY turn receives (item 3: "send a
+        clarifying question with bus_send_to_agent") produces a bus send from
+        a bus turn, which is why the same verdict also travels to the tools as
+        this turn's errand scope — see ``_invoke_runtime``.
         """
         from xyz_agent_context.message_bus._bus_attachment_impl import build_bus_markers
 
@@ -1036,7 +1256,49 @@ class MessageBusTrigger:
                 block += f"{marker}\n"
             lines.append(block)
 
-        if owner_user_id:
+        if owner_user_id and not i_started_this_exchange:
+            # Inbound question: the peer is waiting, not our owner.
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+            lines.append("## Answer the peer — REQUIRED")
+            lines.append("")
+            lines.append(
+                "A peer agent is asking YOU something. You did not start this "
+                "exchange and your owner has not asked you for anything, so "
+                "your owner is NOT waiting in chat for this."
+            )
+            lines.append("")
+            lines.append(
+                "**The peer cannot see anything you tell your owner.** The only "
+                "channel that reaches the agent who asked is a bus reply. If the "
+                "peer is relaying a question on ITS owner's behalf, that human is "
+                "waiting at the other end of the peer — answering your own owner "
+                "instead leaves them waiting forever."
+            )
+            lines.append("")
+            lines.append("**What to do this turn:**")
+            lines.append(
+                "1. If you can answer → reply to the asker with "
+                "`bus_send_to_agent(to_agent_id=<the sender above>, "
+                "content=<your answer>)`. This is the point of the turn."
+            )
+            lines.append(
+                "2. If you need something clarified before you can answer → ask "
+                "the peer back via `bus_send_to_agent`."
+            )
+            lines.append(
+                "3. Only ALSO call `send_message_to_user_directly` when your "
+                "owner genuinely needs to know (a decision only they can make, "
+                "or something affecting their work). It is never a substitute "
+                "for replying to the peer."
+            )
+            lines.append(
+                "4. Silence is only correct for a closing acknowledgment "
+                "(\"thanks\", \"got it\"). A question is never a ping-pong — "
+                "answer it."
+            )
+        elif owner_user_id:
             lines.append("")
             lines.append("---")
             lines.append("")
@@ -1093,12 +1355,32 @@ class MessageBusTrigger:
         channel_id: str,
         trigger_message_id: str = "",
         retrieval_anchor: str = "",
+        errand_continuation: bool = False,
         on_progress=None,
         on_event_id=None,
         include_monologue: bool = False,
+        team_room: bool = False,
     ) -> tuple[str, Optional[str]]:
         """
         Invoke AgentRuntime.run() for the given agent with the prompt.
+
+        ``errand_continuation`` is the DM classifier's verdict ("this batch
+        answers an errand I started"). When true, this turn's ERRAND SCOPE
+        (the peer that answered us + the channel it happened in) rides
+        ``trigger_extra_data`` into ``ctx_data.extra_data``, so a bus send
+        aimed at that peer can stamp itself ``BUS_ERRAND_TURN_SOURCE`` instead
+        of the plain "message_bus" — otherwise a clarifying follow-up sent
+        from this turn is indistinguishable from an answer and the RECIPIENT's
+        classifier routes it to Owner Relay (P1 recurrence, path A of the
+        2026-08-03 review).
+
+        The scope, not a whole-turn flag: bus unread is injected from ALL
+        channels every turn and the module prompt requires answering it, so
+        this same turn routinely also answers an unrelated peer. Stamping the
+        turn marked that answer as a question too, and that peer then stopped
+        relaying to ITS owner — the same P1, one seat over (same review). Only
+        the send site knows its target, so only the send site can decide; see
+        ``_message_bus_mcp_tools._send_turn_source``.
 
         Returns ``(response_text, event_id)`` — the collected agent response
         text plus the turn's events-row id (None if the run died before
@@ -1116,7 +1398,6 @@ class MessageBusTrigger:
             from xyz_agent_context.agent_runtime.client import (
                 get_agent_runtime_client,
             )
-            from xyz_agent_context.schema import WorkingSource
         except ImportError as e:
             raise RuntimeError(
                 f"Cannot import AgentRuntime dependencies: {e}"
@@ -1133,6 +1414,18 @@ class MessageBusTrigger:
             trigger_extra_data={
                 "bus_channel_id": channel_id,
                 "retrieval_anchor": retrieval_anchor,
+                # Delivery-contract marker: team rooms auto-post plain text
+                # and their prompt forbids delivery tools, so the collection
+                # (context_runtime) empties the turn's WHOLE expressive
+                # surface on this marker — every declarer, both frameworks'
+                # reminders. MessageBusModule's own gate is a second line
+                # of defense on its declaration.
+                BUS_TEAM_ROOM_EXTRA_KEY: team_room,
+                # Errand scope — empty unless this turn continues our own
+                # errand. sender_agent_id is the peer whose reply triggered us,
+                # i.e. exactly who a follow-up would go to.
+                "bus_errand_peer": sender_agent_id if errand_continuation else "",
+                "bus_errand_channel": channel_id if errand_continuation else "",
                 "trigger_id": (
                     f"bus_{trigger_message_id}"
                     if trigger_message_id

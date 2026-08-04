@@ -105,16 +105,118 @@ BLOCKED_FLAGS = [
 # argument's ENTIRE value, which no prose ever is.
 
 
-# Flags whose value is a payload the agent authored. These are the ones an
-# agent tries to fill from a file, and therefore the ones worth naming in
-# the `@file` hint.
-_PAYLOAD_FLAGS = frozenset({"--content", "--markdown", "--text", "--data"})
+# Payload flag → the flag that ACTUALLY reads a file for the same payload
+# (probe-verified per flag, 2026-08-04):
+#   None        — nothing does; the value can only be inline. im message
+#                 bodies (--text/--markdown: a present @./file still ships
+#                 the literal string, success reported) and mail's --body
+#                 (nonexistent @file → ok:true, recipient gets the literal).
+#   same flag   — the flag itself expands @relative/path (docs/base
+#                 --content, --data, --json; missing file errors loudly).
+#   other flag  — a sibling flag reads files (mail: --body-file, which
+#                 hard-errors on a missing file).
+# One table drives BOTH the file-reference guard (fires wherever the
+# offending flag itself reads nothing) and the recovery hint (names the
+# route that actually works) — the previous flag/domain frozensets gave
+# mail users a nonexistent `--content @file` route and left --body
+# unguarded (round-3 review).
+_FILE_ROUTE: dict[str, "str | None"] = {
+    "--text": None,
+    "--markdown": None,
+    "--body": "--body-file",
+    "--content": "--content",
+    "--data": "--data",
+    # --json is a PAYLOAD only on base/record-style commands; under docs it
+    # is a boolean shorthand for --format json — see _payload_flags_for.
+    "--json": "--json",
+    # docs: '--help' advertises "- reads stdin" but lark_cli never wires
+    # stdin, so the payload would arrive empty (same class as --content -).
+    "--reference-map": "--reference-map",
+}
 
-_AT_FILE_HINT = (
-    "Pass the payload with `--content @relative/path.md` instead "
-    "(lark-cli reads the file itself; the path must be RELATIVE to your "
-    "workspace — absolute paths are rejected)."
+
+def _payload_flags_for(tokens: list[str]) -> frozenset:
+    """The payload flags that apply to THIS command.
+
+    ``--json`` is domain-dependent (round-4 review, same shape as im's
+    --content): a file-reading payload on ``base`` commands, a boolean
+    format shorthand everywhere else — treating it as payload under docs
+    produced a fake `--json @file` route for a stray ``-``.
+    """
+    flags = frozenset(_FILE_ROUTE)
+    if tokens and tokens[0].lower() != "base":
+        return flags - {"--json"}
+    return flags
+
+_IM_INLINE_HINT = (
+    "This command reads no files and no stdin — put the FULL value "
+    "inline as ONE quoted argument, e.g. "
+    '--markdown "line one\\n\\nline two".'
 )
+
+
+def _is_im_message_command(tokens: list[str]) -> bool:
+    """True for ``im +messages-send`` / ``im +messages-reply``.
+
+    The one place the flag table alone is not enough: ``--content``
+    legitimately expands @file under docs/base but under im it is a JSON
+    payload with NO @file expansion (probe: hard-rejected as invalid
+    JSON). Recovery hints for these commands therefore always give the
+    inline advice, whatever the flag. Case-folded — validate_command
+    accepts ``IM`` via ``.lower()`` and the hint must not diverge."""
+    return (
+        len(tokens) >= 2
+        and tokens[0].lower() == "im"
+        and tokens[1].startswith("+messages-")
+    )
+
+
+def _split_compound_flag(token: str) -> Tuple[str, str]:
+    """Normalize ``--flag=value`` to ``(--flag, value)``.
+
+    Returns ``("", "")`` for anything that isn't a compound flag token.
+    shlex keeps ``--markdown=@reply.md`` as ONE token, so any pairwise
+    (flag, next-token) scan is blind to it — the round-1 review
+    reproduced the fake success through exactly this spelling.
+    """
+    if token.startswith("--") and "=" in token:
+        flag, _, value = token.partition("=")
+        return flag, value
+    return "", ""
+
+
+def _recovery_hint(flag: str) -> str:
+    """Recovery advice for a rejected payload, keyed by the offending flag.
+
+    Only ever recommends a file route that exists AND reads files for
+    THIS flag's payload (see ``_FILE_ROUTE``); everything else gets the
+    inline advice. Unknown flags get inline plus a pointer at the
+    ``--help`` marker, never a concrete flag that may not exist there.
+    """
+    route = _FILE_ROUTE.get(flag, "")
+    if flag and route == flag:
+        return (
+            f"Pass the payload with `{flag} @relative/path` instead — "
+            f"lark-cli reads the file itself (path RELATIVE to your "
+            f"workspace; absolute paths are rejected)."
+        )
+    if route:
+        return (
+            f"`{flag}` does not read files — either put the FULL value "
+            f"inline as ONE quoted argument, or use `{route} "
+            f"<relative/path>`, which DOES read the file."
+        )
+    if flag in _FILE_ROUTE:  # route is None: inline is the only way
+        return (
+            f"`{flag}` reads no files and no stdin — put the FULL value "
+            f"inline as ONE quoted argument, e.g. "
+            f'{flag} "line one\\n\\nline two".'
+        )
+    return (
+        "Put the FULL value inline as ONE quoted argument. Only flags "
+        "marked '(supports @file)' in this command's --help can read a "
+        "file instead."
+    )
 
 
 def _is_whole_command_substitution(value: str) -> bool:
@@ -154,26 +256,43 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
         # parse error, which is a clearer message than anything here.
         return True, ""
 
+    # im message commands override the flag table for hints: no im flag
+    # reads files, --content included (see _is_im_message_command).
+    im_message = _is_im_message_command(tokens)
+    payload_flags = _payload_flags_for(tokens)
+
+    def _hint(flag: str) -> str:
+        return _IM_INLINE_HINT if im_message else _recovery_hint(flag)
+
     for i, tok in enumerate(tokens):
+        # --flag=value is one shlex token: check the VALUE half too, or
+        # the equals spelling sails past every pairwise check below.
+        compound_flag, compound_value = _split_compound_flag(tok)
+        prev_flag = tokens[i - 1] if i > 0 and tokens[i - 1].startswith("--") else ""
+        offending_flag = compound_flag or prev_flag
         if tok.startswith("<<"):
             return False, (
                 f"Heredoc ('{tok}') is shell syntax. lark_cli executes the CLI "
                 f"directly (execve), not through a shell, so it is never "
-                f"interpreted. {_AT_FILE_HINT}"
+                f"interpreted. {_hint(offending_flag)}"
             )
-        if _is_whole_command_substitution(tok):
+        if _is_whole_command_substitution(tok) or (
+            compound_value and _is_whole_command_substitution(compound_value)
+        ):
             return False, (
                 f"Command substitution ('{tok[:40]}...') is NOT expanded: "
                 f"lark_cli executes the CLI directly (execve), not through a "
                 f"shell, so this arrives as literal text and would be written "
                 f"verbatim — and the call would still report success. "
-                f"{_AT_FILE_HINT}"
+                f"{_hint(offending_flag)}"
             )
-        if tok == "-" and i > 0 and tokens[i - 1] in _PAYLOAD_FLAGS:
+        if (tok == "-" and prev_flag in payload_flags) or (
+            compound_value == "-" and compound_flag in payload_flags
+        ):
             return False, (
-                f"'{tokens[i - 1]} -' means read from stdin, but lark_cli "
-                f"never wires stdin to the CLI, so the payload would arrive "
-                f"empty. {_AT_FILE_HINT}"
+                f"'{offending_flag} -' means read from stdin, but "
+                f"lark_cli never wires stdin to the CLI, so the payload would "
+                f"arrive empty. {_hint(offending_flag)}"
             )
 
     return True, ""
@@ -288,13 +407,68 @@ def _expand_escapes(value: str) -> str:
     return value
 
 
+# Message-body flags whose VALUE is the literal text delivered to the human.
+# lark-cli has no @file expansion for these (the @./file convention exists
+# only on --json-style flags), so a value that LOOKS like a file reference —
+# one token, @-prefixed, with a filename extension — is almost certainly a
+# model trying to send a composed file ("--markdown @lark_reply.md", live
+# incident 2026-08-04): lark-cli would deliver the literal string and report
+# success. Real @-mentions ("@张三 明天…", "@all") either contain spaces or
+# lack an extension, so they never match.
+# A value that LOOKS like a file reference: @-prefixed single token ending
+# in a known document extension. The extension WHITELIST replaces the old
+# "any 1-5 alphanumerics" rule, which both missed ".markdown" (8 chars,
+# probe: sailed through) and false-positived on bare dotted mentions like
+# "@bob.smith" (round-3 review). Known boundary: the compound scan in
+# _pairs() treats every token's =-split as a potential (flag, value), so a
+# quoted BODY that is literally "--markdown=@x.md" would also trip the
+# guard — an acceptable, self-explaining rejection for an adversarial
+# corner no real message hits.
+_FILE_REFERENCE_RE = re.compile(
+    r"^@\S+\.(md|markdown|txt|json|html?|csv|xml|ya?ml|rst"
+    r"|log|pdf|docx?|xlsx?|pptx?|py|sh|png|jpe?g)$",
+    re.IGNORECASE,
+)
+
+
+def _reject_file_reference_bodies(args: list[str]) -> None:
+    """Raise when a file-reference-looking value sits on a flag that
+    does not read files.
+
+    Driven by ``_FILE_ROUTE``: fires for every payload flag whose route
+    is not itself (im's --text/--markdown read nothing anywhere — docs
+    v2 rejects those flags outright — and mail's --body reads nothing
+    while --body-file does). Flags that legitimately expand @file
+    (--content/--data/--json) are left alone. Covers both the
+    ``--flag value`` and the single-token ``--flag=value`` spellings."""
+    def _pairs():
+        for flag, value in zip(args, args[1:]):
+            yield flag, value
+        for token in args:
+            compound_flag, compound_value = _split_compound_flag(token)
+            if compound_flag:
+                yield compound_flag, compound_value
+
+    for flag, value in _pairs():
+        route = _FILE_ROUTE.get(flag, flag)
+        if route != flag and _FILE_REFERENCE_RE.match(value):
+            raise ValueError(
+                f"{flag} {value}: this looks like a file reference, but "
+                f"{flag} does not read files — the value is sent verbatim, "
+                f"so the recipient would literally see \"{value}\". "
+                f"{_recovery_hint(flag)}"
+            )
+
+
 def sanitize_command(command: str) -> list[str]:
     """Parse command string into safe argument list.
 
     Uses shlex.split for proper handling of quoted strings, then expands
     common escape sequences (\\n, \\t, \\r) in arg values so rich-text
     flags like --markdown render correctly.
-    Raises ValueError if command is blocked.
+    Raises ValueError if command is blocked, or if a message-body flag
+    carries a file-reference-looking value (see
+    ``_reject_file_reference_bodies``).
     """
     allowed, reason = validate_command(command)
     if not allowed:
@@ -308,5 +482,7 @@ def sanitize_command(command: str) -> list[str]:
         args = shlex.split(command.strip())
     except ValueError as e:
         raise ValueError(f"Failed to parse command: {e}")
+
+    _reject_file_reference_bodies(args)
 
     return [_expand_escapes(a) for a in args]

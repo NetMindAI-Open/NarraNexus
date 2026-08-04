@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Optional, Protocol, runtime_checkable
+from typing import Literal, Optional, Protocol, runtime_checkable
 
 from xyz_agent_context.agent_framework.api_config import (
     AnthropicHelperConfig,
@@ -130,6 +130,27 @@ class DriverHealth:
     ok: bool
     detail: str = ""
     expires_at: Optional[str] = None  # ISO-8601 string when known (OAuth)
+
+
+# =============================================================================
+# VerifyVerdict — return type for Driver.verify_live()
+# =============================================================================
+
+# Three states, deliberately not a bool (PR #224 review, item 4): collapsing
+# "confirmed dead" and "cannot verify from this node" into one False turned
+# every undecidable situation (CLI not in this container, control-plane vs
+# executor split, timeout) into "credential is dead" — which blocks
+# ProviderReadiness's edge recovery, the ONLY path that re-arms
+# PAUSED_NO_QUOTA jobs. Consumers map:
+#   "ok"      → verified working (live CLI round-trip succeeded)
+#   "dead"    → verified broken (the CLI itself said unauthorized / no
+#               credential exists to try) — the only state that may block
+#   "unknown" → this node cannot decide — MUST NOT block anything
+VerifyVerdict = Literal["ok", "dead", "unknown"]
+
+VERIFY_OK: VerifyVerdict = "ok"
+VERIFY_DEAD: VerifyVerdict = "dead"
+VERIFY_UNKNOWN: VerifyVerdict = "unknown"
 
 
 # =============================================================================

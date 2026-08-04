@@ -62,7 +62,10 @@ def _turn_delivered_user_message(agent_loop_response, working_source: str) -> bo
                 continue
             tool_name = resp.details.get("tool_name", "")
             arguments = resp.details.get("arguments", {})
-            if handler.extract_reply_text(tool_name, arguments):
+            # Owner-visible only: a bus reply to a peer agent is a delivery,
+            # but the owner saw nothing — it must not re-anchor the owner's
+            # session (see MessageSourceHandler.owner_visible_reply_tool_names).
+            if handler.extract_owner_visible_text(tool_name, arguments):
                 return True
     except Exception as e:  # noqa: BLE001
         logger.warning(f"_turn_delivered_user_message: detection failed ({e}); treating as not delivered")

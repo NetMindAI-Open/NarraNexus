@@ -1,8 +1,18 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_service.py
-last_verified: 2026-07-31
+last_verified: 2026-08-03
 stub: false
 ---
+
+## 2026-08-03 — sender_turn_source in both send contracts
+
+`send_message` / `send_to_agent` 抽象签名补上
+`sender_turn_source: str | None`。前一轮只改了 [[local_bus]] 实现和调用方,
+协议层漏了(PR #229 review 抓到):对协议做类型检查看不到这个参数,未来的
+cloud 实现会在每个调用方都在传的 keyword 上 TypeError。签名漂移不会在
+import 时报错,靠 `tests/message_bus/test_bus_service_protocol.py` 守住
+(inspect.signature 逐参数比对三层)。语义见 [[schemas]] 与 [[hook_schema]]
+的 `BUS_ERRAND_TURN_SOURCE`。
 
 ## 2026-07-31 — event_id in the send contract
 

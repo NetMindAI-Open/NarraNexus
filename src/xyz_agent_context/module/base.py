@@ -48,6 +48,19 @@ def mcp_host() -> str:
     return os.getenv("MCP_HOST", "127.0.0.1")
 
 
+def working_source_matches(working_source: Any, source_name: str) -> bool:
+    """True when ``working_source`` names ``source_name``.
+
+    ``WorkingSource`` is a ``(str, Enum)``, so one equality covers both
+    the enum member and its serialized string form — a member equals its
+    value. The single shared predicate exists so every
+    ``owns_working_source`` override compares the same way (four
+    hand-rolled variants with opposite ``isinstance`` polarities is how
+    real divergence starts).
+    """
+    return working_source == source_name
+
+
 class XYZBaseModule(ABC):
     """
     Base class for all Modules
@@ -336,7 +349,7 @@ MCPs: {mcp_tools}
         """
         pass
 
-    async def get_expressive_tools(self) -> list[str]:
+    async def get_expressive_tools(self, ctx_data: Any = None) -> list[str]:
         """Fully-qualified reply/delivery tools this module contributes.
 
         The platform forwards the collected list to the agent framework
@@ -344,8 +357,26 @@ MCPs: {mcp_tools}
         contract: only these tools' content reaches a human). Most
         modules deliver nothing themselves — default is empty; chat and
         IM channel modules override.
+
+        ``ctx_data`` (optional, the turn's ContextData) lets a module vary
+        its declaration by turn origin — the surface must never name a
+        tool that cannot deliver on THIS turn (e.g. narramessenger's
+        trigger-captured ``narra_reply`` on a platform-forwarded managed
+        turn). Declaring a dead tool is misinformation to the model.
         """
         return []
+
+    def owns_working_source(self, working_source: Any) -> bool:
+        """True when THIS module is the origin of the given working_source.
+
+        The expressive collection sorts the origin module's declaration
+        first, so "whoever contacted you" decides the turn's default
+        reply tool — priority order alone would hand every turn to the
+        owner-chat tool regardless of where the contact came from.
+        Modules that never originate turns keep the False default;
+        overriders compare via ``working_source_matches``.
+        """
+        return False
 
     async def get_disallowed_tools(self) -> list[str]:
         """
@@ -378,6 +409,39 @@ MCPs: {mcp_tools}
             MCP Server instance or None
         """
         return None
+
+    def build_instrumented_mcp_server(self) -> Optional[Any]:
+        """Deployment-facing wrapper around :meth:`create_mcp_server`.
+
+        Subclasses keep overriding ``create_mcp_server`` (the documented
+        extension point); serving code calls THIS so every module — present
+        and future — gets the platform-level wiring with no per-module step
+        to forget. Currently that wiring is caller-identity resolution: the
+        module MCP servers are one shared process per module, so a tool's
+        ``agent_id`` parameter used to be whatever the MODEL typed, and a
+        model that guessed ``"agent_current"`` hit a hard dead end and told
+        the user the task was impossible (P1, evt_0dcee899). See
+        ``module/_mcp_identity.py``.
+
+        Never raises: a module whose server cannot be instrumented is still
+        served uninstrumented (identity resolution is an improvement, not a
+        precondition).
+        """
+        mcp_server = self.create_mcp_server()
+        if mcp_server is None:
+            return None
+        try:
+            from xyz_agent_context.module._mcp_identity import (
+                install_caller_identity,
+            )
+
+            install_caller_identity(mcp_server)
+        except Exception as e:  # noqa: BLE001 — never block serving
+            logger.warning(
+                f"[{self.__class__.__name__}] caller-identity resolution "
+                f"not installed: {e}"
+            )
+        return mcp_server
 
     # =========================================================================
     # Database

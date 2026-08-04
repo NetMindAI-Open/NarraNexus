@@ -19,18 +19,24 @@ Wiring rules (Owner decisions, 2026-05-25):
   * Endpoint is registered only when ``ENABLE_MANYFOLD_API=1`` — see
     backend/main.py conditional include.
 
-Event-to-chunk translation (minimal viable — see spec Part 4.4):
-  * agent_response (text_delta) → choices[0].delta.content
-  * progress events with ``send_message_to_user_directly`` tool name →
-    treated as the user-visible reply, content piped into delta.content
-  * terminal (run_ended / done / completed / failed / cancelled) →
-    final chunk with finish_reason="stop" + [DONE]
-  * error → OpenAI error envelope shape
+Event-to-chunk translation (see _classify_event):
+  * agent_thinking / agent_response token deltas → delta.reasoning_content
+    (the agent's inner stream; never the user-visible reply)
+  * reply-tool calls → delta.content — which tools count as the reply, and
+    how the text is extracted, comes from the per-WorkingSource declaration
+    (MessageSourceRegistry), not a hardcoded name list
+  * other tool calls → delta.tool_calls; tool output → delta.tool_results
+    (non-standard extension, paired FIFO by tool_call_id)
+  * terminal (complete / run_ended / done / completed / failed / cancelled)
+    → finish_reason chunk + [DONE]; error → OpenAI error envelope shape
 
-Deferred (tracked in spec Appendix B): a dedicated ``reply_to_manyfold``
-MCP tool + manyfold_module would let the agent be explicit about which
-events are user-visible. For v1 we lean on the existing
-``send_message_to_user_directly`` tool the chat module already provides.
+Managed-IM dispatch (model B, 2026-08-03): a known ``channel_provider``
+maps the turn onto the origin channel's native WorkingSource
+(build_inbound_run_context) and runs the channel's business hooks around
+it (managed_channel_ingress: owner claim / authorize gate / attachment
+conversion / inbox + audit / error fallback). Non-mention group traffic
+short-circuits to memory-only silent ingestion. Design:
+reference/self_notebook/specs/2026-08-03-manyfold-managed-im-ingress-design.md.
 """
 
 from __future__ import annotations
@@ -47,11 +53,16 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 from backend.routes.manyfold.sync import (
+    build_inbound_run_context,
     execute_job_once,
     parse_run_job_control,
 )
 from xyz_agent_context.agent_runtime.background_run import BackgroundRun
 from xyz_agent_context.agent_runtime.cancellation import CancellationToken
+from xyz_agent_context.channel.message_source_handler import (
+    MessageSourceHandler,
+    MessageSourceRegistry,
+)
 from xyz_agent_context.schema import WorkingSource
 from xyz_agent_context.utils.db.db_factory import get_db_client
 
@@ -74,11 +85,26 @@ class ChatCompletionsRequest(BaseModel):
 
     Platform code only relies on ``model``, ``messages``, ``stream`` per
     openclaw.adapter.ts:118+. Unknown fields are ignored (Pydantic default).
+
+    ``channel_provider`` / ``channel_context`` are the managed-IM extension
+    (model B): when the platform forwards an inbound IM message (rather
+    than a native UI turn), it names the origin channel and carries the
+    room/sender identifiers, so the turn behaves like a native channel
+    trigger inbound and the agent replies through its LOCAL channel tool.
+    Absent these fields the endpoint behaves exactly as before
+    (``WorkingSource.MANYFOLD``, platform delivers the reply).
+    Contract: specs/2026-08-03-manyfold-managed-im-ingress-design.md §4.1.
     """
 
     model: str  # = agent_id per Manyfold contract
     messages: list[ChatMessage] = Field(default_factory=list)
     stream: bool = False
+    # Managed-IM origin (optional). provider ∈ {lark, slack, telegram,
+    # wechat, discord, narramessenger}; context carries room_id / sender_id
+    # / sender_name / source_message_id plus the optional v1 additions
+    # (chat_type / thread_id / reply_token / is_mention / attachments).
+    channel_provider: Optional[str] = None
+    channel_context: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------
@@ -193,27 +219,48 @@ def _extract_user_input(messages: list[ChatMessage]) -> str:
 # Event → OpenAI delta translation
 # ---------------------------------------------------------------------------
 
-_REPLY_TOOL_NAMES = (
-    # Chat module's canonical user-visible reply path. NarraNexus uses
-    # the SAME tool for every entrypoint (native UI / Manyfold / lark /
-    # slack / telegram); whatever the agent puts in args.content is the
-    # final assistant-to-user message. No Manyfold-specific reply tool.
-    "send_message_to_user_directly",
-    # MCP-prefixed variants emitted by fastmcp.
-    "chat_module__send_message_to_user_directly",
-    "mcp__chat_module__send_message_to_user_directly",
-)
-
 # "complete" is the terminal frame BackgroundRun._finalize broadcasts to
 # live subscribers right before closing the broadcaster.
 _TERMINAL_TYPES = ("complete", "run_ended", "completed", "done", "failed", "cancelled")
 
 
-def _is_reply_tool_name(tool_name: str) -> bool:
-    return bool(tool_name) and any(n in tool_name for n in _REPLY_TOOL_NAMES)
+def _ensure_source_handlers_registered() -> None:
+    """Channel modules register their MessageSourceHandler at import time
+    (lark_module, wechat_module, ...). Importing MODULE_MAP forces those
+    imports so a managed-IM turn classifies with the channel's declared
+    reply tools even when this request is the process's first
+    agent-related code path. Cached by sys.modules after the first call."""
+    try:
+        from xyz_agent_context.module import MODULE_MAP  # noqa: F401
+    except Exception as e:  # pragma: no cover - broken module tree
+        logger.warning(f"MessageSource registration import failed: {e}")
 
 
-def _classify_event(event: dict) -> Optional[tuple[str, Any]]:
+def _no_reply_fallback(
+    working_source: WorkingSource, last_error_msg: Optional[str]
+) -> str:
+    """Terminal text for a run that produced no delta.content.
+
+    A plain MANYFOLD (owner-chat) turn with no reply usually means an
+    upstream LLM error - keep the diagnostic wording. A managed channel
+    turn delivers through the agent's LOCAL channel tools, so no
+    owner-visible text is a NORMAL outcome (silent group etiquette,
+    out-of-band delivery) and gets a neutral receipt instead."""
+    if working_source is not WorkingSource.MANYFOLD:
+        return (
+            f"(channel turn completed - any reply was delivered through "
+            f"the agent's {working_source.value} channel tools)"
+        )
+    return (
+        f"(agent ran but produced no user-visible reply; "
+        f"this usually means an upstream LLM error - "
+        f"check container logs. Last error: {last_error_msg or 'none captured'})"
+    )
+
+
+def _classify_event(
+    event: dict, source_handler: MessageSourceHandler
+) -> Optional[tuple[str, Any]]:
     """Map a BackgroundRun broadcaster event onto one of four OpenAI
     streaming channels:
 
@@ -291,11 +338,24 @@ def _classify_event(event: dict) -> Optional[tuple[str, Any]]:
         if not isinstance(args, dict):
             args = {}
 
-        # 2. user-visible reply tool → delta.content
-        if _is_reply_tool_name(tool_name):
-            content = args.get("content")
-            if isinstance(content, str) and content:
-                return ("content", content)
+        # 2. user-visible reply → delta.content. Which tools count as the
+        # reply - and how the text is pulled out of their arguments - is
+        # the per-WorkingSource declaration (MessageSourceRegistry), the
+        # same chain chat_module uses to split user-visible replies. For
+        # owner chat the default handler resolves to
+        # send_message_to_user_directly + arguments["content"], exactly
+        # the retired hardcoded list.
+        reply_text = source_handler.extract_reply_text(tool_name, args)
+        if reply_text:
+            return ("content", reply_text)
+        if reply_text is not None:
+            # "" = a reply attempt whose text stripped to blank (same
+            # line as the other four guards). Not a real tool call
+            # either — falling through would leak the internal reply
+            # tool's MCP name to external clients as a fake tool_call.
+            # Drop the event. (None means "not a reply tool at all" —
+            # e.g. a lark_cli non-send command — which IS a real tool
+            # call and falls through below.)
             return None
 
         # 3. all other tools → delta.tool_calls (proper OpenAI schema)
@@ -408,6 +468,81 @@ def _log_orphaned_run_job(task: asyncio.Task) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Managed-channel run wrappers (gate receipt + post-run bookkeeping)
+# ---------------------------------------------------------------------------
+
+
+def _receipt_completion(
+    receipt: str,
+    *,
+    agent_id: str,
+    completion_id: str,
+    created_ts: int,
+    stream: bool,
+):
+    """Answer a gate-denied managed turn with a receipt in both OpenAI
+    shapes. No agent run happened; the receipt is transcript-facing."""
+    if not stream:
+        return {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created_ts,
+            "model": agent_id,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": receipt},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+            },
+        }
+
+    async def gen():
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={"role": "assistant", "content": ""},
+        )
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={"content": receipt},
+        )
+        yield _chunk(
+            id_=completion_id,
+            created=created_ts,
+            model=agent_id,
+            delta={},
+            finish_reason="stop",
+        )
+        yield _done_sentinel()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+def _schedule_managed_after_run(managed_ingress, **kwargs) -> None:
+    """Fire-and-forget the post-run bookkeeping with a done-callback
+    (engineering lesson #2: no unobserved task exceptions)."""
+    task = asyncio.create_task(managed_ingress.after_run(**kwargs))
+    task.add_done_callback(_log_managed_after_run)
+
+
+def _log_managed_after_run(task: asyncio.Task) -> None:
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.exception(f"managed ingress after_run task failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # Main endpoint
 # ---------------------------------------------------------------------------
 
@@ -456,6 +591,84 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         )
 
     db = await get_db_client()
+
+    session_id = f"manyfold_{uuid.uuid4().hex[:8]}"
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created_ts = int(time.time())
+
+    # Managed-IM dispatch (model B): a known channel_provider flips this
+    # turn from a plain MANYFOLD chat into the matching channel's native
+    # inbound semantics. Without the fields this is a byte-for-byte no-op.
+    working_source, run_input, trigger_extra_data = build_inbound_run_context(
+        channel_provider=body.channel_provider,
+        channel_context=body.channel_context,
+        user_input=user_input,
+        session_id=session_id,
+    )
+
+    # The turn's reply surface is declared per WorkingSource - resolve the
+    # handler once and classify every streamed event against it.
+    _ensure_source_handlers_registered()
+    source_handler = MessageSourceRegistry.get(working_source.value)
+
+    # Managed-channel business gate: the pre-run side effects that natively
+    # live on the trigger's receive path (WeChat owner claim, NarraMessenger
+    # authorize-event). Runs BEFORE any run resource is created; a deny
+    # answers with a receipt completion and never starts the agent.
+    managed_ingress = None
+    if working_source is not WorkingSource.MANYFOLD:
+        from xyz_agent_context.module.managed_channel_ingress import (
+            get_managed_channel_ingress,
+        )
+
+        managed_ingress = get_managed_channel_ingress()
+        allowed, receipt = await managed_ingress.before_run(
+            working_source=working_source,
+            agent_id=agent_id,
+            user_input=user_input,
+            trigger_extra_data=trigger_extra_data,
+            db=db,
+        )
+        if not allowed:
+            return _receipt_completion(
+                receipt,
+                agent_id=agent_id,
+                completion_id=completion_id,
+                created_ts=created_ts,
+                stream=body.stream,
+            )
+        # Platform-ingested attachments → native Attachment protocol
+        # (store + index + STT) so the marker pipeline works unchanged.
+        # Never raises; a broken ref degrades that file to text-only.
+        await managed_ingress.convert_attachments(
+            working_source=working_source,
+            agent_id=agent_id,
+            trigger_extra_data=trigger_extra_data,
+            db=db,
+        )
+
+        # Non-mention group traffic is memory-only (native group_silent
+        # semantics): ingest and answer a receipt - never run a reply
+        # turn that would barge into the conversation.
+        if (
+            trigger_extra_data.get("is_mention") is False
+            and trigger_extra_data.get("chat_type") == "group"
+        ):
+            receipt = await managed_ingress.silent_ingest(
+                working_source=working_source,
+                agent_id=agent_id,
+                user_input=user_input,
+                trigger_extra_data=trigger_extra_data,
+                db=db,
+            )
+            return _receipt_completion(
+                receipt,
+                agent_id=agent_id,
+                completion_id=completion_id,
+                created_ts=created_ts,
+                stream=body.stream,
+            )
+
     active_runs = request.app.state.active_runs
     cancellation = CancellationToken()
     bg = BackgroundRun(
@@ -467,20 +680,15 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
         cancellation=cancellation,
     )
 
-    session_id = f"manyfold_{uuid.uuid4().hex[:8]}"
-
-    completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
-    created_ts = int(time.time())
-
     # Kick off the background agent run.
     bg.task = asyncio.create_task(
         bg.drive(
             agent_id=agent_id,
             user_id=creator,
-            input_content=user_input,
-            working_source=WorkingSource.MANYFOLD,
+            input_content=run_input,
+            working_source=working_source,
             pass_mcp_servers={},
-            trigger_extra_data={"trigger_id": session_id, "retrieval_anchor": user_input},
+            trigger_extra_data=trigger_extra_data,
         )
     )
 
@@ -507,6 +715,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
             )
             content_emitted = False
             saw_tool_call = False
+            reply_parts: list[str] = []
             last_error_msg: Optional[str] = None
             tool_index = 0  # OpenAI tool_calls each carry a distinct index
             # Pending tool_call_ids that haven't been paired with an
@@ -552,11 +761,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         return
                     if _is_terminal(event):
                         if not content_emitted:
-                            fallback = (
-                                f"(agent ran but produced no user-visible reply; "
-                                f"this usually means an upstream LLM error — "
-                                f"check container logs. Last error: {last_error_msg or 'none captured'})"
-                            )
+                            fallback = _no_reply_fallback(working_source, last_error_msg)
                             yield _chunk(
                                 id_=completion_id,
                                 created=created_ts,
@@ -584,7 +789,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         yield _done_sentinel()
                         return
 
-                    classified = _classify_event(event)
+                    classified = _classify_event(event, source_handler)
                     if not classified:
                         continue
                     kind, payload = classified
@@ -599,6 +804,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                         )
                     elif kind == "content":
                         content_emitted = True
+                        reply_parts.append(payload)
                         yield _chunk(
                             id_=completion_id,
                             created=created_ts,
@@ -674,11 +880,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 # Subscriber iterator exhausted (broadcaster closed cleanly)
                 # without an explicit terminal event — still send sentinel.
                 if not content_emitted:
-                    fallback = (
-                        f"(agent ran but produced no user-visible reply; "
-                        f"this usually means an upstream LLM error — check "
-                        f"container logs. Last error: {last_error_msg or 'none captured'})"
-                    )
+                    fallback = _no_reply_fallback(working_source, last_error_msg)
                     yield _chunk(
                         id_=completion_id,
                         created=created_ts,
@@ -697,6 +899,17 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 yield _done_sentinel()
             finally:
                 bg.broadcaster.unsubscribe(session_id)
+                if managed_ingress is not None:
+                    _schedule_managed_after_run(
+                        managed_ingress,
+                        working_source=working_source,
+                        agent_id=agent_id,
+                        user_input=user_input,
+                        trigger_extra_data=trigger_extra_data,
+                        db=db,
+                        reply_text="\n".join(reply_parts),
+                        error_text=last_error_msg or "",
+                    )
 
         return StreamingResponse(
             gen(),
@@ -726,7 +939,7 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 break
             if _is_terminal(event):
                 break
-            classified = _classify_event(event)
+            classified = _classify_event(event, source_handler)
             if not classified:
                 continue
             kind, payload = classified
@@ -760,6 +973,17 @@ async def chat_completions(request: Request, body: ChatCompletionsRequest):
                 })
     finally:
         bg.broadcaster.unsubscribe(session_id)
+        if managed_ingress is not None:
+            _schedule_managed_after_run(
+                managed_ingress,
+                working_source=working_source,
+                agent_id=agent_id,
+                user_input=user_input,
+                trigger_extra_data=trigger_extra_data,
+                db=db,
+                reply_text="\n".join(parts),
+                error_text=error_msg or "",
+            )
 
     if error_msg:
         return JSONResponse(

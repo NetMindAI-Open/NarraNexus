@@ -22,10 +22,14 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import ValidationError
 
+from xyz_agent_context.agent_framework.providers.model_catalog import (
+    get_default_models,
+)
 from xyz_agent_context.agent_framework.providers.cloud_policy import (
     ensure_slot_provider_allowed,
 )
 from xyz_agent_context.schema.provider_schema import (
+    CLI_FRAMEWORK_BY_OAUTH_SOURCE,
     AuthType,
     LLMConfig,
     ProviderConfig,
@@ -33,6 +37,7 @@ from xyz_agent_context.schema.provider_schema import (
     ProviderSource,
     SlotConfig,
     SlotName,
+    framework_can_drive_provider,
     get_slot_required_protocols,
 )
 
@@ -67,7 +72,12 @@ def _is_cloud_mode() -> bool:
 # whenever OpenAI ships/retires a codex model, and keep every id registered
 # in model_catalog (pinned by
 # test_codex_curated_models_stay_registered_in_catalog).
-CODEX_CURATED_MODELS = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+#
+# The values live in model_catalog._DEFAULT_MODELS[("codex_oauth", "openai")]
+# since 2026-07-31: keeping the literal HERE left get_default_models() empty
+# for codex, so codex verify_live's "curated defaults first" guard silently
+# fell back to the stale stored models column. One table, two consumers.
+CODEX_CURATED_MODELS = get_default_models("codex_oauth", "openai")
 
 
 def validate_slot_binding(
@@ -85,25 +95,49 @@ def validate_slot_binding(
     Rules:
       1. Protocol — the agent slot follows the framework (claude_code →
          anthropic, codex_cli → openai); other slots keep their static
-         requirement. This is the ONLY gate on the codex agent slot: any
-         openai-protocol provider (codex_oauth / user / netmind / yunwu /
+         requirement. This is the ONLY protocol gate on the codex agent slot:
+         any openai-protocol provider (codex_oauth / user / netmind / yunwu /
          openrouter) is accepted. Codex targets OpenAI's Responses API
          (wire_api="responses"); whether a given endpoint actually serves it
          is the provider's characteristic, not something the platform polices
          at config time (binding rule #15). A mismatch surfaces at agent-loop
          time — the same accepted cost as any user-chosen endpoint.
-      2. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
+      2. Subscription credential (AGENT slot) — a card carrying a CLI
+         subscription (auth_type oauth / oauth_token) is redeemable ONLY by
+         the framework whose CLI owns that credential. This is NOT the
+         platform judging providers: nexus_power physically cannot spend a
+         Claude Code login (it drives the HTTP API and rejects subscription
+         auth in ``nexus_agent._resolve_provider``), so accepting the binding
+         here only defers a certain failure to the middle of a run.
+      3. helper_llm — ACCEPTS OAuth providers (claude_oauth / codex_oauth): a
          subscription login covers both slots. The OAuth credential can't make
          DIRECT Messages / Chat-Completions calls, but the resolver routes an
          OAuth helper to a CliHelperConfig and CliHelperSDK runs the helper's
          structured calls one-shot through the same CLI as the agent
-         (build_cli_helper_config) — so no reject here.
+         (build_cli_helper_config) — so no reject here. Rule 2 is agent-slot
+         only for exactly that reason.
     """
     required = get_slot_required_protocols(slot_name, agent_framework=agent_framework)
     if required and prov["protocol"] not in [p.value for p in required]:
         raise ValueError(
             f"Slot '{slot_name}' requires protocol {[p.value for p in required]}, "
             f"got '{prov['protocol']}'"
+        )
+
+    if slot_name == SlotName.AGENT.value and not framework_can_drive_provider(
+        agent_framework,
+        source=prov.get("source", ""),
+        auth_type=prov.get("auth_type", "api_key"),
+        protocol=prov["protocol"],
+    ):
+        owner_framework = CLI_FRAMEWORK_BY_OAUTH_SOURCE.get(prov.get("source", ""))
+        raise ValueError(
+            f"Provider '{prov.get('name') or prov.get('provider_id')}' signs in "
+            f"through a CLI subscription, so it can only back the "
+            f"'{owner_framework or 'matching CLI'}' agent framework — not "
+            f"'{agent_framework}'. Either switch this agent to "
+            f"'{owner_framework or 'that framework'}', or bind an API-key "
+            f"provider instead."
         )
 
     # helper_llm ACCEPTS OAuth (claude_oauth / codex_oauth) — no reject: the
@@ -645,6 +679,11 @@ class UserProviderService:
         for the API response. Raises ValueError on bad input or any
         step failure (duplicate provider, protocol mismatch, ...).
         """
+        from xyz_agent_context.agent_framework.providers.free_tier import (
+            FREE_TIER_SOURCE,
+            free_tier_default_models,
+            free_tier_default_thinking,
+        )
         from xyz_agent_context.agent_framework.providers.model_catalog import (
             get_default_agent_model,
             get_default_helper_model,
@@ -673,6 +712,16 @@ class UserProviderService:
         framework = "codex_cli" if ptype == "openai" else "claude_code"
         agent_model = get_default_agent_model(ptype)
         helper_model = get_default_helper_model(ptype)
+        agent_thinking = ""
+        if ptype == FREE_TIER_SOURCE:
+            # The free-tier card starts on the DEPLOYMENT-configured pair, not
+            # the catalog constant: the platform pays out of the wallet, so
+            # which models the wallet opens on is an ops decision
+            # (FREE_TIER_AGENT_MODEL / FREE_TIER_HELPER_MODEL). Thinking is an
+            # ops decision for the same reason — reasoning tokens drain the
+            # wallet without being visible in the reply.
+            agent_model, helper_model = free_tier_default_models()
+            agent_thinking = free_tier_default_thinking()
 
         # Key rotation: aggregator cards (netmind/yunwu/openrouter) are guarded
         # one-per-source, so a second onboard is a REPLACE, not an add. If the
@@ -737,8 +786,12 @@ class UserProviderService:
             # already decided (cloud non-staff gets activate=False and never
             # reaches these binds).
             config = await self.set_slot(
-                user_id, "agent", agent_pid, agent_model, actor_is_staff=None
+                user_id, "agent", agent_pid, agent_model,
+                thinking=agent_thinking, actor_is_staff=None,
             )
+            # Do not forward agent_thinking to the helper. The only non-neutral
+            # case is free-tier, whose linked helper row is OpenAI-protocol and
+            # never crosses the Anthropic /v1/messages reasoning bridge.
             config = await self.set_slot(
                 user_id, "helper_llm", helper_pid, helper_model, actor_is_staff=None
             )
@@ -879,8 +932,12 @@ class UserProviderService:
             return "claude_code"
         return (row.get("agent_framework") or "claude_code")
 
-    async def set_user_agent_framework(self, user_id: str, framework: str) -> None:
+    async def set_user_agent_framework(self, user_id: str, framework: str) -> bool:
         """Persist the user's coding-agent framework choice.
+
+        Returns True when the agent slot's provider binding had to be
+        cleared (see below) — the route passes that on so the editor can
+        show an empty provider picker instead of a stale one.
 
         Upserts ``user_slots[user_id, slot_name='agent'].agent_framework``.
         If the user has no agent slot row yet (provider_id/model not
@@ -888,6 +945,15 @@ class UserProviderService:
         the framework choice is preserved until they wire the slot.
         provider_resolver still rejects the call at agent_loop time
         when provider_id is empty — same as today.
+
+        If the currently bound provider CANNOT back the new framework
+        (``framework_can_drive_provider`` — e.g. a Claude Code Login card
+        while switching to nexus_power), the binding is CLEARED rather than
+        left behind. A framework switch is not a slot write, so nothing else
+        re-validates it: keeping the row would persist exactly the
+        combination ``validate_slot_binding`` refuses, and the only place it
+        would surface is the middle of an agent run. Clearing also matches
+        what both framework pickers already do to their local draft.
 
         Raises ``ValueError`` for unknown framework values.
         """
@@ -901,11 +967,42 @@ class UserProviderService:
             "user_slots", {"user_id": user_id, "slot_name": "agent"}
         )
         now = datetime.now(timezone.utc).isoformat()
+        cleared = False
         if existing:
+            payload: Dict[str, Any] = {
+                "agent_framework": framework,
+                "updated_at": now,
+            }
+            bound_pid = existing.get("provider_id") or ""
+            if bound_pid:
+                prov = await self.db.get_one(
+                    "user_providers",
+                    {"user_id": user_id, "provider_id": bound_pid},
+                )
+                # A dangling provider_id (row already deleted) is left alone:
+                # remove_provider owns that cleanup, and inventing a second
+                # writer for it here would just race that one.
+                if prov and not framework_can_drive_provider(
+                    framework,
+                    source=prov.get("source", ""),
+                    auth_type=prov.get("auth_type", "api_key"),
+                    protocol=prov.get("protocol", ""),
+                ):
+                    logger.warning(
+                        f"[providers] agent framework -> {framework!r} for "
+                        f"user={user_id!r}: clearing agent slot bound to "
+                        f"provider {bound_pid!r} "
+                        f"(source={prov.get('source')!r}, "
+                        f"auth={prov.get('auth_type')!r}) — that card cannot "
+                        f"back the new framework."
+                    )
+                    payload["provider_id"] = ""
+                    payload["model"] = ""
+                    cleared = True
             await self.db.update(
                 "user_slots",
                 {"user_id": user_id, "slot_name": "agent"},
-                {"agent_framework": framework, "updated_at": now},
+                payload,
             )
         else:
             # Stub row: framework choice survives even if the agent
@@ -924,6 +1021,7 @@ class UserProviderService:
                     "updated_at": now,
                 },
             )
+        return cleared
 
     async def validate_slots(self, user_id: str) -> list[str]:
         """Validate all slots are configured."""
@@ -958,23 +1056,23 @@ class UserProviderService:
 
         Loads the persisted row, then delegates to ``test_provider_config``
         so the transient-ProviderConfig construction lives in exactly one
-        place. The OAuth short-circuit stays HERE: a stored oauth row means
-        the CLI holds real credentials, so "connected" is truthful — the
-        stateless twin deliberately rejects oauth (no stored credential to
-        stand behind that claim).
+        place. Both OAuth flavours delegate to the driver's ``verify_live``
+        — a real one-shot through the same CLI transport the agent uses.
+        The old ``oauth`` branch answered with an unconditional pass
+        ("the CLI holds real credentials, so connected is truthful") —
+        false: the CLI can hold EXPIRED credentials, and the pass leaked
+        into ProviderReadiness, re-arming paused jobs onto dead codex
+        logins (P0, 2026-07-31). Same defect class the 2026-07-23 incident
+        already proved for ``oauth_token``.
         """
         row = await self.db.get_one("user_providers", {"user_id": user_id, "provider_id": provider_id})
         if not row:
             return False, "Provider not found"
 
-        if row.get("auth_type") == "oauth":
-            return True, "OAuth provider (managed by Claude Code CLI)"
-
-        if row.get("auth_type") == "oauth_token":
-            # The token is in OUR hands (unlike host-CLI oauth), so the Test
-            # button can be honest: a real one-shot CLI call instead of the
-            # existence-check that lied through the 2026-07-23 incident.
+        if row.get("auth_type") in ("oauth", "oauth_token"):
             from xyz_agent_context.agent_framework.providers.driver.base import (
+                VERIFY_DEAD,
+                VERIFY_OK,
                 ProviderCard,
             )
             from xyz_agent_context.agent_framework.providers.driver.registry import (
@@ -982,15 +1080,37 @@ class UserProviderService:
             )
 
             card = ProviderCard.from_row(row)
-            driver_cls = get_driver_class(card.driver_type or "claude_oauth")
-            verify = getattr(
-                driver_cls(card) if driver_cls else None, "verify_token_live", None
+            # Legacy rows predate the driver_type column: derive from the
+            # protocol — openai OAuth is the codex CLI, anthropic the claude
+            # CLI. (The old default of claude_oauth mis-verified codex rows.)
+            driver_type = card.driver_type or (
+                "codex_oauth" if (row.get("protocol") or "") == "openai" else "claude_oauth"
             )
+            driver_cls = get_driver_class(driver_type)
+            if driver_cls is None:
+                return False, f"unknown driver {driver_type!r} — cannot verify"
+            driver = driver_cls(card)
+            verify = getattr(driver, "verify_live", None)
             if verify is None:
-                return False, (
-                    f"driver {card.driver_type!r} has no live token verification"
+                # No live capability: report the cheap existence probe, but
+                # say so — never dress an existence check up as connectivity.
+                health = await driver.probe()
+                return health.ok, (
+                    f"{health.detail} (existence check only — driver "
+                    f"{driver_type!r} has no live verification)"
                 )
-            return await verify()
+            # Tri-state → bool mapping for the two consumers of this method
+            # (the Test button and ProviderReadiness): only a VERIFIED-dead
+            # credential maps to False. "unknown" (control-plane node,
+            # timeout, missing model list) maps to True-with-caveat — a
+            # False here would permanently block the readiness edge that
+            # re-arms PAUSED_NO_QUOTA jobs over a situation nobody verified.
+            verdict, detail = await verify()
+            if verdict == VERIFY_OK:
+                return True, detail
+            if verdict == VERIFY_DEAD:
+                return False, detail
+            return True, f"{detail} (not live-verified)"
 
         return await self.test_provider_config(
             card_type=row["protocol"],

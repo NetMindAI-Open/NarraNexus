@@ -154,6 +154,40 @@ async def test_channels_endpoint_decodes_telegram_binding(db_client, monkeypatch
     assert tg[0]["config"]["bot_username"] == "nx_bot"
 
 
+async def test_channels_endpoint_decodes_lark_binding(db_client, monkeypatch):
+    # Regression: the endpoint used cred.has_secret / cred.app_secret, which
+    # LarkCredential does not expose (it has app_secret_encoded +
+    # get_app_secret()), so any lark row 500'd the whole inventory. The
+    # original test only covered telegram, which is why it slipped — hit
+    # live during the 2026-08-03 local managed-IM E2E (fix ported from the
+    # feat/manyfold-cloud experiment branch).
+    await db_client.insert(
+        "lark_credentials",
+        {
+            "agent_id": "agent_1",
+            "app_id": "cli_abc123",
+            "app_secret_ref": "appsecret:cli_abc123",
+            "app_secret_encrypted": base64.b64encode(b"the_app_secret").decode(),
+            "brand": "feishu",
+            "profile_name": "agent_agent_1",
+            "auth_status": "user_logged_in",  # bot-active → listed
+            "is_active": 1,
+        },
+    )
+    app = _make_app(db_client, monkeypatch, authed=True)
+    resp = await _get(app, "/manyfold/channels")
+    assert resp.status_code == 200
+    rows = resp.json()["data"]
+    lark = [r for r in rows if r["provider"] == "lark"]
+    assert len(lark) == 1
+    assert lark[0]["agent_id"] == "agent_1"
+    assert lark[0]["enabled"] is True
+    assert lark[0]["external_id"] == "cli_abc123"
+    assert lark[0]["credentials"]["app_secret"] == "the_app_secret"
+    assert lark[0]["config"]["app_id"] == "cli_abc123"
+    assert lark[0]["config"]["brand"] == "feishu"
+
+
 # ---------------------------------------------------------------------------
 # Config-change webhook middleware
 # ---------------------------------------------------------------------------

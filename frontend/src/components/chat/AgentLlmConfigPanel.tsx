@@ -21,7 +21,8 @@ import { api } from '@/lib/api';
 import { useConfigStore } from '@/stores/configStore';
 import {
   AGENT_FRAMEWORKS,
-  frameworkAcceptsProtocol,
+  availableFrameworks,
+  providerBacksFramework,
   getModelsForSlot,
   prettifyModel,
   RECOMMENDED_HELPER_MODEL_BY_PROTOCOL,
@@ -136,19 +137,25 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
 
   const providerList = Object.values(providers).filter((p) => p.is_active);
 
-  // Agent slot: protocol must match the framework (codex_cli → openai,
-  // claude_code → anthropic). On local, no source filter — any openai-protocol
-  // provider (codex_oauth / user / netmind / yunwu / openrouter) can back
-  // codex; runtime Responses-API compatibility is the provider's
-  // characteristic, not gated here (binding rule #15). Mirrors backend
-  // validate_slot_binding. Cloud non-staff additionally sees NetMind-source
-  // providers only (cloudNetmindOnly — the route gate would 403 anything else).
-  const agentProviders = providerList.filter((p) => {
-    if (netmindOnly && !isSlotBindableSource(p.source)) return false;
-    const fw = AGENT_FRAMEWORKS.find((f) => f.id === agentDraft.agent_framework);
-    if (!frameworkAcceptsProtocol(fw, p.protocol)) return false;
-    return true;
-  });
+  // Agent slot: protocol + subscription-credential gate, both inside
+  // providerBacksFramework (mirrors backend validate_slot_binding). No further
+  // source filter on local — any openai-protocol provider (codex_oauth / user /
+  // netmind / yunwu / openrouter) can back codex; runtime Responses-API
+  // compatibility is the provider's characteristic, not gated here (binding
+  // rule #15). Cloud non-staff additionally sees NetMind-source providers only
+  // (cloudNetmindOnly — the route gate would 403 anything else).
+  const bindableProviders = providerList.filter(
+    (p) => !netmindOnly || isSlotBindableSource(p.source),
+  );
+  const agentProviders = bindableProviders.filter((p) =>
+    providerBacksFramework(p, agentDraft.agent_framework),
+  );
+  // Hide frameworks no bindable card can drive — picking one would leave the
+  // provider dropdown empty and the save rejected.
+  const frameworkOptions = availableFrameworks(
+    bindableProviders, agentDraft.agent_framework,
+  );
+  const frameworksHidden = frameworkOptions.length < AGENT_FRAMEWORKS.length;
 
   // Helper slot: openai/anthropic protocols. OAuth providers (claude_oauth /
   // codex_oauth) are allowed too — the backend routes an OAuth helper to a
@@ -322,10 +329,18 @@ export function AgentLlmConfigPanel({ agentId, isOpen, onClose, onSaved }: Props
                       }));
                     }}
                   >
-                    {AGENT_FRAMEWORKS.map((f) => (
+                    {frameworkOptions.map((f) => (
                       <option key={f.id} value={f.id}>{f.label} — {f.desc}</option>
                     ))}
                   </select>
+                  {frameworksHidden && (
+                    <p className="text-xs text-[var(--text-tertiary)] mt-1">
+                      {t(
+                        'pages.settings.modelDefaults.frameworkFilteredNote',
+                        'Only the frameworks your connected providers can actually run are listed.',
+                      )}
+                    </p>
+                  )}
                 </div>
 
                 <div>

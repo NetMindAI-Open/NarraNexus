@@ -4,6 +4,13 @@ last_verified: 2026-07-30
 stub: false
 ---
 
+## 2026-07-30 — 移除 402 → `narranexus:quota-exceeded` 的派发
+
+配套 [[App.tsx]] 删除失效横幅：后端已无任何地方发
+`error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER`（2026-07-28 运行前配额门禁移除），这段
+`response.status === 402` 的解析与事件派发从此是死代码。402 本身仍由下面的通用抛错路径
+处理（resolver 的 `NO_PROVIDER_CONFIGURED` 仍走 402）。
+
 ## 2026-07-30 — updateJobSchedule (编辑执行时间)
 
 新增 `updateJobSchedule(jobId, fields)` → `PUT /api/dashboard/jobs/{id}/schedule`,
@@ -288,7 +295,9 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 **`request<T>` throws on non-2xx.** The error message is `"API error: ${status} ${statusText}"`. Callers that need to distinguish error types must do so via the returned `success: false` payload rather than via exception. Exceptions only happen for network failures or non-2xx responses — not for business logic errors.
 
-**Side effects on 401 (stale JWT) and 402 (quota).** Before throwing, `request<T>` dispatches global `CustomEvent`s for two specific statuses: `narranexus:auth-expired` on 401 when an `Authorization` header was actually attached and the endpoint is not `/api/auth/login` or `/api/auth/register` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`); `narranexus:quota-exceeded` on 402 with `error_code=QUOTA_EXCEEDED_NO_USER_PROVIDER`. The 401 guard skips anonymous probes and login attempts so wrong-credentials surfaces in the form rather than logging the user out. Decoupled via events to avoid a circular import on `@/stores/configStore`.
+**Side effect on 401 (stale JWT).** Before throwing, `request<T>` dispatches a global `CustomEvent` for one status: `narranexus:auth-expired` on 401, when an `Authorization` header was actually attached and the endpoint is not `/api/auth/login` or `/api/auth/register` (top-level `App` listens and calls `configStore.logout()` so `ProtectedRoute` redirects to `/login`). The guard skips anonymous probes and login attempts so wrong-credentials surfaces in the form rather than logging the user out. Decoupled via an event to avoid a circular import on `@/stores/configStore`.
+
+402 has **no** special side effect any more — it takes the generic throw path like any other non-2xx. It used to dispatch `narranexus:quota-exceeded`; see the 2026-07-30 entry above for why that went away.
 
 **Typed return types imported from `@/types`.** All response types live in `@/types` (the TypeScript layer). `api.ts` does not define any types itself. Adding a new endpoint requires adding the corresponding response type to `@/types` first.
 
