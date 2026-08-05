@@ -1,8 +1,137 @@
 ---
 code_file: src/xyz_agent_context/module/lark_module/_lark_command_security.py
 stub: false
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 ---
+
+## 2026-08-05 (三) — 注释精度第二轮 + 孪生 guard 同源死分支
+
+**同一处、反方向又犯了一次。** 上一轮为了纠正「零误伤」的过度承诺，把边界写成
+「正文**以 flag 名开头**仍会被拦」—— 这句话又比代码**说得多**。实测：
+`--app-secret is bad` / `--app-secret-stdin is worse` / `--app-secret  =  x` /
+`--foo bar --app-secret=x` **全部放行**，因为它们是单个 token、要么不含 `=`、
+要么 `=` 前的部分不等于 flag 名，`name` 取到整句话，匹配不上。
+
+真实边界**恰好两种**：正文整体等于 blocked flag，或首个 `=` 之前的部分等于。
+已按 `_split_compound_flag` 的语义重写注释，并把**放行的一侧也钉成测试**
+(`test_body_merely_containing_a_flag_name_still_sends`)——只钉「被拦」的一侧，
+注释和函数名仍可能漂移到更大的集合；两侧都钉住，边界才锁死。测试也随之改名为
+`test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design`（原名
+`..._body_starting_with_a_flag_name_...` 本身就断言了那个更宽的集合）。
+
+教训：**这个 PR 系列的全部价值就是「注释不能比代码保证得强」，而修正注释时
+最容易再犯一次同样的错。** 写边界时不要用自然语言概括，直接引用代码的判定
+语义，并用双向测试固定。
+
+顺带（铁律 #8）：孪生 `_narra_command_security.py:140-141` 有**一模一样**的
+不可达空命令分支（开头已 `if not command or not command.strip()` 返回，
+`shlex.split` 对非空 stripped 输入不会返回 `[]`），一并删除。
+
+**第三条同源死分支**（第二轮 review 抓到，讽刺的是本 PR 标题就叫 sweep the
+twin guard，扫了隔壁模块却漏了本函数下面 15 行）：domain 白名单前的
+`tokens = stripped.split(); if not tokens: return "Empty command after parsing"`
+判据完全相同——`stripped` 非空且已去空白，`str.split()` 不可能返回 `[]`。已删。
+**教训：「顺手扫相邻代码」要先扫正在编辑的那个函数，再去扫隔壁文件。**
+
+## 2026-08-05 (三) — review 收尾：把「零误伤」这句话说准
+
+PR #237 合入后 review 的两条 🟢 收尾。
+
+**① 不变量的真实边界要写出来，别让注释比代码保证得强。**
+flag 检查是**整 token 等值**，但 `_split_compound_flag` 对任何 `--` 开头且含
+`=` 的 token 都做 partition、不看空格。所以「正文永远够不着控制面规则」有一个
+针尖大的例外，**恰好两种形状**（就是 `_split_compound_flag` 的语义）：正文
+**整体等于**某个 blocked flag（`--app-secret`），或正文**首个 `=` 之前的部分
+整体等于**（`--app-secret=xyz please`）。**「以 flag 名开头」不是边界** ——
+`--app-secret is bad` 是单个 token、不含 `=`，`name` 取到整句话，照样放行。
+
+这是**刻意的取舍**而不是缺陷：dev 的子串匹配同样拦这两个形状（方向上没有放宽），
+而「真实消息以 `--app-secret` 开头」概率约等于零 —— 拿这个针尖换掉
+「secret 进 argv」那个真缺口是划算的。原注释写成「正文是带空格的整 token，
+永远不等于 flag 名」，读起来像零误伤，将来有人照着推理会得出错误结论。已把
+边界写进注释，并加 `test_body_starting_with_a_flag_name_is_refused_by_design`
+把它**钉成显式用例**——已知取舍要可见，不能留白。
+
+**② 删掉不可达的空命令分支。**
+`validate_command` 开头已对 `not command.strip()` 返回，`stripped` 因此非空且
+已去空白；实测这种输入 `shlex.split` 不可能返回 `[]`（`'""'`/`"''"` → `['']`，
+`'#c'` → `['#c']`，`'\x00'` → `['\x00']`；只有纯空白才 `[]`，而那到不了这里）。
+所以上一轮新增的 `if not parsed: return "Empty command"` 是死分支，且与下方
+`"Empty command after parsing"` 对同一输入给出两种 reason，徒增上层日志分析成本。
+删除，保留原有那条。正是这次刚以铁律 #2/#8 之名从 `_reject_unexpandable_shell`
+删掉的同一类东西。
+
+## 2026-08-05 (三) — 正文永远够不着控制面规则（prod 事故修复）
+
+**事故**：08-04 NarraNexusPM 的每日晨报没能完整发进 Nexus-算法only群，
+群里只收到一条 459 字的 `--text` 缩写版，Owner 追问「你今天在群里发的消息
+怎么变得这么简单」。
+
+**根因不是长度、不是 `--markdown`，是匹配位置**：`validate_command` 用
+`f" {pattern}" in lower` 拿 **整条命令串** 去撞 `BLOCKED_PATTERNS`，而这条串里
+含 `--markdown "……"` 引号内的消息正文。裸词 `"update"`（本意挡 lark-cli 自更新
+子命令）于是把每一份含 "update"/"updated" 的日报都拒了，还回了一条
+`Blocked command: 'update' — use the dedicated MCP tool instead` ——
+指向一个 agent 根本没敲过的命令。
+
+**代价**：agent 探测了 8 次（往真实会话里发 "test"、"Day 57 晨报" 探针），
+其中 `"Day 57 report test - no update word"` 这句因为自己含 update 也被拒，
+于是它得出**错误结论**「`--markdown` 长文本被 sandbox 拦截」，降级发了缩写版，
+并把这个错误解释回复给了团队。DB 佐证：`event_stream` 里
+`Blocked command: 'update'` 共 42 次命中（8 events / 3 agents，自 05-13），
+而其余 6 条 BLOCKED_PATTERNS **一次都没命中过** —— 即该 guard 历史上 100%
+的触发都是误杀。
+
+**同一缺陷的另外两处**：`BLOCKED_FLAGS` 的 `flag in stripped`（正文里提一句
+「别把 --app-secret 写进命令行」就发不出去）、heredoc 检查的
+`tok.startswith("<<")`（正文以 `<<` 开头即被判成 shell 语法）。
+
+**修法 —— 只改「看哪里」，不改「允许什么」**：两条规则都改成读
+**shlex 分词后的 token**，不再碰扁平串 —— BLOCKED_PATTERNS 做**前导 token
+锚定**（第 0 位永远是 domain、第 1 位是子命令，正文只能待在 flag 之后，
+天然够不着），BLOCKED_FLAGS 做**整 token 等值**（事故正文
+`"Security note: never pass --app-secret on the command line."` 是一个
+**带空格的整 token**，永远不等于 flag 名）。`ALLOWED_DOMAINS` 一字未动、
+denylist 条目一条未删、fail-open 保持，所以 lark-cli 广度零收窄。
+
+> **弯路记录（PR #237 review 抓到）**：第一版曾引入 `_control_tokens()`
+> 投影层，把「payload flag 的下一个 token」整个剔除。这对 pattern 检查是
+> **冗余**的（前导锚定本就够不着正文），对 flag 检查是**净负收益** ——
+> `--content --app-secret SEK` 里的 `--app-secret` 会跟着 payload 值一起被
+> 丢掉，相对 dev **真实收窄了护栏**。要点：这条 denylist 防的是「secret 进
+> argv」，泄漏发生在 `execve` 那一刻（`ps` / 进程审计 / 崩溃日志都看得到），
+> **与 lark-cli 怎么解析这对 flag 无关**。投影层已删除，回到与
+> `_narra_command_security.py:145-159` 一致的形状（全 token 前导锚定 +
+> 全 token 等值），代码更少且没有这个缺口。
+
+**heredoc 用「整形」而非「前缀」**：`_is_heredoc_token()` 只认
+`<<[-]?DELIM` 这种**整个 token 就是操作符**的形态。这里踩过一次：最初按
+「控制位」区分，结果打穿了既有用例 `--markdown <<-EOF` —— 那是真 heredoc
+（会把字面量 `<<-EOF` 当正文发出去），它恰好处在 payload 值位。形状判定
+两边都对：`<<Summary>> Day 57 went fine.` 放行，`<<-EOF` 照旧拦。
+正则里**不含 `\s*`**：token 出自 `shlex.split`，真操作符内部不可能有空白
+（有空白就说明是引号包起来的正文），加了 `\s*` 只会把 `<< EOF` 这种正文
+误判成 heredoc —— 正是本次要消灭的那类误杀（review Minor 2）。
+
+**解析失败 fail closed，且只解析一次**：从 token 读规则意味着解析失败必须
+**拒绝**而非放行，否则 `auth logout "` 会因为拿不到 token 而跳过全部规则
+（旧的子串匹配只是**碰巧**挡住了它）。`validate_command` 统一 shlex 一次，
+`_reject_unexpandable_shell` 改收已解析的 token —— 它原本那个
+「解析失败就放行、留给 sanitize_command 报错」的分支在新顺序下已是死代码，
+且与新的 fail-closed 语义打架，一并删除（review Minor 3，铁律 #2/#8）。
+注意 domain/auth 段仍用朴素 `stripped.split()`，本次**不动**它的分词语义，
+故用 `parsed` / `tokens` 两个名字明确区分。
+
+**边界（与 2026-07-29 那条一脉相承）**：payload **完整性**检查（stdin `-`、
+整值 `$(...)`）**可以**读值，因为它问的是「这个值会不会原样送达」，但只做
+**整值**判定，永不看子串 —— 散文永远不会整体等于 `-` 或 `$(...)`。这条边界
+本身没变，这次只是把它和「控制面规则」明确分开了。
+
+**不变量测试**：`tests/lark_module/test_command_payload_never_blocks.py`
+直接 **参数化自常量列表本身** —— 以后任何人往 BLOCKED_PATTERNS /
+BLOCKED_FLAGS 加词，都自动继承「作为正文必须能发、作为命令必须被拦」这条
+不变量，不会再出现「加个通用词把正文炸了」。这与 2026-04-21 删元字符
+denylist 时留下的 `test_command_shell_chars_allowed.py` 是同一课的第二遍。
 
 ## 2026-08-04 (五) — 空 flag 回归修复 + 路线表三处收口
 

@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/netmindAuth/useNetmindAuth.ts
-last_verified: 2026-07-13
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -146,3 +146,26 @@ and the `loginToken` exchange proceeds normally.
 - See `references/phase1-frontend-login-migration.md` for the full Phase 1 login
   migration design, including the three-path convergence rationale and the
   `loginToken` stashing contract for Phases 2 and 3.
+
+## 2026-08-05 — 直连 NetMind 的失败会上报服务端（reportAuthFunnel）
+
+emailLogin 与 handleAuthCallback 是浏览器直连 NetMind 的——失败只存在于用户
+的 tab 里,服务端连「有人尝试过登录」都不知道（8/1 活动「注册成功后无法登录」
+不可诊断的根因）。两处 catch 现在在 setError 之外补一发
+`api.reportAuthFunnel(stage, email?, message)`,fire-and-forget、绝不 throw、
+绝不影响用户看到的错误。成功路径零上报（有测试钉住）。
+
+### 2026-08-05 R2（review 修正）：上报范围收窄到「服务端看不见的那一段」
+
+R1 的 catch 罩太宽（review 指出）：emailLogin 的 catch 同时罩住 ①直连
+NetMind、②exchange（打我们后端,服务端已落 [login-funnel]）、③onSuccess
+回调——②被双记且贴错标签,③把成功登录记成失败。修正：拆双 try,只有
+直连 NetMind 的那段失败才 reportAuthFunnel;exchange 失败只 setError
+（服务端已有记录）。handleAuthCallback 同款拆分。测试钉住：exchange
+失败必须 0 上报。
+
+### 2026-08-05 R3：handleAuthCallback 的拆分补上对称测试
+
+R2 的 mirror 声称「测试钉住」但只有 emailLogin 有用例（review 指出）。补齐：
+OAuth 直连失败→上报 netmind_oauth_failed;OAuth 成功但 exchange 失败→只
+setError 零上报（recvre9LlfwXAP 要区分的那个桶,不能错标）。

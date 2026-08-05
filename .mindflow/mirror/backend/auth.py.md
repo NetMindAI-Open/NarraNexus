@@ -1,6 +1,6 @@
 ---
 code_file: backend/auth.py
-last_verified: 2026-07-30
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -258,3 +258,8 @@ fallback；不再是路由层的"权威 source"，docstring 已经更新。
 
 `/api/admin/runtime/status` 进 AUTH_BYPASS（handler 内 X-Admin-Secret 自凭据，
 读-only）——同 migrate-identity 模式，服务 deploy 仓 alert watcher。
+
+## 2026-08-05 — AUTH_EXEMPT_PATHS 新增 /api/auth/funnel-report
+
+客户端 auth 漏斗故障上报：上报者按定义刚登录失败、没有 session。路由自带
+stage 白名单+限流+log-only 防护（见 routes/auth.py mirror）。

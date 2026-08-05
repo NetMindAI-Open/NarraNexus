@@ -119,3 +119,58 @@ def test_message_content_with_shell_metachars_not_rejected():
 def test_sanitize_blocked_raises():
     with pytest.raises(ValueError):
         sanitize_command("configure --endpoint https://evil.test")
+
+
+# ── the flag rule's boundary, pinned from BOTH sides ───────────────────────
+#
+# Ported from the lark guard's 2026-08-05 series (#237→#239→#241). That fix
+# took three review rounds because each attempt described the residue in
+# prose ("payload can never trip a rule", then "a body starting with a flag
+# name is refused") and each description claimed more than the code did.
+# The cure was pinning both sides: with REFUSE and ALLOW both asserted,
+# neither a comment nor a test name can widen the claim unnoticed.
+#
+# narra has the SAME residue as lark — payload does reach this rule in
+# exactly two shapes — so it gets the same treatment rather than a mirror-md
+# sentence claiming it is immune.
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "--token",           # body IS the flag
+        "--token-file",
+        "--token=sekret",    # part before the first "=" IS the flag
+        "--TOKEN",           # case-folded: argv leaks regardless of spelling
+    ],
+)
+def test_body_that_parses_as_a_blocked_flag_token_is_refused(body):
+    ok, reason = validate_command(f'explore --keyword "{body}"')
+    assert ok is False, f"expected the documented trade-off to refuse {body!r}"
+    assert "--token" in reason
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "--token is bad",             # opens with the name but is one token
+        "--token-file please rotate",
+        # This module has no compound-flag split at all: the rule is one
+        # line, `t == flag or t.startswith(f"{flag}=")`. This token neither
+        # equals "--token" nor starts with "--token=".
+        "--token  =  x",
+        "never pass --token yourself",
+    ],
+)
+def test_body_merely_containing_a_flag_name_still_sends(body):
+    ok, reason = validate_command(f'explore --keyword "{body}"')
+    assert ok is True, f"Refused legitimate body {body!r}: {reason}"
+
+
+@pytest.mark.parametrize("spelling", ["--token", "--TOKEN", "--Token"])
+def test_blocked_flag_match_is_case_folded(spelling):
+    """`--TOKEN sekret` still puts the secret in argv; the CLI's own parsing
+    of that spelling is irrelevant to what ps / crash logs can see."""
+    ok, reason = validate_command(f"im messages --room-id !r:h {spelling} sekret")
+    assert ok is False, f"{spelling} must be refused"
+    assert "--token" in reason

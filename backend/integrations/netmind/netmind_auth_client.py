@@ -135,14 +135,23 @@ class NetmindAuthClient:
             body = None
 
         if isinstance(body, dict) and body.get("success") is False:
-            raise NetmindAuthError("NetMind rejected the token")
+            # Upstream's own msg (e.g. "token expired") is the only thing
+            # that distinguishes one 401 from another in a funnel post-mortem.
+            # It never contains the token — safe to carry in the message.
+            msg = str(body.get("msg") or "").strip()[:120]
+            raise NetmindAuthError(
+                f"NetMind rejected the token "
+                f"(status={response.status_code}, msg={msg!r})"
+            )
 
         if response.status_code >= 500:
             raise NetmindUpstreamError(
                 f"NetMind auth API returned {response.status_code}"
             )
         if response.status_code >= 400:
-            raise NetmindAuthError("NetMind rejected the token")
+            raise NetmindAuthError(
+                f"NetMind rejected the token (status={response.status_code})"
+            )
 
         if not isinstance(body, dict):
             raise NetmindUpstreamError("NetMind auth API returned non-JSON")

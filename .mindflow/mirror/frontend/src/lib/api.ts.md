@@ -1,6 +1,6 @@
 ---
 code_file: frontend/src/lib/api.ts
-last_verified: 2026-07-30
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -336,3 +336,10 @@ Consumed by virtually every store (`preloadStore`, `configStore`, `jobComplexSto
 
 Added `clearTeamData(teamId, {chat, files})` → `DELETE /api/teams/{id}/data?chat=&files=`.
 Team counterpart to `clearHistory`. Backs [[ClearTeamDataDialog]].
+
+## 2026-08-05 — reportAuthFunnel（fire-and-forget 漏斗故障上报）
+
+`reportAuthFunnel(stage, email?, detail?)` → `POST /api/auth/funnel-report`。
+void + catch(() => undefined)：诊断通道绝不 throw、绝不遮住用户正看着的真实
+错误。detail 客户端先截 300（服务端同样有硬上限）。调用方：useNetmindAuth
+的 emailLogin / handleAuthCallback 失败分支。

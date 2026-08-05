@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/agent_runtime/background_run.py
-last_verified: 2026-07-31
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -162,3 +162,11 @@ run_id 设置之前的事件（step 0 RUNNING 的那条 progress）只 broadcast
 `state='failed', error_message='backend restarted, run lost'`。前端识别
 这个状态显示给用户。
 
+
+## 2026-08-05 — [admission-timing]：chat 路径的 queue_wait
+
+review R2 指出的读数纪律缺口：admission slot 的排队在 run() 之外,chat turn
+的 [turn-timing] total_s **不等于用户感知延迟**——而 8/1 量到 1-7min 的正是
+云端 chat（admission 仅云端启用）。slot() 前后打点,等待 ≥1s 才落
+`[admission-timing] agent= user= admit_wait_s=`（无竞争的秒下毫秒级等待是
+噪音,不记）。与 bus 路径的 queue_wait_s 对应。

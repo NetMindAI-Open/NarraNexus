@@ -69,6 +69,12 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
     async (email: string, password: string) => {
       setLoading(true);
       setError('');
+      // Two try blocks on purpose: only the FIRST call goes browser->NetMind
+      // directly, i.e. is invisible to our server and needs the report. The
+      // exchange afterwards hits our own backend, which already logs its
+      // failures as [login-funnel] — reporting it here too would double-count
+      // it under the wrong label.
+      let loginToken = '';
       try {
         const signStr = generateRandomString();
         const data = await netmindPost<NetmindLoginPayload>('/user/emailLogin', {
@@ -79,7 +85,16 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           ckType: 2,
         });
         if (!data.loginToken) throw new Error('Login failed');
-        await exchange(data.loginToken);
+        loginToken = data.loginToken;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : 'Login failed';
+        setError(message);
+        api.reportAuthFunnel('netmind_email_login_failed', email, message);
+        setLoading(false);
+        return;
+      }
+      try {
+        await exchange(loginToken);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Login failed');
       } finally {
@@ -139,12 +154,21 @@ export function useNetmindAuth({ source, onSuccess }: Options = {}) {
           },
         );
         if (data.loginToken) {
-          await exchange(data.loginToken);
+          // Backend exchange failures are server-logged already — keep them
+          // out of the report (same split as emailLogin above).
+          try {
+            await exchange(data.loginToken);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : 'OAuth failed');
+          }
         } else {
           setBindInfo(data as AuthBindInfo);
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'OAuth failed');
+        const message = e instanceof Error ? e.message : 'OAuth failed';
+        setError(message);
+        // Direct browser->NetMind call — report or the server never sees it.
+        api.reportAuthFunnel('netmind_oauth_failed', undefined, message);
       } finally {
         setLoading(false);
       }

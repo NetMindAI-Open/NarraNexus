@@ -5,9 +5,17 @@ import { useNetmindAuth } from '../useNetmindAuth';
 const netmindPost = vi.fn();
 vi.mock('../request', () => ({ netmindPost: (...a: unknown[]) => netmindPost(...a) }));
 const netmindLogin = vi.fn();
-vi.mock('@/lib/api', () => ({ api: { netmindLogin: (...a: unknown[]) => netmindLogin(...a) } }));
+const reportAuthFunnel = vi.fn();
+vi.mock('@/lib/api', () => ({ api: {
+  netmindLogin: (...a: unknown[]) => netmindLogin(...a),
+  reportAuthFunnel: (...a: unknown[]) => reportAuthFunnel(...a),
+} }));
 
-afterEach(() => { netmindPost.mockReset(); netmindLogin.mockReset(); });
+afterEach(() => {
+  netmindPost.mockReset();
+  netmindLogin.mockReset();
+  reportAuthFunnel.mockReset();
+});
 
 describe('useNetmindAuth.emailLogin', () => {
   test('encrypts, calls emailLogin, then exchanges loginToken via backend', async () => {
@@ -31,6 +39,57 @@ describe('useNetmindAuth.emailLogin', () => {
     await act(async () => { await result.current.emailLogin('a@b.com', 'bad'); });
     expect(result.current.error).toBe('Invalid password');
     expect(netmindLogin).not.toHaveBeenCalled();
+    // The browser->NetMind failure must be reported server-side — this call
+    // is the only trace the funnel gets (Base recvre9LlfwXAP).
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_email_login_failed', 'a@b.com', 'Invalid password',
+    );
+  });
+
+  test('a successful login reports nothing', async () => {
+    netmindPost.mockResolvedValue({ loginToken: 'nm-tok' });
+    netmindLogin.mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.emailLogin('a@b.com', 'pw'); });
+    expect(reportAuthFunnel).not.toHaveBeenCalled();
+  });
+
+  test('a backend token-exchange failure surfaces the error but does NOT report', async () => {
+    // The exchange hits OUR backend, which already logs the failure as
+    // [login-funnel] — a client report would double-count it under the
+    // wrong label (the NetMind step succeeded).
+    netmindPost.mockResolvedValue({ loginToken: 'nm-tok' });
+    netmindLogin.mockRejectedValue(new Error('exchange blew up'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.emailLogin('a@b.com', 'pw'); });
+    expect(result.current.error).toBe('exchange blew up');
+    expect(reportAuthFunnel).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(false);
+  });
+});
+
+describe('useNetmindAuth.handleAuthCallback reporting split', () => {
+  test('a NetMind-direct callback failure reports netmind_oauth_failed', async () => {
+    netmindPost.mockRejectedValue(new Error('oauth upstream down'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.handleAuthCallback('code', 'state'); });
+    expect(result.current.error).toBe('oauth upstream down');
+    expect(reportAuthFunnel).toHaveBeenCalledWith(
+      'netmind_oauth_failed', undefined, 'oauth upstream down',
+    );
+  });
+
+  test('a backend exchange failure after OAuth surfaces the error but does NOT report', async () => {
+    // Same split as emailLogin: the NetMind step succeeded; the exchange
+    // failure is already server-logged (Base recvre9LlfwXAP's "came back
+    // from OAuth but token exchange died" bucket must not be mislabeled).
+    netmindPost.mockResolvedValue({ loginToken: 'nm-tok' });
+    netmindLogin.mockRejectedValue(new Error('exchange down'));
+    const { result } = renderHook(() => useNetmindAuth());
+    await act(async () => { await result.current.handleAuthCallback('code', 'state'); });
+    expect(result.current.error).toBe('exchange down');
+    expect(reportAuthFunnel).not.toHaveBeenCalled();
+    expect(result.current.loading).toBe(false);
   });
 });
 

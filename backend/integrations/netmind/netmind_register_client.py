@@ -104,9 +104,11 @@ class NetmindRegisterClient:
     async def send_code(self, email: str) -> None:
         """Ask NetMind to email a 6-digit registration code."""
         await self._post(
-            "/register/sendCode", {"email": email, "type": _CODE_TYPE_REGISTER}
+            "/register/sendCode",
+            {"email": email, "type": _CODE_TYPE_REGISTER},
+            email=email,
         )
-        logger.info(f"[signup] verification code requested for {email}")
+        logger.info(f"[signup-funnel] verification code requested for {email}")
 
     async def register(self, email: str, password: str, verify_code: str) -> None:
         """Create the account. Raises on any refusal.
@@ -122,12 +124,13 @@ class NetmindRegisterClient:
                 "ckType": _CK_TYPE_REGISTER,
                 "subscribeFlag": _SUBSCRIBE_NO,
             },
+            email=email,
         )
-        logger.info(f"[signup] account created for {email}")
+        logger.info(f"[signup-funnel] account created for {email}")
 
     # -- transport ---------------------------------------------------------
 
-    async def _post(self, path: str, form: dict) -> dict:
+    async def _post(self, path: str, form: dict, *, email: str = "") -> dict:
         if not self.base_url and self._transport is None:
             raise RegistrationUpstreamError("NETMIND_AUTH_API_URL is not configured")
         try:
@@ -151,15 +154,35 @@ class NetmindRegisterClient:
             raise RegistrationUpstreamError(f"netmind {path} unreachable: {e!r}") from e
 
         if resp.status_code >= 500:
+            # A response body never contains the request form, so a short
+            # snippet is safe — and it is the difference between "500" and
+            # an actionable post-mortem (2026-08-01: signup 400x17 with no
+            # record of what upstream actually said).
+            snippet = resp.text[:200].replace("\n", " ")
+            logger.warning(
+                f"[signup-funnel] upstream 5xx path={path} status={resp.status_code} "
+                f"email={email} body={snippet!r}"
+            )
             raise RegistrationUpstreamError(f"netmind {path} -> {resp.status_code}")
         try:
             payload = resp.json()
         except Exception as e:  # noqa: BLE001
+            snippet = resp.text[:200].replace("\n", " ")
+            logger.warning(
+                f"[signup-funnel] upstream non-JSON path={path} "
+                f"status={resp.status_code} email={email} body={snippet!r}"
+            )
             raise RegistrationUpstreamError(f"netmind {path} returned non-JSON") from e
 
         # NetMind answers 200 + {success:false, msg} for user-fixable refusals
         # (bad code, duplicate email), so status alone is not the verdict.
         if payload.get("success") is False or resp.status_code >= 400:
             msg = (payload.get("msg") or "").strip()
+            # The one log line that buckets a 400 storm: upstream's own msg
+            # (their error string — never the form, per the module discipline).
+            logger.warning(
+                f"[signup-funnel] upstream refusal path={path} "
+                f"status={resp.status_code} email={email} msg={msg[:120]!r}"
+            )
             raise RegistrationError(msg or "Registration failed. Please try again.")
         return payload.get("data") or {}

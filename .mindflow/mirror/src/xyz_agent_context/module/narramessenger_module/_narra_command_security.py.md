@@ -1,8 +1,38 @@
 ---
 code_file: src/xyz_agent_context/module/narramessenger_module/_narra_command_security.py
 stub: false
-last_verified: 2026-07-20
+last_verified: 2026-08-05
 ---
+
+## 2026-08-05 — 删掉不可达的空命令分支（随 lark 侧同源清理）
+
+`validate_command` 开头已有 `if not command or not command.strip(): return
+"Empty command"`，因此 `command.strip()` 非空且已去空白；这种输入
+`shlex.split` 不会返回 `[]`（`str.strip()` 的空白集合是 shlex 的
+`' \t\r\n'` 的超集）。所以 `shlex.split` 之后那条
+`if not tokens: return "Empty command"` 不可达，且与开头返回同一句话。
+
+来源：lark 侧 `_lark_command_security.py` 修 payload-vs-控制面 guard 时删掉了
+同一类死分支，review 指出孪生 guard 里一模一样（铁律 #8 顺手扫相邻代码）。
+
+**一直对的是 `BLOCKED_PATTERNS` 那一半**——先 shlex 分词，再
+`lowered[:len(pat)] == pat` 做前导 token 锚定；第 0 位永远是 domain，正文只能
+待在 flag 之后，所以正文确实够不着**子命令**规则。那才是 lark 侧对齐的参考实现。
+
+**但 flag 规则不是。** 它是 `t == flag or t.startswith(f"{flag}=")`，残留形状
+和 lark 侧**一模一样恰好两种**：正文**整体等于** blocked flag，或正文**以
+`--token=` 开头**。实测 `explore --keyword "--token"` 与
+`explore --keyword "--token=x"` 都被拒，而 `explore --keyword "--token is bad"`
+放行。所以「正文永远够不着控制面规则」在本文件同样是**过度承诺**，别那样写。
+
+残留和 lark 侧一样是**刻意取舍**：泄漏发生在 execve，secret 进了 argv 就对
+`ps` / 进程审计 / crash log 可见，与 CLI 怎么解析无关。同一立论要求匹配
+**大小写折叠**——2026-08-05 前 flag 检查误用了原始 `tokens` 而非 `lowered`，
+`--TOKEN sekret` 会放行（值照样进 argv），已修为 `lowered`。
+
+边界由 `tests/narramessenger_module/test_narra_command_security.py` 的**双向**
+用例钉住（REFUSE 侧 + ALLOW 侧 + 大小写）。lark 侧付了三轮 review 学费才明白：
+只用散文描述残留，每次都会说得比代码宽；**两侧都钉住才锁得死。**
 
 ## Why it exists
 

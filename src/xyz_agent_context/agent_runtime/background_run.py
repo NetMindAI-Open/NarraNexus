@@ -227,7 +227,25 @@ class BackgroundRun:
         try:
             # Two-level concurrency gate: queues the START only, never
             # interrupts a running loop (binding rule #14).
+            #
+            # [admission-timing]: the slot wait is the chat path's analogue
+            # of the bus path's queue_wait_s — cloud-only (admission is
+            # disabled locally) and entirely OUTSIDE run()'s [turn-timing]
+            # total_s, so without this line "was it the queue?" is
+            # unanswerable for exactly the surface the 2026-08-01 event
+            # measured at 1-7min (Base recvrdLPavdQgU).
+            import time as _time
+            _t_admit = _time.monotonic()
             async with get_admission_controller().slot(user_id):
+                _admit_wait_s = _time.monotonic() - _t_admit
+                if _admit_wait_s >= 1.0:
+                    # Log only real waits — an uncontended slot is noise.
+                    logger.info(
+                        "[admission-timing] agent={} user={} "
+                        "admit_wait_s={:.2f}".format(
+                            agent_id, user_id, _admit_wait_s
+                        )
+                    )
                 async with AgentRuntime() as runtime:
                     async for event in runtime.run(
                         agent_id=agent_id,

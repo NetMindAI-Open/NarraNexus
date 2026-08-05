@@ -260,6 +260,9 @@ AUTH_EXEMPT_PATHS = {
     # two is why signup 401'd on first deploy.
     "/api/auth/signup",
     "/api/auth/signup/send-code",
+    # Client-side auth-funnel failure reports: by definition the reporter
+    # has no session (their login just failed). Log-only, rate-limited.
+    "/api/auth/funnel-report",
     "/api/auth/create-user",
     # Admin identity migration (Phase 1): gated on the X-Admin-Secret header
     # inside the handler (admin_secret_key), not a user JWT — the offline batch

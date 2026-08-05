@@ -39,16 +39,35 @@ class SlidingWindowRateLimiter:
         self._cleanup_interval = cleanup_interval
 
     def allow(self, key: str) -> bool:
-        """Return True if the request is allowed; False if rate-limited."""
+        """Return True if the request is allowed; False if rate-limited.
+
+        A REJECTED call never allocates state for the key — a defensive
+        guarantee, and an honest one about its own limits: with
+        ``limit > 0`` a NEW key always has a window count of 0 < limit and
+        is therefore ALLOWED (and allocated). Key growth happens on the
+        allow path. So for a caller-chosen key fed by unauthenticated
+        traffic (/api/auth/funnel-report's per-email bucket), the key
+        space is capped ONLY by whatever trusted bucket short-circuits in
+        front of this one at the call site — the reject-path guarantee
+        here is observable solely under the ``limit <= 0`` degenerate
+        config and must not be mistaken for that cap.
+        """
         self._request_count += 1
         if self._request_count % self._cleanup_interval == 0:
             self._cleanup()
-        now = monotonic()
-        dq = self._deques.setdefault(key, deque())
-        while dq and dq[0] < now - self._window:
-            dq.popleft()
-        if len(dq) >= self._limit:
+        if self._limit <= 0:
+            # Degenerate config always rejected before this restructure too;
+            # now it also allocates nothing.
             return False
+        now = monotonic()
+        dq = self._deques.get(key)
+        if dq is not None:
+            while dq and dq[0] < now - self._window:
+                dq.popleft()
+            if len(dq) >= self._limit:
+                return False
+        else:
+            dq = self._deques[key] = deque()
         dq.append(now)
         return True
 

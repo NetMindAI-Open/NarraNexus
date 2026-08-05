@@ -75,6 +75,34 @@ from xyz_agent_context.agent_runtime._agent_runtime_steps import (
 INTERRUPT_DRAIN_BUDGET_S = 8.0
 
 
+def _turn_timing_line(
+    *,
+    agent_id: str,
+    event_id: str,
+    source: str,
+    pre_s: float,
+    setup_s: float,
+    loop_s: float,
+    persist_s: float,
+    total_s: float,
+    interrupted: bool,
+) -> str:
+    """The [turn-timing] log line — a grep-stable contract, so it lives in a
+    pure function a test can pin (see test_turn_timing_line.py). Phases:
+    pre (run() entry -> Step 0: lazy DB client, agent lookup, service
+    construction), setup (Steps 0-2.5), loop (Step 3), persist (Steps
+    4+4.6). total covers run() entry to the sync tail's end; the
+    backgrounded Steps 5-6 are never counted."""
+    return (
+        "[turn-timing] agent={} event={} source={} "
+        "pre_s={:.2f} setup_s={:.2f} loop_s={:.2f} persist_s={:.2f} "
+        "total_s={:.2f} interrupted={}".format(
+            agent_id, event_id, source,
+            pre_s, setup_s, loop_s, persist_s, total_s, interrupted,
+        )
+    )
+
+
 async def _stream_step3_with_interrupt_drain(
     agen,
     cancellation,
@@ -302,6 +330,16 @@ class AgentRuntime:
         # loguru's contextvar so every downstream log line can be linked
         # to one user message. event_id is bound below once Step 0 has
         # created the Event row.
+        # Turn phase timing ([turn-timing], 2026-08-05): stamps that split a
+        # turn into pre (this point -> Step 0: lazy DB client, agent lookup,
+        # service construction — pool contention lands HERE) / setup (Steps
+        # 0-2.5) / loop (Step 3) / persist (Steps 4+4.6). The 2026-08-01
+        # event measured "one reply = 1-7 minutes" with no way to say WHICH
+        # phase ate it — this is the measurement that decides whether any
+        # latency work is worth doing (Base recvrdLPavdQgU).
+        import time as _time
+        _t_run_start = _time.monotonic()
+
         run_id = f"run_{uuid4().hex[:8]}"
         _trigger_id = (trigger_extra_data or {}).get("trigger_id")
         _bind_kwargs: dict[str, str] = {
@@ -370,6 +408,11 @@ class AgentRuntime:
                 trigger_extra_data=trigger_extra_data or {},
                 cancellation=cancellation,
             )
+
+            # Second timing stamp: Steps 0-2.5 start here (see _t_run_start
+            # above for the phase map).
+            _t_setup_start = _time.monotonic()
+            _t_loop_start = _t_loop_end = _t_setup_start
 
             # =============================================================================
             # Step 0: Initialization
@@ -648,6 +691,7 @@ class AgentRuntime:
             #   - execution_steps: List of execution steps
             #   - agent_loop_response: Raw response from Agent Loop
             # =============================================================================
+            _t_loop_start = _time.monotonic()
             if not silent:
                 # Interrupt continuity (2026-07-30): on cancellation we no
                 # longer break away from the driver stream immediately.
@@ -693,6 +737,8 @@ class AgentRuntime:
                     "AgentRuntime.run(silent=True): skipped step_3, "
                     "wrote empty PathExecutionResult; proceeding to persistence."
                 )
+
+            _t_loop_end = _time.monotonic()
 
             # ---- Interrupt continuity: persist BEFORE honouring the stop ----
             # A cancelled turn used to raise here, skipping Step 4 and
@@ -788,6 +834,22 @@ class AgentRuntime:
             except Exception as e:  # noqa: BLE001
                 logger.warning(f"hook_persist_turn phase failed (non-fatal): {e}")
 
+            # One line per turn, grep-stable. persist covers Steps 4 + 4.6
+            # (the sync tail between "the model finished" and "this function
+            # returns"); Steps 5-6 are backgrounded below and never counted.
+            _t_now = _time.monotonic()
+            logger.info(_turn_timing_line(
+                agent_id=ctx.agent_id,
+                event_id=str(ctx.event.id) if ctx.event else "-",
+                source=str(ctx.working_source),
+                pre_s=_t_setup_start - _t_run_start,
+                setup_s=_t_loop_start - _t_setup_start,
+                loop_s=_t_loop_end - _t_loop_start,
+                persist_s=_t_now - _t_loop_end,
+                total_s=_t_now - _t_run_start,
+                interrupted=interrupted,
+            ))
+
             # ---- Cancellation checkpoint (after persistence) ----
             # Raised here (not before Step 4) so an interrupted turn is
             # durable first; Steps 5/6 background hooks are still skipped,
@@ -831,8 +893,8 @@ class AgentRuntime:
             # survives after AgentRuntime.__aexit__ closes its connection.
             # =============================================================================
             import asyncio
-            import time as _time
 
+            # _time is already this function's alias (turn timing above).
             _bg_start = _time.monotonic()
             _agent_id = ctx.agent_id
 

@@ -137,14 +137,16 @@ def validate_command(command: str) -> Tuple[bool, str]:
         tokens = shlex.split(command.strip())
     except ValueError as e:
         return False, f"Could not parse command: {e}"
-    if not tokens:
-        return False, "Empty command"
 
     lowered = [t.lower() for t in tokens]
 
-    # Injected flags must never come from the agent.
+    # Injected flags must never come from the agent. Case-folded like every
+    # other check in this function: the leak this stops happens at execve —
+    # `--TOKEN sekret` puts the value in argv (visible to ps / process
+    # auditing / crash logs) whether or not narra-cli recognises that
+    # spelling — so matching must not depend on how the CLI would parse it.
     for flag in BLOCKED_FLAGS:
-        if any(t == flag or t.startswith(f"{flag}=") for t in tokens):
+        if any(t == flag or t.startswith(f"{flag}=") for t in lowered):
             return False, (
                 f"Blocked flag: '{flag}' — the platform injects the agent token; "
                 "do not pass it yourself"

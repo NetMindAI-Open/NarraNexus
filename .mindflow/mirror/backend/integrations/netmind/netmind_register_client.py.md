@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_register_client.py
-last_verified: 2026-07-28
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -35,3 +35,13 @@ stub: false
 ## 密码规则在两边都校验
 
 前端有一份实时清单是为了**反馈**,这里这份是**保证**。客户端校验从来不是保证。
+
+## 2026-08-05 — 上游拒绝/异常全部落结构化日志（[signup-funnel]）
+
+8/1 活动 signup 400×17 无法分桶的直接修复：`_post` 现在对三类非成功路径各落
+一条 `[signup-funnel]` warning——refusal（带上游 msg）、5xx（带响应片段）、
+非 JSON（带响应片段）。`_post` 新增 keyword `email` 仅作日志上下文。
+
+密钥纪律不变且被测试钉住：日志携带的是**响应**（上游 msg/响应片段），永远
+不是请求体——密码和验证码在响应里不可能出现,在日志断言里被显式排除
+（tests/backend/test_auth_funnel_observability.py）。

@@ -171,6 +171,24 @@ def _is_im_message_command(tokens: list[str]) -> bool:
     )
 
 
+_HEREDOC_TOKEN = re.compile(r"""^<<-?(['"]?)[A-Za-z_][A-Za-z0-9_]*\1$""")
+
+
+def _is_heredoc_token(token: str) -> bool:
+    """True only for a bare heredoc operator: ``<<EOF``/``<<-EOF``/``<<'EOF'``.
+
+    The check is on the WHOLE token, deliberately. ``tok.startswith("<<")``
+    also matched message bodies that merely open with the characters —
+    ``--markdown "<<Summary>> Day 57 went fine."`` was refused with a
+    "Heredoc is shell syntax" error that made no sense to the sender. A
+    real heredoc is `<<` plus a bare delimiter word and nothing else; prose
+    that opens with "<<" carries punctuation, spaces, or non-ASCII after it.
+    A shlex token for a real operator never contains whitespace — if it
+    does, quotes put it there and it is a message body, not an operator.
+    """
+    return bool(_HEREDOC_TOKEN.match(token))
+
+
 def _split_compound_flag(token: str) -> Tuple[str, str]:
     """Normalize ``--flag=value`` to ``(--flag, value)``.
 
@@ -242,20 +260,17 @@ def _is_whole_command_substitution(value: str) -> bool:
     return False
 
 
-def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
+def _reject_unexpandable_shell(tokens: list[str]) -> Tuple[bool, str]:
     """Catch shell constructs that silently produce wrong content.
 
     See the NOTE at the top of this file: these three cannot work through
     execve, and every one of them fails *quietly* — lark-cli returns
     success with the wrong bytes written.
-    """
-    try:
-        tokens = shlex.split(command.strip())
-    except ValueError:
-        # Unbalanced quotes — sanitize_command raises on this later with a
-        # parse error, which is a clearer message than anything here.
-        return True, ""
 
+    Takes already-parsed tokens: validate_command refuses unparseable
+    commands before reaching here, so there is no second parse and no
+    "deferred on ValueError" path left to disagree with that decision.
+    """
     # im message commands override the flag table for hints: no im flag
     # reads files, --content included (see _is_im_message_command).
     im_message = _is_im_message_command(tokens)
@@ -270,7 +285,11 @@ def _reject_unexpandable_shell(command: str) -> Tuple[bool, str]:
         compound_flag, compound_value = _split_compound_flag(tok)
         prev_flag = tokens[i - 1] if i > 0 and tokens[i - 1].startswith("--") else ""
         offending_flag = compound_flag or prev_flag
-        if tok.startswith("<<"):
+        # Whole-token shape, not a "<<" prefix: `--markdown <<-EOF` really is
+        # a heredoc that would ship the literal delimiter as the message, but
+        # a body may legitimately OPEN with "<<" ("<<Summary>> Day 57 went
+        # fine"). Only a bare `<<[-]DELIM` operator token is the former.
+        if _is_heredoc_token(tok):
             return False, (
                 f"Heredoc ('{tok}') is shell syntax. lark_cli executes the CLI "
                 f"directly (execve), not through a shell, so it is never "
@@ -310,27 +329,73 @@ def validate_command(command: str) -> Tuple[bool, str]:
 
     stripped = command.strip()
 
-    # Check blocked patterns
-    lower = stripped.lower()
+    # Both rules below read PARSED TOKENS, never the flat string. Substring
+    # matching the flat string is what refused every daily report containing
+    # the word "update" on 2026-08-04: the string carries the quoted
+    # --markdown/--text body, so a rule about which COMMAND runs was
+    # reachable from what the MESSAGE said.
+    # NOTE: `parsed` (shlex) is deliberately distinct from the `tokens`
+    # (naive .split()) used by the domain/auth section below — that section's
+    # tokenization is unchanged by this fix and is not ours to alter here.
+    try:
+        parsed = shlex.split(stripped)
+    except ValueError as exc:
+        # Fail CLOSED. Reading rules off parsed tokens means a parse failure
+        # must refuse, not defer — otherwise a stray quote (`auth logout "`)
+        # yields no tokens and skips every rule below. The old substring
+        # matcher happened to catch that shape only by accident.
+        return False, f"Could not parse command (check quoting): {exc}"
+    lowered = [t.lower() for t in parsed]
+
+    # Blocked patterns — anchored at the LEADING tokens. Position 0 is always
+    # the domain and position 1 the subcommand, so a message body (which can
+    # only ever sit after a flag) can never satisfy the anchor.
     for pattern in BLOCKED_PATTERNS:
-        if lower.startswith(pattern) or f" {pattern}" in lower:
+        pat = pattern.lower().split()
+        if lowered[: len(pat)] == pat:
             return False, f"Blocked command: '{pattern}' — use the dedicated MCP tool instead"
 
-    # Check blocked flags
-    for flag in BLOCKED_FLAGS:
-        if flag in stripped:
-            return False, f"Blocked flag: '{flag}' — secrets must not be passed via CLI args"
+    # Blocked flags — whole-token equality. Prose that merely NAMES the flag
+    # ("Security note: never pass --app-secret on the command line") is one
+    # token WITH SPACES and can never equal a flag name.
+    #
+    # Equality is checked over every token rather than a control-only
+    # projection on purpose: a projection that skips the token after a
+    # payload flag would drop `--content --app-secret SEK`, and the leak
+    # this rule exists to stop happens at execve — the secret is in argv
+    # (visible to ps / process auditing / crash logs) regardless of how
+    # lark-cli parses the pair.
+    #
+    # This is NOT zero false positives, and the residue is deliberate. It is
+    # exactly two shapes, both following _split_compound_flag's semantics:
+    # the body IS a blocked flag ("--app-secret"), or the body's part before
+    # its FIRST "=" is ("--app-secret=xyz please"). Anything else sails
+    # through, including bodies that merely open with the name —
+    # "--app-secret is bad" is one token, has no "=", so `name` is the whole
+    # sentence and matches nothing.
+    #
+    # Refusing those two shapes is the price of never letting a secret reach
+    # argv; dev's substring matcher refused them too, so nothing widened.
+    # Both sides are pinned, in a pair of tests:
+    # test_body_that_parses_as_a_blocked_flag_token_is_refused_by_design
+    # (refused) and test_body_merely_containing_a_flag_name_still_sends
+    # (allowed).
+    for tok in parsed:
+        compound_flag, _value = _split_compound_flag(tok)
+        name = (compound_flag or tok).lower()
+        if name in BLOCKED_FLAGS:
+            return False, f"Blocked flag: '{name}' — secrets must not be passed via CLI args"
 
     # Shell constructs that cannot survive execve (see the NOTE above).
-    ok, reason = _reject_unexpandable_shell(stripped)
+    ok, reason = _reject_unexpandable_shell(parsed)
     if not ok:
         return False, reason
 
-    # Check domain whitelist
+    # Check domain whitelist. `stripped` is non-empty and whitespace-trimmed
+    # (see the guard at the top), so str.split() always yields at least one
+    # token — the same reasoning that retired the two sibling empty-command
+    # branches; this was the third and last of them.
     tokens = stripped.split()
-    if not tokens:
-        return False, "Empty command after parsing"
-
     domain = tokens[0].lower()
     if domain not in ALLOWED_DOMAINS:
         return False, f"Unknown command domain: '{domain}'. Allowed: {', '.join(sorted(ALLOWED_DOMAINS))}"

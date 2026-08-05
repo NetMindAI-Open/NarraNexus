@@ -1,6 +1,6 @@
 ---
 code_file: backend/routes/auth.py
-last_verified: 2026-07-31
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -381,3 +381,85 @@ to render a one-shot welcome toast on successful cloud-mode registration
 ## 新人易踩的坑
 
 `delete_agent` 里的 `stats` 字典只记录被实际删除的行数（`cnt > 0` 才写入），如果某个表里没有这个 agent 的数据，该表不会出现在删除统计里。不要用 `stats` 的 key 来判断"是否执行了删除操作"，正确的理解是"哪些表删除了至少一行"。
+
+## 2026-08-05 — 注册/登录漏斗观测（[signup-funnel]/[login-funnel]）+ /funnel-report
+
+Base #11 recvre9LlfwXAP + #12 recvre9LlfyyxT 的观测修复,三层：
+
+1. **signup 路由**：限流命中（send-code / signup）与 policy reject 现在都落
+   `[signup-funnel]` 日志;上游 refusal 的细节日志在 register client 源头
+   （见其 mirror）,路由层不重复。
+2. **netmind-login**：NetmindAuthError → 401 之前落 `[login-funnel]` warning,
+   携带 client 层带出的上游 status+msg（永不带 token）。
+3. **POST /auth/funnel-report（新,pre-auth）**：浏览器直连 NetMind 的登录步骤
+   失败时,服务端本来一无所知——前端 fire-and-forget 报到这里,落
+   `[login-funnel] client stage=... email=... detail=...`。
+   - **与既有 POST /auth/funnel 的区别**：那个是登录后的 setup_* 产品埋点
+     （走 analytics）;这个是**登录不成的人**的故障上报（走日志）。
+   - 防滥用：stage 白名单（3 个）、detail ≤300 且去换行（防日志伪造）、
+     per-email 限流 10/min——超限**静默 200**（诊断通道绝不在用户已经在看的
+     失败上再叠一个错误）、local mode 404、无 DB 写入、无可探测响应体。
+   - 必须同时进 backend/auth.py 的 AUTH_EXEMPT_PATHS（上报者按定义没有
+     session）,有测试钉住。
+
+测试：tests/backend/test_auth_funnel_observability.py（13 条）。
+
+### 2026-08-05 R2（review 修正）：限流按「被消耗的资源」选 key + 丢弃可见化
+
+R1 的 per-email 限流 key 选错了资源维度（review 指出）：/funnel-report 消耗的
+是**全局日志**,不是 per-email 的什么东西——email 是调用方自己填的,换 email
+即换桶,对攻击者形同虚设;OAuth 失败 email 恒空,全世界共享一个 anon 桶,
+真故障时通道自己变成无声采样器。修正：
+- 三层桶全过才记：global 120/min（XFF 轮换也打不穿的兜底）+ per-IP 30/min
+  （XFF 首跳,Caddy 前置;不在代理后时可伪造——所以才有 global 层）+
+  per-email(或 IP) 10/min。
+- 丢弃对用户仍静默 200,对运维不再静默：每分钟一条
+  `[login-funnel] dropped N client report(s)` 汇总。
+- `signup_ui_error` stage 删除（无调用方,铁律 #2）。
+- 未做（有意）：/funnel-report 与 1600+ 行处的 /funnel 物理相邻——纯搬家
+  diff 噪音大于收益,mirror 里两者区别已写死。
+
+### 2026-08-05 R3（review 修正）：桶顺序即不变量 + XFF 从右数
+
+R2 两个残留（review 指出）：
+- **求值顺序反了**：global 桶排第一意味着每个请求先扣 global 再判窄桶——
+  单客户端（一个前端重试 bug 就够）能把 global 120/min 打空,全员真实上报
+  整分钟被丢。改为窄桶在前、global 殿后：被窄桶拒掉的请求碰不到 global。
+  测试钉住：per-IP 拒绝的请求不得消耗 global 配额。
+- **XFF 首跳是调用方填的**：本部署链路 client→caddy→nginx 两跳都是**追加**
+  （nginx $proxy_add_x_forwarded_for、caddy 无 trusted_proxies）,首跳伪造
+  即换桶。改为从右数第 `_TRUSTED_PROXY_HOPS`(=2) 个（edge 亲手追加的那个）;
+  链条短于预期（本地/单条伪造）回落 socket peer,绝不信调用方文本。
+- 丢弃汇总窗口语义修正：last_log 进程启动即打戳（首个丢弃不再伪装成整窗
+  汇总）,日志带实际跨度;`monotonic` 提到模块顶。
+
+### 2026-08-05 R4（review 修正）：per-IP 桶置顶——key 可信且有界的排最前
+
+R3 把 email 桶排第一,但 allow() **拒绝时也会分配 key 的 deque**——未认证
+洪水每请求换一个合法格式邮箱,就每请求在 _deques 落一个新 key（O(n)
+cleanup 在共享 event loop 上）。旧顺序里这是被 global 短路挡住的,重排时
+丢了这层。终版顺序=职责列表=求值顺序：**per-IP（key 由 edge 追加,不可
+伪造、单攻击者一个 key,给身后一切封顶）→ per-email → global 殿后**。
+测试钉住两个不变量：per-IP 拒绝不消耗 global、不在 email 桶分配新 key。
+_TRUSTED_PROXY_HOPS 加 env 覆盖（FUNNEL_TRUSTED_PROXY_HOPS,默认 2）——
+它是钉进应用代码的部署拓扑常量,caddy/local/ 的 per-env 路由在本仓视野外,
+加/减一跳必须同步,否则 per-IP 静默塌成第二个全局桶;注释改为只依赖跳数
+（append 或 overwrite 语义下从右数都成立）。丢弃计数残留挂到下个窗口的
+行为维持现状（review 认可,span 如实标注）。
+
+### 2026-08-05 R5+R6（review 修正）：HOPS 钳制下界 + 桶顺序两条不变量说实话
+
+- `FUNNEL_TRUSTED_PROXY_HOPS` 经 `_parse_trusted_proxy_hops` 钳制 ≥1：
+  hops=0 时 `parts[-0]==parts[0]`（调用方写的首跳）且 `len>=0` 恒真——
+  回落保护永不触发,空 XFF 直接 IndexError 500;0 恰是「无代理部署」最自然
+  的填法。空串/垃圾值回默认 2,不在 import 期炸 backend（executor_reaper
+  先例）。解析函数纯化（raw: Optional[str]）,6 个边界有测试。
+- `_rate_limiter.allow()` 拒绝路径不再分配 key——**防御性保证,不是封顶**
+  （R5 曾把它写成"病根修复",R6 按 review 纠正）：limit>0 下新 key 永远
+  被放行,放行即分配,key 增长在放行路径。**桶顺序承载两条不变量,都是
+  load-bearing**：① per-IP 置顶 = caller-chosen key 分配的唯一封顶
+  （每 IP 每窗口 ≤30 个 email key,重排即 R3→R4 回归复发）;② global
+  殿后 = 预算不变量。test_ip_bucket_rejection_allocates_no_caller_chosen_keys
+  就是①的 order guard——重排会红,红的是重排不是测试。
+- 运维反向指针：deploy 仓 nginx.conf/Caddyfile 侧加注释指回本常量（deploy
+  仓单独 commit,本仓注释已互指并标明该文件不在本仓）。

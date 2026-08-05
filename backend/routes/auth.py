@@ -15,6 +15,7 @@ Provides endpoints for:
 
 import os
 import json
+from time import monotonic
 from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
@@ -206,6 +207,9 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
     client = _register_client()
     email = payload.email.strip().lower()
     if not _signup_code_limiter.allow(email):
+        # Logged, not just refused: seventeen 400s with zero server-side
+        # trace is how the 2026-08-01 funnel post-mortem went blind.
+        logger.info(f"[signup-funnel] send-code rate-limited email={email}")
         raise HTTPException(
             status_code=429,
             detail="A code was just sent. Please wait a minute before retrying.",
@@ -213,9 +217,10 @@ async def send_signup_code(payload: SendSignupCodeRequest) -> dict:
     try:
         await client.send_code(email)
     except RegistrationError as e:
+        # The refusal detail is already logged at the source (_post).
         raise HTTPException(status_code=400, detail=str(e))
     except RegistrationUpstreamError as e:
-        logger.error(f"[signup] send-code upstream failure: {e}")
+        logger.error(f"[signup-funnel] send-code upstream failure email={email}: {e}")
         raise HTTPException(
             status_code=502, detail="Sign-up service unavailable, try again"
         )
@@ -244,21 +249,169 @@ async def register_account(payload: SignupRequest) -> dict:
     # that is a convenience, not a guarantee.
     policy_error = password_policy_error(payload.password)
     if policy_error:
+        # The reason names the violated RULE, never the password.
+        logger.info(f"[signup-funnel] policy reject email={email}: {policy_error}")
         raise HTTPException(status_code=400, detail=policy_error)
 
     if not _signup_attempt_limiter.allow(email):
+        logger.info(f"[signup-funnel] signup rate-limited email={email}")
         raise HTTPException(
             status_code=429, detail="Too many attempts. Please try again later."
         )
     try:
         await client.register(email, payload.password, payload.verify_code.strip())
     except RegistrationError as e:
+        # The refusal detail is already logged at the source (_post).
         raise HTTPException(status_code=400, detail=str(e))
     except RegistrationUpstreamError as e:
-        logger.error(f"[signup] register upstream failure: {e}")
+        logger.error(f"[signup-funnel] register upstream failure email={email}: {e}")
         raise HTTPException(
             status_code=502, detail="Sign-up service unavailable, try again"
         )
+    return {"success": True}
+
+
+# The browser talks to NetMind DIRECTLY for the login step (emailLogin /
+# OAuth) — when that call fails, the failure exists only in the user's tab
+# and the server never learns a login was even attempted. That blind spot is
+# exactly where "signed up but can't log in" (2026-08-01, Base
+# recvre9LlfwXAP) disappeared into. This ingest lets the page report those
+# client-side failures so the funnel is observable end to end.
+#
+# Log-only by design: no DB writes, no response body to probe, hard caps on
+# every field, newlines stripped (log forging).
+#
+# Rate limiting is this endpoint's ONLY protection (it is auth-exempt by
+# nature), and the resource it spends is the GLOBAL log — so the key cannot
+# be caller-chosen alone. Three buckets, all must pass, listed in
+# EVALUATION ORDER (the order is load-bearing, see the route):
+#   * per-IP first: the one bucket whose key is trusted (edge-appended)
+#     AND bounded (one attacker = one key) — it caps everything behind
+#     it, including how many caller-chosen email keys can ever be
+#     ALLOCATED (a new key under limit>0 is always allowed-and-allocated,
+#     so this ordering is the email bucket's only key-space cap),
+#   * per-email/IP second: the polite per-user cadence,
+#   * global last: hard ceiling on total report lines per minute — the
+#     backstop for what per-IP can't stop (an attacker rotating source
+#     addresses).
+# (Contrast send-code's per-email limiter: THERE the spent resource is
+# per-email mail, so email is the right key. Here it is not.)
+_funnel_report_limiter = SlidingWindowRateLimiter(limit=10, window_sec=60.0)
+_funnel_report_ip_limiter = SlidingWindowRateLimiter(limit=30, window_sec=60.0)
+_funnel_report_global_limiter = SlidingWindowRateLimiter(limit=120, window_sec=60.0)
+
+# Over-limit reports are dropped silently toward the USER (never stack an
+# error on the failure they are already looking at) — but not toward OPS:
+# a NetMind-wide OAuth outage over the limit must not read as "only 10
+# people affected". One aggregate line per minute says how much was cut.
+# last_log starts at import time so the very first drop after boot doesn't
+# masquerade as a full window's summary.
+_funnel_dropped: dict = {"count": 0, "last_log": monotonic()}
+
+_FUNNEL_STAGES = frozenset({
+    "netmind_email_login_failed",
+    "netmind_oauth_failed",
+})
+
+
+# Counting X-Forwarded-For from the RIGHT depends on exactly ONE fact: the
+# number of proxy hops in front of this backend. (Not on any proxy's XFF
+# semantics — whether the edge appends to or overwrites a forged header,
+# the entry it contributes is the same distance from the right.) Today the
+# cloud chain is client -> ops-caddy -> frontend nginx -> backend = 2 hops
+# (the DEPLOY repo's docker/nginx.conf — not a file in this repo — carries
+# the reverse pointer for topology editors);
+# the deploy repo's caddy/local/*.caddy per-env routes are OUTSIDE this
+# repo's sight, so anyone adding/removing a hop there (CDN, ALB, an extra
+# proxy) MUST bump this — misconfigure it and per-IP silently collapses
+# into one shared bucket. Overridable per deployment, no config required.
+
+
+def _parse_trusted_proxy_hops(raw: Optional[str]) -> int:
+    """Clamp to >= 1: hops=0 would make ``parts[-0] == parts[0]`` — the
+    CALLER-written entry — and `len(parts) >= 0` is always true, so the
+    short-chain fallback would never fire (empty header would even
+    IndexError). Empty/garbage values fall back to the default rather
+    than blowing up at import time (the executor_reaper precedent)."""
+    try:
+        return max(1, int(raw or 2))
+    except (TypeError, ValueError):
+        return 2
+
+
+_TRUSTED_PROXY_HOPS = _parse_trusted_proxy_hops(
+    os.getenv("FUNNEL_TRUSTED_PROXY_HOPS")
+)
+
+
+def _funnel_client_ip(request: Request) -> str:
+    """Client IP as seen by the edge proxy: the N-th X-Forwarded-For entry
+    from the right (N = _TRUSTED_PROXY_HOPS — the ONLY assumption, see its
+    comment). A shorter-than-expected chain (local runs, tests, or a
+    directly-forged single-entry header) falls back to the socket peer
+    rather than trusting caller-supplied text."""
+    parts = [
+        p.strip()
+        for p in (request.headers.get("x-forwarded-for") or "").split(",")
+        if p.strip()
+    ]
+    if len(parts) >= _TRUSTED_PROXY_HOPS:
+        return parts[-_TRUSTED_PROXY_HOPS]
+    return request.client.host if request.client else "-"
+
+
+def _note_dropped_report() -> None:
+    _funnel_dropped["count"] += 1
+    now = monotonic()
+    span = now - _funnel_dropped["last_log"]
+    if span >= 60.0:
+        logger.warning(
+            f"[login-funnel] dropped {_funnel_dropped['count']} client "
+            f"report(s) over the rate limit in the last {span:.0f}s"
+        )
+        _funnel_dropped["count"] = 0
+        _funnel_dropped["last_log"] = now
+
+
+class FunnelReportRequest(BaseModel):
+    stage: str = Field(min_length=1, max_length=40)
+    email: Optional[EmailStr] = None
+    detail: str = Field(default="", max_length=300)
+
+
+@router.post("/funnel-report")
+async def report_funnel_event(payload: FunnelReportRequest, request: Request) -> dict:
+    """Record a client-side auth-funnel failure (fire-and-forget from the UI)."""
+    if not is_power_login_enabled():
+        raise HTTPException(status_code=404, detail="Not available in local mode")
+    if payload.stage not in _FUNNEL_STAGES:
+        raise HTTPException(status_code=400, detail="Unknown stage")
+    email = (payload.email or "").strip().lower()
+    ip = _funnel_client_ip(request)
+    # The order carries TWO invariants ("and" short-circuits):
+    #   1. per-IP FIRST caps caller-chosen key ALLOCATION: a new email key
+    #      under limit>0 is always allowed-and-allocated by the limiter
+    #      (reject-path no-alloc only covers the limit<=0 degenerate), so
+    #      the trusted bucket in front is the email bucket's ONLY key-space
+    #      cap — at most 30 caller-chosen keys per IP per window instead of
+    #      one per request. Reordering this reintroduces the unbounded
+    #      key-growth regression this PR already paid for once.
+    #   2. global LAST, so no single client can drain the shared budget
+    #      with requests a narrower bucket was going to reject anyway.
+    allowed = (
+        _funnel_report_ip_limiter.allow(ip)
+        and _funnel_report_limiter.allow(email or ip)
+        and _funnel_report_global_limiter.allow("global")
+    )
+    if not allowed:
+        # Silently accept toward the user; visibly count toward ops.
+        _note_dropped_report()
+        return {"success": True}
+    detail = payload.detail.replace("\n", " ").replace("\r", " ").strip()
+    logger.warning(
+        f"[login-funnel] client stage={payload.stage} "
+        f"email={email or '-'} detail={detail!r}"
+    )
     return {"success": True}
 
 
@@ -332,7 +485,13 @@ async def netmind_login(request: NetmindLoginRequest, http_request: Request):
         netmind_user = await _get_netmind_auth_client().verify_token(
             request.netmind_token
         )
-    except NetmindAuthError:
+    except NetmindAuthError as e:
+        # The exception message carries upstream status + msg (never the
+        # token). Without this line a "signed up but can't log in" report
+        # is undiagnosable — the 401 count was all we had on 2026-08-01.
+        logger.warning(
+            f"[login-funnel] netmind-login rejected source={request.source or '-'}: {e}"
+        )
         raise HTTPException(status_code=401, detail="Invalid NetMind token")
     except NetmindUpstreamError as exc:
         logger.error(f"netmind-login: upstream failure: {exc}")

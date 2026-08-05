@@ -1,6 +1,6 @@
 ---
 code_file: src/xyz_agent_context/message_bus/message_bus_trigger.py
-last_verified: 2026-08-04
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -497,3 +497,31 @@ The team branch of `_handle_channel_batch` wraps the run: `mark_running` before,
 heartbeat) passed through `_invoke_runtime`→`run_and_collect`→`collect_run`, and `mark_idle`
 in a `finally`. Populates [[_bus_activity]] so the team UI shows running/phase/elapsed. Only
 team channels; DM/IM/Job paths pass `on_progress=None` (unchanged).
+
+## 2026-08-05 — [bus-timing]：每 hop 一条计时线
+
+与 runtime 的 [turn-timing] 配套：`_handle_channel_batch` 成功路径落
+`[bus-timing] agent= channel= team= batch= queue_wait_s= turn_s= hop_s=`。
+queue_wait=消息入库→本次 dispatch（受自适应轮询 3-12s 约束）,turn=runtime
+调用,hop=入库→送达完成（team 房含 post 回房;DM 的 bus_send 在 turn 内,
+turn 即覆盖）。created_at 解析复用 run_recorder.parse_db_utc（datetime/ISO
+字符串都吃,缺失回落 -1.0 不炸）。失败路径不发计时线。
+测试:tests/message_bus/test_bus_hop_timing.py。
+
+### 2026-08-05 R2（review 修正）：解析器归一 + hop 语义一致 + 观测不进 try
+
+- 时间戳解析改用**包内已有**的 `local_bus._as_utc`（同一张表同一字段两个
+  解析器是下次改语义只改一边的入口）,删掉对 agent_runtime.run_recorder 的
+  跨包依赖。
+- created_at 缺失时 `hop_s` 同发 -1.0（R1 会静默换定义成 dispatch→delivered,
+  混进 p50/p99 把分布拉低）;一个过滤条件摘掉全部不完整行。
+- 新增 `oldest_wait_s`：queue_wait 量的是**触发消息**（批次里最新一条）,是
+  用户等待的下界;oldest 是上界。batch>1 时两者并读。
+- `[bus-timing]` 行移出 try——观测代码不该有能力把已送达已 ack 的消息记成
+  投递失败并推进毒药计数。成功（_hop_done）才发。
+
+### 2026-08-05 R3：deliver 差值语义回写
+
+hop_s − queue_wait_s − turn_s = 投递段（runtime 返回后的 ack + 上墙/写
+inbox）——是有意义的第四个量,不是误差（R2 重写注释时丢了这句,review 指出,
+已回写进代码注释）。

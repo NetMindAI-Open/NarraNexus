@@ -571,6 +571,25 @@ class ApiClient {
     });
   }
 
+  /**
+   * Report a client-side auth-funnel failure (fire-and-forget).
+   *
+   * The login step talks to NetMind directly from the browser, so when it
+   * fails the server never learns a login was even attempted — this closes
+   * that blind spot. Must never throw or surface: it is diagnostics riding
+   * on top of a failure the user is already looking at.
+   */
+  reportAuthFunnel(stage: string, email?: string, detail?: string): void {
+    void this.request('/api/auth/funnel-report', {
+      method: 'POST',
+      body: JSON.stringify({
+        stage,
+        email: email || undefined,
+        detail: (detail || '').slice(0, 300),
+      }),
+    }).catch(() => undefined);
+  }
+
   async createUser(userId: string, displayName?: string): Promise<CreateUserResponse> {
     return this.request<CreateUserResponse>('/api/auth/create-user', {
       method: 'POST',

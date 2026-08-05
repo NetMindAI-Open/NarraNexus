@@ -1,6 +1,6 @@
 ---
 code_file: backend/integrations/netmind/netmind_auth_client.py
-last_verified: 2026-06-11
+last_verified: 2026-08-05
 stub: false
 ---
 
@@ -31,3 +31,11 @@ NarraNexus cloud 模式的登录已切换为 NetMind 账号体系（Phase 1 用�
 - **dev-bypass 双开关**：`NETMIND_DEV_BYPASS=1` 环境变量 **且** token 有 `dev-bypass-` 前缀才放行（合成确定性身份 `devbp_<sha1(email)[:24]>`），缺一不可；prod 永不设该 env。供 smoke test 的 make_user fixture 使用，免去真实 NetMind 依赖。
 - **敏感字段防泄漏**：`/user/balance` 响应的 user 对象携带 loginToken/nettyToken 等敏感字段（NetMind 的 UserRender 不过滤），`raw` 字段存入前剥离这些 key，错误信息里也绝不打印 user 对象本体。
 - 字段名 `userSystemCode` 带 `user_system_code` 兜底解析——确切字段名待 test 环境实测（spec 开放问题），兜底避免一次契约确认延误联调。
+
+## 2026-08-05 — NetmindAuthError 携带上游 status+msg（绝不带 token）
+
+「注册成功后无法登录」（Base recvre9LlfwXAP）排障要求 401 之间可区分：
+token 被拒时异常消息现在是 `NetMind rejected the token (status=..., msg=...)`
+（msg 截断 120 字符）。msg 来自上游响应体,token 本身永不进消息——有测试
+钉住（test_auth_funnel_observability.py::test_rejected_token_*）。
+netmind-login 路由在 401 前会把这条消息落 `[login-funnel]` warning。
