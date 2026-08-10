@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.2
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: ${{ github.ref_name == 'main' && '35.179.137.129' || '35.176.34.185' }}
           username: ${{ github.ref_name == 'main' && 'ubuntu' || 'ec2-user' }}
