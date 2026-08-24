@@ -20,7 +20,7 @@ dependencies = [
     # treat 0.2 as a breaking change requiring deliberate upgrade.
     # Transitively pulls openai-codex-cli-bin (the codex binary as a
     # wheel) so users no longer need `npm install -g @openai/codex`.
-    "openai-codex>=0.1.0b3,<0.2",
+    "openai-codex>=0.1.0b3,<0.148",
     "mcp[cli]>=1.20.0",
     "loguru>=0.7.3",
     "pydantic>=2.12.3",
